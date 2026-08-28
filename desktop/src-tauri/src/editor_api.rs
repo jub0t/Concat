@@ -122,6 +122,28 @@ fn with_session<T>(
     operation(session)
 }
 
+/// The editor a parsed document opens as.
+///
+/// `from_document` answers with an `Option`, which collapses two different
+/// situations into `None`: a document whose edit will not load, and one that
+/// never had an edit in it. `projects::create` writes the second kind - a
+/// settings-only manifest, the full document arriving on the first save - so
+/// treating every `None` as corrupt made every new project fail to open.
+///
+/// The keys are the signal. A file that names neither `timelines` nor
+/// `tracks` is claiming no edit and has none to lose; anything that does
+/// claim one and still will not load is corrupt, and must stay an error
+/// rather than open as emptiness that the next save writes over the top of.
+fn editor_for(document: &serde_json::Value, path: &str) -> Result<Editor, String> {
+    if let Some(editor) = Editor::from_document(document) {
+        return Ok(editor);
+    }
+    if document.get("timelines").is_none() && document.get("tracks").is_none() {
+        return Ok(Editor::new());
+    }
+    Err(format!("{path} holds a document this build cannot read"))
+}
+
 /// Opens a project folder as the editing session and returns its state.
 ///
 /// A folder whose document is missing or unreadable opens as an empty
@@ -159,8 +181,7 @@ pub async fn editor_open(
                         }
                     }
                 }
-                Editor::from_document(&document)
-                    .ok_or_else(|| format!("{path} holds a document this build cannot read"))?
+                editor_for(&document, &path)?
             }
             // No document yet - a project created moments ago.
             Err(_) => Editor::new(),
@@ -257,5 +278,44 @@ pub async fn editor_save(
 pub fn editor_close(state: tauri::State<'_, EditorState>) {
     if let Ok(mut guard) = state.0.lock() {
         *guard = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug a user hit on day one: create a project, and the editor it
+    /// switches to refuses to open it. `projects::create` writes a
+    /// settings-only manifest on purpose - the edit itself only appears on
+    /// the first save - so the freshly written file must load as an empty
+    /// edit, not as a failure.
+    #[test]
+    fn the_manifest_create_writes_opens_as_an_empty_edit() {
+        let scratch = std::env::temp_dir().join("wolfcut-fresh-open-test");
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir");
+
+        let project = projects::create(&scratch.to_string_lossy(), "Test", 3840, 2160, 24, 1)
+            .expect("create writes a project");
+        let document = projects::read_document(&project.path).expect("and it parses");
+
+        let editor = editor_for(&document, &project.path)
+            .expect("a project created moments ago has to open");
+        assert!(
+            editor.project().media.is_empty(),
+            "and it opens empty, because there is no edit in it yet"
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// The guard that must not regress in the process. A document that
+    /// claims an edit and will not load is corrupt, and opening it as
+    /// emptiness is how someone's project gets overwritten with nothing.
+    #[test]
+    fn a_document_that_claims_an_edit_and_will_not_load_is_still_an_error() {
+        assert!(editor_for(&serde_json::json!({ "tracks": [] }), "p").is_err());
+        assert!(editor_for(&serde_json::json!({ "timelines": [] }), "p").is_err());
     }
 }
