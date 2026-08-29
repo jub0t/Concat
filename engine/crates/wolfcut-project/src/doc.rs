@@ -239,9 +239,18 @@ pub fn from_document(document: &Value) -> Option<Project> {
         }
     }
     if timelines.is_empty() {
-        let tracks = read_tracks(document.get("tracks"));
+        let mut tracks = read_tracks(document.get("tracks"));
         if tracks.is_empty() {
-            return None;
+            // A project manifest with no tracks yet (e.g. created but never
+            // edited before the app quit) is still a valid, empty project —
+            // not a corrupt document. Give it one so it opens instead of
+            // being rejected outright.
+            tracks.push(Track {
+                id: "track-1".to_owned(),
+                name: "Track 1".to_owned(),
+                visible: true,
+                muted: false,
+            });
         }
         let clips = read_clips(document.get("clips"), &tracks, &media);
         timelines.push(Timeline {
