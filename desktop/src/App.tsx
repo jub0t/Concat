@@ -317,6 +317,10 @@ function Editor({
   // ── media import ─────────────────────────────────────────────────────────
   const importPaths = useCallback(
     async (paths: string[]) => {
+      if (!loaded) {
+        setError("Project is still loading, try again in a moment.");
+        return;
+      }
       setBusy(true);
       setError(null);
       for (const path of paths) {
@@ -347,7 +351,7 @@ function Editor({
       }
       setBusy(false);
     },
-    [dispatch, session.path],
+    [dispatch, session.path, loaded],
   );
 
   // Artwork for everything already in the project: a reopened project should
