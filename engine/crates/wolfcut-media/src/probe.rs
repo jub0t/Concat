@@ -117,8 +117,16 @@ fn parse_video(stream: &Value, path: &Path) -> Option<Result<VideoStream>> {
     };
 
     Some((|| {
-        let width = u32_field(stream, "width").ok_or_else(|| missing("width"))?;
-        let height = u32_field(stream, "height").ok_or_else(|| missing("height"))?;
+        let mut width = u32_field(stream, "width").ok_or_else(|| missing("width"))?;
+        let mut height = u32_field(stream, "height").ok_or_else(|| missing("height"))?;
+
+        // Phones write a sideways-coded frame plus a Display Matrix (or the
+        // older `rotate` tag) telling players to turn it 90/270 on playback.
+        // Swap to display dimensions now so nothing downstream has to know
+        // about container rotation to get the aspect ratio right.
+        if matches!(rotation_field(stream), 90 | 270) {
+            std::mem::swap(&mut width, &mut height);
+        }
 
         // `avg_frame_rate` is 0/0 for streams with no constant rate, in which
         // case `r_frame_rate` carries the best guess FFmpeg has.
@@ -137,6 +145,27 @@ fn parse_video(stream: &Value, path: &Path) -> Option<Result<VideoStream>> {
             frame_rate: FrameRate::new(frame_rate),
         })
     })())
+}
+
+/// Normalised rotation in degrees clockwise (0, 90, 180 or 270) from the
+/// stream's Display Matrix side data, falling back to the older `rotate` tag
+/// some containers use instead.
+fn rotation_field(stream: &Value) -> i32 {
+    let raw = stream
+        .get("side_data_list")
+        .and_then(Value::as_array)
+        .and_then(|entries| entries.iter().find_map(|entry| entry.get("rotation")))
+        .and_then(Value::as_f64)
+        .map(|degrees| degrees.round() as i32)
+        .or_else(|| {
+            stream
+                .get("tags")
+                .and_then(|tags| tags.get("rotate"))
+                .and_then(Value::as_str)
+                .and_then(|text| text.parse().ok())
+        })
+        .unwrap_or(0);
+    ((raw % 360) + 360) % 360
 }
 
 fn parse_audio(stream: &Value) -> Option<AudioStream> {
@@ -208,6 +237,36 @@ mod tests {
         let stream = json(r#"{"codec_type":"video","width":64,"height":64,"avg_frame_rate":"0/0"}"#);
         let result = parse_video(&stream, Path::new("a.mp4")).expect("is video");
         assert!(matches!(result, Err(Error::Probe { .. })));
+    }
+
+    #[test]
+    fn swaps_dimensions_for_a_sideways_coded_phone_video() {
+        let stream = json(
+            r#"{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"30/1",
+                "side_data_list":[{"side_data_type":"Display Matrix","rotation":-90}]}"#,
+        );
+        let video = parse_video(&stream, Path::new("a.mp4")).expect("is video").expect("parses");
+        assert_eq!((video.width, video.height), (1080, 1920));
+    }
+
+    #[test]
+    fn keeps_dimensions_for_an_upright_or_upside_down_video() {
+        let stream = json(
+            r#"{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"30/1",
+                "side_data_list":[{"side_data_type":"Display Matrix","rotation":180}]}"#,
+        );
+        let video = parse_video(&stream, Path::new("a.mp4")).expect("is video").expect("parses");
+        assert_eq!((video.width, video.height), (1920, 1080));
+    }
+
+    #[test]
+    fn falls_back_to_the_legacy_rotate_tag() {
+        let stream = json(
+            r#"{"codec_type":"video","width":1920,"height":1080,"avg_frame_rate":"30/1",
+                "tags":{"rotate":"90"}}"#,
+        );
+        let video = parse_video(&stream, Path::new("a.mp4")).expect("is video").expect("parses");
+        assert_eq!((video.width, video.height), (1080, 1920));
     }
 
     #[test]
