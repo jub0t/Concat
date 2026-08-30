@@ -1,0 +1,8 @@
+# makepkg builds in the directory holding the PKGBUILD, so a `makepkg -si`
+# from here leaves its working tree, its bare clone of this repository and the
+# built package behind. None of that belongs in the repository.
+/src/
+/pkg/
+/wolfcut/
+/*.pkg.tar.*
+/*.log
