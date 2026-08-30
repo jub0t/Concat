@@ -51,6 +51,24 @@ export async function probeMedia(path: string): Promise<MediaSummary> {
   return invoke<MediaSummary>("probe_media", { path });
 }
 
+/** Where the preview fetches media, when the asset protocol will not serve it. */
+export interface MediaEndpoint {
+  /** The loopback port the host's media server accepted on. */
+  port: number;
+  /** The per-run token every request must carry. */
+  token: string;
+}
+
+/**
+ * Asks the host where preview media should be fetched from.
+ *
+ * Null everywhere the webview plays the asset protocol correctly, which is
+ * every platform but Linux - see `src-tauri/src/media_server.rs`.
+ */
+export async function mediaEndpoint(): Promise<MediaEndpoint | null> {
+  return invoke<MediaEndpoint | null>("media_endpoint");
+}
+
 /** A probe result in the shape `addMedia` and `fillSlot` take. */
 export function newMediaFromSummary(summary: MediaSummary): NewMedia {
   return {

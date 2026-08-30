@@ -8,6 +8,8 @@ import {
 } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
+import { mediaSrc } from "../lib/media";
+
 import { buildPreviewLook, type AppliedEffect, type CanvasOp } from "../lib/effects";
 import type { PreviewSource, TextOverlay } from "../lib/monitor";
 import { timecode } from "../lib/time";
@@ -438,7 +440,7 @@ export function Preview({
 
     if (loadedClip.current !== source.clipId) {
       loadedClip.current = source.clipId;
-      element.src = convertFileSrc(source.path);
+      element.src = mediaSrc(source.path);
       element.load();
     }
   }, [source, hasFrame]);
@@ -1072,7 +1074,7 @@ function GhostVideo({
   useEffect(() => {
     const media = element.current;
     if (!media) return;
-    media.src = convertFileSrc(ghost.path);
+    media.src = mediaSrc(ghost.path);
     media.load();
     // Mount effect only: the sync effect below lands the position.
      

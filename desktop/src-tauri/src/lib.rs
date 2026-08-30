@@ -10,6 +10,7 @@
 pub mod export;
 mod editor_api;
 mod jobs;
+mod media_server;
 mod playback;
 mod projects;
 mod templates;
@@ -155,6 +156,24 @@ pub(crate) fn grant_asset(app: &tauri::AppHandle, path: &str) {
     if let Err(error) = app.asset_protocol_scope().allow_file(path) {
         eprintln!("wolfcut: could not scope {path}: {error}");
     }
+    // The loopback media server answers only for paths admitted here, so the
+    // two scopes stay the same set.
+    if let Some(server) = app.try_state::<Option<media_server::MediaServer>>() {
+        if let Some(server) = server.inner() {
+            server.allow(path);
+        }
+    }
+}
+
+/// Where the preview should fetch media from.
+///
+/// `None` on the platforms whose webview plays the asset protocol correctly;
+/// the webview then keeps using `convertFileSrc`.
+#[tauri::command]
+fn media_endpoint(
+    server: tauri::State<'_, Option<media_server::MediaServer>>,
+) -> Option<media_server::Endpoint> {
+    server.inner().as_ref().map(|server| server.endpoint())
 }
 
 /// The version of the app the UI is talking to. Also a liveness check on the
@@ -861,6 +880,9 @@ pub fn run() {
             // the resource directory needs the app to exist.
             use tauri::Manager;
             use_bundled_ffmpeg(app);
+            // Linux only, and a None here just means the preview falls back to
+            // the asset protocol - see media_server for why it cannot.
+            app.manage(media_server::start());
             app.manage(playback::Playback::start(app.handle().clone()));
             app.manage(ExportState(std::sync::Arc::new(jobs::SingleFlight::new())));
             app.manage(transcribe::DownloadState(std::sync::Arc::new(
@@ -882,6 +904,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             probe_media,
             engine_version,
+            media_endpoint,
             read_media_bytes,
             extract_peaks,
             audio_set_clips,

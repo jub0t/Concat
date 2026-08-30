@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import { App } from "./App";
+import { initMediaSource } from "./lib/media";
 import "./styles.css";
 
 /*
@@ -25,8 +26,12 @@ if (!root) {
   throw new Error("index.html is missing #root");
 }
 
-ReactDOM.createRoot(root).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+// Resolved before the first render so that `mediaSrc` is synchronous at every
+// call site; a failure inside it already falls back to the asset protocol.
+initMediaSource().then(() => {
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+});
