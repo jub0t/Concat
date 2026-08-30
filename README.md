@@ -47,6 +47,21 @@ The repository is a flake. `nix run github:jub0t/WolfCut` starts the editor
 with ffmpeg and whisper wired in; `nix develop` opens a shell with everything
 `npm run app` needs.
 
+### Arch Linux
+
+`packaging/arch/PKGBUILD` builds WolfCut against the system WebKitGTK, Wayland
+and Mesa:
+
+```sh
+cd packaging/arch && makepkg -si
+```
+
+Prefer this over the AppImage on Arch and other rolling distros. The AppImage
+carries its Ubuntu 22.04 builder's `libwayland-client`, which is older than the
+Mesa it ends up talking to; EGL display creation then fails and the editor
+opens as an empty window. `ffmpeg` comes from the repos, and `whisper.cpp` is
+an optional dependency for transcription.
+
 ## Contribution
 
 > [!IMPORTANT]

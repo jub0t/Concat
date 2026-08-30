@@ -1,0 +1,99 @@
+# Maintainer: TinyBrickBoy <tbb@onthepixel.net>
+
+# Arch packaging (see packaging/arch/README.md). A -git package rather than a
+# versioned one on purpose: every green build on main mints a new
+# v<version>-alpha.<n> tag, so pinning a release would go stale within a day.
+#
+# This builds against the system WebKitGTK, Wayland and Mesa instead of the
+# copies the AppImage carries from its Ubuntu 22.04 builder. On a rolling
+# distro that difference is the whole point: the bundled libwayland-client is
+# older than the Mesa it ends up talking to, EGL display creation fails with
+# EGL_BAD_PARAMETER, and the editor comes up as an empty window.
+
+_pkgname=wolfcut
+pkgname=wolfcut-git
+pkgver=0.2.0.alpha.10
+pkgrel=1
+pkgdesc="Free and open source video editor"
+arch=('x86_64' 'aarch64')
+url="https://github.com/jub0t/WolfCut"
+license=('MPL-2.0')
+depends=(
+  'alsa-lib'
+  'ffmpeg'
+  'gcc-libs'
+  'glib-networking'
+  'glibc'
+  'gtk3'
+  'libsoup3'
+  'openssl'
+  'webkit2gtk-4.1'
+)
+makedepends=('cargo' 'git' 'npm' 'pkgconf')
+optdepends=('whisper.cpp: local auto-captions and transcription')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+# makepkg's lto option appends -flto=auto to CFLAGS, which the cc crate then
+# uses for ring's C and assembly sources. The archive it produces has nothing
+# rustc's own non-LTO link step can resolve, so every ring_core_* symbol comes
+# out undefined and sherpa-onnx-sys fails to link. Cargo does its own LTO for
+# this build anyway (lto = true in profile.release), so nothing is lost.
+options=('!lto')
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  git describe --tags | sed 's/^v//; s/-/./g'
+}
+
+prepare() {
+  cd "$srcdir/$_pkgname/desktop"
+  npm ci
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+}
+
+build() {
+  cd "$srcdir/$_pkgname/desktop"
+  export RUSTUP_TOOLCHAIN=stable
+  # The release guard in build.rs insists on a staged ffmpeg/ffprobe/whisper-cli
+  # trio, because a desktop launch has no PATH to fall back on. A distro package
+  # must not ship private copies of what the repos already provide, so it opts
+  # out here and depends on the system binaries instead - the same deal the Nix
+  # flake makes. The app looks beside itself first, then falls back to PATH.
+  export WOLFCUT_SYSTEM_TOOLS=1
+  # --no-bundle: pacman is the bundler. Everything tauri would produce here
+  # (deb, rpm, AppImage) is another distro's packaging.
+  npm run app:build -- --no-bundle
+}
+
+package() {
+  cd "$srcdir/$_pkgname"
+
+  install -Dm755 desktop/src-tauri/target/release/wolfcut-desktop \
+    "$pkgdir/usr/bin/wolfcut-desktop"
+
+  for size in 32 64 128; do
+    install -Dm644 "desktop/src-tauri/icons/${size}x${size}.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/$_pkgname.png"
+  done
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 THIRD_PARTY_NOTICES.md \
+    "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_NOTICES.md"
+
+  # Written here rather than shipped as a source file: the desktop entry has no
+  # life outside the package, and this keeps the PKGBUILD a single file for AUR.
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/$_pkgname.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=WolfCut
+Comment=$pkgdesc
+Exec=wolfcut-desktop %U
+Icon=$_pkgname
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+StartupWMClass=wolfcut-desktop
+EOF
+}
