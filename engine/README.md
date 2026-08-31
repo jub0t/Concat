@@ -1,6 +1,6 @@
-# WolfCut Engine
+# Concat Engine
 
-The video engine behind WolfCut. Rust, no GC, no hidden control flow.
+The video engine behind Concat. Rust, no GC, no hidden control flow.
 
 ## Layout
 

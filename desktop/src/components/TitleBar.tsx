@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import logo from "../assets/wolfcut-logo.png";
+import logo from "../assets/concat-logo.png";
 import { useLocale } from "../lib/i18n";
 import type { Theme } from "../lib/theme";
 import { Icon } from "./Icon";

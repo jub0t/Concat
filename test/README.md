@@ -1,6 +1,6 @@
 # Feature experiments
 
-One-off Python prototypes probing candidate WolfCut features before any of
+One-off Python prototypes probing candidate Concat features before any of
 them earns a Rust implementation. Each measures the thing that decides
 shippability - speed against realtime on ordinary hardware, and output
 quality by ear/eye - because per decision 0010 nothing ships that makes the

@@ -1,25 +1,25 @@
 <div align="center">
 
-<img src="assets/wolfcut_logo_512.png" alt="WolfCut" width="140" />
+<img src="assets/concat_logo_512.png" alt="Concat" width="140" />
 
-# WolfCut
+# Concat
 
 **The free, open-source CapCut replacement.**
 
 <p align="center">
-  <a href="https://github.com/jub0t/WolfCut/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/WolfCut/build.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000&color=161616" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/WolfCut/releases/latest"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-161616?style=flat&logo=desktop-download&logoColor=F8F8F8&labelColor=000000" alt="Download WolfCut" /></a>
-  <a href="https://github.com/jub0t/WolfCut/releases"><img src="https://img.shields.io/badge/Version-0.2.0-161616?style=flat&logo=semver&logoColor=F8F8F8&labelColor=000000" alt="WolfCut Version 0.2.0" /></a>
-  <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-161616?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join WolfCut Discord" /></a>
+  <a href="https://github.com/jub0t/Concat/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/build.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000&color=161616" alt="Build Status" /></a>
+  <a href="https://github.com/jub0t/Concat/releases/latest"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-161616?style=flat&logo=desktop-download&logoColor=F8F8F8&labelColor=000000" alt="Download Concat" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.0-161616?style=flat&logo=semver&logoColor=F8F8F8&labelColor=000000" alt="Concat Version 0.2.0" /></a>
+  <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-161616?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
 </p>
 
-<img src="assets/preview-dark.png" alt="WolfCut editor" width="100%" />
+<img src="assets/preview-dark.png" alt="Concat editor" width="100%" />
 
 </div>
 
 ---
 
-WolfCut is everything you use CapCut for — without the watermarks, paywalls,
+Concat is everything you use CapCut for — without the watermarks, paywalls,
 or subscriptions. A native Rust engine does the heavy lifting, a clean React
 interface does the editing, and it all runs on your machine: install it and
 start cutting, no account, no extra downloads, no setup.
@@ -38,23 +38,23 @@ start cutting, no account, no extra downloads, no setup.
 
 ## Get started
 
-Currently in Alpha (pre-release), Download from [Releases](https://github.com/jub0t/WolfCut/releases), Supports:
+Currently in Alpha (pre-release), Download from [Releases](https://github.com/jub0t/Concat/releases), Supports:
 - Windows (tested)
-- MacOs (tested) - unsigned binaries, use `xattr -dr com.apple.quarantine /Applications/WolfCut.app`
+- MacOs (tested) - unsigned binaries, use `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - Linux
 
 ### Nix (Linux)
 
-The repository is a flake. `nix run github:jub0t/WolfCut` starts the editor
+The repository is a flake. `nix run github:jub0t/Concat` starts the editor
 with ffmpeg and whisper wired in; `nix develop` opens a shell with everything
 `npm run app` needs.
 
 ## Contribution
 
 > [!IMPORTANT]
-> The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/WolfCut/releases) page and test the application to see where it breaks or how it can be improved.
+> The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/Concat/releases) page and test the application to see where it breaks or how it can be improved.
 
-To learn more about contributing to this project please refer to [this Discussion announcement](https://github.com/jub0t/WolfCut/discussions/3).
+To learn more about contributing to this project please refer to [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3).
 
 ## Roadmap (or ideas)
 
