@@ -1,0 +1,748 @@
+@import "@fontsource-variable/inter";
+
+/*
+ * The new inspector's chrome.
+ *
+ * Ported from the wc-ui-rnd design study, tokens and all. The study is not a
+ * restyle of this app's palette and is not treated as one: its dark ground and
+ * lime accent come across verbatim in `.vars` below, so this panel looks the
+ * way the study looks whichever theme the rest of the window is in. That is
+ * the point of the experiment - the study's surface is what is being tried,
+ * and a panel repainted in the old palette would be trying nothing.
+ *
+ * The typeface comes across too. Inter is what the study is drawn in, so it is
+ * bundled (@fontsource-variable/inter, one variable file covering 100-900)
+ * rather than named and left to fall back to whatever the machine has, and
+ * this subtree is set in it instead of the app's Synonym and Cabinet.
+ *
+ * Scope: the Text panel today, and the shape the other right-hand panels are
+ * expected to grow into. Deleting this directory and the imports of it, plus
+ * the shell class in RightPanel, is the whole rollback.
+ */
+
+/* Design tokens, from the study's `styles/tokens.css`. Every rule below reads
+   these and nothing else - no app token, no literal colour - which is what
+   keeps the retheme to this one block. */
+.vars {
+  --cp-font: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, sans-serif;
+  --cp-fs-sm: 11px;
+  --cp-fs: 12px;
+  --cp-fs-lg: 13px;
+
+  /* surfaces */
+  --cp-panel: #0d0d0d;
+  --cp-raised: #161616;
+  --cp-well: #111;
+  --cp-field: #1f1f1f;
+  --cp-field-hover: #272727;
+  --cp-field-active: #303030;
+
+  /* hairlines */
+  --cp-line: #232323;
+  --cp-line-strong: #363636;
+
+  /* text */
+  --cp-fg: #ededed;
+  --cp-fg-muted: #8b8b8b;
+  --cp-fg-dim: #5c5c5c;
+
+  /* accents */
+  --cp-accent: #cbf53f;
+  --cp-accent-hover: #d9ff63;
+  --cp-accent-soft: rgb(203 245 63 / 0.2);
+  /* Ink for text and glyphs sitting ON the accent. A bright accent needs a
+     dark one; swap this back to #fff the day the accent goes dark again. */
+  --cp-on-accent: #15220a;
+  --cp-danger: #ff453a;
+
+  --cp-r-xs: 3px;
+  --cp-r-sm: 5px;
+  --cp-r: 7px;
+
+  --cp-h: 28px;          /* standard control height */
+  --cp-gap: 6px;
+  --cp-pad: 14px;        /* panel horizontal padding */
+  --cp-label-w: 62px;
+
+  --cp-focus: 0 0 0 1px var(--cp-accent), 0 0 0 3px var(--cp-accent-soft);
+  --cp-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  font-family: var(--cp-font);
+  /* The app tightens its own face optically; Inter is drawn tight already. */
+  letter-spacing: normal;
+}
+
+/*
+ * The panel shell, worn by the app's own `Panel` around this body.
+ *
+ * The heading strip above the body is drawn by components/Panel.tsx out of the
+ * app's palette, and a light strip on top of the study's near-black reads as a
+ * seam rather than a panel. This hands that chrome the study's ground, padding
+ * and title voice instead - the only place the two systems touch, and the
+ * reason it is a class passed in rather than a change to the shared component.
+ */
+.shell {
+  composes: vars;
+  /* The scroll thumb is drawn by the `thin-scroll` utility off this token. */
+  --color-hairline-strong: var(--cp-line-strong);
+}
+
+/* Doubled selector so the ground beats the shell's own `bg-panel` utility
+   whichever stylesheet the bundler emits first - the trick the study uses for
+   its own cross-module overrides. `composes` has to stay on the plain class. */
+.shell.shell {
+  background: var(--cp-panel);
+}
+
+.shell > header {
+  height: 42px;
+  padding: 0 var(--cp-pad);
+  border-bottom-color: var(--cp-line);
+}
+
+.shell > header h2 {
+  color: var(--cp-fg);
+  font-size: var(--cp-fs-lg);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* The panel body. `.vars` is a class of its own because the listbox escapes
+   this subtree - see `.list` - and has to carry the tokens with it. */
+.kit {
+  composes: vars;
+  padding-bottom: 8px;
+  color: var(--cp-fg);
+  font-size: var(--cp-fs);
+}
+
+/* ── section ─────────────────────────────────────────────────────────────── */
+
+.section {
+  border-top: 1px solid var(--cp-line);
+  padding-bottom: 8px;
+}
+
+.section:first-child { border-top: 0; }
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 var(--cp-pad);
+}
+
+.sectionTitle {
+  min-width: 0;
+  color: var(--cp-fg);
+  font-size: var(--cp-fs-lg);
+  font-weight: 500;
+}
+
+.sectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cp-gap);
+}
+
+/* ── row ─────────────────────────────────────────────────────────────────── */
+
+/*
+ * One line of the form: muted label on the left, controls on the right.
+ * Controls with `flex: 1 1 0` split what is left evenly, which is what gives
+ * paired fields their equal columns.
+ */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--cp-h);
+  padding: 0 var(--cp-pad);
+}
+
+.rowLabel {
+  flex: none;
+  width: var(--cp-label-w);
+  color: var(--cp-fg-muted);
+  font-size: var(--cp-fs);
+  user-select: none;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--cp-gap);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* ── parameter ───────────────────────────────────────────────────────────── */
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.labelGroup {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.label {
+  overflow: hidden;
+  color: var(--cp-fg);
+  font-size: var(--cp-fs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resettable { cursor: pointer; }
+
+/* The formatted value lives up here beside the label, the raw one lives in the
+   field below. One says what the setting means, the other is what you edit. */
+.readout {
+  flex: none;
+  color: var(--cp-fg-dim);
+  font-size: var(--cp-fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  display: flex;
+  align-items: center;
+  gap: var(--cp-gap);
+}
+
+.numberSlot {
+  flex: none;
+  width: 62px;
+}
+
+/* ── fader ───────────────────────────────────────────────────────────────── */
+
+.fader {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--cp-h);
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-r);
+  background: var(--cp-well);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.fader:hover { border-color: var(--cp-line-strong); }
+.fader:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+
+.rail {
+  position: absolute;
+  inset: 2px;
+}
+
+.fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--cp-r-xs);
+  background: var(--cp-accent-soft);
+}
+
+/* A bar, not a bead: flat edges land on a value with a precision a circle
+   never has, and at zero the bar still sits inside the track rather than
+   half-hanging off its left edge. */
+.cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--cp-accent);
+  transition: background 100ms var(--cp-ease);
+}
+
+/* ── number field ────────────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--cp-h);
+  padding: 0 8px;
+  border-radius: var(--cp-r);
+  background: var(--cp-field);
+  color: var(--cp-fg);
+  font-size: var(--cp-fs);
+  cursor: ew-resize;
+  transition: background 120ms var(--cp-ease), box-shadow 120ms var(--cp-ease);
+}
+
+.field:hover { background: var(--cp-field-hover); }
+
+.editing {
+  cursor: text;
+  background: var(--cp-field-hover);
+  box-shadow: var(--cp-focus);
+}
+
+.fieldInput {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: inherit;
+}
+
+/* ── select ──────────────────────────────────────────────────────────────── */
+
+.select {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--cp-h);
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: var(--cp-r);
+  background: var(--cp-field);
+  color: var(--cp-fg);
+  font: inherit;
+  font-size: var(--cp-fs);
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms var(--cp-ease), box-shadow 120ms var(--cp-ease);
+}
+
+.trigger:hover { background: var(--cp-field-hover); }
+.trigger:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+.open { background: var(--cp-field-hover); box-shadow: var(--cp-focus); }
+
+.triggerLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--cp-fg-muted);
+}
+
+/*
+ * The list carries the study's own floating material, and its row highlight is
+ * a filled row rather than a hover tint - so arrowing through a font list
+ * shows where the keyboard is without a second selection mark.
+ *
+ * It is positioned from script and mounted at the document root, because the
+ * panel body scrolls: a dropdown laid out inside it is clipped by it, and a
+ * font list is exactly the one that is too long to fit.
+ */
+.list {
+  position: fixed;
+  z-index: 60;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--cp-raised);
+  border: 1px solid var(--cp-line-strong);
+  border-radius: var(--cp-r);
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.55);
+  outline: none;
+  animation: pop 110ms var(--cp-ease);
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+.optionGroup {
+  padding: 6px 8px 3px;
+  color: var(--cp-fg-dim);
+  font-size: var(--cp-fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--cp-r-sm);
+  color: var(--cp-fg-muted);
+  font-size: var(--cp-fs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.option[data-active='true'] {
+  background: var(--cp-accent);
+  color: var(--cp-on-accent);
+}
+
+.optionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check {
+  flex: none;
+  color: var(--cp-accent);
+}
+
+.option[data-active='true'] .check { color: var(--cp-on-accent); }
+
+/* ── segmented control ───────────────────────────────────────────────────── */
+
+.segGroup {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--cp-h);
+  padding: 2px;
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-r);
+  background: var(--cp-well);
+}
+
+.segThumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: var(--cp-r-sm);
+  background: var(--cp-field-hover);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  transition: transform 180ms var(--cp-ease), width 180ms var(--cp-ease);
+  pointer-events: none;
+}
+
+.segment {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--cp-r-sm);
+  background: none;
+  color: var(--cp-fg-muted);
+  font: inherit;
+  font-size: var(--cp-fs);
+  /* Segment labels are single words, and the catalogs hold them lowercase so
+     they read as prose elsewhere. */
+  text-transform: capitalize;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms var(--cp-ease);
+}
+
+.segment:hover { color: var(--cp-fg); }
+.segment:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+.segmentOn { color: var(--cp-fg); }
+
+/* ── switch ──────────────────────────────────────────────────────────────── */
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  margin-left: auto;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--cp-line-strong);
+  border-radius: 999px;
+  background: var(--cp-field);
+  cursor: pointer;
+  transition: background 140ms var(--cp-ease), border-color 140ms var(--cp-ease);
+}
+
+.switch:hover { background: var(--cp-field-hover); }
+.switch:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+
+.switchOn,
+.switchOn:hover {
+  border-color: var(--cp-accent);
+  background: var(--cp-accent);
+}
+
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  transition: transform 140ms var(--cp-ease);
+}
+
+.switchOn .thumb { transform: translateX(14px); }
+
+/* ── help disclosure ─────────────────────────────────────────────────────── */
+
+/*
+ * A tooltip hides the answer again the moment the pointer moves, and reaching
+ * one from the keyboard takes machinery. This toggles a line of prose the
+ * caller renders where it belongs instead.
+ */
+.help {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--cp-line-strong);
+  border-radius: 50%;
+  background: none;
+  color: var(--cp-fg-dim);
+  font: inherit;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 100ms var(--cp-ease), border-color 100ms var(--cp-ease);
+}
+
+.help:hover { color: var(--cp-fg-muted); border-color: var(--cp-fg-dim); }
+.help:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+
+.helpOn {
+  border-color: var(--cp-accent);
+  color: var(--cp-accent);
+}
+
+.note {
+  margin: 0;
+  padding: 0 var(--cp-pad) 2px;
+  color: var(--cp-fg-dim);
+  font-size: var(--cp-fs);
+  line-height: 1.5;
+}
+
+/* ── text entry ──────────────────────────────────────────────────────────── */
+
+.textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 10px;
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-r);
+  background: var(--cp-well);
+  color: var(--cp-fg);
+  font: inherit;
+  font-size: var(--cp-fs-lg);
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.textarea::placeholder { color: var(--cp-fg-dim); }
+.textarea:hover { border-color: var(--cp-line-strong); }
+.textarea:focus { box-shadow: var(--cp-focus); }
+
+/* An import target has to look like one before it is used, so it is dashed
+   at rest rather than only while a file is over it. */
+.dashed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: var(--cp-h);
+  border: 1px dashed var(--cp-line-strong);
+  border-radius: var(--cp-r);
+  background: none;
+  color: var(--cp-fg-muted);
+  font: inherit;
+  font-size: var(--cp-fs);
+  cursor: pointer;
+  transition: color 100ms var(--cp-ease), border-color 100ms var(--cp-ease);
+}
+
+.dashed:hover { border-color: var(--cp-fg-dim); color: var(--cp-fg); }
+.dashed:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+
+/* ── colour ──────────────────────────────────────────────────────────────── */
+
+.hex {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--cp-h);
+  padding: 0 10px;
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-r);
+  background: var(--cp-well);
+  color: var(--cp-fg);
+  font: inherit;
+  font-size: var(--cp-fs);
+  font-variant-numeric: tabular-nums;
+  text-transform: lowercase;
+  outline: none;
+}
+
+.hex:hover { border-color: var(--cp-line-strong); }
+.hex:focus { box-shadow: var(--cp-focus); }
+
+.swatch {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: var(--cp-h);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--cp-line-strong);
+  border-radius: var(--cp-r);
+  cursor: pointer;
+}
+
+.swatch:focus-within { box-shadow: var(--cp-focus); }
+
+/* The native picker is the whole hit area, blown up past the edges so no
+   platform chrome of its own shows through the swatch. */
+.swatchInput {
+  position: absolute;
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  padding: 0;
+  border: 0;
+  background: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* ── font list ───────────────────────────────────────────────────────────── */
+
+.fontRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 var(--cp-pad);
+  color: var(--cp-fg-muted);
+  font-size: var(--cp-fs);
+}
+
+.fontRow:hover { background: var(--cp-field); }
+
+.fontName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fontRemove {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--cp-r-xs);
+  background: none;
+  color: var(--cp-fg-dim);
+  cursor: pointer;
+}
+
+.fontRemove:hover { color: var(--cp-danger); }
+.fontRemove:focus-visible { outline: none; box-shadow: var(--cp-focus); }
+
+/* ── sample ──────────────────────────────────────────────────────────────── */
+
+/*
+ * A strip of the title as it will look, pinned above the controls.
+ *
+ * The program monitor next to this panel is the truth for scale and position,
+ * so the sample does not try to be a second one: it is a type specimen, held
+ * to a readable size, for judging face, weight, colour and outline without
+ * hunting for the words in the frame.
+ */
+.sample {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  height: 62px;
+  padding: 0 var(--cp-pad);
+  overflow: hidden;
+  border-bottom: 1px solid var(--cp-line);
+  background: var(--cp-well);
+}
+
+.sampleText {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.samplePlaceholder {
+  color: var(--cp-fg-dim);
+  font-size: var(--cp-fs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list { animation: none; }
+
+  .cap,
+  .thumb,
+  .switch,
+  .segThumb,
+  .segment {
+    transition: none;
+  }
+}

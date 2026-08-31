@@ -1,8 +1,21 @@
+import { useState } from "react";
+
 import type { Clip, CustomFont } from "../lib/editor";
 import { t, useLocale } from "../lib/i18n";
-import { FONTS, WEIGHTS, type TextStyle } from "../lib/text";
-import { Group, Slider, Toggle } from "./controls";
+import { FONTS, textCss, WEIGHTS, type TextStyle } from "../lib/text";
 import { Icon } from "./Icon";
+import { clamp } from "./inspector/base";
+import {
+  ColourField,
+  HelpButton,
+  Note,
+  Param,
+  Row,
+  Section,
+  SwitchRow,
+} from "./inspector/controls";
+import { SegmentedControl, Select, type SelectOption } from "./inspector/fields";
+import styles from "./inspector/inspector.module.css";
 import { Empty } from "./Panel";
 
 /**
@@ -15,7 +28,29 @@ import { Empty } from "./Panel";
  *
  * The preview overlay and the export rasteriser both read these numbers
  * through `textCss`, so what is on screen is what gets burned in.
+ *
+ * This is the first panel on the new inspector chrome in `./inspector`:
+ * hairline sections instead of shouty group headings, faders paired with a
+ * scrubbable field, and a specimen of the title pinned to the top. The
+ * settings and their bounds are unchanged - only the way they are handled is.
  */
+
+/** Bounds shared with the monitor's corner drag; see Preview.tsx. */
+const MIN_FONT_SIZE = 0.02;
+const MAX_FONT_SIZE = 0.4;
+
+/*
+ * The specimen's scale.
+ *
+ * A fraction of the frame height means nothing in a 62px strip, so the sample
+ * reads the size against a nominal surface and then holds the result to
+ * something legible. The monitor beside this panel is the truth for scale and
+ * placement; the specimen is here to judge face, weight, colour and outline.
+ */
+const SAMPLE_SURFACE = 190;
+const SAMPLE_MIN = 11;
+const SAMPLE_MAX = 34;
+
 export function TextPanel({
   clip,
   fonts,
@@ -35,6 +70,8 @@ export function TextPanel({
   onRemoveFont: (family: string) => void;
 }) {
   const { t } = useLocale();
+  const [shadowHelp, setShadowHelp] = useState(false);
+  const [plateHelp, setPlateHelp] = useState(false);
 
   if (!clip || clip.kind !== "text" || !clip.text) {
     return (
@@ -57,121 +94,134 @@ export function TextPanel({
     );
   };
 
-  // Discrete controls commit immediately; sliders and the textarea echo
-  // live and commit on release or blur.
+  // Discrete controls commit immediately; faders and the textarea echo live
+  // and commit on release or blur.
   const commitSet = (patch: Partial<TextStyle>) => {
     set(patch);
     onCommit();
   };
 
-  const custom: CustomFont[] = fonts;
+  const commitClip = (patch: Partial<Clip>) => {
+    onChange(patch);
+    onCommit();
+  };
+
+  const families: SelectOption<string>[] = [
+    ...FONTS.filter((font) => font.bundled).map((font) => ({
+      value: font.value,
+      label: font.label,
+      group: t("textPanel.bundled"),
+      fontFamily: font.value,
+    })),
+    ...fonts.map((font) => ({
+      value: `"${font.family}"`,
+      label: font.family,
+      note: font.missing ? t("textPanel.fileMissing") : undefined,
+      group: t("textPanel.yours"),
+      // A missing face has nothing to draw itself in, so its row stays in the
+      // panel's own type rather than silently borrowing the fallback's.
+      fontFamily: font.missing ? undefined : `"${font.family}"`,
+    })),
+    ...FONTS.filter((font) => !font.bundled).map((font) => ({
+      value: font.value,
+      label: font.label,
+      group: t("textPanel.system"),
+      fontFamily: font.value,
+    })),
+  ];
+
+  // The specimen is scaled to be readable rather than true, so the plate and
+  // the outline - which `textCss` derives from the size - stay in proportion
+  // to what is drawn instead of to the frame.
+  const samplePx = clamp(style.fontSize * SAMPLE_SURFACE, SAMPLE_MIN, SAMPLE_MAX);
+  const sample = textCss(style, samplePx / Math.max(style.fontSize, 0.001));
 
   return (
-    <div className="px-3 py-3">
-      <Group title={t("textPanel.content")}>
-        <textarea
-          value={style.content}
-          onChange={(event) => set({ content: event.target.value })}
-          onBlur={onCommit}
-          rows={3}
-          spellCheck={false}
-          placeholder={t("textPanel.placeholder")}
-          className="mb-3 w-full resize-y rounded-lg border border-hairline-strong bg-sunken px-2.5
-                     py-2 text-[13px] leading-snug text-primary outline-none
-                     placeholder:text-tertiary focus:border-accent"
-        />
-      </Group>
-
-      <Group title={t("textPanel.font")}>
-        <select
-          value={style.fontFamily}
-          onChange={(event) => commitSet({ fontFamily: event.target.value })}
-          className="mb-2 w-full cursor-pointer rounded-lg border border-hairline-strong bg-sunken
-                     px-2.5 py-2 text-[12px] text-primary outline-none focus:border-accent"
-        >
-          <optgroup label={t("textPanel.bundled")}>
-            {FONTS.filter((font) => font.bundled).map((font) => (
-              <option key={font.value} value={font.value}>
-                {font.label}
-              </option>
-            ))}
-          </optgroup>
-          {custom.length > 0 && (
-            <optgroup label={t("textPanel.yours")}>
-              {custom.map((font) => (
-                <option key={font.family} value={`"${font.family}"`}>
-                  {font.family}
-                  {font.missing ? ` ${t("textPanel.fileMissing")}` : ""}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          <optgroup label={t("textPanel.system")}>
-            {FONTS.filter((font) => !font.bundled).map((font) => (
-              <option key={font.value} value={font.value}>
-                {font.label}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-
-        <button
-          type="button"
-          onClick={onAddFont}
-          className="mb-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg
-                     border border-dashed border-hairline-strong px-3 py-2 text-[11px]
-                     text-secondary transition-colors hover:border-accent hover:bg-hover
-                     hover:text-primary"
-        >
-          <Icon name="import" size={12} />
-          {t("textPanel.addFontFile")}
-        </button>
-
-        {custom.length > 0 && (
-          <ul className="mb-3 space-y-1">
-            {custom.map((font) => (
-              <li
-                key={font.family}
-                className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px] hover:bg-hover"
-              >
-                <span
-                  className="min-w-0 flex-1 truncate text-secondary"
-                  style={{ fontFamily: `"${font.family}"` }}
-                  title={font.path}
-                >
-                  {font.family}
-                </span>
-                <button
-                  type="button"
-                  aria-label={t("textPanel.removeFont", { name: font.family })}
-                  onClick={() => onRemoveFont(font.family)}
-                  className="shrink-0 cursor-pointer text-tertiary hover:text-danger"
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              </li>
-            ))}
-          </ul>
+    <div className={styles.kit}>
+      <div
+        className={styles.sample}
+        style={{
+          justifyContent:
+            style.align === "left" ? "flex-start" : style.align === "right" ? "flex-end" : "center",
+        }}
+      >
+        {style.content.trim() === "" ? (
+          <span className={styles.samplePlaceholder}>{t("textPanel.placeholder")}</span>
+        ) : (
+          <span
+            className={styles.sampleText}
+            style={{ ...sample, display: "inline-block", whiteSpace: "nowrap" }}
+          >
+            {style.content}
+          </span>
         )}
+      </div>
 
-        <select
-          value={style.fontWeight}
-          onChange={(event) => commitSet({ fontWeight: Number(event.target.value) })}
-          className="mb-3 w-full cursor-pointer rounded-lg border border-hairline-strong bg-sunken
-                     px-2.5 py-2 text-[12px] text-primary outline-none focus:border-accent"
-        >
-          {WEIGHTS.map((weight) => (
-            <option key={weight.value} value={weight.value}>
-              {weight.label}
-            </option>
-          ))}
-        </select>
+      <Section title={t("textPanel.content")}>
+        <Row stack>
+          <textarea
+            className={styles.textarea}
+            value={style.content}
+            spellCheck={false}
+            aria-label={t("textPanel.content")}
+            placeholder={t("textPanel.placeholder")}
+            onChange={(event) => set({ content: event.target.value })}
+            onBlur={onCommit}
+          />
+        </Row>
+      </Section>
 
-        <Slider
+      <Section title={t("textPanel.font")}>
+        <Row stack>
+          <Select
+            options={families}
+            value={style.fontFamily}
+            onChange={(fontFamily) => commitSet({ fontFamily })}
+            aria-label={t("textPanel.font")}
+          />
+        </Row>
+
+        <Row stack>
+          <button type="button" className={styles.dashed} onClick={onAddFont}>
+            <Icon name="import" size={12} />
+            {t("textPanel.addFontFile")}
+          </button>
+        </Row>
+
+        {fonts.map((font) => (
+          <div key={font.family} className={styles.fontRow}>
+            <span
+              className={styles.fontName}
+              style={{ fontFamily: font.missing ? undefined : `"${font.family}"` }}
+              title={font.path}
+            >
+              {font.family}
+            </span>
+            <button
+              type="button"
+              className={styles.fontRemove}
+              aria-label={t("textPanel.removeFont", { name: font.family })}
+              onClick={() => onRemoveFont(font.family)}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </div>
+        ))}
+
+        <Row stack>
+          <Select
+            options={WEIGHTS}
+            value={style.fontWeight}
+            onChange={(fontWeight) => commitSet({ fontWeight })}
+            aria-label={t("textPanel.weight")}
+          />
+        </Row>
+
+        <Param
           label={t("textPanel.size")}
           value={style.fontSize}
-          min={0.02}
-          max={0.4}
+          min={MIN_FONT_SIZE}
+          max={MAX_FONT_SIZE}
           step={0.005}
           // Shown as a share of frame height, which is the thing it actually
           // is. Points would be a lie: the frame can be any resolution.
@@ -181,55 +231,71 @@ export function TextPanel({
           onReset={() => commitSet({ fontSize: 0.09 })}
         />
 
-        <Toggle
+        <SwitchRow
           label={t("textPanel.italic")}
           checked={style.italic}
           onChange={(italic) => commitSet({ italic })}
         />
-      </Group>
+      </Section>
 
-      <Group title={t("textPanel.colour")}>
-        <Swatch
+      <Section title={t("textPanel.colour")}>
+        <ColourField
           label={t("textPanel.fill")}
           value={style.color}
           onChange={(color) => commitSet({ color })}
         />
 
-        <Slider
+        <Param
           label={t("textPanel.opacity")}
           value={style.opacity}
           min={0}
           max={1}
+          step={0.01}
           format={(value) => `${Math.round(value * 100)}%`}
           onChange={(opacity) => set({ opacity })}
           onCommit={onCommit}
           onReset={() => commitSet({ opacity: 1 })}
         />
 
-        <Toggle
+        <SwitchRow
           label={t("textPanel.dropShadow")}
-          hint={t("textPanel.dropShadowHint")}
           checked={style.shadow}
           onChange={(shadow) => commitSet({ shadow })}
+          help={
+            <HelpButton
+              label={t("textPanel.about", { name: t("textPanel.dropShadow") })}
+              open={shadowHelp}
+              onToggle={() => setShadowHelp((on) => !on)}
+            />
+          }
         />
+        {shadowHelp && <Note>{t("textPanel.dropShadowHint")}</Note>}
 
-        <Toggle
+        <SwitchRow
           label={t("textPanel.plate")}
-          hint={t("textPanel.plateHint")}
           checked={style.background !== ""}
           onChange={(on) => commitSet({ background: on ? "#000000" : "" })}
+          help={
+            <HelpButton
+              label={t("textPanel.about", { name: t("textPanel.plate") })}
+              open={plateHelp}
+              onToggle={() => setPlateHelp((on) => !on)}
+            />
+          }
         />
+        {plateHelp && <Note>{t("textPanel.plateHint")}</Note>}
         {style.background !== "" && (
-          <Swatch
-            label={t("textPanel.plateColour")}
+          <ColourField
+            label={t("textPanel.colour")}
+            name={t("textPanel.plateColour")}
             value={style.background}
             onChange={(background) => commitSet({ background })}
           />
         )}
-      </Group>
+      </Section>
 
-      <Group title={t("textPanel.outline")}>
-        <Slider
+      <Section title={t("textPanel.outline")}>
+        <Param
           label={t("textPanel.width")}
           value={style.strokeWidth}
           min={0}
@@ -241,41 +307,30 @@ export function TextPanel({
           onReset={() => commitSet({ strokeWidth: 0 })}
         />
         {style.strokeWidth > 0 && (
-          <Swatch
-            label={t("textPanel.outlineColour")}
+          <ColourField
+            label={t("textPanel.colour")}
+            name={t("textPanel.outlineColour")}
             value={style.strokeColor}
             onChange={(strokeColor) => commitSet({ strokeColor })}
           />
         )}
-      </Group>
+      </Section>
 
-      <Group title={t("textPanel.layout")}>
-        <div className="mb-3 flex rounded-lg bg-sunken p-0.5">
-          {(["left", "center", "right"] as const).map((align) => (
-            <button
-              key={align}
-              type="button"
-              aria-pressed={style.align === align}
-              onClick={() => commitSet({ align })}
-              className={`flex-1 cursor-pointer rounded-[6px] px-2 py-1 text-[11px] capitalize
-                          transition-colors ${
-                            style.align === align
-                              ? "bg-panel text-primary shadow-[0_1px_2px_rgba(0,0,0,0.14)]"
-                              : "text-secondary hover:text-primary"
-                          }`}
-            >
-              {t(
-                align === "left"
-                  ? "textPanel.alignLeft"
-                  : align === "center"
-                    ? "textPanel.alignCenter"
-                    : "textPanel.alignRight",
-              )}
-            </button>
-          ))}
-        </div>
+      <Section title={t("textPanel.layout")}>
+        <Row stack>
+          <SegmentedControl
+            options={[
+              { value: "left" as const, label: t("textPanel.alignLeft") },
+              { value: "center" as const, label: t("textPanel.alignCenter") },
+              { value: "right" as const, label: t("textPanel.alignRight") },
+            ]}
+            value={style.align}
+            onChange={(align) => commitSet({ align })}
+            aria-label={t("textPanel.layout")}
+          />
+        </Row>
 
-        <Slider
+        <Param
           label={t("textPanel.lineHeight")}
           value={style.lineHeight}
           min={0.8}
@@ -287,7 +342,7 @@ export function TextPanel({
           onReset={() => commitSet({ lineHeight: 1.2 })}
         />
 
-        <Slider
+        <Param
           label={t("textPanel.tracking")}
           value={style.tracking}
           min={-0.1}
@@ -298,84 +353,43 @@ export function TextPanel({
           onCommit={onCommit}
           onReset={() => commitSet({ tracking: 0 })}
         />
-      </Group>
+      </Section>
 
-      <Group title={t("textPanel.position")}>
-        {/*
-          Offsets are fractions of the frame, and centred is zero - so the
-          reset on each is "put it back in the middle", and a title composed
-          here sits in the same place at any export resolution.
-        */}
-        <Slider
+      {/*
+        Offsets are fractions of the frame, and centred is zero - so the reset
+        on each is "put it back in the middle", and a title composed here sits
+        in the same place at any export resolution.
+      */}
+      <Section title={t("textPanel.position")}>
+        <Param
           label={t("textPanel.horizontal")}
           value={clip.offsetX}
           min={-0.5}
           max={0.5}
           step={0.005}
-          format={(value) =>
-            Math.abs(value) < 0.0025 ? t("textPanel.centred") : `${(value * 100).toFixed(1)}%`
-          }
+          format={centred}
           onChange={(offsetX) => onChange({ offsetX })}
           onCommit={onCommit}
-          onReset={() => { onChange({ offsetX: 0 }); onCommit(); }}
+          onReset={() => commitClip({ offsetX: 0 })}
         />
-        <Slider
+        <Param
           label={t("textPanel.vertical")}
           value={clip.offsetY}
           min={-0.5}
           max={0.5}
           step={0.005}
-          format={(value) =>
-            Math.abs(value) < 0.0025 ? t("textPanel.centred") : `${(value * 100).toFixed(1)}%`
-          }
+          format={centred}
           onChange={(offsetY) => onChange({ offsetY })}
           onCommit={onCommit}
-          onReset={() => { onChange({ offsetY: 0 }); onCommit(); }}
+          onReset={() => commitClip({ offsetY: 0 })}
         />
-      </Group>
+      </Section>
     </div>
   );
 }
 
-/** A colour well plus its hex, because one of the two is always the faster way. */
-function Swatch({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <span className="text-[12px] text-primary">{label}</span>
-      <span className="flex items-center gap-2">
-        <input
-          type="text"
-          value={value}
-          spellCheck={false}
-          onChange={(event) => {
-            const next = event.target.value;
-            // Only commit a complete colour: repainting on "#f" would flash
-            // the title black on the way to "#ff0000".
-            if (/^#[0-9a-f]{6}$/i.test(next) || /^#[0-9a-f]{3}$/i.test(next)) onChange(next);
-          }}
-          className="w-[76px] rounded-md border border-hairline-strong bg-sunken px-1.5 py-1
-                     text-right font-technical text-[11px] text-secondary outline-none
-                     focus:border-accent"
-        />
-        <input
-          type="color"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          aria-label={label}
-          className="h-[26px] w-[34px] cursor-pointer rounded-md border border-hairline-strong
-                     bg-transparent p-0.5"
-        />
-      </span>
-    </div>
-  );
+function centred(value: number): string {
+  return Math.abs(value) < 0.0025 ? t("textPanel.centred") : `${(value * 100).toFixed(1)}%`;
 }
 
 function firstLineOf(content: string): string {

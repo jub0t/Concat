@@ -14,6 +14,7 @@ import { AdjustPanel } from "./AdjustPanel";
 import { EffectsPanel } from "./EffectsPanel";
 import { FiltersPanel } from "./FiltersPanel";
 import { Inspector } from "./Inspector";
+import inspector from "./inspector/inspector.module.css";
 import { Panel } from "./Panel";
 import { TextPanel } from "./TextPanel";
 
@@ -118,7 +119,14 @@ export const RightPanel = memo(function RightPanel({
   const single = tabs.length === 1;
 
   return (
-    <Panel title={single ? t(tabs[0].labelKey) : undefined}>
+    // The Text tab is the first panel on the new inspector chrome, which brings
+    // its own palette rather than borrowing this app's. `inspector.shell` hands
+    // that palette to the heading strip above it too, so the panel is one
+    // surface instead of a light header sitting on a near-black body.
+    <Panel
+      title={single ? t(tabs[0].labelKey) : undefined}
+      className={active === "text" ? inspector.shell : ""}
+    >
       {!single && (
         <div className="sticky top-0 z-10 border-b border-hairline bg-panel px-2 pb-2 pt-2">
           <div className="flex rounded-lg bg-sunken p-0.5">
