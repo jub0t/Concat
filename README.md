@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/concat_logo_dark_512.png" alt="Concat" width="140" />
+<img src="assets/concat_logo_512.png" alt="Concat" width="140" />
 
 # Concat
 
