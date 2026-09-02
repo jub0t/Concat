@@ -62,7 +62,8 @@ To learn more about contributing to this project please refer to [this Discussio
 
 - [ ] Templates: Improve templates, create centralized registry of templates contributed by users (kinda like npm).
 - [ ] Hardware analysis: for device-tier detection, checking how good or potato someone's device is.
-- [ ] Effects: A scaleable way to embed or add hundreds of different Transition styles, Effects, etc to the Library.
+- [ ] Effects: A scaleable way to embed or add hundreds of different Transition styles, Effects, etc to the Library. Use custom WGSL shaders.
+- [ ] Editor API: Serves Plugins, Users (UI), and MCPs.
 - [ ] Noise Cancelation/Removal.
 - [ ] Object/Face Tracking: Proposed (can do better): MOSSE/KCF/optical flow.
 - [ ] Auto Human Face Detection & Blurring features: YuNet + tracker, or look for better alternative tech.
@@ -70,3 +71,5 @@ To learn more about contributing to this project please refer to [this Discussio
 - [ ] Profanity detection from Audio: Whisper + dictionary.
 - [ ] Audio Silence removal feature.
 - [ ] Auto Reframe: YuNet/person detector + tracker.
+- [ ] Ability to change panel positions (like blender).
+- [ ] Voice mixers to create custom voices. (features: Pitch Shift EQ Compressor Reverb Delay Chorus Distortion Noise Gate Limiter Stereo Width Formant Shift High/Low Pass De-esser Exciter, etc)
