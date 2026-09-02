@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The FFmpeg filter-chain builders: video effects and audio filters.
 //!
 //! This is a byte-for-byte port of the two TypeScript catalogues that are the

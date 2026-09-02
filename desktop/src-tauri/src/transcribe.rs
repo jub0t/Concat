@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Whisper.cpp transcription: audio in, timed caption segments out.
 //!
 //! The same shape as every other media operation in this app: spawn a child

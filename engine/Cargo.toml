@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.93"
-license = "MPL-2.0"  # see docs/decisions/0005-license-mpl-2.md
+license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
 
 [workspace.dependencies]
 wolfcut-core = { path = "crates/wolfcut-core" }

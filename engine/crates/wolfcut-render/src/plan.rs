@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Deciding what is on screen at a given instant.
 //!
 //! A [`FramePlan`] is the contract between the editor model and whatever draws

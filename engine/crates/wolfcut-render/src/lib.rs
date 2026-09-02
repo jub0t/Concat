@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Turning a timeline plus a timestamp into one finished frame.
 //!
 //! Rendering splits in two, and the split is the important part of this crate:

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Template bundles on disk.
 //!
 //! A template is a folder in the app config directory's `templates/`:

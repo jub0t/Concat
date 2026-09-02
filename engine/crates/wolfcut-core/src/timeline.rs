@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The edit itself: a project, its tracks, and the clips on them.
 //!
 //! Tracks and clips live in arenas and are addressed by [`TrackId`] and

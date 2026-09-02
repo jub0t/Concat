@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Kokoro text-to-speech: text in, a narration WAV in the project folder out.
 //!
 //! The same local-first shape as transcription (`transcribe.rs`), with one

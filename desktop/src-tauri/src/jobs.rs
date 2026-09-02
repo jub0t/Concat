@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! One-at-a-time job slots for the host's long-running work.
 //!
 //! Export, transcription and model downloads are all "one at a time", and

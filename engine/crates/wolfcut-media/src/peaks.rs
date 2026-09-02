@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Waveform peaks: min/max sample pairs, bucketed at a fixed rate.
 //!
 //! The timeline draws a clip's waveform from a few hundred buckets per

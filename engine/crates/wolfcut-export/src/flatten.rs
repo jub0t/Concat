@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Flattening a project document into the exporter's clip list.
 //!
 //! This is the step that used to live in the UI (`lib/monitor.ts`'s

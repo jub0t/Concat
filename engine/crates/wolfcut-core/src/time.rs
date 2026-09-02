@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Exact rational time.
 //!
 //! Video editing is frame-accurate arithmetic on rates that are not

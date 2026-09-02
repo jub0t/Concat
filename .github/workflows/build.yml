@@ -312,9 +312,11 @@ jobs:
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           generate_release_notes: true
           body: |
-            WolfCut is MPL-2.0. The installers bundle GPL-built FFmpeg binaries,
-            invoked as separate programs — sources and licenses in
-            [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/WolfCut/blob/main/THIRD_PARTY_NOTICES.md).
+            Concat is AGPL-3.0-or-later, with a plugin exception for Concat API
+            plugins ([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
+            The installers bundle GPL-built FFmpeg binaries, invoked as separate
+            programs, and statically link GPL-3.0 espeak-ng — sources and licenses
+            in [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
           fail_on_unmatched_files: true
           files: |
             bundles/**/*.dmg

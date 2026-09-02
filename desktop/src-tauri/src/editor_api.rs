@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The engine-owned editing session, exposed to the UI.
 //!
 //! One session at a time, held in managed state: open a project and the

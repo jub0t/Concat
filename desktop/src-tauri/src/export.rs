@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Tauri shim over the engine's export path.
 //!
 //! Rendering used to live in this file - transitions, timeline conversion,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Command line driver for the WolfCut engine.
 //!
 //! This exists so the engine can be exercised end to end without a UI. The

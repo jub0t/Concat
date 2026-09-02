@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Project folders on disk, and the list of recently opened ones.
 //!
 //! A project is a directory containing `wolfcut.json`. That file is written the

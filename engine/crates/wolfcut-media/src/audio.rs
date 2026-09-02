@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Planning and running the audio mix.
 //!
 //! The audio equivalent of `wolfcut-render`'s frame plan: [`mix_graph`] turns a

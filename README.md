@@ -11,6 +11,7 @@
   <a href="https://github.com/jub0t/Concat/releases/latest"><img src="https://img.shields.io/badge/Download-macOS%20%7C%20Windows%20%7C%20Linux-161616?style=flat&logo=desktop-download&logoColor=F8F8F8&labelColor=000000" alt="Download Concat" /></a>
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.0-161616?style=flat&logo=semver&logoColor=F8F8F8&labelColor=000000" alt="Concat Version 0.2.0" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-161616?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-161616?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=000000" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <img src="assets/preview-dark.png" alt="Concat editor" width="100%" />
@@ -56,8 +57,38 @@ with ffmpeg and whisper wired in; `nix develop` opens a shell with everything
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/Concat/releases) page and test the application to see where it breaks or how it can be improved.
 
-To learn more about contributing to this project please refer to [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3).
+Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, the checks to run, and how contributions are licensed. There is also [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3).
 
 ## Roadmap
 
 Read [ROADMAP.MD](./ROADMAP.MD).
+
+## License
+
+Concat is free software under the [GNU Affero General Public License v3.0 or
+later](./LICENSE).
+
+**If you just want to edit videos, none of this affects you.** Download a build
+and use it for anything, including commercial work. There is nothing to accept,
+register or pay, and no obligation attaches to you as a user.
+
+**If you fork it, you are welcome here.** Modify it, ship it, sell it, host it.
+The one condition is reciprocity: those who receive your version get the source
+too, under the same license. That includes users who reach it over a network —
+that is the "Affero" part, and it is why a hosted Concat cannot be closed.
+
+Two things sit alongside the AGPL:
+
+- **Plugins keep their own license.** The [plugin
+  exception](./LICENSE-EXCEPTIONS.md) means anything built on the Concat API is
+  yours to license as you like. The copyleft covers Concat, not what talks to it.
+- **The name is not part of the grant.** The code is free; *Concat* and the logo
+  identify builds from this project. Forks are encouraged — please ship them
+  under your own name. See [TRADEMARK.md](./TRADEMARK.md).
+
+Contributions are made under the [CLA](./CLA.md); you keep copyright in your
+work. Distributed builds also include GPL-licensed FFmpeg and espeak-ng — see
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+
+Need terms without the AGPL's obligations? A commercial license is available:
+**jub0trd@gmail.com**.

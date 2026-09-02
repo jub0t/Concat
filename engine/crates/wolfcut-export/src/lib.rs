@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Rendering a timeline to a file.
 //!
 //! This is the seam where a flattened clip list becomes the engine's

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Where the FFmpeg binaries are.
 //!
 //! By default they are looked up on `PATH`, which is what a developer with

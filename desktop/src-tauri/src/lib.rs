@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Tauri host for the WolfCut editor.
 //!
 //! Deliberately thin. Every command here does two things: call into the engine

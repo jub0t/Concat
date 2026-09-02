@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 fn main() {
     // A release build is a packaged build, and a packaged app that shipped
     // without its FFmpeg pair has happened once already: everything media-

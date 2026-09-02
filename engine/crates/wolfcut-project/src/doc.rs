@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Reading and writing `wolfcut.json`.
 //!
 //! The reader began as a port of the UI's `persist.ts` (deleted; decision

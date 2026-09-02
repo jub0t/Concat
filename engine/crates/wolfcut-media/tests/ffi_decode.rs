@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! End-to-end checks for the linked decoder.
 //!
 //! These are the claims that justify the FFI backend existing at all - real

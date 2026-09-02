@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The edit itself, owned by the engine.
 //!
 //! The model ([`model`]), every operation as a serialisable

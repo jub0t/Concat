@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 // Renders one preview thumbnail per video effect by running each effect's
 // real FFmpeg chain - the same `buildEffectChain` the exporter uses, at its
 // default parameters - over one source image. The catalogue then shows what

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Media IO: reading frames out of files and writing them back.
 //!
 //! This is the only crate that knows FFmpeg exists, and it talks to it as a

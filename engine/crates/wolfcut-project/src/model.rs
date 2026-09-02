@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The document model: what a WolfCut project *is*.
 //!
 //! Times are `f64` seconds here because that is what the on-disk format

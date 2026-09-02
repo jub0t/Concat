@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 import { MAX_SCALE, MIN_SCALE, type Clip } from "../lib/editor";
 import { t, useLocale } from "../lib/i18n";
 import { Group, Slider, Toggle } from "./controls";

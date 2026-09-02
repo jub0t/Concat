@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Shared plumbing for the FFmpeg children this crate spawns.
 //!
 //! Every invocation goes through [`base_command`], and every long-lived child

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 /**
  * Auto-captions: transcribe one clip's audio and lay the result out as text
  * clips on a "Captions" track (created on first use, reused after).

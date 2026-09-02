@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The export pipeline, end to end, against the FFmpeg the app actually ships.
 //!
 //! The engine's unit tests are pure on purpose; this suite is the opposite. It

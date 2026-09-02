@@ -2,7 +2,7 @@
 
 ## FFmpeg
 
-WolfCut bundles unmodified `ffmpeg` and `ffprobe` binaries and invokes them as
+Concat bundles unmodified `ffmpeg` and `ffprobe` binaries and invokes them as
 separate child processes; the app does not link against them.
 
 - **Windows**: static GPL builds from the BtbN autobuild project
@@ -34,7 +34,9 @@ links onnxruntime (MIT), piper-phonemize (MIT) and espeak-ng
 (**GPL-3.0-or-later**, https://github.com/espeak-ng/espeak-ng) for
 grapheme-to-phoneme conversion. Because espeak-ng is compiled into the app
 binary, distributed builds must comply with the GPL-3.0 for that combined
-work; MPL-2.0 sources remain MPL-2.0.
+work. Concat's own sources are AGPL-3.0-or-later; section 13 of both GPL-3.0
+and AGPL-3.0 expressly permits that combination, so the combined binary may be
+conveyed on those terms.
 
 Kokoro voice model bundles (Apache-2.0,
 https://huggingface.co/hexgrad/Kokoro-82M) are downloaded on demand from the

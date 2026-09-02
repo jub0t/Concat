@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! Every edit operation, as data.
 //!
 //! A [`Command`] is what the UI sends over IPC; [`apply`] is the one place

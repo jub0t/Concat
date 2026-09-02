@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
 //! The editing session: a project, its id mint, and undo.
 //!
 //! Undo is whole-state snapshots. The document is small - a heavy project is
