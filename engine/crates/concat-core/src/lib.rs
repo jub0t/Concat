@@ -9,7 +9,7 @@
 //! - [`time`] - exact rational timestamps. Every time value in Concat is a
 //!   [`time::Rational`] number of seconds. Never `f64`.
 //! - [`arena`] - generational arenas and `Copy` handles, the way Concat models
-//!   graphs. See `docs/decisions/0003-arena-handles-not-pointers.md`.
+//!   graphs.
 //! - [`frame`] - a decoded RGBA8 image buffer.
 //! - [`timeline`] - projects, tracks and clips.
 //!

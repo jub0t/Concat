@@ -163,11 +163,10 @@ pub fn hex_of(colour: slint::Color) -> String {
 
 /// The audio envelope, as SVG path commands in a 1x1 box.
 ///
-/// Columns, not a curve. The reference fills one rectangle per pixel of clip
-/// width - `context.rect(x + column, top, 1, ...)` for every column, then one
-/// fill - so its waveform is a stepped silhouette with a flat top on every
-/// column. Drawing the same peaks as a polyline gives a smooth, rounded shape
-/// that reads as a graph of something rather than as audio.
+/// Columns, not a curve. Each column is one rectangle, from the lowest to the
+/// highest peak under it, so the waveform is a stepped silhouette with a flat
+/// top on every column. Drawing the same peaks as a polyline gives a smooth,
+/// rounded shape that reads as a graph of something rather than as audio.
 ///
 /// Built from the engine's real peaks: each column takes the extremes of
 /// the buckets that fall under it, so a trim shows the material it kept.
@@ -182,8 +181,8 @@ pub fn wave_path(
     /// Columns across the clip. Enough that the steps read as columns and
     /// not as a bar chart, few enough that the string stays a few kilobytes.
     const COLUMNS: usize = 128;
-    /// Silence still draws a sliver, the way the reference's `max(1, ...)`
-    /// keeps a one-pixel line rather than a gap in the middle of a clip.
+    /// Silence still draws a sliver: a hairline through the middle of a clip
+    /// rather than a gap in it.
     const FLOOR: f32 = 0.012;
 
     if duration <= 0.0 || peaks.min.is_empty() || peaks.buckets_per_second <= 0.0 {

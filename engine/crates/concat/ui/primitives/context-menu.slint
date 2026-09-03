@@ -4,18 +4,17 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 
-// The right-click menu, ported from web/'s full context menu: an icon slot
-// every row shares, a label, a right-set shortcut hint, checkbox rows, group
-// labels, separators, and one row that may be red.
+// The right-click menu: an icon slot every row shares, a label, a right-set
+// shortcut hint, checkbox rows, group labels, separators, and one row that may
+// be red.
 //
-// Two departures from the reference, both forced:
+// Two constraints shape it:
 //
-// Submenus are gone. A Slint struct cannot hold an array, so a row cannot
-// carry its own children; the reference's Speed submenu is expressed here as a
-// group label with its options under it, which is a row type the design
-// already has. Flat also happens to suit a timeline — the menu is a list of
-// verbs about one clip, and burying half of them one level down would be worse
-// even where it were possible.
+// There are no submenus. A Slint struct cannot hold an array, so a row cannot
+// carry its own children; a set of options such as Speed is a group label with
+// its options under it, which is a row type the design already has. Flat also
+// suits a timeline — the menu is a list of verbs about one clip, and burying
+// half of them one level down would be worse even where it were possible.
 //
 // The surface is sized by the caller rather than by its content. Summing the
 // row heights means looping over a model, which the expression language cannot

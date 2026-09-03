@@ -1,10 +1,8 @@
 # Translating Concat
 
-The interface is being rebuilt in Slint, and its strings are not yet
-wrapped for translation. The earlier web-based editor shipped with a
-JSON-per-language scheme and a Simplified Chinese translation; that scheme
-went with it.
-
-The plan is Slint's own `@tr()` mechanism, which produces standard gettext
-`.po` files translators already know how to work with. Until that lands
-there is nothing to translate yet - watch this file and the changelog.
+Concat's interface is built in Slint, and Slint's `@tr()` mechanism produces
+standard gettext `.po` files, the format translators already know how to
+work with. The string catalogue is being wrapped for it; when it lands, this
+file carries the instructions for adding a language: where the `.po` files
+live, how to regenerate the template, and how a translation is reviewed
+before it ships. Watch this file and the changelog.

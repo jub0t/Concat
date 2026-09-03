@@ -41,34 +41,29 @@
 //   - The clip-ink family holds against all five kind hues, not against a
 //     grey. It cannot be borrowed from the text colours for that reason.
 //
-// ── where the values came from ───────────────────────────────────────────────
+// ── the palette ──────────────────────────────────────────────────────────────
 //
-// The surfaces are the web prototype's neutral grey scale (web/src/styles/
-// tokens.css), not the legacy editor's. The legacy panels were a blue-cast
-// near-black; the prototype's are flat neutral, which lets the accent and the
-// clip hues carry all of the colour in the window instead of competing with a
-// tinted ground.
+// The surfaces are a flat neutral grey scale with no blue cast. A tinted
+// ground competes with everything placed on it; a neutral one lets the accent
+// and the clip hues carry all of the colour in the window.
 //
-// Everything else — the clip and media-kind hues, the meter ramp — still
-// mirrors the legacy editor (desktop/src/styles.css, the
-// `:root[data-theme="dark"]` block), because those name things the engine and
-// the project format also name.
+// The clip and media-kind hues and the meter ramp name things the engine and
+// the project format also name, so they are fixed by what they mean rather
+// than by the surfaces around them.
 export global Dark {
-    // surfaces — web/src/styles/tokens.css
+    // surfaces
     //
     // Panels are a grey that visibly floats on the near-black ground — never
     // the ground colour itself, or the panes melt into the window and their
     // grab-able gutters vanish.
     //
-    // The panel sits at the prototype's #111111 — the tone its preview
-    // viewport uses, which is the one surface in that design big enough to
-    // judge a ground by. Its #0d0d0d panel was a stop too dark once whole
-    // panes were painted in it rather than narrow strips.
+    // A panel is judged as a ground, by whole panes painted in it rather than
+    // by narrow strips, and a near-black one is a stop too dark at that size.
     //
-    // Moving the panel up makes room underneath, so `well` goes back to being
-    // genuinely sunken — darker than the surface it is cut into, the way the
-    // legacy theme has it and the way a sunken thing reads without having to
-    // be explained.
+    // Holding the panel up leaves room underneath, so `well` is genuinely
+    // sunken — darker than the surface it is cut into, which is how a sunken
+    // thing reads without having to be explained.
+    //
     // The whole ladder moves together, not just the panel. Each step exists
     // to be told apart from the one under it — a raised card has to read as
     // raised, a field has to read as a field on top of that — so lifting the
@@ -76,11 +71,10 @@ export global Dark {
     // them. Only `page` stays where it is: it is the ground the panes float
     // on, and holding it down is what widens the gutters as the panes lighten.
     //
-    // Lifted a notch again once the outlines came off the panes. An outline
-    // was doing part of the work of separating a pane from the ground; with
-    // it gone the value step has to do all of it, and the darker ladder left
-    // the panes reading as holes in the window rather than as surfaces on it.
-    // Everything moves by the same amount, so no two steps change places.
+    // The panes carry no outlines. An outline would do part of the work of
+    // separating a pane from the ground; without one the value step has to do
+    // all of it, and a darker ladder leaves the panes reading as holes in the
+    // window rather than as surfaces on it.
     out property <color> panel: #1c1c1c;
     out property <color> raised: #262626;
     out property <color> well: #131313;
@@ -88,36 +82,32 @@ export global Dark {
     out property <color> field-hover: #343434;
     out property <color> field-active: #3f3f3f;
 
-    // hairlines — white-alpha like the reference, so they hold on panel,
-    // well, and ground alike.
+    // hairlines — white-alpha, so they hold on panel, well, and ground alike.
     out property <color> line: #ffffff1a;         // rgb(255 255 255 / 0.1)
     out property <color> line-strong: #ffffff33;  // rgb(255 255 255 / 0.2)
 
     // text
-    out property <color> fg: #f5f5f7;         // --color-primary
-    out property <color> fg-muted: #a1a1a6;   // --color-secondary
-    out property <color> fg-dim: #6e6e73;     // --color-tertiary
+    out property <color> fg: #f5f5f7;
+    out property <color> fg-muted: #a1a1a6;
+    out property <color> fg-dim: #6e6e73;
 
     // accents
     //
-    // Lime, not blue. Both codebases land here from different directions: the
-    // prototype makes it the accent outright (--cp-accent), and the legacy
-    // editor keeps a blue --color-accent but spends the lime on the two places
-    // that carry the look — the selection highlight and every activated tool
-    // (--color-selection / --color-tool-active, both #c6f432). Taking it as
-    // the one accent says the same thing with one token instead of three.
+    // Lime, not blue. The two places that carry the look are the selection
+    // highlight and every activated tool, and both are lime; making it the
+    // one accent as well says the same thing with one token instead of three.
     //
     // It is legible against near-black and near-white alike, which is what a
     // selection has to be: it lands on whatever happens to be underneath it.
     // What sits *on* it therefore has to be dark ink, and fixed — see
     // `on-accent` below.
-    out property <color> accent: #cbf53f;          // --cp-accent
-    out property <color> accent-hover: #d9ff63;    // --cp-accent-hover
+    out property <color> accent: #cbf53f;
+    out property <color> accent-hover: #d9ff63;
     out property <color> accent-soft: #cbf53f33;   // rgb(203 245 63 / 0.2)
     out property <color> green: #30d158;
     // Ink for text and glyphs sitting ON the accent. A bright accent needs a
-    // dark one; swap this back to #ffffff the day the accent goes dark again.
-    out property <color> on-accent: #15220a;       // --cp-on-accent
+    // dark one; a dark accent would want #ffffff here instead.
+    out property <color> on-accent: #15220a;
     out property <color> on-green: #06210f;
 
     // meter ramp
@@ -127,11 +117,11 @@ export global Dark {
 
     // media kinds
     //
-    // Each kind gets a vivid mark and the darker same-hue ground it sits on,
-    // taken from the reference editor's clip palette. The pair is deliberately
-    // shared with the timeline: a card in the bin and the clip it becomes on a
-    // track are the same two colours, so they read as one object moved rather
-    // than two things that happen to have the same name.
+    // Each kind gets a vivid mark and the darker same-hue ground it sits on.
+    // The pair is deliberately shared with the timeline: a card in the bin and
+    // the clip it becomes on a track are the same two colours, so they read as
+    // one object moved rather than two things that happen to have the same
+    // name.
     out property <color> kind-video: #4d8df6;
     out property <color> kind-video-well: #142640;
     out property <color> kind-audio: #f09e2f;
@@ -181,10 +171,10 @@ export global Dark {
     out property <color> grid: #ffffff24;
     // Red, and used for nothing else. A playhead that shared the accent would
     // be one more blue line among the selection outlines.
-    out property <color> playhead: #ff453a;    // --color-playhead
+    out property <color> playhead: #ff453a;
     // Drawn on the audio clip's own dark ground, so it is a light wash of the
     // kind's hue rather than the vivid mark itself.
-    out property <color> wave: #fad69eb3;      // --color-clip-wave, 0.7 alpha
+    out property <color> wave: #fad69eb3;      // 0.7 alpha
 
     // clip ink
     //
@@ -239,8 +229,8 @@ export global Dark {
     out property <color> danger-wash: #2a1614;
     out property <color> danger-edge: #5a2b28;
 
-    // window ground the panes float on — the prototype's page, a shade under
-    // the darkest panel so the gutters read as gaps and not as seams
+    // window ground the panes float on — a shade under the darkest panel so
+    // the gutters read as gaps and not as seams
     out property <color> page: #08080a;
     out property <color> page-fg-muted: #a1a1a6;
 }

@@ -9,17 +9,16 @@ import { TimelineTabData } from "model.slint";
 // vocabulary every other editor uses. Kept above the tool tray so switching
 // reads as changing documents rather than changing tools.
 //
-// Behaviour is the reference's (TimelinePanel.tsx): click switches,
-// double-click renames in place committing on blur, and the close button asks
-// — deleting a timeline throws away every clip on it, so this strip never
-// deletes directly. The shape is the one from web/'s timeline: a squared-off
-// tab whose active state is a raised ground plus a 2px accent bar on its *top*
-// edge, inset from the corners. The bar sits away from the content it opens
-// onto, so it reads as a label on the tab and not as an underline on the panel.
+// Click switches, double-click renames in place committing on blur, and the
+// close button asks: deleting a timeline throws away every clip on it, so
+// this strip never deletes directly. The shape: a squared-off tab whose active
+// state is a raised ground plus a 2px accent bar on its *top* edge, inset from
+// the corners. The bar sits away from the content it opens onto, so it reads
+// as a label on the tab and not as an underline on the panel.
 //
-// Not ported: dragging a tab to reorder. It wants a lifted tab riding the
-// pointer while its neighbours ease aside, which is a whole gesture rather
-// than a detail of this one.
+// Tabs do not drag to reorder. That wants a lifted tab riding the pointer
+// while its neighbours ease aside, which is a whole gesture rather than a
+// detail of this one.
 
 component Tab inherits Rectangle {
     in property <string> name;
@@ -92,8 +91,8 @@ component Tab inherits Rectangle {
             visible: !root.renaming;
         }
 
-        // Revealed on hover, like the reference's — a row of permanent x's over
-        // a strip of tabs is a row of invitations to lose an edit.
+        // Revealed on hover: a row of permanent x's over a strip of tabs is a
+        // row of invitations to lose an edit.
         if root.closable && touch.has-hover && !root.renaming: Rectangle {
             x: parent.width - self.width - 5px;
             y: (parent.height - self.height) / 2;

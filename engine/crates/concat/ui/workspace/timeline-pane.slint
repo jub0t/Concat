@@ -19,10 +19,9 @@ import { Lanes } from "../timeline/lanes.slint";
 // The timeline pane: tabs, tray, and then the lane grid — a fixed header
 // column beside the lanes themselves.
 //
-// No PaneHeader, unlike the other three panes. The reference's timeline owns
-// its whole interior (it reuses PANEL_SHELL rather than the Panel component
-// for exactly this reason), and a title strip above the tabs would be a third
-// bar over a panel that already has two.
+// No PaneHeader, unlike the other three panes. The timeline owns its whole
+// interior: a title strip above the tabs would be a third bar over a panel
+// that already has two.
 export component TimelinePane inherits Rectangle {
     // ── the tabs ─────────────────────────────────────────────────────────
     in property <[TimelineTabData]> tabs;
@@ -112,12 +111,12 @@ export component TimelinePane inherits Rectangle {
     callback pane-removed();
 
     /// Wide enough for a lane name and its switches without eliding the name
-    /// at every default. The reference opens at 164px and carries two toggles;
-    /// this column carries four, and 164 left the name with about six
-    /// characters once the remove button appeared on hover. Both numbers went
-    /// up by one 26px slot when the row-height menu joined the switches —
-    /// the alternative was a name that elided at the default width, which is
-    /// the thing this width exists to prevent.
+    /// at every default. This column carries four switches, and at 164px the
+    /// name was left with about six characters once the remove button
+    /// appeared on hover. Both numbers went up by one 26px slot when the
+    /// row-height menu joined the switches — the alternative was a name that
+    /// elided at the default width, which is the thing this width exists to
+    /// prevent.
     in-out property <length> header-width: 234px;
     /// Narrow enough to be useful as a squeeze, wide enough that the switches
     /// never overlap the name.
@@ -141,8 +140,8 @@ export component TimelinePane inherits Rectangle {
 
     /// Clamped here rather than only where it is written, so a pane dragged
     /// taller than its own track stack cannot stay parked past the end. The
-    /// stack is measured off its last lane, since the lanes are no longer one
-    /// height to multiply out.
+    /// stack is measured off its last lane, since the lanes differ in height
+    /// and there is no one value to multiply out.
     property <length> stack-h: root.tracks.length > 0
         ? root.tracks[root.tracks.length - 1].top
             + root.tracks[root.tracks.length - 1].height
@@ -207,9 +206,9 @@ export component TimelinePane inherits Rectangle {
             }
             add-track => { root.add-track(); }
             fit => { root.zoom-to-fit(lanes.width); }
-            // No anchor from a button: the reference zooms about the pointer
-            // for a wheel and about the view for a press, and a press has no
-            // pointer to speak of. -1 is read as "keep the left edge".
+            // No anchor from a button: a wheel zooms about the pointer and a
+            // press zooms about the view, since a press has no pointer to
+            // speak of. -1 is read as "keep the left edge".
             zoom(factor) => { root.zoom(factor, -1); }
         }
 

@@ -7,8 +7,8 @@ reporting what broke.
 ## The most valuable thing you can do
 
 Grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page
-and edit a real video with it. Alpha software fails in ways nobody predicts
-from reading the source. A good bug report — what you did, what happened, your
+and edit a real video with it. Real footage finds what no reading of the
+source does. A good bug report — what you did, what happened, your
 OS, the media you used — is worth more than most patches.
 
 Longer-form discussion lives in

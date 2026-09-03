@@ -42,9 +42,8 @@ export component ColSplitter inherits Rectangle {
         animate opacity { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
     }
 
-    // A little wider than the gutter it sits in. The reference makes its hit
-    // area exactly the gutter; two more pixels a side costs the panes nothing
-    // they use and turns an 8px target into a 12px one.
+    // A little wider than the gutter it sits in. Two more pixels a side costs
+    // the panes nothing they use and turns an 8px target into a 12px one.
     touch := TouchArea {
         x: -2px;
         width: root.width + 4px;

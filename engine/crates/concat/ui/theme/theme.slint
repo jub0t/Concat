@@ -44,7 +44,7 @@ export global Theme {
 
     // ── type ─────────────────────────────────────────────────────────────
     //
-    // Two roles, not one, following the reference's own split.
+    // Two roles, not one.
     //
     // Synonym carries the interface. It is a text face, drawn for paragraph
     // sizes, and it stays readable at the 10 and 11px this app is full of.
@@ -53,9 +53,6 @@ export global Theme {
     // dimensions, counts — anything you read as a *value* rather than as
     // language. Its even, mechanical figures suit numbers, and keeping it off
     // the prose is what stops the whole interface reading like a spec sheet.
-    //
-    // The reference spends a third face (Cabinet Grotesk) on display headings.
-    // There is nothing here big enough to need one yet.
     out property <string> font: "Synonym";
     out property <string> font-technical: "Inter";
     /// The scale. `fs` is the body size everything inherits; the two either
@@ -73,10 +70,9 @@ export global Theme {
     // The weights the design actually calls for, uncompensated.
     //
     // Skia composites glyph coverage with gamma correction, so text comes out
-    // at the weight the tokens name — the same as it does in a browser.
-    // FemtoVG does not correct for it and thins small light-on-dark text,
-    // which is what the 500/600 these used to carry was compensating for. Put
-    // those back if you build --features wgpu; leave them alone otherwise, or
+    // at the weight the tokens name. FemtoVG does not correct for it and thins
+    // small light-on-dark text, which a step up to 500/600 compensates for.
+    // Use those if you build --features wgpu; leave them alone otherwise, or
     // the text is over-corrected and reads as too heavy.
     //
     // Weight is the one axis that can absorb a renderer difference without

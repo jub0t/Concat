@@ -5,14 +5,14 @@ import { Theme } from "theme/theme.slint";
 import { Glyph, Icon } from "icons.slint";
 import { AddPaneButton, PaneKind } from "workspace/pane-switcher.slint";
 
-// The custom title bar, ported from the reference's TitleBar.tsx.
+// The custom title bar.
 //
 // On macOS the native traffic lights are overlaid: main.rs hides the real
-// title bar (titlebar_transparent + title_hidden + fullsize_content_view, the
-// winit spelling of Tauri's titleBarStyle: Overlay) and this strip leaves
-// room for the lights on the left. Everything that is not a control is a drag
-// region — the TouchArea at the bottom of the tree starts a native window
-// drag on press, and controls declared after it take their own presses.
+// title bar (titlebar_transparent + title_hidden + fullsize_content_view) and
+// this strip leaves room for the lights on the left. Everything that is not a
+// control is a drag region — the TouchArea at the bottom of the tree starts a
+// native window drag on press, and controls declared after it take their own
+// presses.
 
 component MenuLabel inherits Rectangle {
     in property <string> label;

@@ -3,9 +3,9 @@
 
 //! The wgpu compositor.
 //!
-//! The second implementation of [`Compositor`](crate::Compositor), as decision
-//! 0004 planned: [`CpuCompositor`](crate::CpuCompositor) stays the reference,
-//! and this one exists to be fast. Layers are uploaded as textures, drawn as
+//! The second implementation of [`Compositor`](crate::Compositor):
+//! [`CpuCompositor`](crate::CpuCompositor) stays the reference, and this
+//! one exists to be fast. Layers are uploaded as textures, drawn as
 //! transformed quads into an offscreen target, and read back as a [`Frame`].
 //!
 //! Deliberate parity choices, so the two backends can be diffed:

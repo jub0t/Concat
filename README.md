@@ -20,7 +20,7 @@
 
 ---
 
-<a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=TypeScript" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
+<a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 
 Concat is everything you use CapCut for — without the watermarks, paywalls,
 or subscriptions. A native Rust engine does the heavy lifting, a native
@@ -28,9 +28,9 @@ interface does the editing, and it all runs on your machine: install it and
 start cutting, no account, no extra downloads, no setup.
 
 > [!NOTE]
-> The interface was rebuilt in Slint in September 2026 - one native Rust
-> binary, no web view. It lives in [`engine/crates/concat`](./engine/crates/concat);
-> see [`engine/README.md`](./engine/README.md) for how to build it.
+> Concat is one native Rust binary: the engine and the Slint editor window
+> live together in [`engine/`](./engine). See
+> [`engine/README.md`](./engine/README.md) to build it from source.
 
 ## Highlights
 

@@ -3,17 +3,15 @@
 
 //! Flattening a project document into the exporter's clip list.
 //!
-//! This is the step that used to live in the UI (`lib/monitor.ts`'s
-//! `exportClipsOf`): walking a timeline's clips, resolving their media and
-//! track, folding track state into per-clip flags, and building each clip's
-//! FFmpeg chains from the structured effects the document stores. With it
-//! engine-side, an export is derived from the engine's own model rather
-//! than from whatever a frontend chose to send - the model of record and
-//! the rendered pixels can no longer drift apart.
+//! Walking a timeline's clips, resolving their media and track, folding
+//! track state into per-clip flags, and building each clip's FFmpeg chains
+//! from the structured effects the document stores. An export is derived
+//! from the engine's own model, so the model of record and the rendered
+//! pixels cannot drift apart.
 //!
-//! Text clips are deliberately not flattened here. Titles rasterise in the
-//! frontend (the fonts and layout engine live in the webview) and rejoin
-//! the exporter as plain image clips; see `ExportRequest`'s caller.
+//! Text clips are deliberately not flattened here. Titles rasterise
+//! separately and rejoin the exporter as plain image clips; see
+//! `ExportRequest`'s caller.
 
 use concat_project::model::{ClipKind as ModelClipKind, Project, Timeline};
 
@@ -50,7 +48,7 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     ModelClipKind::Audio => ClipKind::Audio,
                     ModelClipKind::Image => ClipKind::Image,
                     // Filtered above; unreachable spelled as a skip so a new
-                    // kind fails soft, exactly like the TS flattener's cast.
+                    // kind fails soft.
                     ModelClipKind::Text => return None,
                 },
                 start: clip.start,
@@ -72,10 +70,10 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                 opacity: clip.opacity,
                 video_filter_chain: video_effect_chain(&clip.video_effects),
                 // Passed through unconditionally: `resolve_transitions` is
-                // the one adjacency judge (frame/2 tolerance). The TS
-                // flattener pre-filtered with its own 1/60 gate - identical
-                // at 30fps, and where the two differ, resolving is the
-                // kinder read of what the user placed.
+                // the one adjacency judge (frame/2 tolerance). A fixed
+                // 1/60 s gate here would agree at 30fps and disagree at
+                // every other rate; resolving is the kinder read of what
+                // the user placed.
                 transition: clip
                     .transition_in
                     .as_ref()
@@ -208,8 +206,8 @@ mod tests {
             })
             .expect("applies effect");
         let flat = flatten_timeline(editor.project(), None);
-        // The exact string is chains.rs's contract (pinned there and in the
-        // TS fixtures); here only that flattening routes through it.
+        // The exact string is chains.rs's contract, pinned there; here
+        // only that flattening routes through it.
         assert!(
             flat[0].video_filter_chain.contains("color_channel_mixer")
                 || !flat[0].video_filter_chain.is_empty(),

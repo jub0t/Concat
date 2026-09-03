@@ -3,12 +3,10 @@
 
 //! The reader pool and frame cache: random access to any frame of any file.
 //!
-//! Everything before this decoded *forward*: open a decoder, pull frames in
-//! order, drop it. That is exactly right for export and exactly wrong for
-//! interactive use - scrubbing asks for arbitrary (media, time) pairs, and
-//! respawning a process per request is why playback could not exist. This
-//! module is the piece the decision log has called "the next real piece of
-//! work" since the first CLI commit:
+//! A decoder on its own reads *forward*: open it, pull frames in order,
+//! drop it. That is exactly right for export and exactly wrong for
+//! interactive use, where scrubbing asks for arbitrary (media, time) pairs.
+//! This module is the answer:
 //!
 //! - **One reader per (file, size, chain)**, kept warm between requests. A
 //!   request near the reader's current position rolls forward (cheap,
@@ -36,7 +34,7 @@ use crate::probe;
 
 /// How far ahead of a reader's position a request may be and still be worth
 /// decoding forward to, rather than seeking. Two seconds of 30fps material is
-/// sixty decodes - cheaper than a subprocess respawn, comparable to a seek.
+/// sixty decodes - comparable to a seek, and exact.
 const ROLL_FORWARD_FRAMES: i64 = 60;
 
 /// What one pooled frame request asks for.
@@ -560,7 +558,7 @@ mod tests {
 
         // Far past the end - a clip that outlives its media. The last real
         // frame is the answer, not an error: a seek there decodes nothing,
-        // which used to surface as PartialFrame(0 bytes) and a black monitor.
+        // and nothing must not become a zero-byte frame or a black monitor.
         let past_end = red_at(&mut pool, 300);
         assert!(
             near(past_end, 89),

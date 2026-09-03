@@ -135,8 +135,7 @@ export component BezierEditor inherits Rectangle {
     }
 
     // Each handle keeps its own focus scope, so Tab walks the two control
-    // points the way the two <g role="slider"> elements do on the web. They sit
-    // below the drag surface and are focused from it.
+    // points. They sit below the drag surface and are focused from it.
     fs1 := FocusScope {
         x: root.to-x(root.x1) - 12px;
         y: root.to-y(root.y1) - 12px;

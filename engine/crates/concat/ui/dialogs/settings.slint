@@ -8,12 +8,11 @@ import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 
-// Settings, ported from the reference's SettingsDialog: a fixed-height sheet
-// with a column of pages down the side. The model rows take their shape from
-// web/'s transcriber panel, which separates the two things the reference's row
-// conflated — a downloaded model is a *choice* and so behaves as a radio,
-// while an absent one is an *acquisition* and is handled by the button on the
-// right. That distinction is the whole reason the row reads at a glance.
+// Settings: a fixed-height sheet with a column of pages down the side. The
+// model rows keep two things apart — a downloaded model is a *choice* and so
+// behaves as a radio, while an absent one is an *acquisition* and is handled
+// by the button on the right. That distinction is the whole reason the row
+// reads at a glance.
 
 export struct ModelData {
     id: string,

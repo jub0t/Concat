@@ -68,10 +68,9 @@ serde_json.workspace = true
 # the default here is that its text rendering is gamma-correct, not that it is
 # known to be cheaper.
 #
-# Theme.weight-body/weight-title are 400/500 to match: the 500/600 they used to
-# carry compensated for FemtoVG compositing glyph coverage without gamma
-# correction. Put them back if you build --features wgpu, or the text will be
-# too light there.
+# Theme.weight-body/weight-title are 400/500 to match. FemtoVG composites
+# glyph coverage without gamma correction, which 500/600 compensates for, so
+# use those if you build --features wgpu, or the text will be too light there.
 #
 # FemtoVG over wgpu rather than over OpenGL: same renderer, native graphics
 # API underneath - Metal on macOS, D3D12 on Windows, Vulkan on Linux -

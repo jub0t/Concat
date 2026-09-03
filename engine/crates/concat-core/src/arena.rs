@@ -5,8 +5,7 @@
 //!
 //! Editor data is a graph - clips reference media, effects reference clips,
 //! nodes reference nodes - and Concat models that with handles into an arena
-//! rather than with pointers. See
-//! `docs/decisions/0003-arena-handles-not-pointers.md` for why.
+//! rather than with pointers.
 //!
 //! The short version: [`Id`] is `Copy`, `Eq` and `Hash`, so it goes into undo
 //! records and across threads without ceremony, and the generation counter

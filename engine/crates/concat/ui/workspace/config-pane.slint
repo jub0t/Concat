@@ -13,15 +13,12 @@ import {
     ClipField, ClipKind, ClipTextField, SelectedClipData,
 } from "../timeline/model.slint";
 
-// The inspector column, in the legacy app's two states:
+// The inspector column, in its two states:
 //
 // - Nothing selected: the Details panel — the project's facts, read-only,
 //   with Modify pinned to the foot.
-// - Something selected: the clip inspector — Adjust, Filters, Effects —
-//   ported from web/src/demo/inspector. The custom-primitives demo panels
-//   that used to live here were design inspiration, not something the legacy
-//   app carried, so they are gone from the pane (the primitives they proved
-//   out live on underneath these controls).
+// - Something selected: the clip inspector — Adjust, Filters and Effects,
+//   or Text alone for a title.
 
 // One fact: muted label left, value right. The value wraps rather than
 // elides — a folder path you cannot read is a path you have to go find.
@@ -143,13 +140,12 @@ export component ConfigPane inherits Rectangle {
     callback effects-remove(index: int);
     callback effects-set-param(index: int, second: bool, value: float);
 
-    // The tab strip follows the selection, exactly as the reference's
-    // RightPanel does: nothing selected shows only Details, since there is
-    // nothing to edit; a media clip shows what can be changed and what can be
-    // added; a still gets Effects but not Filters, because it has picture and
-    // no sound; and a title gets Text alone — it has no volume, no speed and
-    // no audio filters, and offering those tabs would be offering panels that
-    // can only say "nothing here".
+    // The tab strip follows the selection: nothing selected shows only
+    // Details, since there is nothing to edit; a media clip shows what can be
+    // changed and what can be added; a still gets Effects but not Filters,
+    // because it has picture and no sound; and a title gets Text alone — it
+    // has no volume, no speed and no audio filters, and offering those tabs
+    // would be offering panels that can only say "nothing here".
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
     /// A filter layer gets its own lone tab for the same reason a title does:

@@ -6,8 +6,7 @@ import { Fmt } from "../util.slint";
 
 // Audio level meter. The green/amber/red ramp is painted at full length and
 // revealed by a clipping window, so a colour always means the same level
-// regardless of how far the bar has filled — the same trick the web version
-// plays with clip-path.
+// regardless of how far the bar has filled.
 //
 // The root takes whatever the row gives it and the track is drawn `thickness`
 // across, centred inside it. Pinning the root itself would need a binding that

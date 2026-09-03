@@ -7,13 +7,9 @@ import { HairlineSplitter } from "splitter.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
-// sidebar and the browsing area beside it. Ported from the reference editor's
-// MediaBin, which is one 1100-line React file; this is the Media page of it.
-//
-// The other four pages (Text, Transitions, Effects, Templates) are chrome
-// here and nothing else — each browses a catalogue that has no counterpart in
-// this tree yet, so the tab exists, switches, and says so. Porting one of them
-// is porting its catalogue, which is a separate panel's worth of work.
+// sidebar and the browsing area beside it. Media is the bin; Text adds a
+// title; Transitions, Effects and Filters each browse a catalogue; Templates
+// saves the project as one.
 
 export enum MediaKind { video, audio, image }
 
@@ -55,10 +51,10 @@ component LibraryTab inherits Rectangle {
     // child's own preferred width, which is the same rule.
     horizontal-stretch: 1;
     border-radius: Theme.r-sm;
-    // The current page is a chip lifted out of the track. The reference lifts
-    // it with a shadow as well as a fill; Slint has no box-shadow, so the
-    // value step carries it alone — which is why this is `field` and not the
-    // lighter `field-hover`, whose job is to answer the pointer.
+    // The current page is a chip lifted out of the track. Slint has no
+    // box-shadow, so the value step carries the lift alone — which is why this
+    // is `field` and not the lighter `field-hover`, whose job is to answer the
+    // pointer.
     background: root.current ? Theme.field : Colors.transparent;
 
     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
@@ -151,9 +147,8 @@ component CategoryHeading inherits Rectangle {
 
 component CategoryRow inherits Rectangle {
     in property <string> label;
-    /// -1 hides the count entirely, which is what an undefined count means in
-    /// the reference; 0 shows nothing either, since an empty bin needs no
-    /// zero beside every row to say so.
+    /// -1 hides the count entirely; 0 shows nothing either, since an empty
+    /// bin needs no zero beside every row to say so.
     in property <int> count: -1;
     in property <bool> current;
 
@@ -232,13 +227,13 @@ component ImportButton inherits Rectangle {
     /// A dash and the gap after it, in pixels — the rhythm the whole outline
     /// is cut to.
     ///
-    /// Derived from it rather than fixed: the counts used to be constants, 14
-    /// across and 3 down, so the pitch was whatever the button's width made
-    /// it. On a 300px button that is a 4px gap every 20px across and a 3.7px
+    /// The counts are derived from it rather than fixed. Fixed counts, say 14
+    /// across and 3 down, make the pitch whatever the button's width makes
+    /// it: on a 300px button that is a 4px gap every 20px across and a 3.7px
     /// gap every 7.3px down — two different dashed lines meeting at the
-    /// corners, which is what made the outline read as a mistake rather than
-    /// as a style. Counting instead of spacing puts both axes on one rhythm,
-    /// and the rounding spreads the remainder evenly over the run rather than
+    /// corners, which makes the outline read as a mistake rather than as a
+    /// style. Counting instead of spacing puts both axes on one rhythm, and
+    /// the rounding spreads the remainder evenly over the run rather than
     /// leaving it all at one end.
     property <length> pitch: 8px;
     property <int> dashes-h: Math.max(1, Math.round(root.run-h / root.pitch));
@@ -352,10 +347,10 @@ component MediaCard inherits Rectangle {
     /// modifier state at the moment of the press — `clicked` does not carry it
     property <bool> additive;
 
-    // The whole card is the drag handle, the way it is in the reference:
-    // dragging one onto the timeline is how material gets into an edit. The
-    // DragArea only intercepts once the press has travelled far enough to be a
-    // drag, so the TouchArea inside keeps its click and its double-click.
+    // The whole card is the drag handle: dragging one onto the timeline is
+    // how material gets into an edit. The DragArea only intercepts once the
+    // press has travelled far enough to be a drag, so the TouchArea inside
+    // keeps its click and its double-click.
     drag := DragArea {
         // Copy, not move: the bin keeps the file. A DragArea whose data is
         // empty never starts a drag, which is the whole of the opt-out.
@@ -449,8 +444,8 @@ component MediaCard inherits Rectangle {
                     tint: root.mark.with-alpha(0.32);
                 }
 
-                // No corner kind badge, on purpose: web/'s bin relies on what the
-                // artwork already says — footage carries a duration stamp, audio
+                // No corner kind badge, on purpose: the artwork already says
+                // what kind a card is — footage carries a duration stamp, audio
                 // is a waveform, a still says "still" — so a badge would repeat
                 // information the card gives away at a glance.
 
@@ -476,9 +471,8 @@ component MediaCard inherits Rectangle {
                     }
                 }
 
-                // Hover-only, like the reference: a permanent delete button on
-                // every card in a full bin is one bin's worth of invitations to
-                // lose work.
+                // Hover-only: a permanent delete button on every card in a
+                // full bin is one bin's worth of invitations to lose work.
                 if card.has-hover: Rectangle {
                     x: parent.width - self.width - 4px;
                     y: 4px;
@@ -567,12 +561,12 @@ component MediaGrid inherits Rectangle {
 
     height: Math.max(root.cards-h, root.page-floor);
 
-    // Which cards a band's edges touch. The reference asks every card for its
-    // rect and tests them one by one; the grid here is arithmetic, so the
-    // question inverts — an edge maps straight to a column, and the four
-    // answers are the block. The tests are the reference's, strict on both
-    // sides (`left < right && right > left`), so a band that stops exactly on
-    // a gutter catches neither of the cards it runs between.
+    // Which cards a band's edges touch. The grid is arithmetic, so there is no
+    // need to ask every card for its rect and test them one by one: an edge
+    // maps straight to a column, and the four answers are the block. The
+    // tests are strict on both sides (`left < right && right > left`), so a
+    // band that stops exactly on a gutter catches neither of the cards it
+    // runs between.
     pure function first-col(edge: length) -> int {
         return Math.max(0, Math.floor((edge - root.card-w) / root.col-pitch) + 1);
     }
@@ -586,16 +580,16 @@ component MediaGrid inherits Rectangle {
         return Math.min(root.rows - 1, Math.ceil(edge / root.row-pitch) - 1);
     }
 
-    // Pressing the background drags a selection band, the way pressing empty
-    // space in the reference's grid does. Declared first, so the cards take
-    // their own presses and what is left to press is the gutter between them.
+    // Pressing the background drags a selection band. Declared first, so the
+    // cards take their own presses and what is left to press is the gutter
+    // between them.
     //
     // Committed on release rather than as it sweeps — the timeline's band is
     // the same gesture in the same window and does the same, for the reason
     // written there: selecting live looks busy and makes a mistaken sweep hard
     // to back out of. It also keeps the bin off the pointer-rate path, which
-    // it has no cheap publish for; the reference re-derives on every move
-    // because a React list can afford to.
+    // it has no cheap publish for: re-deriving the selection on every move
+    // would mean republishing the whole list at pointer rate.
     //
     // A press that never moves closes an empty band, which is a click on empty
     // space and clears the selection — the same event doing the same job, so
@@ -677,14 +671,14 @@ component MediaGrid inherits Rectangle {
 // ── the catalogue pages ──────────────────────────────────────────────────────
 
 // One entry of the transitions or effects catalogue. Display data only: the
-// id is what Rust is handed when a card is applied, mirroring lib/effects.ts
-// in the reference, where ids are forever because project files store them.
+// id is what Rust is handed when a card is applied, and ids are stable
+// forever because project files store them.
 struct CatalogueItemData {
     id: string,
     label: string,
-    /// False keeps the card browsable with a "Soon" badge — the reference's
-    /// honest version of a disabled control, used by the motion transitions
-    /// the engine cannot animate yet.
+    /// False keeps the card browsable with a "Soon" badge, the honest version
+    /// of a disabled control, used by the motion transitions the engine does
+    /// not animate.
     enabled: bool,
     /// The rendered preview, for effects; empty for transitions and filters,
     /// whose tiles carry a mark on a sunken ground instead.
@@ -1019,11 +1013,10 @@ export component MediaPane inherits Rectangle {
     property <length> sidebar: Math.max(0px,
         Math.min(root.sidebar-w, root.width / 2));
 
-    // The catalogues, mirrored from lib/effects.ts in the reference: same ids
-    // (they are written into project files there — pick them like you mean
-    // them), same labels, same category split. The effect artwork is the
-    // reference's own rendered previews, each effect's real FFmpeg chain run
-    // over one source still.
+    // The catalogues. The ids are written into project files, so they are
+    // stable forever - pick them like you mean them. The effect artwork is a
+    // rendered preview, each effect's real FFmpeg chain run over one source
+    // still.
     property <[CatalogueItemData]> transitions-basic: [
         { id: "cross-fade", label: "Cross Fade", enabled: true, glyph: Glyph.transition },
         { id: "fade-black", label: "Fade to Black", enabled: true, glyph: Glyph.transition },
@@ -1036,10 +1029,11 @@ export component MediaPane inherits Rectangle {
         { id: "zoom", label: "Zoom", enabled: false, glyph: Glyph.transition },
     ];
 
-    // The audio filters, mirroring PresetCatalog.filters in the inspector —
-    // same ids, same shelves. They have no artwork and never will: a picture
-    // of a sound is a waveform, and every one of these would draw the same
-    // one. The mark says "this is audio" and the name does the rest.
+    // The audio filters: the same ids and the same shelves as
+    // PresetCatalog.filters in the inspector. They have no artwork and never
+    // will: a picture of a sound is a waveform, and every one of these would
+    // draw the same one. The mark says "this is audio" and the name does the
+    // rest.
     property <[CatalogueItemData]> filters-voice: [
         { id: "sweet", label: "Sweet", enabled: true, glyph: Glyph.waveform },
         { id: "deep", label: "Deep", enabled: true, glyph: Glyph.waveform },
@@ -1131,12 +1125,10 @@ export component MediaPane inherits Rectangle {
 
                 // A sunken track and nothing else. No border: this sits
                 // inside a pane that is already outlined, and a second rule
-                // 8px in from the first reads as a box in a box. The
-                // reference draws it the same way — `rounded-lg bg-sunken
-                // p-0.5`, no border — which is what separates it from
-                // `SegmentedControl`, where the border is doing real work
-                // because that control sits loose in a form row with nothing
-                // else to bound it.
+                // 8px in from the first reads as a box in a box. That is what
+                // separates it from `SegmentedControl`, where the border is
+                // doing real work because that control sits loose in a form
+                // row with nothing else to bound it.
                 Rectangle {
                     background: Theme.well;
                     border-radius: Theme.r;
@@ -1564,10 +1556,8 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                // Templates: the save affordance, then the gallery — which is
-                // engine-backed in the reference (templateList), and nothing
-                // in this tree persists projects yet, so the gallery is its
-                // empty state until that seam exists.
+                // Templates: the save affordance, then the gallery of saved
+                // templates, which shows its empty state until one is saved.
                 if root.tab == 5: HorizontalLayout {
                     padding: 8px;
 

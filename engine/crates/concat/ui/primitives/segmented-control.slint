@@ -6,9 +6,8 @@ import { FocusRing } from "focus-ring.slint";
 
 // Single-select tab row with a thumb that slides to the active segment.
 //
-// The React version measures each button to place the thumb because the
-// segments are `flex: 1 1 0`. Slint lays them out from the same rule, so the
-// geometry is computed directly instead of observed.
+// The segments share the width equally, so the thumb's geometry is computed
+// from the count rather than measured from the buttons.
 export component SegmentedControl inherits Rectangle {
     in property <[string]> options;
     in-out property <int> current;

@@ -8,16 +8,14 @@
 //! ([`doc`]), and the undo stack ([`editor::Editor`]) - all headless, all
 //! testable without a window.
 //!
-//! The semantics began as clamp-for-clamp ports of the UI's provisional
-//! `lib/project.ts`, which is deleted (decision 0007); the migration framing
-//! that used to live here is history. What survives it, deliberately:
+//! Two rules hold throughout:
 //!
 //! 1. **The document format is frozen by the documents that exist.** Saved
-//!    projects load forever, tolerance rules included - not because a TS
-//!    twin must agree, but because users' work does not migrate on our
-//!    schedule. Format changes go through `DOCUMENT_VERSION`.
+//!    projects load forever, tolerance rules included, because users' work
+//!    does not migrate on our schedule. Format changes go through
+//!    `DOCUMENT_VERSION`.
 //! 2. **f64 seconds and String ids are the document's terms**, kept until a
-//!    version 2 decides otherwise on purpose - not an accident of porting.
+//!    version 2 decides otherwise on purpose.
 //!
 //! Deliberately a separate crate rather than part of `concat-core`: the
 //! document model needs serde, and concat-core's zero-dependency rule is worth
@@ -288,12 +286,11 @@ mod tests {
     }
 
     #[test]
-    fn a_typescript_written_document_loads() {
-        // The exact shape the deleted TS persist layer used to write,
-        // optional fields omitted the way JSON.stringify drops undefined -
-        // documents like this exist on disk and must load forever.
+    fn a_version_one_document_loads() {
+        // The shape of a version-1 document as it sits on disk, optional
+        // fields omitted - documents like this exist and must load forever.
         let document = json!({
-            "concat": "0.1.0", "version": 1, "name": "TS",
+            "concat": "0.1.0", "version": 1, "name": "v1",
             "video": { "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1 },
             "media": [{ "id": "m1", "path": "/a.mp4", "name": "a.mp4", "duration": 10.0,
                         "kind": "video", "width": 1920, "height": 1080, "frameRate": 30.0,
@@ -355,8 +352,8 @@ mod tests {
 
     #[test]
     fn commands_arrive_in_camel_case() {
-        // The wire format the UI speaks. A snake_case field here means the
-        // TypeScript side silently sends values serde never sees.
+        // The format the window speaks. A snake_case field here means a
+        // caller silently sends values serde never sees.
         let command: Command = serde_json::from_value(json!({
             "op": "addClip", "mediaId": "m1", "trackId": "T1", "start": 2.0
         }))
@@ -678,7 +675,7 @@ mod tests {
     #[test]
     fn moves_to_a_vanished_track_keep_the_time_change_and_drop_the_track_change() {
         // Pinned deliberately: a drag that races a track deletion still
-        // lands its horizontal half, exactly as the TS operation tolerated.
+        // lands its horizontal half.
         let (mut editor, _, clip_id) = fixture();
         let outcome = editor
             .apply(Command::MoveClips {

@@ -3,18 +3,16 @@
 
 import { Theme } from "../theme/theme.slint";
 
-// The thin scrollbar, ported from the reference's `thin-scroll` utility.
+// The thin scrollbar.
 //
-// Its whole shape is in four declarations there: an 8px gutter, a transparent
-// track, no buttons and no corner, and a thumb in `hairline-strong` that is
-// fully rounded and inset with `border: 2px solid transparent` plus
-// `background-clip: content-box` — which is the CSS way of saying the visible
-// thumb is 4px wide and centred in a gutter twice that. So the gutter is a hit
+// An 8px gutter with a transparent track, no buttons and no corner, and a
+// fully rounded thumb in `line-strong`, inset 2px on every side so the visible
+// thumb is 4px wide and centred in a gutter twice that. The gutter is a hit
 // target and the mark inside it is small enough to sit over content without
 // ever being mistaken for it.
 //
-// It is a control, not an indicator: the reference's is a real scrollbar and
-// can be dragged, and a bar that looks grabbable and is not is worse than none.
+// It is a control, not an indicator: it can be dragged, and a bar that looks
+// grabbable and is not is worse than none.
 export component ThinScrollbar inherits Rectangle {
     /// visible extent of the thing being scrolled
     in property <length> viewport;

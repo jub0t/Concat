@@ -6,13 +6,12 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
 
-// The export dialog, ported from the reference's ExportDialog and dressed with
-// web/'s export panel.
+// The export dialog.
 //
-// The reference states the format, asks where the file goes, offers three
-// quality presets and starts. web/ puts the deciding number *on* each preset —
-// what the file will actually weigh — which is the thing the choice hinges on
-// and was otherwise nowhere. That is the borrowing.
+// It states the format, asks where the file goes, offers three quality
+// presets and starts. The deciding number sits *on* each preset — what the
+// file will actually weigh — because that is the thing the choice hinges on,
+// and it belongs where the choice is made.
 
 export enum ExportPhase { idle, running, done, failed }
 
@@ -52,8 +51,8 @@ export struct ExportData {
 //
 // The block is a rounded rectangle in the hairline colour with 1px gaps
 // between its rows, so the separators are the ground showing through rather
-// than lines drawn on top — which is how web/ builds it, and why the rules
-// stop exactly at the rounded corners instead of running into them.
+// than lines drawn on top — which is why the rules stop exactly at the rounded
+// corners instead of running into them.
 component Fact inherits Rectangle {
     in property <string> label;
     in property <string> value;

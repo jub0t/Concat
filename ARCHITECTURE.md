@@ -1,11 +1,8 @@
 # Concat Architecture
 
-A study map of the system as it stands in September 2026, written just after
-two large moves: the user interface left Tauri + React for Slint, and the
-engine stopped spawning `ffmpeg`, `ffprobe` and `whisper-cli` in favour of
-linking FFmpeg and compiling whisper.cpp in. What each layer owns, how they
-talk, where the sharp edges are, and what deserves attention next. File
-references are current as of this writing.
+A study map of the system as it stands in September 2026: what each layer
+owns, how they talk, where the sharp edges are, and what deserves attention
+next. File references are current as of this writing.
 
 ---
 
@@ -41,19 +38,15 @@ flowchart LR
 **The rule (engine doctrine):** everything important lives in the engine
 crates. The window renders state and issues commands; the host layer is
 plumbing between the two. The engine owns the project model, the undo
-history, the render path, the document format, and now the codecs. When a
-feature is being designed, the first question is still "which engine crate
-does this belong to".
+history, the render path, the document format, and the codecs. When a
+feature is being designed, the first question is "which engine crate does
+this belong to".
 
-What changed since the Tauri days is that the rule no longer has to survive a
-wire. There is no IPC, no JSON boundary, no second language: the window calls
-Rust functions in-process. Two of the previous architecture's largest debts -
-the hand-maintained TypeScript mirror of the FFmpeg filter catalogue, and the
-UI re-deriving "what is on screen" in parallel with the engine's flattener -
-ceased to exist with the language they were written in. The remaining risk is
-the opposite one: with no boundary, editing logic can leak into the window
-without anyone noticing. The test for a change is whether it could be driven
-from `concat-cli` without a window; if not, it is in the wrong place.
+There is no wire, no JSON boundary, no second language: the window calls
+Rust functions in-process. The rule therefore has nothing to enforce it but
+discipline, and the risk is that editing logic leaks into the window without
+anyone noticing. The test for a change is whether it could be driven from
+`concat-cli` without a window; if not, it is in the wrong place.
 
 The dependency arrows point one way:
 
@@ -82,7 +75,7 @@ rendering. `concat-media` is the only crate that knows FFmpeg exists.
 ## 2. The edit loop
 
 The engine owns the project; the window never keeps a model of its own. Every
-edit round-trips, now as a function call:
+edit round-trips as a function call:
 
 ```mermaid
 sequenceDiagram
@@ -97,16 +90,16 @@ sequenceDiagram
     W->>W: republish the Slint models from the Project
 ```
 
-Key properties, unchanged in substance from the Tauri architecture:
+Key properties:
 
 - **One session, one thread.** `Session` is a plain struct owned by the
   window's event-loop thread. There is no mutex around the edit because there
   is no second caller; long work (saves, probes, renders, decodes) takes what
   it needs *out* of the session first and runs on its own thread.
 - **Gestures commit once.** A drag must not send a command per pixel. The
-  Tauri UI previewed gestures locally ("echo") and committed one command on
-  release, so undo undoes the drag. The Slint window's demo model does the
-  same thing in its `Gesture` state machine; that shape survives the wiring.
+  window previews a gesture on an echo (a clone of the project the pointer
+  mutates) and commits one command on release, so undo undoes the drag.
+  That is the `Gesture` state machine in `studio.rs`.
 - **Undo lives in the engine** - a bounded history of full `Project` clones
   (depth 200), not command inversion.
 - **Saving is one code path.** `Session::prepare_save` hands back the folder
@@ -119,32 +112,30 @@ Key properties, unchanged in substance from the Tauri architecture:
 
 ---
 
-## 3. Media: linked, not spawned
+## 3. Media
 
-`concat-media` used to pipe raw RGBA out of an `ffmpeg` child process and
-parse `ffprobe`'s JSON. It now calls the libraries. What that bought, and
-what it cost:
+`concat-media` links the FFmpeg libraries and calls them directly. What that
+gives, and what it costs:
 
 - **Every frame carries its real presentation timestamp**, so variable
-  frame-rate material no longer drifts through a pipe that had no
-  timestamps at all.
+  frame-rate material stays in sync with the timeline.
 - **Seeks are frame-accurate**: the container lands on the keyframe before
   the target and the decoder discards up to it. The reader pool's "roll
-  forward or seek" policy is now guided by timestamps rather than by counting
+  forward or seek" policy is guided by timestamps rather than by counting
   frames ordinally.
 - **Rotation is honoured**: portrait phone footage is turned the way every
   player turns it, by reading the display matrix off the codec parameters
-  (where FFmpeg 7 moved it) and inserting the same `transpose`/`hflip,vflip`
-  ffmpeg's own autorotate would.
+  (where FFmpeg 7 keeps it) and inserting the same `transpose`/`hflip,vflip`
+  FFmpeg's own autorotate would.
 - **A build needs the FFmpeg development libraries.** `ffmpeg-the-third`
   binds them at build time with bindgen, so a build machine needs headers,
   import libraries and libclang. Homebrew serves on macOS; Windows and older
-  Linux distributions use a BtbN `shared` build via `FFMPEG_DIR`. This is the
-  price of the move and it is paid in CI configuration, not in code.
+  Linux distributions use a BtbN `shared` build via `FFMPEG_DIR`. The price
+  is paid in CI configuration, not in code.
 
 ### 3.1 The video decoder
 
-`decode::Decoder` does in one place what the subprocess did with flags:
+`decode::Decoder` does everything in one place:
 
 ```
 container seek (keyframe) → discard frames before `start`
@@ -185,22 +176,21 @@ renders.
 - `encode::Encoder` is libx264 through libavcodec, RGBA → yuv420p through
   libswscale, into an MP4 with `+faststart`. `encode::jpeg` is the same
   machinery with the MJPEG encoder, for posters.
-- `audio::mix_to_file` parses the same `filter_complex` string
-  `audio::mix_graph` always produced - the pure, unit-tested planner is
-  untouched - into a libavfilter graph with one `abuffer` per clip bound to
-  the `[N:a]` labels, an `aformat` landing on the AAC encoder's format, and
-  an `abuffersink` sized to the encoder's frame. Inputs are fed round-robin
-  and the sink drained after every push, so no input runs ahead by more than
-  a frame.
+- `audio::mix_to_file` parses the `filter_complex` string the pure,
+  unit-tested `audio::mix_graph` planner produces into a libavfilter graph
+  with one `abuffer` per clip bound to the `[N:a]` labels, an `aformat`
+  landing on the AAC encoder's format, and an `abuffersink` sized to the
+  encoder's frame. Inputs are fed round-robin and the sink drained after
+  every push, so no input runs ahead by more than a frame.
 - `audio::mux` copies the encoded streams into the final container,
   stopping at the shorter one.
 
 ### 3.4 The reader pool
 
-Unchanged in purpose: one warm decoder per (file, size, chain), a
-byte-budgeted LRU of decoded frames in front, "roll forward if the target is
-close ahead, seek otherwise". The two backends it used to switch between
-(linked when available, pipe otherwise) collapsed into one.
+One warm decoder per (file, size, chain), a byte-budgeted LRU of decoded
+frames in front, "roll forward if the target is close ahead, seek
+otherwise". Export does not use it: export decodes every frame exactly once
+in order, and a cache in that path is pure overhead.
 
 ---
 
@@ -238,7 +228,7 @@ flowchart TB
 
 ## 5. Export
 
-Hybrid pipeline in `concat-export`, unchanged in shape:
+Hybrid pipeline in `concat-export`:
 
 - **Picture:** flattened timeline → per-frame composition in-process (CPU or
   wgpu) → the linked H.264 encoder.
@@ -271,12 +261,11 @@ Hybrid pipeline in `concat-export`, unchanged in shape:
 
 ## 7. The window
 
-`engine/crates/concat` is the Slint tree ported from the wc-ui-rnd research
-repository: 14.9k lines of `.slint` across the workspace (dockable seats
-holding four views), the timeline (lanes, tabs, track headers, tray), the
-inspector, the media bin, the launch screen, the export and settings sheets,
-menus, tooltips, toasts, and the primitives under them. Fonts and effect
-previews are embedded in the binary.
+`engine/crates/concat` is 14.9k lines of `.slint` across the workspace
+(dockable seats holding four views), the timeline (lanes, tabs, track
+headers, tray), the inspector, the media bin, the launch screen, the export
+and settings sheets, menus, tooltips, toasts, and the primitives under them.
+Fonts and effect previews are embedded in the binary.
 
 The Rust side is small and split by what it owns:
 
@@ -301,68 +290,62 @@ Two mechanisms carry the whole design:
 
 ---
 
-## 8. Footguns and technical debt
+## 8. Sharp edges and the work plan
 
-The honest list, ordered by how much they matter. Nothing here is on fire,
-but several are traps for a contributor who does not know the invariant.
+Ordered by how much each matters. Every item is a trap for a contributor who
+does not know the invariant, or a piece of work with a known shape.
 
-### 8.1 The window is newly wired (highest priority)
+### 8.1 Put a real project through every flow in the window
 
-The wiring landed in one pass and has had one afternoon of use. Known from
-that afternoon: the clip context menu's actions did not take effect in one
-report, timeline clips draw no filmstrip (only audio clips draw their
-waveform; `lanes.slint` still has the slot the reference tiled a filmstrip
-into), and the monitor's failures used to be swallowed - they now log to
-stderr and toast once. Expect more of this: every flow in §7 needs a real
-project put through it, and the window has no tests of its own.
+Every flow in §7 needs a real project put through it, and the window has no
+tests of its own. Known items: the clip context menu's actions did not take
+effect in one report; timeline clips draw no filmstrip (audio clips draw
+their waveform, and `lanes.slint` has the slot); the monitor's failures log
+to stderr and toast once. The durable fix is a headless harness that drives
+`Studio` against a `Session` without a window and snapshots what it
+publishes, so this class of bug is caught by a test.
 
-### 8.2 Title clips have no rasteriser
+### 8.2 Title clips need a rasteriser in the engine
 
-The earlier web-based UI rasterised text clips to PNGs in the browser and
-shipped them into the export as image clips - `ExportRequest` still expects
-titles that way. Nothing in the Rust tree draws text into a `Frame`.
-This needs a text rasteriser (a `cosmic-text`/`fontdue`-shaped crate against
-the embedded Inter and Synonym faces) in the engine, so titles render
-identically in the monitor and the export. Until then, text clips are
-timeline objects with no picture.
+`ExportRequest` takes rasterised titles as image clips, and nothing in the
+tree draws text into a `Frame`. The work is a text rasteriser (a
+`cosmic-text`/`fontdue`-shaped crate against the embedded Inter and Synonym
+faces) in the engine, so titles render identically in the monitor and the
+export.
 
-### 8.3 The decoder's pacing changed semantics slightly
+### 8.3 Fades count output frames
 
-The subprocess applied `-r` (output pacing) after `-vf` (the effect chain),
-so a `fade` in a chain counted *source* frames. `Decoder` runs the chain on
-each *paced* output frame, so fades count output frames - which is what
-`resolve_transitions` assumes when it computes `nb_frames` at the output
-rate, and arguably more correct. Nobody has yet compared an exported dissolve
-frame-for-frame against the old build. Do that before trusting it.
+`Decoder` runs a clip's chain on each *paced* output frame, so a `fade` in a
+chain counts output frames - which is what `resolve_transitions` assumes when
+it computes `nb_frames` at the output rate. Compare an exported dissolve
+frame for frame against an `ffmpeg` command-line render of the same graph
+before trusting it.
 
 ### 8.4 Lock discipline in `playback.rs`
 
-Carried over unchanged: 28 `unwrap`/`expect` sites across four kinds of
-threads (mix callback, transport, decode workers, cache sweep). One panic in
-a decode worker poisons a mutex and cascades. Pick one poison policy
-(probably: clear the poisoned state and carry on, since every cache here is
-rebuildable) and apply it once.
+28 `unwrap`/`expect` sites across four kinds of threads (mix callback,
+transport, decode workers, cache sweep). One panic in a decode worker poisons
+a mutex and cascades. Pick one poison policy (probably: clear the poisoned
+state and carry on, since every cache here is rebuildable) and apply it once.
 
 ### 8.5 Unbounded growth
 
 - `redo: Vec<Project>` in `concat-project`'s editor has **no cap** (undo is
   capped at 200); each entry is a deep clone of the whole project.
-- The reader pool's cache is bounded; the window's own image cache (once
-  wired) needs a bound too, or a long session of filmstrips accumulates
-  textures. Filmstrips are now raw RGBA `Frame`s with no disk cache (the old
-  JPEG cache went with the subprocess); posters are still cached as JPEG.
+- The reader pool's cache is bounded; the window's image cache for filmstrips
+  needs a bound too, or a long session accumulates textures. Filmstrips are
+  raw RGBA `Frame`s with no disk cache; posters are cached as JPEG.
 
 ### 8.6 The mix has no end-to-end test
 
 `mix_graph` is pinned by a dozen unit tests, and the export loop has tests
 that render synthetic video; `mix_to_file` and `mux` are exercised by no
-test with real audio; the integration test that covered the old subprocess
-path went with the host it lived in. Write the replacement against a
-generated tone before anything else touches the audio path.
+test with real audio. Write one against a generated tone before anything
+else touches the audio path.
 
-### 8.7 Build-environment fragility
+### 8.7 Build environment
 
-- FFmpeg 7 is the floor (the display matrix moved to `coded_side_data` in
+- FFmpeg 7 is the floor (the display matrix lives in `coded_side_data` from
   7.0; the code reads it there). Ubuntu 24.04 ships 6.1, hence the BtbN
   download in CI. A contributor with a distribution FFmpeg older than 7 gets
   a compile error deep in the bindings, not a message.
@@ -370,16 +353,16 @@ generated tone before anything else touches the audio path.
   sys` downloads prebuilt static libraries at build time. A clean build needs
   the network twice (three times counting `skia-bindings`) and several
   minutes. The workspace lock resolves 746 crates.
-- The workflows (`ci.yml`, `build-app.yml`, `release.yml`) were rewritten
-  for all of this and have not yet run green on all three platforms. Windows in particular
-  (libclang via chocolatey, `FFMPEG_DIR`, MSVC for whisper.cpp) is untested.
+- The workflows (`ci.yml`, `build-app.yml`, `release.yml`) have to be run
+  green on all three platforms. Windows (libclang via chocolatey,
+  `FFMPEG_DIR`, MSVC for whisper.cpp) is the one to watch.
 
-### 8.8 Shapes left over from the wire
+### 8.8 DTO shapes in the export path
 
-`ExportClip`, `ExportRequest` and `PreviewFrameRequest` are wire types
-shaped for JSON; with no wire, `concat-export` could take the engine's
-`Project` and settings directly and drop the flattening-through-a-DTO. The
-`serde` derives on the host's view types are the same vestige.
+`ExportClip`, `ExportRequest` and `PreviewFrameRequest` are JSON-shaped
+DTOs. `concat-export` could take the engine's `Project` and settings
+directly and drop the flattening-through-a-DTO; the `serde` derives on the
+host's view types go with them.
 
 ### 8.9 Panics in runtime paths
 
@@ -393,13 +376,8 @@ tests, which is fine.
 
 - **Zero TODO/FIXME/HACK comments** in the tree. Invariants live in prose
   comments instead; keep it that way.
-- Comments in `concat/ui/*.slint` still cite `web/` (the React reference in
-  the wc-ui-rnd repository) and `desktop/` (the earlier app, deleted). They
-  are history, not pointers; rewrite them as the files are touched.
-- Code comments still cite `docs/decisions/…` paths deleted long ago. Either
-  restore the records or strip the references.
-- `cargo fmt --check` is not clean across the older crates and is not
-  enforced in CI; the new crates are formatted. Decide whether to enforce it.
+- `cargo fmt --check` is not enforced in CI. Run it across the workspace
+  once and add it to `ci.yml`.
 
 ---
 
@@ -431,5 +409,5 @@ variable frame rate, and odd containers are the cases most likely to bite.
 5. **Cap the redo stack** (§8.5) - a small patch, a real leak.
 6. **Green CI on all three platforms** (§8.7), then package the window and
    restore automatic alpha releases.
-7. **Frame-for-frame compare an exported dissolve** against a build from
-   before the FFI move (§8.3).
+7. **Frame-for-frame compare an exported dissolve** against an `ffmpeg`
+   command-line render (§8.3).

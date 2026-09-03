@@ -10,8 +10,8 @@
 //!    testable, and identical for the CPU and GPU backends.
 //! 2. [`compositor`] takes that plan plus the decoded pixels and blends them.
 //!
-//! Only step 2 is backend-specific. See
-//! `docs/decisions/0004-cpu-compositor-first.md`.
+//! Only step 2 is backend-specific. The CPU compositor is the reference
+//! implementation; the GPU one exists to be fast and must match it.
 
 pub mod compositor;
 #[cfg(feature = "gpu")]

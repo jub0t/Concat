@@ -12,7 +12,7 @@ import {
     ClipField, ClipTextField, SelectedClipData, TextAlignment,
 } from "../timeline/model.slint";
 
-// The Text tab, ported from the reference's TextPanel.tsx.
+// The Text tab.
 //
 // A title is the one thing on the timeline that is not a file, so it gets its
 // own inspector and nothing else: no volume, no speed, no audio filters.
@@ -24,9 +24,7 @@ import {
 // should not move when the project is exported at 4K.
 export component TextPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
-    /// The faces this build has. The reference also imports custom fonts from
-    /// disk, which needs a file picker this crate does not have — so the list
-    /// is what is bundled, and the add-a-font flow is the gap.
+    /// The faces this build bundles.
     in property <[string]> families: ["Inter", "Synonym"];
 
     callback set(field: ClipField, value: float);

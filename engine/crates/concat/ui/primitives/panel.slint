@@ -54,10 +54,9 @@ export component PanelHeader inherits Rectangle {
 
 // A titled group of rows, separated from its neighbours by a hairline.
 //
-// React passes the header actions and the body as two props; a Slint component
-// has a single `@children` slot, so the two halves are separate components the
-// caller nests. That also makes collapsing explicit — an `if` on the body drops
-// it out of the layout, which is what `{showBody && ...}` does in JSX.
+// A Slint component has a single `@children` slot, so the header and the body
+// are separate components the caller nests. That also makes collapsing
+// explicit — an `if` on the body drops it out of the layout.
 //
 //     Section {
 //         hdr := SectionHeader { title: "Layout"; collapsible: true; }
@@ -195,12 +194,12 @@ export component IconButton inherits Rectangle {
 
     property <bool> lit: touch.has-hover && root.enabled;
     // Checked is a lime *glyph* on a darker chip, never dark ink on a lime
-    // slab and not a lime-tinted one either. Both references are explicit
-    // about this — "an activated tool button: lime glyph on a slightly darker
-    // surface, so the toolbar reads as 'this mode is on' without shouting" —
-    // and with the accent itself now lime, even a 20% tint behind eight of
-    // them turned a tray into a row of green slabs. The glyph carries the
-    // state; the chip only has to sit back far enough to be seen behind it.
+    // slab and not a lime-tinted one either: an activated tool button is a
+    // lime glyph on a slightly darker surface, so the toolbar reads as "this
+    // mode is on" without shouting. With the accent itself lime, even a 20%
+    // tint behind eight of them turns a tray into a row of green slabs. The
+    // glyph carries the state; the chip only has to sit back far enough to be
+    // seen behind it.
     property <brush> tint: root.checked ? Theme.accent
         : (root.lit && root.danger) ? Theme.danger
         : root.accent ? (root.lit ? Theme.accent-hover : Theme.accent)

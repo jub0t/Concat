@@ -3,30 +3,26 @@
 
 import { Theme } from "theme/theme.slint";
 
-// Single adapter between glyph data and the primitives, the counterpart of
-// desktop/src/components/Icon.tsx. That file resolves a name through two icon
-// packages and falls back to hand-drawn paths; Slint has no icon package, so
-// the same three sources are inlined here as path data.
+// Single adapter between glyph data and the primitives. Slint has no icon
+// package, so the glyphs are inlined here as path data and resolved by name.
 //
-// The data is the libraries' own, copied out of the packages the reference
-// depends on rather than traced from a picture of them. What was here before
-// was traced, and a trace is a drawing of an icon: close at 24px, wrong at the
-// 11-14px this interface is full of, where a coordinate off by half a unit is
-// half a pixel of a two-pixel stroke.
+// The data is the libraries' own, copied out of their packages rather than
+// traced from a picture of them. A trace is a drawing of an icon: close at
+// 24px, wrong at the 11-14px this interface is full of, where a coordinate
+// off by half a unit is half a pixel of a two-pixel stroke.
 //
 // Lucide for everything it carries, which is everything but the alignment set.
-// The reference splits its glyphs between Heroicons for generic chrome and
-// Lucide for the editor's vocabulary, and that split is right for a browser
-// drawing at 16-24px: Heroicons is authored for a 1.5 stroke on a 24 grid and
-// has the detail to spend. This window draws its glyphs at 11-15px, where that
-// detail closes up — heroicons/film is fourteen subpaths of sprockets and
-// rails, and at 14px it is a grey rectangle. Lucide is authored at a 2 stroke
-// for small display, and one family across the whole set also means one
-// weight, so nothing needs compensating against anything else.
+// Heroicons is the other obvious source for generic chrome, and at 16-24px it
+// is a fine one: it is authored for a 1.5 stroke on a 24 grid and has the
+// detail to spend. This window draws its glyphs at 11-15px, where that detail
+// closes up — heroicons/film is fourteen subpaths of sprockets and rails, and
+// at 14px it is a grey rectangle. Lucide is authored at a 2 stroke for small
+// display, and one family across the whole set also means one weight, so
+// nothing needs compensating against anything else.
 //
 // Three shapes of glyph, on two grids:
 //   - Stroked   the whole set, lucide's paths at lucide's weight, 24 grid
-//   - Filled    play and pause, which are closed shapes the reference fills
+//   - Filled    play and pause, closed shapes drawn solid
 //   - Solid     the alignment marks, on Radix's 15 grid — see `Solid` below
 //
 // To take a glyph from somewhere else: copy the `d` of every element in its
@@ -303,7 +299,6 @@ export component Icon inherits Rectangle {
 
     // Three sliders, deliberately not a cog: a ring with rays is a sun in all
     // but name, and it would sit next to the actual sun of the theme toggle.
-    // The reference's own note on the same choice.
     // lucide/sliders-horizontal
     if root.glyph == Glyph.settings: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
@@ -376,8 +371,8 @@ export component Icon inherits Rectangle {
     }
 
     // A laid-out frame with a filled top band — the shape a template is,
-    // rather than the dashed placeholder box this used to draw. Slint has no
-    // stroke-dash-array, so the dashes were never there anyway.
+    // rather than a dashed placeholder box, which Slint could not draw anyway:
+    // it has no stroke-dash-array.
     // lucide/layout-template
     if root.glyph == Glyph.slot: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
@@ -491,9 +486,9 @@ export component Icon inherits Rectangle {
             + " 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z";
     }
 
-    // Filled, the way the reference passes `fill="currentColor"` to them: at
-    // 16px an outlined triangle reads as an outline of a play button rather
-    // than as one. Lucide draws both as closed shapes, so the same path fills.
+    // Filled rather than stroked: at 16px an outlined triangle reads as an
+    // outline of a play button rather than as one. Lucide draws both as closed
+    // shapes, so the same path fills.
     // lucide/play
     if root.glyph == Glyph.play: Filled {
         size: root.size; tint: root.tint;

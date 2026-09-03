@@ -3,8 +3,8 @@
 One-off Python prototypes probing candidate Concat features before any of
 them earns a Rust implementation. Each measures the thing that decides
 shippability - speed against realtime on ordinary hardware, and output
-quality by ear/eye - because per decision 0010 nothing ships that makes the
-user install tools or wait on a server.
+quality by ear/eye - because nothing ships that makes the user install
+tools or wait on a server.
 
 These are research scripts, not product code: run them from this directory,
 point them at anything in `assets/` (gitignored), and read the numbers.

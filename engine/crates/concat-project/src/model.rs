@@ -4,14 +4,12 @@
 //! The document model: what a Concat project *is*.
 //!
 //! Times are `f64` seconds here because that is what the on-disk format
-//! stores, and the documents that exist freeze the format (the provisional
-//! TS twin this shape once mirrored is deleted; decision 0007). The
-//! conversion to exact rationals stays at the render boundary -
-//! `concat-export`'s timeline builder. Moving the *document* to rational
-//! time is a format decision for a deliberate version 2, made once, here.
+//! stores, and the documents that exist freeze the format. The conversion
+//! to exact rationals stays at the render boundary - `concat-export`'s
+//! timeline builder. Moving the *document* to rational time is a format
+//! decision for a deliberate version 2, made once, here.
 //!
-//! Serde names are camelCase so a document written by this crate is byte-level
-//! compatible with one written by the TypeScript side.
+//! Serde names are camelCase: that is the document's spelling.
 
 use std::collections::BTreeMap;
 
@@ -291,10 +289,8 @@ pub struct Clip {
     pub text: Option<TextStyle>,
 }
 
-/// One timeline: a name and its lanes and clips. Unlike the UI's provisional
-/// model there is no "shelf" - that split existed only so the TypeScript
-/// operations could stay ignorant of timelines. Here every operation takes
-/// the project and works on whichever timeline is active.
+/// One timeline: a name and its lanes and clips. Every operation takes the
+/// project and works on whichever timeline is active.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Timeline {

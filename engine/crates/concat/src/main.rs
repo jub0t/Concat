@@ -3,11 +3,6 @@
 
 //! Concat's editor window, in Slint.
 //!
-//! Ported from the `slint/` tree of the wc-ui-rnd repository, where the UI was
-//! built twice - once in React (its `web/` tree) and once here - so the two
-//! stacks could be compared on one design. Comments in the `.slint` files
-//! that cite `web/` mean that reference implementation.
-//!
 //! This file is the wiring: it starts the engine's services, builds the
 //! window, and binds every callback the `.slint` tree exposes to the state
 //! in [`studio`]. The state reads the engine's project and writes commands

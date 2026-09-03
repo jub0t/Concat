@@ -217,7 +217,7 @@ export component Select inherits Rectangle {
                     TouchArea {
                         mouse-cursor: pointer;
                         // pointer-enter has no dedicated callback; has-hover
-                        // drives the same highlight the web sets on hover.
+                        // drives the highlight instead.
                         changed has-hover => {
                             if (self.has-hover) {
                                 root.active = index;

@@ -4,7 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 
-// The bottom-right notice, ported from the reference's Toast.tsx.
+// The bottom-right notice.
 //
 // Rises in, holds, sinks out. One at a time, and the next one replaces the
 // one before it rather than stacking under it: a column of notices is a log,
@@ -26,16 +26,14 @@ export struct ToastData {
 export component ToastLayer inherits Rectangle {
     in property <ToastData> data;
 
-    /// The reference's two holds, which are the reason it has this property at
-    /// all: an error you missed is an error you go looking for.
+    /// Two holds, which are the reason this is a property at all: an error you
+    /// missed is an error you go looking for.
     property <duration> hold: root.data.failed ? 6500ms : 3500ms;
     /// Up and lit. Everything the toast does is this property animating.
     property <bool> shown;
     /// The one frame the risen toast spends at its start position, so the move
     /// to `shown` animates rather than teleports — Slint gives a property its
-    /// first value without running its animation, exactly as a browser paints
-    /// the first frame without transitioning it, which is what the reference's
-    /// double requestAnimationFrame is working around.
+    /// first value without running its animation.
     property <bool> raising;
 
     /// Watched instead of `data`, so the trigger is one integer changing and
@@ -82,21 +80,21 @@ export component ToastLayer inherits Rectangle {
     }
 
     Rectangle {
-        // 16px off both edges, like the reference's `bottom-4 right-4`. The
-        // 12px it is pushed down by when it is away is the rise.
+        // 16px off both edges. The 12px it is pushed down by when it is away
+        // is the rise.
         x: root.width - self.width - 16px;
         y: root.height - self.height - 16px + (root.shown ? 0px : 12px);
         // Capped, then the label elides: a notice is a sentence, and one long
         // enough to reach across the window has stopped being one.
         width: Math.min(root.width - 32px,
             12px + icon.width + 8px + measure.preferred-width + 12px);
-        // The reference's px-3 py-2 around a 16px line.
+        // 12px by 8px of padding around a 16px line.
         height: 32px;
         border-radius: Theme.r-lg;
         // Elevated and ringed, because it floats over panes that are
         // themselves `panel` — the same reason the tooltip and the menus are.
-        // The reference spends a drop shadow here as well; Slint has none, so
-        // the hairline does that work alone and is the strong one for it.
+        // Slint has no drop shadow, so the hairline does the lifting alone and
+        // is the strong one for it.
         background: Theme.raised;
         border-width: 1px;
         border-color: Theme.line-strong;
@@ -105,8 +103,8 @@ export component ToastLayer inherits Rectangle {
         // first frame of the window from carrying an empty box.
         visible: root.data.message != "";
 
-        // Out is slower than in, as it is in the reference: a notice arriving
-        // should catch the eye, and one leaving should not.
+        // Out is slower than in: a notice arriving should catch the eye, and
+        // one leaving should not.
         animate y, opacity {
             duration: root.shown ? 260ms : 420ms;
             easing: ease-out;

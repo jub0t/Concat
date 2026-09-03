@@ -11,11 +11,9 @@
 //! the clip list, transitions have already become overlaps, opacity ramps and
 //! fade filters.
 //!
-//! This crate used to live inside the desktop host, which put editing
-//! semantics (`resolve_transitions`) on the wrong side of the bridge. It
-//! lives in the engine now so the CLI, the host and any future frontend
-//! render one way, and so the doctrine holds: the host converts wire formats
-//! and reports progress, nothing more.
+//! It lives in the engine so the CLI, the host and the window render one
+//! way, and so the doctrine holds: the host adds a destination and reports
+//! progress, nothing more.
 //!
 //! Picture is composited frame by frame - on the GPU when the `gpu` feature
 //! is on and the machine has one, with the CPU compositor as the
@@ -38,7 +36,7 @@ use concat_render::{Compositor, CpuCompositor, Layer, Placement, plan_frame};
 use serde::Deserialize;
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
-/// seen cannot exist - the wire still says "video"/"audio"/"image".
+/// seen cannot exist - the document says "video"/"audio"/"image".
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ClipKind {
@@ -734,8 +732,7 @@ pub struct PreviewFrameRequest {
 
 /// Composites the true frame at one instant, for the paused monitor.
 ///
-/// This is the engine presentation path's first step (desktop decision 0007):
-/// the identical plan/composite the exporter runs, fed from the reader pool
+/// The identical plan/composite the exporter runs, fed from the reader pool
 /// so scrubbing revisits are cache hits. Fade-to-colour transitions are NOT
 /// baked here - their filter frame numbers assume decode-from-clip-start,
 /// which pooled seeks break - so the UI keeps drawing its veil, whose shape
@@ -969,7 +966,7 @@ mod tests {
 
         // A clip trimmed past its media's end: the paused monitor at that
         // time must show the last real frame, not a black composite and not
-        // an error. This is the exact shape that used to black the monitor.
+        // an error.
         let mut outliving = clip("video", 0, 0.0, 3.0, 0.0);
         outliving.path = path.to_string_lossy().into_owned();
         let late = PreviewFrameRequest {

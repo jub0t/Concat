@@ -8,14 +8,13 @@
 //! it keeps whichever name a project already has, and this module never
 //! looks at a filename.
 //!
-//! The reader began as a port of the UI's `persist.ts` (deleted; decision
-//! 0007) and its tolerance rules are the contract with every document
+//! The reader's tolerance rules are the contract with every document
 //! already on disk: every field defaults rather than being trusted, clips whose
 //! track or media vanished are dropped, text clips survive without media,
 //! legacy flat documents load as a single timeline. A hand-edited or older
 //! file must degrade to something openable, never to a load error.
 //!
-//! The writer produces the same structure `toDocument` writes - including the
+//! The writer produces the same structure - including the
 //! flat `tracks`/`clips` mirror of the active timeline that keeps documents
 //! openable in builds that predate multiple timelines.
 

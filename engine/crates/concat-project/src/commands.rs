@@ -3,11 +3,9 @@
 
 //! Every edit operation, as data.
 //!
-//! A [`Command`] is what the UI sends over IPC; [`apply`] is the one place
-//! its meaning lives. The semantics were ported line for line from the UI's
-//! provisional model (deleted; decision 0007) and this file is now the only
-//! copy - the clamps and tolerances documented on each variant are the
-//! contract the UI's gesture echo mirrors and tests against.
+//! A [`Command`] is what the window sends; [`apply`] is the one place its
+//! meaning lives. The clamps and tolerances documented on each variant are
+//! the contract the window's gesture echo mirrors and tests against.
 
 use std::collections::HashSet;
 
@@ -156,7 +154,7 @@ pub struct NewMedia {
     pub has_audio: bool,
 }
 
-/// Every edit, as the UI sends it over IPC: a tagged `op` plus camelCase
+/// Every edit, as the window sends it: a tagged `op` plus camelCase
 /// fields. [`apply`] is the single place each variant's meaning lives; the
 /// notes here state the contract - clamps, tolerances, what gets minted -
 /// so a caller need not read `apply` to know what a command will do.
@@ -635,8 +633,7 @@ fn assign<T: PartialEq>(slot: &mut T, value: T) -> bool {
 /// Applies one command. Errors are [`CommandError`]s, each rendering as a
 /// user-meaningful sentence; a command that legitimately does nothing (a
 /// no-op rename, an out-of-range split) returns Ok with no created id and
-/// [`Outcome::applied`] false, matching the tolerant TS operations it
-/// replaces.
+/// [`Outcome::applied`] false.
 pub fn apply(
     project: &mut Project,
     mint: &mut IdMint,

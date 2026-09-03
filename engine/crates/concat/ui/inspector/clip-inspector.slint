@@ -11,9 +11,9 @@ import {
 } from "controls.slint";
 import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
 
-// The editor's clip inspector, ported from web/src/demo/inspector/: one
-// panel, three tabs. Adjust is direct controls; Filters and Effects differ
-// only in their catalogue, so both are PresetStack with different data.
+// The editor's clip inspector: one panel, three tabs. Adjust is direct
+// controls; Filters and Effects differ only in their catalogue, so both are
+// PresetStack with different data.
 
 /// One parameter a preset exposes. `value` doubles as the default in the
 /// catalogue: applying a preset copies the row, and double-click restores
@@ -283,10 +283,9 @@ export component PresetStack inherits VerticalLayout {
 
 // The Adjust tab: what can be changed about the selected clip.
 //
-// The panel adapts to the kind rather than the tab strip doing it all, which
-// is how the reference splits it (AdjustPanel.tsx): a still has picture but no
-// sound, so it gets Transform and nothing else; an audio clip has sound but no
-// picture, so it gets everything but Transform.
+// The panel adapts to the kind rather than the tab strip doing it all: a
+// still has picture but no sound, so it gets Transform and nothing else; an
+// audio clip has sound but no picture, so it gets everything but Transform.
 //
 // The fader for level works in decibels, not linear gain. Linear puts every
 // useful setting in the bottom sixth of the travel; decibels is both how the
@@ -615,9 +614,9 @@ export component FilterPanel inherits VerticalLayout {
     }
 }
 
-// The catalogues, mirrored from web/src/demo/inspector/presets.ts. Data only:
-// the stack renders whatever params a preset declares, so adding a processor
-// is one entry here and no change to the panel.
+// The catalogues. Data only: the stack renders whatever params a preset
+// declares, so adding a processor is one entry here and no change to the
+// panel. The ids are written into project files, so they are stable forever.
 export global PresetCatalog {
     out property <[string]> filter-groups: ["Voice", "Tone", "Space"];
     out property <[string]> effect-groups: ["Dynamics", "Time", "Colour"];

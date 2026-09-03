@@ -38,10 +38,9 @@ pub struct Peaks {
 }
 
 impl Peaks {
-    /// The wire and cache format the UI reads:
+    /// The cache format:
     /// `[buckets_per_second f32][count u32][min f32 x count][max f32 x count]`,
-    /// little-endian. Kept byte-identical to what the UI used to write, so
-    /// existing project caches stay valid.
+    /// little-endian. Frozen: the caches beside existing projects hold it.
     pub fn encode(&self) -> Vec<u8> {
         let count = self.min.len().min(self.max.len());
         let mut bytes = Vec::with_capacity(8 + count * 8);

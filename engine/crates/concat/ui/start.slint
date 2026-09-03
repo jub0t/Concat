@@ -6,7 +6,7 @@ import { Glyph, Icon } from "icons.slint";
 import { SegmentedControl } from "primitives/segmented-control.slint";
 import { ThinScrollbar } from "primitives/scrollbar.slint";
 
-// The launch screen, ported from the reference's StartScreen.tsx.
+// The launch screen.
 //
 // Full-bleed on the window's own ground — no card, no border, no shadow. A
 // setup screen is not a dialog floating over something; it *is* the window,
@@ -19,10 +19,9 @@ import { ThinScrollbar } from "primitives/scrollbar.slint";
 // edit depends on, and choosing them after material is cut is how you end up
 // conforming footage.
 //
-// What is not ported: the template shelf and its slot-filling mode. Both need
-// a template store, and there is none in this tree — the library's "save as
-// template" is an unwired seam for the same reason. The form and the recents
-// are the whole of the screen without them.
+// The form and the recents are the whole of the screen. There is no template
+// store in this tree, which is also why the library's "save as template" is
+// an unwired seam.
 
 /// One row of the Recent column.
 ///
@@ -115,7 +114,7 @@ component PlainInput inherits Rectangle {
     in property <bool> enabled: true;
     /// Takes the caret when the screen opens, and selects what is there — so
     /// the default name can be replaced by typing rather than by clearing it
-    /// first. The reference's `autoFocus` plus its `onFocus={select()}`.
+    /// first.
     in property <bool> autofocus;
 
     callback edited(text: string);
@@ -375,14 +374,12 @@ export component StartScreen inherits Rectangle {
     callback forget-recent(path: string);
     callback dismiss-error();
 
-    /// The form's own column, and the widest the pair may run to. The
-    /// reference's max-w-5xl and max-w-xl, which are these two numbers.
+    /// The form's own column, and the widest the pair may run to.
     property <length> form-w: 700px;
     property <length> recents-w: 340px;
     property <length> column-gap: 64px;
     /// Only two columns once there is history to show, and only when there is
-    /// room for both. Below that the recents go under the form, which is what
-    /// the reference's `lg:` breakpoint does.
+    /// room for both. Below that the recents go under the form.
     property <bool> side-by-side: root.recents.length > 0
         && root.width >= root.form-w + root.column-gap + root.recents-w + 96px;
     property <length> pad: 48px;
@@ -424,11 +421,10 @@ export component StartScreen inherits Rectangle {
                     Text {
                         text: "New project";
                         color: Theme.fg;
-                        // The one display-sized line in the app. The reference
-                        // spends a third face on it (Cabinet Grotesk); this
-                        // tree bundles two, so the interface face carries it at
-                        // its heaviest weight and the reference's own tight
-                        // tracking — -0.03em, which at 34px is a point.
+                        // The one display-sized line in the app. The tree
+                        // bundles two faces and no display face, so the
+                        // interface face carries it at its heaviest weight and
+                        // tight tracking — -0.03em, which at 34px is a point.
                         font-size: Theme.fs-display;
                         font-weight: Theme.weight-display;
                         letter-spacing: -1px;

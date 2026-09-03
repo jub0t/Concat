@@ -3,31 +3,19 @@
 
 //! The FFmpeg filter-chain builders: video effects and audio filters.
 //!
-//! This is a byte-for-byte port of the two TypeScript catalogues that are the
-//! ground truth for exported pixels and sound:
+//! Two catalogues - video effects and audio filters - and the composition
+//! that turns a clip's applied entries into one filter string. The strings
+//! are the ground truth for exported pixels and sound, and the tests at the
+//! bottom of this file pin the exact chain for every catalogue entry at its
+//! default, minimum and maximum settings, character for character. Number
+//! formatting matters as much as the maths: "0.5" and "0.50" are different
+//! bytes in a filtergraph even when they are the same sigma, so every
+//! interpolation fixes its precision on purpose.
 //!
-//! - the video effect catalogue and
-//!   `buildEffectChain`.
-//! - the audio filter catalogue and
-//!   `buildChain`.
-//!
-//! The contract is the same one `lib/editor.ts`'s ported arithmetic lives
-//! under: the TS files are the mirror, and their fixtures
-//! The pinned-string tests below
-//! the exact chain string for every catalogue entry at its default, minimum
-//! and maximum settings. The tests at the bottom of this file assert those
-//! same strings, character for character - a change to either side that the
-//! other does not make fails one suite or the other. Number formatting
-//! matters as much as the maths: every interpolation reproduces what the JS
-//! template literal produced (`toFixed`, `Math.round`), because "0.5" and
-//! "0.50" are different bytes in a filtergraph even when they are the same
-//! sigma.
-//!
-//! Composition is also the TS composition: enabled entries in applied order,
-//! comma-joined, bypassed entries and unknown ids skipped, missing parameters
-//! falling back to the catalogue defaults. Where the TS returns `null` for an
-//! empty result, this returns the empty string - the Rust spelling of "no
-//! chain".
+//! Composition: enabled entries in applied order, comma-joined, bypassed
+//! entries and unknown ids skipped, missing parameters falling back to the
+//! catalogue defaults. An empty result is the empty string - the spelling
+//! of "no chain".
 
 use std::collections::BTreeMap;
 
@@ -37,8 +25,8 @@ use concat_project::model::AppliedFilter;
 /// the value an untouched slider means.
 struct Param {
     key: &'static str,
-    // The bounds are read only by the parity tests, which push every slider
-    // to each end the way the TS fixtures do - dead code to a plain build.
+    // The bounds are read only by the pinning tests, which push every
+    // slider to each end - dead code to a plain build.
     #[cfg_attr(not(test), allow(dead_code))]
     min: f64,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -153,9 +141,8 @@ fn fx_film_grain(p: &Params, _index: usize) -> String {
 }
 
 /// Graph labels embed the emitted index so two glows on one clip cannot
-/// collide in a single filtergraph - the old fixed labels made FFmpeg
-/// rejects the graph. The TS entry has the same bug; parity comes first, and
-/// the fix must land on both sides together.
+/// collide in a single filtergraph: fixed labels would make FFmpeg reject
+/// the graph.
 fn fx_glow(p: &Params, index: usize) -> String {
     // Screen-blend a blurred copy over itself - the classic bloom.
     let opacity = fixed(p.get("amount") / 100.0, 2);
@@ -176,10 +163,8 @@ fn fx_pixelate(p: &Params, _index: usize) -> String {
     format!("pixelize=width={size}:height={size}")
 }
 
-/// KNOWN QUIRK, ported deliberately: the fixed `[mirl0]`/`[mirr0]`/`[mirf0]`
-/// labels mean stacking mirror twice duplicates filtergraph labels and FFmpeg
-/// rejects the graph. Same bug as the TS entry; the fix lands on both sides
-/// together or not at all.
+/// Labels embed the emitted index for the same reason as [`fx_glow`]:
+/// stacking mirror twice must not duplicate a filtergraph label.
 fn fx_mirror(_: &Params, index: usize) -> String {
     format!(
         "crop=iw/2:ih:0:0,split[mirl{index}][mirr{index}];[mirr{index}]hflip[mirf{index}];\
@@ -415,8 +400,8 @@ fn af_sweet(p: &Params, _index: usize) -> String {
     let strength = p.get("amount").clamp(0.0, 100.0) / 100.0;
     let pitch = p.get("pitch");
 
-    // The coefficients are the TS entry's own (see its comment on why they
-    // are steeper than the reference chain it was ported from).
+    // The coefficients are steeper than a textbook "sweet voice" chain on
+    // purpose: at the slider's midpoint the change has to be audible.
     let shift = if pitch > 0.0 {
         pitch
     } else {
@@ -642,7 +627,7 @@ static FILTERS: &[Entry] = &[
 // ─── composition ────────────────────────────────────────────────────────────
 
 /// Fills in any parameter the clip did not set, and drops any stray key the
-/// entry does not declare - the TS `resolveParams`.
+/// entry does not declare.
 fn resolve(entry: &Entry, set: &BTreeMap<String, f64>) -> Params {
     Params(
         entry
@@ -677,21 +662,19 @@ fn compose(catalogue: &[Entry], applied: &[AppliedFilter]) -> String {
 }
 
 /// The complete FFmpeg *video* filter string for a clip's effects, or the
-/// empty string if it has none - the TS `buildEffectChain`, whose `null`
-/// this spells as `""`. Effects apply in the order they were added.
+/// empty string if it has none. Effects apply in the order they were added.
 pub fn video_effect_chain(effects: &[AppliedFilter]) -> String {
     compose(EFFECTS, effects)
 }
 
 /// The complete FFmpeg *audio* filter string for a clip's filters, or the
-/// empty string if it has none - the TS `buildChain`, whose `null` this
-/// spells as `""`. Filters apply in the order they were added: EQ before a
-/// limiter is a different sound from the reverse.
+/// empty string if it has none. Filters apply in the order they were added:
+/// EQ before a limiter is a different sound from the reverse.
 pub fn audio_filter_chain(filters: &[AppliedFilter]) -> String {
     compose(FILTERS, filters)
 }
 
-// ─── tests: the pinned strings from effects.test.ts / filters.test.ts ───────
+// ─── tests: the pinned strings ──────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -739,7 +722,7 @@ mod tests {
     }
 
     /// Asserts a fixture table covers exactly the given ids - a new
-    /// catalogue entry must pin its strings here, like the TS suites.
+    /// catalogue entry must pin its strings here.
     fn assert_covers(table: &[(&str, &str)], mut ids: Vec<&str>, which: &str) {
         let mut covered: Vec<&str> = table.iter().map(|(id, _)| *id).collect();
         covered.sort_unstable();
@@ -758,8 +741,7 @@ mod tests {
             .collect()
     }
 
-    // The expected strings below are copied verbatim from the TS fixtures
-    // (effects.test.ts / filters.test.ts), which pin the exporter's bytes.
+    // The expected strings below pin the exporter's bytes.
 
     const EFFECT_DEFAULTS: &[(&str, &str)] = &[
         ("black-white", "hue=s=0"),
@@ -1044,10 +1026,9 @@ mod tests {
 
     #[test]
     fn stacking_one_labelled_effect_twice_keeps_its_graph_labels_distinct() {
-        // Labels embed the emitted index. With the old fixed labels, two
-        // glows on one clip duplicated [glowa] in a single filtergraph and
-        // FFmpeg rejected it - the whole export failed. Mirrors the TS test
-        // of the same name.
+        // Labels embed the emitted index. With fixed labels, two glows on
+        // one clip would duplicate [glowa] in a single filtergraph and
+        // FFmpeg would reject it - the whole export would fail.
         let chain = video_effect_chain(&[applied("glow", &[]), applied("glow", &[])]);
         assert!(chain.contains("[glowa0]"), "was: {chain}");
         assert!(chain.contains("[glowa1]"), "was: {chain}");
@@ -1071,7 +1052,7 @@ mod tests {
 
     #[test]
     fn no_effects_means_the_empty_string() {
-        // The TS returns null; the Rust spelling of "no chain" is "".
+        // The spelling of "no chain" is "".
         assert_eq!(video_effect_chain(&[]), "");
         let mut off = applied("invert", &[]);
         off.enabled = false;
@@ -1128,7 +1109,7 @@ mod tests {
 
     #[test]
     fn a_set_parameter_overrides_the_default() {
-        // The filters.test.ts chainKey fixture's chain, minus the key parts.
+        // One filter with one slider moved off its default.
         assert_eq!(
             one_filter("echo", &[("delay", 0.5)]),
             "aecho=0.8:0.85:500:0.40"

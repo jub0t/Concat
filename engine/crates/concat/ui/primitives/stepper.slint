@@ -46,8 +46,7 @@ component StepButton inherits Rectangle {
 
 // The minus/plus pair that sits beside a NumberField. Holding repeats: the
 // first press fires immediately, then a timer takes over after `repeat-delay`
-// and runs at `repeat-interval` — the same two-stage cadence the React version
-// builds from setTimeout plus setInterval.
+// and runs at `repeat-interval`.
 export component Stepper inherits Rectangle {
     in property <bool> enabled: true;
     in property <duration> repeat-delay: 380ms;

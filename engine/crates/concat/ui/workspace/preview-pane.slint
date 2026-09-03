@@ -10,20 +10,19 @@ import { Select } from "../primitives/select.slint";
 import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 
-// The programme monitor, ported from web/'s preview panel: a header that says
-// what the output is, a stage on a sunken viewport, and a transport tray under
-// it in three parts — timecode on the leading edge, the buttons dead centre,
-// the output and zoom pickers on the trailing edge.
+// The programme monitor: a header that says what the output is, a stage on a
+// sunken viewport, and a transport tray under it in three parts — timecode on
+// the leading edge, the buttons dead centre, the output and zoom pickers on
+// the trailing edge.
 //
 // Time is held in frames, not seconds. A monitor that cannot land on a frame
 // is not a monitor, and every rounding question disappears once the unit is
 // the frame. The readout is a NumberField, so the same drag-to-scrub gesture
 // that moves a position field moves the playhead.
 //
-// The stage is black and empty. web/ draws a generated scene into it to prove
-// the monitor moves; there is no decoder in this tree, so what it shows is the
-// state a real monitor spends plenty of its time in — nothing under the
-// playhead — and the seam for a frame is the stage rectangle itself.
+// The stage is black. A decoded frame is drawn fitted into it when there is
+// one; otherwise it says that nothing is under the playhead, which is a state
+// a real monitor spends plenty of its time in.
 
 /// An outline in the shape of the thing it selects. Beats any label at saying
 /// "tall" or "wide" at a glance, and it is drawn at ratio rather than to a
@@ -293,12 +292,10 @@ export component PreviewPane inherits Rectangle {
         viewport := Rectangle {
             vertical-stretch: 1;
             // Sunken, and darker than the header and transport either side of
-            // it. This briefly took the panel's own tone, back when the panel
-            // sat at the value web/'s viewport uses; the ladder has moved up a
-            // step since, and a monitor's ground should fall away from the
-            // chrome around it rather than sit level with it — the darker the
-            // surround, the less the picture has to fight to be the brightest
-            // thing in the pane.
+            // it. A monitor's ground should fall away from the chrome around
+            // it rather than sit level with it — the darker the surround, the
+            // less the picture has to fight to be the brightest thing in the
+            // pane.
             background: Theme.well;
             clip: true;
 
@@ -318,10 +315,10 @@ export component PreviewPane inherits Rectangle {
                 width: viewport.stage-w;
                 height: self.width / root.aspect;
                 background: Theme.stage;
-                // web/ lifts the stage off the well with a 1px ring and a soft
-                // drop shadow. Slint has no box-shadow, so the ring does the
-                // work alone — which is also why it is `line-strong` and not
-                // the hairline every other edge uses.
+                // A 1px ring lifts the stage off the well. Slint has no
+                // box-shadow, so the ring does the work alone — which is why
+                // it is `line-strong` and not the hairline every other edge
+                // uses.
                 border-width: 1px;
                 border-color: Theme.line-strong;
                 clip: true;
@@ -361,9 +358,9 @@ export component PreviewPane inherits Rectangle {
                     image-fit: contain;
                 }
 
-                // The clip that would be showing, named in the corner. The
-                // reference has a picture to identify itself; without one, the
-                // name is the only thing that says the monitor is live.
+                // The clip under the playhead, named in the corner. Without a
+                // decoded frame, the name is the only thing that says the
+                // monitor is live.
                 if root.has-picture: Text {
                     x: 8px;
                     y: parent.height - self.height - 8px;
@@ -492,9 +489,8 @@ export component PreviewPane inherits Rectangle {
                     }
 
                     // What fraction of the frame the engine composites for the
-                    // monitor — the reference's own control, and the reason a
-                    // 4K timeline stays scrubbable on a laptop. Nothing
-                    // composites here yet, so today it states intent only.
+                    // monitor, and the reason a 4K timeline stays scrubbable
+                    // on a laptop.
                     VerticalLayout {
                         alignment: center;
                         Select {

@@ -3,9 +3,9 @@
 
 import { Theme } from "../theme/theme.slint";
 
-// Slint has no box-shadow, so the `--cp-focus` token is drawn as two rings:
-// a 1px accent outline on the control's own edge and a 2px soft halo just
-// outside it. Drop it in as the last child of a non-layout parent, where it
+// Slint has no box-shadow, so the focus ring is drawn as two rings: a 1px
+// accent outline on the control's own edge and a 2px soft halo just outside
+// it. Drop it in as the last child of a non-layout parent, where it
 // fills the parent and paints over everything without taking pointer events.
 export component FocusRing inherits Rectangle {
     in property <bool> active;

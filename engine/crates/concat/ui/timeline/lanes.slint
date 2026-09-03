@@ -10,11 +10,10 @@ import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 // The lanes: the ruler, the banded track stack, the clips on it, the playhead
 // and the two band gestures.
 //
-// The reference draws all of this into a 2D canvas and hit-tests it by hand.
-// Slint has no canvas, so it is a scene graph instead — which costs an element
-// per clip and buys back the hit testing: a clip carries its own TouchArea, so
-// there is no `clipAt(x, y)` to keep in step with the renderer, and no way for
-// the two to disagree about where a clip is.
+// A scene graph, not one painted surface hit-tested by hand. That costs an
+// element per clip and buys the hit testing: a clip carries its own
+// TouchArea, so there is no `clipAt(x, y)` to keep in step with the renderer,
+// and no way for the two to disagree about where a clip is.
 //
 // Everything is positioned from *seconds*: `px-per-second` is the only bridge,
 // so zooming and panning are one property change rather than a model rewrite.
@@ -63,8 +62,8 @@ component Clip inherits Rectangle {
     /// A press landed: the caller resolves the selection before any drag.
     callback pressed(additive: bool, edge: int);
     /// Window-space delta since the press: seconds across, pixels down. Not
-    /// lanes down — the lanes are no longer one height, so which row a drag
-    /// has reached is a question only the side holding the heights can answer.
+    /// lanes down — the lanes differ in height, so which row a drag has
+    /// reached is a question only the side holding the heights can answer.
     callback dragged(seconds: float, pixels: length);
     callback released();
     callback razored(seconds: float);
@@ -111,10 +110,10 @@ component Clip inherits Rectangle {
 
         // The audio envelope. The commands arrive normalised into a 1x1 box
         // and `fit: fill` stretches that onto whatever width the clip has, so
-        // the shape survives a zoom without Rust rebuilding the string. What
-        // it gives up against the reference is per-pixel extremes when zoomed
-        // right in — there the envelope is a stretched polyline rather than a
-        // fresh scan of the buckets.
+        // the shape survives a zoom without Rust rebuilding the string. The
+        // trade-off is per-pixel extremes when zoomed right in — there the
+        // envelope is a stretched shape rather than a fresh scan of the
+        // buckets.
         if root.item.wave != "": Path {
             x: 0;
             y: 0;
@@ -149,10 +148,10 @@ component Clip inherits Rectangle {
             overflow: elide;
         }
 
-        // Where the reference tiles a filmstrip. Nothing in this tree decodes
-        // a frame yet, so a picture clip falls back to its kind's mark the way
-        // a bin card does — faint and large, so it reads as a placeholder and
-        // not as a badge. A filter layer takes the same treatment for the
+        // The filmstrip slot: the clip's frames tile here once the window
+        // supplies them. Until then a picture clip shows its kind's mark the
+        // way a bin card does — faint and large, so it reads as a placeholder
+        // and not as a badge. A filter layer takes the same treatment for the
         // opposite reason: there is no picture to draw, and there never will
         // be one.
         if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image
@@ -362,7 +361,7 @@ export component Lanes inherits Rectangle {
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
-    /// The zoom, as the reference spells it: seconds covered by one pixel.
+    /// The zoom: seconds covered by one pixel.
     in property <float> seconds-per-pixel: 0.05;
     in property <length> track-scroll;
     in property <length> ruler-height: 28px;
@@ -428,9 +427,9 @@ export component Lanes inherits Rectangle {
         return root.scroll-left + x / root.px-per-second;
     }
     /// Pixels down the stack, from a y inside the lane area — which is what
-    /// both gestures that used to resolve a row now send instead. The band and
-    /// the drop target both start at the foot of the ruler, so their local y
-    /// needs only the scroll adding to it.
+    /// the band and the drop target both send, since which row a y lands on
+    /// is the caller's to resolve. Both start at the foot of the ruler, so
+    /// their local y needs only the scroll adding to it.
     pure function stack-y(y: length) -> length {
         return y + root.track-scroll;
     }
@@ -460,9 +459,7 @@ export component Lanes inherits Rectangle {
                 // a pinch feel like it is pulling the ruler apart.
                 //
                 // Negated because Slint's delta-y is positive scrolling *up*,
-                // which is the opposite of the DOM the reference was written
-                // against — and up is zoom in, which means a *smaller*
-                // seconds-per-pixel. This read backwards before.
+                // and up is zoom in, which means a *smaller* seconds-per-pixel.
                 //
                 // Clamped so one enormous delta — some mice send a whole
                 // page — cannot jump several octaves in a single event.

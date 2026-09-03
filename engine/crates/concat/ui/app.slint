@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// Inter is bundled rather than assumed: the web build names it first in a
-// font stack and degrades to the system UI face, but a desktop binary should
-// look the same on a machine that has never installed it. One file per weight
-// the design uses — 400 body, 500 titles, 600 the page heading.
+// Inter is bundled rather than assumed: a desktop binary should look the same
+// on a machine that has never installed it. One file per weight the design
+// uses — 400 body, 500 titles, 600 the page heading.
 import "fonts/Inter-Regular.ttf";
 import "fonts/Inter-Medium.ttf";
 import "fonts/Inter-SemiBold.ttf";
 
-// Synonym, the reference editor's text face (desktop/src/styles.css names it
-// --font-sans). It ships there as one variable woff2, which Slint cannot load,
-// so these are static instances cut from it at the three weights the theme
-// uses. Licensed under the ITF Free Font License — see fonts/LICENSE-Synonym.
+// Synonym, the interface's text face. It is published as one variable font,
+// which Slint cannot load, so these are static instances cut from it at the
+// three weights the theme uses. Licensed under the ITF Free Font License — see
+// fonts/LICENSE-Synonym.
 import "fonts/Synonym-Regular.ttf";
 import "fonts/Synonym-Medium.ttf";
 import "fonts/Synonym-SemiBold.ttf";
@@ -161,11 +160,9 @@ export component App inherits Window {
     changed meter-watched => {
         root.meter-watched-changed(root.meter-watched);
     }
-    // Left unbound. It used to read the ConfigPane's own hover flag, and
-    // there is no longer one ConfigPane to read — a seat may hold two of
-    // them or none. Nothing sets it, so the level timer in main.rs stays
-    // disarmed, which is where it already was: the demo meter left the pane
-    // when the inspector was ported, and nothing has driven it since.
+    // Left unbound. A seat may hold two ConfigPanes or none, so there is no
+    // single hover flag for this to read. Nothing sets it, so the level timer
+    // in main.rs stays disarmed.
     out property <bool> meter-watched;
     /// The same seam, and just as idle. main.rs reads it on every tick.
     out property <bool> muted;
@@ -184,9 +181,9 @@ export component App inherits Window {
     //     takes focus on one.
     //   - A key goes to the focused element first and walks up the ancestors
     //     with whatever that one rejects, so the bindings below only fire when
-    //     nothing in the window wanted the keystroke. That is the rule the
-    //     reference writes out by hand — its handler returns early when the
-    //     event target is an input — and here it is the delivery order.
+    //     nothing in the window wanted the keystroke. A field that is being
+    //     typed into keeps its keys, and that comes from the delivery order
+    //     rather than from a check on the target.
     //
     // `Control` in a binding is the platform's own command modifier: Slint
     // remaps it to ⌘ on macOS, which is also what the menu row beside it says.

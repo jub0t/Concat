@@ -6,15 +6,14 @@ import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
 
-// The clip inspector's controls, ported from web/src/demo/inspector/
-// controls.tsx: a horizontal fader, the Param row that repeats down every
-// tab, a switch, a help disclosure, a note, and a search field. Written to
-// the same contract as primitives/ — value plus a changed callback — so
-// promoting one later is a file move rather than a rewrite.
+// The clip inspector's controls: a horizontal fader, the Param row that
+// repeats down every tab, a switch, a help disclosure, a note, and a search
+// field. Written to the same contract as primitives/ — value plus a changed
+// callback — so promoting one later is a file move rather than a rewrite.
 
-// How a parameter's readout is spelled. The web build passes a closure per
-// param; a Slint struct cannot carry one, so the catalogue names one of these
-// and InspectorFmt renders it.
+// How a parameter's readout is spelled. A Slint struct cannot carry a
+// closure, so the catalogue names one of these per param and InspectorFmt
+// renders it.
 export enum ParamFormat {
     percent,     // "45%"
     pitch,       // 0 is "auto", else "+3 st"
@@ -474,12 +473,10 @@ export component SearchField inherits Rectangle {
 
 // A colour on a labelled row.
 //
-// The reference hands this to the platform — `<input type="color">` — which
-// has no counterpart here. Rather than fake an eyedropper and a wheel, the
-// swatch opens a shelf of the colours a title actually gets set to: the
-// neutrals it is legible on, and the kind hues already in the theme. The hex
-// is shown beside it so a value from outside the shelf is still readable
-// rather than invisible.
+// Rather than fake an eyedropper and a wheel, the swatch opens a shelf of the
+// colours a title actually gets set to: the neutrals it is legible on, and
+// the kind hues already in the theme. The hex is shown beside it so a value
+// from outside the shelf is still readable rather than invisible.
 export component ColourField inherits HorizontalLayout {
     in property <string> label;
     in property <color> value;

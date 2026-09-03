@@ -12,8 +12,7 @@
 /// Wider than MediaKind: a title has no file behind it, it *is* its content,
 /// and a filter has no file either — it is a preset dragged from the library's
 /// Filters page that covers a span of time and treats whatever plays under it,
-/// the way CapCut's filter bars do. Mirrors the reference's ClipKind, plus
-/// that layer.
+/// the way CapCut's filter bars do.
 export enum ClipKind { video, audio, image, text, filter }
 
 /// What a press on a clip means.
@@ -43,9 +42,9 @@ export struct TimelineTabData {
 /// its header.
 export enum TrackSize { auto, small, medium, large }
 
-/// One lane. Deliberately untyped, like the reference's Track: any media goes
-/// on any track, which is why every lane carries both a visibility and a mute
-/// switch rather than one or the other.
+/// One lane. Deliberately untyped: any media goes on any track, which is why
+/// every lane carries both a visibility and a mute switch rather than one or
+/// the other.
 export struct TrackData {
     id: string,
     name: string,
@@ -54,15 +53,14 @@ export struct TrackData {
     /// What the header's dropdown shows, and what `height` was resolved from.
     size: TrackSize,
     /// The lane's drawn height, and its top edge measured down the stack from
-    /// the first lane. Both resolved by Rust: the stack is no longer a
-    /// multiple of one pitch, and a running total over a model is not
-    /// something Slint's expression language can express.
+    /// the first lane. Both resolved by Rust: the lanes differ in height, so
+    /// the stack is not a multiple of one pitch, and a running total over a
+    /// model is not something Slint's expression language can express.
     height: length,
     top: length,
     /// Clips on a locked lane cannot be selected, moved, trimmed or cut, and
-    /// nothing can be dropped onto it. Not a flag the reference carries — its
-    /// TrackFlag is visible/muted only — but a lane you can see and hear and
-    /// still knock sideways by accident is the one every editor locks.
+    /// nothing can be dropped onto it. A lane you can see and hear and still
+    /// knock sideways by accident is the one every editor locks.
     locked: bool,
 }
 

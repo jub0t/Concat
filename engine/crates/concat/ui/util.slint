@@ -24,7 +24,7 @@ export global Fmt {
         return n < 10 ? "0\{n}" : "\{n}";
     }
 
-    // hh:mm:ss, the format the reference In/Out fields print.
+    // hh:mm:ss, the format the In/Out fields print.
     public pure function timecode(seconds: float) -> string {
         return Fmt.pad2(Math.floor(seconds / 3600))
             + ":" + Fmt.pad2(Math.mod(Math.floor(seconds / 60), 60))
@@ -124,7 +124,7 @@ export global Payload {
 
 export global Geom {
     // Point on a circle, in path (viewbox) units. Degrees run clockwise from
-    // 3 o'clock, matching the SVG convention the web Knob uses.
+    // 3 o'clock, the SVG convention.
     public pure function polar-x(cx: float, radius: float, degrees: float) -> float {
         return cx + radius * Math.cos(degrees * 1deg);
     }

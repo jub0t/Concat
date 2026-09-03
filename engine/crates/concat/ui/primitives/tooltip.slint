@@ -5,9 +5,8 @@ import { Theme } from "../theme/theme.slint";
 
 // Tooltips.
 //
-// A browser gives these away: `title` on any element, positioned, delayed and
-// dismissed by the platform. Slint has no equivalent — and the obvious
-// substitute, a PopupWindow per control, is the wrong shape for one. A popup
+// Slint has no built-in tooltip — and the obvious substitute, a PopupWindow
+// per control, is the wrong shape for one. A popup
 // is a modal-ish surface that takes the pointer and closes on the next click,
 // which is exactly what a tooltip must not do to the button it is describing.
 //

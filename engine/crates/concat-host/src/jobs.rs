@@ -4,10 +4,10 @@
 //! One-at-a-time job slots for long-running work.
 //!
 //! Export, transcription and model downloads are all "one at a time", and
-//! that invariant used to live in doc comments while the commands happily
-//! accepted a second run: two exports would race each other's temp files, and
-//! starting a second job *cleared* the shared cancel flag out from under the
-//! first. [`SingleFlight`] makes the invariant code: `begin` refuses a second
+//! a doc comment cannot enforce that: two exports would race each other's
+//! temp files, and a cancel flag shared between runs would let a second
+//! start clear it out from under the first. [`SingleFlight`] makes the
+//! invariant code: `begin` refuses a second
 //! concurrent job, and every run gets its own cancel flag, so a cancel can
 //! only ever stop the job that is actually running and a new job can never be
 //! un-cancelled by a stale start or stopped by a stale cancel.

@@ -16,7 +16,7 @@ export component Modal inherits Rectangle {
     in property <string> title;
     in property <Glyph> glyph;
     /// A fact about what the sheet is acting on, set against the trailing edge
-    /// of its header — web/'s panels carry theirs the same way.
+    /// of its header.
     in property <string> note;
     /// False while a job is running: a dialog you can dismiss out from under an
     /// export is a dialog that loses the export.
@@ -152,10 +152,10 @@ export component Modal inherits Rectangle {
 
 // The push a dialog is built around.
 //
-// Four tones, from web/'s button: `default` is a bordered field, `primary`
-// fills with the accent, `ghost` is bare until hovered, and `danger` keeps its
-// normal ink and turns red only under the pointer — a row of permanently red
-// text is a row of alarms, where the warning belongs at the moment of pressing.
+// Four tones: `default` is a bordered field, `primary` fills with the accent,
+// `ghost` is bare until hovered, and `danger` keeps its normal ink and turns
+// red only under the pointer — a row of permanently red text is a row of
+// alarms, where the warning belongs at the moment of pressing.
 export component Button inherits Rectangle {
     in property <string> label;
     in property <Glyph> glyph;
@@ -303,10 +303,9 @@ export component DialogSection inherits VerticalLayout {
             padding-right: 14px;
             spacing: 6px;
 
-            // web/ rotates one right-chevron through 90 degrees. Slint puts
-            // `rotation-angle` on Image and Path only, and an Icon is neither,
-            // so the two marks are swapped instead — the same two states, just
-            // without the quarter turn between them.
+            // Two chevrons swapped rather than one rotated: Slint puts
+            // `rotation-angle` on Image and Path only, and an Icon is neither.
+            // The same two states, just without a quarter turn between them.
             if root.collapsible: VerticalLayout {
                 alignment: center;
                 Icon {

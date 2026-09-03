@@ -17,10 +17,9 @@ import { TrackData, TrackSize } from "model.slint";
 // caller's `track-scroll`, so the labels and the lanes cannot drift apart.
 // There is one source of truth for how far down the stack we are.
 //
-// The bar that drives it lives here, at the leading edge of this column — the
-// reference gets one for free by making the header column a real scroll
-// container, and this is the same bar in the one place a stack of lanes can
-// carry one without landing on top of a clip.
+// The bar that drives it lives here, at the edge of this column: the one
+// place a stack of lanes can carry a scrollbar without landing on top of a
+// clip.
 
 // The row-height dropdown, one per lane.
 //
@@ -342,12 +341,10 @@ export component TrackHeaders inherits Rectangle {
     }
 
     // The bar, over the rows and under the corner. On the trailing edge,
-    // where the stack it scrolls ends and where a scroll container puts one —
-    // the reference gets exactly this bar there by making the header column a
-    // real one. Short and inset rather than full-height: a stack that
-    // overflows by a row would otherwise draw a thumb the length of the
-    // column, and a mark that long stops reading as something you can take
-    // hold of.
+    // where the stack it scrolls ends and where a scroll container puts one.
+    // Short and inset rather than full-height: a stack that overflows by a
+    // row would otherwise draw a thumb the length of the column, and a mark
+    // that long stops reading as something you can take hold of.
     ThinScrollbar {
         x: parent.width - self.width - 1px;
         y: root.ruler-height + 4px;

@@ -3,8 +3,7 @@
 
 //! Pulling RGBA frames out of a file.
 //!
-//! One decoder does everything the old subprocess did with command-line
-//! flags: it seeks to a start point and discards up to it frame-accurately,
+//! One decoder does everything: it seeks to a start point and discards up to it frame-accurately,
 //! turns the picture the way its rotation asks, scales, runs the clip's
 //! effect chain through libavfilter, paces frames to a requested output rate
 //! by duplicating and dropping, repeats a still forever, and stops after a

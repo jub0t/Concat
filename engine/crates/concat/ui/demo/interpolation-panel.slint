@@ -9,10 +9,9 @@ import { AlignToolbar, EditorHeader } from "editor-chrome.slint";
 
 // Runs a dot across the row using the live curve as its timing function.
 //
-// CSS gets this from `transition-timing-function: cubic-bezier(...)`. Slint's
-// `easing:` takes literals only, so the dot is animated linearly and the curve
-// is applied to the result — which means the solver has to be callable, and
-// that is why Curves.ease lives in Rust.
+// Slint's `easing:` takes literals only, so the dot is animated linearly and
+// the curve is applied to the result — which means the solver has to be
+// callable, and that is why Curves.ease lives in Rust.
 component EasePreview inherits Rectangle {
     in property <Bezier> curve;
     in property <bool> enabled;
@@ -31,16 +30,13 @@ component EasePreview inherits Rectangle {
     background: Theme.field;
     border-radius: Theme.r;
 
-    // Gated on hover rather than left running, which is a deliberate departure
-    // from web/.
+    // Gated on hover rather than left running.
     //
     // A Slint animation in flight drives the render loop at the monitor's
     // refresh rate, and nothing here renders partially, so every one of those
     // frames repaints the entire window. Ease is the default mode, so ungated
-    // this single animation — 1200ms out of every 1500ms — held the whole app
-    // at full refresh forever to move one dot. The browser can afford to run it
-    // always because it composites a transform on the GPU without repainting
-    // anything.
+    // this single animation — 1200ms out of every 1500ms — would hold the
+    // whole app at full refresh forever to move one dot.
     Timer {
         interval: 1500ms;
         running: root.enabled && hover.has-hover;
