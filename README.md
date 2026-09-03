@@ -45,22 +45,19 @@ Concat is currently in **Alpha (pre-release)**. Download the latest build from [
 
 **Platform support:**
 
-* ✅ **Windows** — tested
-* ✅ **macOS** — unsigned binaries; run:
+- ✅ **Windows** — tested
+- ✅ **macOS** — unsigned binaries; run:
   `xattr -dr com.apple.quarantine /Applications/Concat.app`
-* ✅ **Linux**
-
-  * 🧪 ARM
-  * 🧪 x86_64
-* 🚧 **Android**
-
-  * Phones
-  * Tablets
-* 🚧 **iOS / iPadOS**
-
-  * iPhone
-  * iPad
-* 🧪 **Raspberry Pi 5**
+- ✅ **Linux**
+  - 🧪 ARM
+  - 🧪 x86_64
+- 🚧 **Android**
+  - Phones
+  - Tablets
+- 🚧 **iOS / iPadOS**
+  - iPhone
+  - iPad
+- 🧪 **Raspberry Pi 5**
 
 **Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
