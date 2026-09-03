@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "chromakey=color=0x00FF00ty=0.250:blend=0.100"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "chromakey=color=0x00FF00ty=0.010:blend=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "chromakey=color=0x00FF00ty=0.600:blend=0.500"

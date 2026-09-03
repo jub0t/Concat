@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "aresample=48000,asetrate=48000.000000,aresample=48000,atempo=1.00000000"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "aresample=48000,asetrate=24000.000000,aresample=48000,atempo=2.00000000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "aresample=48000,asetrate=96000.000000,aresample=48000,atempo=0.50000000"

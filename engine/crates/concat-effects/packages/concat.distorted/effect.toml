@@ -1,0 +1,20 @@
+[effect]
+id = "concat.distorted"
+name = "Distorted"
+kind = "audio"
+category = "Tone"
+order = 26
+intensity = "drive"
+description = "Driven hard and clipped."
+
+[[param]]
+key = "drive"
+label = "Drive"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "volume={fixed(1 + drive / 100 * 7, 2)},acrusher=bits=6:mode=lin:mix={fixed(drive / 100 * 0.7, 2)},alimiter=limit=0.85:level=false"

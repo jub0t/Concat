@@ -1,0 +1,29 @@
+[effect]
+id = "concat.green-screen"
+name = "Green Screen"
+kind = "effect"
+category = "Cutout"
+order = 60
+intensity = "similarity"
+description = "Keys the green out, leaving the picture over whatever is beneath."
+
+[[param]]
+key = "similarity"
+label = "Similarity"
+min = 1
+max = 60
+default = 25
+step = 1
+unit = "%"
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 50
+default = 10
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "chromakey=color=0x00FF00ty={fixed(similarity / 100, 3)}:blend={fixed(softness / 100, 3)}"

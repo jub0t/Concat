@@ -1,0 +1,41 @@
+[effect]
+id = "concat.mask-linear"
+name = "Mask: Linear"
+kind = "effect"
+category = "Mask"
+order = 72
+intensity = "position"
+description = "Keeps the picture left of a soft vertical edge and lets the rest through."
+
+[[param]]
+key = "position"
+label = "Position"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "feather"
+label = "Feather"
+min = 0
+max = 100
+default = 20
+step = 1
+unit = "%"
+
+[[param]]
+key = "invert"
+label = "Invert"
+type = "bool"
+min = 0
+max = 1
+default = 0
+
+[ffmpeg]
+let = [
+  "edge = position / 100",
+  "soft = feather / 100",
+]
+chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs({round(invert)}-clip((W*{fixed(edge, 4)}+W*{fixed(soft, 4)}/2-X)/(W*{fixed(soft, 4)}+0.5),0,1))'"

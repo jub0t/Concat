@@ -1,0 +1,19 @@
+[effect]
+id = "concat.lofi"
+name = "Lo-fi"
+kind = "audio"
+category = "Tone"
+order = 25
+intensity = "bits"
+description = "A small old speaker: no top end, and a grain to the sound."
+
+[[param]]
+key = "bits"
+label = "Bits"
+min = 4
+max = 12
+default = 8
+step = 1
+
+[ffmpeg]
+chain = "lowpass=f=3200,acrusher=bits={round(bits)}:mode=log:mix=0.8,alimiter=limit=0.9"

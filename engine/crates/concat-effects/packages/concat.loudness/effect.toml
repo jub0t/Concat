@@ -1,0 +1,20 @@
+[effect]
+id = "concat.loudness"
+name = "Normalize Loudness"
+kind = "audio"
+category = "Clean"
+order = 40
+intensity = "target"
+description = "Brings the whole clip to one loudness, the way broadcast and the platforms expect."
+
+[[param]]
+key = "target"
+label = "Target"
+min = -30
+max = -12
+default = -23
+step = 1
+unit = "dB"
+
+[ffmpeg]
+chain = "loudnorm=I={fixed(target, 1)}:TP=-1.5:LRA=11"

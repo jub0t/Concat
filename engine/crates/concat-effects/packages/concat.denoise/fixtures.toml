@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "afftdn=nf=-35.0:nr=21.0"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "afftdn=nf=-20.0:nr=6.0"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "afftdn=nf=-50.0:nr=36.0"

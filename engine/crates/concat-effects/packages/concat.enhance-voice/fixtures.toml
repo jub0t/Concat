@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "highpass=f=80,afftdn=nf=-37.0:nr=16.8,deesser=i=0.30,acompressor=threshold=0.32:ratio=3.2:attack=15:release=120,alimiter=limit=0.95"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "highpass=f=80,afftdn=nf=-25.0:nr=6.0,deesser=i=0.00,acompressor=threshold=0.50:ratio=2.0:attack=15:release=120,alimiter=limit=0.95"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "highpass=f=80,afftdn=nf=-45.0:nr=24.0,deesser=i=0.50,acompressor=threshold=0.20:ratio=4.0:attack=15:release=120,alimiter=limit=0.95"

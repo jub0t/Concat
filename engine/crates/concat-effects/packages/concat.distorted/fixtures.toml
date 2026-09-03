@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "volume=4.50,acrusher=bits=6:mode=lin:mix=0.35,alimiter=limit=0.85:level=false"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "volume=1.00,acrusher=bits=6:mode=lin:mix=0.00,alimiter=limit=0.85:level=false"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "volume=8.00,acrusher=bits=6:mode=lin:mix=0.70,alimiter=limit=0.85:level=false"

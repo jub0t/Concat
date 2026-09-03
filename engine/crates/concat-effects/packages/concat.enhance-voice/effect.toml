@@ -1,0 +1,20 @@
+[effect]
+id = "concat.enhance-voice"
+name = "Enhance Voice"
+kind = "audio"
+category = "Clean"
+order = 42
+intensity = "amount"
+description = "Clears the room out of a recording: rumble, hiss, sibilance and uneven level."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "highpass=f=80,afftdn=nf={fixed(0 - 25 - amount / 100 * 20, 1)}:nr={fixed(6 + amount / 100 * 18, 1)},deesser=i={fixed(amount / 100 * 0.5, 2)},acompressor=threshold={fixed(0.5 - amount / 100 * 0.3, 2)}:ratio={fixed(2 + amount / 100 * 2, 1)}:attack=15:release=120,alimiter=limit=0.95"

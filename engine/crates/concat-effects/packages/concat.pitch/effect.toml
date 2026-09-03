@@ -1,0 +1,23 @@
+[effect]
+id = "concat.pitch"
+name = "Pitch"
+kind = "audio"
+category = "Voice"
+order = 10
+intensity = "semitones"
+description = "Up or down by semitones, the length untouched."
+
+[[param]]
+key = "semitones"
+label = "Semitones"
+min = -12
+max = 12
+default = 0
+step = 0.5
+unit = "st"
+
+[ffmpeg]
+let = [
+  "ratio = pow(2, semitones / 12)",
+]
+chain = "aresample=48000,asetrate={fixed(48000 * ratio, 6)},aresample=48000,atempo={fixed(1 / ratio, 8)}"

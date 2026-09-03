@@ -1,0 +1,61 @@
+[effect]
+id = "concat.mask-circle"
+name = "Mask: Circle"
+kind = "effect"
+category = "Mask"
+order = 70
+intensity = "size"
+description = "Keeps a soft-edged circle of the picture and lets the rest through."
+
+[[param]]
+key = "size"
+label = "Size"
+min = 5
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "feather"
+label = "Feather"
+min = 0
+max = 50
+default = 10
+step = 1
+unit = "%"
+
+[[param]]
+key = "x"
+label = "Centre X"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "y"
+label = "Centre Y"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "invert"
+label = "Invert"
+type = "bool"
+min = 0
+max = 1
+default = 0
+
+[ffmpeg]
+let = [
+  "radius = size / 200",
+  "soft = feather / 200",
+  "px = x / 100",
+  "py = y / 100",
+]
+chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs({round(invert)}-clip(({fixed(radius, 4)}*min(W,H)+{fixed(soft, 4)}*min(W,H)/2-hypot(X-W*{fixed(px, 4)},Y-H*{fixed(py, 4)}))/({fixed(soft, 4)}*min(W,H)+0.5),0,1))'"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs(0-clip((0.2500*min(W,H)+0.0500*min(W,H)/2-hypot(X-W*0.5000,Y-H*0.5000))/(0.0500*min(W,H)+0.5),0,1))'"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs(0-clip((0.0250*min(W,H)+0.0000*min(W,H)/2-hypot(X-W*0.0000,Y-H*0.0000))/(0.0000*min(W,H)+0.5),0,1))'"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs(1-clip((0.5000*min(W,H)+0.2500*min(W,H)/2-hypot(X-W*1.0000,Y-H*1.0000))/(0.2500*min(W,H)+0.5),0,1))'"

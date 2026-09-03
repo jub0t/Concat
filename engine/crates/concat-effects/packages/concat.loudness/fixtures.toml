@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "loudnorm=I=-23.0:TP=-1.5:LRA=11"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "loudnorm=I=-30.0:TP=-1.5:LRA=11"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "loudnorm=I=-12.0:TP=-1.5:LRA=11"
