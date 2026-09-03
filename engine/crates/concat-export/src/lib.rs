@@ -739,7 +739,7 @@ pub struct PreviewFrameRequest {
 /// already matches the exporter's. Returns raw RGBA, exactly
 /// `width * height * 4` bytes.
 pub fn preview_frame(
-    pool: &mut concat_media::ReaderPool,
+    pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
     let sources = preview_sources(pool, request)?;
@@ -786,7 +786,7 @@ impl PreviewSources {
 /// reader pool so scrubbing revisits are cache hits. See [`preview_frame`]
 /// for the rules on what counts as a failure.
 pub fn preview_sources(
-    pool: &mut concat_media::ReaderPool,
+    pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<PreviewSources, String> {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
@@ -876,7 +876,7 @@ fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate) -> BuiltTime
 /// source that will not decode fails the pull too, and that is the path
 /// with an error channel.
 pub fn preview_prefetch(
-    pool: &mut concat_media::ReaderPool,
+    pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
     frames: u32,
 ) {
