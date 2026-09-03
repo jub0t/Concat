@@ -139,6 +139,7 @@ export component Seat inherits Rectangle {
             playing: Editor.playing;
             has-picture: Editor.has-picture;
             clip-name: Editor.preview-clip-name;
+            frame: Editor.preview-frame;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => { Editor.seek(seconds); }

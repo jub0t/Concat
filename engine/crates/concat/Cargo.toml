@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Concat, the editor window: the Slint front end that drives the Concat engine."
+description = "Concat, the editor window: the Slint front end that drives the engine."
 
 # The product's name is the binary's name, unsuffixed: `concat` is what a
 # user launches, and the concat-* crates are what it is made of.
@@ -38,9 +38,22 @@ slint = { version = "1.17", default-features = false, features = [
     "unstable-winit-030",
 ] }
 
-# The engine. What Settings > About reports about it comes from here; the
-# rest of the wiring is the work in progress.
+# The engine, through the host layer. `gpu` turns on the wgpu compositor for
+# the monitor and the export; the CPU compositor stays as the fallback.
+concat-core.workspace = true
 concat-media.workspace = true
+concat-project.workspace = true
+concat-export.workspace = true
+concat-host = { workspace = true, features = ["gpu"] }
+concat-speech.workspace = true
+
+# Native file and folder dialogs, which Slint deliberately does not have.
+rfd = "0.17"
+# Reveal an exported file in the platform's file manager.
+opener = { version = "0.8", features = ["reveal"] }
+# Remembered preferences, as a small JSON file in the config directory.
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
 
 # The renderer is picked by a feature here rather than by editing the
 # dependency, so both variants build from one tree and can be compared:

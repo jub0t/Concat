@@ -218,6 +218,8 @@ export component PreviewPane inherits Rectangle {
     /// for one.
     in property <bool> has-picture;
     in property <string> clip-name;
+    /// The decoded frame. Drawn fitted to the stage when there is one.
+    in property <image> frame;
 
     callback play-toggled();
     /// Absolute, in seconds.
@@ -345,6 +347,18 @@ export component PreviewPane inherits Rectangle {
                         font-size: Theme.fs;
                         horizontal-alignment: center;
                     }
+                }
+
+                // The engine's frame, when one has arrived. It is already
+                // the stage's shape, so `contain` only absorbs a rounding
+                // pixel either way.
+                if root.has-picture && root.frame.width > 0: Image {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.frame;
+                    image-fit: contain;
                 }
 
                 // The clip that would be showing, named in the corner. The

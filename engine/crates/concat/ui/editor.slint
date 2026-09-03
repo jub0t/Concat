@@ -111,6 +111,9 @@ export global Editor {
     in-out property <bool> has-picture;
     in-out property <string> preview-clip-name;
     in-out property <float> preview-duration;
+    /// The engine's composited frame at the playhead, or an empty image
+    /// while one is on its way. Set from Rust; see `Studio::request_preview`.
+    in-out property <image> preview-frame;
 
     callback play-toggled();
     callback seek(seconds: float);

@@ -375,8 +375,8 @@ the audio path.
   sys` downloads prebuilt static libraries at build time. A clean build needs
   the network twice (three times counting `skia-bindings`) and several
   minutes. The workspace lock resolves 746 crates.
-- The CI in `.github/workflows/build.yml` was rewritten for all of this and
-  has not yet run green on all three platforms. Windows in particular
+- The workflows (`ci.yml`, `build-app.yml`, `release.yml`) were rewritten
+  for all of this and have not yet run green on all three platforms. Windows in particular
   (libclang via chocolatey, `FFMPEG_DIR`, MSVC for whisper.cpp) is untested.
 
 ### 8.8 Dead code still in the repository
@@ -384,9 +384,9 @@ the audio path.
 - `desktop/` no longer builds: its host Rust moved into `concat-host` and
   `concat-speech`, the media API it used is gone, and the Tauri commands were
   its only reason to exist. It stays as a reference for UI behaviour until
-  the Slint window reproduces it, then it should be deleted along with
-  `scripts/generate-ipc-types.sh`, the `types` features of `concat-project`
-  and `concat-export` (ts-rs exports for a TypeScript that no longer exists),
+  the Slint window reproduces it, then it should be deleted along with the
+  `types` features of `concat-project` and `concat-export` (ts-rs exports
+  for a TypeScript that no longer exists),
   and the `desktop/src/lib/...` references in `chains.rs`'s comments.
 - `flake.nix` packages the Tauri app and therefore does not build either.
 - `ExportClip`, `ExportRequest` and `PreviewFrameRequest` are wire types
