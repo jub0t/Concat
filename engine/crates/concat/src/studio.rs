@@ -76,6 +76,89 @@ const LANE_SMALL: f32 = 40.0;
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
 
+
+/// Fit / match picture sizing for the selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FitMode {
+    FitHeight,
+    FitWidth,
+    MatchWidth,
+    MatchHeight,
+}
+
+fn fitted_size(
+    media_w: u32,
+    media_h: u32,
+    frame_w: f64,
+    frame_h: f64,
+) -> Option<(f64, f64)> {
+    if media_w == 0 || media_h == 0 || frame_w <= 0.0 || frame_h <= 0.0 {
+        return None;
+    }
+    let fit = (frame_w / f64::from(media_w)).min(frame_h / f64::from(media_h));
+    Some((f64::from(media_w) * fit, f64::from(media_h) * fit))
+}
+
+fn displayed_size(
+    media_w: u32,
+    media_h: u32,
+    frame_w: f64,
+    frame_h: f64,
+    scale: f64,
+) -> Option<(f64, f64)> {
+    let (w, h) = fitted_size(media_w, media_h, frame_w, frame_h)?;
+    Some((w * scale, h * scale))
+}
+
+fn scale_to_fit_height(media_w: u32, media_h: u32, frame_w: f64, frame_h: f64) -> Option<f64> {
+    let (_, h) = fitted_size(media_w, media_h, frame_w, frame_h)?;
+    if h <= 0.0 {
+        None
+    } else {
+        Some(frame_h / h)
+    }
+}
+
+fn scale_to_fit_width(media_w: u32, media_h: u32, frame_w: f64, frame_h: f64) -> Option<f64> {
+    let (w, _) = fitted_size(media_w, media_h, frame_w, frame_h)?;
+    if w <= 0.0 {
+        None
+    } else {
+        Some(frame_w / w)
+    }
+}
+
+fn scale_to_match_width(
+    media_w: u32,
+    media_h: u32,
+    frame_w: f64,
+    frame_h: f64,
+    target_w: f64,
+) -> Option<f64> {
+    let (w, _) = fitted_size(media_w, media_h, frame_w, frame_h)?;
+    if w <= 0.0 || target_w <= 0.0 {
+        None
+    } else {
+        Some(target_w / w)
+    }
+}
+
+fn scale_to_match_height(
+    media_w: u32,
+    media_h: u32,
+    frame_w: f64,
+    frame_h: f64,
+    target_h: f64,
+) -> Option<f64> {
+    let (_, h) = fitted_size(media_w, media_h, frame_w, frame_h)?;
+    if h <= 0.0 || target_h <= 0.0 {
+        None
+    } else {
+        Some(target_h / h)
+    }
+}
+
+
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
     /// Every sampled frame side by side.
@@ -3758,6 +3841,87 @@ impl Studio {
 
     /// A copy of `source` laid after it. Three commands, because a clip's
     /// in-point and length are set by trims, not by placement.
+    /// Fit or match picture scale for the current selection.
+    ///
+    /// `fit*` uses the output frame; `match*` uses the first selected
+    /// picture clip's displayed size as the target. Offsets reset to centre.
+    pub fn fit_selected(&mut self, mode: FitMode) {
+        let (ow, oh) = self.output_size();
+        let frame_w = f64::from(ow);
+        let frame_h = f64::from(oh);
+        let picture: Vec<Clip> = self
+            .selection
+            .iter()
+            .filter_map(|id| self.clip(id).cloned())
+            .filter(|clip| {
+                (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image)
+                    && !self.locked(&clip.track_id)
+            })
+            .collect();
+        if picture.is_empty() {
+            self.notify("Select a picture clip to fit", true);
+            return;
+        }
+
+        let mut target_w = 0.0;
+        let mut target_h = 0.0;
+        if matches!(mode, FitMode::MatchWidth | FitMode::MatchHeight) {
+            let Some(media) = self
+                .project()
+                .media
+                .iter()
+                .find(|item| item.id == picture[0].media_id)
+            else {
+                return;
+            };
+            let Some((mw, mh)) = media.width.zip(media.height) else {
+                return;
+            };
+            let Some((dw, dh)) = displayed_size(mw, mh, frame_w, frame_h, picture[0].scale) else {
+                return;
+            };
+            target_w = dw;
+            target_h = dh;
+        }
+
+        let mut commands = Vec::new();
+        for clip in &picture {
+            let Some(media) = self
+                .project()
+                .media
+                .iter()
+                .find(|item| item.id == clip.media_id)
+            else {
+                continue;
+            };
+            let Some((mw, mh)) = media.width.zip(media.height) else {
+                continue;
+            };
+            let scale = match mode {
+                FitMode::FitHeight => scale_to_fit_height(mw, mh, frame_w, frame_h),
+                FitMode::FitWidth => scale_to_fit_width(mw, mh, frame_w, frame_h),
+                FitMode::MatchWidth => scale_to_match_width(mw, mh, frame_w, frame_h, target_w),
+                FitMode::MatchHeight => scale_to_match_height(mw, mh, frame_w, frame_h, target_h),
+            };
+            let Some(scale) = scale else { continue };
+            commands.push(Command::SetClipTransform {
+                clip_id: clip.id.clone(),
+                scale: Some(scale.clamp(0.05, 8.0)),
+                offset_x: Some(0.0),
+                offset_y: Some(0.0),
+                rotation: None,
+            });
+        }
+        if commands.is_empty() {
+            return;
+        }
+        if commands.len() == 1 {
+            self.apply(commands.remove(0));
+        } else {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
     pub fn duplicate(&mut self, source: &Clip) {
         let end = source.start + source.duration;
         if source.kind == model::ClipKind::Text {
@@ -5588,6 +5752,41 @@ impl Studio {
             ),
             rule(),
         ];
+        let picture = clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image;
+        if picture && !locked {
+            rows.push(heading("SIZE"));
+            rows.push(action(
+                "fit-height",
+                "Fit to frame height".into(),
+                Glyph::Fit,
+                "",
+                true,
+            ));
+            rows.push(action(
+                "fit-width",
+                "Fit to frame width".into(),
+                Glyph::Fit,
+                "",
+                true,
+            ));
+            if self.selection.len() >= 2 {
+                rows.push(action(
+                    "match-width",
+                    "Match width (first selected)".into(),
+                    Glyph::Fit,
+                    "",
+                    true,
+                ));
+                rows.push(action(
+                    "match-height",
+                    "Match height (first selected)".into(),
+                    Glyph::Fit,
+                    "",
+                    true,
+                ));
+            }
+            rows.push(rule());
+        }
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
             "mute",
@@ -5962,6 +6161,10 @@ impl Studio {
                 self.selection = vec![id.to_owned()];
                 self.split_at(at, true);
             }
+            "fit-height" => self.fit_selected(FitMode::FitHeight),
+            "fit-width" => self.fit_selected(FitMode::FitWidth),
+            "match-width" => self.fit_selected(FitMode::MatchWidth),
+            "match-height" => self.fit_selected(FitMode::MatchHeight),
             "mute" => {
                 let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
                 self.apply(Command::UpdateClip {
