@@ -989,7 +989,7 @@ mod tests {
         };
 
         let mut pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
-        let bytes = preview_frame(&mut pool, &request).expect("previews");
+        let bytes = preview_frame(&pool, &request).expect("previews");
         assert_eq!(bytes.len(), 64 * 64 * 4);
         let centre = (32 * 64 + 32) * 4;
         assert!(
