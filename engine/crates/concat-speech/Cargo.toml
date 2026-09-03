@@ -17,16 +17,35 @@ serde_json.workspace = true
 # for one GET.
 ureq = "2"
 
-# Text to speech: the official k2-fsa bindings, linked statically so the
-# binary carries no extra dylibs. Kokoro models arrive as tar.bz2 archives,
-# hence tar + bzip2 (pure-Rust decoder) for unpacking them.
-sherpa-onnx = "1.13"
+# Kokoro models arrive as tar.bz2 archives, hence tar + bzip2 (pure-Rust
+# decoder) for unpacking them.
 tar = "0.4"
 bzip2 = "0.6"
 
 # Transcription: whisper.cpp in-process. Built from source by cmake at build
 # time; on macOS with Metal so the encoder runs on the GPU.
 whisper-rs = "0.16"
+
+# Text to speech: the official k2-fsa bindings. Linked statically where that
+# works, so the binary carries no extra dylibs.
+[target.'cfg(not(windows))'.dependencies]
+sherpa-onnx = "1.13"
+
+# On Windows it must be the shared library instead: the only static archives
+# k2-fsa publishes are /MT (static CRT), and MSVC refuses to link those into
+# a binary whose every other object - Rust's own runtime, Skia, whisper - is
+# /MD. LNK2038, on every object pair. The /MT code stays sealed inside the
+# DLLs, which ship beside the binary.
+#
+# Windows builds must also set SHERPA_ONNX_LIB_DIR to a directory holding
+# only the import .lib files (CI does; ~/.cargo/config.toml locally). Left
+# to its own download, the sys crate finds the DLLs next to the import
+# libraries and tries to copy them into the "profile directory" - which it
+# locates by searching for an ancestor named after $PROFILE, a walk that
+# panics under the custom `app` profile. Keeping the DLLs out of the lib
+# directory skips that code path; packaging ships them explicitly.
+[target.'cfg(windows)'.dependencies]
+sherpa-onnx = { version = "1.13", default-features = false, features = ["shared"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.16", features = ["metal"] }

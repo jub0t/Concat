@@ -178,6 +178,31 @@ jobs:
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
+      # sherpa-onnx links shared on Windows (see concat-speech's manifest for
+      # why static cannot work here), from a directory holding only the
+      # import libraries. The separation matters: when the sys crate's build
+      # script sees DLLs beside the .lib files it tries to copy them into
+      # the "profile directory", located by searching OUT_DIR's ancestors
+      # for one named after $PROFILE - which panics under the custom `app`
+      # profile, whose directory is not called "release". The DLLs are kept
+      # apart and the packaging step ships them beside the binary.
+      - name: sherpa-onnx shared libraries (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # The version the lockfile resolved, so a bump cannot desynchronise.
+          $version = (Select-String -Path engine\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
+          $arch = if ("${{ matrix.arch }}" -eq "aarch64") { "win-arm64" } else { "win-x64" }
+          $stem = "sherpa-onnx-v$version-$arch-shared-MT-Release-lib"
+          curl.exe -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          tar -xjf sherpa.tar.bz2
+          New-Item -ItemType Directory -Force sherpa-libs, sherpa-dlls | Out-Null
+          Copy-Item "$stem\lib\*.lib" sherpa-libs\
+          Copy-Item "$stem\lib\*.dll" sherpa-dlls\
+          "SHERPA_ONNX_LIB_DIR=$PWD\sherpa-libs" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SHERPA_DLL_DIR=$PWD\sherpa-dlls" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       # ── Build ──────────────────────────────────────────────────────────
       # The shipping profile: fat LTO, panic=abort, stripped. See the
       # workspace Cargo.toml for what each knob costs.
@@ -375,6 +400,8 @@ jobs:
           New-Item -ItemType Directory -Force "stage\$name" | Out-Null
           Copy-Item "engine\target\${{ matrix.target }}\app\concat.exe" "stage\$name\"
           Copy-Item "$env:FFMPEG_DIR\bin\*.dll" "stage\$name\"
+          # The sherpa-onnx runtime, set aside by the download step above.
+          Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md "stage\$name\"
           Compress-Archive -Path "stage\$name" -DestinationPath "stage\$name.zip"
           Remove-Item -Recurse -Force "stage\$name"
