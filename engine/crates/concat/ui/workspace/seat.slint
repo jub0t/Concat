@@ -187,6 +187,9 @@ export component Seat inherits Rectangle {
             audio-params: Editor.audio-params;
             adjust-params: Editor.adjust-params;
             adjust-set(key, value) => { Editor.adjust-set(key, value); }
+            jump-token: Editor.inspector-jump-token;
+            jump-tab: Editor.inspector-jump-tab;
+            jump-section: Editor.inspector-jump-section;
             chain-add(audio, id) => { Editor.chain-add(audio, id); }
             chain-toggle(audio, index) => { Editor.chain-toggle(audio, index); }
             chain-move-by(audio, index, delta) => { Editor.chain-move-by(audio, index, delta); }

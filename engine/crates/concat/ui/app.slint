@@ -210,6 +210,16 @@ export component App inherits Window {
             enabled: !root.on-start;
             activated => { root.app-menu-selected("save"); }
         }
+        KeyBinding {
+            keys: @keys(Control + Z);
+            enabled: !root.on-start;
+            activated => { root.app-menu-selected("undo"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + Shift + Z);
+            enabled: !root.on-start;
+            activated => { root.app-menu-selected("redo"); }
+        }
 
         // Space plays and pauses, the way it does in every editor. It lands
         // here only when nothing else took it: a field being typed into

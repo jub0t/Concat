@@ -541,6 +541,14 @@ pub struct Studio {
     pub gesture: Gesture,
     /// The snap lines of a stage move in flight; empty between moves.
     pub stage_guides: Vec<StageGuideData>,
+    /// Where the inspector should go, and a count that changes every time
+    /// something is applied from the library; see `Editor.inspector-jump-token`.
+    pub inspector_jump: (i32, &'static str, &'static str),
+    /// The last inspector commit: what it changed and when. A control that
+    /// is dragged commits on every move, and each of those would be an undo
+    /// step of its own; a commit that changes the same thing as the last
+    /// one, within a moment of it, replaces it in the history instead.
+    last_commit: Option<(String, std::time::Instant)>,
     /// Each title's painted block in frame pixels, by clip id, as of the
     /// last time the monitor asked for a frame. What the stage box for a
     /// text clip is drawn from; see `footprint`.
@@ -641,6 +649,53 @@ fn format_of(unit: &str) -> ParamFormat {
         "x" => ParamFormat::Rate,
         _ => ParamFormat::Plain,
     }
+}
+
+/// What a batch of inspector commands touches, as a string two commits can
+/// be compared by: the variant names, and for a patch the fields it sets.
+fn commit_key(commands: &[Command]) -> String {
+    commands
+        .iter()
+        .map(|command| match command {
+            Command::SetClipTransform { .. } => "transform".to_owned(),
+            Command::SetClipSpeed { .. } => "speed".to_owned(),
+            Command::SetClipSpeedCurve { .. } => "curve".to_owned(),
+            Command::SetClipAnimation { slot, .. } => format!("animation:{slot:?}"),
+            Command::UpdateClip { patch, .. } => {
+                let mut fields = Vec::new();
+                if patch.name.is_some() {
+                    fields.push("name");
+                }
+                if patch.volume.is_some() {
+                    fields.push("volume");
+                }
+                if patch.fade_in.is_some() {
+                    fields.push("fade_in");
+                }
+                if patch.fade_out.is_some() {
+                    fields.push("fade_out");
+                }
+                if patch.opacity.is_some() {
+                    fields.push("opacity");
+                }
+                if patch.text.is_some() {
+                    fields.push("text");
+                }
+                if patch.video_effects.is_some() {
+                    fields.push("video_effects");
+                }
+                if patch.filters.is_some() {
+                    fields.push("filters");
+                }
+                if patch.crop.is_some() {
+                    fields.push("crop");
+                }
+                format!("patch:{}", fields.join("+"))
+            }
+            _ => "other".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// The menu row of a slot's animation: -1 for none.
@@ -855,6 +910,8 @@ impl Studio {
             divider_press: None,
             gesture: Gesture::None,
             stage_guides: Vec::new(),
+            inspector_jump: (0, "", ""),
+            last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
             host,
@@ -1014,6 +1071,9 @@ impl Studio {
     /// because the session's project is the truth again.
     pub fn apply(&mut self, command: Command) -> Option<String> {
         self.echo = None;
+        // Anything but an inspector commit ends the coalescing window; the
+        // commit path sets `last_commit` again right after calling here.
+        self.last_commit = None;
         let session = self.session.as_mut()?;
         match session.apply(command) {
             Ok(view) => {
@@ -1742,6 +1802,24 @@ impl Studio {
             }
         };
         self.apply(Command::UpdateClip { clip_id, patch });
+        // Show it: the applied chain is where the knobs are, and a card
+        // that did something with no visible result reads as a card that
+        // did nothing.
+        let is_look = Catalogue::builtin()
+            .packages()
+            .find(|package| package.answers_to(id))
+            .is_some_and(|package| package.kind() == PackageKind::Filter);
+        self.inspector_jump = (
+            self.inspector_jump.0 + 1,
+            if video { "Effects" } else { "Audio" },
+            if !video {
+                "Sound"
+            } else if is_look {
+                "Filters"
+            } else {
+                "Effects"
+            },
+        );
     }
 
     pub fn apply_transition(&mut self, id: &str) {
@@ -2438,8 +2516,27 @@ impl Studio {
             commands.push(Command::UpdateClip { clip_id: id, patch });
         }
         self.echo = None;
+        if commands.is_empty() {
+            return;
+        }
+        // One undo step per gesture, not per pointer move: a commit that
+        // changes the same things on the same clip as the last, within a
+        // moment of it, takes the last one's place. Every command here sets
+        // absolute values, so undoing the previous and applying this lands
+        // where this alone would have.
+        let key = format!("{}:{}", after.id, commit_key(&commands));
+        let now = std::time::Instant::now();
+        let coalesce = self
+            .last_commit
+            .as_ref()
+            .is_some_and(|(last, at)| *last == key && now.duration_since(*at).as_millis() < 900);
+        if coalesce
+            && let Some(session) = self.session.as_mut()
+            && session.can_undo()
+        {
+            session.undo();
+        }
         match commands.len() {
-            0 => {}
             1 => {
                 self.apply(commands.remove(0));
             }
@@ -2447,6 +2544,7 @@ impl Studio {
                 self.apply(Command::Batch { commands });
             }
         }
+        self.last_commit = Some((key, now));
     }
 
     // ── the stage ──
@@ -3760,6 +3858,9 @@ impl Studio {
         });
 
         editor.set_selected_clip(self.selected());
+        editor.set_inspector_jump_token(self.inspector_jump.0);
+        editor.set_inspector_jump_tab(self.inspector_jump.1.into());
+        editor.set_inspector_jump_section(self.inspector_jump.2.into());
         let active = project
             .timelines
             .iter()

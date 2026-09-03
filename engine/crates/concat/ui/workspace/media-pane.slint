@@ -999,7 +999,6 @@ export component MediaPane inherits Rectangle {
     property <int> effect-category;
     /// 0 = Voice, 1 = Tone, 2 = Space — the inspector's filter shelves
     property <int> filter-category;
-    property <int> audio-category;
     property <bool> audio-open: true;
     /// The category column. In-out, because it is dragged.
     in-out property <length> sidebar-w: 104px;
@@ -1167,14 +1166,9 @@ export component MediaPane inherits Rectangle {
                             clicked => { root.tab = 4; }
                         }
                         LibraryTab {
-                            label: "Audio";
+                            label: "Templates";
                             current: root.tab == 5;
                             clicked => { root.tab = 5; }
-                        }
-                        LibraryTab {
-                            label: "Templates";
-                            current: root.tab == 6;
-                            clicked => { root.tab = 6; }
                         }
                     }
                 }
@@ -1359,6 +1353,33 @@ export component MediaPane inherits Rectangle {
                             current: root.effect-category == 3;
                             clicked => { root.effect-category = 3; }
                         }
+
+                        // The sound's effects, on the same page as the
+                        // picture's: one place called Effects.
+                        CategoryHeading {
+                            height: 26px;
+                            title: "Audio Effects";
+                            open: root.audio-open;
+                            toggled => { root.audio-open = !root.audio-open; }
+                        }
+                        if root.audio-open: CategoryRow {
+                            height: 24px;
+                            label: "Voice";
+                            current: root.effect-category == 4;
+                            clicked => { root.effect-category = 4; }
+                        }
+                        if root.audio-open: CategoryRow {
+                            height: 24px;
+                            label: "Tone";
+                            current: root.effect-category == 5;
+                            clicked => { root.effect-category = 5; }
+                        }
+                        if root.audio-open: CategoryRow {
+                            height: 24px;
+                            label: "Space";
+                            current: root.effect-category == 6;
+                            clicked => { root.effect-category = 6; }
+                        }
                     }
 
                     // Filters are colour looks, the way every video editor's
@@ -1381,34 +1402,6 @@ export component MediaPane inherits Rectangle {
                     }
 
                     if root.tab == 5: VerticalLayout {
-                        spacing: 1px;
-                        CategoryHeading {
-                            height: 26px;
-                            title: "Audio Effects";
-                            open: root.audio-open;
-                            toggled => { root.audio-open = !root.audio-open; }
-                        }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: "Voice";
-                            current: root.audio-category == 0;
-                            clicked => { root.audio-category = 0; }
-                        }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: "Tone";
-                            current: root.audio-category == 1;
-                            clicked => { root.audio-category = 1; }
-                        }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: "Space";
-                            current: root.audio-category == 2;
-                            clicked => { root.audio-category = 2; }
-                        }
-                    }
-
-                    if root.tab == 6: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
@@ -1554,8 +1547,17 @@ export component MediaPane inherits Rectangle {
                         items: root.effect-category == 0 ? root.effects-basic
                             : root.effect-category == 1 ? root.effects-blur
                             : root.effect-category == 2 ? root.effects-stylize
-                            : root.effects-distort;
-                        applied(id, label) => { root.apply-effect(id); }
+                            : root.effect-category == 3 ? root.effects-distort
+                            : root.effect-category == 4 ? root.audio-voice
+                            : root.effect-category == 5 ? root.audio-tone
+                            : root.audio-space;
+                        applied(id, label) => {
+                            if (root.effect-category >= 4) {
+                                root.apply-audio(id);
+                            } else {
+                                root.apply-effect(id);
+                            }
+                        }
                     }
                 }
 
@@ -1575,21 +1577,9 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 5: HorizontalLayout {
-                    padding: 8px;
-
-                    CatalogueGrid {
-                        horizontal-stretch: 1;
-                        items: root.audio-category == 0 ? root.audio-voice
-                            : root.audio-category == 1 ? root.audio-tone
-                            : root.audio-space;
-                        applied(id, label) => { root.apply-audio(id); }
-                    }
-                }
-
                 // Templates: the save affordance, then the gallery of saved
                 // templates, which shows its empty state until one is saved.
-                if root.tab == 6: HorizontalLayout {
+                if root.tab == 5: HorizontalLayout {
                     padding: 8px;
 
                     ImportButton {
@@ -1599,7 +1589,7 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 6: Empty {
+                if root.tab == 5: Empty {
                     glyph: Glyph.slot;
                     text: "No templates yet. Mark media as slots, then save this project as a template.";
                 }

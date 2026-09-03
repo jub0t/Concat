@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme, SegmentedControl } from "../primitives/primitives.slint";
+import { Select } from "../primitives/select.slint";
 import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AnimationPanel, AppliedEntryData, AppliedParamData, AudioPanel,
+    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel,
     CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
@@ -141,6 +142,12 @@ export component ConfigPane inherits Rectangle {
     in property <[AppliedParamData]> adjust-params;
     callback adjust-set(key: string, value: float);
 
+    /// See Editor.inspector-jump-token: the library applied something and
+    /// this pane should show it.
+    in property <int> jump-token;
+    in property <string> jump-tab;
+    in property <string> jump-section;
+
     callback chain-add(audio: bool, id: string);
     callback chain-toggle(audio: bool, index: int);
     callback chain-move-by(audio: bool, index: int, delta: int);
@@ -153,14 +160,14 @@ export component ConfigPane inherits Rectangle {
     callback clip-commit();
 
 
-    // The tab strip follows the selection: nothing selected shows only
-    // Details, since there is nothing to edit; a video clip shows everything;
-    // a still has picture and no sound, so it loses Audio; a sound clip has
-    // no picture, so it loses Filters and Effects; and a title gets Text
-    // alone — offering the others would be offering panels that can only say
-    // "nothing here". The words are the ones video editors' users know:
-    // Filters are colour looks, Effects happen to the picture, Audio is the
-    // voice and the room.
+    // The tab strip follows the selection, and stays short: three tabs at
+    // most, each with a dropdown of its sections, because seven tabs on a
+    // strip this narrow cannot be read. Video holds what happens to the
+    // picture - its placement, its speed, its animation, its colour; Audio
+    // the level, the fades and the voice and room chain; Effects the two
+    // shelves and the picture's chain. A still loses Audio, a sound clip
+    // keeps Audio alone, and a title gets Text alone — offering the others
+    // would be offering panels that can only say "nothing here".
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
     property <bool> is-audio: root.selected.kind == ClipKind.audio;
@@ -168,11 +175,11 @@ export component ConfigPane inherits Rectangle {
     /// it has no transform, no gain and no rate, and every other tab could
     /// only say "nothing here".
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
-    property <[string]> tabs: root.is-text ? ["Text", "Animation"]
+    property <[string]> tabs: root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
-        : root.is-image ? ["Video", "Animation", "Adjust", "Filters", "Effects"]
-        : root.is-audio ? ["Audio", "Speed"]
-        : ["Video", "Audio", "Speed", "Animation", "Adjust", "Filters", "Effects"];
+        : root.is-image ? ["Video", "Effects"]
+        : root.is-audio ? ["Audio"]
+        : ["Video", "Audio", "Effects"];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -181,7 +188,7 @@ export component ConfigPane inherits Rectangle {
     // drop any binding declared here, so it is assigned and never bound.
     property <int> tab;
     /// The kind the strip was last built for. A selection change can leave the
-    /// strip pointing past the end of a shorter list — Filters on a still,
+    /// strip pointing past the end of a shorter list — Audio on a still,
     /// anything at all on a title — so the index is pulled back in when the
     /// shape of the strip changes, and left alone when it has not.
     property <ClipKind> strip-kind;
@@ -189,16 +196,64 @@ export component ConfigPane inherits Rectangle {
         if (root.selected.kind != root.strip-kind) {
             root.strip-kind = root.selected.kind;
             // Clamped rather than reset: going from a video to a still should
-            // stay on Effects, which both offer, instead of jumping back to
-            // Adjust.
+            // stay on Effects, which both offer, instead of jumping back.
             root.tab = Math.min(root.tab, root.tabs.length - 1);
         }
     }
 
-    /// Which panel the index names, resolved once rather than at each `if`:
-    /// the same number means different things depending on what is selected.
-    property <string> showing: root.tabs[Math.max(0,
+    /// Which tab the index names.
+    property <string> heading: root.tabs[Math.max(0,
         Math.min(root.tab, root.tabs.length - 1))];
+
+    /// The sections of the current tab, as the dropdown lists them.
+    // Animation is deliberately not offered yet: the engine plays it, but
+    // the panel for it is still to be designed.
+    property <[string]> sections: root.heading == "Video"
+            ? (root.is-image ? ["Basic", "Adjust"] : ["Basic", "Speed", "Adjust"])
+        : root.heading == "Audio"
+            ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
+        : root.heading == "Effects" ? ["Filters", "Effects"]
+        : root.heading == "Text" ? ["Text"]
+        : ["Layer"];
+
+    // Each tab remembers its own section, so flipping to Audio and back
+    // lands on the colour panel you were adjusting. Assigned, never bound,
+    // for the same reason `tab` is.
+    property <int> section-video;
+    property <int> section-audio;
+    property <int> section-effects;
+    property <int> section-text;
+    property <int> section: root.heading == "Video" ? root.section-video
+        : root.heading == "Audio" ? root.section-audio
+        : root.heading == "Effects" ? root.section-effects
+        : root.heading == "Text" ? root.section-text
+        : 0;
+    function pick-section(index: int) {
+        if (root.heading == "Video") { root.section-video = index; }
+        else if (root.heading == "Audio") { root.section-audio = index; }
+        else if (root.heading == "Effects") { root.section-effects = index; }
+        else if (root.heading == "Text") { root.section-text = index; }
+    }
+
+    /// Which panel is up, resolved once rather than at each `if`: the same
+    /// number means different things depending on what is selected.
+    property <string> showing: root.sections[Math.max(0,
+        Math.min(root.section, root.sections.length - 1))];
+
+    // Go where the library just put something. On a fresh token, and once
+    // on opening, so an inspector that was not on screen when the effect
+    // was applied still opens on it.
+    function jump() {
+        if (root.jump-token == 0) { return; }
+        if (root.jump-tab == "Video") { root.tab = 0; }
+        else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
+        else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }
+        if (root.jump-section == "Effects") { root.pick-section(1); }
+        else if (root.jump-section == "Filters") { root.pick-section(0); }
+        else { root.pick-section(0); }
+    }
+    changed jump-token => { root.jump(); }
+    init => { root.jump(); }
 
     Pane {
         // ── details ──────────────────────────────────────────────────────
@@ -380,19 +435,53 @@ export component ConfigPane inherits Rectangle {
             }
         }
 
+        // The tab's sections, as a dropdown under the strip. One section
+        // needs no dropdown: the strip already says where you are.
+        if root.has-selection && root.sections.length > 1: Rectangle {
+            height: 40px;
+            background: Theme.panel;
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 8px;
+
+                Text {
+                    text: "Section";
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                VerticalLayout {
+                    alignment: center;
+                    Select {
+                        width: 168px;
+                        options: root.sections;
+                        current: Math.max(0, Math.min(root.section, root.sections.length - 1));
+                        changed(index) => { root.pick-section(index); }
+                    }
+                }
+            }
+        }
+
         if root.has-selection: PaneBody {
             // No padding: the inspector rows carry their own 14px inset, and
             // sections run edge to edge so their hairlines reach both sides.
             padding: 0px;
 
             PaneScroll {
-                if root.showing == "Video": VideoPanel {
-                    selected: root.selected;
-                    set(field, value) => { root.clip-set(field, value); }
-                    commit => { root.clip-commit(); }
-                }
-
-                if root.showing == "Animation": AnimationPanel {
+                if root.showing == "Basic": VideoPanel {
                     selected: root.selected;
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
@@ -410,7 +499,7 @@ export component ConfigPane inherits Rectangle {
                     commit => { root.clip-commit(); }
                 }
 
-                if root.showing == "Filter": FilterPanel {
+                if root.showing == "Layer": FilterPanel {
                     selected: root.selected;
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
@@ -426,7 +515,7 @@ export component ConfigPane inherits Rectangle {
 
                 // Audio: the level and fades, then the voice and room chain
                 // under them, as CapCut's audio tab has it.
-                if root.showing == "Audio": VerticalLayout {
+                if root.showing == "Sound": VerticalLayout {
                     AudioPanel {
                         selected: root.selected;
                         set(field, value) => { root.clip-set(field, value); }

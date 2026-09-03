@@ -115,6 +115,14 @@ export global Editor {
     /// The Adjust tab: the colour package's knobs for the selected clip.
     in-out property <[AppliedParamData]> adjust-params;
     callback adjust-set(key: string, value: float);
+
+    /// Something was just applied from the library: the inspector should
+    /// show it. The token changes with every application; the tab and
+    /// section say where the thing landed. An inspector that opens later
+    /// reads them too, so the first one up shows the effect.
+    in-out property <int> inspector-jump-token;
+    in-out property <string> inspector-jump-tab;
+    in-out property <string> inspector-jump-section;
     /// `audio` picks the chain: the sound's, or the picture's. A parameter
     /// change lands on the echo and `clip-commit` makes it a command, the
     /// same as every other inspector control.
