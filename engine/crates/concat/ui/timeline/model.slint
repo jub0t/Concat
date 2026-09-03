@@ -213,3 +213,29 @@ export struct SelectedClipData {
     line-height: float,
     tracking: float,
 }
+
+/// One picture under the playhead, as the monitor places it.
+///
+/// Everything is a fraction of the output frame rather than a pixel: the
+/// stage is drawn at whatever size the pane allows, and a box that is 40% of
+/// the frame wide is 40% of the stage wide at every size. Published for every
+/// picture and not only the selected ones, so a press on the stage has a
+/// list to test against — the hit-test itself is Rust's, because a rotated
+/// box is not something a TouchArea can be the shape of.
+export struct StageItemData {
+    id: string,
+    kind: ClipKind,
+    selected: bool,
+    /// The picture's centre, in fractions of the frame's width and height.
+    cx: float,
+    cy: float,
+    /// How much of the frame's width and height the picture covers, before
+    /// rotation. For a title this is an estimate: the engine does not report
+    /// where its glyphs landed.
+    w: float,
+    h: float,
+    /// Clockwise degrees, about the centre.
+    rotation: float,
+    /// The clip's scale, for the readout under the box.
+    scale: float,
+}

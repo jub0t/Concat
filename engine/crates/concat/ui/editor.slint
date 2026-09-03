@@ -8,7 +8,7 @@ import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
 import {
     ClipData, ClipField, ClipTextField, DropData, SelectedClipData,
-    TimelineTabData, TimelineTool, TrackData, TrackSize,
+    StageItemData, TimelineTabData, TimelineTool, TrackData, TrackSize,
 } from "timeline/model.slint";
 
 // Everything the four editor views read and everything they report, in one
@@ -120,6 +120,22 @@ export global Editor {
     callback step-frames(frames: float);
     callback ratio-changed(index: int);
     callback quality-changed(index: int);
+
+    /// Every picture under the playhead, placed as the compositor places it.
+    /// The stage outlines the selected ones and lets them be moved, scaled
+    /// and turned in place; see StageOverlay in the preview pane.
+    in-out property <[StageItemData]> stage-items;
+    /// A press on the stage itself, in fractions of the frame. Rust decides
+    /// what it landed on — a picture starts a move, empty stage clears the
+    /// selection — the way `clip-pressed` does for the lanes.
+    callback stage-pressed(x: float, y: float, additive: bool);
+    /// A press on one of a selected box's grips: 0..3 are its corners,
+    /// clockwise from top-left, and 4 is the rotation handle above it.
+    callback stage-grip-pressed(id: string, grip: int, x: float, y: float);
+    /// The pointer moved with a stage gesture live. `snap` is shift: an axis
+    /// for a move, steps for a scale, fifteen degrees for a turn.
+    callback stage-dragged(x: float, y: float, snap: bool);
+    callback stage-released();
 
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;

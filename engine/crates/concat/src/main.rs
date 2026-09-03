@@ -120,6 +120,7 @@ fn main() -> Result<(), slint::PlatformError> {
         editor.set_timeline_tabs(ModelRc::from(models.tabs.clone()));
         editor.set_tracks(ModelRc::from(models.tracks.clone()));
         editor.set_clips(ModelRc::from(models.clips.clone()));
+        editor.set_stage_items(ModelRc::from(models.stage.clone()));
         editor.set_media(ModelRc::from(models.media.clone()));
         editor.set_video_effects(ModelRc::from(models.video_effects.clone()));
         editor.set_audio_effects(ModelRc::from(models.audio_effects.clone()));
@@ -660,6 +661,22 @@ fn main() -> Result<(), slint::PlatformError> {
     }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
+    }));
+
+    // ── the stage ──
+    editor.on_stage_pressed(on_window!(|state, x: f32, y: f32, additive: bool| {
+        state.stage_pressed(x, y, additive);
+    }));
+    editor.on_stage_grip_pressed(on_window!(
+        |state, id: SharedString, grip: i32, x: f32, y: f32| {
+            state.stage_grip_pressed(id.as_str(), grip, x, y);
+        }
+    ));
+    editor.on_stage_dragged(on_lanes!(|state, x: f32, y: f32, snap: bool| {
+        state.stage_dragged(x, y, snap);
+    }));
+    editor.on_stage_released(on_window!(|state| {
+        state.stage_released();
     }));
 
     // ── the context menu ──

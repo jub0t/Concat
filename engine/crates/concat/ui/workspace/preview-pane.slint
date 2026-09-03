@@ -9,6 +9,7 @@ import { NumberField } from "../primitives/number-field.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+import { ClipKind, StageItemData } from "../timeline/model.slint";
 
 // The programme monitor: a header that says what the output is, a stage on a
 // sunken viewport, and a transport tray under it in three parts — timecode on
@@ -200,6 +201,284 @@ component RatioPicker inherits Rectangle {
     }
 }
 
+// ── the stage's selection ────────────────────────────────────────────────────
+//
+// The selected pictures, outlined where the compositor put them, with a grip
+// at each corner to scale by and one above to turn by. The outline is the
+// accent — lime — because it is a selection, and a selection is the accent
+// everywhere else in the window.
+//
+// The geometry is fractions of the frame all the way from Rust, so the same
+// item draws correctly on a monitor of any size; only here does it meet
+// pixels. Rotation is drawn with `transform-rotation` and the grips are placed by
+// hand at the rotated corners, which is also why they are separate elements
+// and not children of the rotated box: a grip is a small square the pointer
+// has to find, and an unrotated square at a computed position is a thing a
+// TouchArea can be exactly the shape of. A rotated *body* is not, so a press
+// on the body goes to the floor beneath and Rust decides what it landed on.
+
+/// One grip. Sized in pixels, placed at a point the item computed.
+component Grip inherits Rectangle {
+    /// Where its centre is, in the overlay's pixels.
+    in property <length> at-x;
+    in property <length> at-y;
+    /// The overlay's size, to turn a pointer position back into fractions.
+    in property <length> stage-w;
+    in property <length> stage-h;
+    /// True for the rotation handle, which is round.
+    in property <bool> turn;
+    in property <MouseCursor> cursor;
+
+    callback pressed(x: float, y: float);
+    callback dragged(x: float, y: float, snap: bool);
+    callback released();
+
+    property <length> size: root.turn ? 12px : 9px;
+
+    x: root.at-x - self.width / 2;
+    y: root.at-y - self.height / 2;
+    width: root.size;
+    height: root.size;
+    border-radius: root.turn ? self.width / 2 : 1.5px;
+    background: touch.has-hover || touch.pressed ? Theme.accent-hover : Theme.accent;
+    // A dark ring, because the grip lands on footage that may be lime itself.
+    border-width: 1px;
+    border-color: Theme.stage;
+
+    touch := TouchArea {
+        // A hair wider than the drawn grip, so it is easier to find than it
+        // is to see.
+        x: -3px;
+        y: -3px;
+        width: parent.width + 6px;
+        height: parent.height + 6px;
+        mouse-cursor: root.cursor;
+
+        property <bool> live;
+        property <bool> snap;
+
+        // The pointer's position in the overlay: the grip's own place plus
+        // the offset within it. Absolute, not a delta from the press — the
+        // grip follows the echo as it is dragged, and a delta measured against
+        // a moving origin cancels itself out. Same reasoning as the lanes.
+        function px() -> float {
+            return (root.x + self.x + self.mouse-x) / root.stage-w;
+        }
+        function py() -> float {
+            return (root.y + self.y + self.mouse-y) / root.stage-h;
+        }
+
+        pointer-event(event) => {
+            self.snap = event.modifiers.shift;
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                self.live = true;
+                root.pressed(self.px(), self.py());
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                if (self.live) {
+                    self.live = false;
+                    root.released();
+                }
+            }
+        }
+        moved => {
+            if (self.live) {
+                root.dragged(self.px(), self.py(), self.snap);
+            }
+        }
+    }
+}
+
+/// One selected picture: its outline, its grips and its readout.
+component StageItem inherits Rectangle {
+    in property <StageItemData> item;
+
+    callback grip-pressed(grip: int, x: float, y: float);
+    callback dragged(x: float, y: float, snap: bool);
+    callback released();
+
+    // Fractions to pixels, once.
+    property <length> cx: root.item.cx * root.width;
+    property <length> cy: root.item.cy * root.height;
+    property <length> bw: Math.max(2px, root.item.w * root.width);
+    property <length> bh: Math.max(2px, root.item.h * root.height);
+    property <angle> turn: root.item.rotation * 1deg;
+    property <float> c: Math.cos(root.turn);
+    property <float> s: Math.sin(root.turn);
+    /// How far the rotation handle stands off the top edge.
+    property <length> stem: 22px;
+    /// The half-height of the box's axis-aligned bounds: where a readout can
+    /// sit without the rotated box ever crossing it.
+    property <length> below: (root.bw * Math.abs(root.s) + root.bh * Math.abs(root.c)) / 2;
+
+    // A point in the box's own frame — `lx` across, `ly` down, both from the
+    // centre — turned clockwise and placed. The same forward map the GPU
+    // compositor applies to its quad, so a grip sits on the pixel the corner
+    // was drawn at.
+    pure function px(lx: length, ly: length) -> length {
+        return root.cx + lx * root.c - ly * root.s;
+    }
+    pure function py(lx: length, ly: length) -> length {
+        return root.cy + lx * root.s + ly * root.c;
+    }
+
+    background: transparent;
+
+    // The outline.
+    Rectangle {
+        x: root.cx - self.width / 2;
+        y: root.cy - self.height / 2;
+        width: root.bw;
+        height: root.bh;
+        transform-rotation: root.turn;
+        background: transparent;
+        border-width: 1.5px;
+        border-color: Theme.accent;
+    }
+
+    // The stem the rotation handle hangs off, from the top edge's midpoint.
+    Rectangle {
+        x: root.px(0px, -root.bh / 2 - root.stem / 2) - self.width / 2;
+        y: root.py(0px, -root.bh / 2 - root.stem / 2) - self.height / 2;
+        width: 1.5px;
+        height: root.stem;
+        transform-rotation: root.turn;
+        background: Theme.accent;
+    }
+
+    // The readout, clear of the box on whichever side is down.
+    Rectangle {
+        x: root.cx - self.width / 2;
+        y: root.cy + root.below + 8px;
+        width: readout.preferred-width + 12px;
+        height: 18px;
+        border-radius: Theme.r-sm;
+        background: Theme.accent;
+        readout := Text {
+            x: 6px;
+            width: parent.width - 12px;
+            height: parent.height;
+            text: "\{Math.round(root.item.scale * 100)}% · \{Math.round(root.item.rotation)}°";
+            color: Theme.on-accent;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    // The corners, clockwise from top-left, as Rust numbers them.
+    Grip {
+        at-x: root.px(-root.bw / 2, -root.bh / 2);
+        at-y: root.py(-root.bw / 2, -root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.nwse-resize;
+        pressed(x, y) => { root.grip-pressed(0, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(root.bw / 2, -root.bh / 2);
+        at-y: root.py(root.bw / 2, -root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.nesw-resize;
+        pressed(x, y) => { root.grip-pressed(1, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(root.bw / 2, root.bh / 2);
+        at-y: root.py(root.bw / 2, root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.nwse-resize;
+        pressed(x, y) => { root.grip-pressed(2, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(-root.bw / 2, root.bh / 2);
+        at-y: root.py(-root.bw / 2, root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.nesw-resize;
+        pressed(x, y) => { root.grip-pressed(3, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+
+    // The rotation handle, above the top edge.
+    Grip {
+        turn: true;
+        at-x: root.px(0px, -root.bh / 2 - root.stem);
+        at-y: root.py(0px, -root.bh / 2 - root.stem);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.grab;
+        pressed(x, y) => { root.grip-pressed(4, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+}
+
+/// The layer over the stage: the floor that takes a press on a picture or on
+/// nothing, and one StageItem per selected picture above it.
+component StageOverlay inherits Rectangle {
+    in property <[StageItemData]> items;
+
+    callback pressed(x: float, y: float, additive: bool);
+    callback grip-pressed(id: string, grip: int, x: float, y: float);
+    callback dragged(x: float, y: float, snap: bool);
+    callback released();
+
+    background: transparent;
+
+    // The floor. Every press that no grip took lands here; Rust hit-tests
+    // it against the pictures, rotation and stacking included.
+    floor := TouchArea {
+        property <bool> live;
+        property <bool> snap;
+
+        pointer-event(event) => {
+            self.snap = event.modifiers.shift;
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                self.live = true;
+                root.pressed(self.mouse-x / root.width, self.mouse-y / root.height,
+                    event.modifiers.shift || event.modifiers.control
+                        || event.modifiers.meta);
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                if (self.live) {
+                    self.live = false;
+                    root.released();
+                }
+            }
+        }
+        moved => {
+            if (self.live) {
+                root.dragged(self.mouse-x / root.width, self.mouse-y / root.height,
+                    self.snap);
+            }
+        }
+    }
+
+    for entry in root.items: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        if entry.selected: StageItem {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            item: entry;
+            grip-pressed(grip, x, y) => { root.grip-pressed(entry.id, grip, x, y); }
+            dragged(x, y, snap) => { root.dragged(x, y, snap); }
+            released => { root.released(); }
+        }
+    }
+}
+
 export component PreviewPane inherits Rectangle {
     // ── what the output is ───────────────────────────────────────────────
     in property <int> output-width: 1920;
@@ -219,6 +498,9 @@ export component PreviewPane inherits Rectangle {
     in property <string> clip-name;
     /// The decoded frame. Drawn fitted to the stage when there is one.
     in property <image> frame;
+    /// Every picture under the playhead, for the selection drawn over the
+    /// frame. See StageOverlay.
+    in property <[StageItemData]> stage-items;
 
     callback play-toggled();
     /// Absolute, in seconds.
@@ -227,6 +509,12 @@ export component PreviewPane inherits Rectangle {
     callback step(frames: float);
     callback ratio-changed(index: int);
     callback quality-changed(index: int);
+
+    // The stage's own gestures; see the Editor global for what each means.
+    callback stage-pressed(x: float, y: float, additive: bool);
+    callback stage-grip-pressed(id: string, grip: int, x: float, y: float);
+    callback stage-dragged(x: float, y: float, snap: bool);
+    callback stage-released();
 
     /// The corner button: show something else in this pane's seat.
     callback pane-picked(kind: PaneKind);
@@ -370,6 +658,21 @@ export component PreviewPane inherits Rectangle {
                     font-size: Theme.fs-sm;
                     overflow: elide;
                 }
+            }
+
+            // The selection, over the stage and the same size as it. A
+            // sibling rather than a child because the stage clips, and a grip
+            // sits half outside the edge it belongs to.
+            StageOverlay {
+                x: stage.x;
+                y: stage.y;
+                width: stage.width;
+                height: stage.height;
+                items: root.stage-items;
+                pressed(x, y, additive) => { root.stage-pressed(x, y, additive); }
+                grip-pressed(id, grip, x, y) => { root.stage-grip-pressed(id, grip, x, y); }
+                dragged(x, y, snap) => { root.stage-dragged(x, y, snap); }
+                released => { root.stage-released(); }
             }
         }
 

@@ -270,6 +270,68 @@ pub enum Gesture {
         duration: f32,
         source_start: f32,
     },
+    /// A drag on the stage: every selected picture under the playhead slides
+    /// with the pointer, from where each one was when the press landed.
+    StageMove {
+        origins: Vec<StageOrigin>,
+        /// The press, in fractions of the frame.
+        from: (f64, f64),
+    },
+    /// A corner grip dragged: the picture scales about its centre, by the
+    /// ratio of the pointer's distance from that centre to what it was.
+    StageScale {
+        clip: String,
+        scale: f64,
+        /// The centre, in frame pixels — the unit the ratio is taken in, so
+        /// a tall frame and a wide one scale at the same rate.
+        centre: (f64, f64),
+        from: f64,
+    },
+    /// The rotation grip dragged: the picture turns by the angle the pointer
+    /// has swept about the centre since the press.
+    StageRotate {
+        clip: String,
+        rotation: f64,
+        centre: (f64, f64),
+        from: f64,
+    },
+}
+
+/// Where a picture was when a stage move began.
+pub struct StageOrigin {
+    pub clip: String,
+    pub offset_x: f64,
+    pub offset_y: f64,
+}
+
+/// A picture's footprint in the output frame, in fractions of it: where the
+/// centre is, how much of the frame's width and height it covers before it
+/// is turned, and the clockwise turn. The one place the monitor's box and
+/// the compositor's quad agree, so the outline lands on the pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Footprint {
+    pub cx: f64,
+    pub cy: f64,
+    pub w: f64,
+    pub h: f64,
+    pub rotation: f64,
+}
+
+impl Footprint {
+    /// True when the frame point `(x, y)`, in fractions, is inside the turned
+    /// box. `frame` is the output size, because the box is not square in
+    /// pixels and the turn has to happen in pixels.
+    pub fn contains(&self, x: f64, y: f64, frame: (u32, u32)) -> bool {
+        let (width, height) = (f64::from(frame.0), f64::from(frame.1));
+        let dx = (x - self.cx) * width;
+        let dy = (y - self.cy) * height;
+        let (sin, cos) = self.rotation.to_radians().sin_cos();
+        // The inverse of the compositor's forward map: undo the clockwise
+        // turn to land in the box's own frame, then it is an axis test.
+        let lx = dx * cos + dy * sin;
+        let ly = -dx * sin + dy * cos;
+        lx.abs() <= self.w * width / 2.0 && ly.abs() <= self.h * height / 2.0
+    }
 }
 
 /// A drag from the library, resolved against the timeline: the ghost the
@@ -293,6 +355,7 @@ pub struct Models {
     pub tabs: Rc<VecModel<TimelineTabData>>,
     pub tracks: Rc<VecModel<TrackData>>,
     pub clips: Rc<VecModel<ClipData>>,
+    pub stage: Rc<VecModel<StageItemData>>,
     pub media: Rc<VecModel<MediaItemData>>,
     pub video_effects: Rc<VecModel<EffectData>>,
     pub audio_effects: Rc<VecModel<EffectData>>,
@@ -312,6 +375,7 @@ impl Models {
             tabs: Rc::new(VecModel::default()),
             tracks: Rc::new(VecModel::default()),
             clips: Rc::new(VecModel::default()),
+            stage: Rc::new(VecModel::default()),
             media: Rc::new(VecModel::default()),
             video_effects: Rc::new(VecModel::default()),
             audio_effects: Rc::new(VecModel::default()),
@@ -853,6 +917,10 @@ impl Studio {
         let Some(session) = self.session.as_ref() else {
             return;
         };
+        // The echo when there is one: a picture being dragged on the stage
+        // is drawn where the pointer has it, not where the document last
+        // had it. Same flattening the session does for itself.
+        let clips = concat_export::flatten::flatten_timeline(self.project(), None);
         let (width, height) = self.output_size();
         let scale = match self.quality {
             0 => 1.0,
@@ -866,7 +934,6 @@ impl Studio {
             width,
             height,
         };
-        let clips = session.flattened_clips();
         let settings = session.settings().clone();
         let monitor = self.host.monitor.clone();
         self.preview_busy = true;
@@ -1583,7 +1650,12 @@ impl Studio {
                     }
                 }
             }
-            Gesture::None => {}
+            // A stage gesture is the monitor's; the lanes have nothing to
+            // add to it.
+            Gesture::None
+            | Gesture::StageMove { .. }
+            | Gesture::StageScale { .. }
+            | Gesture::StageRotate { .. } => {}
         }
         self.gesture = gesture;
     }
@@ -1639,6 +1711,12 @@ impl Studio {
             }
             Gesture::None => {
                 self.echo = None;
+            }
+            // Not a lane gesture: hand it back untouched, echo and all.
+            other @ (Gesture::StageMove { .. }
+            | Gesture::StageScale { .. }
+            | Gesture::StageRotate { .. }) => {
+                self.gesture = other;
             }
         }
     }
@@ -1809,6 +1887,333 @@ impl Studio {
         self.echo = None;
         match commands.len() {
             0 => {}
+            1 => {
+                self.apply(commands.remove(0));
+            }
+            _ => {
+                self.apply(Command::Batch { commands });
+            }
+        }
+    }
+
+    // ── the stage ──
+    //
+    // The monitor as a place to edit, not only to look: the pictures under
+    // the playhead can be grabbed, slid, scaled and turned where they are
+    // drawn. The same echo-then-command shape as the lanes and the
+    // inspector, with one difference: the echo is composited too, so the
+    // frame follows the pointer and not only the outline does.
+
+    /// Where `clip` lands in the output frame. The compositor's own rule —
+    /// contain-fitted, then the transform — restated in fractions.
+    pub fn footprint(&self, clip: &Clip) -> Footprint {
+        let (width, height) = self.output_size();
+        let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
+        let (w, h) = if clip.kind == model::ClipKind::Text {
+            // The engine does not report where a title's glyphs landed, so
+            // this is a reading of the style: an em is `font_size` of the
+            // frame's height, a glyph runs about six tenths of one, and a
+            // little air is left around the block the way the plate would.
+            let text = clip.text.clone().unwrap_or_default();
+            let lines: Vec<&str> = text.content.lines().collect();
+            let rows = lines.len().max(1) as f64;
+            let longest = lines
+                .iter()
+                .map(|line| line.chars().count())
+                .max()
+                .unwrap_or(0)
+                .max(1) as f64;
+            let em = text.font_size.max(0.005) * height;
+            let glyph = 0.6 * em + text.tracking * height;
+            (
+                (longest * glyph + 0.6 * em) * clip.scale / width,
+                (rows * em * text.line_height.max(0.5) + 0.5 * em) * clip.scale / height,
+            )
+        } else {
+            let media = self.project().media_by_id(&clip.media_id);
+            let source = media
+                .and_then(|item| Some((item.width?, item.height?)))
+                .filter(|(w, h)| *w > 0 && *h > 0)
+                .map(|(w, h)| (f64::from(w), f64::from(h)));
+            match source {
+                Some((sw, sh)) => {
+                    let fit = (width / sw).min(height / sh);
+                    (
+                        sw * fit * clip.scale / width,
+                        sh * fit * clip.scale / height,
+                    )
+                }
+                // Dimensions never learnt: the frame's own shape, which is
+                // what the compositor falls back to as well.
+                None => (clip.scale, clip.scale),
+            }
+        };
+        Footprint {
+            cx: 0.5 + clip.offset_x,
+            cy: 0.5 + clip.offset_y,
+            w,
+            h,
+            rotation: clip.rotation,
+        }
+    }
+
+    /// The pictures under the playhead on lanes that are showing, bottom of
+    /// the stack first — the order the compositor lays them down, and the
+    /// order the overlay draws them in.
+    fn stage_clips(&self) -> Vec<&Clip> {
+        let timeline = self.timeline();
+        let playhead = f64::from(self.playhead);
+        let showing: HashSet<&str> = timeline
+            .tracks
+            .iter()
+            .filter(|track| track.visible)
+            .map(|track| track.id.as_str())
+            .collect();
+        let mut clips: Vec<&Clip> = timeline
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.kind != model::ClipKind::Audio
+                    && showing.contains(clip.track_id.as_str())
+                    && clip.start <= playhead
+                    && playhead < clip.start + clip.duration
+            })
+            .collect();
+        // Rows count from the top; the bottom of the stack is the highest.
+        clips.sort_by_key(|clip| std::cmp::Reverse(self.row_of(&clip.track_id)));
+        clips
+    }
+
+    pub fn stage_items(&self) -> Vec<StageItemData> {
+        self.stage_clips()
+            .into_iter()
+            .map(|clip| {
+                let footprint = self.footprint(clip);
+                StageItemData {
+                    id: clip.id.as_str().into(),
+                    kind: kind_of(clip),
+                    selected: self.selection.iter().any(|id| id == &clip.id),
+                    cx: footprint.cx as f32,
+                    cy: footprint.cy as f32,
+                    w: footprint.w as f32,
+                    h: footprint.h as f32,
+                    rotation: footprint.rotation as f32,
+                    scale: clip.scale as f32,
+                }
+            })
+            .collect()
+    }
+
+    /// The topmost picture under a frame point, skipping locked lanes the
+    /// way a press on the lanes does.
+    fn stage_hit(&self, x: f64, y: f64) -> Option<String> {
+        let frame = self.output_size();
+        self.stage_clips()
+            .into_iter()
+            .rev()
+            .filter(|clip| !self.locked(&clip.track_id))
+            .find(|clip| self.footprint(clip).contains(x, y, frame))
+            .map(|clip| clip.id.clone())
+    }
+
+    /// A press on the stage floor: resolve the selection, then arm a move
+    /// of everything selected that is under the playhead. Empty stage
+    /// clears the selection, as an empty lane does.
+    pub fn stage_pressed(&mut self, x: f32, y: f32, additive: bool) {
+        let (x, y) = (f64::from(x), f64::from(y));
+        let Some(id) = self.stage_hit(x, y) else {
+            if !additive {
+                self.selection.clear();
+            }
+            self.gesture = Gesture::None;
+            return;
+        };
+        let already = self.selection.iter().any(|held| held == &id);
+        if additive {
+            if already {
+                self.selection.retain(|held| held != &id);
+            } else {
+                self.selection.push(id.clone());
+            }
+        } else if !already {
+            self.selection = vec![id.clone()];
+        }
+        if !self.selection.iter().any(|held| held == &id) {
+            self.gesture = Gesture::None;
+            return;
+        }
+        let origins: Vec<StageOrigin> = self
+            .stage_clips()
+            .into_iter()
+            .filter(|clip| {
+                self.selection.iter().any(|held| held == &clip.id) && !self.locked(&clip.track_id)
+            })
+            .map(|clip| StageOrigin {
+                clip: clip.id.clone(),
+                offset_x: clip.offset_x,
+                offset_y: clip.offset_y,
+            })
+            .collect();
+        self.begin_echo();
+        self.gesture = Gesture::StageMove {
+            origins,
+            from: (x, y),
+        };
+    }
+
+    /// A press on a grip of `id`'s box: a corner scales, the handle above
+    /// turns. Both work about the picture's centre, in frame pixels.
+    pub fn stage_grip_pressed(&mut self, id: &str, grip: i32, x: f32, y: f32) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let footprint = self.footprint(&clip);
+        let (width, height) = self.output_size();
+        let centre = (
+            footprint.cx * f64::from(width),
+            footprint.cy * f64::from(height),
+        );
+        let dx = f64::from(x) * f64::from(width) - centre.0;
+        let dy = f64::from(y) * f64::from(height) - centre.1;
+        self.begin_echo();
+        self.gesture = if grip == 4 {
+            Gesture::StageRotate {
+                clip: id.to_owned(),
+                rotation: clip.rotation,
+                centre,
+                from: dy.atan2(dx),
+            }
+        } else {
+            Gesture::StageScale {
+                clip: id.to_owned(),
+                scale: clip.scale,
+                centre,
+                from: dx.hypot(dy).max(1.0),
+            }
+        };
+    }
+
+    /// The pointer moved with a stage gesture live: the echo follows, and
+    /// the monitor composites it.
+    pub fn stage_dragged(&mut self, x: f32, y: f32, snap: bool) {
+        let (x, y) = (f64::from(x), f64::from(y));
+        let (width, height) = self.output_size();
+        let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        match &gesture {
+            Gesture::StageMove { origins, from } => {
+                let (mut dx, mut dy) = (x - from.0, y - from.1);
+                if snap {
+                    // Shift holds the axis the drag is mostly along, measured
+                    // in pixels so a tall frame does not bias it.
+                    if (dx * f64::from(width)).abs() >= (dy * f64::from(height)).abs() {
+                        dy = 0.0;
+                    } else {
+                        dx = 0.0;
+                    }
+                }
+                for origin in origins {
+                    if let Some(clip) = self.echo_clip_mut(&origin.clip) {
+                        clip.offset_x = (origin.offset_x + dx).clamp(-1.0, 1.0);
+                        clip.offset_y = (origin.offset_y + dy).clamp(-1.0, 1.0);
+                    }
+                }
+            }
+            Gesture::StageScale {
+                clip,
+                scale,
+                centre,
+                from,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let mut next = scale * dx.hypot(dy) / from;
+                if snap {
+                    next = (next * 20.0).round() / 20.0;
+                }
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    clip.scale = next.clamp(0.05, 8.0);
+                }
+            }
+            Gesture::StageRotate {
+                clip,
+                rotation,
+                centre,
+                from,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let swept = (dy.atan2(dx) - from).to_degrees();
+                let mut next = rotation + swept;
+                if snap {
+                    next = (next / 15.0).round() * 15.0;
+                }
+                // Kept in the inspector's range, wrapping rather than
+                // stopping: a turn through the bottom carries on.
+                next = (next + 180.0).rem_euclid(360.0) - 180.0;
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    clip.rotation = next;
+                }
+            }
+            _ => {
+                self.gesture = gesture;
+                return;
+            }
+        }
+        self.gesture = gesture;
+        self.request_preview();
+    }
+
+    /// The stage gesture is over: whatever the echo moved becomes one
+    /// transform command per picture, batched when there are several.
+    pub fn stage_released(&mut self) {
+        let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        let touched: Vec<String> = match gesture {
+            Gesture::StageMove { origins, .. } => {
+                origins.into_iter().map(|origin| origin.clip).collect()
+            }
+            Gesture::StageScale { clip, .. } | Gesture::StageRotate { clip, .. } => vec![clip],
+            other => {
+                // Not ours to end; a lane gesture is still live.
+                self.gesture = other;
+                return;
+            }
+        };
+        let Some(echo) = self.echo.take() else {
+            return;
+        };
+        let mut commands = Vec::new();
+        for id in touched {
+            let (Some(after), Some(before)) = (
+                echo.active().clip(&id),
+                self.session
+                    .as_ref()
+                    .and_then(|session| session.project().active().clip(&id)),
+            ) else {
+                continue;
+            };
+            if after.scale != before.scale
+                || after.offset_x != before.offset_x
+                || after.offset_y != before.offset_y
+                || after.rotation != before.rotation
+            {
+                commands.push(Command::SetClipTransform {
+                    clip_id: id,
+                    scale: Some(after.scale),
+                    offset_x: Some(after.offset_x),
+                    offset_y: Some(after.offset_y),
+                    rotation: Some(after.rotation),
+                });
+            }
+        }
+        match commands.len() {
+            0 => {
+                // A click that moved nothing: the echo is gone and the
+                // monitor goes back to the document.
+                self.request_preview();
+            }
             1 => {
                 self.apply(commands.remove(0));
             }
@@ -2672,6 +3077,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playing(self.playing);
         editor.set_preview_frame(self.preview.clone());
+        sync(&models.stage, self.stage_items());
 
         editor.set_drop(match &self.drop {
             Some(plan) => DropData {
@@ -3380,5 +3786,69 @@ impl Studio {
             self.schedule_autosave();
             self.request_preview();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Footprint;
+
+    const FRAME: (u32, u32) = (1920, 1080);
+
+    /// A fitted 16:9 picture at rest covers the frame exactly.
+    #[test]
+    fn footprint_contains_an_unturned_box() {
+        let box_ = Footprint {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.5,
+            rotation: 0.0,
+        };
+        assert!(box_.contains(0.5, 0.5, FRAME));
+        assert!(box_.contains(0.26, 0.26, FRAME));
+        assert!(!box_.contains(0.24, 0.5, FRAME));
+        assert!(!box_.contains(0.5, 0.76, FRAME));
+    }
+
+    /// Turned a quarter, a wide box stands tall: a point that was inside
+    /// along the width is outside, and one above the old top edge is inside.
+    /// The test is in pixels, which is where the turn happens — a fraction
+    /// across is not the same distance as a fraction down.
+    #[test]
+    fn footprint_turns_in_pixels() {
+        let box_ = Footprint {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.2,
+            rotation: 90.0,
+        };
+        // Half the width is 480px, half the height 108px. After the turn
+        // the box reaches 480px up and down and 108px either side.
+        assert!(box_.contains(0.5, 0.5 + 400.0 / 1080.0, FRAME));
+        assert!(!box_.contains(0.5, 0.5 + 500.0 / 1080.0, FRAME));
+        assert!(box_.contains(0.5 + 100.0 / 1920.0, 0.5, FRAME));
+        assert!(!box_.contains(0.5 + 120.0 / 1920.0, 0.5, FRAME));
+    }
+
+    /// The turn is clockwise, as the compositor's is. The unturned top-right
+    /// corner sits at (480, -270) from the centre; turned thirty degrees
+    /// clockwise in y-down pixels it lands at about (551, +6) - it has swung
+    /// *down* past the centre line. A point just inside that corner is in
+    /// the box, and its mirror above the line is not; turned the other way
+    /// both answers would flip.
+    #[test]
+    fn footprint_turns_clockwise() {
+        let box_ = Footprint {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.5,
+            rotation: 30.0,
+        };
+        let x = 0.5 + 540.0 / 1920.0;
+        assert!(box_.contains(x, 0.5 + 6.0 / 1080.0, FRAME));
+        assert!(!box_.contains(x, 0.5 - 6.0 / 1080.0, FRAME));
     }
 }

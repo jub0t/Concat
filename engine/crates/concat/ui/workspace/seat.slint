@@ -140,12 +140,19 @@ export component Seat inherits Rectangle {
             has-picture: Editor.has-picture;
             clip-name: Editor.preview-clip-name;
             frame: Editor.preview-frame;
+            stage-items: Editor.stage-items;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => { Editor.seek(seconds); }
             step(frames) => { Editor.step-frames(frames); }
             ratio-changed(index) => { Editor.ratio-changed(index); }
             quality-changed(index) => { Editor.quality-changed(index); }
+            stage-pressed(x, y, additive) => { Editor.stage-pressed(x, y, additive); }
+            stage-grip-pressed(id, grip, x, y) => {
+                Editor.stage-grip-pressed(id, grip, x, y);
+            }
+            stage-dragged(x, y, snap) => { Editor.stage-dragged(x, y, snap); }
+            stage-released => { Editor.stage-released(); }
         }
 
     if root.kind == PaneKind.inspector: ConfigPane {
