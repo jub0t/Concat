@@ -40,6 +40,7 @@ cargo test
 cargo run -p concat-cli -- probe some-video.mp4
 cargo run -p concat-cli -- render some-video.mp4 out.mp4 --frames 120
 cargo run -p concat                    # the editor window, debug
+cargo run --profile quick -p concat    # optimised, rebuilds in seconds: for trying changes
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped
 ```
 

@@ -39,6 +39,16 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
+# For trying a change in the window: `cargo run --profile quick -p concat`.
+# Optimised enough that video plays as it would in release, without the
+# thin LTO and single codegen unit that make a release rebuild a
+# minutes-long relink. Incremental, so a change in one crate is seconds.
+[profile.quick]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+
 # The shipping build of the editor window: `cargo build --profile app -p concat`.
 #
 # Every knob here is set for the fastest possible binary, and each one costs
