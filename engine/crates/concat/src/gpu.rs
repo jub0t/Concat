@@ -26,8 +26,20 @@ pub struct Gpu {
 impl Gpu {
     /// Opens the machine's best adapter and a device on it.
     pub fn acquire() -> Option<Gpu> {
+        // Only the backend Slint's Skia renderer can share a device on:
+        // Skia is built against the platform's own API, so a device on any
+        // other backend is refused at selection time. PRIMARY let wgpu pick
+        // Vulkan on Windows machines that offer it, and the window then
+        // failed to open with "Unsupported WGPU backend for use with Skia".
+        let backends = if cfg!(target_os = "macos") {
+            wgpu::Backends::METAL
+        } else if cfg!(windows) {
+            wgpu::Backends::DX12
+        } else {
+            wgpu::Backends::VULKAN
+        };
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
