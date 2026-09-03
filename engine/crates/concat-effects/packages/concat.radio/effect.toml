@@ -1,0 +1,24 @@
+[effect]
+id = "concat.radio"
+name = "Radio"
+kind = "audio"
+category = "Tone"
+order = 24
+intensity = "noise"
+aliases = ["radio"]
+description = "A small speaker on a long wave: narrow band, a little crunch."
+
+[[param]]
+key = "noise"
+label = "Noise"
+min = 0
+max = 100
+default = 30
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "bits = 16 - (noise / 100) * 12",
+]
+chain = "highpass=f=300,lowpass=f=3400,acrusher=bits={round(bits)}:mode=log:mix=0.6,alimiter=limit=0.9"

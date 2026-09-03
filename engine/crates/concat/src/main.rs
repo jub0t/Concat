@@ -125,6 +125,16 @@ fn main() -> Result<(), slint::PlatformError> {
         editor.set_media(ModelRc::from(models.media.clone()));
         editor.set_video_effects(ModelRc::from(models.video_effects.clone()));
         editor.set_audio_effects(ModelRc::from(models.audio_effects.clone()));
+        editor.set_catalogue_effects(ModelRc::from(models.catalogue_effects.clone()));
+        editor.set_catalogue_filters(ModelRc::from(models.catalogue_filters.clone()));
+        editor.set_catalogue_audio(ModelRc::from(models.catalogue_audio.clone()));
+        editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
+        editor.set_filter_groups(ModelRc::from(models.filter_groups.clone()));
+        editor.set_audio_groups(ModelRc::from(models.audio_groups.clone()));
+        editor.set_applied_visual(ModelRc::from(models.applied_visual.clone()));
+        editor.set_applied_audio(ModelRc::from(models.applied_audio.clone()));
+        editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
+        editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         editor.set_av_items(ModelRc::from(models.av.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
@@ -409,13 +419,17 @@ fn main() -> Result<(), slint::PlatformError> {
     editor.on_library_add_text(on_window!(|state| {
         state.place_at_playhead("text:default:Title");
     }));
+    // A filter is a colour look on the picture; audio is the sound's chain.
     editor.on_library_apply_filter(on_window!(
         |state, id: SharedString, _label: SharedString| {
-            state.apply_catalogue(id.as_str(), false);
+            state.apply_catalogue(id.as_str(), true);
         }
     ));
     editor.on_library_apply_effect(on_window!(|state, id: SharedString| {
         state.apply_catalogue(id.as_str(), true);
+    }));
+    editor.on_library_apply_audio(on_window!(|state, id: SharedString| {
+        state.apply_catalogue(id.as_str(), false);
     }));
     editor.on_library_apply_transition(on_window!(|state, id: SharedString| {
         state.apply_transition(id.as_str());
@@ -641,6 +655,25 @@ fn main() -> Result<(), slint::PlatformError> {
     editor.on_clip_commit(on_window!(|state| {
         state.clip_commit();
     }));
+
+    // ── the chains ──
+    editor.on_chain_add(on_window!(|state, audio: bool, id: SharedString| {
+        state.chain_add(audio, id.as_str());
+    }));
+    editor.on_chain_toggle(on_window!(|state, audio: bool, index: i32| {
+        state.chain_toggle(audio, index);
+    }));
+    editor.on_chain_move_by(on_window!(|state, audio: bool, index: i32, delta: i32| {
+        state.chain_move(audio, index, delta);
+    }));
+    editor.on_chain_remove(on_window!(|state, audio: bool, index: i32| {
+        state.chain_remove(audio, index);
+    }));
+    editor.on_chain_set_param(on_lanes!(
+        |state, audio: bool, index: i32, key: SharedString, value: f32| {
+            state.chain_set_param(audio, index, key.as_str(), value);
+        }
+    ));
 
     // ── the monitor ──
     editor.on_seek(on_lanes!(|state, seconds: f32| {

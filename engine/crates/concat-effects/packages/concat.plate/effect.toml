@@ -1,0 +1,24 @@
+[effect]
+id = "concat.plate"
+name = "Plate"
+kind = "audio"
+category = "Space"
+order = 33
+intensity = "size"
+aliases = ["plate"]
+description = "A studio plate: dense, bright and short."
+
+[[param]]
+key = "size"
+label = "Size"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "scale = 0.5 + (size / 100) * 1.5",
+]
+chain = "aecho=0.8:0.9:{round(8 * scale)}|{round(17 * scale)}|{round(29 * scale)}|{round(43 * scale)}:0.45|0.35|0.25|0.15"

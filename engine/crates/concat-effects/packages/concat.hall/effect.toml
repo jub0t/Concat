@@ -1,0 +1,24 @@
+[effect]
+id = "concat.hall"
+name = "Hall"
+kind = "audio"
+category = "Space"
+order = 32
+intensity = "size"
+aliases = ["hall"]
+description = "A concert hall: long, even reflections."
+
+[[param]]
+key = "size"
+label = "Size"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "scale = 0.5 + (size / 100) * 1.5",
+]
+chain = "aecho=0.8:0.85:{round(60 * scale)}|{round(110 * scale)}|{round(180 * scale)}|{round(270 * scale)}:0.5|0.4|0.3|0.2"

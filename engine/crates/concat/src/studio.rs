@@ -23,6 +23,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use concat_effects::Catalogue;
+use concat_effects::manifest::Kind as PackageKind;
 use concat_host::export::{self, ExportSpec};
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
@@ -377,6 +379,18 @@ pub struct Models {
     pub media: Rc<VecModel<MediaItemData>>,
     pub video_effects: Rc<VecModel<EffectData>>,
     pub audio_effects: Rc<VecModel<EffectData>>,
+    /// The catalogue's shelves, one list per kind, and the shelf labels.
+    pub catalogue_effects: Rc<VecModel<CatalogueEntryData>>,
+    pub catalogue_filters: Rc<VecModel<CatalogueEntryData>>,
+    pub catalogue_audio: Rc<VecModel<CatalogueEntryData>>,
+    pub effect_groups: Rc<VecModel<SharedString>>,
+    pub filter_groups: Rc<VecModel<SharedString>>,
+    pub audio_groups: Rc<VecModel<SharedString>>,
+    /// The selected clip's two chains and their knobs.
+    pub applied_visual: Rc<VecModel<AppliedEntryData>>,
+    pub applied_audio: Rc<VecModel<AppliedEntryData>>,
+    pub visual_params: Rc<VecModel<AppliedParamData>>,
+    pub audio_params: Rc<VecModel<AppliedParamData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub av: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
@@ -398,6 +412,16 @@ impl Models {
             media: Rc::new(VecModel::default()),
             video_effects: Rc::new(VecModel::default()),
             audio_effects: Rc::new(VecModel::default()),
+            catalogue_effects: Rc::new(VecModel::default()),
+            catalogue_filters: Rc::new(VecModel::default()),
+            catalogue_audio: Rc::new(VecModel::default()),
+            effect_groups: Rc::new(VecModel::default()),
+            filter_groups: Rc::new(VecModel::default()),
+            audio_groups: Rc::new(VecModel::default()),
+            applied_visual: Rc::new(VecModel::default()),
+            applied_audio: Rc::new(VecModel::default()),
+            visual_params: Rc::new(VecModel::default()),
+            audio_params: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             av: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
@@ -559,6 +583,104 @@ fn new_title_style() -> TextStyle {
 }
 
 /// A label for a catalogue id: "black-white" reads as "Black White".
+/// One kind's shelves for the inspector: the shelf labels, in catalogue
+/// order, and every package on them with the index of its shelf.
+fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
+    let mut groups: Vec<String> = Vec::new();
+    let mut entries = Vec::new();
+    for package in Catalogue::builtin().of_kind(kind) {
+        let meta = &package.manifest.effect;
+        let category = if meta.category.is_empty() {
+            "Other".to_owned()
+        } else {
+            meta.category.clone()
+        };
+        let group = match groups.iter().position(|held| *held == category) {
+            Some(index) => index,
+            None => {
+                groups.push(category.clone());
+                groups.len() - 1
+            }
+        };
+        entries.push(CatalogueEntryData {
+            id: meta.id.as_str().into(),
+            name: meta.name.as_str().into(),
+            category: category.as_str().into(),
+            group: group as i32,
+            description: meta.description.as_str().into(),
+        });
+    }
+    (
+        groups.into_iter().map(SharedString::from).collect(),
+        entries,
+    )
+}
+
+/// How a manifest's unit is read out. Anything the inspector has no words
+/// for is a plain number.
+fn format_of(unit: &str) -> ParamFormat {
+    match unit.trim() {
+        "%" => ParamFormat::Percent,
+        "dB" => ParamFormat::Decibels,
+        "Hz" => ParamFormat::Hertz,
+        "s" => ParamFormat::Seconds,
+        "ms" => ParamFormat::Millis,
+        "st" => ParamFormat::Pitch,
+        "K" => ParamFormat::Kelvin,
+        "°" => ParamFormat::Degrees,
+        "x" => ParamFormat::Rate,
+        _ => ParamFormat::Plain,
+    }
+}
+
+/// A chain as the inspector's stack draws it: one row per link, and one per
+/// knob its package declares, holding the document's value or the default.
+/// A link no package answers to keeps its row - so it can be removed - and
+/// gets no knobs.
+fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedParamData>) {
+    let catalogue = Catalogue::builtin();
+    let mut rows = Vec::new();
+    let mut knobs = Vec::new();
+    for (index, entry) in chain.iter().enumerate() {
+        let package = catalogue
+            .packages()
+            .find(|package| package.answers_to(&entry.id));
+        rows.push(AppliedEntryData {
+            id: entry.id.as_str().into(),
+            name: package
+                .map(|package| package.manifest.effect.name.clone())
+                .unwrap_or_else(|| label_of(&entry.id))
+                .into(),
+            on: entry.enabled,
+            known: package.is_some(),
+        });
+        let Some(package) = package else { continue };
+        for param in &package.manifest.params {
+            let step = if param.step > 0.0 {
+                param.step
+            } else {
+                (param.max - param.min) / 200.0
+            };
+            knobs.push(AppliedParamData {
+                entry: index as i32,
+                key: param.key.as_str().into(),
+                label: param.label.as_str().into(),
+                min: param.min as f32,
+                max: param.max as f32,
+                step: step as f32,
+                default_value: param.default as f32,
+                value: entry
+                    .params
+                    .get(&param.key)
+                    .copied()
+                    .unwrap_or(param.default) as f32,
+                fmt: format_of(&param.unit),
+            });
+        }
+    }
+    (rows, knobs)
+}
+
 fn label_of(id: &str) -> String {
     id.split(['-', '_'])
         .map(|word| {
@@ -1549,6 +1671,106 @@ impl Studio {
         self.apply(Command::UpdateClip { clip_id, patch });
     }
 
+    // ── the chains ──
+    //
+    // The picture's chain and the sound's, edited by index from the
+    // inspector's stacks. Adding, removing, reordering and bypassing are
+    // each one command; a knob is a stream and goes through the echo, the
+    // way every other inspector control does.
+
+    /// One edit to the selected clip's chain, as a command. `edit` returns
+    /// false to say it changed nothing.
+    fn chain_edit(&mut self, audio: bool, edit: impl FnOnce(&mut Vec<AppliedFilter>) -> bool) {
+        let Some(clip_id) = self.sole_selection() else {
+            return;
+        };
+        let Some(clip) = self.clip(&clip_id).cloned() else {
+            return;
+        };
+        let mut chain = if audio {
+            clip.filters
+        } else {
+            clip.video_effects
+        };
+        if !edit(&mut chain) {
+            return;
+        }
+        let patch = if audio {
+            ClipPatch {
+                filters: Some(chain),
+                ..ClipPatch::default()
+            }
+        } else {
+            ClipPatch {
+                video_effects: Some(chain),
+                ..ClipPatch::default()
+            }
+        };
+        self.apply(Command::UpdateClip { clip_id, patch });
+    }
+
+    pub fn chain_add(&mut self, audio: bool, id: &str) {
+        self.apply_catalogue(id, !audio);
+    }
+
+    pub fn chain_toggle(&mut self, audio: bool, index: i32) {
+        self.chain_edit(audio, |chain| {
+            let Some(entry) = usize::try_from(index).ok().and_then(|i| chain.get_mut(i)) else {
+                return false;
+            };
+            entry.enabled = !entry.enabled;
+            true
+        });
+    }
+
+    pub fn chain_move(&mut self, audio: bool, index: i32, delta: i32) {
+        self.chain_edit(audio, |chain| {
+            let Ok(from) = usize::try_from(index) else {
+                return false;
+            };
+            let Ok(to) = usize::try_from(index + delta) else {
+                return false;
+            };
+            if from >= chain.len() || to >= chain.len() || from == to {
+                return false;
+            }
+            chain.swap(from, to);
+            true
+        });
+    }
+
+    pub fn chain_remove(&mut self, audio: bool, index: i32) {
+        self.chain_edit(audio, |chain| {
+            let Ok(at) = usize::try_from(index) else {
+                return false;
+            };
+            if at >= chain.len() {
+                return false;
+            }
+            chain.remove(at);
+            true
+        });
+    }
+
+    /// One knob of one link, on the echo. `clip_commit` makes it real.
+    pub fn chain_set_param(&mut self, audio: bool, index: i32, key: &str, value: f32) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        self.begin_echo();
+        let Some(clip) = self.echo_clip_mut(&id) else {
+            return;
+        };
+        let chain = if audio {
+            &mut clip.filters
+        } else {
+            &mut clip.video_effects
+        };
+        if let Some(entry) = usize::try_from(index).ok().and_then(|i| chain.get_mut(i)) {
+            entry.params.insert(key.to_owned(), f64::from(value));
+        }
+    }
+
     // ── gestures ──
 
     /// A press resolves the selection before anything moves, so a drag that
@@ -1912,6 +2134,12 @@ impl Studio {
         }
         if after.text != before.text {
             patch.text = Some(after.text.clone());
+        }
+        if after.video_effects != before.video_effects {
+            patch.video_effects = Some(after.video_effects.clone());
+        }
+        if after.filters != before.filters {
+            patch.filters = Some(after.filters.clone());
         }
         if patch != ClipPatch::default() {
             commands.push(Command::UpdateClip { clip_id: id, patch });
@@ -3260,6 +3488,22 @@ impl Studio {
         };
         sync(&models.video_effects, video);
         sync(&models.audio_effects, audio);
+
+        // The same chains as the inspector's stacks see them: a row per
+        // link and a row per knob, from the catalogue's manifests.
+        let (visual, visual_params, sound, sound_params) =
+            match self.sole_selection().and_then(|id| self.clip(&id)) {
+                Some(clip) => {
+                    let (visual, visual_params) = chain_rows(&clip.video_effects);
+                    let (sound, sound_params) = chain_rows(&clip.filters);
+                    (visual, visual_params, sound, sound_params)
+                }
+                None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+            };
+        sync(&models.applied_visual, visual);
+        sync(&models.visual_params, visual_params);
+        sync(&models.applied_audio, sound);
+        sync(&models.audio_params, sound_params);
     }
 
     /// The selection, flattened for the inspector: exactly one clip or
@@ -3312,6 +3556,18 @@ impl Studio {
     /// The menus, the dialogs, the bin and the engine lists.
     pub fn publish_chrome(&self, app: &App, models: &Models) {
         let editor = app.global::<Editor>();
+
+        // The catalogue's shelves. Built in, so they never change after
+        // start; `sync` makes republishing them a no-op.
+        let (groups, entries) = shelves(PackageKind::Effect);
+        sync(&models.effect_groups, groups);
+        sync(&models.catalogue_effects, entries);
+        let (groups, entries) = shelves(PackageKind::Filter);
+        sync(&models.filter_groups, groups);
+        sync(&models.catalogue_filters, entries);
+        let (groups, entries) = shelves(PackageKind::Audio);
+        sync(&models.audio_groups, groups);
+        sync(&models.catalogue_audio, entries);
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());

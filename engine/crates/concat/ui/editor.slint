@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { EffectData } from "demo/effects-panel.slint";
+import {
+    AppliedEntryData, AppliedParamData, CatalogueEntryData,
+} from "inspector/clip-inspector.slint";
 import { MediaFilter, MediaItemData } from "workspace/media-pane.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
@@ -87,6 +90,7 @@ export global Editor {
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
     callback library-apply-filter(filter-id: string, label: string);
+    callback library-apply-audio(effect-id: string);
     callback library-save-template();
 
     // ── the inspector ──
@@ -95,6 +99,27 @@ export global Editor {
     callback clip-set-text(field: ClipTextField, value: string);
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
+
+    // The effect catalogue's shelves, published once, and the selected
+    // clip's two chains with a row per parameter. See PresetStack.
+    in-out property <[CatalogueEntryData]> catalogue-effects;
+    in-out property <[CatalogueEntryData]> catalogue-filters;
+    in-out property <[CatalogueEntryData]> catalogue-audio;
+    in-out property <[string]> effect-groups;
+    in-out property <[string]> filter-groups;
+    in-out property <[string]> audio-groups;
+    in-out property <[AppliedEntryData]> applied-visual;
+    in-out property <[AppliedEntryData]> applied-audio;
+    in-out property <[AppliedParamData]> visual-params;
+    in-out property <[AppliedParamData]> audio-params;
+    /// `audio` picks the chain: the sound's, or the picture's. A parameter
+    /// change lands on the echo and `clip-commit` makes it a command, the
+    /// same as every other inspector control.
+    callback chain-add(audio: bool, id: string);
+    callback chain-toggle(audio: bool, index: int);
+    callback chain-move-by(audio: bool, index: int, delta: int);
+    callback chain-remove(audio: bool, index: int);
+    callback chain-set-param(audio: bool, index: int, key: string, value: float);
 
     in-out property <[EffectData]> video-effects;
     in-out property <[EffectData]> audio-effects;

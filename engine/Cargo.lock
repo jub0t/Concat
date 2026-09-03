@@ -1096,6 +1096,7 @@ name = "concat"
 version = "0.2.0"
 dependencies = [
  "concat-core",
+ "concat-effects",
  "concat-export",
  "concat-host",
  "concat-media",

@@ -1,0 +1,21 @@
+[effect]
+id = "concat.bright"
+name = "Bright"
+kind = "audio"
+category = "Tone"
+order = 22
+intensity = "gain"
+aliases = ["bright"]
+description = "Air and presence: a lift above six kilohertz."
+
+[[param]]
+key = "gain"
+label = "Gain"
+min = 0
+max = 12
+default = 5
+step = 0.5
+unit = "dB"
+
+[ffmpeg]
+chain = "treble=g={fixed(gain, 2)}:f=6000:w=0.8,alimiter=limit=0.95"

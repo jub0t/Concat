@@ -18,8 +18,36 @@ import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
 /// One parameter a preset exposes. `value` doubles as the default in the
 /// catalogue: applying a preset copies the row, and double-click restores
 /// `default-value`.
-export struct ParamData {
+/// One package on a library shelf. Published by Rust from the effect
+/// catalogue; the id is what Rust is handed back when the row is clicked, and
+/// ids are stable forever because project files store them.
+export struct CatalogueEntryData {
     id: string,
+    name: string,
+    /// The shelf's label, and its index into the kind's group list.
+    category: string,
+    group: int,
+    description: string,
+}
+
+/// One link of the selected clip's chain, in chain order.
+export struct AppliedEntryData {
+    id: string,
+    name: string,
+    /// False bypasses the link without losing what was dialled into it.
+    on: bool,
+    /// False when no package answers to the id: the row still shows, so the
+    /// link can be removed, but it has no knobs and renders nothing.
+    known: bool,
+}
+
+/// One knob of one link. Flat rather than nested in the entry so a value
+/// changing under a drag rewrites one small row and not the whole link.
+export struct AppliedParamData {
+    /// Which link, as an index into the applied list.
+    entry: int,
+    /// The manifest's key; what Rust is handed back with the new value.
+    key: string,
     label: string,
     min: float,
     max: float,
@@ -29,54 +57,42 @@ export struct ParamData {
     fmt: ParamFormat,
 }
 
-/// One preset in an applied chain: which one, whether it is live, its values.
-/// Every preset in the catalogue exposes exactly two parameters, so the pair
-/// is flattened here instead of nested in a model a struct cannot hold.
-export struct AppliedPresetData {
-    id: string,
-    name: string,
-    on: bool,
-    p1: ParamData,
-    p2: ParamData,
-}
-
-/// A catalogue entry: the preset as it would be applied, plus its shelf.
-export struct PresetDef {
-    group: int,
-    preset: AppliedPresetData,
-}
-
-// The applied chain plus the library that feeds it.
+/// A chain and its library: the links applied to the selected clip, each
+/// with a control per parameter its package declares, and under it the
+/// shelves of packages that can be added. One component serves effects,
+/// filters and audio alike — the data says which.
 export component PresetStack inherits VerticalLayout {
     /// lower-case singular, for labels and placeholders
-    in property <string> noun: "filter";
-    in property <string> library-title: "Filter library";
+    in property <string> noun: "effect";
+    in property <string> library-title: "Effect library";
     in property <[string]> group-labels;
-    in property <[PresetDef]> catalogue;
+    in property <[CatalogueEntryData]> catalogue;
     /// Owned by Rust: a chain is edited by index, and Slint models cannot be
     /// spliced from the language.
-    in property <[AppliedPresetData]> applied;
+    in property <[AppliedEntryData]> applied;
+    in property <[AppliedParamData]> params;
 
-    callback add(preset: AppliedPresetData);
+    callback add(id: string);
     callback toggle(index: int);
     callback move-by(index: int, delta: int);
     callback remove(index: int);
-    callback set-param(index: int, second: bool, value: float);
+    /// One knob moved. The value lands on the echo; `commit` makes it real.
+    callback set-param(index: int, key: string, value: float);
+    callback commit();
 
     property <int> group;
     property <string> query;
     property <bool> help;
 
-    function shown(def: PresetDef) -> bool {
-        return def.group == root.group
-            && (root.query == "" || InspectorSearch.matches(def.preset.name, root.query));
+    function shown(entry: CatalogueEntryData) -> bool {
+        return entry.group == root.group
+            && (root.query == "" || InspectorSearch.matches(entry.name, root.query));
     }
 
     function in-chain(id: string) -> bool {
-        // Two is the deepest the demo chains go before this reads awkwardly;
-        // a real member test wants a model lookup Slint cannot express, so
-        // Rust flags it the day chains grow params. Linear scan over a model
-        // is fine at this size.
+        // A real member test wants a model lookup Slint cannot express, so
+        // this scans the first eight links, which is deeper than a chain
+        // gets before it stops being a chain and starts being a problem.
         return root.applied.length > 0 && (root.applied[0].id == id
             || (root.applied.length > 1 && root.applied[1].id == id)
             || (root.applied.length > 2 && root.applied[2].id == id)
@@ -87,7 +103,7 @@ export component PresetStack inherits VerticalLayout {
             || (root.applied.length > 7 && root.applied[7].id == id));
     }
 
-    // No empty shell: the section arrives with the first preset, so an
+    // No empty shell: the section arrives with the first link, so an
     // untouched clip shows only its library.
     if root.applied.length > 0: Section {
         first: true;
@@ -132,11 +148,18 @@ export component PresetStack inherits VerticalLayout {
                         Text {
                             horizontal-stretch: 1;
                             text: item.name;
-                            color: Theme.fg;
+                            color: item.known ? Theme.fg : Theme.fg-dim;
                             font-size: Theme.fs;
                             font-weight: Theme.weight-title;
                             vertical-alignment: center;
                             overflow: elide;
+                        }
+
+                        if !item.known: Text {
+                            text: "not installed";
+                            color: Theme.fg-dim;
+                            font-size: Theme.fs-xs;
+                            vertical-alignment: center;
                         }
 
                         IconButton {
@@ -164,28 +187,31 @@ export component PresetStack inherits VerticalLayout {
                         }
                     }
 
-                    Param {
-                        label: item.p1.label;
-                        value: item.p1.value;
-                        minimum: item.p1.min;
-                        maximum: item.p1.max;
-                        step: item.p1.step;
-                        default-value: item.p1.default-value;
-                        fmt: item.p1.fmt;
-                        enabled: item.on;
-                        changed(v) => { root.set-param(index, false, v); }
-                    }
+                    // One control per parameter the package declares. The
+                    // knob writes to its own `value`, which drops a binding,
+                    // so the row re-seeds it whenever Rust republishes the
+                    // parameter — a new clip, an undo — and the control
+                    // never shows a number that is not the document's.
+                    for p in root.params: Rectangle {
+                        property <AppliedParamData> data: p;
+                        visible: p.entry == index;
+                        height: p.entry == index ? knob.preferred-height : 0;
+                        changed data => { knob.value = self.data.value; }
 
-                    Param {
-                        label: item.p2.label;
-                        value: item.p2.value;
-                        minimum: item.p2.min;
-                        maximum: item.p2.max;
-                        step: item.p2.step;
-                        default-value: item.p2.default-value;
-                        fmt: item.p2.fmt;
-                        enabled: item.on;
-                        changed(v) => { root.set-param(index, true, v); }
+                        knob := Param {
+                            label: p.label;
+                            value: p.value;
+                            minimum: p.min;
+                            maximum: p.max;
+                            step: p.step;
+                            default-value: p.default-value;
+                            fmt: p.fmt;
+                            enabled: item.on;
+                            changed(v) => {
+                                root.set-param(index, p.key, v);
+                                root.commit();
+                            }
+                        }
                     }
                 }
             }
@@ -226,13 +252,13 @@ export component PresetStack inherits VerticalLayout {
             // keystroke and a hidden row costing zero height is the cheap,
             // geometry-proof way to narrow the list (see media-pane's
             // sidebar for the scar tissue behind this choice).
-            for def[index] in root.catalogue: row := Rectangle {
+            for entry[index] in root.catalogue: row := Rectangle {
                 // Named rather than reached through `parent`: a layout is not
                 // transparent to a parent chain, so a descendant inside the
                 // HorizontalLayout below cannot see the row's own properties
                 // any other way.
-                property <bool> shown: root.shown(def);
-                property <bool> in-chain: root.in-chain(def.preset.id);
+                property <bool> shown: root.shown(entry);
+                property <bool> in-chain: root.in-chain(entry.id);
 
                 visible: row.shown;
                 height: row.shown ? 26px : 0;
@@ -256,7 +282,7 @@ export component PresetStack inherits VerticalLayout {
 
                     Text {
                         horizontal-stretch: 1;
-                        text: def.preset.name;
+                        text: entry.name;
                         color: row.in-chain ? Theme.fg-dim : Theme.fg;
                         font-size: Theme.fs;
                         vertical-alignment: center;
@@ -274,7 +300,7 @@ export component PresetStack inherits VerticalLayout {
                 row-touch := TouchArea {
                     enabled: !row.in-chain;
                     mouse-cursor: pointer;
-                    clicked => { root.add(def.preset); }
+                    clicked => { root.add(entry.id); }
                 }
             }
         }
@@ -617,89 +643,3 @@ export component FilterPanel inherits VerticalLayout {
 // The catalogues. Data only: the stack renders whatever params a preset
 // declares, so adding a processor is one entry here and no change to the
 // panel. The ids are written into project files, so they are stable forever.
-export global PresetCatalog {
-    out property <[string]> filter-groups: ["Voice", "Tone", "Space"];
-    out property <[string]> effect-groups: ["Dynamics", "Time", "Colour"];
-
-    out property <[PresetDef]> filters: [
-        { group: 0, preset: { id: "sweet", name: "Sweet", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 65, value: 65, fmt: ParamFormat.percent },
-            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
-        { group: 0, preset: { id: "deep", name: "Deep", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 70, value: 70, fmt: ParamFormat.percent },
-            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
-        { group: 0, preset: { id: "chipmunk", name: "Chipmunk", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 80, value: 80, fmt: ParamFormat.percent },
-            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
-        { group: 0, preset: { id: "robot", name: "Robot", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 60, value: 60, fmt: ParamFormat.percent },
-            p2: { id: "carrier", label: "Carrier", min: 40, max: 400, step: 10, default-value: 120, value: 120, fmt: ParamFormat.hertz } } },
-
-        { group: 1, preset: { id: "warm", name: "Warm", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 50, value: 50, fmt: ParamFormat.percent },
-            p2: { id: "tilt", label: "Tilt", min: -12, max: 12, step: 0.5, default-value: -2, value: -2, fmt: ParamFormat.decibels } } },
-        { group: 1, preset: { id: "bright", name: "Bright", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 45, value: 45, fmt: ParamFormat.percent },
-            p2: { id: "tilt", label: "Tilt", min: -12, max: 12, step: 0.5, default-value: 3, value: 3, fmt: ParamFormat.decibels } } },
-        { group: 1, preset: { id: "telephone", name: "Telephone", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent },
-            p2: { id: "band", label: "Band", min: 300, max: 4000, step: 10, default-value: 1800, value: 1800, fmt: ParamFormat.hertz } } },
-        { group: 1, preset: { id: "radio", name: "Radio", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 75, value: 75, fmt: ParamFormat.percent },
-            p2: { id: "noise", label: "Noise", min: 0, max: 100, step: 1, default-value: 12, value: 12, fmt: ParamFormat.percent } } },
-
-        { group: 2, preset: { id: "room", name: "Room", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 30, value: 30, fmt: ParamFormat.percent },
-            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 0.6, value: 0.6, fmt: ParamFormat.seconds } } },
-        { group: 2, preset: { id: "hall", name: "Hall", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 40, value: 40, fmt: ParamFormat.percent },
-            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 2.2, value: 2.2, fmt: ParamFormat.seconds } } },
-        { group: 2, preset: { id: "plate", name: "Plate", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 35, value: 35, fmt: ParamFormat.percent },
-            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 1.4, value: 1.4, fmt: ParamFormat.seconds } } },
-        { group: 2, preset: { id: "cathedral", name: "Cathedral", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 55, value: 55, fmt: ParamFormat.percent },
-            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 5, value: 5, fmt: ParamFormat.seconds } } },
-    ];
-
-    out property <[PresetDef]> effects: [
-        { group: 0, preset: { id: "compressor", name: "Compressor", on: true,
-            p1: { id: "threshold", label: "Threshold", min: -60, max: 0, step: 0.5, default-value: -18, value: -18, fmt: ParamFormat.decibels },
-            p2: { id: "ratio", label: "Ratio", min: 1, max: 20, step: 0.5, default-value: 4, value: 4, fmt: ParamFormat.ratio } } },
-        { group: 0, preset: { id: "limiter", name: "Limiter", on: true,
-            p1: { id: "ceiling", label: "Ceiling", min: -12, max: 0, step: 0.5, default-value: -1, value: -1, fmt: ParamFormat.decibels },
-            p2: { id: "release", label: "Release", min: 0, max: 500, step: 5, default-value: 60, value: 60, fmt: ParamFormat.millis } } },
-        { group: 0, preset: { id: "gate", name: "Noise gate", on: true,
-            p1: { id: "threshold", label: "Threshold", min: -80, max: 0, step: 0.5, default-value: -42, value: -42, fmt: ParamFormat.decibels },
-            p2: { id: "hold", label: "Hold", min: 0, max: 1000, step: 5, default-value: 120, value: 120, fmt: ParamFormat.millis } } },
-        { group: 0, preset: { id: "deesser", name: "De-esser", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 45, value: 45, fmt: ParamFormat.percent },
-            p2: { id: "centre", label: "Centre", min: 2000, max: 12000, step: 10, default-value: 6500, value: 6500, fmt: ParamFormat.hertz } } },
-
-        { group: 1, preset: { id: "delay", name: "Delay", on: true,
-            p1: { id: "time", label: "Time", min: 0, max: 1500, step: 5, default-value: 320, value: 320, fmt: ParamFormat.millis },
-            p2: { id: "feedback", label: "Feedback", min: 0, max: 100, step: 1, default-value: 28, value: 28, fmt: ParamFormat.percent } } },
-        { group: 1, preset: { id: "echo", name: "Echo", on: true,
-            p1: { id: "time", label: "Time", min: 0, max: 2000, step: 5, default-value: 500, value: 500, fmt: ParamFormat.millis },
-            p2: { id: "repeats", label: "Repeats", min: 1, max: 12, step: 1, default-value: 3, value: 3, fmt: ParamFormat.steps } } },
-        { group: 1, preset: { id: "stutter", name: "Stutter", on: true,
-            p1: { id: "rate", label: "Rate", min: 0.1, max: 24, step: 0.1, default-value: 8, value: 8, fmt: ParamFormat.rate-hz },
-            p2: { id: "depth", label: "Depth", min: 0, max: 100, step: 1, default-value: 70, value: 70, fmt: ParamFormat.percent } } },
-        { group: 1, preset: { id: "reverse", name: "Reverse", on: true,
-            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent },
-            p2: { id: "crossfade", label: "Crossfade", min: 0, max: 400, step: 5, default-value: 40, value: 40, fmt: ParamFormat.millis } } },
-
-        { group: 2, preset: { id: "saturator", name: "Saturator", on: true,
-            p1: { id: "drive", label: "Drive", min: 0, max: 100, step: 1, default-value: 35, value: 35, fmt: ParamFormat.percent },
-            p2: { id: "mix", label: "Mix", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent } } },
-        { group: 2, preset: { id: "bitcrush", name: "Bitcrush", on: true,
-            p1: { id: "bits", label: "Bits", min: 2, max: 16, step: 1, default-value: 12, value: 12, fmt: ParamFormat.steps },
-            p2: { id: "mix", label: "Mix", min: 0, max: 100, step: 1, default-value: 60, value: 60, fmt: ParamFormat.percent } } },
-        { group: 2, preset: { id: "chorus", name: "Chorus", on: true,
-            p1: { id: "rate", label: "Rate", min: 0.1, max: 8, step: 0.1, default-value: 1.2, value: 1.2, fmt: ParamFormat.rate-hz },
-            p2: { id: "depth", label: "Depth", min: 0, max: 100, step: 1, default-value: 40, value: 40, fmt: ParamFormat.percent } } },
-        { group: 2, preset: { id: "flanger", name: "Flanger", on: true,
-            p1: { id: "rate", label: "Rate", min: 0.1, max: 8, step: 0.1, default-value: 0.4, value: 0.4, fmt: ParamFormat.rate-hz },
-            p2: { id: "feedback", label: "Feedback", min: 0, max: 100, step: 1, default-value: 55, value: 55, fmt: ParamFormat.percent } } },
-    ];
-}

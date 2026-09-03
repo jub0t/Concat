@@ -6,7 +6,8 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedPresetData, FilterPanel, PresetCatalog, PresetStack,
+    AdjustPanel, AppliedEntryData, AppliedParamData, CatalogueEntryData,
+    FilterPanel, PresetStack,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
 import {
@@ -120,42 +121,54 @@ export component ConfigPane inherits Rectangle {
     callback pane-removed();
 
     // ── the clip inspector's chains, owned by Rust ───────────────────────
-    in property <[AppliedPresetData]> filters-applied;
-    in property <[AppliedPresetData]> effects-applied;
+    //
+    // The library shelves come from the effect catalogue, the applied lists
+    // from the selected clip. Two chains: the picture's, which the Filters
+    // and Effects tabs both edit, and the sound's, which Audio edits. A
+    // `audio` flag on every callback says which.
+    in property <[CatalogueEntryData]> catalogue-effects;
+    in property <[CatalogueEntryData]> catalogue-filters;
+    in property <[CatalogueEntryData]> catalogue-audio;
+    in property <[string]> effect-groups;
+    in property <[string]> filter-groups;
+    in property <[string]> audio-groups;
+    in property <[AppliedEntryData]> applied-visual;
+    in property <[AppliedEntryData]> applied-audio;
+    in property <[AppliedParamData]> visual-params;
+    in property <[AppliedParamData]> audio-params;
 
-    callback filters-add(preset: AppliedPresetData);
-    callback filters-toggle(index: int);
-    callback filters-move-by(index: int, delta: int);
-    callback filters-remove(index: int);
-    callback filters-set-param(index: int, second: bool, value: float);
+    callback chain-add(audio: bool, id: string);
+    callback chain-toggle(audio: bool, index: int);
+    callback chain-move-by(audio: bool, index: int, delta: int);
+    callback chain-remove(audio: bool, index: int);
+    callback chain-set-param(audio: bool, index: int, key: string, value: float);
 
     callback clip-set(field: ClipField, value: float);
     callback clip-set-text(field: ClipTextField, value: string);
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
 
-    callback effects-add(preset: AppliedPresetData);
-    callback effects-toggle(index: int);
-    callback effects-move-by(index: int, delta: int);
-    callback effects-remove(index: int);
-    callback effects-set-param(index: int, second: bool, value: float);
 
     // The tab strip follows the selection: nothing selected shows only
-    // Details, since there is nothing to edit; a media clip shows what can be
-    // changed and what can be added; a still gets Effects but not Filters,
-    // because it has picture and no sound; and a title gets Text alone — it
-    // has no volume, no speed and no audio filters, and offering those tabs
-    // would be offering panels that can only say "nothing here".
+    // Details, since there is nothing to edit; a video clip shows everything;
+    // a still has picture and no sound, so it loses Audio; a sound clip has
+    // no picture, so it loses Filters and Effects; and a title gets Text
+    // alone — offering the others would be offering panels that can only say
+    // "nothing here". The words are the ones video editors' users know:
+    // Filters are colour looks, Effects happen to the picture, Audio is the
+    // voice and the room.
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
+    property <bool> is-audio: root.selected.kind == ClipKind.audio;
     /// A filter layer gets its own lone tab for the same reason a title does:
     /// it has no transform, no gain and no rate, and every other tab could
     /// only say "nothing here".
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
     property <[string]> tabs: root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
-        : root.is-image ? ["Adjust", "Effects"]
-        : ["Adjust", "Filters", "Effects"];
+        : root.is-image ? ["Adjust", "Filters", "Effects"]
+        : root.is-audio ? ["Adjust", "Audio"]
+        : ["Adjust", "Audio", "Filters", "Effects"];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -389,36 +402,61 @@ export component ConfigPane inherits Rectangle {
                     commit => { root.clip-commit(); }
                 }
 
+                if root.showing == "Audio": PresetStack {
+                    noun: "audio effect";
+                    library-title: "Audio effects";
+                    group-labels: root.audio-groups;
+                    catalogue: root.catalogue-audio;
+                    applied: root.applied-audio;
+                    params: root.audio-params;
+
+                    add(id) => { root.chain-add(true, id); }
+                    toggle(index) => { root.chain-toggle(true, index); }
+                    move-by(index, delta) => { root.chain-move-by(true, index, delta); }
+                    remove(index) => { root.chain-remove(true, index); }
+                    set-param(index, key, value) => {
+                        root.chain-set-param(true, index, key, value);
+                    }
+                    commit => { root.clip-commit(); }
+                }
+
+                // Filters and Effects share one chain — a look and a blur
+                // are links of the same picture chain, in one order — and
+                // differ only in which shelves they offer.
                 if root.showing == "Filters": PresetStack {
                     noun: "filter";
                     library-title: "Filter library";
-                    group-labels: PresetCatalog.filter-groups;
-                    catalogue: PresetCatalog.filters;
-                    applied: root.filters-applied;
+                    group-labels: root.filter-groups;
+                    catalogue: root.catalogue-filters;
+                    applied: root.applied-visual;
+                    params: root.visual-params;
 
-                    add(preset) => { root.filters-add(preset); }
-                    toggle(index) => { root.filters-toggle(index); }
-                    move-by(index, delta) => { root.filters-move-by(index, delta); }
-                    remove(index) => { root.filters-remove(index); }
-                    set-param(index, second, value) => {
-                        root.filters-set-param(index, second, value);
+                    add(id) => { root.chain-add(false, id); }
+                    toggle(index) => { root.chain-toggle(false, index); }
+                    move-by(index, delta) => { root.chain-move-by(false, index, delta); }
+                    remove(index) => { root.chain-remove(false, index); }
+                    set-param(index, key, value) => {
+                        root.chain-set-param(false, index, key, value);
                     }
+                    commit => { root.clip-commit(); }
                 }
 
                 if root.showing == "Effects": PresetStack {
                     noun: "effect";
                     library-title: "Effect library";
-                    group-labels: PresetCatalog.effect-groups;
-                    catalogue: PresetCatalog.effects;
-                    applied: root.effects-applied;
+                    group-labels: root.effect-groups;
+                    catalogue: root.catalogue-effects;
+                    applied: root.applied-visual;
+                    params: root.visual-params;
 
-                    add(preset) => { root.effects-add(preset); }
-                    toggle(index) => { root.effects-toggle(index); }
-                    move-by(index, delta) => { root.effects-move-by(index, delta); }
-                    remove(index) => { root.effects-remove(index); }
-                    set-param(index, second, value) => {
-                        root.effects-set-param(index, second, value);
+                    add(id) => { root.chain-add(false, id); }
+                    toggle(index) => { root.chain-toggle(false, index); }
+                    move-by(index, delta) => { root.chain-move-by(false, index, delta); }
+                    remove(index) => { root.chain-remove(false, index); }
+                    set-param(index, key, value) => {
+                        root.chain-set-param(false, index, key, value);
                     }
+                    commit => { root.clip-commit(); }
                 }
             }
         }

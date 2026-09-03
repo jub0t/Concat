@@ -115,6 +115,7 @@ export component Seat inherits Rectangle {
             apply-effect(id) => { Editor.library-apply-effect(id); }
             apply-transition(id) => { Editor.library-apply-transition(id); }
             apply-filter(id, label) => { Editor.library-apply-filter(id, label); }
+            apply-audio(id) => { Editor.library-apply-audio(id); }
             save-template => { Editor.library-save-template(); }
         }
 
@@ -173,6 +174,24 @@ export component Seat inherits Rectangle {
             peak: Editor.peak;
             add-effect(audio) => { Editor.add-effect(audio); }
             remove-effect(id) => { Editor.remove-effect(id); }
+
+            catalogue-effects: Editor.catalogue-effects;
+            catalogue-filters: Editor.catalogue-filters;
+            catalogue-audio: Editor.catalogue-audio;
+            effect-groups: Editor.effect-groups;
+            filter-groups: Editor.filter-groups;
+            audio-groups: Editor.audio-groups;
+            applied-visual: Editor.applied-visual;
+            applied-audio: Editor.applied-audio;
+            visual-params: Editor.visual-params;
+            audio-params: Editor.audio-params;
+            chain-add(audio, id) => { Editor.chain-add(audio, id); }
+            chain-toggle(audio, index) => { Editor.chain-toggle(audio, index); }
+            chain-move-by(audio, index, delta) => { Editor.chain-move-by(audio, index, delta); }
+            chain-remove(audio, index) => { Editor.chain-remove(audio, index); }
+            chain-set-param(audio, index, key, value) => {
+                Editor.chain-set-param(audio, index, key, value);
+            }
 
             selected: Editor.selected-clip;
             clip-set(field, value) => { Editor.clip-set(field, value); }

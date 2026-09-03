@@ -54,6 +54,8 @@ concat-project.workspace = true
 concat-export.workspace = true
 concat-host = { workspace = true, features = ["gpu"] }
 concat-speech.workspace = true
+# The effect catalogue: the inspector's shelves and each link's knobs.
+concat-effects.workspace = true
 
 # Native file and folder dialogs, which Slint deliberately does not have.
 rfd = "0.17"

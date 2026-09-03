@@ -37,6 +37,11 @@ export enum ParamFormat {
     height,      // "9.0% of height"
     outline,     // 0 is "none", else "3.5%"
     seconds2,    // "1.25s" — two places, for a fade dialled against a duration
+
+    // For a package parameter whose unit the manifest did not name, or
+    // named in a unit nothing above spells.
+    plain,       // "1.25", or "12" when it is whole
+    kelvin,      // "4600 K"
 }
 
 export global InspectorFmt {
@@ -98,6 +103,11 @@ export global InspectorFmt {
         if (fmt == ParamFormat.seconds2) {
             return v == 0 ? "none" : InspectorFmt.fixed2(v) + "s";
         }
+        if (fmt == ParamFormat.plain) {
+            return Math.abs(v - Math.round(v)) < 0.0005 ? "\{Math.round(v)}"
+                : InspectorFmt.fixed2(v);
+        }
+        if (fmt == ParamFormat.kelvin) { return "\{Math.round(v)} K"; }
         return v == 0 ? "none" : InspectorFmt.fixed1(v) + " s";
     }
 

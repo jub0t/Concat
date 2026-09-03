@@ -28,6 +28,10 @@ import { Editor } from "editor.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
+import {
+    AppliedEntryData, AppliedParamData, CatalogueEntryData,
+} from "inspector/clip-inspector.slint";
+import { ParamFormat } from "inspector/controls.slint";
 import { ToastData, ToastLayer } from "primitives/toast.slint";
 import { TooltipLayer } from "primitives/tooltip.slint";
 import { Workspace } from "workspace/workspace.slint";
@@ -40,6 +44,7 @@ import {
 // Re-exported so main.rs can reach the globals and the struct.
 export {
     Curves, Fmt, Payload, Theme, Bezier, Editor,
+    AppliedEntryData, AppliedParamData, CatalogueEntryData, ParamFormat,
     DockDivider, DockSide, PaneKind, SeatBox,
     EffectData, MediaFilter, MediaItemData, MediaKind,
     ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
