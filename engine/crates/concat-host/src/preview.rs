@@ -4,17 +4,19 @@
 //! The paused monitor's true frame.
 //!
 //! One reader pool for the app's lifetime: its whole value is what stays
-//! warm between scrubs. Frames are composited through the pool's mutex, one
-//! at a time, in order, on whatever thread the caller chose - the window
-//! debounces and drops stale results, so a slow decode never wedges anything
-//! but itself.
+//! warm between scrubs. The pool locks per reader, so a frame is composited
+//! on whatever thread the caller chose while another thread decodes ahead
+//! on a different file - the window debounces and drops stale results, so a
+//! slow decode never wedges anything but itself.
 //!
 //! With the `gpu` feature and a device from [`Monitor::with_gpu`], a frame
 //! is composited on that device and handed back as a texture: decoded
 //! pictures go up once, the composite happens where it is shown, and no
 //! pixel comes back down.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(feature = "gpu")]
+use std::sync::Mutex;
 
 use concat_export::{ExportClip, PreviewFrameRequest};
 use concat_project::DocumentSettings;
@@ -34,7 +36,7 @@ pub struct FrameSpec {
 /// The reader pool behind the monitor, shareable across threads.
 #[derive(Clone)]
 pub struct Monitor {
-    pool: Arc<Mutex<concat_media::ReaderPool>>,
+    pool: Arc<concat_media::ReaderPool>,
     #[cfg(feature = "gpu")]
     gpu: Option<Arc<Mutex<concat_render::WgpuCompositor>>>,
 }
@@ -53,7 +55,7 @@ impl Monitor {
     /// A monitor with the engine's default pool budget.
     pub fn new() -> Self {
         Self {
-            pool: Arc::new(Mutex::new(concat_media::ReaderPool::with_defaults())),
+            pool: Arc::new(concat_media::ReaderPool::with_defaults()),
             #[cfg(feature = "gpu")]
             gpu: None,
         }
@@ -65,7 +67,7 @@ impl Monitor {
     #[cfg(feature = "gpu")]
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         Self {
-            pool: Arc::new(Mutex::new(concat_media::ReaderPool::with_defaults())),
+            pool: Arc::new(concat_media::ReaderPool::with_defaults()),
             gpu: Some(Arc::new(Mutex::new(
                 concat_render::WgpuCompositor::with_device(device, queue),
             ))),
@@ -100,11 +102,7 @@ impl Monitor {
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
         let request = Self::request(clips, settings, spec);
-        let mut pool = self
-            .pool
-            .lock()
-            .map_err(|_| "reader pool poisoned".to_owned())?;
-        let sources = concat_export::preview_sources(&mut pool, &request)?;
+        let sources = concat_export::preview_sources(&self.pool, &request)?;
         let layers = sources.layers();
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         gpu.composite_texture(spec.width, spec.height, &layers)
@@ -135,11 +133,7 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
         let request = Self::request(clips, settings, spec);
-        let mut pool = self
-            .pool
-            .lock()
-            .map_err(|_| "reader pool poisoned".to_owned())?;
-        concat_export::preview_frame(&mut pool, &request)
+        concat_export::preview_frame(&self.pool, &request)
     }
 
     /// Decode-ahead for the playback stream: warms the pool for the next
@@ -154,15 +148,11 @@ impl Monitor {
         frames: u32,
     ) {
         let request = Self::request(clips, settings, spec);
-        if let Ok(mut pool) = self.pool.lock() {
-            concat_export::preview_prefetch(&mut pool, &request, frames.min(8));
-        }
+        concat_export::preview_prefetch(&self.pool, &request, frames.min(8));
     }
 
     /// Forgets every cached frame and reader, for when the project closes.
     pub fn clear(&self) {
-        if let Ok(mut pool) = self.pool.lock() {
-            pool.clear();
-        }
+        self.pool.clear();
     }
 }

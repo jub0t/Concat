@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
@@ -214,17 +214,33 @@ struct MediaFacts {
     frames: Option<i64>,
 }
 
-/// Random access to frames across many files, cache in front, warm readers
-/// behind. `&mut self` throughout: callers serialise access, which is also
-/// the useful property - one scrub request at a time, in order.
-pub struct ReaderPool {
-    cache: FrameCache,
-    readers: HashMap<(PathBuf, u32, u32, Option<String>), Reader>,
-    facts: HashMap<PathBuf, MediaFacts>,
-    /// Readers kept warm before the least-recently-used is dropped.
-    max_readers: usize,
+/// One reader's identity: the file, the decode size, the effect chain.
+type ReaderKey = (PathBuf, u32, u32, Option<String>);
+
+/// The warm readers and their recency, behind one short lock. A reader is
+/// found here and then used outside this lock, under its own, so a decode
+/// on one file never waits on a decode on another.
+struct Readers {
+    warm: HashMap<ReaderKey, Arc<Mutex<Reader>>>,
     /// Recency order for reader eviction, oldest first.
-    reader_order: Vec<(PathBuf, u32, u32, Option<String>)>,
+    order: Vec<ReaderKey>,
+    /// Readers kept warm before the least-recently-used is dropped.
+    max: usize,
+}
+
+/// Random access to frames across many files, cache in front, warm readers
+/// behind.
+///
+/// Shared, not serialised: every method takes `&self`, and the locks inside
+/// are held for as little as each step needs. The cache is one short lock;
+/// each reader is its own, so the playback stream decoding ahead on one
+/// file and the monitor pulling a cached frame of another never queue
+/// behind each other. Two callers wanting the *same* reader take turns,
+/// which is what a single decoder demands anyway.
+pub struct ReaderPool {
+    cache: Mutex<FrameCache>,
+    readers: Mutex<Readers>,
+    facts: Mutex<HashMap<PathBuf, Arc<MediaFacts>>>,
 }
 
 impl ReaderPool {
@@ -232,11 +248,29 @@ impl ReaderPool {
     /// decoders.
     pub fn new(cache_bytes: usize, max_readers: usize) -> Self {
         Self {
-            cache: FrameCache::new(cache_bytes),
-            readers: HashMap::new(),
-            facts: HashMap::new(),
-            max_readers: max_readers.max(1),
-            reader_order: Vec::new(),
+            cache: Mutex::new(FrameCache::new(cache_bytes)),
+            readers: Mutex::new(Readers {
+                warm: HashMap::new(),
+                order: Vec::new(),
+                max: max_readers.max(1),
+            }),
+            facts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Bytes of decoded frames currently cached.
+    pub fn cached_bytes(&self) -> usize {
+        self.cache.lock().map(|cache| cache.held()).unwrap_or(0)
+    }
+
+    /// Whether the frame is already decoded, without decoding it.
+    fn cached(&self, key: &FrameKey) -> Option<Arc<Frame>> {
+        self.cache.lock().ok()?.get(key)
+    }
+
+    fn remember(&self, key: FrameKey, frame: Arc<Frame>) {
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(key, frame);
         }
     }
 
@@ -252,7 +286,7 @@ impl ReaderPool {
     /// which the caller knows (from its own model) and the pool must not
     /// guess from probing.
     pub fn frame_at(
-        &mut self,
+        &self,
         path: &Path,
         time: Rational,
         width: u32,
@@ -283,13 +317,23 @@ impl ReaderPool {
             chain: chain_key.clone(),
             index: target,
         };
-        if let Some(frame) = self.cache.get(&key) {
+        if let Some(frame) = self.cached(&key) {
             return Ok(frame);
         }
 
-        self.touch_reader(path, width, height, chain, rate, target)?;
-        let reader_key = (path.to_path_buf(), width, height, chain_key.clone());
-        let reader = self.readers.get_mut(&reader_key).expect("just ensured");
+        let shared = self.reader(path, width, height, chain, rate, target)?;
+        let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
+            path: path.to_path_buf(),
+        })?;
+        // Another caller may have moved this reader while this one waited
+        // for it; the answer may even be cached by now.
+        if let Some(frame) = self.cached(&key) {
+            return Ok(frame);
+        }
+        let next = (reader.next_index != i64::MIN).then_some(reader.next_index);
+        if plan_access(next, target) == Access::Seek {
+            reader.seek(rate, target)?;
+        }
 
         // Roll forward to the target, caching everything passed on the way -
         // the next scrub over this span is then free.
@@ -298,7 +342,7 @@ impl ReaderPool {
         // where the last real frame is the honest answer.
         while let Some((index, frame)) = reader.next_frame(rate)? {
             let frame = Arc::new(frame);
-            self.cache.insert(
+            self.remember(
                 FrameKey {
                     path: path.to_path_buf(),
                     width,
@@ -327,7 +371,7 @@ impl ReaderPool {
                 reader.seek(rate, from)?;
                 while let Some((index, frame)) = reader.next_frame(rate)? {
                     let frame = Arc::new(frame);
-                    self.cache.insert(
+                    self.remember(
                         FrameKey {
                             path: path.to_path_buf(),
                             width,
@@ -350,7 +394,7 @@ impl ReaderPool {
                 // Remember the answer under the index that was asked for, so
                 // dwelling on a time past the end costs one lookup, not a
                 // respawn-and-decode per request.
-                self.cache.insert(key, Arc::clone(frame));
+                self.remember(key, Arc::clone(frame));
             }
         }
 
@@ -359,9 +403,19 @@ impl ReaderPool {
         })
     }
 
-    fn facts_for(&mut self, path: &Path, still: bool) -> Result<&MediaFacts> {
-        if !self.facts.contains_key(path) {
-            let facts = if still {
+    fn facts_for(&self, path: &Path, still: bool) -> Result<Arc<MediaFacts>> {
+        if let Some(facts) = self
+            .facts
+            .lock()
+            .ok()
+            .and_then(|facts| facts.get(path).cloned())
+        {
+            return Ok(facts);
+        }
+        // Probed outside the lock: a probe opens the file, and the other
+        // callers should not wait on that.
+        let facts = {
+            if still {
                 MediaFacts {
                     rate: FrameRate::THIRTY,
                     still: true,
@@ -385,57 +439,86 @@ impl ReaderPool {
                     still: false,
                     frames,
                 }
-            };
-            self.facts.insert(path.to_path_buf(), facts);
+            }
+        };
+        let facts = Arc::new(facts);
+        if let Ok(mut known) = self.facts.lock() {
+            known
+                .entry(path.to_path_buf())
+                .or_insert_with(|| Arc::clone(&facts));
         }
-        Ok(self.facts.get(path).expect("just inserted"))
+        Ok(facts)
     }
 
-    /// Ensures a reader positioned to reach `target`, evicting the coldest
-    /// reader when the pool is full.
-    fn touch_reader(
-        &mut self,
+    /// The warm reader for this identity, opened at `target` when there is
+    /// none, evicting the coldest reader when the pool is full. Positioning
+    /// an existing reader is the caller's job, under the reader's own lock.
+    fn reader(
+        &self,
         path: &Path,
         width: u32,
         height: u32,
         chain: Option<&str>,
         rate: FrameRate,
         target: i64,
-    ) -> Result<()> {
+    ) -> Result<Arc<Mutex<Reader>>> {
         let key = (path.to_path_buf(), width, height, chain.map(str::to_owned));
-
-        self.reader_order.retain(|entry| entry != &key);
-        self.reader_order.push(key.clone());
-
-        if let Some(reader) = self.readers.get_mut(&key) {
-            let next = (reader.next_index != i64::MIN).then_some(reader.next_index);
-            if plan_access(next, target) == Access::Seek {
-                reader.seek(rate, target)?;
+        {
+            let mut readers = self
+                .readers
+                .lock()
+                .map_err(|_| crate::error::Error::NoFrame {
+                    path: path.to_path_buf(),
+                })?;
+            readers.order.retain(|entry| entry != &key);
+            readers.order.push(key.clone());
+            if let Some(reader) = readers.warm.get(&key) {
+                return Ok(Arc::clone(reader));
             }
-            return Ok(());
         }
 
-        while self.readers.len() >= self.max_readers && !self.reader_order.is_empty() {
-            let coldest = self.reader_order.remove(0);
+        // Opened outside the lock: opening a file and seeking it is the slow
+        // part, and nobody else needs to wait for it. A decode in flight on
+        // an evicted reader finishes on its own handle.
+        let opened = Arc::new(Mutex::new(Reader::open(
+            path, width, height, chain, rate, target,
+        )?));
+        let mut readers = self
+            .readers
+            .lock()
+            .map_err(|_| crate::error::Error::NoFrame {
+                path: path.to_path_buf(),
+            })?;
+        if let Some(reader) = readers.warm.get(&key) {
+            // Someone else opened the same reader meanwhile; theirs wins.
+            return Ok(Arc::clone(reader));
+        }
+        while readers.warm.len() >= readers.max && !readers.order.is_empty() {
+            let coldest = readers.order.remove(0);
             if coldest == key {
-                self.reader_order.push(coldest);
+                readers.order.push(coldest);
                 break;
             }
-            self.readers.remove(&coldest);
+            readers.warm.remove(&coldest);
         }
-
-        let reader = Reader::open(path, width, height, chain, rate, target)?;
-        self.readers.insert(key, reader);
-        Ok(())
+        readers.warm.insert(key, Arc::clone(&opened));
+        Ok(opened)
     }
 
     /// Drops every warm reader and cached frame - for when the media set
     /// changes wholesale, like closing a project.
-    pub fn clear(&mut self) {
-        self.readers.clear();
-        self.reader_order.clear();
-        self.facts.clear();
-        self.cache = FrameCache::new(self.cache.budget);
+    pub fn clear(&self) {
+        if let Ok(mut readers) = self.readers.lock() {
+            readers.warm.clear();
+            readers.order.clear();
+        }
+        if let Ok(mut facts) = self.facts.lock() {
+            facts.clear();
+        }
+        if let Ok(mut cache) = self.cache.lock() {
+            let budget = cache.budget;
+            *cache = FrameCache::new(budget);
+        }
     }
 }
 
@@ -529,7 +612,7 @@ mod tests {
         }
         encoder.finish().expect("finishes");
 
-        let mut pool = ReaderPool::new(64 * 1024 * 1024, 4);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 4);
         let rate = FrameRate::THIRTY;
         let red_at = |pool: &mut ReaderPool, index: i64| -> i64 {
             let frame = pool
@@ -540,26 +623,26 @@ mod tests {
 
         // Forward, backward, far jump, and revisit - the scrub shapes.
         let near = |got: i64, index: i64| (got - index * 2).abs() <= 8;
-        let at_10 = red_at(&mut pool, 10);
+        let at_10 = red_at(&pool, 10);
         assert!(near(at_10, 10), "frame 10 read {at_10}");
-        let at_50 = red_at(&mut pool, 50);
+        let at_50 = red_at(&pool, 50);
         assert!(near(at_50, 50), "frame 50 read {at_50}");
-        let back_at_20 = red_at(&mut pool, 20);
+        let back_at_20 = red_at(&pool, 20);
         assert!(near(back_at_20, 20), "backward to 20 read {back_at_20}");
-        let again_at_50 = red_at(&mut pool, 50);
+        let again_at_50 = red_at(&pool, 50);
         assert_eq!(
             again_at_50, at_50,
             "revisit must come from cache, identical"
         );
         assert!(
-            !pool.cache.is_empty(),
+            pool.cached_bytes() > 0,
             "rolling forward populated the cache"
         );
 
         // Far past the end - a clip that outlives its media. The last real
         // frame is the answer, not an error: a seek there decodes nothing,
         // and nothing must not become a zero-byte frame or a black monitor.
-        let past_end = red_at(&mut pool, 300);
+        let past_end = red_at(&pool, 300);
         assert!(
             near(past_end, 89),
             "past the end read {past_end}, wanted the last frame"
