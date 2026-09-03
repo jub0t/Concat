@@ -7,7 +7,7 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel,
+    AdjustPanel, AnimationPanel, AppliedEntryData, AppliedParamData, AudioPanel,
     CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
@@ -206,14 +206,13 @@ export component ConfigPane inherits Rectangle {
         Math.min(root.tab, root.tabs.length - 1))];
 
     /// The sections of the current tab, as the dropdown lists them.
-    // Animation is deliberately not offered yet: the engine plays it, but
-    // the panel for it is still to be designed.
     property <[string]> sections: root.heading == "Video"
-            ? (root.is-image ? ["Basic", "Adjust"] : ["Basic", "Speed", "Adjust"])
+            ? (root.is-image ? ["Basic", "Animation", "Adjust"]
+                : ["Basic", "Speed", "Animation", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
         : root.heading == "Effects" ? ["Filters", "Effects"]
-        : root.heading == "Text" ? ["Text"]
+        : root.heading == "Text" ? ["Text", "Animation"]
         : ["Layer"];
 
     // Each tab remembers its own section, so flipping to Audio and back
@@ -482,6 +481,12 @@ export component ConfigPane inherits Rectangle {
 
             PaneScroll {
                 if root.showing == "Basic": VideoPanel {
+                    selected: root.selected;
+                    set(field, value) => { root.clip-set(field, value); }
+                    commit => { root.clip-commit(); }
+                }
+
+                if root.showing == "Animation": AnimationPanel {
                     selected: root.selected;
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
