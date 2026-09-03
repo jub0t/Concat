@@ -1,23 +1,56 @@
 name: Release
 
 # Pushing a tag that starts with v (v0.3.0, v0.3.0-alpha.1, ...) builds the
-# app for all three platforms and publishes a GitHub release under that tag
-# with one archive per platform. A tag containing a hyphen is a pre-release.
+# app for every platform and architecture and publishes a GitHub release
+# under that tag with one bundle per target and a checksum file. A tag
+# containing a hyphen is a pre-release. The tag must match the workspace's
+# version: a release whose files say one number and whose tag says another
+# is a release nobody can reason about.
 #
-# Each archive is the binary plus, on Windows and Linux, the FFmpeg runtime
-# libraries beside it. Signed installers and bundles are the next packaging
-# step.
+# The bundles are self-contained: the macOS .dmg carries its FFmpeg dylibs
+# and is notarised when the signing secrets are set; the Linux tarball and
+# the Windows zip carry the FFmpeg runtime libraries beside the binary.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing tag to build and publish, e.g. v0.3.0
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  check:
+    name: Tag matches the version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - id: tag
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          if [ "$tag" != "v$version" ]; then
+            echo "tag $tag does not match engine/Cargo.toml version $version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: [check]
     uses: ./.github/workflows/build-app.yml
+    secrets: inherit
 
   publish:
     name: Publish release
-    needs: [build]
+    needs: [check, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -25,30 +58,40 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: bundles
+          merge-multiple: true
 
-      - name: Pack one archive per platform
+      - name: Checksums
         run: |
           set -euo pipefail
-          mkdir -p out
-          tag="${GITHUB_REF_NAME}"
-          (cd bundles/Concat-macos   && tar -czf "../../out/Concat-${tag}-macos-arm64.tar.gz" .)
-          (cd bundles/Concat-linux   && tar -czf "../../out/Concat-${tag}-linux-x86_64.tar.gz" .)
-          (cd bundles/Concat-windows && zip -qr "../../out/Concat-${tag}-windows-x86_64.zip" .)
-          ls -l out
+          cd bundles
+          ls -l
+          sha256sum -- * > SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
         with:
-          name: Concat ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ needs.check.outputs.tag }}
+          name: Concat ${{ needs.check.outputs.tag }}
+          prerelease: ${{ contains(needs.check.outputs.tag, '-') }}
           generate_release_notes: true
           body: |
+            One bundle per platform and architecture; pick yours:
+
+            | | Apple silicon | Intel / x86_64 | arm64 |
+            |---|---|---|---|
+            | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
+            | Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
+            | Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
+
+            Every bundle runs with nothing else installed. `SHA256SUMS` lists
+            each file's checksum.
+
             Concat is AGPL-3.0-or-later, with a plugin exception for Concat API
             plugins ([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
-            The binaries link FFmpeg (GPL builds with x264; the Windows and
-            Linux archives carry its runtime libraries), compile in whisper.cpp
-            (MIT), and statically link sherpa-onnx with GPL-3.0 espeak-ng -
-            sources and licences in
+            The binaries link FFmpeg (GPL builds with x264; the bundles carry
+            its runtime libraries), compile in whisper.cpp (MIT), and
+            statically link sherpa-onnx with GPL-3.0 espeak-ng - sources and
+            licences in
             [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
             Slint is used under its GPL-3.0-only option.
           fail_on_unmatched_files: true
-          files: out/*
+          files: bundles/*

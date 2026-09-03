@@ -1,0 +1,106 @@
+name: Nightly
+
+# Every push to main that passes the engine's tests builds the app for every
+# platform and architecture and refreshes the rolling `nightly` pre-release
+# with the bundles: the latest main, always downloadable, without anyone
+# cutting a tag. The tag is moved to the commit the bundles were built from,
+# so the release page's "compare" and its notes stay honest.
+#
+# Tagged releases (release.yml) are the ones to point people at; this is the
+# one to point testers at. Successive pushes replace the assets, so there
+# is exactly one nightly and it is the newest.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Only after a green CI run on main; a manual run builds whatever main is.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/build-app.yml
+    secrets: inherit
+
+  publish:
+    name: Refresh the nightly release
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: bundles
+          merge-multiple: true
+
+      # Named by the commit, so two testers can say which nightly they have.
+      - name: Name the bundles by commit and write checksums
+        id: stamp
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse --short=10 HEAD)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          cd bundles
+          for file in Concat-*; do
+            mv "$file" "${file/Concat-$version/Concat-$version-nightly.$sha}"
+          done
+          sha256sum -- * > SHA256SUMS
+          ls -l
+          {
+            echo "sha=$sha"
+            echo "version=$version"
+            echo "date=$(date -u +%Y-%m-%d)"
+          } >> "$GITHUB_OUTPUT"
+
+      # Yesterday's bundles carry yesterday's commit in their names, so
+      # they would pile up beside today's; the release holds one set.
+      - name: Drop the previous nightly's assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view nightly --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' \
+              | while read -r asset; do
+                  gh release delete-asset nightly "$asset" --repo "$GITHUB_REPOSITORY" -y
+                done
+          fi
+
+      # The tag follows main, so the release always points at the commit
+      # its bundles came from.
+      - name: Move the nightly tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly
+          git push -f origin nightly
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          name: Nightly ${{ steps.stamp.outputs.version }} (${{ steps.stamp.outputs.date }}, ${{ steps.stamp.outputs.sha }})
+          prerelease: true
+          body: |
+            The latest main, built ${{ steps.stamp.outputs.date }} from
+            `${{ steps.stamp.outputs.sha }}`. Refreshed on every push; the
+            files below replace the previous nightly's.
+
+            | | Apple silicon | Intel / x86_64 | arm64 |
+            |---|---|---|---|
+            | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
+            | Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
+            | Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
+
+            Nightlies are for testing. For a release, see the tagged ones.
+          fail_on_unmatched_files: true
+          files: bundles/*

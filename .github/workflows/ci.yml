@@ -1,8 +1,8 @@
 name: CI
 
-# The engine's tests and lints on every push and pull request, and the app
-# built for all three platforms on every push to main (artifacts, not a
-# release - see release.yml for those).
+# The engine's tests and lints on every push and pull request. A green run
+# on main is what nightly.yml waits for before it builds the app for every
+# platform; see that file and release.yml for the bundles.
 on:
   push:
     branches: [main]
@@ -60,8 +60,3 @@ jobs:
       - run: cargo test --workspace
         working-directory: engine
 
-  app:
-    name: Build app
-    if: github.event_name != 'pull_request'
-    needs: [engine]
-    uses: ./.github/workflows/build-app.yml
