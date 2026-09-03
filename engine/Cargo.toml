@@ -23,8 +23,11 @@ thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 
 # The GPU compositor, behind concat-render's `gpu` feature. A heavy tree, which
-# is exactly why it is optional: engine-only work never pays for it.
-wgpu = "30"
+# is exactly why it is optional: engine-only work never pays for it. Pinned to
+# the major Slint 1.17 can share a device with, so the window's renderer and
+# the engine's compositor draw on one device and a preview frame never leaves
+# the GPU.
+wgpu = "29"
 pollster = "0.4"
 
 [workspace.lints.rust]

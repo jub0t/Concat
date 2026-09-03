@@ -8,6 +8,11 @@
 //! at a time, in order, on whatever thread the caller chose - the window
 //! debounces and drops stale results, so a slow decode never wedges anything
 //! but itself.
+//!
+//! With the `gpu` feature and a device from [`Monitor::with_gpu`], a frame
+//! is composited on that device and handed back as a texture: decoded
+//! pictures go up once, the composite happens where it is shown, and no
+//! pixel comes back down.
 
 use std::sync::{Arc, Mutex};
 
@@ -30,7 +35,13 @@ pub struct FrameSpec {
 #[derive(Clone)]
 pub struct Monitor {
     pool: Arc<Mutex<concat_media::ReaderPool>>,
+    #[cfg(feature = "gpu")]
+    gpu: Option<Arc<Mutex<concat_render::WgpuCompositor>>>,
 }
+
+/// The wgpu the monitor's textures belong to.
+#[cfg(feature = "gpu")]
+pub use concat_render::wgpu;
 
 impl Default for Monitor {
     fn default() -> Self {
@@ -43,7 +54,61 @@ impl Monitor {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(Mutex::new(concat_media::ReaderPool::with_defaults())),
+            #[cfg(feature = "gpu")]
+            gpu: None,
         }
+    }
+
+    /// A monitor that composites on `device` - the window's - so
+    /// [`Monitor::frame_texture`] yields textures the window shows as they
+    /// are.
+    #[cfg(feature = "gpu")]
+    pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        Self {
+            pool: Arc::new(Mutex::new(concat_media::ReaderPool::with_defaults())),
+            gpu: Some(Arc::new(Mutex::new(
+                concat_render::WgpuCompositor::with_device(device, queue),
+            ))),
+        }
+    }
+
+    /// Whether frames can be composited on the GPU.
+    pub fn has_gpu(&self) -> bool {
+        #[cfg(feature = "gpu")]
+        {
+            self.gpu.is_some()
+        }
+        #[cfg(not(feature = "gpu"))]
+        {
+            false
+        }
+    }
+
+    /// The engine-composited frame at one instant, as a texture on the
+    /// device this monitor was given: `Rgba8Unorm`, `spec.width` by
+    /// `spec.height`, bindable and renderable. Errs without a device, or
+    /// once the device is lost.
+    #[cfg(feature = "gpu")]
+    pub fn frame_texture(
+        &self,
+        clips: Vec<ExportClip>,
+        settings: &DocumentSettings,
+        spec: FrameSpec,
+    ) -> Result<wgpu::Texture, String> {
+        let gpu = self
+            .gpu
+            .as_ref()
+            .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
+        let request = Self::request(clips, settings, spec);
+        let mut pool = self
+            .pool
+            .lock()
+            .map_err(|_| "reader pool poisoned".to_owned())?;
+        let sources = concat_export::preview_sources(&mut pool, &request)?;
+        let layers = sources.layers();
+        let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
+        gpu.composite_texture(spec.width, spec.height, &layers)
+            .ok_or_else(|| "the GPU device was lost".to_owned())
     }
 
     fn request(

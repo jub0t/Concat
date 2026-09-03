@@ -9,13 +9,14 @@ description = "What the editor window needs that is not the edit itself: session
 [features]
 # The wgpu compositor for previews and exports, off by default for the same
 # reason as everywhere else in the engine; the window turns it on.
-gpu = ["concat-export/gpu"]
+gpu = ["concat-export/gpu", "dep:concat-render", "concat-render/gpu"]
 
 [dependencies]
 concat-core.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
 concat-export.workspace = true
+concat-render = { workspace = true, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 

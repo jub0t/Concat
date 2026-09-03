@@ -21,6 +21,7 @@ use concat_host::preview::Monitor;
 use concat_host::{AppDirs, media};
 use concat_speech::{Speech, Transcriber};
 
+use crate::gpu::Gpu;
 use crate::studio::{Models, Studio};
 use crate::ui::App;
 
@@ -42,14 +43,19 @@ pub struct Host {
 
 impl Host {
     /// Starts every service. The audio device may not be there yet; playback
-    /// keeps trying on its own thread and says so through a toast.
-    pub fn start() -> Result<Host, String> {
+    /// keeps trying on its own thread and says so through a toast. `gpu` is
+    /// the window's device; with it the monitor composites where the window
+    /// draws.
+    pub fn start(gpu: Option<Gpu>) -> Result<Host, String> {
         let dirs = AppDirs::locate()?;
         let _ = std::fs::create_dir_all(&dirs.config);
         Ok(Host {
             dirs,
             playback: Playback::start(Arc::new(Events)),
-            monitor: Monitor::new(),
+            monitor: match gpu {
+                Some(gpu) => Monitor::with_gpu(gpu.device, gpu.queue),
+                None => Monitor::new(),
+            },
             exporter: Exporter::new(),
             transcriber: Arc::new(Transcriber::new()),
             speech: Arc::new(Speech::new()),

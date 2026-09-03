@@ -33,6 +33,7 @@ mod ui {
 mod chips;
 mod dock;
 mod format;
+mod gpu;
 mod host;
 mod prefs;
 mod studio;
@@ -44,38 +45,52 @@ use studio::{LANGUAGES, Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
 fn main() -> Result<(), slint::PlatformError> {
+    // The device the renderer and the monitor share. Taken first, because
+    // the backend is selected with it.
+    let gpu = gpu::Gpu::acquire();
+    if gpu.is_none() {
+        eprintln!("concat: no GPU adapter; the monitor composites on the CPU");
+    }
+
+    let mut selector = slint::BackendSelector::new().backend_name("winit".into());
+    selector = match &gpu {
+        Some(gpu) => selector.require_wgpu_29(gpu.configuration()),
+        None => {
+            // Without a shared device, ask for the platform's own API by
+            // name: Skia picks its surface from a cfg chain, and requiring
+            // one turns a silent fall back to the CPU rasteriser into a
+            // refusal to start, which is a fault you can see.
+            #[cfg(target_os = "macos")]
+            {
+                selector.require_metal()
+            }
+            #[cfg(target_family = "windows")]
+            {
+                selector.require_d3d()
+            }
+            #[cfg(not(any(target_os = "macos", target_family = "windows")))]
+            {
+                selector
+            }
+        }
+    };
+
     // The custom title bar. On macOS the native bar is hidden and the traffic
     // lights are overlaid on the strip the UI draws. Other platforms keep
     // their decorations for now.
     #[cfg(target_os = "macos")]
     {
         use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
-        slint::BackendSelector::new()
-            .backend_name("winit".into())
-            // Metal, by name. Skia picks its surface from a cfg chain that on
-            // macOS already lands on Metal; requiring it turns a silent fall
-            // back to the CPU rasteriser into a refusal to start, which is a
-            // fault you can see.
-            .require_metal()
-            .with_winit_window_attributes_hook(|attributes| {
-                attributes
-                    .with_titlebar_transparent(true)
-                    .with_title_hidden(true)
-                    .with_fullsize_content_view(true)
-            })
-            .select()?;
+        selector = selector.with_winit_window_attributes_hook(|attributes| {
+            attributes
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_fullsize_content_view(true)
+        });
     }
+    selector.select()?;
 
-    // Windows renders on the CPU unless Direct3D is asked for by name: Skia's
-    // surface chain has no Direct3D arm and its OpenGL arm excludes Windows,
-    // so plain renderer-skia lands on the software surface there.
-    #[cfg(target_family = "windows")]
-    slint::BackendSelector::new()
-        .backend_name("winit".into())
-        .require_d3d()
-        .select()?;
-
-    let host = match Host::start() {
+    let host = match Host::start(gpu) {
         Ok(host) => host,
         Err(error) => {
             eprintln!("concat: {error}");

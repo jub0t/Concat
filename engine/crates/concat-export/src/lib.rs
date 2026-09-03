@@ -742,6 +742,53 @@ pub fn preview_frame(
     pool: &mut concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
+    let sources = preview_sources(pool, request)?;
+    let layers = sources.layers();
+    // CPU on purpose: one frame at preview size is milliseconds, and holding
+    // a GPU context alive for occasional scrubs is not worth its memory. The
+    // window composites on its own device through `preview_sources`.
+    let composed = CpuCompositor.composite(request.width, request.height, &layers);
+    Ok(composed.into_pixels())
+}
+
+/// The decoded pictures under the playhead and where each goes: what a
+/// compositor needs to draw the paused monitor's frame, decoded but not yet
+/// drawn, so a caller with a GPU can draw them where they are shown.
+pub struct PreviewSources {
+    sources: Vec<(std::sync::Arc<Frame>, f32, Transform)>,
+    width: u32,
+    height: u32,
+}
+
+impl PreviewSources {
+    /// The layers, placed the exporter's way, bottom-most first.
+    pub fn layers(&self) -> Vec<Layer<'_>> {
+        self.sources
+            .iter()
+            .map(|(frame, opacity, transform)| {
+                place_layer(frame.as_ref(), *opacity, transform, self.width, self.height)
+            })
+            .collect()
+    }
+
+    /// The output width the layers were placed for.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// The output height the layers were placed for.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+}
+
+/// Decodes the pictures the paused monitor's frame is made of, through the
+/// reader pool so scrubbing revisits are cache hits. See [`preview_frame`]
+/// for the rules on what counts as a failure.
+pub fn preview_sources(
+    pool: &mut concat_media::ReaderPool,
+    request: &PreviewFrameRequest,
+) -> Result<PreviewSources, String> {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
     let BuiltTimeline {
         timeline,
@@ -786,24 +833,11 @@ pub fn preview_frame(
         ));
     }
 
-    // The exporter's own placement, by construction: same function.
-    let layers: Vec<Layer<'_>> = sources
-        .iter()
-        .map(|(frame, opacity, transform)| {
-            place_layer(
-                frame.as_ref(),
-                *opacity,
-                transform,
-                request.width,
-                request.height,
-            )
-        })
-        .collect();
-
-    // CPU on purpose: one frame at preview size is milliseconds, and holding
-    // a GPU context alive for occasional scrubs is not worth its memory.
-    let composed = CpuCompositor.composite(request.width, request.height, &layers);
-    Ok(composed.into_pixels())
+    Ok(PreviewSources {
+        sources,
+        width: request.width,
+        height: request.height,
+    })
 }
 
 /// The preview's timeline, built the exporter's way.

@@ -213,9 +213,10 @@ flowchart TB
     end
     subgraph VIDEO["Video — concat_host::preview::Monitor"]
         PULL["window pulls one frame per instant<br/>prefetch warms the next few"]
-        PF["preview_frame → raw RGBA"]
-        IMG["slint::Image from the buffer"]
-        PULL --> PF --> IMG
+        PF["preview_sources → decoded layers"]
+        TEX["WgpuCompositor on the shared device → texture"]
+        IMG["slint::Image::try_from(texture)"]
+        PULL --> PF --> TEX --> IMG
     end
     CLK -- "the window follows" --> PULL
 ```
@@ -225,6 +226,12 @@ flowchart TB
   30 Hz while playing. Video chases audio, never the other way around.
 - **The monitor shows the engine's real composited frame** - the same pixels
   the exporter would produce - at a preview size the window chooses.
+- **One GPU device, shared.** The window creates a wgpu device (`gpu.rs`)
+  and hands it to Slint's renderer and to the monitor's compositor. A
+  preview frame is decoded, uploaded once per layer, composited on that
+  device into a presentable texture, and shown by Slint as that texture:
+  nothing is read back and nothing is copied. Without an adapter the
+  monitor composites on the CPU and the window uploads the pixels.
 - **Nothing here knows about a window.** `Playback` reports through a trait
   object; `Monitor` returns bytes. The window decides which thread runs what,
   and hands results back to the Slint event loop with

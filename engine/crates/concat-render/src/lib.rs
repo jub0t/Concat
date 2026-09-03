@@ -22,3 +22,6 @@ pub use compositor::{Compositor, CpuCompositor, Layer, Placement};
 #[cfg(feature = "gpu")]
 pub use gpu::WgpuCompositor;
 pub use plan::{FramePlan, PlannedLayer, plan_frame};
+/// The wgpu the compositor is built on, for callers that share its device.
+#[cfg(feature = "gpu")]
+pub use wgpu;

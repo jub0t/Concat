@@ -835,6 +835,14 @@ impl Studio {
     /// Asks the engine for the frame at the playhead, one at a time: a
     /// request while one is out waits for it, and the newest wins.
     pub fn request_preview(&mut self) {
+        /// A monitor frame on its way to the window.
+        enum Picture {
+            /// Already on the GPU, on the window's own device.
+            Texture(concat_host::preview::wgpu::Texture),
+            /// Raw RGBA, to be uploaded.
+            Pixels(Vec<u8>, u32, u32),
+        }
+
         if self.on_start || self.session.is_none() {
             return;
         }
@@ -865,15 +873,29 @@ impl Studio {
         self.preview_wanted = false;
         spawn(
             move || {
-                let frame = monitor.frame(clips.clone(), &settings, spec);
+                // On the window's device the frame stays a texture; without
+                // one it comes back as pixels and is uploaded here.
+                let frame = if monitor.has_gpu() {
+                    monitor
+                        .frame_texture(clips.clone(), &settings, spec)
+                        .map(Picture::Texture)
+                } else {
+                    monitor
+                        .frame(clips.clone(), &settings, spec)
+                        .map(|bytes| Picture::Pixels(bytes, width, height))
+                };
                 // Decode-ahead for whatever comes next, while the pool is warm.
                 monitor.prefetch(clips, &settings, spec, 2);
-                frame.map(|bytes| (bytes, width, height))
+                frame
             },
             |studio, _, _, result| {
                 studio.preview_busy = false;
                 match result {
-                    Ok((bytes, width, height)) => {
+                    Ok(Picture::Texture(texture)) => match slint::Image::try_from(texture) {
+                        Ok(image) => studio.preview = image,
+                        Err(error) => eprintln!("concat: preview texture: {error}"),
+                    },
+                    Ok(Picture::Pixels(bytes, width, height)) => {
                         let buffer =
                             slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                                 &bytes, width, height,

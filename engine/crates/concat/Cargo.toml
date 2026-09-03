@@ -36,7 +36,15 @@ slint = { version = "1.17", default-features = false, features = [
     # title bar (macOS traffic-light overlay) and to start window drags from
     # the strip's drag region.
     "unstable-winit-030",
+    # The renderer draws on a wgpu device the window creates and shares with
+    # the engine's compositor, so a monitor frame is a texture Slint shows
+    # as it is - see gpu.rs.
+    "unstable-wgpu-29",
 ] }
+
+# The one device: created in gpu.rs, handed to Slint and to the monitor.
+wgpu.workspace = true
+pollster.workspace = true
 
 # The engine, through the host layer. `gpu` turns on the wgpu compositor for
 # the monitor and the export; the CPU compositor stays as the fallback.

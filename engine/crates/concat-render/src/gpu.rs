@@ -19,6 +19,12 @@
 //!
 //! Construction is fallible: a machine with no usable adapter gets `None`, and
 //! callers fall back to the CPU. Never panic over a missing GPU.
+//!
+//! Two outputs. [`Compositor::composite`] reads the frame back for the
+//! encoder. [`WgpuCompositor::composite_texture`] leaves it on the GPU as a
+//! texture the window can show directly - when the compositor was built on
+//! the window's own device with [`WgpuCompositor::with_device`], that is the
+//! monitor with no copy anywhere.
 
 use std::collections::HashMap;
 
@@ -103,6 +109,19 @@ struct Target {
     padded_row: usize,
 }
 
+/// Presentable output textures, in a ring: the window may still be
+/// sampling the last one while the next is drawn.
+struct Presentable {
+    width: u32,
+    height: u32,
+    ring: Vec<wgpu::Texture>,
+    next: usize,
+}
+
+/// How many presentable textures are kept: the one on screen, the one being
+/// drawn, and one so a late frame never waits on either.
+const PRESENT_RING: usize = 3;
+
 /// A compositor that draws on the GPU. See the module docs.
 pub struct WgpuCompositor {
     device: wgpu::Device,
@@ -120,6 +139,7 @@ pub struct WgpuCompositor {
     used: HashMap<(u32, u32), usize>,
     idle: HashMap<(u32, u32), u32>,
     target: Option<Target>,
+    presentable: Option<Presentable>,
     /// Set when a readback fails - a lost or reset device. The compositor
     /// then answers every composite from the CPU reference instead: slower,
     /// always correct, and never a panic in the middle of an export.
@@ -138,7 +158,12 @@ impl WgpuCompositor {
         .ok()?;
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        Some(Self::with_device(device, queue))
+    }
 
+    /// Builds a compositor on a device the caller owns - the window's, so a
+    /// texture this draws is one the window can show.
+    pub fn with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -201,7 +226,7 @@ impl WgpuCompositor {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[Some(vertex_layout)],
+                buffers: &[vertex_layout],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -236,7 +261,7 @@ impl WgpuCompositor {
             mapped_at_creation: false,
         });
 
-        Some(Self {
+        Self {
             device,
             queue,
             pipeline,
@@ -247,9 +272,173 @@ impl WgpuCompositor {
             pool: HashMap::new(),
             used: HashMap::new(),
             target: None,
+            presentable: None,
             idle: HashMap::new(),
             dead: false,
-        })
+        }
+    }
+
+    /// Whether the device has been lost. A dead compositor answers
+    /// [`Compositor::composite`] from the CPU and refuses textures.
+    pub fn is_dead(&self) -> bool {
+        self.dead
+    }
+
+    /// The next presentable texture for this output size.
+    fn presentable(&mut self, width: u32, height: u32) -> wgpu::Texture {
+        let stale = self
+            .presentable
+            .as_ref()
+            .is_none_or(|p| p.width != width || p.height != height);
+        if stale {
+            let ring = (0..PRESENT_RING)
+                .map(|_| {
+                    self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("concat monitor"),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    })
+                })
+                .collect();
+            self.presentable = Some(Presentable {
+                width,
+                height,
+                ring,
+                next: 0,
+            });
+        }
+        let presentable = self.presentable.as_mut().expect("just ensured");
+        let texture = presentable.ring[presentable.next].clone();
+        presentable.next = (presentable.next + 1) % PRESENT_RING;
+        texture
+    }
+
+    /// Uploads every visible layer and writes its quad; the draws, in order.
+    fn prepare(&mut self, width: u32, height: u32, layers: &[Layer<'_>]) -> Vec<(u32, u32, usize)> {
+        self.used.values_mut().for_each(|used| *used = 0);
+
+        let mut draws: Vec<(u32, u32, usize)> = Vec::with_capacity(layers.len());
+        let mut vertices: Vec<Vertex> = Vec::with_capacity(layers.len() * 6);
+        for layer in layers {
+            if layer.opacity <= 0.0 {
+                continue;
+            }
+            let index = self.upload(layer.frame);
+            draws.push((layer.frame.width(), layer.frame.height(), index));
+            vertices.extend_from_slice(&Self::quad(layer, width, height));
+        }
+
+        if vertices.len() > self.vertex_capacity {
+            self.vertex_capacity = vertices.len().next_power_of_two();
+            self.vertices = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("concat quads"),
+                size: (std::mem::size_of::<Vertex>() * self.vertex_capacity) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !vertices.is_empty() {
+            self.queue
+                .write_buffer(&self.vertices, 0, as_bytes(&vertices));
+        }
+        draws
+    }
+
+    /// The render pass: every draw over black into `view`. Returns the
+    /// encoder so the caller can add a readback before submitting.
+    fn encode(
+        &self,
+        view: &wgpu::TextureView,
+        draws: &[(u32, u32, usize)],
+    ) -> wgpu::CommandEncoder {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat composite"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("concat composite"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_vertex_buffer(0, self.vertices.slice(..));
+            for (draw, (layer_width, layer_height, pooled)) in draws.iter().enumerate() {
+                let bind_group = &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
+                pass.set_bind_group(0, bind_group, &[]);
+                let first = (draw * 6) as u32;
+                pass.draw(first..first + 6, 0..1);
+            }
+        }
+        encoder
+    }
+
+    /// Retires texture sizes the timeline has moved past. 300 unclaimed
+    /// composites (ten seconds of 30fps export) says a size is gone for
+    /// good, not just between two clips of it.
+    fn retire(&mut self) {
+        for (&key, used) in &self.used {
+            let idle = self.idle.entry(key).or_insert(0);
+            *idle = if *used == 0 { *idle + 1 } else { 0 };
+        }
+        let doomed: Vec<(u32, u32)> = self
+            .idle
+            .iter()
+            .filter(|(_, idle)| **idle > 300)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in doomed {
+            self.pool.remove(&key);
+            self.used.remove(&key);
+            self.idle.remove(&key);
+        }
+    }
+
+    /// Composites `layers` into a texture that stays on the GPU, and hands
+    /// it back: `Rgba8Unorm`, bindable and renderable, exactly `width` by
+    /// `height`. The texture is one of a small ring, so the caller may keep
+    /// showing the previous one while this draws. `None` when the device is
+    /// dead; the caller then falls back to [`Compositor::composite`] on a
+    /// CPU compositor.
+    pub fn composite_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        layers: &[Layer<'_>],
+    ) -> Option<wgpu::Texture> {
+        if self.dead {
+            return None;
+        }
+        let draws = self.prepare(width, height, layers);
+        let texture = self.presentable(width, height);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder = self.encode(&view, &draws);
+        self.queue.submit([encoder.finish()]);
+        self.retire();
+        Some(texture)
     }
 
     /// The reusable render target for this output size.
@@ -419,7 +608,7 @@ impl WgpuCompositor {
 
         let mut frame = Frame::transparent(width, height);
         {
-            let data = slice.get_mapped_range().ok()?;
+            let data = slice.get_mapped_range();
             let row_bytes = width as usize * 4;
             let pixels = frame.pixels_mut();
             for row in 0..height as usize {
@@ -445,72 +634,13 @@ impl Compositor for WgpuCompositor {
             return CpuCompositor.composite(width, height, layers);
         }
 
-        self.used.values_mut().for_each(|used| *used = 0);
-
-        // Upload every visible layer and build its quad.
-        let mut draws: Vec<(u32, u32, usize)> = Vec::with_capacity(layers.len());
-        let mut vertices: Vec<Vertex> = Vec::with_capacity(layers.len() * 6);
-        for layer in layers {
-            if layer.opacity <= 0.0 {
-                continue;
-            }
-            let index = self.upload(layer.frame);
-            draws.push((layer.frame.width(), layer.frame.height(), index));
-            vertices.extend_from_slice(&Self::quad(layer, width, height));
-        }
-
-        if vertices.len() > self.vertex_capacity {
-            self.vertex_capacity = vertices.len().next_power_of_two();
-            self.vertices = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("concat quads"),
-                size: (std::mem::size_of::<Vertex>() * self.vertex_capacity) as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        if !vertices.is_empty() {
-            self.queue
-                .write_buffer(&self.vertices, 0, as_bytes(&vertices));
-        }
-
+        let draws = self.prepare(width, height, layers);
         self.target(width, height);
         let target = self.target.as_ref().expect("just ensured");
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("concat composite"),
-            });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("concat composite"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (draw, (layer_width, layer_height, pooled)) in draws.iter().enumerate() {
-                let bind_group = &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
-                pass.set_bind_group(0, bind_group, &[]);
-                let first = (draw * 6) as u32;
-                pass.draw(first..first + 6, 0..1);
-            }
-        }
-
+        let mut encoder = self.encode(&view, &draws);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,
@@ -532,27 +662,8 @@ impl Compositor for WgpuCompositor {
                 depth_or_array_layers: 1,
             },
         );
-
         self.queue.submit([encoder.finish()]);
-
-        // Retire texture sizes the timeline has moved past. 300 unclaimed
-        // composites (ten seconds of 30fps export) says a size is gone for
-        // good, not just between two clips of it.
-        for (&key, used) in &self.used {
-            let idle = self.idle.entry(key).or_insert(0);
-            *idle = if *used == 0 { *idle + 1 } else { 0 };
-        }
-        let doomed: Vec<(u32, u32)> = self
-            .idle
-            .iter()
-            .filter(|(_, idle)| **idle > 300)
-            .map(|(key, _)| *key)
-            .collect();
-        for key in doomed {
-            self.pool.remove(&key);
-            self.used.remove(&key);
-            self.idle.remove(&key);
-        }
+        self.retire();
 
         match self.read_back() {
             Some(frame) => frame,
