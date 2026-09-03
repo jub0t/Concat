@@ -205,6 +205,17 @@ export component App inherits Window {
             activated => { root.app-menu-selected("save"); }
         }
 
+        // Space plays and pauses, the way it does in every editor. It lands
+        // here only when nothing else took it: a field being typed into
+        // consumes its own spaces before the key can walk up to this scope.
+        key-pressed(event) => {
+            if event.text == Key.Space && !root.on-start {
+                Editor.play-toggled();
+                return accept;
+            }
+            return reject;
+        }
+
         VerticalLayout {
             width: 100%;
             height: 100%;

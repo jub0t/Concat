@@ -64,6 +64,22 @@ export struct TrackData {
     locked: bool,
 }
 
+/// A media item's filmstrip and the window of it one clip shows.
+///
+/// The strip is one picture holding `frames` frames side by side, each
+/// `frame-width` wide and `height` tall in the picture's own pixels. `start`
+/// and `span` are fractions of the footage: where the clip's cut begins and
+/// how much it covers, so the lane can pick the frame under any tile with
+/// one multiplication and never needs to know about speed or source time.
+export struct StripData {
+    image: image,
+    frames: int,
+    frame-width: int,
+    height: int,
+    start: float,
+    span: float,
+}
+
 /// One placed clip, already reduced to what drawing it needs.
 ///
 /// Positions are in *seconds*, not pixels. Zoom and pan are then a property
@@ -97,7 +113,11 @@ export struct ClipData {
     /// that draws it is `fit: fill`, which stretches the box onto whatever
     /// width the clip currently has. Built once in Rust, where the peaks are.
     wave: string,
+    /// The frames a picture clip tiles along its body; `frames` is 0 when
+    /// there are none yet.
+    strip: StripData,
 }
+
 
 /// What a drag from the library will leave on the timeline if it is released
 /// where the pointer is now.

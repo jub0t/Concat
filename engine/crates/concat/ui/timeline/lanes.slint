@@ -148,14 +148,48 @@ component Clip inherits Rectangle {
             overflow: elide;
         }
 
-        // The filmstrip slot: the clip's frames tile here once the window
-        // supplies them. Until then a picture clip shows its kind's mark the
+        // The filmstrip. Tiles are the strip's frames at the body's height,
+        // and each tile shows the frame under its own midpoint: the clip
+        // covers `span` of the footage from `start`, so a tile a fraction f
+        // along the clip wants the frame at start + span * f. Every tile is
+        // one Image with a source clip, so a zoom changes how many tiles
+        // there are and which frame each picks, never the picture itself.
+        if root.item.strip.frames > 0 && root.width > 8px: Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            clip: true;
+
+            property <length> tile-w: Math.max(4px,
+                parent.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
+            property <int> tiles: Math.min(400, Math.ceil(parent.width / self.tile-w));
+
+            for i in self.tiles: Image {
+                x: i * parent.tile-w;
+                y: 0;
+                width: parent.tile-w;
+                height: parent.height;
+                source: root.item.strip.image;
+                image-fit: fill;
+                source-clip-x: Math.clamp(
+                    Math.floor(root.item.strip.frames * (root.item.strip.start
+                        + root.item.strip.span * ((i + 0.5) * parent.tile-w / parent.width))),
+                    0, root.item.strip.frames - 1) * root.item.strip.frame-width;
+                source-clip-y: 0;
+                source-clip-width: root.item.strip.frame-width;
+                source-clip-height: root.item.strip.height;
+            }
+        }
+
+        // Before the frames arrive, a picture clip shows its kind's mark the
         // way a bin card does — faint and large, so it reads as a placeholder
         // and not as a badge. A filter layer takes the same treatment for the
         // opposite reason: there is no picture to draw, and there never will
         // be one.
-        if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image
-            || root.item.kind == ClipKind.filter) && root.width > 40px: Icon {
+        if (((root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
+            && root.item.strip.frames == 0) || root.item.kind == ClipKind.filter)
+            && root.width > 40px: Icon {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             glyph: root.badge;
@@ -312,10 +346,14 @@ component Clip inherits Rectangle {
         pointer-event(event) => {
             // The right button opens the menu and does nothing else — it must
             // not also start a move, or the menu would appear over a clip that
-            // had already jumped.
-            if (event.kind == PointerEventKind.down
-                && event.button == PointerEventButton.right) {
-                root.context-requested();
+            // had already jumped. On the release, not the press: a press
+            // holds the pointer for this area until the button comes up, and
+            // a menu that opens under a held button is a menu whose first
+            // click goes to the wrong element.
+            if (event.button == PointerEventButton.right) {
+                if (event.kind == PointerEventKind.up) {
+                    root.context-requested();
+                }
                 return;
             }
             if (event.kind == PointerEventKind.down

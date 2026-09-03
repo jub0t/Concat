@@ -202,8 +202,10 @@ export component ContextMenu inherits Rectangle {
                             enabled: item.enabled;
                             mouse-cursor: pointer;
                             clicked => {
-                                surface.close();
+                                // Report first, then close: the row's data is
+                                // certain while the row still exists.
                                 root.selected(item.id);
+                                surface.close();
                             }
                         }
                     }

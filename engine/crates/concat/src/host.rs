@@ -173,7 +173,18 @@ pub struct MediaArt {
     pub thumbnail: Option<concat_core::frame::Frame>,
     /// The waveform, for anything with sound.
     pub peaks: Option<Arc<concat_media::Peaks>>,
+    /// Frames sampled evenly across the footage, side by side in one
+    /// picture, and how many there are. A still is a strip of one.
+    pub strip: Option<(concat_core::frame::Frame, u32)>,
 }
+
+/// Frames in a filmstrip, and the strip's height in logical pixels.
+///
+/// Twenty-four across a file is enough that a clip a few seconds long
+/// shows different pictures along its length; the height is the tallest
+/// lane's body, so the lanes never upscale it.
+const STRIP_FRAMES: u32 = 24;
+const STRIP_HEIGHT: u32 = 64;
 
 /// Decodes the art for one media item. `project` is where the peaks cache
 /// lives.
@@ -196,9 +207,17 @@ pub fn media_art(
     let peaks = (kind == MediaKind::Audio || has_audio)
         .then(|| media::peaks(&path, Some(&project)).ok().map(Arc::new))
         .flatten();
+    let strip = match kind {
+        MediaKind::Video => media::filmstrip(&path, STRIP_FRAMES, STRIP_HEIGHT)
+            .ok()
+            .map(|frame| (frame, STRIP_FRAMES)),
+        MediaKind::Image => thumbnail.clone().map(|frame| (frame, 1)),
+        MediaKind::Audio => None,
+    };
     MediaArt {
         id,
         thumbnail,
         peaks,
+        strip,
     }
 }

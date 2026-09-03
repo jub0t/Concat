@@ -660,7 +660,10 @@ fn main() -> Result<(), slint::PlatformError> {
         state.menu_target = Some(id.to_string());
     }));
     editor.on_menu_selected(on_window!(|state, action: SharedString| {
-        let Some(id) = state.menu_target.clone() else {
+        // The clip the menu was opened on; failing that, the one clip that
+        // is selected, which is what the menu was showing anyway.
+        let target = state.menu_target.clone().or_else(|| state.sole_selection());
+        let Some(id) = target else {
             return;
         };
         let Some(clip) = state.clip(&id).cloned() else {

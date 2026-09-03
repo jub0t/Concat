@@ -70,6 +70,18 @@ const LANE_SMALL: f32 = 40.0;
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
 
+/// One media item's filmstrip, as the lanes tile it.
+pub struct Strip {
+    /// Every sampled frame side by side.
+    pub image: slint::Image,
+    /// How many frames the picture holds.
+    pub frames: i32,
+    /// One frame's width in the picture's pixels.
+    pub frame_width: i32,
+    /// The picture's height in its own pixels.
+    pub height: i32,
+}
+
 /// Steps per second the drawn waveform is quantised to. See `Studio::wave`:
 /// it is what keeps a trim from synthesising a new envelope on every pointer
 /// event, and the grid is fine enough that no step of it is visible.
@@ -362,6 +374,9 @@ pub struct Studio {
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Peaks>>,
     pub thumbs: HashMap<String, slint::Image>,
+    /// Filmstrips by media id: the picture, how many frames are in it, one
+    /// frame's width and the strip's height, in the picture's own pixels.
+    pub strips: HashMap<String, Strip>,
     art_pending: HashSet<String>,
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
@@ -487,6 +502,7 @@ impl Studio {
             media_filter: MediaFilter::All,
             peaks: HashMap::new(),
             thumbs: HashMap::new(),
+            strips: HashMap::new(),
             art_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
             lane_view: HashMap::new(),
@@ -1088,8 +1104,8 @@ impl Studio {
             .filter(|item| !item.placeholder && !item.path.is_empty())
             .filter(|item| !self.art_pending.contains(&item.id))
             .filter(|item| {
-                let needs_thumb =
-                    item.kind != model::MediaKind::Audio && !self.thumbs.contains_key(&item.id);
+                let needs_thumb = item.kind != model::MediaKind::Audio
+                    && (!self.thumbs.contains_key(&item.id) || !self.strips.contains_key(&item.id));
                 let needs_peaks = (item.kind == model::MediaKind::Audio || item.has_audio)
                     && !self.peaks.contains_key(&item.id);
                 needs_thumb || needs_peaks
@@ -1114,6 +1130,15 @@ impl Studio {
                     if let Some(frame) = art.thumbnail {
                         studio.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
+                    if let Some((frame, frames)) = art.strip {
+                        let strip = Strip {
+                            image: image_of(&frame),
+                            frames: frames as i32,
+                            frame_width: (frame.width() / frames.max(1)) as i32,
+                            height: frame.height() as i32,
+                        };
+                        studio.strips.insert(art.id.clone(), strip);
+                    }
                     if let Some(peaks) = art.peaks {
                         studio.peaks.insert(art.id.clone(), peaks);
                         let prefix = format!("{}|", art.id);
@@ -1124,6 +1149,42 @@ impl Studio {
                     }
                 },
             );
+        }
+    }
+
+    /// The clip's filmstrip, with the window of the strip its cut covers:
+    /// where in the footage it starts and how much of the footage it spans,
+    /// both as fractions, so the lane can pick the frame under each tile
+    /// without knowing about speed or source time.
+    fn strip_of(&self, clip: &Clip) -> StripData {
+        if !matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Image) {
+            return StripData::default();
+        }
+        let Some(strip) = self.strips.get(&clip.media_id) else {
+            return StripData::default();
+        };
+        let footage = self
+            .project()
+            .media
+            .iter()
+            .find(|item| item.id == clip.media_id)
+            .and_then(|item| item.duration)
+            .filter(|seconds| *seconds > 0.0);
+        let (start, span) = match footage {
+            Some(seconds) => (
+                (clip.source_start / seconds).clamp(0.0, 1.0),
+                (clip.duration * clip.speed / seconds).clamp(0.0, 1.0),
+            ),
+            // A still, or footage of unknown length: one frame, all of it.
+            None => (0.0, 1.0),
+        };
+        StripData {
+            image: strip.image.clone(),
+            frames: strip.frames,
+            frame_width: strip.frame_width,
+            height: strip.height,
+            start: start as f32,
+            span: span as f32,
         }
     }
 
@@ -1264,7 +1325,7 @@ impl Studio {
     }
 
     /// The selected clip's id, when exactly one is selected.
-    fn sole_selection(&self) -> Option<String> {
+    pub fn sole_selection(&self) -> Option<String> {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
 
@@ -2562,6 +2623,7 @@ impl Studio {
                     } else {
                         SharedString::new()
                     },
+                    strip: self.strip_of(clip),
                 })
                 .collect(),
         );
