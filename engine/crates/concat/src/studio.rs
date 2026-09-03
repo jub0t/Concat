@@ -556,6 +556,7 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Audio => ClipKind::Audio,
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
+        model::ClipKind::Layer => ClipKind::Filter,
     }
 }
 
@@ -916,6 +917,7 @@ impl Studio {
                     .map(|clip| match clip.kind {
                         model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
                         model::ClipKind::Audio | model::ClipKind::Text => LANE_MEDIUM,
+                        model::ClipKind::Layer => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -1559,6 +1561,16 @@ impl Studio {
                 duration: LAYER_DURATION,
                 row: 0,
             }),
+            // A look dragged from the Filters page: a layer over a span.
+            // The package id rides in `media`, there being no file.
+            "filter" => Some(DropPlan {
+                kind: ClipKind::Filter,
+                label: label.to_owned(),
+                media: id.to_owned(),
+                start: 0.0,
+                duration: LAYER_DURATION,
+                row: 0,
+            }),
             _ => None,
         }
     }
@@ -1596,6 +1608,14 @@ impl Studio {
                 duration: Some(f64::from(plan.duration)),
                 offset_y: None,
             })
+        } else if plan.kind == ClipKind::Filter {
+            self.apply(Command::AddLayerClip {
+                track_id: Some(track_id),
+                start: f64::from(plan.start),
+                duration: Some(f64::from(plan.duration)),
+                effect_id: plan.media.clone(),
+                name: plan.label.clone(),
+            })
         } else {
             self.apply(Command::AddClip {
                 media_id: plan.media.clone(),
@@ -1622,6 +1642,14 @@ impl Studio {
                 style: Some(new_title_style()),
                 duration: Some(f64::from(plan.duration)),
                 offset_y: None,
+            })
+        } else if plan.kind == ClipKind::Filter {
+            self.apply(Command::AddLayerClip {
+                track_id: None,
+                start,
+                duration: Some(f64::from(plan.duration)),
+                effect_id: plan.media.clone(),
+                name: plan.label.clone(),
             })
         } else {
             self.apply(Command::AddClipAtFirstFree {
@@ -2346,7 +2374,7 @@ impl Studio {
             .clips
             .iter()
             .filter(|clip| {
-                clip.kind != model::ClipKind::Audio
+                (clip.kind.is_visual() || clip.kind == model::ClipKind::Text)
                     && showing.contains(clip.track_id.as_str())
                     && clip.start <= playhead
                     && playhead < clip.start + clip.duration
@@ -3516,7 +3544,7 @@ impl Studio {
             .clips
             .iter()
             .filter(|clip| {
-                clip.kind != model::ClipKind::Audio
+                (clip.kind.is_visual() || clip.kind == model::ClipKind::Text)
                     && clip.start <= playhead
                     && playhead < clip.start + clip.duration
             })

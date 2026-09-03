@@ -22,6 +22,7 @@ pub mod peaks;
 pub mod pool;
 pub mod probe;
 pub mod samples;
+pub mod treat;
 
 pub use decode::{DecodeOptions, Decoder, FrameSource, SeekableSource};
 pub use encode::{EncodeOptions, Encoder, FrameSink, jpeg};
@@ -31,3 +32,4 @@ pub use peaks::Peaks;
 pub use pool::{FrameCache, ReaderPool};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
 pub use samples::{AudioDecoder, AudioOptions, SampleFormat};
+pub use treat::treat;

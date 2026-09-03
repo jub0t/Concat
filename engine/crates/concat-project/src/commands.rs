@@ -22,6 +22,8 @@ const UNKNOWN_DURATION: f64 = 5.0;
 const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 /// How long a title lasts when first placed.
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
+/// How long a layer covers when first placed. Editorial default, not a fact.
+const DEFAULT_LAYER_DURATION: f64 = 5.0;
 const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
 /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
 const MIN_SPEED: f64 = 0.0625;
@@ -246,6 +248,23 @@ pub enum Command {
         /// SetClipTransform. Lower thirds are made of this.
         #[serde(default)]
         offset_y: Option<f64>,
+    },
+    /// Places a layer: a look or an effect over a span of the timeline that
+    /// treats everything beneath it. No media; the chain starts as the one
+    /// package named, at its defaults, and the clip's opacity is how hard it
+    /// is applied.
+    AddLayerClip {
+        /// The lane to place it on; None picks the first free track.
+        track_id: Option<String>,
+        /// Timeline position in seconds, floored at 0.
+        start: f64,
+        /// Seconds on the timeline; the editorial default when absent.
+        #[serde(default)]
+        duration: Option<f64>,
+        /// The package the layer applies, e.g. "concat.warm".
+        effect_id: String,
+        /// What the lane calls it.
+        name: String,
     },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
@@ -878,6 +897,65 @@ pub fn apply(
                 detached_from: None,
                 transition_in: None,
                 text: Some(style),
+            });
+            Ok(Outcome {
+                created_id: Some(id),
+                applied: true,
+            })
+        }
+
+        Command::AddLayerClip {
+            track_id,
+            start,
+            duration,
+            effect_id,
+            name,
+        } => {
+            let duration = duration
+                .unwrap_or(DEFAULT_LAYER_DURATION)
+                .max(MIN_CLIP_DURATION);
+            let timeline = project.active_mut();
+            let track_id = match track_id {
+                Some(id) if timeline.track(&id).is_some() => id,
+                Some(_) => return Err(CommandError::TrackGone),
+                None => {
+                    first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
+                }
+            };
+            let id = mint.next("c");
+            timeline.clips.push(Clip {
+                id: id.clone(),
+                track_id,
+                media_id: String::new(),
+                name: if name.trim().is_empty() {
+                    effect_id.clone()
+                } else {
+                    name
+                },
+                kind: ClipKind::Layer,
+                start: start.max(0.0),
+                duration,
+                source_start: 0.0,
+                volume: 1.0,
+                fade_in: 0.0,
+                fade_out: 0.0,
+                scale: 1.0,
+                offset_x: 0.0,
+                offset_y: 0.0,
+                rotation: 0.0,
+                opacity: 1.0,
+                speed: 1.0,
+                preserve_pitch: true,
+                filters: Vec::new(),
+                video_effects: vec![AppliedFilter {
+                    id: effect_id,
+                    params: Default::default(),
+                    enabled: true,
+                }],
+                muted: None,
+                detached_from: None,
+                transition_in: None,
+                text: None,
             });
             Ok(Outcome {
                 created_id: Some(id),

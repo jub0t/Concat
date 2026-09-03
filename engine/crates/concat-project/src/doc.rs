@@ -173,8 +173,10 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 return None;
             }
 
-            let is_text = entry.get("kind").and_then(Value::as_str) == Some("text");
-            let media_id = if is_text {
+            let kind_name = entry.get("kind").and_then(Value::as_str);
+            let is_text = kind_name == Some("text");
+            let is_layer = kind_name == Some("layer");
+            let media_id = if is_text || is_layer {
                 String::new()
             } else {
                 let media_id = entry.get("mediaId")?.as_str()?.to_owned();
@@ -188,8 +190,10 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
 
             let kind = if is_text {
                 ClipKind::Text
+            } else if is_layer {
+                ClipKind::Layer
             } else {
-                match entry.get("kind").and_then(Value::as_str) {
+                match kind_name {
                     Some("audio") => ClipKind::Audio,
                     Some("image") => ClipKind::Image,
                     _ => ClipKind::Video,

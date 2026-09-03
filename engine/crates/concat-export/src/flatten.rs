@@ -34,12 +34,45 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
             if clip.kind == ModelClipKind::Text {
                 return None;
             }
-            let media = project.media.iter().find(|item| item.id == clip.media_id)?;
             let index = timeline
                 .tracks
                 .iter()
                 .position(|track| track.id == clip.track_id)?;
             let track = &timeline.tracks[index];
+
+            // A layer: no file, a chain over the stack beneath its track,
+            // its opacity the strength and its fades the ramps.
+            if clip.kind == ModelClipKind::Layer {
+                return Some(ExportClip {
+                    path: String::new(),
+                    kind: ClipKind::Layer,
+                    start: clip.start,
+                    duration: clip.duration,
+                    source_start: 0.0,
+                    track: index,
+                    hidden: !track.visible,
+                    muted: true,
+                    volume: 0.0,
+                    fade_in: clip.fade_in,
+                    fade_out: clip.fade_out,
+                    filter_chain: String::new(),
+                    speed: 1.0,
+                    preserve_pitch: true,
+                    scale: 1.0,
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    rotation: 0.0,
+                    opacity: clip.opacity,
+                    video_filter_chain: video_effect_chain(&clip.video_effects),
+                    transition: None,
+                    video_fade_in: 0.0,
+                    media_width: None,
+                    media_height: None,
+                    has_audio: Some(false),
+                });
+            }
+
+            let media = project.media.iter().find(|item| item.id == clip.media_id)?;
 
             Some(ExportClip {
                 path: media.path.clone(),
@@ -47,9 +80,9 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     ModelClipKind::Video => ClipKind::Video,
                     ModelClipKind::Audio => ClipKind::Audio,
                     ModelClipKind::Image => ClipKind::Image,
-                    // Filtered above; unreachable spelled as a skip so a new
+                    // Handled above; unreachable spelled as a skip so a new
                     // kind fails soft.
-                    ModelClipKind::Text => return None,
+                    ModelClipKind::Text | ModelClipKind::Layer => return None,
                 },
                 start: clip.start,
                 duration: clip.duration,

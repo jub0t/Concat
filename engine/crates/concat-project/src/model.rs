@@ -41,6 +41,11 @@ pub enum ClipKind {
     Image,
     /// A title. No media behind it; the content lives in [`Clip::text`].
     Text,
+    /// A treatment over everything beneath it for as long as it runs - a
+    /// look or an effect placed as a layer. No media behind it; the chain
+    /// lives in [`Clip::video_effects`], its strength in [`Clip::opacity`]
+    /// and its ramps in the fades.
+    Layer,
 }
 
 impl ClipKind {
