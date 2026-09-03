@@ -701,6 +701,12 @@ component CatalogueCard inherits Rectangle {
 
     callback applied();
 
+    /// An entry with no artwork is a compact card: the name sits inside the
+    /// tile, there is no mark and no caption, and the tile is half as tall.
+    /// Transitions and audio effects have nothing to show but their name,
+    /// and a name in a box says it in a third of the room.
+    in property <bool> compact;
+
     opacity: drag.dragging ? 0.45 : 1.0;
 
     drag := DragArea {
@@ -720,9 +726,10 @@ component CatalogueCard inherits Rectangle {
 
             tile := Rectangle {
                 y: 0;
-                height: root.width * 9 / 16;
+                height: root.compact ? root.height : root.width * 9 / 16;
                 border-radius: Theme.r;
-                background: Theme.well;
+                background: root.compact && card.has-hover && root.item.enabled
+                    ? Theme.field : Theme.well;
                 border-width: 1px;
                 border-color: (card.has-hover && root.item.enabled)
                     ? Theme.line-strong : Theme.line;
@@ -737,7 +744,22 @@ component CatalogueCard inherits Rectangle {
                     image-fit: cover;
                 }
 
-                if root.item.art.width == 0: Icon {
+                if root.compact: Text {
+                    x: 6px;
+                    y: 0;
+                    width: parent.width - 12px;
+                    height: parent.height;
+                    text: root.item.label;
+                    color: root.item.enabled ? Theme.fg : Theme.fg-dim;
+                    font-size: Theme.fs-sm;
+                    font-weight: Theme.weight-title;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
+
+                if !root.compact && root.item.art.width == 0: Icon {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     glyph: root.item.glyph;
@@ -780,7 +802,7 @@ component CatalogueCard inherits Rectangle {
                 }
             }
 
-            Text {
+            if !root.compact: Text {
                 x: 0;
                 y: tile.height + 4px;
                 width: root.width;
@@ -810,11 +832,15 @@ component CatalogueGrid inherits Rectangle {
 
     property <length> gap: 8px;
     property <length> min-card: 88px;
+    /// A page of artless entries is a page of compact cards; see
+    /// CatalogueCard. Decided once for the grid, so the rows line up.
+    property <bool> compact: root.items.length > 0 && root.items[0].art.width == 0;
 
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px;
+    property <length> card-h: root.compact ? root.card-w / 2
+        : root.card-w * 9 / 16 + 4px + 14px;
     property <int> rows: Math.ceil(root.items.length / root.cols);
 
     height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
@@ -825,6 +851,7 @@ component CatalogueGrid inherits Rectangle {
         width: root.card-w;
         height: root.card-h;
         item: entry;
+        compact: root.compact;
         payload: root.payload-kind == "" || !entry.enabled ? ""
             : "\{root.payload-kind}:\{entry.id}:\{entry.label}";
 
