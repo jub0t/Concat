@@ -27,6 +27,40 @@ struct Chain {
     template: Template,
 }
 
+/// The key every filter answers to without declaring it: how much of the
+/// look is applied, as a percent. Absent means all of it.
+pub const INTENSITY: &str = "intensity";
+
+/// A filter's fragment, mixed back with the untouched picture by its
+/// intensity. At a hundred the fragment is returned as it was; below it the
+/// picture is split, the look runs on one copy, and the two are blended by
+/// the fraction - which is what one intensity slider means on every look
+/// there is, and why no package has to implement it. The labels carry the
+/// fragment's index so two mixed links in one chain never share a name.
+fn mixed(
+    package: &Package,
+    params: &BTreeMap<String, f64>,
+    fragment: String,
+    index: usize,
+) -> String {
+    if package.kind() != Kind::Filter {
+        return fragment;
+    }
+    let mix = params
+        .get(INTENSITY)
+        .copied()
+        .unwrap_or(100.0)
+        .clamp(0.0, 100.0)
+        / 100.0;
+    if mix >= 1.0 {
+        return fragment;
+    }
+    format!(
+        "split[m{index}a][m{index}b];[m{index}b]{fragment}[m{index}c];\
+         [m{index}a][m{index}c]blend=all_mode=normal:all_opacity={mix:.3}"
+    )
+}
+
 /// One effect, ready to use.
 #[derive(Clone, Debug)]
 pub struct Package {
@@ -437,7 +471,10 @@ impl Catalogue {
                 continue;
             }
             match package.ffmpeg_fragment(&applied.params, fragments.len()) {
-                Ok(Some(fragment)) => fragments.push(fragment),
+                Ok(Some(fragment)) => {
+                    let index = fragments.len();
+                    fragments.push(mixed(package, &applied.params, fragment, index));
+                }
                 Ok(None) => {}
                 // Every template was rendered at load; a failure here is a
                 // package whose expression only breaks for some value. Drop

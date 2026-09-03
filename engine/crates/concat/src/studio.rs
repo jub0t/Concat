@@ -703,6 +703,25 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
         if package.id() == ADJUST_ID {
             continue;
         }
+        // Every filter has an intensity whether or not it says so: the one
+        // slider a look is expected to have. First, above the look's own.
+        if package.kind() == PackageKind::Filter {
+            knobs.push(AppliedParamData {
+                entry: index as i32,
+                key: concat_effects::catalogue::INTENSITY.into(),
+                label: "Intensity".into(),
+                min: 0.0,
+                max: 100.0,
+                step: 1.0,
+                default_value: 100.0,
+                value: entry
+                    .params
+                    .get(concat_effects::catalogue::INTENSITY)
+                    .copied()
+                    .unwrap_or(100.0) as f32,
+                fmt: ParamFormat::Percent,
+            });
+        }
         for param in &package.manifest.params {
             let step = if param.step > 0.0 {
                 param.step
