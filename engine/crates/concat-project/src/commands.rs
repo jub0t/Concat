@@ -26,6 +26,8 @@ const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
 const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
+/// Default hold for a CapCut-style freeze when the caller omits duration.
+const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
 const MIN_SPEED: f64 = 0.0625;
 const MAX_SPEED: f64 = 16.0;
@@ -385,6 +387,25 @@ pub enum Command {
         clip_ids: Vec<String>,
         /// The cut point, in timeline seconds.
         time: f64,
+    },
+    /// CapCut-style freeze at `time`: splits `clip_id`, inserts a still of
+    /// `duration` on the same track, and ripples later clips on that track
+    /// by `duration`. Video needs a probed `still` (host-extracted jpg);
+    /// image clips may omit it and reuse their media. Audio and text are
+    /// no-ops. `created_id` is the freeze clip.
+    FreezeFrame {
+        /// The picture clip under the playhead.
+        clip_id: String,
+        /// Timeline playhead; must fall strictly inside the clip.
+        time: f64,
+        /// Editorial length of the hold. Floored at [`MIN_CLIP_DURATION`];
+        /// when absent or non-positive, uses [`DEFAULT_FREEZE_DURATION`].
+        #[serde(default)]
+        duration: Option<f64>,
+        /// Probed still file. Required for video; ignored for image when
+        /// reusing the existing media.
+        #[serde(default)]
+        still: Option<NewMedia>,
     },
     /// Rejoins split pieces into the earliest piece, which keeps its id.
     /// Errs with a user-facing sentence ([`why_not_merge`]) unless the
@@ -1208,6 +1229,125 @@ pub fn apply(
             Ok(Outcome {
                 created_id: created,
                 applied,
+            })
+        }
+
+        Command::FreezeFrame {
+            clip_id,
+            time,
+            duration,
+            still,
+        } => {
+            let hold = duration
+                .filter(|value| *value > 0.0)
+                .unwrap_or(DEFAULT_FREEZE_DURATION)
+                .max(MIN_CLIP_DURATION);
+
+            let (kind, media_id, track_id, start, clip_duration, speed, source_start, picture) = {
+                let timeline = project.active();
+                let Some(clip) = timeline.clip(&clip_id) else {
+                    return Ok(Outcome::default());
+                };
+                if clip.kind != ClipKind::Video && clip.kind != ClipKind::Image {
+                    return Ok(Outcome::default());
+                }
+                let offset = time - clip.start;
+                if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
+                    return Ok(Outcome::default());
+                }
+                (
+                    clip.kind,
+                    clip.media_id.clone(),
+                    clip.track_id.clone(),
+                    clip.start,
+                    clip.duration,
+                    clip.speed,
+                    clip.source_start,
+                    clip.clone(),
+                )
+            };
+
+            let freeze_media_id = if kind == ClipKind::Image && still.is_none() {
+                media_id
+            } else {
+                let Some(item) = still else {
+                    return Ok(Outcome::default());
+                };
+                if let Some(existing) = project.media.iter().find(|media| media.path == item.path)
+                {
+                    existing.id.clone()
+                } else {
+                    let id = mint.next("m");
+                    project.media.push(MediaItem {
+                        id: id.clone(),
+                        path: item.path,
+                        name: item.name,
+                        duration: item.duration,
+                        kind: MediaKind::Image,
+                        width: item.width,
+                        height: item.height,
+                        frame_rate: item.frame_rate,
+                        frame_rate_fraction: item.frame_rate_fraction,
+                        video_codec: item.video_codec,
+                        audio_codec: None,
+                        has_audio: false,
+                        placeholder: false,
+                    });
+                    id
+                }
+            };
+
+            let timeline = project.active_mut();
+            let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let offset = time - start;
+            let mut tail = timeline.clips[index].clone();
+            tail.id = mint.next("c");
+            tail.start = time;
+            tail.duration = clip_duration - offset;
+            tail.source_start = source_start + offset * speed;
+            tail.transition_in = None;
+            timeline.clips[index].duration = offset;
+            timeline.clips.insert(index + 1, tail);
+
+            // Ripple every later placement on this track (including the new
+            // tail) so the freeze does not sit on top of the remainder.
+            for clip in &mut timeline.clips {
+                if clip.track_id == track_id && clip.start >= time {
+                    clip.start += hold;
+                }
+            }
+
+            // The still is the source clip turned into a picture: cloning it
+            // first carries every look field - transform, effects, crop,
+            // flips, whatever the model grows - and then the hold's own
+            // facts overwrite the moving ones.
+            let freeze_id = mint.next("c");
+            let mut frozen = picture;
+            frozen.id = freeze_id.clone();
+            frozen.track_id = track_id;
+            frozen.kind = ClipKind::Image;
+            frozen.media_id = freeze_media_id;
+            frozen.start = time;
+            frozen.duration = hold;
+            frozen.source_start = 0.0;
+            frozen.speed = 1.0;
+            frozen.speed_curve = None;
+            frozen.reverse = false;
+            frozen.volume = 1.0;
+            frozen.fade_in = 0.0;
+            frozen.fade_out = 0.0;
+            frozen.filters = Vec::new();
+            frozen.muted = None;
+            frozen.detached_from = None;
+            frozen.transition_in = None;
+            frozen.text = None;
+            timeline.clips.push(frozen);
+
+            Ok(Outcome {
+                created_id: Some(freeze_id),
+                applied: true,
             })
         }
 

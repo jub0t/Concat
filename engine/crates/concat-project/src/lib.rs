@@ -37,7 +37,7 @@ pub use model::Project;
 mod tests {
     use serde_json::json;
 
-    use crate::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
+    use crate::commands::{ClipMove, ClipPatch, Command, NewMedia, TrackFlag, TrimEdge};
     use crate::doc::DocumentSettings;
     use crate::editor::Editor;
     use crate::model::{ClipKind, MediaKind, TextStyle};
@@ -104,6 +104,55 @@ mod tests {
         editor.apply(media("/a.mp4", 10.0, true)).expect("adds");
         editor.apply(media("/a.mp4", 10.0, true)).expect("no-op");
         assert_eq!(editor.project().media.len(), 1);
+    }
+
+    #[test]
+    fn freeze_frame_holds_a_second_and_ripples_the_tail() {
+        let (mut editor, media_id, clip_id) = fixture();
+        let still = NewMedia {
+            path: "/freeze.jpg".into(),
+            name: "freeze.jpg".into(),
+            duration: None,
+            kind: MediaKind::Image,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: None,
+            frame_rate_fraction: None,
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+        };
+        let freeze_id = editor
+            .apply(Command::FreezeFrame {
+                clip_id: clip_id.clone(),
+                time: 4.0,
+                duration: Some(1.0),
+                still: Some(still),
+            })
+            .expect("freezes")
+            .created_id
+            .expect("freeze id");
+
+        let clips = &editor.project().active().clips;
+        assert_eq!(clips.len(), 3, "head + freeze + tail");
+        let freeze = clips.iter().find(|clip| clip.id == freeze_id).expect("freeze");
+        assert_eq!(freeze.kind, ClipKind::Image);
+        assert_eq!(freeze.start, 4.0);
+        assert_eq!(freeze.duration, 1.0);
+        let tail = clips
+            .iter()
+            .find(|clip| clip.id != clip_id && clip.id != freeze_id)
+            .expect("tail");
+        assert_eq!(tail.start, 5.0, "tail ripples by the hold");
+        assert_eq!(tail.source_start, 4.0);
+        assert!(
+            editor
+                .project()
+                .media
+                .iter()
+                .any(|item| item.id != media_id && item.path == "/freeze.jpg"),
+            "still is imported"
+        );
     }
 
     #[test]
