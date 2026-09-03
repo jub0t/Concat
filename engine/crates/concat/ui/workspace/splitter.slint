@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// The drag handles between panes.
+//
+// Nothing is drawn until the pointer is on one. The panes either side already
+// have their own edges; a third line permanently between them is just noise.
+// What appears is the full length of the gutter, not a short grip in the
+// middle of it — a nub says "grab me here", and the whole edge is draggable.
+// Lime, like the active tools and the selection: grabbing a divider is an
+// action, and actions read lime everywhere else in the app.
+//
+// Both report a delta in pixels from where the pointer went down and leave the
+// arithmetic to the workspace, because a handle cannot know what its
+// neighbours are allowed to give up.
+//
+// The delta is measured in window coordinates — `absolute-position + mouse-x`
+// — not as `mouse-x - pressed-x`. A handle moves as it is dragged, and a
+// local delta is measured against the handle's own moving origin, so it
+// cancels itself out and the drag stalls. The absolute position moves with the
+// handle too, but adding the local pointer offset back cancels that exactly.
+
+export component ColSplitter inherits Rectangle {
+    callback pressed();
+    callback moved(delta: length);
+
+    property <length> origin;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        // Held off the ends so the line stops short of the pane corners it
+        // runs between, which are rounded away there anyway.
+        y: 8px;
+        width: 2px;
+        height: Math.max(0px, parent.height - 16px);
+        border-radius: 1px;
+        background: Theme.accent;
+        opacity: (touch.has-hover || touch.pressed) ? 1.0 : 0.0;
+
+        animate opacity { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    // A little wider than the gutter it sits in. The reference makes its hit
+    // area exactly the gutter; two more pixels a side costs the panes nothing
+    // they use and turns an 8px target into a 12px one.
+    touch := TouchArea {
+        x: -2px;
+        width: root.width + 4px;
+        mouse-cursor: ew-resize;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.origin = self.absolute-position.x + self.mouse-x;
+                root.pressed();
+            }
+        }
+        moved => {
+            root.moved(self.absolute-position.x + self.mouse-x - root.origin);
+        }
+    }
+}
+
+export component RowSplitter inherits Rectangle {
+    callback pressed();
+    callback moved(delta: length);
+
+    property <length> origin;
+
+    Rectangle {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: Math.max(0px, parent.width - 16px);
+        height: 2px;
+        border-radius: 1px;
+        background: Theme.accent;
+        opacity: (touch.has-hover || touch.pressed) ? 1.0 : 0.0;
+
+        animate opacity { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    touch := TouchArea {
+        y: -2px;
+        height: root.height + 4px;
+        mouse-cursor: ns-resize;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.origin = self.absolute-position.y + self.mouse-y;
+                root.pressed();
+            }
+        }
+        moved => {
+            root.moved(self.absolute-position.y + self.mouse-y - root.origin);
+        }
+    }
+}
+
+// A divider *inside* a pane, as opposed to the two above, which are the gutters
+// between panes.
+//
+// The difference is that this one is always drawn: the gutter splitters can
+// stay invisible until grabbed because the panes either side have their own
+// edges, but a hairline dividing one pane's interior is the only thing saying
+// the two halves are separate. So it is a permanent 1px rule that turns lime
+// when you are on it — the same lime, for the same reason, as the gutters.
+//
+// Like them, it reports a delta in window coordinates and leaves the
+// arithmetic to whoever owns the two sides.
+export component HairlineSplitter inherits Rectangle {
+    callback pressed();
+    callback moved(delta: length);
+
+    property <length> origin;
+
+    width: 1px;
+    background: (touch.has-hover || touch.pressed) ? Theme.accent : Theme.line;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // Three pixels each side of a one-pixel line: a 1px grab target is the
+    // single most common way a docked layout feels bad to use.
+    touch := TouchArea {
+        x: -3px;
+        width: root.width + 6px;
+        mouse-cursor: ew-resize;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.origin = self.absolute-position.x + self.mouse-x;
+                root.pressed();
+            }
+        }
+        moved => {
+            root.moved(self.absolute-position.x + self.mouse-x - root.origin);
+        }
+    }
+}

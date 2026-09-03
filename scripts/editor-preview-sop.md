@@ -13,7 +13,7 @@ preview pane.
    somewhere interesting. Avoid personal file names in the media panel.
 
 2. **Take the dark screenshot.** With the app in dark theme, press
-   `⌘⇧4`, then `Space`, then click the WolfCut window (captures just the
+   `⌘⇧4`, then `Space`, then click the Concat window (captures just the
    window). Don't move or resize the window after this.
 
 3. **Switch to light theme** (the sun/moon toggle in the title bar) and take

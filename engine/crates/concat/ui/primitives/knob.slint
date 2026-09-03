@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt, Geom } from "../util.slint";
+import { FocusRing } from "focus-ring.slint";
+
+// Rotary control. Drag up/down to turn, wheel to nudge, double-click to reset.
+export component Knob inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <int> precision: 2;
+    /// value restored on double-click
+    in property <float> default-value: 0;
+    /// diameter of the dial
+    in property <length> diameter: 54px;
+    /// vertical drag distance that sweeps the full range
+    in property <length> travel: 170px;
+    in property <bool> enabled: true;
+
+    callback changed(value: float);
+
+    property <bool> ring;
+
+    // 270deg of sweep with the dead zone at the bottom, the way hardware knobs read.
+    property <float> start-angle: 135;
+    property <float> sweep: 270;
+
+    property <float> span: (root.maximum - root.minimum) == 0 ? 1 : root.maximum - root.minimum;
+    property <float> fraction: Fmt.clamp((root.value - root.minimum) / root.span, 0, 1);
+    property <float> angle: root.start-angle + root.fraction * root.sweep;
+
+    // Path coordinates are unitless, so everything below is in viewbox units
+    // that map 1:1 onto pixels.
+    property <float> units: root.diameter / 1px;
+    property <float> centre: root.units / 2;
+    property <float> radius: root.centre - 4;
+
+    width: root.diameter;
+    height: root.diameter;
+    horizontal-stretch: 0;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    function apply(next: float) {
+        root.value = Fmt.round-to(Fmt.clamp(next, root.minimum, root.maximum), root.precision);
+        root.changed(root.value);
+    }
+
+    // body
+    Rectangle {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        border-radius: self.width / 2;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: Theme.line;
+    }
+
+    // unfilled track
+    Path {
+        width: root.diameter;
+        height: root.diameter;
+        viewbox-width: root.units;
+        viewbox-height: root.units;
+        stroke: Theme.line-strong;
+        stroke-width: 3px;
+        stroke-line-cap: round;
+
+        MoveTo {
+            x: Geom.polar-x(root.centre, root.radius, root.start-angle);
+            y: Geom.polar-y(root.centre, root.radius, root.start-angle);
+        }
+        ArcTo {
+            radius-x: root.radius;
+            radius-y: root.radius;
+            x: Geom.polar-x(root.centre, root.radius, root.start-angle + root.sweep);
+            y: Geom.polar-y(root.centre, root.radius, root.start-angle + root.sweep);
+            large-arc: true;
+            sweep: true;
+        }
+    }
+
+    // filled arc, suppressed at zero so the arc never degenerates
+    if root.fraction > 0.001: Path {
+        width: root.diameter;
+        height: root.diameter;
+        viewbox-width: root.units;
+        viewbox-height: root.units;
+        stroke: Theme.accent;
+        stroke-width: 3px;
+        stroke-line-cap: round;
+
+        MoveTo {
+            x: Geom.polar-x(root.centre, root.radius, root.start-angle);
+            y: Geom.polar-y(root.centre, root.radius, root.start-angle);
+        }
+        ArcTo {
+            radius-x: root.radius;
+            radius-y: root.radius;
+            x: Geom.polar-x(root.centre, root.radius, root.angle);
+            y: Geom.polar-y(root.centre, root.radius, root.angle);
+            large-arc: root.fraction * root.sweep > 180;
+            sweep: true;
+        }
+    }
+
+    // needle
+    Path {
+        width: root.diameter;
+        height: root.diameter;
+        viewbox-width: root.units;
+        viewbox-height: root.units;
+        stroke: Theme.fg;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+
+        MoveTo {
+            x: Geom.polar-x(root.centre, root.radius * 0.3, root.angle);
+            y: Geom.polar-y(root.centre, root.radius * 0.3, root.angle);
+        }
+        LineTo {
+            x: Geom.polar-x(root.centre, root.radius - 9, root.angle);
+            y: Geom.polar-y(root.centre, root.radius - 9, root.angle);
+        }
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        // :focus-visible — keyboard focus only, see IconButton.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == Key.Home) {
+                root.apply(root.minimum);
+                return EventResult.accept;
+            }
+            if (event.text == Key.End) {
+                root.apply(root.maximum);
+                return EventResult.accept;
+            }
+            if (event.text == Key.UpArrow || event.text == Key.RightArrow) {
+                root.apply(root.value + root.step);
+                return EventResult.accept;
+            }
+            if (event.text == Key.DownArrow || event.text == Key.LeftArrow) {
+                root.apply(root.value - root.step);
+                return EventResult.accept;
+            }
+            if (event.text == Key.PageUp) {
+                root.apply(root.value + root.step * 10);
+                return EventResult.accept;
+            }
+            if (event.text == Key.PageDown) {
+                root.apply(root.value - root.step * 10);
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: ns-resize;
+
+        property <float> origin;
+        property <bool> travelled;
+        property <bool> shift;
+
+        pointer-event(event) => {
+            self.shift = event.modifiers.shift;
+            if (event.kind == PointerEventKind.down) {
+                fs.focus();
+                self.origin = root.value;
+                self.travelled = false;
+            }
+        }
+
+        moved => {
+            if (Math.abs((self.mouse-y - self.pressed-y) / 1px) > 3) {
+                self.travelled = true;
+            }
+            if (self.travelled) {
+                root.apply(self.origin
+                    + (-(self.mouse-y - self.pressed-y) / root.travel)
+                        * root.span * (self.shift ? 0.25 : 1));
+            }
+        }
+
+        double-clicked => {
+            root.apply(root.default-value);
+        }
+
+        scroll-event(event) => {
+            root.apply(root.value
+                + (event.delta-y > 0px ? 1 : -1) * root.step * (event.modifiers.shift ? 0.25 : 1));
+            return EventResult.accept;
+        }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: root.diameter / 2;
+    }
+}

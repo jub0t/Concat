@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// Tooltips.
+//
+// A browser gives these away: `title` on any element, positioned, delayed and
+// dismissed by the platform. Slint has no equivalent — and the obvious
+// substitute, a PopupWindow per control, is the wrong shape for one. A popup
+// is a modal-ish surface that takes the pointer and closes on the next click,
+// which is exactly what a tooltip must not do to the button it is describing.
+//
+// So: one bubble, drawn once at the root of the window, and a global holding
+// what it should say and where. Every control that wants one drops a `Tip`
+// inside itself and binds it to its own hover; the Tip reports the box it is
+// sitting in, in window coordinates, and the layer at the root draws the
+// bubble against it. Root, because a pane clips its contents and a tip on a
+// button near an edge belongs outside the pane.
+//
+// The delay is the part worth getting right. A fixed wait before every tip
+// makes a toolbar feel unresponsive; none at all makes bubbles flash past as
+// the pointer crosses a row of buttons. The rule every desktop toolkit lands
+// on, and the one here: wait before the *first* one, then stay warm — while a
+// tip is up, and for a moment after it closes, the next control shows at once.
+// Running the pointer along the tray reads as one label following it.
+export global Tips {
+    /// What the pointer is resting on. Empty is nothing to show.
+    in-out property <string> text;
+    /// The box it is resting on, in window coordinates.
+    in-out property <length> anchor-x;
+    in-out property <length> anchor-y;
+    in-out property <length> anchor-w;
+    in-out property <length> anchor-h;
+    /// A tip is up.
+    in-out property <bool> shown;
+    /// One was up recently, so the next skips the wait. Cleared by the layer.
+    in-out property <bool> warm;
+
+    /// The wait before the first tip of a run.
+    out property <duration> delay: 450ms;
+    /// And once warm — long enough to not fire while the pointer is merely
+    /// crossing a button on its way somewhere else.
+    out property <duration> warm-delay: 60ms;
+    /// How long warmth outlives the tip that earned it.
+    out property <duration> cooldown: 600ms;
+
+    public function close() {
+        Tips.shown = false;
+        Tips.text = "";
+    }
+}
+
+// Dropped inside a control, bound to that control's own hover.
+//
+// It draws nothing and takes no events — a bare Rectangle is not hit-testable,
+// so it can fill the control it describes without stealing the press it is
+// describing. Filling it is the point: the box this ends up with *is* the
+// anchor, so no control has to describe its own geometry twice.
+export component Tip inherits Rectangle {
+    in property <string> text;
+    /// Usually `touch.has-hover && root.enabled`. A disabled control still
+    /// wants its tip — often more than an enabled one, since the tip is where
+    /// "why is this greyed out" gets answered — so `enabled` is the caller's
+    /// choice and not this component's.
+    in property <bool> active;
+
+    /// Fired for this hover already. Without it the timer keeps ticking for as
+    /// long as the pointer rests, re-publishing the same tip every interval.
+    property <bool> spent;
+
+    Timer {
+        interval: Tips.warm ? Tips.warm-delay : Tips.delay;
+        running: root.active && root.text != "" && !root.spent;
+        triggered => {
+            root.spent = true;
+            Tips.text = root.text;
+            Tips.anchor-x = root.absolute-position.x;
+            Tips.anchor-y = root.absolute-position.y;
+            Tips.anchor-w = root.width;
+            Tips.anchor-h = root.height;
+            Tips.shown = true;
+            Tips.warm = true;
+        }
+    }
+
+    changed active => {
+        if (!root.active) {
+            root.spent = false;
+            // Whatever is up: the pointer can only rest on one thing, and a
+            // leave always lands before the next control's timer has run.
+            Tips.close();
+        }
+    }
+}
+
+// The bubble, placed once at the root of the window and given the window's own
+// box — which is what it measures against to decide whether a tip near the
+// bottom edge has to flip above its control.
+export component TooltipLayer inherits Rectangle {
+    /// Measured rather than estimated. A Text's `preferred-width` is its
+    /// intrinsic width — what it would like to be, not what it has been given
+    /// — so an element parked at zero size still reports the real width of the
+    /// string in the real face. That is what the bubble is sized from, and why
+    /// the bubble can be positioned against the window's edges in the same
+    /// pass: the number is known before anything is placed.
+    measure := Text {
+        x: 0;
+        y: 0;
+        width: 0px;
+        height: 0px;
+        text: Tips.text;
+        font-size: Theme.fs-sm;
+        visible: false;
+    }
+
+    property <length> bubble-w: measure.preferred-width + 16px;
+    property <length> bubble-h: 22px;
+    /// The gap between the control and the bubble.
+    property <length> gap: 6px;
+
+    /// Under the control by default, and over it when there is no room below.
+    /// Below first because a pointer sits at the bottom of what it is pointing
+    /// at, and a bubble above the control is a bubble under the cursor.
+    property <bool> above: Tips.anchor-y + Tips.anchor-h + root.gap + root.bubble-h
+        > root.height;
+    property <length> bubble-y: root.above
+        ? Tips.anchor-y - root.gap - root.bubble-h
+        : Tips.anchor-y + Tips.anchor-h + root.gap;
+    /// Centred on the control, then pulled back inside the window.
+    property <length> bubble-x: Math.max(4px, Math.min(root.width - root.bubble-w - 4px,
+        Tips.anchor-x + (Tips.anchor-w - root.bubble-w) / 2));
+
+    // Nothing here is hit-testable: no TouchArea anywhere in the tree, so the
+    // layer sits over the whole window without taking a single event from it.
+    background: transparent;
+
+    // Warmth outlives the tip it came from, so crossing a gap between two
+    // buttons does not put the wait back. Running only while it has something
+    // to clear, which is what keeps an idle window free of timers.
+    Timer {
+        interval: Tips.cooldown;
+        running: Tips.warm && !Tips.shown;
+        triggered => { Tips.warm = false; }
+    }
+
+    if Tips.shown && Tips.text != "": Rectangle {
+        x: root.bubble-x;
+        y: root.bubble-y;
+        width: root.bubble-w;
+        height: root.bubble-h;
+        border-radius: Theme.r-sm;
+        // Raised, not panel: this floats over panes that are themselves
+        // `panel`, and a bubble the colour of what it covers reads as a hole
+        // in it. The hairline is the strong one for the same reason.
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+
+        Text {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            text: Tips.text;
+            color: Theme.fg;
+            font-size: Theme.fs-sm;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}

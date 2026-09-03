@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+
+// The right-click menu, ported from web/'s full context menu: an icon slot
+// every row shares, a label, a right-set shortcut hint, checkbox rows, group
+// labels, separators, and one row that may be red.
+//
+// Two departures from the reference, both forced:
+//
+// Submenus are gone. A Slint struct cannot hold an array, so a row cannot
+// carry its own children; the reference's Speed submenu is expressed here as a
+// group label with its options under it, which is a row type the design
+// already has. Flat also happens to suit a timeline — the menu is a list of
+// verbs about one clip, and burying half of them one level down would be worse
+// even where it were possible.
+//
+// The surface is sized by the caller rather than by its content. Summing the
+// row heights means looping over a model, which the expression language cannot
+// do; whoever builds the items knows what they add up to, and says so.
+
+/// What a row *is*. Only `action` is selectable.
+export enum MenuRow {
+    action,
+    /// a group heading, e.g. SPEED
+    label,
+    separator,
+}
+
+export struct MenuItemData {
+    /// Reported on select. Empty for anything that is not an action.
+    id: string,
+    label: string,
+    kind: MenuRow,
+    /// leading glyph; rows without one still align, the slot is always there
+    glyph: Glyph,
+    /// right-set hint, e.g. "Ctrl+C". Display only — bind the key yourself.
+    shortcut: string,
+    enabled: bool,
+    /// paints the row red, for the one row that destroys something
+    danger: bool,
+    /// turns the row into a checkbox row: the slot carries a tick, not a glyph
+    checkable: bool,
+    checked: bool,
+}
+
+/// Row heights, so the caller can add them up without guessing.
+export global MenuMetrics {
+    out property <length> action: 26px;
+    out property <length> label: 24px;
+    out property <length> separator: 9px;
+    /// the surface's own padding, top and bottom together
+    out property <length> padding: 8px;
+    out property <length> width: 212px;
+}
+
+export component ContextMenu inherits Rectangle {
+    in property <[MenuItemData]> items;
+    /// The summed height of `items` plus MenuMetrics.padding.
+    in property <length> menu-height;
+
+    callback selected(id: string);
+
+    /// Where the menu was asked for, in this element's own coordinates.
+    property <length> at-x;
+    property <length> at-y;
+
+    /// Opened by a token rather than a flag: the surface can be dismissed by a
+    /// click outside without telling anyone, so a boolean the caller sets would
+    /// go stale and the next request at the same spot would be a no-op.
+    in property <int> token;
+    in property <length> request-x;
+    in property <length> request-y;
+
+    changed token => {
+        // Nothing to show is not a menu. Whoever bumps the token may find it
+        // has no rows to offer — a clip that has gone, a selection with
+        // nothing to say — and an empty surface hanging under the pointer is
+        // worse than none. It also lets a caller bump unconditionally, which
+        // is what keeps the arming in lanes.slint honest.
+        if (root.token > 0 && root.items.length > 0) {
+            // Flipped back over the pointer near an edge, so the menu is
+            // always fully on screen and always touching the click.
+            root.at-x = root.request-x + MenuMetrics.width > root.width
+                ? Math.max(0px, root.request-x - MenuMetrics.width)
+                : root.request-x;
+            root.at-y = root.request-y + root.menu-height > root.height
+                ? Math.max(0px, root.request-y - root.menu-height)
+                : root.request-y;
+            surface.show();
+        }
+    }
+
+    background: transparent;
+
+    surface := PopupWindow {
+        x: root.at-x;
+        y: root.at-y;
+        width: MenuMetrics.width;
+        height: root.menu-height;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                for item in root.items: Rectangle {
+                    height: item.kind == MenuRow.separator ? MenuMetrics.separator
+                        : item.kind == MenuRow.label ? MenuMetrics.label
+                        : MenuMetrics.action;
+
+                    if item.kind == MenuRow.separator: Rectangle {
+                        x: 6px;
+                        y: (parent.height - 1px) / 2;
+                        width: parent.width - 12px;
+                        height: 1px;
+                        background: Theme.line;
+                    }
+
+                    if item.kind == MenuRow.label: Text {
+                        x: 8px;
+                        y: 0;
+                        width: parent.width - 16px;
+                        height: parent.height;
+                        text: item.label;
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-sm;
+                        letter-spacing: 0.72px;
+                        vertical-alignment: bottom;
+                        overflow: elide;
+                    }
+
+                    if item.kind == MenuRow.action: row := Rectangle {
+                        border-radius: Theme.r-xs;
+                        background: !(touch.has-hover && item.enabled) ? Colors.transparent
+                            : item.danger ? Theme.danger-soft
+                            : Theme.field;
+
+                        property <brush> ink: !item.enabled ? Theme.fg-dim
+                            : (item.danger && touch.has-hover) ? Theme.danger
+                            : Theme.fg;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 8px;
+
+                            // A fixed slot even when a row has no mark, so
+                            // every label starts on the same x. Ragged labels
+                            // are what make a menu feel thrown together.
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 14px;
+                                    height: 14px;
+
+                                    if item.checkable && item.checked: Icon {
+                                        x: 0;
+                                        y: 0;
+                                        glyph: Glyph.check;
+                                        size: 13px;
+                                        tint: item.enabled ? Theme.accent : Theme.fg-dim;
+                                    }
+
+                                    if !item.checkable && item.glyph != Glyph.none: Icon {
+                                        x: 0;
+                                        y: 0;
+                                        glyph: item.glyph;
+                                        size: 13px;
+                                        tint: item.enabled ? Theme.fg-muted : Theme.fg-dim;
+                                    }
+                                }
+                            }
+
+                            Text {
+                                horizontal-stretch: 1;
+                                text: item.label;
+                                color: row.ink;
+                                font-size: Theme.fs;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            if item.shortcut != "": Text {
+                                text: item.shortcut;
+                                color: item.enabled ? Theme.fg-dim : Theme.line-strong;
+                                font-family: Theme.font-technical;
+                                font-size: Theme.fs-sm;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        touch := TouchArea {
+                            enabled: item.enabled;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                surface.close();
+                                root.selected(item.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

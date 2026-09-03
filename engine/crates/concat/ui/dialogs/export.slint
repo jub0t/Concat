@@ -1,0 +1,399 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Select } from "../primitives/select.slint";
+
+// The export dialog, ported from the reference's ExportDialog and dressed with
+// web/'s export panel.
+//
+// The reference states the format, asks where the file goes, offers three
+// quality presets and starts. web/ puts the deciding number *on* each preset —
+// what the file will actually weigh — which is the thing the choice hinges on
+// and was otherwise nowhere. That is the borrowing.
+
+export enum ExportPhase { idle, running, done, failed }
+
+export struct ExportData {
+    open: bool,
+    /// the file name, without folder or extension
+    name: string,
+    /// the whole path, already shortened for display by whoever owns it
+    path: string,
+    /// "1920 x 1080 · 30.00 fps"
+    format: string,
+    duration: string,
+    /// "8 clips · 3 titles"
+    contents: string,
+    resolution: int,
+    rate: int,
+    quality: int,
+    /// What each preset would weigh. Three strings rather than a list: a Slint
+    /// struct cannot hold an array.
+    size-high: string,
+    size-balanced: string,
+    size-small: string,
+    phase: ExportPhase,
+    /// 0..1
+    progress: float,
+    /// "Rendering video"
+    stage: string,
+    eta: string,
+    /// why it failed, when it did
+    message: string,
+    done-size: string,
+    /// nothing on the timeline to export
+    empty: bool,
+}
+
+// One tile of the summary block.
+//
+// The block is a rounded rectangle in the hairline colour with 1px gaps
+// between its rows, so the separators are the ground showing through rather
+// than lines drawn on top — which is how web/ builds it, and why the rules
+// stop exactly at the rounded corners instead of running into them.
+component Fact inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+
+    height: 34px;
+    background: Theme.raised;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+
+        Text {
+            text: root.label;
+            color: Theme.fg-muted;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        Text {
+            text: root.value;
+            color: Theme.fg;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// One of the three quality presets. The estimate is on the card, in the accent
+// when the card is the chosen one, because it is what the choice is actually
+// being made on.
+component QualityCard inherits Rectangle {
+    in property <string> label;
+    in property <string> note;
+    in property <string> size;
+    in property <bool> current;
+
+    callback clicked();
+
+    horizontal-stretch: 1;
+    height: 72px;
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: root.current ? Theme.accent
+        : touch.has-hover ? Theme.line-strong
+        : Theme.line;
+    background: root.current ? Theme.accent-soft : Theme.raised;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 1px;
+
+        Text {
+            text: root.label;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+            overflow: elide;
+        }
+
+        Text {
+            text: root.note;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+            overflow: elide;
+        }
+
+        Rectangle { vertical-stretch: 1; }
+
+        Text {
+            text: "~" + root.size;
+            color: root.current ? Theme.accent : Theme.fg;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ExportDialog inherits Modal {
+    in property <ExportData> data;
+
+    callback name-edited(name: string);
+    callback browse();
+    callback resolution-changed(index: int);
+    callback rate-changed(index: int);
+    callback quality-changed(index: int);
+    callback begin();
+    callback cancel();
+    callback reveal();
+    callback again();
+
+    property <bool> running: root.data.phase == ExportPhase.running;
+
+    open: root.data.open;
+    title: "Export";
+    glyph: Glyph.export;
+    surface-width: 470px;
+    dismissable: !root.running;
+
+    // The sheet's own header carries the fact it is acting on.
+    note: root.data.format;
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: "Summary";
+
+            Rectangle {
+                border-radius: Theme.r;
+                // The ground the 1px gaps show through.
+                background: Theme.line;
+                clip: true;
+
+                VerticalLayout {
+                    spacing: 1px;
+
+                    Fact { label: "Format"; value: root.data.format + " · H.264"; }
+                    Fact { label: "Duration"; value: root.data.duration; }
+                    Fact { label: "Contents"; value: root.data.contents; }
+                }
+            }
+        }
+
+        if !root.running: DialogSection {
+            title: "Destination";
+
+            DialogRow {
+                Field {
+                    value: root.data.name;
+                    technical: true;
+                    edited(text) => { root.name-edited(text); }
+                }
+
+                Button {
+                    label: "Browse";
+                    glyph: Glyph.import;
+                    clicked => { root.browse(); }
+                }
+            }
+
+            // The whole path under the field rather than in it, so the part
+            // you are editing is never the part that gets truncated away.
+            Text {
+                text: root.data.path;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+        }
+
+        if !root.running: DialogSection {
+            title: "Output";
+
+            DialogRow {
+                label: "Resolution";
+                Select {
+                    current: root.data.resolution;
+                    options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
+                    details: ["4K", "QHD", "1080p", "720p"];
+                    changed(index) => { root.resolution-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Frame rate";
+                Select {
+                    current: root.data.rate;
+                    options: ["24 fps", "30 fps", "60 fps"];
+                    changed(index) => { root.rate-changed(index); }
+                }
+            }
+        }
+
+        if !root.running: DialogSection {
+            title: "Quality";
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                QualityCard {
+                    label: "High";
+                    note: "Master";
+                    size: root.data.size-high;
+                    current: root.data.quality == 0;
+                    clicked => { root.quality-changed(0); }
+                }
+                QualityCard {
+                    label: "Balanced";
+                    note: "Recommended";
+                    size: root.data.size-balanced;
+                    current: root.data.quality == 1;
+                    clicked => { root.quality-changed(1); }
+                }
+                QualityCard {
+                    label: "Small";
+                    note: "Share";
+                    size: root.data.size-small;
+                    current: root.data.quality == 2;
+                    clicked => { root.quality-changed(2); }
+                }
+            }
+        }
+
+        // ── the footer ───────────────────────────────────────────────────
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+
+            // A failure says what went wrong where the action was, not in a
+            // separate alert to be dismissed before you can try again.
+            if root.data.phase == ExportPhase.failed: Rectangle {
+                border-radius: Theme.r;
+                background: Theme.danger-soft;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: start;
+                        Icon { glyph: Glyph.close; size: 13px; tint: Theme.danger; }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.message;
+                        color: Theme.danger;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.running: HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    text: root.data.stage;
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "\{Math.round(root.data.progress * 100)}%";
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.data.eta;
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.running: Progress { value: root.data.progress; }
+
+            if root.running: HorizontalLayout {
+                alignment: start;
+                Button {
+                    label: "Cancel export";
+                    glyph: Glyph.close;
+                    ghost: true;
+                    clicked => { root.cancel(); }
+                }
+            }
+
+            if root.data.phase == ExportPhase.done: HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                VerticalLayout {
+                    alignment: center;
+                    Icon { glyph: Glyph.check; size: 15px; tint: Theme.green; }
+                }
+
+                Text {
+                    text: "Exported · " + root.data.done-size;
+                    color: Theme.green;
+                    font-size: Theme.fs;
+                    font-weight: Theme.weight-title;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.data.phase == ExportPhase.done: HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+
+                Button {
+                    label: "Show in folder";
+                    glyph: Glyph.import;
+                    clicked => { root.reveal(); }
+                }
+                Button {
+                    label: "Export again";
+                    ghost: true;
+                    clicked => { root.again(); }
+                }
+            }
+
+            if root.data.phase == ExportPhase.idle || root.data.phase == ExportPhase.failed:
+            HorizontalLayout {
+                Button {
+                    block: true;
+                    primary: true;
+                    large: true;
+                    glyph: Glyph.export;
+                    label: root.data.empty ? "Nothing to export"
+                        : "Export · ~" + (root.data.quality == 0 ? root.data.size-high
+                            : root.data.quality == 1 ? root.data.size-balanced
+                            : root.data.size-small);
+                    enabled: !root.data.empty && root.data.name != "";
+                    clicked => { root.begin(); }
+                }
+            }
+        }
+    }
+}

@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::AtomicBool;
 
-use wolfcut_desktop_lib::export::{ClipKind, ExportClip, ExportRequest, Reporter, render};
+use concat_desktop_lib::export::{ClipKind, ExportClip, ExportRequest, Reporter, render};
 
 /// Points the engine at the staged bundle exactly once, before anything runs.
 fn use_bundled_pair() {
@@ -27,7 +27,7 @@ fn use_bundled_pair() {
     let ffmpeg = staged.join(format!("ffmpeg{suffix}"));
     let ffprobe = staged.join(format!("ffprobe{suffix}"));
     if ffmpeg.is_file() && ffprobe.is_file() {
-        wolfcut_media::set_binaries(ffmpeg, ffprobe);
+        concat_media::set_binaries(ffmpeg, ffprobe);
     }
 }
 
@@ -148,7 +148,7 @@ fn exports_survive_the_shapes_that_have_actually_broken() {
     let output = directory.join("plain.mp4");
     export(&request(&output, vec![media_clip(&with_sound, "video", 0.0, 2.0, 0)]))
         .expect("plain export");
-    let info = wolfcut_media::probe(&output).expect("probe plain");
+    let info = concat_media::probe(&output).expect("probe plain");
     assert!(info.video.is_some() && info.audio.is_some());
     let duration = info.duration.expect("has duration").as_f64();
     assert!((duration - 2.0).abs() < 0.15, "expected ~2s, got {duration}");
@@ -164,7 +164,7 @@ fn exports_survive_the_shapes_that_have_actually_broken() {
         ],
     ))
     .expect("export with an audioless clip");
-    let info = wolfcut_media::probe(&output).expect("probe mixed-mute");
+    let info = concat_media::probe(&output).expect("probe mixed-mute");
     assert!(info.audio.is_some(), "the sounded clip still reaches the mix");
 
     // Retiming: a 2x clip consumes 2s of source in 1s of timeline, and
@@ -173,7 +173,7 @@ fn exports_survive_the_shapes_that_have_actually_broken() {
     let mut fast = media_clip(&with_sound, "video", 0.0, 1.0, 0);
     fast.speed = 2.0;
     export(&request(&output, vec![fast])).expect("2x export");
-    let info = wolfcut_media::probe(&output).expect("probe fast");
+    let info = concat_media::probe(&output).expect("probe fast");
     let duration = info.duration.expect("has duration").as_f64();
     assert!((duration - 1.0).abs() < 0.15, "expected ~1s at 2x, got {duration}");
     assert!(info.audio.is_some(), "the sped-up sound made it through the graph");
@@ -188,7 +188,7 @@ fn exports_survive_the_shapes_that_have_actually_broken() {
         vec![media_clip(&with_sound, "video", 0.0, 2.0, 0), overlay],
     ))
     .expect("overlay export");
-    let info = wolfcut_media::probe(&output).expect("probe overlay");
+    let info = concat_media::probe(&output).expect("probe overlay");
     assert!(info.video.is_some() && info.audio.is_some());
 
     // A clip whose filter chain tries to escape its slot is refused, not run.

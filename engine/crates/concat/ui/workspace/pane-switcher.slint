@@ -1,0 +1,459 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Payload } from "../util.slint";
+import { Tip } from "../primitives/tooltip.slint";
+
+// Which editor a seat is showing, and the control that changes it.
+//
+// Blender's model, reduced to the part that earns its keep. There, every area
+// carries an editor-type dropdown in its corner and any editor can be put in
+// any area; areas can also be split and joined by dragging their corners. The
+// dropdown is the half that changes how the window is used day to day — it is
+// what lets someone who lives in the timeline give it the whole top of the
+// screen — and it is the half that does not need a new layout engine.
+//
+// A view can be up in more than one seat at once, as it can in Blender. Each
+// seat builds its own instance, and they all read the same Editor global — so
+// two monitors show one playhead and two libraries show one bin, while each
+// keeps its own local state: which catalogue page is open, how wide its
+// sidebar is, where it is scrolled to. Picking is an assignment and nothing
+// else; nothing is taken away from anywhere.
+//
+// The corollary is that a view can also be absent — set all four seats to the
+// library and there is no timeline on screen. That is the user's business, and
+// the state it was showing is untouched: it is in the global, not in the pane
+// that was drawing it.
+export enum PaneKind {
+    /// the bin and the catalogues
+    media,
+    /// the monitor
+    preview,
+    /// details, adjust, text, the preset stacks
+    inspector,
+    /// tabs, tray, lanes
+    timeline,
+}
+
+export global Panes {
+    public pure function label(kind: PaneKind) -> string {
+        return kind == PaneKind.media ? "Library"
+            : kind == PaneKind.preview ? "Preview"
+            : kind == PaneKind.inspector ? "Inspector"
+            : "Timeline";
+    }
+
+    /// The name a view goes by in a drag payload — stable, lower-case, and
+    /// the same string Rust matches on to draw the chip under the cursor.
+    /// Not the label: that is prose and could be translated tomorrow.
+    public pure function id(kind: PaneKind) -> string {
+        return kind == PaneKind.media ? "media"
+            : kind == PaneKind.preview ? "preview"
+            : kind == PaneKind.inspector ? "inspector"
+            : "timeline";
+    }
+
+    /// The mark a view is known by, and the one the corner button wears.
+    /// Chosen to be tellable apart at 13px rather than to be the most literal
+    /// picture of each: a strip of film, a still frame, the inspector's own
+    /// sliders, and a stack of lanes.
+    public pure function glyph(kind: PaneKind) -> Glyph {
+        return kind == PaneKind.media ? Glyph.film
+            : kind == PaneKind.preview ? Glyph.image
+            : kind == PaneKind.inspector ? Glyph.settings
+            : Glyph.rows;
+    }
+}
+
+// One row of the dropdown: the view's mark, its name, and a tick on the one
+// that is already here.
+component SwitchRow inherits Rectangle {
+    in property <PaneKind> kind;
+    in property <bool> current;
+
+    callback chosen();
+
+    height: 26px;
+
+    Rectangle {
+        x: 4px;
+        y: 0;
+        width: parent.width - 8px;
+        height: parent.height;
+        // Inset 4px inside a surface rounded to 7, so 5 keeps the two curves
+        // concentric — the same pairing the library's page strip uses for a
+        // selected tab inside its track.
+        border-radius: Theme.r-sm;
+        background: touch.has-hover ? Theme.field-hover : Colors.transparent;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: Panes.glyph(root.kind);
+                    size: 13px;
+                    tint: root.current ? Theme.accent : Theme.fg-muted;
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: Panes.label(root.kind);
+                color: root.current ? Theme.fg : Theme.fg-muted;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.current: VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: Glyph.check;
+                    size: 12px;
+                    tint: Theme.accent;
+                }
+            }
+        }
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.chosen(); }
+        }
+    }
+}
+
+// The rule above the row that removes the panel. A list of four views and a
+// fifth row that closes one are not the same kind of thing, and a menu that
+// runs them together is a menu you can misfire.
+component SwitchDivider inherits Rectangle {
+    height: 9px;
+
+    Rectangle {
+        x: 6px;
+        y: (parent.height - 1px) / 2;
+        width: parent.width - 12px;
+        height: 1px;
+        background: Theme.line;
+    }
+}
+
+// "Remove panel". Red on hover like every other destructive row in the
+// window, and greyed when it is the last panel there is: a window with no
+// seats has nowhere to put anything back, so the tree refuses to lose its
+// last leaf and the row says so before you try rather than after.
+component RemoveRow inherits Rectangle {
+    in property <bool> enabled: true;
+
+    callback chosen();
+
+    height: 26px;
+
+    row := Rectangle {
+        x: 4px;
+        y: 0;
+        width: parent.width - 8px;
+        height: parent.height;
+        border-radius: Theme.r-sm;
+        background: (touch.has-hover && root.enabled) ? Theme.danger-soft
+            : Colors.transparent;
+
+        property <brush> ink: !root.enabled ? Theme.fg-dim
+            : touch.has-hover ? Theme.danger
+            : Theme.fg-muted;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            spacing: 8px;
+
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: Glyph.trash;
+                    size: 13px;
+                    tint: row.ink;
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.enabled ? "Remove panel" : "Only panel";
+                color: row.ink;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => { root.chosen(); }
+        }
+    }
+}
+
+// The button in a pane's top-right corner: the mark of what this pane is
+// currently showing, and the two ways to change it.
+//
+// Click it and a list drops down — pick a view and this seat shows it. Drag it
+// onto another seat and the two trade places, which is the same operation said
+// with the pointer: it answers "put this *there*" without having to work out
+// which of the four boxes "there" is and then name the view that is in it.
+// Blender's corner drag does the same job; a browser's tab strip is the other
+// place everyone has already learnt it.
+export component PaneSwitcher inherits Rectangle {
+    /// What this pane is right now.
+    in property <PaneKind> kind;
+    /// Which of the workspace's boxes it is in, so a drop knows where it came
+    /// from. See the payload below.
+    in property <int> seat;
+
+    /// False when this is the last panel on screen, which cannot be removed.
+    in property <bool> removable: true;
+    callback picked(kind: PaneKind);
+    /// The bottom row of the list was used: close this panel.
+    callback removed();
+
+    /// `pane:<seat>:<name>:<slug>` — the seat for the drop, the name for the
+    /// chip under the cursor, and the slug for the mark on it.
+    property <string> payload:
+        "pane:\{root.seat}:\{Panes.label(root.kind)}:\{Panes.id(root.kind)}";
+
+    property <length> menu-w: 168px;
+    /// Four view rows, then the rule and the row that removes the panel, then
+    /// the surface's own padding. Summed here because a PopupWindow is sized
+    /// by whoever places it — the same rule the context menu follows, and the
+    /// same reason: a layout cannot report its height back up before it has
+    /// somewhere to be laid out.
+    property <length> menu-h: 4 * 26px + 9px + 26px + 8px;
+
+    // The mark, a gap, and the chevron, with even padding either side.
+    property <length> mark: 14px;
+    property <length> caret: 10px;
+    property <length> pad: 6px;
+
+    width: 2 * root.pad + root.mark + 3px + root.caret;
+    height: 24px;
+
+    // The drag only starts once the press has travelled past the threshold,
+    // so the TouchArea inside keeps its click and the menu still opens — the
+    // same arrangement the bin's cards use.
+    drag := DragArea {
+        // Move, not copy: a panel is somewhere, and dropping it somewhere else
+        // is where it now is.
+        allow-move: true;
+        data: Payload.of(root.payload);
+        drag-image: Payload.preview(root.payload);
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+
+        chip := Rectangle {
+            width: parent.width;
+            height: parent.height;
+            // The radius every other input in the window carries — a number
+            // field, a dialog button, a text field. This wore the chip radius,
+            // which is for marks *inside* a control (the fx badge on a clip, a
+            // swatch in a row) and reads as barely rounded at 24px tall.
+            border-radius: Theme.r;
+            // Filled at rest, unlike every other icon button in this window,
+            // which idles transparent and only takes a ground when the pointer
+            // finds it. Those are actions, and a tray of them wants to read as a
+            // row of marks; this one is a *state*, and the one control in the pane
+            // that says what the pane is. Blender does the same and for the same
+            // reason — its editor-type button is a raised well in a header of flat
+            // ones — and it is the only way to find the thing without knowing
+            // already that it is there.
+            background: touch.pressed ? Theme.field-active
+                : touch.has-hover ? Theme.field-hover
+                : Theme.field;
+
+            animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+            Icon {
+                x: root.pad;
+                y: (parent.height - self.height) / 2;
+                glyph: Panes.glyph(root.kind);
+                size: root.mark;
+                tint: touch.has-hover ? Theme.fg : Theme.fg-muted;
+            }
+
+            // The chevron: what says this is a picker and not a button that does
+            // something. Dimmer than the mark beside it, because the mark is the
+            // answer and this is only the invitation to change it.
+            Icon {
+                x: parent.width - root.pad - self.width;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.chevron-down;
+                size: root.caret;
+                // Heavier than the set's own weight, because it is drawn smaller
+                // than anything else in the window: at 1.9 on a 10-unit glyph the
+                // stroke is under a pixel and the chevron greys out to a smudge.
+                weight: 2.6;
+                tint: touch.has-hover ? Theme.fg-muted : Theme.fg-dim;
+            }
+
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { menu.show(); }
+            }
+
+            Tip {
+                text: "Change what this panel shows, or drag it onto another";
+                active: touch.has-hover;
+            }
+        }
+    }
+
+    // Hung under the button and aligned to its trailing edge, which is also
+    // the pane's: this control is always in a top-right corner, so a menu that
+    // opened rightwards would open off the pane every time. A PopupWindow is
+    // its own layer, so it clears the pane's clip on its own.
+    menu := PopupWindow {
+        x: root.width - root.menu-w;
+        y: root.height + 4px;
+        width: root.menu-w;
+        height: root.menu-h;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            // The tone the library's page strip gives its selected tab, which
+            // is also what the button that opened this wears. A picker and the
+            // list it opens are one control in two states, and one tone for
+            // both is what says so; `raised` put the list a step off the thing
+            // it belongs to.
+            background: Theme.field;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                // Written out rather than looped: four is the whole list, and
+                // a `for` over it would need the array to exist somewhere the
+                // rows could reach, which is more machinery than the rows.
+                SwitchRow {
+                    kind: PaneKind.media;
+                    current: root.kind == PaneKind.media;
+                    chosen => { menu.close(); root.picked(PaneKind.media); }
+                }
+                SwitchRow {
+                    kind: PaneKind.preview;
+                    current: root.kind == PaneKind.preview;
+                    chosen => { menu.close(); root.picked(PaneKind.preview); }
+                }
+                SwitchRow {
+                    kind: PaneKind.inspector;
+                    current: root.kind == PaneKind.inspector;
+                    chosen => { menu.close(); root.picked(PaneKind.inspector); }
+                }
+                SwitchRow {
+                    kind: PaneKind.timeline;
+                    current: root.kind == PaneKind.timeline;
+                    chosen => { menu.close(); root.picked(PaneKind.timeline); }
+                }
+
+                SwitchDivider { }
+
+                RemoveRow {
+                    enabled: root.removable;
+                    chosen => { menu.close(); root.removed(); }
+                }
+            }
+        }
+    }
+}
+
+// "Add a panel", for the window's own top-right corner.
+//
+// The same list as a seat's own dropdown, minus the tick and the remove row:
+// there is nothing here yet to be current and nothing yet to close. What it
+// adds goes wherever there is most room — see `dock-add` in main.rs, which
+// halves the largest seat along its longer side, the way a tiling window
+// manager places a new window.
+export component AddPaneButton inherits Rectangle {
+    callback added(kind: PaneKind);
+
+    property <length> menu-w: 168px;
+    property <length> menu-h: 4 * 26px + 8px;
+
+    width: 24px;
+    height: 24px;
+    border-radius: Theme.r-sm;
+    background: touch.has-hover ? Theme.field : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: Glyph.slot;
+        size: 14px;
+        tint: touch.has-hover ? Theme.fg : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { menu.show(); }
+    }
+
+    Tip {
+        text: "Add a panel";
+        active: touch.has-hover;
+    }
+
+    // Under the button and pulled back inside the window: this one sits within
+    // a few pixels of the right edge of the strip, so a menu hung from its
+    // leading edge would fall off the screen.
+    menu := PopupWindow {
+        x: root.width - root.menu-w;
+        y: root.height + 4px;
+        width: root.menu-w;
+        height: root.menu-h;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            // The tone the library's page strip gives its selected tab, which
+            // is also what the button that opened this wears. A picker and the
+            // list it opens are one control in two states, and one tone for
+            // both is what says so; `raised` put the list a step off the thing
+            // it belongs to.
+            background: Theme.field;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                SwitchRow {
+                    kind: PaneKind.media;
+                    chosen => { menu.close(); root.added(PaneKind.media); }
+                }
+                SwitchRow {
+                    kind: PaneKind.preview;
+                    chosen => { menu.close(); root.added(PaneKind.preview); }
+                }
+                SwitchRow {
+                    kind: PaneKind.inspector;
+                    chosen => { menu.close(); root.added(PaneKind.inspector); }
+                }
+                SwitchRow {
+                    kind: PaneKind.timeline;
+                    chosen => { menu.close(); root.added(PaneKind.timeline); }
+                }
+            }
+        }
+    }
+}

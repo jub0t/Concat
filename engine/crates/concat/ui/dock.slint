@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { PaneKind } from "workspace/pane-switcher.slint";
+
+// The workspace layout, as the two sides of the boundary see it.
+//
+// The arrangement is a tree: every node is either a view or a split of two
+// nodes, side by side or one over the other. That is what makes a layout out
+// of dropping a panel on an edge — the seat you dropped on becomes a split
+// with two seats in it, and it can happen again inside either half, to any
+// depth. Three across the top and one along the bottom is then one arrangement
+// of many rather than the shape of the window.
+//
+// The tree lives in Rust, and for the usual reason: Slint has no recursion, so
+// a component cannot contain itself and a nested layout cannot be drawn by
+// descending one. What crosses the boundary is the tree already walked — a
+// flat list of boxes with a view in each, and a flat list of the gutters
+// between them. Both are in pixels, which is why the workspace reports its own
+// size back: the minimum a pane may be squeezed to is a number of pixels, and
+// a fraction cannot be clamped against one.
+
+/// One view, placed. `index` is its position in a walk of the tree, and it is
+/// what a drop names — the payload a panel carries says which seat it came
+/// from, and the seat it lands on knows its own.
+export struct SeatBox {
+    index: int,
+    kind: PaneKind,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+}
+
+/// The gutter between the two halves of one split, and the handle that moves
+/// it. `columns` says which way the split runs: true for two boxes side by
+/// side, which is a vertical gutter dragged left and right.
+export struct DockDivider {
+    index: int,
+    columns: bool,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+}
+
+/// Where in a seat a panel was let go of.
+///
+/// The middle means "show it here instead", and the two views trade places —
+/// the same thing the dropdown does, said with the pointer. An edge means
+/// "give it this side of here", which splits the seat in two and is how a
+/// layout gets a shape the window did not start with.
+export enum DockSide { centre, left, right, top, bottom }

@@ -1,0 +1,197 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The timeline's shared vocabulary: what a tab, a lane and a clip are.
+//
+// One file rather than a struct beside each component, because these cross
+// every boundary in the panel — Rust publishes them, the tab strip, the track
+// column and the lanes all read them — and a struct declared in the file that
+// happens to draw it first makes the import graph say something untrue about
+// who owns it.
+
+/// Wider than MediaKind: a title has no file behind it, it *is* its content,
+/// and a filter has no file either — it is a preset dragged from the library's
+/// Filters page that covers a span of time and treats whatever plays under it,
+/// the way CapCut's filter bars do. Mirrors the reference's ClipKind, plus
+/// that layer.
+export enum ClipKind { video, audio, image, text, filter }
+
+/// What a press on a clip means.
+export enum TimelineTool {
+    /// grab, move, trim, band-select
+    select,
+    /// cut where you click, not where the playhead is
+    razor,
+}
+
+/// One tab. A project holds several timelines the way it holds sequences in
+/// any other editor; the active one is what the lanes, the preview and the
+/// exporter all show.
+export struct TimelineTabData {
+    id: string,
+    name: string,
+}
+
+/// How tall a lane is drawn.
+///
+/// `auto` is the default, and the only one that thinks: a lane is as tall as
+/// the tallest thing on it, so a lane of footage opens large, a lane of sound
+/// medium, and a lane of filter layers minimal. That is the shape CapCut gets
+/// by typing its tracks — arrived at here without typing them, which matters
+/// because these lanes are deliberately untyped and a mixed one still has to
+/// be right. The other three are the override, per lane, from the dropdown in
+/// its header.
+export enum TrackSize { auto, small, medium, large }
+
+/// One lane. Deliberately untyped, like the reference's Track: any media goes
+/// on any track, which is why every lane carries both a visibility and a mute
+/// switch rather than one or the other.
+export struct TrackData {
+    id: string,
+    name: string,
+    visible: bool,
+    muted: bool,
+    /// What the header's dropdown shows, and what `height` was resolved from.
+    size: TrackSize,
+    /// The lane's drawn height, and its top edge measured down the stack from
+    /// the first lane. Both resolved by Rust: the stack is no longer a
+    /// multiple of one pitch, and a running total over a model is not
+    /// something Slint's expression language can express.
+    height: length,
+    top: length,
+    /// Clips on a locked lane cannot be selected, moved, trimmed or cut, and
+    /// nothing can be dropped onto it. Not a flag the reference carries — its
+    /// TrackFlag is visible/muted only — but a lane you can see and hear and
+    /// still knock sideways by accident is the one every editor locks.
+    locked: bool,
+}
+
+/// One placed clip, already reduced to what drawing it needs.
+///
+/// Positions are in *seconds*, not pixels. Zoom and pan are then a property
+/// change on the lanes and not a republish of the model — panning a timeline
+/// would otherwise rewrite every row of it on every frame of the drag.
+export struct ClipData {
+    id: string,
+    name: string,
+    kind: ClipKind,
+    /// index into the track list as the lanes draw it, top lane first
+    row: int,
+    /// seconds from the start of the timeline
+    start: float,
+    /// seconds of timeline occupied
+    duration: float,
+    selected: bool,
+    /// at least one video effect is live: draws the `fx` chip in the header
+    fx: bool,
+    /// there is a transition on the cut into this clip
+    transition-in: bool,
+    /// seconds of audio ramp at each end; zero for none
+    fade-in: float,
+    fade-out: float,
+    /// linear gain, 1 being unity — the drawn waveform follows it
+    volume: float,
+    /// a title's words, for the body of a text clip
+    text-body: string,
+    /// The audio envelope as SVG path commands in a 1x1 viewbox, or empty.
+    ///
+    /// Normalised rather than in pixels so the shape survives zoom: the Path
+    /// that draws it is `fit: fill`, which stretches the box onto whatever
+    /// width the clip currently has. Built once in Rust, where the peaks are.
+    wave: string,
+}
+
+/// What a drag from the library will leave on the timeline if it is released
+/// where the pointer is now.
+///
+/// Published by Rust while a drag hovers the lanes rather than worked out in
+/// the panel, so the ghost the lanes draw *is* the drop: the snap, the lane it
+/// lands on and how long it runs are all decided once, in the place that will
+/// have to decide them again when the mouse comes up.
+export struct DropData {
+    /// A drag the timeline will accept is over the lanes. False hides the
+    /// ghost — including for a drag that came from another application, whose
+    /// payload this tree cannot read.
+    active: bool,
+    kind: ClipKind,
+    /// What the clip will be called; drawn in the ghost's header.
+    label: string,
+    start: float,
+    duration: float,
+    row: int,
+}
+
+/// Which axis the alignment segmented control is on. Mirrors TextAlign.
+export enum TextAlignment { left, center, right }
+
+/// One editable property of the selected clip.
+///
+/// The inspector sends a field and a number rather than a struct: a patch of
+/// "everything, with one thing different" makes a late-arriving gesture
+/// overwrite whatever landed while it was in flight. Booleans travel as 0/1
+/// and alignment as its ordinal, which keeps this to two callbacks instead of
+/// one per control.
+export enum ClipField {
+    scale, offset-x, offset-y, rotation, opacity,
+    volume, speed, preserve-pitch, fade-in, fade-out,
+    font-size, font-weight, italic, text-opacity, align,
+    stroke-width, shadow, line-height, tracking,
+}
+
+/// The same again for the properties that are text rather than numbers.
+export enum ClipTextField {
+    content, font-family, color, stroke-color, background,
+}
+
+/// The selected clip, flattened for the inspector.
+///
+/// One struct rather than a model of one, because there is either a selection
+/// or there is not — `present` is what says which, since a struct cannot be
+/// null. Published whole on every change: it is one row, and a partial update
+/// is how a panel ends up showing two clips at once.
+export struct SelectedClipData {
+    present: bool,
+    id: string,
+    name: string,
+    kind: ClipKind,
+    /// Seconds, and the ceiling on a fade: longer than half the clip and the
+    /// two ramps would overlap.
+    duration: float,
+
+    // transform — video and stills
+    scale: float,
+    offset-x: float,
+    offset-y: float,
+    rotation: float,
+    opacity: float,
+
+    // sound — everything but a still
+    /// linear gain; the fader works in decibels and converts
+    volume: float,
+    speed: float,
+    preserve-pitch: bool,
+    fade-in: float,
+    fade-out: float,
+
+    // the overlay, when this is a text clip
+    content: string,
+    font-family: string,
+    /// share of frame height, not points: the frame can be any resolution
+    font-size: float,
+    font-weight: float,
+    italic: bool,
+    fill: color,
+    fill-hex: string,
+    align: TextAlignment,
+    text-opacity: float,
+    stroke-width: float,
+    stroke: color,
+    stroke-hex: string,
+    shadow: bool,
+    /// the plate behind the words; fully transparent means no plate
+    plate: color,
+    plate-hex: string,
+    plated: bool,
+    line-height: float,
+    tracking: float,
+}

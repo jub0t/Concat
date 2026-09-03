@@ -58,7 +58,9 @@ pub struct ProjectInfo {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
-    #[serde(alias = "relay")]
+    // `concat` is what the engine writes now (concat-project doc.rs); the
+    // two aliases are what every project saved before the renames carries.
+    #[serde(alias = "relay", alias = "concat")]
     wolfcut: String,
     name: String,
     video: Video,
@@ -137,7 +139,7 @@ pub fn create(
 /// Writes the whole project document to `wolfcut.json`.
 ///
 /// The document is passed through as opaque JSON rather than being mirrored
-/// into Rust types: the engine (`wolfcut-project`) owns the canonical model and
+/// into Rust types: the engine (`concat-project`) owns the canonical model and
 /// produced this document, and the host has no decisions to make about its
 /// contents beyond writing it safely.
 ///

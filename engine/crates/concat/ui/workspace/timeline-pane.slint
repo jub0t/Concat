@@ -1,0 +1,323 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Pane } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
+import { HairlineSplitter } from "splitter.slint";
+import { ThinScrollbar } from "../primitives/scrollbar.slint";
+import {
+    ClipData, DropData, TimelineTabData, TimelineTool, TrackData, TrackSize,
+} from "../timeline/model.slint";
+import { TimelineTabs } from "../timeline/tabs.slint";
+import { TimelineTray } from "../timeline/tray.slint";
+import { TrackHeaders } from "../timeline/track-header.slint";
+import { Lanes } from "../timeline/lanes.slint";
+
+// The timeline pane: tabs, tray, and then the lane grid — a fixed header
+// column beside the lanes themselves.
+//
+// No PaneHeader, unlike the other three panes. The reference's timeline owns
+// its whole interior (it reuses PANEL_SHELL rather than the Panel component
+// for exactly this reason), and a title strip above the tabs would be a third
+// bar over a panel that already has two.
+export component TimelinePane inherits Rectangle {
+    // ── the tabs ─────────────────────────────────────────────────────────
+    in property <[TimelineTabData]> tabs;
+    in property <int> current-tab;
+
+    callback tab-selected(index: int);
+    callback tab-renamed(index: int, name: string);
+    callback tab-close-requested(index: int);
+    callback tab-added();
+
+    // ── the tray ─────────────────────────────────────────────────────────
+    in property <TimelineTool> tool: TimelineTool.select;
+    in property <bool> snap: true;
+    in property <int> selected-count;
+    in property <string> merge-blocked-because;
+    in property <bool> has-av-tools;
+
+    callback tool-changed(tool: TimelineTool);
+    callback snap-changed(snap: bool);
+    callback split();
+    callback merge();
+    callback delete-selected();
+    callback av-tools();
+
+    in property <[MenuItemData]> av-items;
+    in property <length> av-height;
+    in property <int> av-token;
+
+    /// The token, but only for the pane that asked — see the same pair in
+    /// lanes.slint. Two timeline seats share one token, and a bump on it
+    /// would open a menu in both.
+    property <bool> asked-av;
+    property <int> own-av-token;
+    changed av-token => {
+        if (root.asked-av) {
+            root.asked-av = false;
+            root.own-av-token = root.av-token;
+        }
+    }
+    callback av-selected(id: string);
+    callback add-track();
+    callback zoom-to-fit(width: length);
+    callback zoom(factor: float, anchor-seconds: float);
+
+    // ── the grid ─────────────────────────────────────────────────────────
+    in property <[TrackData]> tracks;
+    in property <[ClipData]> clips;
+    in property <float> playhead;
+    in property <float> frame-rate: 30;
+    in property <float> scroll-left;
+    in property <float> seconds-per-pixel: 0.05;
+    in-out property <length> track-scroll;
+
+    callback scrubbed(seconds: float);
+    callback clip-pressed(id: string, additive: bool, edge: int);
+    callback clip-dragged(seconds: float, pixels: length);
+    callback clip-released();
+    callback razored(id: string, seconds: float);
+    in property <[MenuItemData]> menu-items;
+    in property <length> menu-height;
+    in property <int> menu-token;
+    callback clip-context(id: string);
+    callback menu-selected(id: string);
+
+    callback band-selected(from-seconds: float, to-seconds: float,
+        from-y: length, to-y: length, additive: bool);
+    callback scrolled(seconds: float);
+
+    /// A library card dragged over the lanes, and let go of. See DropData.
+    in property <DropData> drop;
+    callback drag-hovered(payload: string, seconds: float, y: length);
+    callback dropped(payload: string, seconds: float, y: length);
+    callback track-flag-changed(index: int, visible: bool, muted: bool, locked: bool);
+    callback track-sized(index: int, size: TrackSize);
+    callback track-removed(index: int);
+    callback track-renamed(index: int, name: string);
+
+    /// The corner button: show something else in this pane's seat.
+    callback pane-picked(kind: PaneKind);
+    /// Which seat this pane is in. It travels no further than the corner
+    /// button, whose drag payload has to say where it is being taken from.
+    in property <int> pane-seat;
+    /// False when this is the last panel on screen. Travels the same way, and
+    /// only greys the one row that would close it.
+    in property <bool> pane-removable: true;
+    /// That row was used.
+    callback pane-removed();
+
+    /// Wide enough for a lane name and its switches without eliding the name
+    /// at every default. The reference opens at 164px and carries two toggles;
+    /// this column carries four, and 164 left the name with about six
+    /// characters once the remove button appeared on hover. Both numbers went
+    /// up by one 26px slot when the row-height menu joined the switches —
+    /// the alternative was a name that elided at the default width, which is
+    /// the thing this width exists to prevent.
+    in-out property <length> header-width: 234px;
+    /// Narrow enough to be useful as a squeeze, wide enough that the switches
+    /// never overlap the name.
+    in property <length> min-header: 158px;
+
+    /// Where the column was when the divider went down. A drag is one pointer,
+    /// so one slot is enough.
+    property <length> press-width;
+
+    /// The column as it is actually drawn.
+    ///
+    /// `header-width` is where the divider was left, and it outlives the pane
+    /// it was left in: a timeline dropped into a narrow seat, or squeezed by a
+    /// gutter drag, can be narrower than the column it is carrying — and then
+    /// the lanes get a negative width and the whole grid folds up. Capped at
+    /// half, which is the same rule the divider drag below enforces, so a
+    /// pane that grows again finds its column where it left it.
+    property <length> headers-w: Math.max(0px,
+        Math.min(root.header-width, root.width / 2));
+    in property <length> ruler-height: 28px;
+
+    /// Clamped here rather than only where it is written, so a pane dragged
+    /// taller than its own track stack cannot stay parked past the end. The
+    /// stack is measured off its last lane, since the lanes are no longer one
+    /// height to multiply out.
+    property <length> stack-h: root.tracks.length > 0
+        ? root.tracks[root.tracks.length - 1].top
+            + root.tracks[root.tracks.length - 1].height
+        : 0px;
+    property <length> overflow: Math.max(0px,
+        root.stack-h - Math.max(0px, lanes.height - root.ruler-height));
+    property <length> at: Math.max(0px, Math.min(root.overflow, root.track-scroll));
+
+    Pane {
+        // The one edge kept when the outlines came off. The timeline sits
+        // under the three panes above it rather than beside anything, so its
+        // top is the only pane edge in the window that a gutter does not
+        // already draw against a darker ground — and the tab strip runs right
+        // up to it, which without a rule reads as tabs hanging off nothing.
+        //
+        // Inside the Pane and above the tabs, so the layout gives it a row of
+        // its own and nothing has to be nudged down by a pixel to make room.
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        TimelineTabs {
+            tabs: root.tabs;
+            current: root.current-tab;
+
+            selected(index) => { root.tab-selected(index); }
+            renamed(index, name) => { root.tab-renamed(index, name); }
+            close-requested(index) => { root.tab-close-requested(index); }
+            added => { root.tab-added(); }
+
+            PaneSwitcher {
+                kind: PaneKind.timeline;
+                seat: root.pane-seat;
+                removable: root.pane-removable;
+                picked(kind) => { root.pane-picked(kind); }
+                removed => { root.pane-removed(); }
+            }
+        }
+
+        TimelineTray {
+            tool: root.tool;
+            snap: root.snap;
+            selected-count: root.selected-count;
+            merge-blocked-because: root.merge-blocked-because;
+            has-av-tools: root.has-av-tools;
+            readout: Fmt.frames-timecode(root.playhead, root.frame-rate);
+
+            tool-changed(tool) => { root.tool-changed(tool); }
+            snap-changed(snap) => { root.snap-changed(snap); }
+            split => { root.split(); }
+            merge => { root.merge(); }
+            delete-selected => { root.delete-selected(); }
+            av-tools(at-x) => {
+                root.asked-av = true;
+                av.request-x = at-x;
+                // Just under the tray: the menu's own origin is the top of
+                // the lane grid, so a couple of pixels is all the air it
+                // needs to clear the button it hangs from.
+                av.request-y = 2px;
+                root.av-tools();
+            }
+            add-track => { root.add-track(); }
+            fit => { root.zoom-to-fit(lanes.width); }
+            // No anchor from a button: the reference zooms about the pointer
+            // for a wheel and about the view for a press, and a press has no
+            // pointer to speak of. -1 is read as "keep the left edge".
+            zoom(factor) => { root.zoom(factor, -1); }
+        }
+
+        // The lane grid. Positioned by hand for the reason the workspace is:
+        // the header column is a fixed width and the lanes are the remainder,
+        // and saying that outright is shorter than a layout and the stretch
+        // factors that would express it.
+        Rectangle {
+            vertical-stretch: 1;
+            clip: true;
+
+            // Inside the grid rather than beside it: a Pane lays its children
+            // out and a layout owns their y, so a menu placed as a sibling of
+            // the tabs and the tray cannot position itself. Here the origin is
+            // the top of the lanes, which is where the tray's button points
+            // anyway. The popup escapes this element's clip on its own.
+            av := ContextMenu {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                items: root.av-items;
+                menu-height: root.av-height;
+                token: root.own-av-token;
+                selected(id) => { root.av-selected(id); }
+            }
+
+            TrackHeaders {
+                x: 0;
+                y: 0;
+                width: root.headers-w;
+                height: parent.height;
+
+                tracks: root.tracks;
+                ruler-height: root.ruler-height;
+                track-scroll: root.at;
+                overflow: root.overflow;
+
+                scrolled(to) => { root.track-scroll = to; }
+                flag-changed(index, visible, muted, locked) => {
+                    root.track-flag-changed(index, visible, muted, locked);
+                }
+                sized(index, size) => { root.track-sized(index, size); }
+                removed(index) => { root.track-removed(index); }
+                renamed(index, name) => { root.track-renamed(index, name); }
+            }
+
+            HairlineSplitter {
+                x: root.headers-w;
+                y: 0;
+                height: parent.height;
+
+                pressed => { root.press-width = root.header-width; }
+                moved(delta) => {
+                    // Capped at half the pane as well as floored: a header
+                    // column dragged past the lanes leaves nothing to edit.
+                    root.header-width = Math.max(root.min-header,
+                        Math.min(parent.width / 2, root.press-width + delta));
+                }
+            }
+
+            lanes := Lanes {
+                x: root.headers-w + 1px;
+                y: 0;
+                width: Math.max(0px, parent.width - root.headers-w - 1px);
+                height: parent.height;
+
+                tracks: root.tracks;
+                clips: root.clips;
+                tool: root.tool;
+                playhead: root.playhead;
+                frame-rate: root.frame-rate;
+                scroll-left: root.scroll-left;
+                seconds-per-pixel: root.seconds-per-pixel;
+                track-scroll: root.at;
+                ruler-height: root.ruler-height;
+
+                scrubbed(seconds) => { root.scrubbed(seconds); }
+                clip-pressed(id, additive, edge) => { root.clip-pressed(id, additive, edge); }
+                clip-dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
+                clip-released => { root.clip-released(); }
+                razored(id, seconds) => { root.razored(id, seconds); }
+                menu-items: root.menu-items;
+                menu-height: root.menu-height;
+                menu-token: root.menu-token;
+                clip-context(id) => { root.clip-context(id); }
+                menu-selected(id) => { root.menu-selected(id); }
+                band-selected(a, b, c, d, additive) => {
+                    root.band-selected(a, b, c, d, additive);
+                }
+                scrolled(seconds) => { root.scrolled(seconds); }
+
+                drop: root.drop;
+                drag-hovered(payload, seconds, row) => {
+                    root.drag-hovered(payload, seconds, row);
+                }
+                dropped(payload, seconds, row) => {
+                    root.dropped(payload, seconds, row);
+                }
+                // The stack scrolls here rather than in Rust: it is a property
+                // of looking at the timeline, not of the edit, and nothing on
+                // the Rust side needs to know where the view is parked.
+                track-scrolled(pixels) => {
+                    root.track-scroll = Math.max(0px,
+                        Math.min(root.overflow, root.at + pixels));
+                }
+                zoomed(factor, anchor) => { root.zoom(factor, anchor); }
+            }
+        }
+    }
+}

@@ -5,7 +5,7 @@
 //!
 //! Rendering used to live in this file - transitions, timeline conversion,
 //! the frame loop, the paused-monitor composite. All of it is
-//! `wolfcut-export` now, where the CLI and any other frontend render the
+//! `concat-export` now, where the CLI and any other frontend render the
 //! same way and the doctrine holds: the host converts wire formats and
 //! reports progress, nothing more. What remains here is exactly that -
 //! turning the engine's progress callback into `export://progress` events.
@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 use serde::Serialize;
 use tauri::Emitter;
 
-pub use wolfcut_export::{
+pub use concat_export::{
     ClipKind, ExportClip, ExportRequest, PreviewFrameRequest, Reporter, TransitionSpec,
     preview_frame, preview_prefetch, render,
 };
@@ -31,7 +31,7 @@ struct Progress {
 
 /// Renders `request` and returns the path written. Tauri-facing wrapper that
 /// reports through the `export://progress` event; the logic is in
-/// [`wolfcut_export::render`].
+/// [`concat_export::render`].
 pub fn run(
     app: &tauri::AppHandle,
     request: ExportRequest,

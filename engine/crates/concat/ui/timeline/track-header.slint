@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { ThinScrollbar } from "../primitives/scrollbar.slint";
+import { TrackData, TrackSize } from "model.slint";
+
+// The lane labels, in a fixed column beside the lanes.
+//
+// Both a visibility and a mute toggle on every row, because a track is not
+// typed — the same lane can be carrying a video clip and an mp3 side by side,
+// and each needs its own switch.
+//
+// The column scrolls with the lanes rather than on its own: the offset is the
+// caller's `track-scroll`, so the labels and the lanes cannot drift apart.
+// There is one source of truth for how far down the stack we are.
+//
+// The bar that drives it lives here, at the leading edge of this column — the
+// reference gets one for free by making the header column a real scroll
+// container, and this is the same bar in the one place a stack of lanes can
+// carry one without landing on top of a clip.
+
+// The row-height dropdown, one per lane.
+//
+// A menu and not a cycling button: four values is one too many to walk
+// through blind, and the list is also where "Auto" gets to say that it is the
+// default rather than a fourth size. Sized and placed like the switches beside
+// it, so the row reads as one strip of controls.
+component SizeMenu inherits Rectangle {
+    in property <TrackSize> current;
+    in property <string> name;
+
+    callback picked(size: TrackSize);
+
+    width: 26px;
+    min-height: 26px;
+
+    property <[string]> labels: ["Auto", "Small", "Medium", "Large"];
+    property <length> row-h: 24px;
+    /// The two directions between a TrackSize and its row. Slint has no map,
+    /// and four values do not earn one.
+    pure function chosen() -> int {
+        return root.current == TrackSize.small ? 1
+            : root.current == TrackSize.medium ? 2
+            : root.current == TrackSize.large ? 3
+            : 0;
+    }
+    pure function size-at(index: int) -> TrackSize {
+        return index == 1 ? TrackSize.small
+            : index == 2 ? TrackSize.medium
+            : index == 3 ? TrackSize.large
+            : TrackSize.auto;
+    }
+
+    IconButton {
+        glyph: Glyph.rows;
+        label: "Row height for " + root.name;
+        icon-size: 12px;
+        // Lit only when the lane has been sized by hand: auto is the resting
+        // state, and a button lit on every row would say nothing.
+        checked: root.current != TrackSize.auto;
+        clicked => { list.show(); }
+    }
+
+    list := PopupWindow {
+        // Hung from the button's trailing edge rather than its leading one:
+        // this is the last control in the row on a narrow column, and a list
+        // opening rightwards would open off the pane.
+        x: 26px - self.width;
+        y: 26px;
+        width: 116px;
+        height: 4 * root.row-h + 8px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                for label[index] in root.labels: Rectangle {
+                    height: root.row-h;
+                    border-radius: Theme.r-sm;
+                    background: pick.has-hover ? Theme.field-hover : Colors.transparent;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 6px;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: label;
+                            color: pick.has-hover ? Theme.fg : Theme.fg-muted;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        if index == root.chosen(): VerticalLayout {
+                            alignment: center;
+                            Icon { glyph: Glyph.check; size: 12px; tint: Theme.accent; }
+                        }
+                    }
+
+                    pick := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.picked(root.size-at(index));
+                            list.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Header inherits Rectangle {
+    in property <TrackData> track;
+    in property <bool> removable;
+
+    callback flag-changed(visible: bool, muted: bool, locked: bool);
+    callback sized(size: TrackSize);
+    callback removed();
+    callback renamed(name: string);
+
+    property <bool> renaming;
+    /// Neither seen nor heard: the name goes dim, so a lane that contributes
+    /// nothing to the render says so at a glance.
+    property <bool> silent: !root.track.visible && root.track.muted;
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    row := TouchArea {
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 4px;
+            padding-top: 6px;
+            spacing: 1px;
+            // No `alignment: start` here. A start-aligned row gives every
+            // child its preferred width and stops stretching altogether — and
+            // the name column's preferred width is nothing, so the label
+            // vanished and the lane read as a bare row of switches. The
+            // switches are start-aligned on the *cross* axis individually,
+            // which is the part that was actually wanted.
+
+            VerticalLayout {
+                alignment: start;
+                horizontal-stretch: 1;
+
+                Rectangle {
+                    height: 20px;
+                    horizontal-stretch: 1;
+
+                    name := Text {
+                        x: 0;
+                        y: (parent.height - self.height) / 2;
+                        width: parent.width;
+                        text: root.track.name;
+                        color: root.silent ? Theme.fg-dim : Theme.fg;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        visible: !root.renaming;
+                    }
+
+                    // Double-click to rename, commit on blur — the same rule
+                    // the tab strip follows.
+                    if !root.renaming: TouchArea {
+                        double-clicked => { root.renaming = true; }
+                    }
+
+                    if root.renaming: Rectangle {
+                        border-radius: Theme.r-xs;
+                        background: Theme.well;
+                        border-width: 1px;
+                        border-color: Theme.accent;
+                        clip: true;
+
+                        rename := TextInput {
+                            x: 4px;
+                            y: (parent.height - self.height) / 2;
+                            width: parent.width - 8px;
+                            text: root.track.name;
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            single-line: true;
+                            selection-background-color: Theme.accent;
+                            selection-foreground-color: Theme.on-accent;
+
+                            init => {
+                                self.focus();
+                                self.select-all();
+                            }
+
+                            changed has-focus => {
+                                if (!self.has-focus && root.renaming) {
+                                    root.renamed(self.text);
+                                    root.renaming = false;
+                                }
+                            }
+
+                            accepted => { self.clear-focus(); }
+
+                            key-pressed(event) => {
+                                if (event.text == Key.Escape) {
+                                    self.text = root.track.name;
+                                    self.clear-focus();
+                                    return EventResult.accept;
+                                }
+                                return EventResult.reject;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Revealed on hover, and never on the last lane standing.
+            if root.removable && row.has-hover && !root.renaming: VerticalLayout {
+                alignment: start;
+                IconButton {
+                    glyph: Glyph.close;
+                    label: "Remove " + root.track.name;
+                    icon-size: 11px;
+                    danger: true;
+                    clicked => { root.removed(); }
+                }
+            }
+
+            VerticalLayout {
+                alignment: start;
+                SizeMenu {
+                    current: root.track.size;
+                    name: root.track.name;
+                    picked(size) => { root.sized(size); }
+                }
+            }
+
+            VerticalLayout {
+                alignment: start;
+                IconButton {
+                    glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
+                    label: root.track.locked ? "Unlock " + root.track.name
+                        : "Lock " + root.track.name;
+                    icon-size: 12px;
+                    checked: root.track.locked;
+                    clicked => {
+                        root.flag-changed(root.track.visible, root.track.muted,
+                            !root.track.locked);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: start;
+                IconButton {
+                    // Checked when the lane is *off*: the button is lit to say
+                    // something is being withheld, which is the state worth
+                    // announcing.
+                    glyph: root.track.visible ? Glyph.eye : Glyph.eye-off;
+                    label: root.track.visible ? "Hide " + root.track.name
+                        : "Show " + root.track.name;
+                    icon-size: 12px;
+                    checked: !root.track.visible;
+                    clicked => {
+                        root.flag-changed(!root.track.visible, root.track.muted,
+                            root.track.locked);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: start;
+                IconButton {
+                    glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
+                    label: root.track.muted ? "Unmute " + root.track.name
+                        : "Mute " + root.track.name;
+                    icon-size: 12px;
+                    checked: root.track.muted;
+                    clicked => {
+                        root.flag-changed(root.track.visible, !root.track.muted,
+                            root.track.locked);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component TrackHeaders inherits Rectangle {
+    /// Top lane first, so index 0 is the row drawn at the top of the lanes.
+    /// Each row carries its own height and where it starts; see TrackData.
+    in property <[TrackData]> tracks;
+    in property <length> ruler-height: 28px;
+    in property <length> track-scroll;
+    /// How much taller the stack is than the room it has. Handed down rather
+    /// than measured here: the pane already works it out to clamp the offset,
+    /// and two answers to one question is one answer too many.
+    in property <length> overflow;
+
+    /// The bar was dragged. Absolute, and already inside 0..overflow.
+    callback scrolled(offset: length);
+
+    callback flag-changed(index: int, visible: bool, muted: bool, locked: bool);
+    callback sized(index: int, size: TrackSize);
+    callback removed(index: int);
+    callback renamed(index: int, name: string);
+
+    clip: true;
+
+    for track[index] in root.tracks: Header {
+        x: 0;
+        y: root.ruler-height + track.top - root.track-scroll;
+        width: parent.width;
+        height: track.height;
+        // Clipped to the stack rather than allowed to ride over the ruler,
+        // which a scrolled row would otherwise do.
+        visible: self.y + track.height > root.ruler-height && self.y < root.height;
+
+        track: track;
+        removable: root.tracks.length > 1;
+
+        flag-changed(visible, muted, locked) => {
+            root.flag-changed(index, visible, muted, locked);
+        }
+        sized(size) => { root.sized(index, size); }
+        removed => { root.removed(index); }
+        renamed(name) => { root.renamed(index, name); }
+    }
+
+    // The bar, over the rows and under the corner. On the trailing edge,
+    // where the stack it scrolls ends and where a scroll container puts one —
+    // the reference gets exactly this bar there by making the header column a
+    // real one. Short and inset rather than full-height: a stack that
+    // overflows by a row would otherwise draw a thumb the length of the
+    // column, and a mark that long stops reading as something you can take
+    // hold of.
+    ThinScrollbar {
+        x: parent.width - self.width - 1px;
+        y: root.ruler-height + 4px;
+        height: Math.max(0px, root.height - root.ruler-height - 8px);
+        viewport: self.height;
+        content: self.height + root.overflow;
+        offset: root.track-scroll;
+        min-thumb: 16px;
+        max-thumb: 0.5;
+        scrolled(to) => { root.scrolled(to); }
+    }
+
+    // The ruler corner: opposite the ruler, and not part of the scrolling
+    // stack. Declared after the rows so it paints over whichever one is
+    // half-scrolled behind it — `visible` above drops a row only once it is
+    // fully past, and this covers the sliver in between.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: root.ruler-height;
+        background: Theme.ruler;
+
+        Rectangle {
+            x: 0;
+            y: parent.height - 1px;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+        }
+    }
+}

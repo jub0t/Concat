@@ -9,16 +9,16 @@ rust-version = "1.93"
 license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
 
 [workspace.dependencies]
-wolfcut-core = { path = "crates/wolfcut-core" }
-wolfcut-media = { path = "crates/wolfcut-media" }
-wolfcut-render = { path = "crates/wolfcut-render" }
-wolfcut-export = { path = "crates/wolfcut-export" }
+concat-core = { path = "crates/concat-core" }
+concat-media = { path = "crates/concat-media" }
+concat-render = { path = "crates/concat-render" }
+concat-export = { path = "crates/concat-export" }
 
 serde_json = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 
-# The GPU compositor, behind wolfcut-render's `gpu` feature. A heavy tree, which
+# The GPU compositor, behind concat-render's `gpu` feature. A heavy tree, which
 # is exactly why it is optional: engine-only work never pays for it.
 wgpu = "30"
 pollster = "0.4"
@@ -34,6 +34,41 @@ too_many_arguments = "allow"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# The shipping build of the editor window: `cargo build --profile app -p concat`.
+#
+# Every knob here is set for the fastest possible binary, and each one costs
+# build time. It is a separate profile rather than settings on `release`
+# because two of them are wrong for the rest of the workspace: `panic =
+# "abort"` breaks `cargo test --release`, and stripping symbols is only
+# harmless for a binary nobody profiles. Measured on the R&D tree it came
+# from, on an M5: clean build 3m18s, binary 22MB, of which about 1.7MB is
+# the fonts and effect previews the build script embeds.
+#
+# What is deliberately not done, so nobody goes looking for it twice:
+#
+#   - No `-C target-cpu=native`. It makes the binary local-only, and the
+#     research tree that used it says so in its own .cargo/config.toml.
+#   - No alternative allocator. It is a dependency for a win nobody has
+#     measured.
+#   - Skia's partial rendering is still off, and cannot be turned on from
+#     here: every dirty property redraws the whole window on every GPU
+#     surface. That is the shape of the UI's frame cost, and no flag in this
+#     file changes it.
+[profile.app]
+inherits = "release"
+# Fat LTO: re-optimise the whole dependency graph - slint, skia, winit and
+# the UI crate - as one unit, so calls across crate boundaries inline.
+lto = "fat"
+# No unwind tables and no landing pads: every call site loses its unwind
+# edge, which frees the optimiser and shrinks the binary. This is a GUI
+# binary with no tests and no catch_unwind, and unwinding through the ObjC
+# frames of the macOS event loop was never well-defined anyway - winit only
+# catches panics to avoid exactly that.
+panic = "abort"
+# Symbols are worth nothing in a release binary that is not being profiled.
+# Build with `--profile release` instead before running Instruments or perf.
+strip = "symbols"
 
 # Decoding and compositing are unusably slow in an unoptimised build, even when
 # the rest of the engine is being debugged.

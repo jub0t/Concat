@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { TimelineTabData } from "model.slint";
+
+// The timeline tabs, one per timeline in the project — sequences, in the
+// vocabulary every other editor uses. Kept above the tool tray so switching
+// reads as changing documents rather than changing tools.
+//
+// Behaviour is the reference's (TimelinePanel.tsx): click switches,
+// double-click renames in place committing on blur, and the close button asks
+// — deleting a timeline throws away every clip on it, so this strip never
+// deletes directly. The shape is the one from web/'s timeline: a squared-off
+// tab whose active state is a raised ground plus a 2px accent bar on its *top*
+// edge, inset from the corners. The bar sits away from the content it opens
+// onto, so it reads as a label on the tab and not as an underline on the panel.
+//
+// Not ported: dragging a tab to reorder. It wants a lifted tab riding the
+// pointer while its neighbours ease aside, which is a whole gesture rather
+// than a detail of this one.
+
+component Tab inherits Rectangle {
+    in property <string> name;
+    in property <bool> current;
+    /// last tab standing: nothing to close down to
+    in property <bool> closable;
+
+    callback selected();
+    callback renamed(name: string);
+    callback close-requested();
+
+    property <bool> renaming;
+    /// The label's natural width, capped. Read from `preferred-width` and not
+    /// from the label's actual width: the label is sized *from* this, and
+    /// asking it how wide it ended up is a loop.
+    property <length> text-w: Math.min(130px, label.preferred-width);
+    /// room for the padding, plus the close button when there is one
+    property <length> furniture: root.closable ? 38px : 22px;
+
+    width: renaming ? 112px : root.text-w + root.furniture;
+    height: 30px;
+    border-radius: Theme.r-sm;
+    // Bottom corners squared: the tab meets the strip's edge, it does not
+    // float above it. Slint has no per-corner radius, so the two lower corners
+    // are filled back in by the band below.
+    background: root.current ? Theme.raised
+        : touch.has-hover ? Theme.field
+        : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // squares off the bottom corners the radius above rounded
+    Rectangle {
+        x: 0;
+        y: parent.height - Theme.r-sm;
+        width: parent.width;
+        height: Theme.r-sm;
+        background: parent.background;
+    }
+
+    if root.current: Rectangle {
+        x: 6px;
+        y: 0;
+        width: parent.width - 12px;
+        height: 2px;
+        background: Theme.accent;
+    }
+
+    // Everything sits inside the hover target, so the close button revealed on
+    // hover cannot blink itself out of existence by taking the hover away from
+    // the tab underneath it. Same rule as MediaCard.
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.selected();
+        }
+        double-clicked => {
+            root.renaming = true;
+        }
+
+        label := Text {
+            x: 10px;
+            y: (parent.height - self.height) / 2;
+            width: root.text-w;
+            text: root.name;
+            color: root.current ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+            visible: !root.renaming;
+        }
+
+        // Revealed on hover, like the reference's — a row of permanent x's over
+        // a strip of tabs is a row of invitations to lose an edit.
+        if root.closable && touch.has-hover && !root.renaming: Rectangle {
+            x: parent.width - self.width - 5px;
+            y: (parent.height - self.height) / 2;
+            width: 16px;
+            height: 16px;
+            border-radius: Theme.r-xs;
+            background: shut.has-hover ? Theme.danger-soft : Colors.transparent;
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.close;
+                size: 10px;
+                tint: shut.has-hover ? Theme.danger : Theme.fg-dim;
+            }
+
+            shut := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    // Must not also switch tabs: closing an inactive timeline
+                    // should not first drag the editor onto it. A TouchArea
+                    // declared inside another one takes the click outright, so
+                    // this stops here without needing to say so.
+                    root.close-requested();
+                }
+            }
+        }
+    }
+
+    if root.renaming: Rectangle {
+        x: 4px;
+        y: 4px;
+        width: parent.width - 8px;
+        height: parent.height - 8px;
+        border-radius: Theme.r-xs;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: Theme.accent;
+        clip: true;
+
+        rename := TextInput {
+            x: 5px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 10px;
+            text: root.name;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            single-line: true;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+
+            init => {
+                self.focus();
+                self.select-all();
+            }
+
+            // Commit on blur, so clicking away saves rather than discards —
+            // the rule every rename-in-place in this app follows.
+            changed has-focus => {
+                if (!self.has-focus && root.renaming) {
+                    root.renamed(self.text);
+                    root.renaming = false;
+                }
+            }
+
+            accepted => {
+                self.clear-focus();
+            }
+
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    self.text = root.name;
+                    self.clear-focus();
+                    return EventResult.accept;
+                }
+                return EventResult.reject;
+            }
+        }
+    }
+}
+
+export component TimelineTabs inherits Rectangle {
+    in property <[TimelineTabData]> tabs;
+    in property <int> current;
+
+    callback selected(index: int);
+    callback renamed(index: int, name: string);
+    callback close-requested(index: int);
+    callback added();
+
+    height: 32px;
+    background: Theme.well;
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        // Bottom-aligned: the tabs stand on the strip's edge, and the add
+        // button beside them sits on the same baseline rather than floating.
+        alignment: start;
+        spacing: 2px;
+
+        for tab[index] in root.tabs: VerticalLayout {
+            alignment: end;
+            Tab {
+                name: tab.name;
+                current: index == root.current;
+                closable: root.tabs.length > 1;
+
+                selected => { root.selected(index); }
+                renamed(name) => { root.renamed(index, name); }
+                close-requested => { root.close-requested(index); }
+            }
+        }
+
+        VerticalLayout {
+            alignment: end;
+            padding-left: 2px;
+            padding-bottom: 4px;
+
+            add := Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: Theme.r-xs;
+                background: plus.has-hover ? Theme.field : Colors.transparent;
+
+                animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.plus;
+                    size: 12px;
+                    tint: plus.has-hover ? Theme.fg : Theme.fg-dim;
+                }
+
+                plus := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.added(); }
+                }
+            }
+        }
+    }
+
+    // The trailing slot, for whatever the pane wants in the corner of its
+    // top bar. A second layer over the strip rather than a child of its
+    // layout: that one is start-aligned so the tabs keep their own width, and
+    // a start-aligned layout has no spare space to push a trailing child into.
+    // Nothing here is hit-testable, so the tabs underneath keep their clicks.
+    //
+    // End-aligned rather than placed at a coordinate, so whatever is put in it
+    // is asked how wide it is instead of being told.
+    HorizontalLayout {
+        alignment: end;
+        padding-right: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            @children
+        }
+    }
+}

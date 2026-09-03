@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { EffectData } from "demo/effects-panel.slint";
+import { MediaFilter, MediaItemData } from "workspace/media-pane.slint";
+import { DockDivider, DockSide, SeatBox } from "dock.slint";
+import { PaneKind } from "workspace/pane-switcher.slint";
+import { MenuItemData } from "primitives/context-menu.slint";
+import {
+    ClipData, ClipField, ClipTextField, DropData, SelectedClipData,
+    TimelineTabData, TimelineTool, TrackData, TrackSize,
+} from "timeline/model.slint";
+
+// Everything the four editor views read and everything they report, in one
+// place that is not a parent.
+//
+// It was threaded down instead: Rust set a hundred properties on the window,
+// the window passed them to the workspace, and the workspace passed each one
+// on to the pane that wanted it. That is the ordinary way to do it and it was
+// fine while each view existed exactly once — the chain had one link per view.
+//
+// Two seats showing the same view breaks it. A view that can appear twice has
+// to be *instantiated* twice, and every instance would need its own copy of
+// the same hundred bindings; four seats times four views is sixteen copies of
+// a wiring harness that already ran to four hundred lines at one copy each.
+//
+// A global has no such arithmetic. Rust binds it once, any number of instances
+// read it, and a seat is then only a box with a name in it — see Seat, which
+// is the whole of what forwarding is left.
+export global Editor {
+    // ── the layout ───────────────────────────────────────────────────────
+    //
+    // The arrangement is a tree and it lives in Rust; see dock.slint. These
+    // two are that tree walked into boxes, and everything the workspace draws
+    // it draws out of them.
+    in-out property <[SeatBox]> seats;
+    in-out property <[DockDivider]> dividers;
+
+    /// The workspace's own box, on the way *up*. Rust lays out in pixels
+    /// because the minimum a pane may be squeezed to is a number of pixels,
+    /// and it cannot know the window's size any other way.
+    callback workspace-resized(width: length, height: length);
+
+    /// A seat's dropdown was used: show this view in this seat, and leave
+    /// every other seat alone.
+    callback dock-set(seat: int, kind: PaneKind);
+    /// The window's add-panel list was used. Where it lands is the layout's
+    /// business, not the caller's — see `dock-add` in main.rs.
+    callback dock-add(kind: PaneKind);
+    /// A seat closed itself. The seat beside it takes the room, which is the
+    /// split they were two halves of ceasing to exist.
+    callback dock-remove(seat: int);
+    /// A panel was dragged from one seat and dropped on another. The middle
+    /// trades the two; an edge splits the seat it landed on.
+    callback dock-dropped(from: int, onto: int, side: DockSide);
+
+    /// A gutter went down, and then moved. Two callbacks rather than one
+    /// absolute position, because the ratio a drag is adjusting is the one it
+    /// started from — see the pane splitters, which have the same shape.
+    callback divider-pressed(index: int);
+    callback divider-dragged(index: int, delta: length);
+
+    // ── the library ──
+    in-out property <[MediaItemData]> media;
+    in-out property <int> media-count-all;
+    in-out property <int> media-count-video;
+    in-out property <int> media-count-audio;
+    in-out property <int> media-count-images;
+    in-out property <int> media-selected-count;
+    in-out property <bool> importing;
+
+    callback import-media();
+    callback media-filter-changed(filter: MediaFilter);
+    callback media-select(id: int, additive: bool);
+    /// A marquee closed over the bin's grid, as the block of cells it caught.
+    /// See MediaGrid.band-selected: the grid is placed by arithmetic, so the
+    /// panel resolves the geometry and Rust only maps cells back to rows.
+    callback media-band-selected(columns: int, from-col: int, to-col: int,
+        from-row: int, to-row: int, additive: bool);
+    callback media-remove(id: int);
+    callback media-remove-selected();
+    callback media-activate(id: int);
+
+    // library catalogue pages
+    callback library-add-text();
+    callback library-apply-effect(effect-id: string);
+    callback library-apply-transition(transition-id: string);
+    callback library-apply-filter(filter-id: string, label: string);
+    callback library-save-template();
+
+    // ── the inspector ──
+    in-out property <SelectedClipData> selected-clip;
+    callback clip-set(field: ClipField, value: float);
+    callback clip-set-text(field: ClipTextField, value: string);
+    callback clip-set-colour(field: ClipTextField, value: color);
+    callback clip-commit();
+
+    in-out property <[EffectData]> video-effects;
+    in-out property <[EffectData]> audio-effects;
+    in-out property <float> level;
+    in-out property <float> peak;
+    callback add-effect(audio: bool);
+    callback remove-effect(id: int);
+
+    // ── the monitor ──
+    in-out property <int> output-width;
+    in-out property <int> output-height;
+    in-out property <int> ratio-index;
+    in-out property <int> quality-index;
+    in-out property <bool> playing;
+    in-out property <bool> has-picture;
+    in-out property <string> preview-clip-name;
+    in-out property <float> preview-duration;
+
+    callback play-toggled();
+    callback seek(seconds: float);
+    callback step-frames(frames: float);
+    callback ratio-changed(index: int);
+    callback quality-changed(index: int);
+
+    // ── the timeline ──
+    in-out property <[TimelineTabData]> timeline-tabs;
+    in-out property <int> timeline-current-tab;
+    in-out property <[TrackData]> tracks;
+    in-out property <[ClipData]> clips;
+    in-out property <TimelineTool> tool;
+    in-out property <bool> snap;
+    in-out property <int> selected-count;
+    in-out property <string> merge-blocked-because;
+    in-out property <bool> has-av-tools;
+    in-out property <float> playhead;
+    in-out property <float> frame-rate;
+    in-out property <float> scroll-left;
+    in-out property <float> seconds-per-pixel;
+
+    callback tab-selected(index: int);
+    callback tab-renamed(index: int, name: string);
+    callback tab-close-requested(index: int);
+    callback tab-added();
+    callback tool-changed(tool: TimelineTool);
+    callback snap-changed(snap: bool);
+    callback split();
+    callback merge();
+    callback delete-selected();
+    callback av-tools();
+    in-out property <[MenuItemData]> av-items;
+    in-out property <length> av-height;
+    in-out property <int> av-token;
+    callback av-selected(id: string);
+    callback add-track();
+    callback zoom-to-fit(width: length);
+    callback zoom(factor: float, anchor-seconds: float);
+    callback scrubbed(seconds: float);
+    callback clip-pressed(id: string, additive: bool, edge: int);
+    callback clip-dragged(seconds: float, pixels: length);
+    callback clip-released();
+    callback razored(id: string, seconds: float);
+    in-out property <[MenuItemData]> menu-items;
+    in-out property <length> menu-height;
+    in-out property <int> menu-token;
+    callback clip-context(id: string);
+    callback menu-selected(id: string);
+
+    callback band-selected(from-seconds: float, to-seconds: float,
+        from-y: length, to-y: length, additive: bool);
+    callback scrolled(seconds: float);
+
+    /// A library card dragged onto the lanes. See DropData in the timeline's
+    /// model: the ghost is Rust's answer to the hover, not the panel's guess.
+    in-out property <DropData> drop;
+    callback drag-hovered(payload: string, seconds: float, y: length);
+    callback dropped(payload: string, seconds: float, y: length);
+    callback track-flag-changed(index: int, visible: bool, muted: bool, locked: bool);
+    callback track-sized(index: int, size: TrackSize);
+    callback track-removed(index: int);
+    callback track-renamed(index: int, name: string);
+}

@@ -15,8 +15,8 @@ export TS_RS_EXPORT_DIR="$root/desktop/src/lib/generated"
 part="${1:-all}"
 
 if [ "$part" = "engine" ] || [ "$part" = "all" ]; then
-  (cd "$root/engine" && cargo test -p wolfcut-project -p wolfcut-export \
-    --features wolfcut-project/types,wolfcut-export/types export_bindings)
+  (cd "$root/engine" && cargo test -p concat-project -p concat-export \
+    --features concat-project/types,concat-export/types export_bindings)
 fi
 
 if [ "$part" = "host" ] || [ "$part" = "all" ]; then

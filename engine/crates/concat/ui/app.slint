@@ -1,0 +1,350 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// Inter is bundled rather than assumed: the web build names it first in a
+// font stack and degrades to the system UI face, but a desktop binary should
+// look the same on a machine that has never installed it. One file per weight
+// the design uses — 400 body, 500 titles, 600 the page heading.
+import "fonts/Inter-Regular.ttf";
+import "fonts/Inter-Medium.ttf";
+import "fonts/Inter-SemiBold.ttf";
+
+// Synonym, the reference editor's text face (desktop/src/styles.css names it
+// --font-sans). It ships there as one variable woff2, which Slint cannot load,
+// so these are static instances cut from it at the three weights the theme
+// uses. Licensed under the ITF Free Font License — see fonts/LICENSE-Synonym.
+import "fonts/Synonym-Regular.ttf";
+import "fonts/Synonym-Medium.ttf";
+import "fonts/Synonym-SemiBold.ttf";
+
+import { Theme } from "theme/theme.slint";
+import { Bezier, Curves, Fmt, Payload } from "util.slint";
+import { EffectData } from "demo/effects-panel.slint";
+import { MediaFilter, MediaItemData, MediaKind } from "workspace/media-pane.slint";
+import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slint";
+import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
+import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
+import { DockDivider, DockSide, SeatBox } from "dock.slint";
+import { Editor } from "editor.slint";
+import { PaneKind } from "workspace/pane-switcher.slint";
+import { RecentProjectData, StartData, StartScreen } from "start.slint";
+import { TitleBar } from "title-bar.slint";
+import { ToastData, ToastLayer } from "primitives/toast.slint";
+import { TooltipLayer } from "primitives/tooltip.slint";
+import { Workspace } from "workspace/workspace.slint";
+import {
+    ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
+    TextAlignment, TimelineTabData, TimelineTool, TrackData, TrackSize,
+} from "timeline/model.slint";
+
+// Re-exported so main.rs can reach the globals and the struct.
+export {
+    Curves, Fmt, Payload, Theme, Bezier, Editor,
+    DockDivider, DockSide, PaneKind, SeatBox,
+    EffectData, MediaFilter, MediaItemData, MediaKind,
+    ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
+    TextAlignment, TimelineTabData, TimelineTool, TrackData, TrackSize,
+    MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
+    RecentProjectData, StartData, SystemFactData, ToastData,
+}
+
+export component App inherits Window {
+    title: "Concat";
+    background: Theme.page;
+    default-font-family: Theme.font;
+    default-font-size: Theme.fs;
+    // One line rather than a weight on every Text: everything inherits the
+    // compensated body weight, and only titles override it. See theme.slint.
+    default-font-weight: Theme.weight-body;
+    preferred-width: 1400px;
+    preferred-height: 900px;
+    // Below this the three columns cannot all hold their minimum and the panes
+    // start eating each other.
+    min-width: 900px;
+    min-height: 560px;
+    // So the shortcuts work before anything has been clicked. Without it the
+    // window opens with nothing focused, and a key would have nowhere to be
+    // delivered from until the first press landed somewhere.
+    forward-focus: keys;
+
+    // The editor's own state and actions live on the Editor global rather
+    // than here — see editor.slint. What is left on the window is the window:
+    // its title bar, its menus, and the two sheets that cover everything.
+
+    // ── the launch screen ────────────────────────────────────────────────
+    //
+    // Which screen the window is showing. The editor is not built until a
+    // project exists, so nothing behind this is instantiated meanwhile — and
+    // the workspace, when it does arrive, arrives with every callback already
+    // bound rather than during the window's own construction.
+    in property <bool> on-start: true;
+    in property <StartData> start;
+    in property <[string]> start-resolutions;
+    in property <[string]> start-rates;
+    in property <[RecentProjectData]> recents;
+
+    callback start-name-edited(name: string);
+    callback start-location-edited(path: string);
+    callback start-browse();
+    callback start-resolution-changed(index: int);
+    callback start-rate-changed(index: int);
+    callback start-create();
+    callback start-open-recent(path: string);
+    callback start-forget-recent(path: string);
+    callback start-dismiss-error();
+
+    // Title bar. The drag/maximize pair must be handled in main.rs — a window
+    // cannot drag itself from inside the scene graph; the rest are seams like
+    // the library callbacks above.
+    in property <string> project-name: "Untitled project";
+    in property <string> project-status: "saved";
+    in property <bool> macos;
+
+    /// The File / Edit / View menus. Built in Rust like every other menu here,
+    /// because what belongs on them depends on the project.
+    in property <int> open-menu: -1;
+    in property <[MenuItemData]> app-menu-items;
+    in property <length> app-menu-height;
+    in property <int> app-menu-token;
+    callback menu-opened(index: int);
+    callback app-menu-selected(id: string);
+
+    callback titlebar-begin-drag();
+    callback titlebar-toggle-maximize();
+    // The dialogs. Both are held at the root because Slint has no portal: a
+    // modal has to be declared where it is drawn, and it is drawn over
+    // everything.
+    in property <ExportData> export;
+    in property <SettingsData> settings;
+    in property <[ModelData]> transcribers;
+    in property <[ModelData]> voices;
+    in property <[string]> languages;
+    /// Settings > About's copyable block. Gathered once in main.rs and
+    /// never republished — every line of it is fixed for the life of the
+    /// process.
+    in property <[SystemFactData]> system-facts;
+    in property <string> system-report;
+
+    callback export-closed();
+    callback export-name-edited(name: string);
+    callback export-browse();
+    callback export-resolution-changed(index: int);
+    callback export-rate-changed(index: int);
+    callback export-quality-changed(index: int);
+    callback export-start();
+    callback export-cancel();
+    callback export-reveal();
+    callback export-again();
+
+    callback settings-closed();
+    callback settings-page-changed(index: int);
+    callback settings-language-changed(index: int);
+    callback settings-theme-changed(dark: bool);
+    callback settings-transcribe-language-changed(index: int);
+    callback model-activated(id: string);
+    callback model-download(id: string);
+    callback model-cancel(id: string);
+    callback model-remove(id: string);
+
+    callback open-settings();
+    callback export-clicked();
+
+    /// The bottom-right notice: what just happened, said once. Set from Rust
+    /// and watched by its token — see ToastLayer, which owns the timing.
+    in property <ToastData> toast;
+
+    // The level feed is a Rust timer, and a property cannot reach across to
+    // stop it, so the hover edge is forwarded as a callback: Rust arms the
+    // timer on the way in and disarms it on the way out. Idle then costs
+    // nothing, because nothing is dirtying a property.
+    callback meter-watched-changed(watched: bool);
+    changed meter-watched => {
+        root.meter-watched-changed(root.meter-watched);
+    }
+    // Left unbound. It used to read the ConfigPane's own hover flag, and
+    // there is no longer one ConfigPane to read — a seat may hold two of
+    // them or none. Nothing sets it, so the level timer in main.rs stays
+    // disarmed, which is where it already was: the demo meter left the pane
+    // when the inspector was ported, and nothing has driven it since.
+    out property <bool> meter-watched;
+    /// The same seam, and just as idle. main.rs reads it on every tick.
+    out property <bool> muted;
+
+    // The window's keyboard, and the thing focus falls back to.
+    //
+    // It wraps the content rather than sitting beside it, and both of its jobs
+    // come out of that:
+    //
+    //   - Clicking anything that is not a control blurs the one that had
+    //     focus, the way a browser does. Slint holds focus until something
+    //     else takes it, so without somewhere for it to land a number field
+    //     stays in its editing state — ring and all — for the rest of the
+    //     session. Every real control is inside this and takes its own press
+    //     first; what reaches here is a press on nothing, and a FocusScope
+    //     takes focus on one.
+    //   - A key goes to the focused element first and walks up the ancestors
+    //     with whatever that one rejects, so the bindings below only fire when
+    //     nothing in the window wanted the keystroke. That is the rule the
+    //     reference writes out by hand — its handler returns early when the
+    //     event target is an input — and here it is the delivery order.
+    //
+    // `Control` in a binding is the platform's own command modifier: Slint
+    // remaps it to ⌘ on macOS, which is also what the menu row beside it says.
+    keys := FocusScope {
+        width: 100%;
+        height: 100%;
+        focus-on-tab-navigation: false;
+
+        // Through the menu's own callback rather than a second handler: a
+        // shortcut and the row that advertises it have to do the same thing,
+        // and the cheapest way to be sure of that is for there to be one
+        // thing. Every other row in those menus is a KeyBinding away from
+        // working the same way.
+        KeyBinding {
+            keys: @keys(Control + S);
+            // Nothing on the launch screen has a project to act on, which is
+            // why the strip up there is missing the menus this belongs to.
+            enabled: !root.on-start;
+            activated => { root.app-menu-selected("save"); }
+        }
+
+        VerticalLayout {
+            width: 100%;
+            height: 100%;
+
+            TitleBar {
+                macos: root.macos;
+                minimal: root.on-start;
+                project-name: root.project-name;
+                status: root.project-status;
+
+                menu: root.open-menu;
+                menu-opened(index, at-x) => {
+                    appmenu.request-x = at-x;
+                    // Under the strip, which is 32px tall.
+                    appmenu.request-y = 32px;
+                    root.menu-opened(index);
+                }
+
+                begin-drag => { root.titlebar-begin-drag(); }
+                toggle-maximize => { root.titlebar-toggle-maximize(); }
+                open-settings => { root.open-settings(); }
+                add-pane(kind) => { Editor.dock-add(kind); }
+                export-clicked => { root.export-clicked(); }
+            }
+
+            if root.on-start: StartScreen {
+                vertical-stretch: 1;
+
+                data: root.start;
+                resolutions: root.start-resolutions;
+                rates: root.start-rates;
+                recents: root.recents;
+
+                name-edited(name) => { root.start-name-edited(name); }
+                location-edited(path) => { root.start-location-edited(path); }
+                browse => { root.start-browse(); }
+                resolution-changed(index) => { root.start-resolution-changed(index); }
+                rate-changed(index) => { root.start-rate-changed(index); }
+                create => { root.start-create(); }
+                open-recent(path) => { root.start-open-recent(path); }
+                forget-recent(path) => { root.start-forget-recent(path); }
+                dismiss-error => { root.start-dismiss-error(); }
+            }
+
+            // Everything the workspace shows now reads the Editor global, so
+            // nothing is passed to it: it is a box with four seats in it, and
+            // the views inside those seats reach the state directly. See
+            // editor.slint.
+            if !root.on-start: Workspace {
+                vertical-stretch: 1;
+            }
+        }
+    }
+
+    // Declared last, and that is load-bearing: Slint paints siblings in
+    // declaration order, so a modal placed above the workspace in the file is
+    // painted *under* it on screen — open, correct, and completely hidden.
+    ExportDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.export;
+
+        closed => { root.export-closed(); }
+        name-edited(name) => { root.export-name-edited(name); }
+        browse => { root.export-browse(); }
+        resolution-changed(index) => { root.export-resolution-changed(index); }
+        rate-changed(index) => { root.export-rate-changed(index); }
+        quality-changed(index) => { root.export-quality-changed(index); }
+        begin => { root.export-start(); }
+        cancel => { root.export-cancel(); }
+        reveal => { root.export-reveal(); }
+        again => { root.export-again(); }
+    }
+
+    SettingsDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.settings;
+        transcribers: root.transcribers;
+        voices: root.voices;
+        languages: root.languages;
+        system-facts: root.system-facts;
+        system-report: root.system-report;
+
+        closed => { root.settings-closed(); }
+        page-changed(index) => { root.settings-page-changed(index); }
+        language-changed(index) => { root.settings-language-changed(index); }
+        theme-changed(dark) => { root.settings-theme-changed(dark); }
+        transcribe-language-changed(index) => {
+            root.settings-transcribe-language-changed(index);
+        }
+        model-activated(id) => { root.model-activated(id); }
+        model-download(id) => { root.model-download(id); }
+        model-cancel(id) => { root.model-cancel(id); }
+        model-remove(id) => { root.model-remove(id); }
+    }
+
+    // Over the workspace and both sheets, under the menus. A tooltip has to
+    // clear the pane it belongs to — panes clip — and it has no business over
+    // an open menu, which is the one surface that would rather not be
+    // explained at. A PopupWindow is its own layer above all of this anyway,
+    // so the menus win without having to be declared after it.
+    TooltipLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // Above the dialogs as well as the workspace. A PopupWindow is its own
+    // layer so the order does not strictly decide the outcome, but the
+    // element that places it still measures against this one's box, and this
+    // one is the whole window.
+    appmenu := ContextMenu {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        items: root.app-menu-items;
+        menu-height: root.app-menu-height;
+        token: root.app-menu-token;
+        selected(id) => { root.app-menu-selected(id); }
+    }
+
+    // Last of all, and over everything including the sheets: an export that
+    // failed behind a dialog is exactly the case a notice is for. It takes no
+    // events — there is no TouchArea anywhere in it — so covering the window
+    // costs the window nothing.
+    ToastLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.toast;
+    }
+}

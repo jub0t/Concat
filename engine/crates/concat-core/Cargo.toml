@@ -1,0 +1,15 @@
+[package]
+name = "concat-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Time, arenas, frames and the timeline model shared by every other Concat crate."
+
+# Deliberately empty. concat-core is std-only, and should stay that way: it is the
+# vocabulary every other crate speaks, so a dependency here is a dependency
+# everywhere. See ../../README.md.
+[dependencies]
+
+[lints]
+workspace = true

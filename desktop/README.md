@@ -4,6 +4,13 @@
 
 # Concat Desktop
 
+> [!WARNING]
+> **Deprecated.** Concat is moving from Tauri + React to Slint. The
+> replacement is the `concat` crate in [`../engine/crates/concat`](../engine/crates/concat),
+> and that is where UI work goes now. This tree stays only until the Slint
+> window can do everything it does, because it is still what releases ship:
+> bug fixes are welcome, features are not.
+
 The editor front end. Tauri v2 + React 19 + Tailwind v4, talking to the Rust
 engine in [`../engine`](../engine).
 

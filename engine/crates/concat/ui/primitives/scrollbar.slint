@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// The thin scrollbar, ported from the reference's `thin-scroll` utility.
+//
+// Its whole shape is in four declarations there: an 8px gutter, a transparent
+// track, no buttons and no corner, and a thumb in `hairline-strong` that is
+// fully rounded and inset with `border: 2px solid transparent` plus
+// `background-clip: content-box` — which is the CSS way of saying the visible
+// thumb is 4px wide and centred in a gutter twice that. So the gutter is a hit
+// target and the mark inside it is small enough to sit over content without
+// ever being mistaken for it.
+//
+// It is a control, not an indicator: the reference's is a real scrollbar and
+// can be dragged, and a bar that looks grabbable and is not is worse than none.
+export component ThinScrollbar inherits Rectangle {
+    /// visible extent of the thing being scrolled
+    in property <length> viewport;
+    /// its full extent
+    in property <length> content;
+    /// how far down it is parked, 0..overflow
+    in property <length> offset;
+    /// Floor on the thumb, so a very long list still leaves something to grab.
+    in property <length> min-thumb: 24px;
+    /// Ceiling, as a share of the gutter. 1 is the honest proportion — the
+    /// thumb is as much of the bar as the viewport is of the content — and is
+    /// right for a list that scrolls by pages. A stack that overflows by one
+    /// row would draw a thumb filling all but a few pixels of the gutter under
+    /// that rule, which is a slab that happens to be a control; capping it
+    /// costs proportionality and buys a bar that reads as one.
+    in property <float> max-thumb: 1.0;
+
+    callback scrolled(offset: length);
+
+    property <length> overflow: Math.max(0px, root.content - root.viewport);
+    property <length> thumb-h: Math.max(root.min-thumb,
+        Math.min(root.viewport * root.max-thumb,
+            root.viewport * root.viewport / Math.max(root.content, 1px)));
+    property <length> travel: Math.max(0px, root.viewport - root.thumb-h);
+    property <length> thumb-y: root.overflow > 0px
+        ? root.travel * Math.min(root.offset, root.overflow) / root.overflow
+        : 0px;
+
+    width: 8px;
+    background: transparent;
+    /// Nothing to scroll, nothing to draw. A permanent full-height thumb only
+    /// says "this does not scroll", which the absence of a bar says better.
+    visible: root.overflow > 0px;
+
+    thumb := Rectangle {
+        x: 2px;
+        y: root.thumb-y;
+        width: 4px;
+        height: root.thumb-h;
+        border-radius: 2px;
+        background: (grab.pressed || grab.has-hover) ? Theme.fg-dim : Theme.line-strong;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    // Over the whole gutter rather than the thumb: the thumb moves as it is
+    // dragged, and a hit area that travels with it feeds its own motion back
+    // into itself — the same reason the workspace splitters measure in window
+    // coordinates.
+    grab := TouchArea {
+        property <length> origin;
+        property <length> from;
+
+        mouse-cursor: default;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.origin = self.absolute-position.y + self.mouse-y;
+                // Pressing the track jumps the thumb to the pointer and then
+                // keeps dragging from there, so one gesture does both.
+                if (self.mouse-y < root.thumb-y || self.mouse-y > root.thumb-y + root.thumb-h) {
+                    self.from = root.travel > 0px
+                        ? root.overflow * Math.max(0px, self.mouse-y - root.thumb-h / 2)
+                            / root.travel
+                        : 0px;
+                    root.scrolled(Math.max(0px, Math.min(root.overflow, self.from)));
+                } else {
+                    self.from = root.offset;
+                }
+            }
+        }
+
+        moved => {
+            if (root.travel > 0px) {
+                root.scrolled(Math.max(0px, Math.min(root.overflow,
+                    self.from + (self.absolute-position.y + self.mouse-y - self.origin)
+                        * root.overflow / root.travel)));
+            }
+        }
+    }
+}

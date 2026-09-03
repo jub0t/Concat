@@ -1,0 +1,498 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { Select } from "../primitives/select.slint";
+import { Pane, PaneHeader } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+
+// The programme monitor, ported from web/'s preview panel: a header that says
+// what the output is, a stage on a sunken viewport, and a transport tray under
+// it in three parts — timecode on the leading edge, the buttons dead centre,
+// the output and zoom pickers on the trailing edge.
+//
+// Time is held in frames, not seconds. A monitor that cannot land on a frame
+// is not a monitor, and every rounding question disappears once the unit is
+// the frame. The readout is a NumberField, so the same drag-to-scrub gesture
+// that moves a position field moves the playhead.
+//
+// The stage is black and empty. web/ draws a generated scene into it to prove
+// the monitor moves; there is no decoder in this tree, so what it shows is the
+// state a real monitor spends plenty of its time in — nothing under the
+// playhead — and the seam for a frame is the stage rectangle itself.
+
+/// An outline in the shape of the thing it selects. Beats any label at saying
+/// "tall" or "wide" at a glance, and it is drawn at ratio rather than to a
+/// fixed box, capped into a 14px slot so a row of them stays aligned.
+component RatioGlyph inherits Rectangle {
+    in property <float> ratio-w: 16;
+    in property <float> ratio-h: 9;
+    in property <brush> tint: Theme.fg-dim;
+
+    property <float> scale: 14 / Math.max(root.ratio-w, root.ratio-h);
+
+    width: 14px;
+    height: 14px;
+    background: transparent;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: Math.round(root.ratio-w * root.scale) * 1px;
+        height: Math.round(root.ratio-h * root.scale) * 1px;
+        border-width: 1px;
+        border-color: root.tint;
+        border-radius: 2px;
+    }
+}
+
+// The output picker.
+//
+// Not the shared `Select`: that takes a list of strings and renders one label
+// per row, and this control wants three things on a row — a rectangle drawn at
+// the ratio it names, the ratio itself, and the pixel size. The size is set
+// against the trailing edge rather than joined on with a dash, so the column
+// of ratios stays scannable and the sizes line up as a column of their own.
+//
+// The trigger carries only the ratio and its glyph. The full size is what you
+// open the list to compare; repeating it on a closed control spends the width
+// of the whole tray on something already stated in the panel's header.
+component RatioPicker inherits Rectangle {
+    in property <[int]> widths;
+    in property <[int]> heights;
+    in property <[string]> names;
+    in-out property <int> current;
+
+    callback changed(index: int);
+
+    // Read from the popup rather than tracked here: a click outside closes it
+    // without telling us, so a hand-rolled flag goes stale.
+    property <bool> open: list.is-open;
+    property <int> active;
+    property <length> row-h: 26px;
+
+    width: 92px;
+    height: Theme.h;
+    border-radius: Theme.r;
+    background: (root.open || trigger.has-hover) ? Theme.field-hover : Theme.field;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    function commit(index: int) {
+        if (index >= 0 && index < root.names.length) {
+            root.current = index;
+            root.changed(index);
+        }
+        list.close();
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 6px;
+
+        VerticalLayout {
+            alignment: center;
+            RatioGlyph {
+                ratio-w: root.widths[root.current];
+                ratio-h: root.heights[root.current];
+                tint: Theme.fg-muted;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.names[root.current];
+            color: Theme.fg;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Icon { glyph: Glyph.chevron-down; size: 12px; tint: Theme.fg-muted; }
+        }
+    }
+
+    trigger := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.active = root.current;
+            list.show();
+        }
+    }
+
+    list := PopupWindow {
+        // Right-aligned to the trigger: the list is wider than the control and
+        // the control is already hard against the panel's trailing edge.
+        x: root.width - 208px;
+        y: root.height + 4px;
+        width: 208px;
+        height: root.names.length * root.row-h + 8px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                for name[index] in root.names: Rectangle {
+                    height: root.row-h;
+                    border-radius: Theme.r-sm;
+                    background: index == root.active ? Theme.accent : Colors.transparent;
+
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            RatioGlyph {
+                                ratio-w: root.widths[index];
+                                ratio-h: root.heights[index];
+                                tint: index == root.active ? Theme.on-accent : Theme.fg-muted;
+                            }
+                        }
+
+                        Text {
+                            text: name;
+                            color: index == root.active ? Theme.on-accent : Theme.fg;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Text {
+                            text: "\{root.widths[index]} × \{root.heights[index]}";
+                            color: index == root.active ? Theme.on-accent : Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        changed has-hover => {
+                            if (self.has-hover) {
+                                root.active = index;
+                            }
+                        }
+                        clicked => { root.commit(index); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PreviewPane inherits Rectangle {
+    // ── what the output is ───────────────────────────────────────────────
+    in property <int> output-width: 1920;
+    in property <int> output-height: 1080;
+    in property <float> frame-rate: 30;
+    in property <int> ratio-index;
+    in property <int> quality-index;
+
+    // ── where the playhead is ────────────────────────────────────────────
+    in property <float> playhead;
+    in property <float> duration;
+    in property <bool> playing;
+    /// Whether anything is under the playhead, and what. "Nothing under the
+    /// playhead" is a real state a monitor has to render, not a placeholder
+    /// for one.
+    in property <bool> has-picture;
+    in property <string> clip-name;
+
+    callback play-toggled();
+    /// Absolute, in seconds.
+    callback seek(seconds: float);
+    /// Relative, in frames — one for an arrow, a second's worth for shift.
+    callback step(frames: float);
+    callback ratio-changed(index: int);
+    callback quality-changed(index: int);
+
+    /// The corner button: show something else in this pane's seat.
+    callback pane-picked(kind: PaneKind);
+    /// Which seat this pane is in. It travels no further than the corner
+    /// button, whose drag payload has to say where it is being taken from.
+    in property <int> pane-seat;
+    /// False when this is the last panel on screen. Travels the same way, and
+    /// only greys the one row that would close it.
+    in property <bool> pane-removable: true;
+    /// That row was used.
+    callback pane-removed();
+
+    property <[int]> ratios-w: [1920, 3840, 1080, 1080, 1440, 2560];
+    property <[int]> ratios-h: [1080, 2160, 1920, 1080, 1080, 1080];
+    property <[string]> ratio-names: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+
+    property <float> aspect: root.output-height > 0
+        ? root.output-width / root.output-height : 16 / 9;
+    property <float> total-frames: Math.round(root.duration * root.frame-rate);
+    property <float> frames: Math.round(root.playhead * root.frame-rate);
+    property <bool> at-start: root.frames <= 0;
+    property <bool> at-end: root.frames >= root.total-frames;
+
+    // The NumberField writes to its own `value`, and an assignment in Slint
+    // replaces whatever binding the parent declared — so this is seeded, not
+    // bound. Same shape as the inspector panels.
+    property <float> shown-frames;
+    function seed() { root.shown-frames = root.frames; }
+    init => { root.seed(); }
+    changed frames => { root.seed(); }
+
+    Pane {
+        PaneHeader {
+            title: "Preview";
+
+            // The output, stated rather than implied. Tabular-ish and dim: it
+            // is a fact about the project, not a control.
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: "\{root.output-width} × \{root.output-height} · "
+                        + "\{Math.round(root.frame-rate)} fps";
+                    color: Theme.fg-dim;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                PaneSwitcher {
+                    kind: PaneKind.preview;
+                    seat: root.pane-seat;
+                    removable: root.pane-removable;
+                    picked(kind) => { root.pane-picked(kind); }
+                    removed => { root.pane-removed(); }
+                }
+            }
+        }
+
+        // ── the viewport ─────────────────────────────────────────────────
+        viewport := Rectangle {
+            vertical-stretch: 1;
+            // Sunken, and darker than the header and transport either side of
+            // it. This briefly took the panel's own tone, back when the panel
+            // sat at the value web/'s viewport uses; the ladder has moved up a
+            // step since, and a monitor's ground should fall away from the
+            // chrome around it rather than sit level with it — the darker the
+            // surround, the less the picture has to fight to be the brightest
+            // thing in the pane.
+            background: Theme.well;
+            clip: true;
+
+            property <length> pad: 16px;
+            property <length> room-w: Math.max(1px, self.width - 2 * self.pad);
+            property <length> room-h: Math.max(1px, self.height - 2 * self.pad);
+            /// Always fitted, on whichever axis runs out first. The picker in
+            /// the tray sets how much of the frame the engine composites, not
+            /// how large it is drawn — the monitor shows the whole frame
+            /// either way, which is the point of a monitor.
+            property <length> stage-w: Math.min(self.room-w / root.output-width,
+                self.room-h / root.output-height) * root.output-width;
+
+            stage := Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: viewport.stage-w;
+                height: self.width / root.aspect;
+                background: Theme.stage;
+                // web/ lifts the stage off the well with a 1px ring and a soft
+                // drop shadow. Slint has no box-shadow, so the ring does the
+                // work alone — which is also why it is `line-strong` and not
+                // the hairline every other edge uses.
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                clip: true;
+
+                // Where a decoded frame will be drawn. Until then the stage
+                // reports what is actually under the playhead.
+                if !root.has-picture: VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: Glyph.film;
+                            size: 22px;
+                            tint: Theme.fg-dim;
+                        }
+                    }
+
+                    Text {
+                        text: "Nothing under the playhead";
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                // The clip that would be showing, named in the corner. The
+                // reference has a picture to identify itself; without one, the
+                // name is the only thing that says the monitor is live.
+                if root.has-picture: Text {
+                    x: 8px;
+                    y: parent.height - self.height - 8px;
+                    width: parent.width - 16px;
+                    text: root.clip-name;
+                    color: Theme.on-stage-dim;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // ── the transport ────────────────────────────────────────────────
+        Rectangle {
+            height: 46px;
+            background: Theme.panel;
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+
+                // Leading: where the playhead is, and how far it has to go.
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    alignment: start;
+
+                    VerticalLayout {
+                        alignment: center;
+                        NumberField {
+                            width: 116px;
+                            value <=> root.shown-frames;
+                            minimum: 0;
+                            maximum: root.total-frames;
+                            step: 1;
+                            // Scrubbing a timecode should walk frames at the
+                            // speed a hand expects, not fly a hundred at once.
+                            px-per-step: 3px;
+                            format(v) => {
+                                return Fmt.frames-timecode(v / root.frame-rate,
+                                    root.frame-rate);
+                            }
+                            parse(text) => {
+                                return Fmt.parse-frames(text, root.frame-rate);
+                            }
+                            changed(v) => { root.seek(v / root.frame-rate); }
+                        }
+                    }
+
+                    Text {
+                        text: "/ " + Fmt.frames-timecode(root.duration, root.frame-rate);
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Centre: the transport itself.
+                HorizontalLayout {
+                    horizontal-stretch: 0;
+                    spacing: 2px;
+                    alignment: center;
+
+                    IconButton {
+                        glyph: Glyph.skip-back;
+                        label: "Go to start";
+                        enabled: !root.at-start;
+                        clicked => { root.seek(0); }
+                    }
+                    IconButton {
+                        glyph: Glyph.step-back;
+                        label: "Previous frame";
+                        enabled: !root.at-start;
+                        clicked => { root.step(-1); }
+                    }
+
+                    // The one control you reach for without looking, so it is
+                    // the one control that carries a colour.
+                    IconButton {
+                        glyph: root.playing ? Glyph.pause : Glyph.play;
+                        label: root.playing ? "Pause" : "Play";
+                        icon-size: 16px;
+                        accent: true;
+                        clicked => { root.play-toggled(); }
+                    }
+
+                    IconButton {
+                        glyph: Glyph.step-forward;
+                        label: "Next frame";
+                        enabled: !root.at-end;
+                        clicked => { root.step(1); }
+                    }
+                    IconButton {
+                        glyph: Glyph.skip-forward;
+                        label: "Go to end";
+                        enabled: !root.at-end;
+                        clicked => { root.seek(root.duration); }
+                    }
+                }
+
+                // Trailing: what the output is and how close we are looking.
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 6px;
+                    alignment: end;
+
+                    VerticalLayout {
+                        alignment: center;
+                        RatioPicker {
+                            widths: root.ratios-w;
+                            heights: root.ratios-h;
+                            names: root.ratio-names;
+                            current: root.ratio-index;
+                            changed(index) => { root.ratio-changed(index); }
+                        }
+                    }
+
+                    // What fraction of the frame the engine composites for the
+                    // monitor — the reference's own control, and the reason a
+                    // 4K timeline stays scrubbable on a laptop. Nothing
+                    // composites here yet, so today it states intent only.
+                    VerticalLayout {
+                        alignment: center;
+                        Select {
+                            width: 104px;
+                            current: root.quality-index;
+                            options: ["Full", "Half", "Quarter"];
+                            details: ["1:1", "1:2", "1:4"];
+                            changed(index) => { root.quality-changed(index); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

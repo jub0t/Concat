@@ -4,7 +4,7 @@
 //! The engine-owned editing session, exposed to the UI.
 //!
 //! One session at a time, held in managed state: open a project and the
-//! engine holds the edit; every mutation arrives as a `wolfcut_project`
+//! engine holds the edit; every mutation arrives as a `concat_project`
 //! [`Command`], is applied with undo recorded, and the new state goes back
 //! over the wire. This is the API `lib/editor.ts` mirrors; the provisional
 //! TypeScript model it replaced is gone - see
@@ -15,7 +15,7 @@
 
 use std::sync::Mutex;
 
-use wolfcut_project::{Command, DocumentSettings, Editor};
+use concat_project::{Command, DocumentSettings, Editor};
 use serde::Serialize;
 
 use crate::projects;
@@ -37,7 +37,7 @@ pub struct Session {
 #[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct EditorView {
-    project: wolfcut_project::Project,
+    project: concat_project::Project,
     can_undo: bool,
     can_redo: bool,
     /// The settings as the session holds them - the document's own output
@@ -92,10 +92,10 @@ fn view(session: &Session, created_id: Option<String>) -> EditorView {
 /// titles).
 pub fn flattened_clips(
     state: &EditorState,
-) -> Result<(Vec<wolfcut_export::ExportClip>, DocumentSettings), String> {
+) -> Result<(Vec<concat_export::ExportClip>, DocumentSettings), String> {
     with_session(state, |session| {
         Ok((
-            wolfcut_export::flatten::flatten_timeline(session.editor.project(), None),
+            concat_export::flatten::flatten_timeline(session.editor.project(), None),
             session.settings.clone(),
         ))
     })

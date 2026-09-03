@@ -1,0 +1,255 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+
+// Cubic-bezier curve editor. The endpoints are pinned at (0,0) and (1,1); the
+// two control handles drag freely, with x clamped to 0..1 so the result stays
+// a legal CSS timing function.
+export component BezierEditor inherits Rectangle {
+    in-out property <float> x1: 0.42;
+    in-out property <float> y1: 0;
+    in-out property <float> x2: 0.58;
+    in-out property <float> y2: 1;
+    /// how far past 0..1 the handles may travel on the y axis
+    in property <float> overshoot: 0.3;
+    in property <bool> enabled: true;
+
+    callback changed();
+
+    property <length> pad: 16px;
+    property <length> inner-w: Math.max(root.width - 2 * root.pad, 1px);
+    property <length> inner-h: Math.max(root.height - 2 * root.pad, 1px);
+    property <float> y-range: 1 + root.overshoot * 2;
+    property <int> grabbed: -1;
+
+    min-height: 190px;
+    min-width: 200px;
+    horizontal-stretch: 1;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: Theme.r;
+    clip: true;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    // curve space <-> widget space
+    pure function to-x(v: float) -> length {
+        return root.pad + v * root.inner-w;
+    }
+    pure function to-y(v: float) -> length {
+        return root.pad + ((1 + root.overshoot - v) / root.y-range) * root.inner-h;
+    }
+    pure function from-x(p: length) -> float {
+        return (p - root.pad) / root.inner-w;
+    }
+    pure function from-y(p: length) -> float {
+        return 1 + root.overshoot - ((p - root.pad) / root.inner-h) * root.y-range;
+    }
+
+    function set-handle(index: int, x: float, y: float) {
+        if (index == 0) {
+            root.x1 = Fmt.round-to(Fmt.clamp(x, 0, 1), 3);
+            root.y1 = Fmt.round-to(Fmt.clamp(y, -root.overshoot, 1 + root.overshoot), 3);
+        } else {
+            root.x2 = Fmt.round-to(Fmt.clamp(x, 0, 1), 3);
+            root.y2 = Fmt.round-to(Fmt.clamp(y, -root.overshoot, 1 + root.overshoot), 3);
+        }
+        root.changed();
+    }
+
+    pure function distance(px: length, py: length, x: float, y: float) -> float {
+        return Math.sqrt(Math.pow((px - root.to-x(x)) / 1px, 2)
+            + Math.pow((py - root.to-y(y)) / 1px, 2));
+    }
+
+    // the 0 and 1 rails the curve travels between
+    Rectangle {
+        x: 0px;
+        y: root.to-y(1);
+        width: root.width;
+        height: 1px;
+        background: Theme.line;
+    }
+    Rectangle {
+        x: 0px;
+        y: root.to-y(0);
+        width: root.width;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    // leashes from each endpoint to its control point
+    Path {
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.width / 1px;
+        viewbox-height: root.height / 1px;
+        stroke: Theme.accent;
+        stroke-width: 1.5px;
+        opacity: 0.9;
+
+        MoveTo { x: root.to-x(0) / 1px; y: root.to-y(0) / 1px; }
+        LineTo { x: root.to-x(root.x1) / 1px; y: root.to-y(root.y1) / 1px; }
+        MoveTo { x: root.to-x(1) / 1px; y: root.to-y(1) / 1px; }
+        LineTo { x: root.to-x(root.x2) / 1px; y: root.to-y(root.y2) / 1px; }
+    }
+
+    Path {
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.width / 1px;
+        viewbox-height: root.height / 1px;
+        stroke: Theme.accent;
+        stroke-width: 2px;
+        stroke-line-cap: round;
+
+        MoveTo { x: root.to-x(0) / 1px; y: root.to-y(0) / 1px; }
+        CubicTo {
+            control-1-x: root.to-x(root.x1) / 1px;
+            control-1-y: root.to-y(root.y1) / 1px;
+            control-2-x: root.to-x(root.x2) / 1px;
+            control-2-y: root.to-y(root.y2) / 1px;
+            x: root.to-x(1) / 1px;
+            y: root.to-y(1) / 1px;
+        }
+    }
+
+    // endpoint anchors
+    Rectangle {
+        x: root.to-x(0) - 4px;
+        y: root.to-y(0) - 4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        x: root.to-x(1) - 4px;
+        y: root.to-y(1) - 4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.accent;
+    }
+
+    // Each handle keeps its own focus scope, so Tab walks the two control
+    // points the way the two <g role="slider"> elements do on the web. They sit
+    // below the drag surface and are focused from it.
+    fs1 := FocusScope {
+        x: root.to-x(root.x1) - 12px;
+        y: root.to-y(root.y1) - 12px;
+        width: 24px;
+        height: 24px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            return root.key-nudge(0, event);
+        }
+    }
+    fs2 := FocusScope {
+        x: root.to-x(root.x2) - 12px;
+        y: root.to-y(root.y2) - 12px;
+        width: 24px;
+        height: 24px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            return root.key-nudge(1, event);
+        }
+    }
+
+    // Slint functions have no local bindings, so the current handle is read
+    // through the index on every use rather than lifted into a variable.
+    function nudge(index: int, dx: float, dy: float) {
+        root.set-handle(index,
+            (index == 0 ? root.x1 : root.x2) + dx,
+            (index == 0 ? root.y1 : root.y2) + dy);
+    }
+
+    function key-nudge(index: int, event: KeyEvent) -> EventResult {
+        if (event.text == Key.LeftArrow) {
+            root.nudge(index, event.modifiers.shift ? -0.1 : -0.01, 0);
+            return EventResult.accept;
+        }
+        if (event.text == Key.RightArrow) {
+            root.nudge(index, event.modifiers.shift ? 0.1 : 0.01, 0);
+            return EventResult.accept;
+        }
+        if (event.text == Key.UpArrow) {
+            root.nudge(index, 0, event.modifiers.shift ? 0.1 : 0.01);
+            return EventResult.accept;
+        }
+        if (event.text == Key.DownArrow) {
+            root.nudge(index, 0, event.modifiers.shift ? -0.1 : -0.01);
+            return EventResult.accept;
+        }
+        return EventResult.reject;
+    }
+
+    // control points, drawn over the leashes
+    Rectangle {
+        property <bool> lit: root.grabbed == 0 || fs1.has-focus || surface.near == 0;
+        x: root.to-x(root.x1) - self.width / 2;
+        y: root.to-y(root.y1) - self.height / 2;
+        width: self.lit ? 14px : 10px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+        border-width: 1.5px;
+        border-color: fs1.has-focus ? Theme.clip-ink : Theme.panel;
+        animate width { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+    Rectangle {
+        property <bool> lit: root.grabbed == 1 || fs2.has-focus || surface.near == 1;
+        x: root.to-x(root.x2) - self.width / 2;
+        y: root.to-y(root.y2) - self.height / 2;
+        width: self.lit ? 14px : 10px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+        border-width: 1.5px;
+        border-color: fs2.has-focus ? Theme.clip-ink : Theme.panel;
+        animate width { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    // One drag surface for the whole canvas rather than a hit area per handle:
+    // a hit area that moves with the handle it is dragging feeds its own input
+    // back into itself.
+    surface := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.grabbed >= 0 ? MouseCursor.grabbing
+            : self.near >= 0 ? MouseCursor.grab
+            : MouseCursor.default;
+
+        /// handle under the pointer, or -1
+        property <int> near: root.distance(self.mouse-x, self.mouse-y, root.x1, root.y1) < 18
+            ? 0
+            : root.distance(self.mouse-x, self.mouse-y, root.x2, root.y2) < 18 ? 1 : -1;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.grabbed = root.distance(self.pressed-x, self.pressed-y, root.x1, root.y1) < 18
+                    ? 0
+                    : root.distance(self.pressed-x, self.pressed-y, root.x2, root.y2) < 18 ? 1 : -1;
+                if (root.grabbed == 0) {
+                    fs1.focus();
+                } else if (root.grabbed == 1) {
+                    fs2.focus();
+                }
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                // Only a release ends the drag. Slint also delivers `move`
+                // events here, so a plain `else` would drop the handle the
+                // instant the pointer travelled — grab, move, nothing happens.
+                root.grabbed = -1;
+            }
+        }
+
+        moved => {
+            if (root.grabbed >= 0) {
+                root.set-handle(root.grabbed,
+                    root.from-x(self.mouse-x), root.from-y(self.mouse-y));
+            }
+        }
+    }
+}

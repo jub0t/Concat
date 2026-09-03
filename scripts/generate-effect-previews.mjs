@@ -38,7 +38,7 @@ const TILE = { width: 320, height: 180 };
 // script reads the same source of truth the app ships.
 const require = createRequire(path.join(root, "desktop/package.json"));
 const esbuild = require("esbuild");
-const scratch = mkdtempSync(path.join(tmpdir(), "wolfcut-previews-"));
+const scratch = mkdtempSync(path.join(tmpdir(), "concat-previews-"));
 const bundled = path.join(scratch, "effects.mjs");
 await esbuild.build({
   entryPoints: [path.join(root, "desktop/src/lib/effects.ts")],

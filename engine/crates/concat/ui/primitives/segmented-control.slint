@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { FocusRing } from "focus-ring.slint";
+
+// Single-select tab row with a thumb that slides to the active segment.
+//
+// The React version measures each button to place the thumb because the
+// segments are `flex: 1 1 0`. Slint lays them out from the same rule, so the
+// geometry is computed directly instead of observed.
+export component SegmentedControl inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current;
+    in property <bool> enabled: true;
+
+    callback changed(index: int);
+
+    property <bool> ring;
+
+    // 1px border + 2px padding, so the track insets by 3px on every side. A
+    // Slint border is drawn inside the bounds but children still measure from
+    // the outer edge, so the border has to be added in by hand.
+    property <length> inset: 3px;
+    property <length> seg-w: (root.width - 2 * root.inset) / Math.max(root.options.length, 1);
+
+    height: Theme.h;
+    min-width: 120px;
+    horizontal-stretch: 1;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    function select(index: int) {
+        if (index >= 0 && index < root.options.length) {
+            root.current = index;
+            root.changed(index);
+        }
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        // :focus-visible — keyboard focus only, see IconButton.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == Key.RightArrow || event.text == Key.DownArrow) {
+                root.select(Math.mod(root.current + 1, root.options.length));
+                return EventResult.accept;
+            }
+            if (event.text == Key.LeftArrow || event.text == Key.UpArrow) {
+                root.select(Math.mod(root.current - 1 + root.options.length, root.options.length));
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    thumb := Rectangle {
+        x: root.inset + root.current * root.seg-w;
+        y: root.inset;
+        width: root.seg-w;
+        height: root.height - 2 * root.inset;
+        border-radius: Theme.r-sm;
+        background: Theme.field-hover;
+
+        animate x, width { duration: 180ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    for option[index] in root.options: Rectangle {
+        x: root.inset + index * root.seg-w;
+        y: root.inset;
+        width: root.seg-w;
+        height: root.height - 2 * root.inset;
+
+        Text {
+            text: option;
+            color: (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+
+            animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+        }
+
+        segment := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => {
+                fs.focus();
+                root.select(index);
+            }
+        }
+    }
+
+    FocusRing {
+        active: root.ring;
+        radius: Theme.r;
+    }
+}

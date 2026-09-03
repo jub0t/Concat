@@ -1,0 +1,27 @@
+[package]
+name = "concat-export"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Rendering a timeline to a file, and one true frame of it to a monitor. The engine's ownership of what the pixels mean."
+
+[features]
+# The GPU compositor for full exports. Off by default for the same reason as
+# concat-render's: engine-only work never pays for the wgpu tree.
+gpu = ["concat-render/gpu"]
+# TypeScript bindings for the wire types the UI sends (rasterised title
+# overlays ride the export request as ExportClips). Off by default; see
+# desktop/src/lib/generated/README.md for the generator command.
+types = ["dep:ts-rs"]
+
+[dependencies]
+concat-core.workspace = true
+concat-media.workspace = true
+concat-render.workspace = true
+concat-project = { path = "../concat-project" }
+serde = { version = "1", features = ["derive"] }
+ts-rs = { version = "12", optional = true }
+
+[lints]
+workspace = true

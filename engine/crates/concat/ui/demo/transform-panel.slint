@@ -1,0 +1,187 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import {
+    Theme, Fmt, Glyph, IconButton, NumberField, Row,
+    Section, SectionBody, SectionHeader, Select, Stepper,
+} from "../primitives/primitives.slint";
+import { AlignToolbar, EditorHeader } from "editor-chrome.slint";
+
+// The panel is instantiated rather than inherited so its `@children` slot is
+// filled; a derived component's body is not routed through that placeholder.
+export component TransformPanel inherits VerticalLayout {
+    alignment: start;
+
+    property <float> speed: 100;
+    property <float> length-s: 12;
+    property <float> in-point: 4;
+    property <float> out-point: 16;
+    property <float> pos-x: 742;
+    property <float> pos-y: 386;
+    property <float> rotate: 0;
+    property <float> frame-w: 1920;
+    property <float> frame-h: 1080;
+    property <float> opacity-pct: 100;
+    property <bool> locked;
+    property <bool> visible-layer: true;
+
+    EditorHeader { }
+    AlignToolbar { }
+
+    Section {
+        SectionHeader {
+            title: "Time";
+            IconButton { glyph: Glyph.plus; label: "Add time keyframe"; }
+        }
+        SectionBody {
+            Row {
+                label: "Speed";
+                NumberField {
+                    value <=> root.speed;
+                    minimum: 1;
+                    maximum: 1000;
+                    suffix: "%";
+                    keyframe: true;
+                }
+                Stepper {
+                    stepped(direction, shift, alt) => {
+                        root.speed = Math.max(1, root.speed + direction * (shift ? 25 : 5));
+                    }
+                }
+            }
+            Row {
+                label: "Length";
+                NumberField {
+                    value <=> root.length-s;
+                    minimum: 0;
+                    suffix: "s";
+                }
+                Stepper {
+                    stepped(direction, shift, alt) => {
+                        root.length-s = Math.max(0, root.length-s + direction);
+                    }
+                }
+            }
+            Row {
+                label: "In & Out";
+                // The timecode round-trip: formatting is expressible in Slint,
+                // parsing needs split() and so lives in Rust.
+                NumberField {
+                    value <=> root.in-point;
+                    minimum: 0;
+                    maximum: root.out-point;
+                    format(v) => { return Fmt.timecode(v); }
+                    parse(t) => { return Fmt.parse-timecode(t); }
+                }
+                NumberField {
+                    value <=> root.out-point;
+                    minimum: root.in-point;
+                    format(v) => { return Fmt.timecode(v); }
+                    parse(t) => { return Fmt.parse-timecode(t); }
+                }
+            }
+        }
+    }
+
+    Section {
+        SectionHeader {
+            title: "Transform";
+            IconButton { glyph: Glyph.plus; label: "Add transform keyframe"; }
+        }
+        SectionBody {
+            Row {
+                label: "Position";
+                NumberField { value <=> root.pos-x; prefix: "X"; keyframe: true; }
+                NumberField { value <=> root.pos-y; prefix: "Y"; keyframe: true; }
+            }
+            Row {
+                Select { options: ["Left", "Center", "Right", "L + R"]; current: 0; }
+            }
+            Row {
+                Select { options: ["Top", "Middle", "Bottom", "T + B"]; current: 0; }
+            }
+            Row {
+                label: "Rotate";
+                NumberField {
+                    value <=> root.rotate;
+                    prefix-glyph: Glyph.angle;
+                    suffix: "°";
+                    keyframe: true;
+                }
+                IconButton { glyph: Glyph.copy; label: "Duplicate"; }
+                IconButton { glyph: Glyph.flip-h; label: "Flip horizontal"; }
+                IconButton { glyph: Glyph.flip-v; label: "Flip vertical"; }
+            }
+        }
+    }
+
+    Section {
+        layout := SectionHeader {
+            title: "Layout";
+            collapsible: true;
+            IconButton { glyph: Glyph.frame; label: "Fit to frame"; }
+            IconButton {
+                glyph: Glyph.lock;
+                label: "Lock aspect ratio";
+                checked: root.locked;
+                clicked => { root.locked = !root.locked; }
+            }
+            IconButton { glyph: Glyph.plus; label: "Add layout keyframe"; }
+        }
+        if layout.open: SectionBody {
+            Row {
+                label: "Size";
+                NumberField {
+                    value <=> root.frame-w;
+                    prefix: "W";
+                    minimum: 1;
+                    keyframe: true;
+                    changed(v) => {
+                        if (root.locked) { root.frame-h = Math.round(v * 9 / 16); }
+                    }
+                }
+                NumberField {
+                    value <=> root.frame-h;
+                    prefix: "H";
+                    minimum: 1;
+                    keyframe: true;
+                    changed(v) => {
+                        if (root.locked) { root.frame-w = Math.round(v * 16 / 9); }
+                    }
+                }
+            }
+        }
+    }
+
+    Section {
+        SectionHeader {
+            title: "Appearance";
+            IconButton {
+                glyph: Glyph.eye;
+                label: "Toggle visibility";
+                checked: root.visible-layer;
+                clicked => { root.visible-layer = !root.visible-layer; }
+            }
+            IconButton { glyph: Glyph.plus; label: "Add appearance keyframe"; }
+        }
+        SectionBody {
+            Row {
+                label: "Opacity";
+                NumberField {
+                    value <=> root.opacity-pct;
+                    minimum: 0;
+                    maximum: 100;
+                    suffix: "%";
+                    keyframe: true;
+                }
+            }
+            Row {
+                label: "Blending";
+                Select {
+                    options: ["Normal", "Multiply", "Screen", "Overlay", "Add", "Difference"];
+                    current: 0;
+                }
+            }
+        }
+    }
+}

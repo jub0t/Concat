@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme, Glyph, IconButton, Select } from "../primitives/primitives.slint";
+
+// Panel header with the zoom dropdown, shared by the editor screens.
+export component EditorHeader inherits Rectangle {
+    height: 42px;
+
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        spacing: 8px;
+
+        Text {
+            text: "Editor";
+            color: Theme.fg;
+            font-size: Theme.fs-lg;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        VerticalLayout {
+            alignment: center;
+            Select {
+                width: 84px;
+                flat: true;
+                current: 2;
+                options: ["25%", "50%", "72%", "100%", "200%", "400%"];
+            }
+        }
+    }
+}
+
+export component AlignToolbar inherits Rectangle {
+    property <int> last: -1;
+
+    height: 38px;
+
+    // The alignment set is drawn on Radix's 15-unit grid, so it renders at 15px
+    // to keep one unit on one pixel; at 14px the rails smear into the blocks.
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        padding-top: 2px;
+        padding-bottom: 10px;
+        alignment: space-between;
+
+        IconButton { icon-size: 15px; glyph: Glyph.align-left; label: "Align left"; checked: root.last == 0; clicked => { root.last = 0; } }
+        IconButton { icon-size: 15px; glyph: Glyph.align-center-x; label: "Align centers horizontally"; checked: root.last == 1; clicked => { root.last = 1; } }
+        IconButton { icon-size: 15px; glyph: Glyph.align-right; label: "Align right"; checked: root.last == 2; clicked => { root.last = 2; } }
+        IconButton { icon-size: 15px; glyph: Glyph.align-top; label: "Align top"; checked: root.last == 3; clicked => { root.last = 3; } }
+        IconButton { icon-size: 15px; glyph: Glyph.align-center-y; label: "Align centers vertically"; checked: root.last == 4; clicked => { root.last = 4; } }
+        IconButton { icon-size: 15px; glyph: Glyph.align-bottom; label: "Align bottom"; checked: root.last == 5; clicked => { root.last = 5; } }
+        IconButton { icon-size: 15px; glyph: Glyph.distribute; label: "Distribute evenly"; checked: root.last == 6; clicked => { root.last = 6; } }
+        IconButton { icon-size: 15px; glyph: Glyph.fit; label: "Fit to selection"; checked: root.last == 7; clicked => { root.last = 7; } }
+    }
+}

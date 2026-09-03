@@ -594,6 +594,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-core"
+version = "0.2.0"
+
+[[package]]
+name = "concat-desktop"
+version = "0.2.0"
+dependencies = [
+ "bzip2 0.6.1",
+ "concat-core",
+ "concat-export",
+ "concat-media",
+ "concat-project",
+ "concat-render",
+ "cpal",
+ "memmap2",
+ "serde",
+ "serde_json",
+ "sherpa-onnx",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "ts-rs",
+ "ureq",
+]
+
+[[package]]
+name = "concat-export"
+version = "0.2.0"
+dependencies = [
+ "concat-core",
+ "concat-media",
+ "concat-project",
+ "concat-render",
+ "serde",
+]
+
+[[package]]
+name = "concat-media"
+version = "0.2.0"
+dependencies = [
+ "concat-core",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "concat-project"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "ts-rs",
+]
+
+[[package]]
+name = "concat-render"
+version = "0.2.0"
+dependencies = [
+ "concat-core",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5840,73 +5907,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "wolfcut-core"
-version = "0.2.0"
-
-[[package]]
-name = "wolfcut-desktop"
-version = "0.2.0"
-dependencies = [
- "bzip2 0.6.1",
- "cpal",
- "memmap2",
- "serde",
- "serde_json",
- "sherpa-onnx",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "ts-rs",
- "ureq",
- "wolfcut-core",
- "wolfcut-export",
- "wolfcut-media",
- "wolfcut-project",
- "wolfcut-render",
-]
-
-[[package]]
-name = "wolfcut-export"
-version = "0.2.0"
-dependencies = [
- "serde",
- "wolfcut-core",
- "wolfcut-media",
- "wolfcut-project",
- "wolfcut-render",
-]
-
-[[package]]
-name = "wolfcut-media"
-version = "0.2.0"
-dependencies = [
- "serde_json",
- "thiserror 2.0.20",
- "wolfcut-core",
-]
-
-[[package]]
-name = "wolfcut-project"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "ts-rs",
-]
-
-[[package]]
-name = "wolfcut-render"
-version = "0.2.0"
-dependencies = [
- "pollster",
- "wgpu",
- "wolfcut-core",
-]
 
 [[package]]
 name = "writeable"

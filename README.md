@@ -23,9 +23,14 @@
 <a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=TypeScript" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
 
 Concat is everything you use CapCut for — without the watermarks, paywalls,
-or subscriptions. A native Rust engine does the heavy lifting, a clean React
+or subscriptions. A native Rust engine does the heavy lifting, a native
 interface does the editing, and it all runs on your machine: install it and
 start cutting, no account, no extra downloads, no setup.
+
+> [!NOTE]
+> The interface is moving from Tauri + React (`desktop/`) to Slint, as the
+> `concat` crate in `engine/`. Releases still ship the Tauri app while the
+> Slint window catches up; see [`engine/README.md`](./engine/README.md).
 
 ## Highlights
 

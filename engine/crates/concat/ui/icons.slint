@@ -1,0 +1,584 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "theme/theme.slint";
+
+// Single adapter between glyph data and the primitives, the counterpart of
+// desktop/src/components/Icon.tsx. That file resolves a name through two icon
+// packages and falls back to hand-drawn paths; Slint has no icon package, so
+// the same three sources are inlined here as path data.
+//
+// The data is the libraries' own, copied out of the packages the reference
+// depends on rather than traced from a picture of them. What was here before
+// was traced, and a trace is a drawing of an icon: close at 24px, wrong at the
+// 11-14px this interface is full of, where a coordinate off by half a unit is
+// half a pixel of a two-pixel stroke.
+//
+// Lucide for everything it carries, which is everything but the alignment set.
+// The reference splits its glyphs between Heroicons for generic chrome and
+// Lucide for the editor's vocabulary, and that split is right for a browser
+// drawing at 16-24px: Heroicons is authored for a 1.5 stroke on a 24 grid and
+// has the detail to spend. This window draws its glyphs at 11-15px, where that
+// detail closes up — heroicons/film is fourteen subpaths of sprockets and
+// rails, and at 14px it is a grey rectangle. Lucide is authored at a 2 stroke
+// for small display, and one family across the whole set also means one
+// weight, so nothing needs compensating against anything else.
+//
+// Three shapes of glyph, on two grids:
+//   - Stroked   the whole set, lucide's paths at lucide's weight, 24 grid
+//   - Filled    play and pause, which are closed shapes the reference fills
+//   - Solid     the alignment marks, on Radix's 15 grid — see `Solid` below
+//
+// To take a glyph from somewhere else: copy the `d` of every element in its
+// SVG, concatenated in order. A leading `m` on any but the first has to be
+// upper-cased and its implicit run spelled `l`, since concatenation gives it a
+// current point it did not have alone. Non-path elements (lucide draws
+// circles, rects and lines as themselves) become path commands: a circle is
+// two half-arcs, because a 360-degree arc has an undefined sweep.
+//
+// Other libraries worth reaching into, all MIT or ISC and all path-only:
+// Phosphor (six weights, a deep media set), Tabler (4000+ on a 24 grid at
+// stroke 2, closest cousin to lucide), Radix Icons (15 grid, where the
+// alignment marks below come from), Remix Icon, Iconoir, Material Symbols.
+//
+// `commands` may only be set in a binding and never read back, so each glyph
+// is its own instance with a literal string rather than one lookup table.
+export enum Glyph {
+    none,
+    plus,
+    minus,
+    close,
+    check,
+    chevron-down,
+    chevron-right,
+    sparkle,
+    eye,
+    lock,
+    frame,
+    copy,
+    flip-h,
+    flip-v,
+    keyframe,
+    angle,
+    align-left,
+    align-center-x,
+    align-right,
+    align-top,
+    align-center-y,
+    align-bottom,
+    distribute,
+    fit,
+    rows,
+    film,
+    music,
+    image,
+    import,
+    transition,
+    slot,
+    settings,
+    sun,
+    moon,
+    export,
+    chevron-up,
+    search,
+    // the timeline tray and its lane headers
+    pointer,
+    razor,
+    split,
+    merge,
+    trash,
+    magnet,
+    waveform,
+    eye-off,
+    volume,
+    volume-off,
+    unlock,
+    // the monitor's transport
+    play,
+    pause,
+    step-back,
+    step-forward,
+    skip-back,
+    skip-forward,
+    text-mark,
+    // the start screen
+    info,
+    folder,
+}
+
+component Stroked inherits Path {
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    /// Stroke width on the 24 grid, held as a ratio at any rendered size.
+    ///
+    /// Lucide is authored at 2, and this is a hair under it: these render at
+    /// 11-15px, where a full 2 reads heavy next to 12px text. One number for
+    /// the whole set, because the whole set now comes from one library.
+    in property <float> weight: 1.9;
+
+    width: root.size;
+    height: root.size;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: root.tint;
+    stroke-width: root.size * root.weight / 24;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+}
+
+// The alignment glyphs stay on Radix's 15-unit grid. Drawing them on the 24
+// grid puts a 4-unit bar below 2.5px at the 14px size an inspector uses, and
+// the rail and blocks smear into one shape.
+component Solid inherits Path {
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    width: root.size;
+    height: root.size;
+    viewbox-width: 15;
+    viewbox-height: 15;
+    fill: root.tint;
+    fill-rule: evenodd;
+}
+
+component Filled inherits Path {
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    width: root.size;
+    height: root.size;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: root.tint;
+}
+
+export component Icon inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <length> size: 14px;
+    in property <brush> tint: Theme.fg-muted;
+    /// solidifies the keyframe diamond, the way `filled` does on KeyframeIcon
+    in property <bool> filled;
+    /// Stroke weight on the 24 grid, for the stroked glyphs. Lucide's own is
+    /// the default; raise it where a glyph is drawn small enough that the
+    /// stroke falls under a device pixel and the mark greys out — a 9px
+    /// chevron at 1.9 is a 0.7px line. Ignored by the filled and solid ones,
+    /// which have no stroke to weigh.
+    in property <float> weight: 1.9;
+
+    width: root.size;
+    height: root.size;
+
+    // lucide/info
+    if root.glyph == Glyph.info: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M12 16v-4 M12 8h.01";
+    }
+
+    // lucide/folder
+    if root.glyph == Glyph.folder: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9"
+            + "A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z";
+    }
+
+    // lucide/plus
+    if root.glyph == Glyph.plus: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 12h14 M12 5v14";
+    }
+
+    // lucide/minus
+    if root.glyph == Glyph.minus: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 12h14";
+    }
+
+    // lucide/x
+    if root.glyph == Glyph.close: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M18 6 6 18 M6 6l12 12";
+    }
+
+    // lucide/check
+    if root.glyph == Glyph.check: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M20 6 9 17l-5-5";
+    }
+
+    // lucide/chevron-down
+    if root.glyph == Glyph.chevron-down: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M6 9l6 6 6-6";
+    }
+
+    // lucide/chevron-right
+    if root.glyph == Glyph.chevron-right: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M9 18l6-6-6-6";
+    }
+
+    // lucide/chevron-up
+    if root.glyph == Glyph.chevron-up: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M18 15l-6-6-6 6";
+    }
+
+    // lucide/search
+    if root.glyph == Glyph.search: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21 21l-4.34-4.34 M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0";
+    }
+
+    // lucide/sparkles
+    if root.glyph == Glyph.sparkle: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594"
+            + " 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594"
+            + " 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0"
+            + " 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0"
+            + " 1.594-1.594z M20 2v4 M22 4h-4 M2 20a2 2 0 1 0 4 0a2 2 0 1 0 -4 0";
+    }
+
+    // lucide/eye
+    if root.glyph == Glyph.eye: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0"
+            + " 1 0 .696 10.75 10.75 0 0 1-19.876 0 M9 12a3 3 0 1 0 6 0a3 3 0 1 0"
+            + " -6 0";
+    }
+
+    // lucide/eye-off
+    if root.glyph == Glyph.eye-off: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696"
+            + " 10.747 10.747 0 0 1-1.444 2.49 M14.084 14.158a3 3 0 0"
+            + " 1-4.242-4.242 M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0"
+            + " 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143 M2 2l20 20";
+    }
+
+    // lucide/lock
+    if root.glyph == Glyph.lock: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7a2 2"
+            + " 0 0 1 2 -2Z M7 11V7a5 5 0 0 1 10 0v4";
+    }
+
+    // The same body with the shackle swung open, so the pair reads as one
+    // control in two states rather than as two different marks.
+    // lucide/lock-open
+    if root.glyph == Glyph.unlock: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-7a2 2"
+            + " 0 0 1 2 -2Z M7 11V7a5 5 0 0 1 9.9-1";
+    }
+
+    // lucide/copy
+    if root.glyph == Glyph.copy: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-10a2"
+            + " 2 0 0 1 2 -2Z M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9"
+            + " 2 2";
+    }
+
+    // trash-2, not trash: the lidded bin with two strokes down it. The plain
+    // one is the same shape without them, and reads as an empty box at 14px.
+    // lucide/trash-2
+    if root.glyph == Glyph.trash: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10 11v6 M14 11v6 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6 M3 6h18"
+            + " M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2";
+    }
+
+    // An arrow down into a tray — import, as opposed to `plus`, which adds
+    // something the app already has.
+    // lucide/download
+    if root.glyph == Glyph.import: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 15V3 M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5";
+    }
+
+    // lucide/upload
+    if root.glyph == Glyph.export: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 3v12 M17 8l-5-5-5 5 M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4";
+    }
+
+    // Three sliders, deliberately not a cog: a ring with rays is a sun in all
+    // but name, and it would sit next to the actual sun of the theme toggle.
+    // The reference's own note on the same choice.
+    // lucide/sliders-horizontal
+    if root.glyph == Glyph.settings: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10 5H3 M12 19H3 M14 3v4 M16 17v4 M21 12h-9 M21 19h-5 M21 5h-7 M8"
+            + " 10v4 M8 12H3";
+    }
+
+    // lucide/sun
+    if root.glyph == Glyph.sun: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0 M12 2v2 M12 20v2 M4.93"
+            + " 4.93l1.41 1.41 M17.66 17.66l1.41 1.41 M2 12h2 M20 12h2 M6.34"
+            + " 17.66l-1.41 1.41 M19.07 4.93l-1.41 1.41";
+    }
+
+    // lucide/moon
+    if root.glyph == Glyph.moon: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6"
+            + " 0 0 0 8.268 8.268c.344-.215.825-.004.803.401";
+    }
+
+    // lucide/volume-2
+    if root.glyph == Glyph.volume: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1"
+            + " 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1"
+            + " .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z M16 9a5 5 0 0 1 0 6"
+            + " M19.364 18.364a9 9 0 0 0 0-12.728";
+    }
+
+    // lucide/volume-x
+    if root.glyph == Glyph.volume-off: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M11 4.702a.7.7 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416"
+            + " 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1"
+            + " .997.413l3.383 3.384A.7.7 0 0 0 11 19.298z M16.5 14.5l5-5 M16.5"
+            + " 9.5l5 5";
+    }
+
+    // lucide/film
+    if root.glyph == Glyph.film: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2"
+            + " 2 0 0 1 2 -2Z M7 3v18 M3 7.5h4 M3 12h18 M3 16.5h4 M17 3v18 M17"
+            + " 7.5h4 M17 16.5h4";
+    }
+
+    // lucide/music
+    if root.glyph == Glyph.music: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M9 18V5l12-2v13 M3 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0 M15 16a3 3 0 1"
+            + " 0 6 0a3 3 0 1 0 -6 0";
+    }
+
+    // lucide/image
+    if root.glyph == Glyph.image: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2"
+            + " 2 0 0 1 2 -2Z M7 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M21"
+            + " 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21";
+    }
+
+    // Two discs blending into one another: the cross-fade itself.
+    // lucide/blend
+    if root.glyph == Glyph.transition: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M8 9a7 7 0 1 0 14 0a7 7 0 1 0 -14 0 M2 15a7 7 0 1 0 14 0a7 7 0 1 0"
+            + " -14 0";
+    }
+
+    // A laid-out frame with a filled top band — the shape a template is,
+    // rather than the dashed placeholder box this used to draw. Slint has no
+    // stroke-dash-array, so the dashes were never there anyway.
+    // lucide/layout-template
+    if root.glyph == Glyph.slot: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M4 3h16a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-5a1 1"
+            + " 0 0 1 1 -1Z M4 14h7a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-7a1 1 0 0 1 -1"
+            + " -1v-5a1 1 0 0 1 1 -1Z M17 14h3a1 1 0 0 1 1 1v5a1 1 0 0 1 -1 1h-3a1"
+            + " 1 0 0 1 -1 -1v-5a1 1 0 0 1 1 -1Z";
+    }
+
+    // lucide/diamond
+    if root.glyph == Glyph.keyframe: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        fill: root.filled ? root.tint : Colors.transparent;
+        commands: "M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41"
+            + " 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41"
+            + " 0Z";
+    }
+
+    // Row height: a frame divided into rows. What the button changes is how
+    // many of them fit, which is what the divisions say.
+    // lucide/rows-3
+    if root.glyph == Glyph.rows: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2"
+            + " 2 0 0 1 2 -2Z M21 9H3 M21 15H3";
+    }
+
+    // Four corners pulling outwards — zoom to fit.
+    // lucide/maximize
+    if root.glyph == Glyph.fit: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M8 3H5a2 2 0 0 0-2 2v3 M21 8V5a2 2 0 0 0-2-2h-3 M3 16v3a2 2 0 0 0"
+            + " 2 2h3 M16 21h3a2 2 0 0 0 2-2v-3";
+    }
+
+    // lucide/mouse-pointer-2
+    if root.glyph == Glyph.pointer: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0"
+            + " 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0"
+            + " 1-.947.063z";
+    }
+
+    // lucide/scissors-line-dashed
+    if root.glyph == Glyph.razor: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5.42 9.42 8 12 M2 8a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M14 6l-8.58 8.58"
+            + " M2 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M10.8 14.8 14 18 M16 12h-2 M22"
+            + " 12h-2";
+    }
+
+    // lucide/square-split-horizontal
+    if root.glyph == Glyph.split: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 2v20 M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3 M8 21H5a2 2 0 0"
+            + " 1-2-2V5a2 2 0 0 1 2-2h3";
+    }
+
+    // lucide/merge
+    if root.glyph == Glyph.merge: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M8 6l4-4 4 4 M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22 M20 22l-5-5";
+    }
+
+    // lucide/magnet
+    if root.glyph == Glyph.magnet: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 15l4 4 M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296"
+            + " 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029"
+            + " 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0"
+            + " 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z M5 8l4 4";
+    }
+
+    // lucide/audio-lines
+    if root.glyph == Glyph.waveform: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2 10v3 M6 6v11 M10 3v18 M14 8v7 M18 5v13 M22 10v3";
+    }
+
+    // lucide/type
+    if root.glyph == Glyph.text-mark: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 4v16 M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2 M9 20h6";
+    }
+
+    // lucide/step-back
+    if root.glyph == Glyph.step-back: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M13.971 4.285A2 2 0 0 1 17 6v12a2 2 0 0 1-3.029"
+            + " 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z M21 20V4";
+    }
+
+    // lucide/step-forward
+    if root.glyph == Glyph.step-forward: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M10.029 4.285A2 2 0 0 0 7 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2"
+            + " 2 0 0 0 .003-3.432z M3 4v16";
+    }
+
+    // lucide/skip-back
+    if root.glyph == Glyph.skip-back: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M17.971 4.285A2 2 0 0 1 21 6v12a2 2 0 0 1-3.029"
+            + " 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z M3 20V4";
+    }
+
+    // lucide/skip-forward
+    if root.glyph == Glyph.skip-forward: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21 4v16 M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029"
+            + " 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z";
+    }
+
+    // Filled, the way the reference passes `fill="currentColor"` to them: at
+    // 16px an outlined triangle reads as an outline of a play button rather
+    // than as one. Lucide draws both as closed shapes, so the same path fills.
+    // lucide/play
+    if root.glyph == Glyph.play: Filled {
+        size: root.size; tint: root.tint;
+        commands: "M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12"
+            + " 7A2 2 0 0 1 5 19z";
+    }
+
+    // lucide/pause
+    if root.glyph == Glyph.pause: Filled {
+        size: root.size; tint: root.tint;
+        commands: "M15 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-16a1 1"
+            + " 0 0 1 1 -1Z M6 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1"
+            + " -1v-16a1 1 0 0 1 1 -1Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-left: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 1 1 L 2 1 L 2 14 L 1 14 Z M 4 3 L 13 3 L 13 6 L 4 6 Z M 4 9 L 10"
+            + " 9 L 10 12 L 4 12 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-center-x: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 7 1 L 8 1 L 8 14 L 7 14 Z M 2 3 L 13 3 L 13 6 L 2 6 Z M 4 9 L 11"
+            + " 9 L 11 12 L 4 12 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-right: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 13 1 L 14 1 L 14 14 L 13 14 Z M 2 3 L 11 3 L 11 6 L 2 6 Z M 5 9"
+            + " L 11 9 L 11 12 L 5 12 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-top: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 1 1 L 14 1 L 14 2 L 1 2 Z M 3 4 L 6 4 L 6 13 L 3 13 Z M 9 4 L 12"
+            + " 4 L 12 10 L 9 10 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-center-y: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 1 7 L 14 7 L 14 8 L 1 8 Z M 3 2 L 6 2 L 6 13 L 3 13 Z M 9 4 L 12"
+            + " 4 L 12 11 L 9 11 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.align-bottom: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 1 13 L 14 13 L 14 14 L 1 14 Z M 3 2 L 6 2 L 6 11 L 3 11 Z M 9 5"
+            + " L 12 5 L 12 11 L 9 11 Z";
+    }
+
+    // radix-ui/icons, 15-unit grid
+    if root.glyph == Glyph.distribute: Solid {
+        size: root.size; tint: root.tint;
+        commands: "M 1 1 L 2 1 L 2 14 L 1 14 Z M 13 1 L 14 1 L 14 14 L 13 14 Z M 4 4"
+            + " L 7 4 L 7 11 L 4 11 Z M 9 4 L 12 4 L 12 11 L 9 11 Z";
+    }
+
+    // hand-drawn: no library carries it
+    if root.glyph == Glyph.frame: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M 4 8 L 20 8 M 4 16 L 20 16 M 8 4 L 8 20 M 16 4 L 16 20";
+    }
+
+    // hand-drawn: no library carries it
+    if root.glyph == Glyph.flip-h: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M 12 3 L 12 21 M 8 7 L 3 12 L 8 17 Z M 16 7 L 21 12 L 16 17 Z";
+    }
+
+    // hand-drawn: no library carries it
+    if root.glyph == Glyph.flip-v: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M 3 12 L 21 12 M 7 8 L 12 3 L 17 8 Z M 7 16 L 12 21 L 17 16 Z";
+    }
+
+    // hand-drawn: no library carries it
+    if root.glyph == Glyph.angle: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M 4 20 L 20 20 M 4 20 L 17 7 M 14 20 A 10 10 0 0 0 11 12.9";
+    }
+}

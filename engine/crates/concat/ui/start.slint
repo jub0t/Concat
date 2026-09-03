@@ -1,0 +1,699 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "theme/theme.slint";
+import { Glyph, Icon } from "icons.slint";
+import { SegmentedControl } from "primitives/segmented-control.slint";
+import { ThinScrollbar } from "primitives/scrollbar.slint";
+
+// The launch screen, ported from the reference's StartScreen.tsx.
+//
+// Full-bleed on the window's own ground — no card, no border, no shadow. A
+// setup screen is not a dialog floating over something; it *is* the window,
+// and framing it as a card only adds an edge that means nothing. Hierarchy
+// comes from type size and whitespace instead, which is why this is the one
+// surface in the app with a 34px heading on it.
+//
+// An editor should not drop you straight into an untitled timeline either: the
+// frame rate, the frame size and where the folder goes are decisions the whole
+// edit depends on, and choosing them after material is cut is how you end up
+// conforming footage.
+//
+// What is not ported: the template shelf and its slot-filling mode. Both need
+// a template store, and there is none in this tree — the library's "save as
+// template" is an unwired seam for the same reason. The form and the recents
+// are the whole of the screen without them.
+
+/// One row of the Recent column.
+///
+/// The two lines under the name arrive formatted. A decimal frame rate to two
+/// places and a coarse "4 days ago" are both easier to produce where the
+/// numbers are than in an expression language with no printf and no clock.
+export struct RecentProjectData {
+    /// The folder, and the row's identity — what reopening and forgetting name.
+    path: string,
+    name: string,
+    /// "1080 x 1920 · 30.00 fps"
+    detail: string,
+    /// "yesterday", "4 days ago"
+    when: string,
+    /// A frame from the earliest clip on its timeline, once something has
+    /// produced one. Empty falls back to a quiet film mark rather than an
+    /// error: the launch screen is not the place to complain about footage.
+    poster: image,
+}
+
+/// The form, as one struct — the same shape the two dialogs use, and for the
+/// same reason: it is one screen's worth of state and a partial update is how
+/// a panel ends up showing half of two things.
+export struct StartData {
+    name: string,
+    location: string,
+    /// Index into `resolutions`; the numbers behind it are Rust's.
+    resolution: int,
+    /// Index into `rates`.
+    rate: int,
+    /// "1920 x 1080"
+    size-readout: string,
+    /// "30/1 fps" — the exact fraction, because 29.97 is 30000/1001 and never
+    /// anything else.
+    rate-readout: string,
+    /// Creating. The button says so and everything is refused meanwhile.
+    busy: bool,
+    /// Non-empty puts up the notice above the button.
+    error: string,
+}
+
+// A labelled row with a hairline under it, in the style of a settings list.
+component Field inherits Rectangle {
+    in property <string> label;
+    /// The last row carries no rule: there is nothing under it to divide from.
+    in property <bool> last;
+
+    /// The label column. Wide enough for "Resolution" and "Frame rate" at
+    /// 13px without wrapping, which is what keeps every value on one x.
+    property <length> label-w: 112px;
+
+    height: body.preferred-height + 32px;
+
+    Text {
+        x: 0;
+        y: 16px;
+        width: root.label-w;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-lg;
+    }
+
+    body := VerticalLayout {
+        x: root.label-w + 16px;
+        y: 16px;
+        width: root.width - root.label-w - 16px;
+        height: self.preferred-height;
+        spacing: 8px;
+
+        @children
+    }
+
+    if !root.last: Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
+}
+
+// A field's editable line: no box, no ground, just the text on the row it is
+// in. The rules between the rows are already saying where one value ends and
+// the next begins, so a border round each one is the same fact twice.
+component PlainInput inherits Rectangle {
+    in property <string> text;
+    in property <string> placeholder;
+    in property <length> size: Theme.fs-input;
+    in property <string> face: Theme.font;
+    in property <bool> enabled: true;
+    /// Takes the caret when the screen opens, and selects what is there — so
+    /// the default name can be replaced by typing rather than by clearing it
+    /// first. The reference's `autoFocus` plus its `onFocus={select()}`.
+    in property <bool> autofocus;
+
+    callback edited(text: string);
+    callback accepted();
+
+    height: Math.max(22px, root.size + 8px);
+
+    // The text being edited, held apart from `text`.
+    //
+    // A TextInput writes to whatever it is bound to, and an assignment in
+    // Slint replaces the binding — so binding straight to the published value
+    // works for one keystroke and then goes deaf. Seeded instead, and never
+    // while the field has focus, so a republish mid-word cannot yank the
+    // caret. Same as `Field` in primitives/modal.slint, same reason.
+    property <string> draft;
+    function seed() { root.draft = root.text; }
+    init => {
+        root.seed();
+        if (root.autofocus) {
+            input.focus();
+            input.select-all();
+        }
+    }
+    changed text => {
+        if (!input.has-focus) {
+            root.seed();
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
+
+    input := TextInput {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        text <=> root.draft;
+        color: Theme.fg;
+        font-family: root.face;
+        font-size: root.size;
+        single-line: true;
+        read-only: !root.enabled;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+
+        edited => { root.edited(self.text); }
+        accepted => { root.accepted(); }
+    }
+
+    if root.draft == "": Text {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        text: root.placeholder;
+        color: Theme.fg-dim;
+        font-family: root.face;
+        font-size: root.size;
+    }
+}
+
+// The one accent-coloured word in the form. A link and not a button: it opens
+// a picker for the field beside it rather than doing anything to the project,
+// and a filled button here would out-shout Create.
+component LinkButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    width: text.preferred-width;
+    height: 20px;
+    opacity: root.enabled ? (touch.has-hover ? 0.7 : 1.0) : 0.4;
+
+    animate opacity { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    text := Text {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: Theme.accent;
+        font-size: Theme.fs-lg;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One project in the Recent column: poster, name, what it is, when it was
+// last open — and, on hover, the cross that forgets it.
+component RecentRow inherits Rectangle {
+    in property <RecentProjectData> project;
+    in property <bool> enabled: true;
+
+    callback opened();
+    callback forgotten();
+
+    height: 76px;
+    border-radius: Theme.r-lg;
+    background: touch.has-hover ? Theme.field : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    touch := TouchArea {
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { root.opened(); }
+
+        poster := Rectangle {
+            x: 8px;
+            y: (parent.height - self.height) / 2;
+            width: 96px;
+            height: self.width * 9 / 16;
+            border-radius: Theme.r;
+            background: Theme.well;
+            border-width: 1px;
+            border-color: Theme.line;
+            clip: true;
+
+            if root.project.poster.width > 0: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.project.poster;
+                image-fit: cover;
+            }
+
+            if root.project.poster.width == 0: Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.film;
+                size: 17px;
+                weight: 1.5;
+                tint: Theme.fg-dim;
+            }
+        }
+
+        VerticalLayout {
+            x: poster.x + poster.width + 12px;
+            y: (parent.height - self.preferred-height) / 2;
+            width: parent.width - poster.width - 20px - 34px;
+            height: self.preferred-height;
+            spacing: 2px;
+
+            Text {
+                text: root.project.name;
+                color: Theme.fg;
+                font-size: Theme.fs-xl;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.project.detail;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.project.when;
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+        }
+
+        // Hover-only, like the bin's card: a permanent cross on every row of a
+        // list of your own work is a list of invitations to lose one.
+        if touch.has-hover: Rectangle {
+            x: parent.width - self.width - 8px;
+            y: (parent.height - self.height) / 2;
+            width: 22px;
+            height: 22px;
+            border-radius: Theme.r-xs;
+            background: forget.has-hover ? Theme.field-active : Colors.transparent;
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.close;
+                size: 12px;
+                tint: forget.has-hover ? Theme.fg : Theme.fg-dim;
+            }
+
+            forget := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.forgotten(); }
+            }
+        }
+    }
+}
+
+// The Recent column. Its own component because it appears in two places: to
+// the right of the form when there is room, and under it when there is not.
+//
+// No empty state — a "Recent" heading over nothing is worse than no heading —
+// so whoever places this only places it when there is something to show.
+component RecentsColumn inherits VerticalLayout {
+    in property <[RecentProjectData]> recents;
+    in property <bool> enabled: true;
+    /// The rule above the heading, for the stacked arrangement. Beside the
+    /// form there is a whole column of air doing that job already.
+    in property <bool> ruled;
+
+    callback opened(path: string);
+    callback forgotten(path: string);
+
+    alignment: start;
+
+    if root.ruled: Rectangle {
+        height: 56px;
+
+        Rectangle {
+            x: 0;
+            y: 28px;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+        }
+    }
+
+    Text {
+        text: "Recent";
+        color: Theme.fg-muted;
+        font-size: Theme.fs-lg;
+        font-weight: Theme.weight-title;
+    }
+
+    Rectangle { height: 12px; }
+
+    for project in root.recents: RecentRow {
+        project: project;
+        enabled: root.enabled;
+        opened => { root.opened(project.path); }
+        forgotten => { root.forgotten(project.path); }
+    }
+}
+
+export component StartScreen inherits Rectangle {
+    in property <StartData> data;
+    /// The two ladders' labels. The numbers behind each index are Rust's, so
+    /// there is one place that knows 4K is 3840 x 2160 and 29.97 is 30000
+    /// over 1001 — see `RESOLUTIONS` and `START_RATES` in main.rs.
+    in property <[string]> resolutions;
+    in property <[string]> rates;
+    in property <[RecentProjectData]> recents;
+
+    callback name-edited(name: string);
+    callback location-edited(path: string);
+    callback browse();
+    callback resolution-changed(index: int);
+    callback rate-changed(index: int);
+    callback create();
+    callback open-recent(path: string);
+    callback forget-recent(path: string);
+    callback dismiss-error();
+
+    /// The form's own column, and the widest the pair may run to. The
+    /// reference's max-w-5xl and max-w-xl, which are these two numbers.
+    property <length> form-w: 700px;
+    property <length> recents-w: 340px;
+    property <length> column-gap: 64px;
+    /// Only two columns once there is history to show, and only when there is
+    /// room for both. Below that the recents go under the form, which is what
+    /// the reference's `lg:` breakpoint does.
+    property <bool> side-by-side: root.recents.length > 0
+        && root.width >= root.form-w + root.column-gap + root.recents-w + 96px;
+    property <length> pad: 48px;
+
+    property <length> overflow: Math.max(0px, sheet.height - root.height);
+    property <length> offset;
+    property <length> at: Math.max(-root.overflow, Math.min(0px, root.offset));
+
+    background: Theme.page;
+    clip: true;
+
+    wheel := TouchArea {
+        scroll-event(event) => {
+            root.offset = root.at + event.delta-y;
+            return EventResult.accept;
+        }
+
+        sheet := Rectangle {
+            // Centred when it fits and pinned to the top when it does not,
+            // which is what `justify-center` in a scroll container gives.
+            x: (parent.width - self.width) / 2;
+            y: root.overflow > 0px
+                ? root.at
+                : (parent.height - self.height) / 2;
+            width: Math.min(parent.width - 2 * root.pad,
+                root.side-by-side
+                    ? root.form-w + root.column-gap + root.recents-w
+                    : root.form-w);
+            height: columns.preferred-height;
+
+            columns := HorizontalLayout {
+                spacing: root.column-gap;
+
+                // ── the form ─────────────────────────────────────────────
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+
+                    Text {
+                        text: "New project";
+                        color: Theme.fg;
+                        // The one display-sized line in the app. The reference
+                        // spends a third face on it (Cabinet Grotesk); this
+                        // tree bundles two, so the interface face carries it at
+                        // its heaviest weight and the reference's own tight
+                        // tracking — -0.03em, which at 34px is a point.
+                        font-size: Theme.fs-display;
+                        font-weight: Theme.weight-display;
+                        letter-spacing: -1px;
+                    }
+
+                    Rectangle { height: 6px; }
+
+                    Text {
+                        text: "These settings apply to the whole edit and cannot be changed later.";
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-xl;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle { height: 40px; }
+
+                    Field {
+                        label: "Name";
+
+                        PlainInput {
+                            text: root.data.name;
+                            placeholder: "Untitled project";
+                            autofocus: true;
+                            enabled: !root.data.busy;
+                            edited(text) => { root.name-edited(text); }
+                            accepted => { root.create(); }
+                        }
+                    }
+
+                    Field {
+                        label: "Location";
+
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            PlainInput {
+                                horizontal-stretch: 1;
+                                text: root.data.location;
+                                placeholder: "Choose a folder";
+                                size: Theme.fs;
+                                face: Theme.font-technical;
+                                enabled: !root.data.busy;
+                                edited(text) => { root.location-edited(text); }
+                                accepted => { root.create(); }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                LinkButton {
+                                    label: "Choose…";
+                                    enabled: !root.data.busy;
+                                    clicked => { root.browse(); }
+                                }
+                            }
+                        }
+                    }
+
+                    Field {
+                        label: "Resolution";
+
+                        HorizontalLayout {
+                            alignment: start;
+                            SegmentedControl {
+                                width: 312px;
+                                options: root.resolutions;
+                                current <=> root.res-index;
+                                enabled: !root.data.busy;
+                                changed(index) => { root.resolution-changed(index); }
+                            }
+                        }
+
+                        Text {
+                            text: root.data.size-readout;
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                        }
+                    }
+
+                    Field {
+                        label: "Frame rate";
+                        last: true;
+
+                        HorizontalLayout {
+                            alignment: start;
+                            SegmentedControl {
+                                width: 300px;
+                                options: root.rates;
+                                current <=> root.rate-index;
+                                enabled: !root.data.busy;
+                                changed(index) => { root.rate-changed(index); }
+                            }
+                        }
+
+                        Text {
+                            text: root.data.rate-readout;
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                        }
+                    }
+
+                    if root.data.error != "": Rectangle {
+                        height: 46px;
+
+                        Rectangle {
+                            x: 0;
+                            y: 12px;
+                            width: parent.width;
+                            height: 34px;
+                            border-radius: Theme.r;
+                            background: Theme.danger-soft;
+
+                            Icon {
+                                x: 10px;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.info;
+                                size: 13px;
+                                tint: Theme.danger;
+                            }
+
+                            Text {
+                                x: 31px;
+                                y: 0;
+                                width: parent.width - 62px;
+                                height: parent.height;
+                                text: root.data.error;
+                                color: Theme.danger;
+                                font-size: Theme.fs;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            Rectangle {
+                                x: parent.width - self.width - 6px;
+                                y: (parent.height - self.height) / 2;
+                                width: 22px;
+                                height: 22px;
+                                border-radius: Theme.r-xs;
+
+                                Icon {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    glyph: Glyph.close;
+                                    size: 11px;
+                                    tint: Theme.danger;
+                                }
+
+                                TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.dismiss-error(); }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 40px; }
+
+                    // ── the recents, under the form ──────────────────────
+                    //
+                    // Placed here rather than reflowed: a Slint layout has no
+                    // wrap, so the two arrangements are two shapes and each is
+                    // only built at the width the other cannot fit.
+                    if !root.side-by-side && root.recents.length > 0: RecentsColumn {
+                        recents: root.recents;
+                        enabled: !root.data.busy;
+                        ruled: true;
+                        opened(path) => { root.open-recent(path); }
+                        forgotten(path) => { root.forget-recent(path); }
+                    }
+
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 16px;
+
+                        // A pill, and the only filled accent in the form: it
+                        // is the one thing on this screen that starts an edit.
+                        create := Rectangle {
+                            width: label.preferred-width + 48px;
+                            height: 40px;
+                            border-radius: self.height / 2;
+                            background: go.has-hover ? Theme.accent-hover : Theme.accent;
+                            opacity: root.can-create ? 1.0 : 0.4;
+
+                            animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                            label := Text {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                text: root.data.busy ? "Creating…" : "Create";
+                                color: Theme.on-accent;
+                                font-size: Theme.fs-xl;
+                                font-weight: Theme.weight-title;
+                            }
+
+                            go := TouchArea {
+                                enabled: root.can-create;
+                                mouse-cursor: pointer;
+                                clicked => { root.create(); }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 1;
+
+                            HorizontalLayout {
+                                spacing: 6px;
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    Icon {
+                                        glyph: Glyph.info;
+                                        size: 12px;
+                                        tint: Theme.fg-dim;
+                                    }
+                                }
+
+                                Text {
+                                    horizontal-stretch: 1;
+                                    text: "The project folder is created now; the edit autosaves into it.";
+                                    color: Theme.fg-dim;
+                                    font-size: Theme.fs-sm;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── the recents, beside the form ─────────────────────────
+                if root.side-by-side: RecentsColumn {
+                    width: root.recents-w;
+                    recents: root.recents;
+                    enabled: !root.data.busy;
+                    opened(path) => { root.open-recent(path); }
+                    forgotten(path) => { root.forget-recent(path); }
+                }
+            }
+        }
+    }
+
+    // The segmented controls own their `current`: they write to it, and a
+    // write replaces whatever binding was declared. Seeded from the published
+    // form instead, the way the inspector's tab strip is.
+    property <int> res-index;
+    property <int> rate-index;
+    function seed() {
+        root.res-index = root.data.resolution;
+        root.rate-index = root.data.rate;
+    }
+    init => { root.seed(); }
+    changed data => { root.seed(); }
+
+    /// A project needs somewhere to go. Everything else has a default.
+    property <bool> can-create: !root.data.busy && root.data.location != "";
+
+    ThinScrollbar {
+        x: parent.width - self.width - 2px;
+        y: 0;
+        height: root.height;
+        viewport: root.height;
+        content: root.height + root.overflow;
+        offset: -root.at;
+        scrolled(to) => { root.offset = -to; }
+    }
+}

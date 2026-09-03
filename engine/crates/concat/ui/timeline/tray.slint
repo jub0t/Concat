@@ -1,0 +1,210 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { TimelineTool } from "model.slint";
+
+// The timeline's tool tray.
+//
+// The tool set is the reference's (TimelinePanel.tsx): pointer and razor, then
+// the three edit actions, then snapping and the A/V tools, then add-track, and
+// the view controls pushed to the far end behind the timecode readout. The
+// metrics are web/'s bar — 40px tall, 4px between buttons, an 18px hairline
+// with 4px of air on each side between groups — which reads tighter than the
+// reference's 44px without crowding a 26px button.
+//
+// Two of the reference's affordances are missing and worth naming. A disabled
+// Merge there carries the reason in its tooltip, because a button that greys
+// out without saying why leaves you guessing at the rule; this tree has no
+// tooltip primitive, so `merge-blocked-because` is accepted and shown as a
+// line beside the button instead of on hover. And the A/V tools open a menu
+// there; here the button reports a press and the popup is the caller's to
+// grow.
+
+component Divider inherits Rectangle {
+    width: 9px;
+
+    Rectangle {
+        x: 4px;
+        y: (parent.height - self.height) / 2;
+        width: 1px;
+        height: 18px;
+        background: Theme.line;
+    }
+}
+
+export component TimelineTray inherits Rectangle {
+    in property <TimelineTool> tool: TimelineTool.select;
+    in property <bool> snap: true;
+    in property <int> selected-count;
+    /// Empty when the selection can be merged; otherwise why it cannot.
+    in property <string> merge-blocked-because;
+    /// The selected clip has sound to detach or words to speak.
+    in property <bool> has-av-tools;
+    /// hh:mm:ss:ff at the playhead, formatted by the caller
+    in property <string> readout;
+
+    callback tool-changed(tool: TimelineTool);
+    callback snap-changed(snap: bool);
+    callback split();
+    callback merge();
+    callback delete-selected();
+    callback av-tools(at-x: length);
+    callback add-track();
+    callback fit();
+    callback zoom(factor: float);
+
+    height: 40px;
+    background: Theme.panel;
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 4px;
+
+        IconButton {
+            glyph: Glyph.pointer;
+            label: "Select (V)";
+            icon-size: 16px;
+            checked: root.tool == TimelineTool.select;
+            clicked => { root.tool-changed(TimelineTool.select); }
+        }
+        IconButton {
+            glyph: Glyph.razor;
+            label: "Razor (B)";
+            icon-size: 16px;
+            checked: root.tool == TimelineTool.razor;
+            clicked => { root.tool-changed(TimelineTool.razor); }
+        }
+
+        Divider { }
+
+        IconButton {
+            glyph: Glyph.split;
+            label: "Split at playhead (S)";
+            icon-size: 16px;
+            clicked => { root.split(); }
+        }
+        IconButton {
+            glyph: Glyph.merge;
+            // The reason a blocked Merge is blocked rides on the button rather
+            // than being spelled out beside it. The reference keeps it in a
+            // tooltip; this tree has no tooltip yet, so `label` — the
+            // accessible name, and where a tooltip will read from — is the
+            // honest place to park it. A permanent caption in the tray was
+            // answering a question nobody had asked yet.
+            label: root.merge-blocked-because == "" ? "Merge selected"
+                : root.merge-blocked-because;
+            enabled: root.merge-blocked-because == "";
+            icon-size: 16px;
+            clicked => { root.merge(); }
+        }
+        IconButton {
+            glyph: Glyph.trash;
+            label: "Delete selected";
+            danger: true;
+            icon-size: 16px;
+            enabled: root.selected-count > 0;
+            clicked => { root.delete-selected(); }
+        }
+
+        // The count of a multiple selection, in the accent so it reads as a
+        // fact about the selection rather than another control.
+        if root.selected-count > 1: Text {
+            width: 16px;
+            text: "\{root.selected-count}";
+            color: Theme.accent;
+            font-size: Theme.fs-sm;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        Divider { }
+
+        IconButton {
+            glyph: Glyph.magnet;
+            label: "Snap to edges";
+            icon-size: 16px;
+            checked: root.snap;
+            clicked => { root.snap-changed(!root.snap); }
+        }
+
+        // Only while the selected clip has tools to offer — sound to detach or
+        // transcribe, or a title's words to speak. A menu of grey rows teaches
+        // nothing, so the button is absent rather than disabled.
+        if root.has-av-tools: HorizontalLayout {
+            spacing: 0px;
+            Divider { }
+            av := IconButton {
+                glyph: Glyph.waveform;
+                label: "Audio and video tools";
+                icon-size: 16px;
+                wide: true;
+                // Reported in the tray's own coordinates: the button slides
+                // along the bar as the selection count and the merge reason
+                // come and go, and a menu pinned to a guess would drift off it.
+                clicked => {
+                    root.av-tools(av.absolute-position.x - root.absolute-position.x);
+                }
+            }
+        }
+
+        Divider { }
+
+        IconButton {
+            glyph: Glyph.plus;
+            label: "Add track";
+            icon-size: 14px;
+            clicked => { root.add-track(); }
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        // Fixed width, right-aligned: without it every control to its right
+        // shuffles sideways each time the frame digits change.
+        Text {
+            width: 92px;
+            text: root.readout;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+            letter-spacing: 0.24px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+
+        Divider { }
+
+        IconButton {
+            glyph: Glyph.fit;
+            label: "Zoom to fit";
+            icon-size: 15px;
+            clicked => { root.fit(); }
+        }
+        IconButton {
+            glyph: Glyph.minus;
+            label: "Zoom out";
+            icon-size: 14px;
+            // Above 1 is out: the factor multiplies seconds-per-pixel, so a
+            // bigger number is more seconds in the same pixel.
+            clicked => { root.zoom(1.4); }
+        }
+        IconButton {
+            glyph: Glyph.plus;
+            label: "Zoom in";
+            icon-size: 14px;
+            clicked => { root.zoom(1 / 1.4); }
+        }
+    }
+}

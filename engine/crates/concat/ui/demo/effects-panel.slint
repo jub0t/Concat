@@ -1,0 +1,243 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import {
+    Theme, Fmt, Glyph, Icon, IconButton, Knob, LevelMeter, NumberField,
+    Row, Section, SectionBody, SectionHeader,
+} from "../primitives/primitives.slint";
+
+export struct EffectData {
+    id: int,
+    name: string,
+    audio: bool,
+}
+
+component EffectChip inherits Rectangle {
+    in property <string> name;
+    in property <bool> audio;
+    callback removed();
+
+    height: Theme.h;
+    horizontal-stretch: 1;
+    background: Theme.field;
+    border-radius: Theme.r;
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: Theme.r-sm;
+                background: root.audio ? Theme.green : Theme.accent;
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.sparkle;
+                    size: 11px;
+                    tint: root.audio ? Theme.on-green : Theme.on-accent;
+                }
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.name;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                glyph: Glyph.close;
+                icon-size: 12px;
+                label: "Remove " + root.name;
+                clicked => { root.removed(); }
+            }
+        }
+    }
+}
+
+export component EffectsPanel inherits VerticalLayout {
+    in property <[EffectData]> video-effects;
+    in property <[EffectData]> audio-effects;
+    /// programme level and peak hold, driven from Rust
+    in property <float> level;
+    in property <float> peak;
+    /// Owned by the caller, not by the panel: a tab strip can unmount this
+    /// panel, and mute has to survive that — Rust reads it whether or not the
+    /// pane is showing the effects tab.
+    in property <bool> muted;
+    /// True while the pointer is over the level meter; Rust runs the feed off
+    /// this so the app is not repainting at 30fps when nobody is watching.
+    out property <bool> meter-hovered: meter.hovered;
+    // Reported rather than read: a caller that mounts this panel behind an
+    // `if` cannot reach an id inside the conditional, so the edge is pushed
+    // out instead of pulled in.
+    changed meter-hovered => {
+        root.meter-hovered-changed(root.meter-hovered);
+    }
+
+    callback add-effect(audio: bool);
+    callback remove-effect(id: int);
+    callback meter-hovered-changed(hovered: bool);
+    callback toggle-mute();
+
+    property <float> volume: 3;
+    property <float> trim: 0.62;
+    property <bool> soloed;
+
+    alignment: start;
+
+    Section {
+        first: true;
+        SectionHeader {
+            title: "Effects";
+            IconButton {
+                glyph: Glyph.plus;
+                label: "Add effect";
+                clicked => { root.add-effect(false); }
+            }
+        }
+        SectionBody {
+            for effect in root.video-effects: Row {
+                label: "FX";
+                EffectChip {
+                    name: effect.name;
+                    removed => { root.remove-effect(effect.id); }
+                }
+            }
+        }
+    }
+
+    Section {
+        SectionHeader {
+            title: "Animation";
+            IconButton { glyph: Glyph.plus; label: "Add effect"; }
+        }
+    }
+    Section {
+        SectionHeader {
+            title: "Transition";
+            IconButton { glyph: Glyph.plus; label: "Add effect"; }
+        }
+    }
+    Section {
+        SectionHeader {
+            title: "Mask";
+            IconButton { glyph: Glyph.plus; label: "Add effect"; }
+        }
+    }
+
+    Section {
+        SectionHeader { title: "Audio"; }
+        SectionBody {
+            Row {
+                label: "Volume";
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: Theme.gap;
+                    padding-top: 5px;
+                    padding-bottom: 5px;
+
+                    NumberField {
+                        value <=> root.volume;
+                        minimum: -60;
+                        maximum: 12;
+                        precision: 1;
+                        keyframe: true;
+                        keyframed: true;
+                        format(v) => { return Fmt.decibels(v); }
+                    }
+
+                    Rectangle {
+                        height: Theme.h;
+                        background: Theme.well;
+                        border-radius: Theme.r;
+                        clip: true;
+                        HorizontalLayout {
+                            spacing: 1px;
+                            Rectangle {
+                                background: Theme.field;
+                                IconButton {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    text: "M";
+                                    wide: true;
+                                    label: "Mute";
+                                    checked: root.muted;
+                                    clicked => { root.toggle-mute(); }
+                                }
+                            }
+                            Rectangle {
+                                background: Theme.field;
+                                IconButton {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    text: "S";
+                                    wide: true;
+                                    label: "Solo";
+                                    checked: root.soloed;
+                                    clicked => { root.soloed = !root.soloed; }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Wrapped to centre it: the row is 72px and the well 68px,
+                // and a layout start-aligns a fixed-size child.
+                VerticalLayout {
+                    alignment: center;
+                Rectangle {
+                    width: 90px;
+                    height: 68px;
+                    horizontal-stretch: 0;
+                    background: Theme.field;
+                    border-radius: Theme.r;
+                    Knob {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        value <=> root.trim;
+                        default-value: 0.5;
+                    }
+                }
+                }
+            }
+            Row {
+                meter := LevelMeter {
+                    value: root.level;
+                    peak: root.muted ? -1 : root.peak;
+                }
+            }
+        }
+    }
+
+    Section {
+        SectionHeader {
+            title: "Audio effects";
+            IconButton {
+                glyph: Glyph.plus;
+                label: "Add effect";
+                clicked => { root.add-effect(true); }
+            }
+        }
+        SectionBody {
+            for effect in root.audio-effects: Row {
+                label: "FX";
+                EffectChip {
+                    name: effect.name;
+                    audio: true;
+                    removed => { root.remove-effect(effect.id); }
+                }
+            }
+        }
+    }
+}

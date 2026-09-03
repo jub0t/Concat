@@ -1,0 +1,580 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { NumberField } from "../primitives/number-field.slint";
+
+// The clip inspector's controls, ported from web/src/demo/inspector/
+// controls.tsx: a horizontal fader, the Param row that repeats down every
+// tab, a switch, a help disclosure, a note, and a search field. Written to
+// the same contract as primitives/ — value plus a changed callback — so
+// promoting one later is a file move rather than a rewrite.
+
+// How a parameter's readout is spelled. The web build passes a closure per
+// param; a Slint struct cannot carry one, so the catalogue names one of these
+// and InspectorFmt renders it.
+export enum ParamFormat {
+    percent,     // "45%"
+    pitch,       // 0 is "auto", else "+3 st"
+    seconds,     // 0 is "off", else "1.4 s"
+    millis,      // 0 is "off", else "320 ms"
+    hertz,       // "120 Hz", "6.5 kHz"
+    decibels,    // "-18.0 dB", "+3.0 dB"
+    ratio,       // "4.0 : 1"
+    rate-hz,     // "1.2 Hz"
+    steps,       // "12"
+    rate,        // "1.00x"
+    fade,        // 0 is "none", else "1.5 s"
+
+    // The clip inspector's own. Several of these are fractions of something —
+    // the frame's height, the frame's width — rather than absolute units,
+    // because the frame can be any resolution and points would be a lie.
+    fraction,    // 0..1 as a whole percent: "72%"
+    centred,     // a signed offset: "centred" at zero, else "-12.5%"
+    degrees,     // "45°"
+    gain,        // decibels, with the floor spelled "Silent"
+    height,      // "9.0% of height"
+    outline,     // 0 is "none", else "3.5%"
+    seconds2,    // "1.25s" — two places, for a fade dialled against a duration
+}
+
+export global InspectorFmt {
+    // "3.5", with the trailing zero a bare interpolation would drop.
+    public pure function fixed1(v: float) -> string {
+        return (v < 0 ? "-" : "")
+            + "\{Math.floor(Math.abs(Fmt.round-to(v, 1)))}"
+            + ".\{Math.mod(Math.round(Math.abs(v) * 10), 10)}";
+    }
+
+    public pure function fixed2(v: float) -> string {
+        return (v < 0 ? "-" : "")
+            + "\{Math.floor(Math.abs(Fmt.round-to(v, 2)))}"
+            + "." + Fmt.pad2(Math.mod(Math.round(Math.abs(v) * 100), 100));
+    }
+
+    public pure function format(fmt: ParamFormat, v: float) -> string {
+        if (fmt == ParamFormat.percent) { return "\{Math.round(v)}%"; }
+        if (fmt == ParamFormat.pitch) {
+            return v == 0 ? "auto" : "+\{Math.round(v)} st";
+        }
+        if (fmt == ParamFormat.seconds) {
+            return v == 0 ? "off" : InspectorFmt.fixed1(v) + " s";
+        }
+        if (fmt == ParamFormat.millis) {
+            return v == 0 ? "off" : "\{Math.round(v)} ms";
+        }
+        if (fmt == ParamFormat.hertz) {
+            return v >= 1000 ? InspectorFmt.fixed1(v / 1000) + " kHz"
+                : "\{Math.round(v)} Hz";
+        }
+        if (fmt == ParamFormat.decibels) {
+            return (v > 0 ? "+" : "") + InspectorFmt.fixed1(v) + " dB";
+        }
+        if (fmt == ParamFormat.ratio) { return InspectorFmt.fixed1(v) + " : 1"; }
+        if (fmt == ParamFormat.rate-hz) { return InspectorFmt.fixed1(v) + " Hz"; }
+        if (fmt == ParamFormat.steps) { return "\{Math.round(v)}"; }
+        if (fmt == ParamFormat.rate) { return InspectorFmt.fixed2(v) + "x"; }
+        if (fmt == ParamFormat.fraction) { return "\{Math.round(v * 100)}%"; }
+        if (fmt == ParamFormat.centred) {
+            // A hair either side of zero still reads as centred: the step is
+            // 0.005, so an exact zero is easy to miss by one press.
+            return Math.abs(v) < 0.0025 ? "centred" : InspectorFmt.fixed1(v * 100) + "%";
+        }
+        if (fmt == ParamFormat.degrees) { return "\{Math.round(v)}°"; }
+        if (fmt == ParamFormat.gain) {
+            // The bottom of the fader is silence, not -60 dB: a fader that
+            // cannot reach zero is a fader you cannot mute with.
+            return v <= -60 ? "Silent"
+                : Math.abs(v) < 0.05 ? "0.0 dB"
+                : (v > 0 ? "+" : "") + InspectorFmt.fixed1(v) + " dB";
+        }
+        if (fmt == ParamFormat.height) {
+            return InspectorFmt.fixed1(v * 100) + "% of height";
+        }
+        if (fmt == ParamFormat.outline) {
+            return v == 0 ? "none" : InspectorFmt.fixed1(v * 100) + "%";
+        }
+        if (fmt == ParamFormat.seconds2) {
+            return v == 0 ? "none" : InspectorFmt.fixed2(v) + "s";
+        }
+        return v == 0 ? "none" : InspectorFmt.fixed1(v) + " s";
+    }
+
+    /// Linear gain to decibels. Zero maps to the bottom of the fader rather
+    /// than to -infinity, so the control has a reachable floor.
+    public pure function to-decibels(gain: float) -> float {
+        return gain <= 0 ? -60 : Fmt.clamp(20 * Math.log(gain, 10), -60, 24);
+    }
+
+    /// And back. At the very bottom the fader means silence, so it snaps to
+    /// exactly zero rather than leaving an inaudible-but-nonzero gain in the
+    /// project.
+    public pure function from-decibels(decibels: float) -> float {
+        return decibels <= -60 ? 0 : Math.pow(10, decibels / 20);
+    }
+
+    // What the raw NumberField beside a fader should show for a given step.
+    public pure function precision-of(step: float) -> int {
+        return step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
+    }
+}
+
+export global InspectorSearch {
+    // Slint's string type has no contains(), so the library search match is
+    // implemented in Rust and bound in main.rs — the same seam as
+    // Fmt.parse-timecode. Unbound it returns false, so main.rs must bind it
+    // or the library lists nothing while a query is typed.
+    pure callback matches(name: string, query: string) -> bool;
+}
+
+// Horizontal fader. Click to jump, drag to ride, double-click to reset.
+export component Fader inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    /// restored on double-click
+    in property <float> default-value: root.minimum;
+    in property <bool> enabled: true;
+
+    callback changed(value: float);
+
+    height: 18px;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    property <float> span: Math.max(root.maximum - root.minimum, 0.000001);
+    // The rail is inset so the cap lands under the pointer at both ends
+    // instead of a few px short of them.
+    property <length> inset: 3px;
+    property <length> usable: Math.max(1px, root.width - 2 * root.inset);
+    property <float> percent: Fmt.clamp((root.value - root.minimum) / root.span, 0, 1);
+
+    function settle(raw: float) {
+        root.value = Fmt.clamp(
+            root.minimum + Math.round((raw - root.minimum) / root.step) * root.step,
+            root.minimum, root.maximum);
+        root.changed(root.value);
+    }
+
+    function apply-at(at: length) {
+        root.settle(root.minimum
+            + Fmt.clamp((at - root.inset) / root.usable, 0, 1) * root.span);
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: ew-resize;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                root.apply-at(self.mouse-x);
+            }
+        }
+        moved => {
+            root.apply-at(self.mouse-x);
+        }
+        double-clicked => {
+            root.settle(root.default-value);
+        }
+    }
+
+    rail := Rectangle {
+        x: root.inset;
+        y: (parent.height - self.height) / 2;
+        width: root.usable;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.field-active;
+
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width * root.percent;
+            height: parent.height;
+            border-radius: 2px;
+            background: Theme.accent;
+        }
+    }
+
+    cap := Rectangle {
+        x: root.inset + root.usable * root.percent - self.width * root.percent;
+        y: (parent.height - self.height) / 2;
+        width: 10px;
+        height: 14px;
+        border-radius: 3px;
+        background: Theme.fg;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+    }
+}
+
+// The inspector's repeating unit: a formatted readout above (the value in a
+// unit you reason about — "none", "auto", "1.00x"), the fader and a raw
+// number field below. Keeping both is what lets a fade of zero say "none"
+// without making zero un-typeable.
+export component Param inherits VerticalLayout {
+    in property <string> label;
+    in-out property <float> value;
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <float> step: 1;
+    in property <float> default-value: root.minimum;
+    in property <ParamFormat> fmt;
+    in property <bool> enabled: true;
+
+    callback changed(value: float);
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 4px;
+
+    HorizontalLayout {
+        Text {
+            text: root.label;
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        Text {
+            text: InspectorFmt.format(root.fmt, root.value);
+            color: Theme.fg;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        Fader {
+            horizontal-stretch: 1;
+            value <=> root.value;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            default-value: root.default-value;
+            enabled: root.enabled;
+            changed(v) => { root.changed(v); }
+        }
+
+        field := NumberField {
+            width: 64px;
+            value <=> root.value;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            precision: InspectorFmt.precision-of(root.step);
+            enabled: root.enabled;
+            changed(v) => { root.changed(v); }
+        }
+    }
+}
+
+export component Switch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+
+    callback toggled(checked: bool);
+
+    width: 30px;
+    height: 17px;
+    border-radius: self.height / 2;
+    background: root.checked ? Theme.accent : Theme.field-active;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    thumb := Rectangle {
+        x: root.checked ? parent.width - self.width - 2px : 2px;
+        y: (parent.height - self.height) / 2;
+        width: 13px;
+        height: 13px;
+        border-radius: self.width / 2;
+        background: Theme.on-accent;
+
+        animate x { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+// A labelled switch on one line. `@children` is the help disclosure slot.
+export component SwitchRow inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <bool> checked;
+
+    callback toggled(checked: bool);
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 6px;
+    min-height: Theme.h;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+
+    @children
+
+    Rectangle { horizontal-stretch: 1; }
+
+    VerticalLayout {
+        alignment: center;
+        Switch {
+            checked <=> root.checked;
+            toggled(on) => { root.toggled(on); }
+        }
+    }
+}
+
+// A tooltip would hide the answer again the moment the pointer moves; this
+// toggles a line of prose the caller renders where it belongs.
+export component HelpButton inherits Rectangle {
+    in-out property <bool> open;
+
+    callback toggled();
+
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: root.open ? Theme.accent-soft
+        : touch.has-hover ? Theme.field-hover
+        : Theme.field;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: "?";
+        color: root.open ? Theme.accent : Theme.fg-muted;
+        font-size: Theme.fs-xs;
+        font-weight: Theme.weight-title;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.open = !root.open;
+            root.toggled();
+        }
+    }
+}
+
+export component Note inherits HorizontalLayout {
+    in property <string> text;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 2px;
+    padding-bottom: 4px;
+
+    Text {
+        text: root.text;
+        color: Theme.fg-muted;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+}
+
+export component SearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+
+    callback edited(text: string);
+
+    height: Theme.h;
+    border-radius: Theme.r-sm;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.line;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 4px;
+        spacing: 6px;
+
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.search;
+                size: 12px;
+                tint: Theme.fg-dim;
+            }
+        }
+
+        Rectangle {
+            clip: true;
+
+            input := TextInput {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: self.preferred-height;
+                color: Theme.fg;
+                font-size: Theme.fs;
+                single-line: true;
+                text <=> root.text;
+                edited => { root.edited(self.text); }
+            }
+
+            if root.text == "" && !input.has-focus: Text {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                text: root.placeholder;
+                color: Theme.fg-dim;
+                font-size: Theme.fs;
+            }
+        }
+
+        if root.text != "": VerticalLayout {
+            alignment: center;
+            clear := Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: Theme.r-xs;
+                background: clear-touch.has-hover ? Theme.field-hover : Colors.transparent;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.close;
+                    size: 10px;
+                    tint: Theme.fg-muted;
+                }
+
+                clear-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.text = "";
+                        root.edited("");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A colour on a labelled row.
+//
+// The reference hands this to the platform — `<input type="color">` — which
+// has no counterpart here. Rather than fake an eyedropper and a wheel, the
+// swatch opens a shelf of the colours a title actually gets set to: the
+// neutrals it is legible on, and the kind hues already in the theme. The hex
+// is shown beside it so a value from outside the shelf is still readable
+// rather than invisible.
+export component ColourField inherits HorizontalLayout {
+    in property <string> label;
+    in property <color> value;
+    /// The value spelled out, formatted by whoever owns it — Slint cannot
+    /// print a colour.
+    in property <string> hex;
+
+    callback changed(value: color);
+
+    /// The colours a title can be. In the theme rather than here, so a fork
+    /// that retones the window retones this with it — see `swatches`.
+    property <[color]> shelf: Theme.swatches;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 8px;
+    min-height: Theme.h;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+
+    Rectangle { horizontal-stretch: 1; }
+
+    Text {
+        text: root.hex;
+        color: Theme.fg-dim;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
+        vertical-alignment: center;
+    }
+
+    VerticalLayout {
+        alignment: center;
+
+        swatch := Rectangle {
+            width: 34px;
+            height: 20px;
+            border-radius: Theme.r-xs;
+            // The swatch sits on its own light-to-dark checker of one square,
+            // so a colour near the panel's own still has an edge.
+            background: Theme.fg-dim;
+            border-width: 1px;
+            border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                border-radius: Theme.r-xs - 1px;
+                background: root.value;
+            }
+
+            touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { shelf.show(); }
+            }
+
+            shelf := PopupWindow {
+                x: -128px;
+                y: swatch.height + 4px;
+                width: 160px;
+                height: 92px;
+                close-policy: close-on-click-outside;
+
+                Rectangle {
+                    background: Theme.raised;
+                    border-width: 1px;
+                    border-color: Theme.line-strong;
+                    border-radius: Theme.r;
+
+                    for entry[index] in root.shelf: Rectangle {
+                        x: 8px + Math.mod(index, 6) * 24px;
+                        y: 8px + Math.floor(index / 6) * 26px;
+                        width: 20px;
+                        height: 20px;
+                        border-radius: Theme.r-xs;
+                        background: entry;
+                        border-width: 1px;
+                        border-color: pick.has-hover ? Theme.fg : Theme.line;
+
+                        pick := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.changed(entry);
+                                shelf.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,464 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+
+// The dialog layer this tree did not have.
+//
+// Slint has no portal, so a modal cannot be declared where it belongs and
+// rendered somewhere else: it is placed once at the window root, filling it,
+// and shown by a property. Everything under it keeps existing — a modal is a
+// scrim over the app, not a replacement for it — which is why the scrim takes
+// pointer events rather than merely painting over them.
+export component Modal inherits Rectangle {
+    in property <bool> open;
+    in property <string> title;
+    in property <Glyph> glyph;
+    /// A fact about what the sheet is acting on, set against the trailing edge
+    /// of its header — web/'s panels carry theirs the same way.
+    in property <string> note;
+    /// False while a job is running: a dialog you can dismiss out from under an
+    /// export is a dialog that loses the export.
+    in property <bool> dismissable: true;
+    in property <length> surface-width: 460px;
+    /// Zero fits the content, which is what a short dialog wants; a fixed
+    /// height is for the ones with their own scrolling body.
+    in property <length> surface-height: 0px;
+
+    callback closed();
+
+    visible: root.open;
+    // Dark rather than blurred: Slint has no backdrop filter, and a scrim that
+    // only dims is honest about that where a fake blur would not be.
+    background: Theme.overlay;
+
+    // Declared first, so the surface and everything in it sits above and takes
+    // its own presses. A click that lands here landed outside the dialog.
+    TouchArea {
+        clicked => {
+            if (root.dismissable) {
+                root.closed();
+            }
+        }
+    }
+
+    surface := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.surface-width;
+        height: root.surface-height > 0px ? root.surface-height : body.preferred-height;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+        border-radius: Theme.r-xl;
+        clip: true;
+
+        // Swallows presses that land on the dialog, so they do not reach the
+        // scrim underneath and dismiss it.
+        TouchArea { }
+
+        body := VerticalLayout {
+            Rectangle {
+                height: 42px;
+
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 1px;
+                    width: parent.width;
+                    height: 1px;
+                    background: Theme.line;
+                }
+
+                // The note on one edge and the close on the other, so the
+                // centred title has matching weight either side of it rather
+                // than being pushed off true by whichever one is longer.
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 12px;
+                    spacing: 8px;
+
+                    if root.note != "": Text {
+                        text: root.note;
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // Gone, not disabled, while a job is running: there is no
+                    // safe answer to pressing it, so it should not be there to
+                    // press.
+                    if root.dismissable: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+                            border-radius: Theme.r-sm;
+                            background: shut.has-hover ? Theme.field : Colors.transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 13px;
+                                tint: shut.has-hover ? Theme.fg : Theme.fg-muted;
+                            }
+
+                            shut := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+
+                // Placed against the whole strip rather than laid out, so it
+                // stays centred in the sheet and not in whatever space the
+                // note and the close button leave over — the same trick the
+                // window's own title bar uses for the project name.
+                centre := HorizontalLayout {
+                    x: (parent.width - self.preferred-width) / 2;
+                    y: 0;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: root.glyph;
+                            size: 16px;
+                            tint: Theme.accent;
+                        }
+                    }
+
+                    Text {
+                        text: root.title;
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            @children
+        }
+    }
+}
+
+// The push a dialog is built around.
+//
+// Four tones, from web/'s button: `default` is a bordered field, `primary`
+// fills with the accent, `ghost` is bare until hovered, and `danger` keeps its
+// normal ink and turns red only under the pointer — a row of permanently red
+// text is a row of alarms, where the warning belongs at the moment of pressing.
+export component Button inherits Rectangle {
+    in property <string> label;
+    in property <Glyph> glyph;
+    /// the one action the dialog exists for
+    in property <bool> primary;
+    in property <bool> danger;
+    /// bare until hovered, for a secondary action beside a real one
+    in property <bool> ghost;
+    in property <bool> enabled: true;
+    /// fill the width it is given, for a footer's single action
+    in property <bool> block;
+    /// 34px instead of 28px, for the action a sheet is built around
+    in property <bool> large;
+
+    callback clicked();
+
+    property <length> gap: root.glyph == Glyph.none ? 0px : 6px;
+    property <length> mark: root.glyph == Glyph.none ? 0px : 14px;
+    property <bool> lit: touch.has-hover && root.enabled;
+    /// the red the danger tone hovers into — a dark wash, not a fill
+    property <color> danger-wash: Theme.danger-wash;
+    property <color> danger-edge: Theme.danger-edge;
+
+    min-height: root.large ? 34px : 28px;
+    max-height: root.large ? 34px : 28px;
+    horizontal-stretch: root.block ? 1 : 0;
+    // From the label's *preferred* width, never its actual one: the layout
+    // below sizes the label from this button's width, so reading back the
+    // result is a loop.
+    min-width: root.block ? 0px
+        : text.preferred-width + root.mark + root.gap + (root.large ? 32px : 24px);
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.45;
+    border-width: root.ghost ? 0px : 1px;
+    border-color: root.primary ? (root.lit ? Theme.accent-hover : Theme.accent)
+        : (root.danger && root.lit) ? root.danger-edge
+        : root.lit ? Theme.line-strong
+        : Theme.line;
+    background: root.primary ? (root.lit ? Theme.accent-hover : Theme.accent)
+        : root.ghost ? (root.lit ? Theme.field : Colors.transparent)
+        : (root.danger && root.lit) ? root.danger-wash
+        : root.lit ? Theme.field-hover
+        : Theme.field;
+
+    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    property <brush> ink: root.primary ? Theme.on-accent
+        : root.ghost ? (root.lit ? Theme.fg : Theme.fg-muted)
+        : Theme.fg;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: root.gap;
+
+        if root.glyph != Glyph.none: VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 14px;
+                tint: root.ink;
+            }
+        }
+
+        text := Text {
+            text: root.label;
+            color: root.ink;
+            font-size: root.large ? Theme.fs-lg : Theme.fs;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A determinate bar. Nothing indeterminate: every job in this app can say how
+// far along it is, and a barber's pole for one that can is a lie.
+export component Progress inherits Rectangle {
+    in property <float> value;
+    /// Finished: the bar turns green rather than staying accent, so a glance
+    /// tells you it is over without reading the row above it.
+    in property <bool> done;
+
+    height: 4px;
+    border-radius: 2px;
+    background: Theme.well;
+    border-width: 1px;
+    border-color: Theme.line;
+    clip: true;
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width * Math.clamp(root.value, 0, 1);
+        height: parent.height;
+        border-radius: 2px;
+        background: root.done ? Theme.green : Theme.accent;
+    }
+}
+
+// A group of rows inside a sheet, with a hairline above it.
+//
+// The heading is plain 13px in normal ink, not the small dim capitals a panel
+// uses. A dialog is one screen: its groups are landmarks in a short list, and
+// shouting at each other in capitals is exactly what they do not need to do.
+//
+// A collapsible group's header carries a raised tone as well as a chevron, so
+// the colour says "this bar does something" before the mark is even read —
+// which is why a plain group must not have it.
+export component DialogSection inherits VerticalLayout {
+    in property <string> title;
+    in property <bool> collapsible;
+    /// Shown in the header only while folded, so a closed group still reports
+    /// what it is holding.
+    in property <string> summary;
+    in-out property <bool> open: true;
+    /// suppress the leading hairline, for the first group in a sheet
+    in property <bool> first;
+
+    if !root.first: Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+
+    Rectangle {
+        height: 36px;
+        background: !root.collapsible ? Colors.transparent
+            : head.has-hover ? Theme.field
+            : Theme.raised;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        head := TouchArea {
+            enabled: root.collapsible;
+            mouse-cursor: pointer;
+            clicked => { root.open = !root.open; }
+        }
+
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            spacing: 6px;
+
+            // web/ rotates one right-chevron through 90 degrees. Slint puts
+            // `rotation-angle` on Image and Path only, and an Icon is neither,
+            // so the two marks are swapped instead — the same two states, just
+            // without the quarter turn between them.
+            if root.collapsible: VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: root.open ? Glyph.chevron-down : Glyph.chevron-right;
+                    size: 13px;
+                    tint: Theme.fg-dim;
+                }
+            }
+
+            Text {
+                text: root.title;
+                color: Theme.fg;
+                font-size: Theme.fs-lg;
+                font-weight: Theme.weight-title;
+                vertical-alignment: center;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            if root.collapsible && !root.open && root.summary != "": Text {
+                text: root.summary;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+
+    // Collapsed by height rather than by dropping out of the tree: `@children`
+    // cannot appear inside a conditional, so the body is always built and the
+    // clip is what hides it. It also leaves the height as the thing to animate
+    // the day this grows a transition.
+    Rectangle {
+        height: root.open ? body.preferred-height : 0px;
+        clip: true;
+
+        // An equal 14px inset on every side, matching the sheet's own gutter.
+        body := VerticalLayout {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: self.preferred-height;
+            padding: 14px;
+            spacing: 6px;
+            @children
+        }
+    }
+}
+
+// One line of a sheet's form: a fixed label column so every control in the
+// group starts at the same x, whatever its label says.
+export component DialogRow inherits HorizontalLayout {
+    in property <string> label;
+
+    min-height: 28px;
+    spacing: 10px;
+
+    if root.label != "": Text {
+        width: 78px;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    HorizontalLayout {
+        spacing: 6px;
+        @children
+    }
+}
+
+// A single-line field. No border: the ground carries it, and the accent ring
+// only appears once it is being typed into.
+export component Field inherits Rectangle {
+    /// The value the caller owns. One-way: what is typed comes back through
+    /// `edited`, and this is re-seeded from whatever the caller does with it.
+    in property <string> value;
+    in property <string> placeholder;
+    /// numbers, paths and names read better in the technical face
+    in property <bool> technical;
+
+    callback edited(text: string);
+
+    // A layout owns its children's size on both axes: it reads min, preferred
+    // and max, and a bare `height` is none of those. Without a max the row
+    // stretches this to whatever the tallest thing beside it made it, which is
+    // exactly what left the field taller than the Browse button next to it.
+    min-height: 28px;
+    max-height: 28px;
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    background: input.has-focus ? Theme.field
+        : touch.has-hover ? Theme.field-hover
+        : Theme.field;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Colors.transparent;
+    clip: true;
+
+    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // The text being edited, held separately from `value`.
+    //
+    // A TextInput writes to whatever property it is two-way bound to, and an
+    // assignment in Slint replaces the binding the caller declared — so
+    // binding it straight to `value` works for exactly one keystroke and then
+    // goes deaf to the model. This is seeded instead, and never while the
+    // field has focus, so a republish mid-sentence cannot yank the caret.
+    property <string> draft;
+    function seed() {
+        root.draft = root.value;
+    }
+    init => { root.seed(); }
+    changed value => {
+        if (!input.has-focus) {
+            root.seed();
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
+
+    input := TextInput {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 20px;
+        // Without this the input takes the whole field's height — a child of a
+        // Rectangle fills it by default — so the centring above resolves to
+        // zero and the text draws hard against the top edge. Same fix, and the
+        // same reason, as SearchField in the inspector.
+        height: self.preferred-height;
+        text <=> root.draft;
+        color: Theme.fg;
+        font-family: root.technical ? Theme.font-technical : Theme.font;
+        font-size: Theme.fs;
+        single-line: true;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+
+        edited => { root.edited(self.text); }
+    }
+
+    if root.draft == "" && !input.has-focus: Text {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        height: self.preferred-height;
+        text: root.placeholder;
+        color: Theme.fg-dim;
+        font-size: Theme.fs;
+    }
+}

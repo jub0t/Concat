@@ -1,0 +1,303 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Payload } from "../util.slint";
+import { DockSide } from "../dock.slint";
+import { PaneKind } from "pane-switcher.slint";
+import { Editor } from "../editor.slint";
+import { ConfigPane } from "config-pane.slint";
+import { MediaPane } from "media-pane.slint";
+import { PreviewPane } from "preview-pane.slint";
+import { TimelinePane } from "timeline-pane.slint";
+
+// One box of the workspace, showing whichever view its `kind` names.
+//
+// The four `if`s are what let a view appear in two seats at once: each seat
+// builds its own instance of what it is showing, so two Preview seats are two
+// monitors and not one monitor that has to be in two places. Only the seat
+// that is showing a view pays for it — an `if` that is false instantiates
+// nothing at all, so a window with no inspector up has no inspector built.
+//
+// This is also the only forwarding left in the tree. Every binding below reads
+// the Editor global rather than a property passed down from the workspace,
+// which is what stops this file being four hundred lines times four seats.
+export component Seat inherits Rectangle {
+    /// What to show here.
+    in property <PaneKind> kind;
+    /// Which box this is, 0..3. Travels in the drag payload so a drop can say
+    /// where the panel came from.
+    in property <int> index;
+
+    /// Its corner button was used.
+    callback picked(kind: PaneKind);
+    /// The bottom row of its dropdown was used: close this seat.
+    callback removed();
+
+    /// A panel was dropped here from another seat, on this part of it.
+    callback dropped-on(from: int, side: DockSide);
+
+    /// How much of a seat's edge is that edge's own.
+    ///
+    /// A quarter, but never more than 72px: on a wide seat a flat quarter is
+    /// two hundred pixels of "left", which makes the middle hard to hit; on a
+    /// narrow one a flat 72 is the entire seat and the middle disappears. The
+    /// quarter is what keeps a small seat usable and the cap is what keeps a
+    /// large one from being all edge.
+    ///
+    /// Floored at a pixel because `side-at` divides by them, and a seat can
+    /// be handed a zero box — on the frame before the first layout, and any
+    /// time a gutter is dragged to the end of its travel.
+    property <length> margin-x: Math.max(1px, Math.min(72px, root.width / 4));
+    property <length> margin-y: Math.max(1px, Math.min(72px, root.height / 4));
+
+    /// Whether this seat has the room to be cut in two along each axis.
+    ///
+    /// Below this a split makes two seats too small to use — and, worse, too
+    /// small to *undo*, since the corner button that would put them back is
+    /// the first thing a narrow header loses. So the edge stops being an edge
+    /// and the whole seat is the middle: what the drop would do is what the
+    /// outline shows, which is a trade rather than a split.
+    /// Different numbers per axis, because the two halves are different
+    /// shapes: a pane needs width for a header with a name and a corner button
+    /// in it, and only enough height to draw that header and a row under it.
+    property <bool> splits-across: root.width >= 320px;
+    property <bool> splits-down: root.height >= 200px;
+
+    /// Which part of the seat a point is in.
+    ///
+    /// The nearer edge wins where two overlap, so a corner belongs to whichever
+    /// of its two sides the pointer is further into — which is what makes the
+    /// corners feel like they have a rule rather than a coin toss.
+    pure function side-at(x: length, y: length) -> DockSide {
+        return x >= root.margin-x && x <= root.width - root.margin-x
+            && y >= root.margin-y && y <= root.height - root.margin-y
+            ? DockSide.centre
+            : Math.min(x, root.width - x) / root.margin-x
+                <= Math.min(y, root.height - y) / root.margin-y
+            ? (!root.splits-across ? DockSide.centre
+                : x < root.width / 2 ? DockSide.left : DockSide.right)
+            : (!root.splits-down ? DockSide.centre
+                : y < root.height / 2 ? DockSide.top : DockSide.bottom);
+    }
+
+    if root.kind == PaneKind.media: MediaPane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
+
+            items: Editor.media;
+            count-all: Editor.media-count-all;
+            count-video: Editor.media-count-video;
+            count-audio: Editor.media-count-audio;
+            count-images: Editor.media-count-images;
+            selected-count: Editor.media-selected-count;
+            importing: Editor.importing;
+
+            import-media => { Editor.import-media(); }
+            filter-changed(filter) => { Editor.media-filter-changed(filter); }
+            select(id, additive) => { Editor.media-select(id, additive); }
+            band-selected(columns, from-col, to-col, from-row, to-row, additive) => {
+                Editor.media-band-selected(columns, from-col, to-col,
+                    from-row, to-row, additive);
+            }
+            remove(id) => { Editor.media-remove(id); }
+            remove-selected => { Editor.media-remove-selected(); }
+            activate(id) => { Editor.media-activate(id); }
+
+            add-text => { Editor.library-add-text(); }
+            apply-effect(id) => { Editor.library-apply-effect(id); }
+            apply-transition(id) => { Editor.library-apply-transition(id); }
+            apply-filter(id, label) => { Editor.library-apply-filter(id, label); }
+            save-template => { Editor.library-save-template(); }
+        }
+
+    if root.kind == PaneKind.preview: PreviewPane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
+
+            output-width: Editor.output-width;
+            output-height: Editor.output-height;
+            frame-rate: Editor.frame-rate;
+            ratio-index: Editor.ratio-index;
+            quality-index: Editor.quality-index;
+            playhead: Editor.playhead;
+            duration: Editor.preview-duration;
+            playing: Editor.playing;
+            has-picture: Editor.has-picture;
+            clip-name: Editor.preview-clip-name;
+
+            play-toggled => { Editor.play-toggled(); }
+            seek(seconds) => { Editor.seek(seconds); }
+            step(frames) => { Editor.step-frames(frames); }
+            ratio-changed(index) => { Editor.ratio-changed(index); }
+            quality-changed(index) => { Editor.quality-changed(index); }
+        }
+
+    if root.kind == PaneKind.inspector: ConfigPane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
+
+            video-effects: Editor.video-effects;
+            audio-effects: Editor.audio-effects;
+            level: Editor.level;
+            peak: Editor.peak;
+            add-effect(audio) => { Editor.add-effect(audio); }
+            remove-effect(id) => { Editor.remove-effect(id); }
+
+            selected: Editor.selected-clip;
+            clip-set(field, value) => { Editor.clip-set(field, value); }
+            clip-set-text(field, value) => { Editor.clip-set-text(field, value); }
+            clip-set-colour(field, value) => { Editor.clip-set-colour(field, value); }
+            clip-commit => { Editor.clip-commit(); }
+        }
+
+    // Declared before the views, so anything inside one of them that takes
+    // drops — the lanes — is hit first and this only ever sees what that
+    // refused. A DropArea that answers `none` passes the event on rather than
+    // swallowing it, which is what lets the two live over each other: a clip
+    // dragged from the bin onto the timeline seat lands on the lanes, and a
+    // panel dragged onto the same pixel lands here.
+    landing := DropArea {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+
+        /// Where the pointer is now, as a side. Kept so the outline below can
+        /// draw the shape the drop would leave without asking again.
+        property <DockSide> side;
+
+        can-drop(event) => {
+            self.side = root.side-at(event.position.x, event.position.y);
+            // Never its own seat, on any part of it. The middle would be a
+            // trade with itself, and an edge would split a seat and then take
+            // the panel out of the very seat being split — both of which are
+            // "nothing happens", and a target that lights up and then does
+            // nothing is worse than one that never lit up.
+            return Payload.pane-seat(Payload.text(event.data)) >= 0
+                && Payload.pane-seat(Payload.text(event.data)) != root.index
+                ? DragAction.move : DragAction.none;
+        }
+
+        dropped(event) => {
+            root.dropped-on(Payload.pane-seat(Payload.text(event.data)),
+                root.side-at(event.position.x, event.position.y));
+            return DragAction.move;
+        }
+    }
+
+    if root.kind == PaneKind.timeline: TimelinePane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
+
+            tabs: Editor.timeline-tabs;
+            current-tab: Editor.timeline-current-tab;
+            tracks: Editor.tracks;
+            clips: Editor.clips;
+            tool: Editor.tool;
+            snap: Editor.snap;
+            selected-count: Editor.selected-count;
+            merge-blocked-because: Editor.merge-blocked-because;
+            has-av-tools: Editor.has-av-tools;
+            playhead: Editor.playhead;
+            frame-rate: Editor.frame-rate;
+            scroll-left: Editor.scroll-left;
+            seconds-per-pixel: Editor.seconds-per-pixel;
+
+            tab-selected(index) => { Editor.tab-selected(index); }
+            tab-renamed(index, name) => { Editor.tab-renamed(index, name); }
+            tab-close-requested(index) => { Editor.tab-close-requested(index); }
+            tab-added => { Editor.tab-added(); }
+            tool-changed(tool) => { Editor.tool-changed(tool); }
+            snap-changed(snap) => { Editor.snap-changed(snap); }
+            split => { Editor.split(); }
+            merge => { Editor.merge(); }
+            delete-selected => { Editor.delete-selected(); }
+            av-tools => { Editor.av-tools(); }
+            av-items: Editor.av-items;
+            av-height: Editor.av-height;
+            av-token: Editor.av-token;
+            av-selected(id) => { Editor.av-selected(id); }
+            add-track => { Editor.add-track(); }
+            zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
+            zoom(factor, anchor) => { Editor.zoom(factor, anchor); }
+            scrubbed(seconds) => { Editor.scrubbed(seconds); }
+            clip-pressed(id, additive, edge) => { Editor.clip-pressed(id, additive, edge); }
+            clip-dragged(seconds, pixels) => { Editor.clip-dragged(seconds, pixels); }
+            clip-released => { Editor.clip-released(); }
+            razored(id, seconds) => { Editor.razored(id, seconds); }
+            menu-items: Editor.menu-items;
+            menu-height: Editor.menu-height;
+            menu-token: Editor.menu-token;
+            clip-context(id) => { Editor.clip-context(id); }
+            menu-selected(id) => { Editor.menu-selected(id); }
+            band-selected(a, b, c, d, additive) => { Editor.band-selected(a, b, c, d, additive); }
+            scrolled(seconds) => { Editor.scrolled(seconds); }
+            drop: Editor.drop;
+            drag-hovered(payload, seconds, row) => {
+                Editor.drag-hovered(payload, seconds, row);
+            }
+            dropped(payload, seconds, row) => { Editor.dropped(payload, seconds, row); }
+            track-flag-changed(index, visible, muted, locked) => {
+                Editor.track-flag-changed(index, visible, muted, locked);
+            }
+            track-sized(index, size) => { Editor.track-sized(index, size); }
+            track-removed(index) => { Editor.track-removed(index); }
+            track-renamed(index, name) => { Editor.track-renamed(index, name); }
+        }
+
+    // What says where the drop will land — and, on an edge, how much of the
+    // seat the panel is about to take. Half the box, on the side the pointer
+    // is in, is the shape the split will actually make: a preview of the
+    // layout rather than a light on the target.
+    //
+    // Over the view rather than under it, and the accent, which is what every
+    // other target in this window is drawn in — a selected clip, a band, the
+    // timeline's own ghost. Nothing in it is hit-testable, so it takes nothing
+    // from the DropArea underneath.
+    if landing.has-drag: Rectangle {
+        x: landing.side == DockSide.right ? root.width / 2 : 0;
+        y: landing.side == DockSide.bottom ? root.height / 2 : 0;
+        width: (landing.side == DockSide.left || landing.side == DockSide.right)
+            ? root.width / 2 : root.width;
+        height: (landing.side == DockSide.top || landing.side == DockSide.bottom)
+            ? root.height / 2 : root.height;
+        border-radius: Theme.r-lg;
+        background: Theme.accent-soft;
+        border-width: 2px;
+        border-color: Theme.accent;
+
+        animate x, y, width, height {
+            duration: 90ms;
+            easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    }
+}

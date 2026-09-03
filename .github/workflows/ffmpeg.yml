@@ -1,6 +1,6 @@
 name: Build FFmpeg
 
-# Builds the cut-down FFmpeg that WolfCut ships.
+# Builds the cut-down FFmpeg that Concat ships.
 #
 # Run by hand, not on every push. The output only changes when the version or
 # the feature list below changes, which is roughly never - so this produces an
@@ -54,7 +54,7 @@ jobs:
         run: |
           cd ffmpeg
           #
-          # Everything off, then only what WolfCut actually invokes turned back
+          # Everything off, then only what Concat actually invokes turned back
           # on. This is where the size comes from: a full avcodec carries some
           # five hundred codecs, and an editor opens perhaps a dozen.
           #
@@ -70,7 +70,7 @@ jobs:
           # silently stops working without zlib.
           #
           # `rawvideo` (decoder *and* encoder) is what the exporter pipes: see
-          # wolfcut-media/src/encode.rs, which feeds frames in as
+          # concat-media/src/encode.rs, which feeds frames in as
           # `-f rawvideo -pix_fmt rgba -i -`. Enabling only the demuxer of that
           # name is not enough, and the failure reads as "no decoder found".
           ./configure \
@@ -125,7 +125,7 @@ jobs:
           head -c 9216000 /dev/zero > frames.raw   # 30 frames of 320x240 rgba
           head -c 384000  /dev/zero > tone.pcm     # 2s of 48k stereo s16
 
-          # Picture: exactly how wolfcut-media/src/encode.rs drives the exporter.
+          # Picture: exactly how concat-media/src/encode.rs drives the exporter.
           "$BIN/ffmpeg.exe" -hide_banner -loglevel error -y \
             -f rawvideo -pix_fmt rgba -s 320x240 -r 30 -i frames.raw \
             -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p \

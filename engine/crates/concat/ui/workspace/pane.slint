@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { ThinScrollbar } from "../primitives/scrollbar.slint";
+
+// The workspace shell: one of the four resizable regions the editor is built
+// out of, as opposed to `Panel` in primitives/, which is the floating
+// inspector card that lives *inside* a pane.
+//
+// A pane is a rounded surface that takes whatever box the workspace hands it,
+// so nothing in here may set a width or a height — every size is inherited
+// from the parent and every child stretches to fill it.
+export component Pane inherits Rectangle {
+    /// A hairline all the way round. Off by default: the panes float on a
+    /// ground several stops darker than they are, so the gutters already draw
+    /// every edge — and an outline on top of that reads as a box around
+    /// something rather than as the edge of a surface. What is left where a
+    /// pane does need an edge is a single rule on the one side that needs it,
+    /// which is what the timeline does across its top.
+    in property <bool> outlined: false;
+
+    background: Theme.panel;
+    border-width: root.outlined ? 1px : 0px;
+    border-color: Theme.line;
+    border-radius: Theme.r-lg;
+    // Rounded corners only cut the pane's own fill; the body has to be clipped
+    // to them as well or a full-bleed child squares them off again.
+    clip: true;
+
+    VerticalLayout {
+        @children
+    }
+}
+
+// Pane title bar. `@children` are the trailing actions, the same contract
+// PanelHeader uses.
+export component PaneHeader inherits Rectangle {
+    in property <string> title;
+
+    // 44px, which is the library pane's tab strip — the tallest of the three
+    // top bars, because that one has a row of chips in it and the other two
+    // have a line of text. One height across all three is worth more than
+    // each pane's own minimum: the three panes sit side by side, and a header
+    // that steps down twice across the top of the window reads as three
+    // panels bolted together rather than as one shell.
+    height: 44px;
+
+    // Hairline on the bottom edge rather than a border on the body, so the
+    // line runs the full width of the pane and not the width of the content.
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: 8px;
+        spacing: 8px;
+
+        Text {
+            text: root.title;
+            color: Theme.fg;
+            font-size: Theme.fs-lg;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+
+        Rectangle { horizontal-stretch: 1; }
+
+        HorizontalLayout {
+            spacing: 2px;
+            @children
+        }
+    }
+}
+
+// Everything below the header. Carries the stretch factor that makes the pane
+// body — and not the header — absorb the space a drag adds or takes away.
+export component PaneBody inherits VerticalLayout {
+    vertical-stretch: 1;
+    padding: 10px;
+    spacing: 8px;
+
+    @children
+}
+
+// A wheel-scrolled body for panes whose content is taller than the pane.
+//
+// Not a Flickable: a Flickable claims any drag that crosses its threshold, and
+// the inspector is full of controls that are themselves dragged — a number
+// field scrubbed sideways, a knob, a bezier handle. Losing those gestures to
+// the scroller is worse than losing kinetic scrolling, and a wheel is what a
+// desktop editor is driven with anyway.
+export component PaneScroll inherits Rectangle {
+    // The offset is clamped on read rather than only on write, so a pane that
+    // shrinks under the content — or content that gets shorter — cannot leave
+    // the viewport parked past the end.
+    property <length> overflow: Math.max(0px, content.preferred-height - root.height);
+    property <length> offset;
+    property <length> at: Math.max(-root.overflow, Math.min(0px, root.offset));
+
+    clip: true;
+
+    wheel := TouchArea {
+        // A scroll the inner controls do not handle bubbles up to here; this
+        // is an ancestor of the content, not a sibling, which is what makes
+        // that work.
+        scroll-event(event) => {
+            root.offset = root.at + event.delta-y;
+            return EventResult.accept;
+        }
+
+        content := VerticalLayout {
+            y: root.at;
+            height: self.preferred-height;
+
+            @children
+        }
+    }
+
+    // The same bar the track stack uses, rather than a second hand-rolled one
+    // a pixel narrower. This offset runs negative — the content is moved up to
+    // scroll down — so it is flipped on the way in and back on the way out.
+    ThinScrollbar {
+        x: parent.width - self.width - 1px;
+        y: 0;
+        height: root.height;
+        viewport: root.height;
+        content: root.height + root.overflow;
+        offset: -root.at;
+        scrolled(to) => { root.offset = -to; }
+    }
+}

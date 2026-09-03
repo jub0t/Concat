@@ -6,6 +6,11 @@ behaviour.
 
 ## Unreleased
 
+- The editor window is being rebuilt in Slint as the `concat` crate inside
+  the engine workspace: a native Rust window with no web view, embedding its
+  own fonts and effect previews. It is not what releases ship yet — the
+  Tauri + React app in `desktop/` is deprecated but still the release build
+  until the Slint window is wired to the engine.
 - Text to speech: File → Text to speech turns typed narration into an audio
   clip at the playhead, spoken by one of 36 Kokoro voices (American and
   British English, Chinese) at a chosen pace. Generation runs entirely on

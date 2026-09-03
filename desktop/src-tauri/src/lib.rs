@@ -6,8 +6,8 @@
 //! Deliberately thin. Every command here does two things: call into the engine
 //! crates, and convert the result to something `serde` can put on the wire.
 //! No editing logic lives on this side of the bridge - if a command starts
-//! making decisions about the edit, that logic belongs in `wolfcut-core` or
-//! `wolfcut-render` where it can be unit-tested without a window.
+//! making decisions about the edit, that logic belongs in `concat-core` or
+//! `concat-render` where it can be unit-tested without a window.
 
 // Public so the integration tests can drive a real export; see tests/.
 pub mod export;
@@ -72,7 +72,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// GIF or WebP reports a duration; a single image does not. It is a heuristic,
 /// and a deliberately conservative one - misreading an animation as a still
 /// shows its first frame rather than failing.
-fn classify(info: &wolfcut_media::MediaInfo) -> &'static str {
+fn classify(info: &concat_media::MediaInfo) -> &'static str {
     if info.video.is_none() {
         return "audio";
     }
@@ -91,8 +91,8 @@ fn classify(info: &wolfcut_media::MediaInfo) -> &'static str {
     }
 }
 
-impl From<wolfcut_media::MediaInfo> for MediaSummary {
-    fn from(info: wolfcut_media::MediaInfo) -> Self {
+impl From<concat_media::MediaInfo> for MediaSummary {
+    fn from(info: concat_media::MediaInfo) -> Self {
         Self {
             kind: classify(&info),
             path: info.path.to_string_lossy().into_owned(),
@@ -135,7 +135,7 @@ impl From<wolfcut_media::MediaInfo> for MediaSummary {
 #[tauri::command]
 async fn probe_media(app: tauri::AppHandle, path: String) -> Result<MediaSummary, String> {
     let summary = tauri::async_runtime::spawn_blocking(move || {
-        wolfcut_media::probe(&path).map(MediaSummary::from).map_err(describe)
+        concat_media::probe(&path).map(MediaSummary::from).map_err(describe)
     })
     .await
     .map_err(|error| format!("probe task failed: {error}"))??;
@@ -240,7 +240,7 @@ fn peaks_bytes(path: &str, project: Option<&str>) -> Result<Vec<u8>, String> {
         }
     }
 
-    let peaks = wolfcut_media::peaks::extract(std::path::Path::new(path), PEAKS_BUCKETS_PER_SECOND)
+    let peaks = concat_media::peaks::extract(std::path::Path::new(path), PEAKS_BUCKETS_PER_SECOND)
         .map_err(describe)?;
     let bytes = peaks.encode();
 
@@ -356,14 +356,14 @@ fn filmstrip(path: &str, count: u32, height: u32) -> Result<Vec<u8>, String> {
     let count = count.clamp(1, 60);
     let height = height.clamp(16, 240);
 
-    let info = wolfcut_media::probe(path).map_err(describe)?;
+    let info = concat_media::probe(path).map_err(describe)?;
     let duration = info
         .duration
         .map(|duration| duration.as_f64())
         .filter(|seconds| *seconds > 0.0)
         .ok_or_else(|| format!("{path} reports no duration"))?;
 
-    let output = wolfcut_media::command(wolfcut_media::ffmpeg())
+    let output = concat_media::command(concat_media::ffmpeg())
         .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
         .args(["-i", path])
         .args([
@@ -432,7 +432,7 @@ fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
     // Typed access through the engine's own reader, not hand-parsed JSON -
     // a schema change breaks this at compile time now, not silently at the
     // next launch screen.
-    let Some(project) = wolfcut_project::from_document(&document) else {
+    let Some(project) = concat_project::from_document(&document) else {
         return Err("the project has no timeline to preview".to_owned());
     };
     let timeline = project
@@ -446,7 +446,7 @@ fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
 
     // The earliest clip with a picture is the poster - exactly the frame
     // the user last saw open.
-    use wolfcut_project::model::ClipKind;
+    use concat_project::model::ClipKind;
     let mut poster: Option<(f64, String, f64, bool)> = None;
     for clip in &timeline.clips {
         if clip.kind != ClipKind::Video && clip.kind != ClipKind::Image {
@@ -470,7 +470,7 @@ fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
         return Err("nothing on the timeline to preview".to_owned());
     };
 
-    let mut command = wolfcut_media::command(wolfcut_media::ffmpeg());
+    let mut command = concat_media::command(concat_media::ffmpeg());
     command.args(["-hide_banner", "-nostdin", "-loglevel", "error"]);
     // Seeking a still means seeking a one-frame stream to nowhere.
     if !is_still && source_start > 0.0 {
@@ -660,7 +660,7 @@ struct ExportState(std::sync::Arc<jobs::SingleFlight>);
 
 /// The reader pool behind the paused monitor's true frames. One pool for the
 /// app's lifetime: its whole value is what stays warm between scrubs.
-struct PoolState(std::sync::Arc<std::sync::Mutex<wolfcut_media::ReaderPool>>);
+struct PoolState(std::sync::Arc<std::sync::Mutex<concat_media::ReaderPool>>);
 
 /// What the UI sends for one true frame: an instant and a resolution. The
 /// clips come from the engine's own session - the UI no longer serialises
@@ -802,7 +802,7 @@ fn cancel_export(state: tauri::State<'_, ExportState>) {
 ///
 /// `Display` on a `thiserror` enum prints only the outermost message, and the
 /// useful half - what FFmpeg or the OS actually said - is in the source chain.
-fn describe(error: wolfcut_media::Error) -> String {
+fn describe(error: concat_media::Error) -> String {
     use std::error::Error;
 
     let mut message = error.to_string();
@@ -849,7 +849,7 @@ fn use_bundled_ffmpeg(app: &tauri::App) {
         let ffprobe = directory.join(format!("ffprobe{suffix}"));
 
         if ffmpeg.is_file() && ffprobe.is_file() {
-            wolfcut_media::set_binaries(ffmpeg, ffprobe);
+            concat_media::set_binaries(ffmpeg, ffprobe);
             return;
         }
     }
@@ -876,7 +876,7 @@ pub fn run() {
             app.manage(tts::TtsState::new());
             app.manage(editor_api::EditorState(std::sync::Mutex::new(None)));
             app.manage(PoolState(std::sync::Arc::new(std::sync::Mutex::new(
-                wolfcut_media::ReaderPool::with_defaults(),
+                concat_media::ReaderPool::with_defaults(),
             ))));
             Ok(())
         })

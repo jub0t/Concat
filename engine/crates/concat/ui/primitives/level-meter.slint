@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+
+// Audio level meter. The green/amber/red ramp is painted at full length and
+// revealed by a clipping window, so a colour always means the same level
+// regardless of how far the bar has filled — the same trick the web version
+// plays with clip-path.
+//
+// The root takes whatever the row gives it and the track is drawn `thickness`
+// across, centred inside it. Pinning the root itself would need a binding that
+// reads its own height on one axis and a constant on the other, which Slint
+// resolves as a loop.
+export component LevelMeter inherits Rectangle {
+    /// current level, 0..1
+    in property <float> value;
+    /// peak-hold marker, 0..1; negative hides it
+    in property <float> peak: -1;
+    in property <bool> vertical;
+    /// track thickness; defaults to 6px horizontal, 8px vertical
+    in property <length> thickness: root.vertical ? 8px : 6px;
+
+    /// True while the pointer is over the meter. The caller uses this to run
+    /// the feed only while someone is looking at it — see the note on the
+    /// TouchArea at the bottom of this file.
+    out property <bool> hovered: hover.has-hover;
+
+    property <float> level: Fmt.clamp(root.value, 0, 1);
+    property <float> hold: Fmt.clamp(root.peak, 0, 1);
+
+    min-height: root.vertical ? 40px : root.thickness;
+    min-width: root.vertical ? root.thickness : 40px;
+    horizontal-stretch: root.vertical ? 0 : 1;
+    vertical-stretch: root.vertical ? 1 : 0;
+    background: transparent;
+
+    track := Rectangle {
+        x: root.vertical ? (root.width - root.thickness) / 2 : 0px;
+        y: root.vertical ? 0px : (root.height - root.thickness) / 2;
+        width: root.vertical ? root.thickness : root.width;
+        height: root.vertical ? root.height : root.thickness;
+        background: Theme.well;
+        border-radius: (root.vertical ? self.width : self.height) / 2;
+        clip: true;
+
+        // reveal window
+        Rectangle {
+            x: 0px;
+            y: root.vertical ? track.height * (1 - root.level) : 0px;
+            width: root.vertical ? track.width : track.width * root.level;
+            height: root.vertical ? track.height * root.level : track.height;
+            clip: true;
+
+            // Deliberately not animated. The level already arrives at the feed
+            // rate, so animating only interpolates between samples that are
+            // smooth already — and because it re-arms on every sample it is
+            // permanently in flight, which pins Slint's render loop to the
+            // monitor refresh rate rather than the feed rate, and each of those
+            // frames repaints the whole window — see the note below. A real programme meter is sample-stepped anyway.
+
+            // full-length ramp, offset back so its stops stay anchored to the track
+            Rectangle {
+                x: 0px;
+                y: root.vertical ? -track.height * (1 - root.level) : 0px;
+                width: track.width;
+                height: track.height;
+                background: root.vertical
+                    ? @linear-gradient(0deg,
+                        Theme.meter-low 0%, Theme.meter-low 58%,
+                        Theme.meter-mid 66%, Theme.meter-mid 80%,
+                        Theme.meter-high 88%, Theme.meter-high 100%)
+                    : @linear-gradient(90deg,
+                        Theme.meter-low 0%, Theme.meter-low 58%,
+                        Theme.meter-mid 66%, Theme.meter-mid 80%,
+                        Theme.meter-high 88%, Theme.meter-high 100%);
+            }
+        }
+
+        if root.peak >= 0: Rectangle {
+            x: root.vertical ? 0px : track.width * root.hold - 1px;
+            y: root.vertical ? track.height * (1 - root.hold) - 1px : 0px;
+            width: root.vertical ? track.width : 2px;
+            height: root.vertical ? 2px : track.height;
+            background: Theme.fg;
+            opacity: 0.85;
+        }
+    }
+
+    // Hover is reported rather than acted on, because the samples come from
+    // Rust and only Rust can stop producing them.
+    //
+    // A level that changes 30 times a second is an animation whatever drives
+    // it: every sample dirties a property, and neither renderer this builds
+    // against draws partially, so each one repaints the whole window. Ungated that is a
+    // permanent 30fps redraw of a 1120x900 window to wiggle one bar — the app
+    // never goes idle. Gating it here rather than on the enclosing Section is
+    // the cheaper of the two: the section also covers the volume and trim
+    // knobs and the M/S buttons, so it would hold the feed open through every
+    // adjustment made near the meter, while this box is only the meter itself.
+    //
+    // It covers the root, not the track, so the target is the full 28px row
+    // the layout hands us and not the 6px bar.
+    hover := TouchArea { }
+}

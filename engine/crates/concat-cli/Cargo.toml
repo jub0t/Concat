@@ -1,0 +1,21 @@
+[package]
+name = "concat-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Command line driver for the Concat engine."
+
+# `concat` is the editor window's binary; the driver gets the suffix.
+[[bin]]
+name = "concat-cli"
+path = "src/main.rs"
+
+[dependencies]
+concat-core.workspace = true
+concat-media.workspace = true
+concat-render.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

@@ -1,8 +1,20 @@
-# WolfCut Architecture
+# Concat Architecture
 
 A study map of the system as it stands (August 2026): what each layer owns, how
 they talk, where the sharp edges are, and what deserves attention next. File
 references are current as of this writing.
+
+> **September 2026:** the UI layer described below is being replaced. The
+> Slint editor window now lives in the engine workspace as the `concat` crate
+> (`engine/crates/concat`), ported from the wc-ui-rnd research tree, and
+> `desktop/` — both the React UI and the Tauri host — is deprecated. The
+> engine doctrine in §1 is unchanged and is the whole reason the swap is
+> possible: the engine owns the project, the render path and the document, so
+> the UI is the replaceable part. Everything from §2 on describes the Tauri
+> app, which still ships until `concat` is wired to the engine. The IPC
+> surface in §5 and the chains mirror in §6.1 go away with it: a Rust window
+> calls the engine crates directly, in-process, and has no reason to
+> re-author FFmpeg filter strings in a second language.
 
 ---
 
@@ -19,11 +31,11 @@ flowchart LR
         SESSION["Session<br/>(one Mutex&lt;Option&lt;Session&gt;&gt;)"]
     end
     subgraph ENGINE["engine/crates — the product"]
-        CORE[wolfcut-core]
-        MEDIA[wolfcut-media]
-        PROJECT[wolfcut-project]
-        RENDER[wolfcut-render]
-        EXPORT[wolfcut-export]
+        CORE[concat-core]
+        MEDIA[concat-media]
+        PROJECT[concat-project]
+        RENDER[concat-render]
+        EXPORT[concat-export]
     end
     UI -- "invoke() — JSON + ArrayBuffer" --> HOST
     HOST -- events --> UI
@@ -39,19 +51,19 @@ document format. When a feature is being designed, the first question is
 genuinely owns (layout, selection, in-flight gestures).
 
 The engine crates keep a strict dependency arrow (see `engine/README.md`):
-`core` depends on nothing, everything else depends inward, and `wolfcut-project`
+`core` depends on nothing, everything else depends inward, and `concat-project`
 knows nothing about rendering. The desktop crate consumes the engine as path
 dependencies — deliberately *not* one workspace, so the engine builds, tests
 and versions alone.
 
 | Crate | LOC | Owns |
 |---|---|---|
-| `wolfcut-core` | ~1.4k | Rational time, frame model, arena handles, timeline model. Zero dependencies. |
-| `wolfcut-media` | ~3.0k | Everything FFmpeg: probe, subprocess decode/encode, reader pool with byte-budgeted LRU frame cache, waveform peaks. Optional `ffi` feature links FFmpeg for exact seeks. |
-| `wolfcut-project` | ~3.3k | The document: model, every edit command (`commands.rs`, ~1.3k), undo `Editor`, wolfcut.json round-trip. |
-| `wolfcut-render` | ~1.3k | Compositing. `CpuCompositor` is the reference; `WgpuCompositor` behind the `gpu` feature, falls back cleanly when no GPU. |
-| `wolfcut-export` | ~2.2k | Timeline → file: flatten, filtergraph builders (`chains.rs`), the frame-by-frame render loop. |
-| `wolfcut-cli` | ~0.2k | Probe/render vertical slice for testing the engine without the app. |
+| `concat-core` | ~1.4k | Rational time, frame model, arena handles, timeline model. Zero dependencies. |
+| `concat-media` | ~3.0k | Everything FFmpeg: probe, subprocess decode/encode, reader pool with byte-budgeted LRU frame cache, waveform peaks. Optional `ffi` feature links FFmpeg for exact seeks. |
+| `concat-project` | ~3.3k | The document: model, every edit command (`commands.rs`, ~1.3k), undo `Editor`, concat.json round-trip. |
+| `concat-render` | ~1.3k | Compositing. `CpuCompositor` is the reference; `WgpuCompositor` behind the `gpu` feature, falls back cleanly when no GPU. |
+| `concat-export` | ~2.2k | Timeline → file: flatten, filtergraph builders (`chains.rs`), the frame-by-frame render loop. |
+| `concat-cli` | ~0.2k | Probe/render vertical slice for testing the engine without the app. |
 
 ---
 
@@ -65,7 +77,7 @@ sequenceDiagram
     participant UI as React component
     participant Q as useEngineSession queue
     participant H as editor_api.rs
-    participant E as Editor (wolfcut-project)
+    participant E as Editor (concat-project)
 
     UI->>Q: dispatch({op:"splitClips", ...})
     Note over Q: commands serialise through one<br/>promise chain, seeded with editorOpen<br/>so nothing races the session install
@@ -138,7 +150,7 @@ flowchart TB
 
 ## 4. Export
 
-Hybrid pipeline in `wolfcut-export`:
+Hybrid pipeline in `concat-export`:
 
 - **Picture:** flattened timeline → per-frame composition in-process
   (CPU or wgpu) → raw frames piped into one `ffmpeg` encode subprocess.
@@ -174,7 +186,7 @@ several are traps waiting for a contributor who doesn't know the invariant.
 ### 6.1 The chains mirror (highest-leverage debt)
 
 `desktop/src/lib/effects.ts` + `filters.ts` are **hand-maintained TS mirrors**
-of `engine/crates/wolfcut-export/src/chains.rs`. Both sides emit FFmpeg filter
+of `engine/crates/concat-export/src/chains.rs`. Both sides emit FFmpeg filter
 strings; the only thing keeping them identical is a corpus of pinned-string
 tests on each side (`chains.rs:523+` vs `effects.test.ts` / `filters.test.ts`).
 This is the largest deliberate violation of "the engine owns it": the TS side
@@ -200,7 +212,7 @@ carry on, since every cache here is rebuildable).
 
 - `redo: Vec<Project>` in the engine editor has **no cap** (undo is capped at
   200) — each entry is a deep clone of the whole project
-  (`wolfcut-project/src/editor.rs:28`).
+  (`concat-project/src/editor.rs:28`).
 - `desktop/src/lib/assets.ts` — the `peaks`/`strips`/`stripFrames` maps grow
   per media id with no eviction, and no `ImageBitmap.close()` is ever called;
   GPU-backed bitmaps wait for GC. A long session with many imports leaks

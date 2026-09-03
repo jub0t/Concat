@@ -15,12 +15,12 @@
 //! Saving packs the open project into a bundle; instantiating unpacks one
 //! into a fresh project folder and fills every slot with the user's media
 //! *through the engine* (`Command::FillSlot` in a batch), so what a fill
-//! means is defined in exactly one place - `wolfcut-project` - and the editor
+//! means is defined in exactly one place - `concat-project` - and the editor
 //! never opens on a slot with a dead path.
 
 use std::path::{Path, PathBuf};
 
-use wolfcut_project::{Command, DocumentSettings, Editor};
+use concat_project::{Command, DocumentSettings, Editor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -63,7 +63,7 @@ pub struct SlotInfo {
 #[serde(rename_all = "camelCase")]
 pub struct SlotFill {
     pub media_id: String,
-    pub item: wolfcut_project::commands::NewMedia,
+    pub item: concat_project::commands::NewMedia,
 }
 
 pub fn templates_dir(config: &Path) -> PathBuf {
@@ -78,7 +78,7 @@ pub fn templates_dir(config: &Path) -> PathBuf {
 pub fn save(
     config: &Path,
     document: &Value,
-    settings: &wolfcut_project::DocumentSettings,
+    settings: &concat_project::DocumentSettings,
     project_path: &str,
     name: &str,
 ) -> Result<TemplateInfo, String> {
@@ -93,7 +93,7 @@ pub fn save(
     // Typed through the engine's reader and writer, not hand-edited JSON:
     // the manifest is written by the same code path every save uses, and a
     // schema change breaks this at compile time.
-    let Some(mut project) = wolfcut_project::from_document(document) else {
+    let Some(mut project) = concat_project::from_document(document) else {
         return Err("the open project is not a document this build can read".to_owned());
     };
 
@@ -113,7 +113,7 @@ pub fn save(
 
     let mut settings = settings.clone();
     settings.name = name.to_owned();
-    let document = wolfcut_project::to_document(&settings, &project);
+    let document = concat_project::to_document(&settings, &project);
 
     let encoded = serde_json::to_vec_pretty(&document)
         .map_err(|error| format!("could not encode the template: {error}"))?;
@@ -213,7 +213,7 @@ fn read_info(root: &Path) -> Result<TemplateInfo, String> {
 /// Typed through the engine's own reader: a schema change breaks this at
 /// compile time, not as a gallery that silently shows no slots.
 fn slots_of(document: &Value) -> Vec<SlotInfo> {
-    let Some(project) = wolfcut_project::from_document(document) else {
+    let Some(project) = concat_project::from_document(document) else {
         return Vec::new();
     };
     let clips = project
@@ -243,9 +243,9 @@ fn slots_of(document: &Value) -> Vec<SlotInfo> {
                 media_id: item.id.clone(),
                 name: item.name.clone(),
                 kind: match item.kind {
-                    wolfcut_project::model::MediaKind::Video => "video",
-                    wolfcut_project::model::MediaKind::Audio => "audio",
-                    wolfcut_project::model::MediaKind::Image => "image",
+                    concat_project::model::MediaKind::Video => "video",
+                    concat_project::model::MediaKind::Audio => "audio",
+                    concat_project::model::MediaKind::Image => "image",
                 }
                 .to_owned(),
                 seconds,
@@ -259,7 +259,7 @@ fn slots_of(document: &Value) -> Vec<SlotInfo> {
 /// Unpacks a template into a fresh project with every slot filled.
 ///
 /// The fills go through the engine as one `Batch` of `FillSlot` commands, so
-/// the semantics live in `wolfcut-project` and a half-fillable set of media
+/// the semantics live in `concat-project` and a half-fillable set of media
 /// leaves no half-made project behind.
 pub fn instantiate(
     template: &str,
@@ -440,7 +440,7 @@ mod tests {
             media[1]["kind"] = Value::String("audio".to_owned());
         }
 
-        let settings = wolfcut_project::DocumentSettings {
+        let settings = concat_project::DocumentSettings {
             name: "Beat Intro".to_owned(),
             width: 1920,
             height: 1080,
@@ -481,11 +481,11 @@ mod tests {
             "From bundle",
             vec![SlotFill {
                 media_id: "m1".to_owned(),
-                item: wolfcut_project::commands::NewMedia {
+                item: concat_project::commands::NewMedia {
                     path: "/mine/clip.mp4".to_owned(),
                     name: "clip.mp4".to_owned(),
                     duration: Some(6.0),
-                    kind: wolfcut_project::model::MediaKind::Video,
+                    kind: concat_project::model::MediaKind::Video,
                     width: Some(1920),
                     height: Some(1080),
                     frame_rate: Some(30.0),
@@ -523,11 +523,11 @@ mod tests {
 
         let fill = |media_id: &str, path: &str| SlotFill {
             media_id: media_id.to_owned(),
-            item: wolfcut_project::commands::NewMedia {
+            item: concat_project::commands::NewMedia {
                 path: path.to_owned(),
                 name: path.rsplit('/').next().unwrap_or(path).to_owned(),
                 duration: Some(9.0),
-                kind: wolfcut_project::model::MediaKind::Video,
+                kind: concat_project::model::MediaKind::Video,
                 width: Some(1920),
                 height: Some(1080),
                 frame_rate: Some(30.0),

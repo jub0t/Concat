@@ -1,0 +1,645 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { PaneScroll } from "../workspace/pane.slint";
+
+// Settings, ported from the reference's SettingsDialog: a fixed-height sheet
+// with a column of pages down the side. The model rows take their shape from
+// web/'s transcriber panel, which separates the two things the reference's row
+// conflated — a downloaded model is a *choice* and so behaves as a radio,
+// while an absent one is an *acquisition* and is handled by the button on the
+// right. That distinction is the whole reason the row reads at a glance.
+
+export struct ModelData {
+    id: string,
+    name: string,
+    /// "Fastest, least accurate"
+    note: string,
+    /// "142 MB"
+    size: string,
+    /// 1..5, drawn as pips
+    accuracy: int,
+    installed: bool,
+    /// the one this engine will use
+    active: bool,
+    downloading: bool,
+    /// 0..1
+    progress: float,
+    /// "42 MB of 142 MB · 3.1 MB/s"
+    transferred: string,
+    eta: string,
+}
+
+/// One line of the system report: what it is called, and what it says.
+export struct SystemFactData {
+    label: string,
+    value: string,
+}
+
+export struct SettingsData {
+    open: bool,
+    /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 About
+    tab: int,
+    language: int,
+    /// the transcriber's working language
+    transcribe-language: int,
+    /// "3 installed · 612 MB on disk"
+    disk: string,
+    version: string,
+    engine: string,
+}
+
+// Accuracy, as pips rather than a number: five little bars say "third of five"
+// without the reader having to hold a scale in their head.
+component Pips inherits HorizontalLayout {
+    in property <int> value;
+
+    spacing: 2px;
+
+    for step in 5: Rectangle {
+        width: 3px;
+        height: 10px;
+        border-radius: 1px;
+        background: step < root.value ? Theme.accent : Theme.field-active;
+    }
+}
+
+component ModelRow inherits Rectangle {
+    in property <ModelData> model;
+
+    callback activated();
+    callback download();
+    callback cancel();
+    callback remove();
+
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: root.model.active ? Theme.accent
+        : touch.has-hover ? Theme.line-strong
+        : Theme.line;
+    background: root.model.active ? Theme.accent-soft : Theme.raised;
+    // An absent model is dimmer than an installed one, but not so dim it
+    // stops being readable — it is a thing you can have, not a thing denied.
+    opacity: (root.model.installed || root.model.downloading) ? 1.0 : 0.86;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    touch := TouchArea {
+        // Only an installed model is a choice. An absent one is acquired with
+        // the button on the right, and clicking the row would be ambiguous.
+        enabled: root.model.installed;
+        mouse-cursor: root.model.installed ? pointer : default;
+        clicked => { root.activated(); }
+    }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 10px;
+
+            // The radio. A ring that thickens into a filled dot when this is
+            // the model in use, dimmer again when the model is not even here —
+            // three states in one mark, which is what lets the row say what it
+            // is without a word of it.
+            VerticalLayout {
+                alignment: start;
+                padding-top: 2px;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    border-width: root.model.active ? 5px : 1.5px;
+                    border-color: root.model.active ? Theme.accent
+                        : root.model.installed ? Theme.line-strong
+                        : Theme.field-active;
+
+                    animate border-width, border-color {
+                        duration: 120ms;
+                        easing: cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+
+                    Text {
+                        text: root.model.name;
+                        color: Theme.fg;
+                        font-size: Theme.fs;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if root.model.active: Rectangle {
+                        width: badge.width + 12px;
+                        height: 15px;
+                        border-radius: 7.5px;
+                        background: Theme.accent;
+
+                        badge := Text {
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            text: "In use";
+                            color: Theme.on-accent;
+                            font-size: Theme.fs-xs;
+                            font-weight: Theme.weight-display;
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.model.note;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    overflow: elide;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                Pips { value: root.model.accuracy; }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                Text {
+                    text: root.model.size;
+                    color: Theme.fg-dim;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-sm;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+
+                if root.model.downloading: Button {
+                    label: "Cancel";
+                    glyph: Glyph.close;
+                    ghost: true;
+                    clicked => { root.cancel(); }
+                }
+
+                if !root.model.downloading && root.model.installed: Button {
+                    label: "Remove";
+                    glyph: Glyph.trash;
+                    danger: true;
+                    clicked => { root.remove(); }
+                }
+
+                if !root.model.downloading && !root.model.installed: Button {
+                    label: "Download";
+                    glyph: Glyph.import;
+                    clicked => { root.download(); }
+                }
+
+            }
+        }
+
+        if root.model.downloading: VerticalLayout {
+            spacing: 6px;
+
+            Progress { value: root.model.progress; }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.model.transferred;
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-sm;
+                }
+
+                Text {
+                    text: root.model.eta;
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-sm;
+                }
+            }
+        }
+    }
+}
+
+component PageTab inherits Rectangle {
+    in property <string> label;
+    in property <Glyph> glyph;
+    in property <bool> current;
+
+    callback clicked();
+
+    height: 30px;
+    border-radius: Theme.r-sm;
+    background: root.current ? Theme.field-active
+        : touch.has-hover ? Theme.field
+        : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 13px;
+                tint: root.current ? Theme.fg : Theme.fg-muted;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: root.current ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One system fact: muted label left, value right. Lifted from the Details
+// panel's FactRow (config-pane.slint) and left there too — that one carries
+// the panel's own gutters, and in here the section already pads. The value is
+// a read-only TextInput for the reason it is one there: a fact you cannot
+// select is a fact you have to retype. The button above copies the lot, and
+// this is how you take one line instead.
+component FactRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+
+    spacing: 12px;
+    min-height: 21px;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+
+    TextInput {
+        horizontal-stretch: 1;
+        text: root.value;
+        color: Theme.fg;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs;
+        horizontal-alignment: right;
+        read-only: true;
+        single-line: false;
+        wrap: word-wrap;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.on-accent;
+    }
+}
+
+component Choice inherits Rectangle {
+    in property <string> label;
+    in property <bool> current;
+
+    callback clicked();
+
+    height: 30px;
+    border-radius: Theme.r-sm;
+    border-width: 1px;
+    border-color: root.current ? Theme.accent : Theme.line;
+    background: root.current ? Theme.accent-soft
+        : touch.has-hover ? Theme.field
+        : Theme.raised;
+
+    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: root.current ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsDialog inherits Modal {
+    in property <SettingsData> data;
+    in property <[ModelData]> transcribers;
+    in property <[ModelData]> voices;
+    in property <[string]> languages;
+    /// The system report, as rows. See system_facts() in main.rs.
+    in property <[SystemFactData]> system-facts;
+    /// The same facts as one block of text, because a clipboard takes text
+    /// and not a model. Built from the same list, so the page and the paste
+    /// cannot come apart.
+    in property <string> system-report;
+
+    callback page-changed(index: int);
+    callback language-changed(index: int);
+    /// The theme, chosen rather than flipped. A toggle in the strip could only
+    /// say "the other one"; a page with two named options can say which one is
+    /// on, which is the whole reason it moved in here.
+    callback theme-changed(dark: bool);
+    callback transcribe-language-changed(index: int);
+    callback model-activated(id: string);
+    callback model-download(id: string);
+    callback model-cancel(id: string);
+    callback model-remove(id: string);
+
+    open: root.data.open;
+    title: "Settings";
+    glyph: Glyph.settings;
+    surface-width: 640px;
+    // Fixed rather than fitted: the pages are different lengths and a sheet
+    // that resized as you moved between them would be its own distraction.
+    surface-height: 460px;
+
+    HorizontalLayout {
+        // The clipboard takes text, so there has to be a TextInput holding
+        // the report: Slint copies from a text element's own selection and
+        // has no other way in. It is never read — it is zero wide and clipped
+        // — but it cannot live beside the button that uses it, and that is
+        // worth writing down, because it looks like it should.
+        //
+        // A layout gives every child at least its minimum, and a TextInput's
+        // minimum height is its text: seven lines, about 120px, which a
+        // wrapper cannot cap — an explicit `height: 0px` on the box around it
+        // sets that box's preferred size and loses to the child's minimum
+        // anyway. In the section body that bought a 120px band with the copy
+        // button floating in the middle of it. Here it is one more column of
+        // this row, and the row is the sheet's fixed 418px, so the whole of
+        // what it asks for disappears into height that was already there.
+        Rectangle {
+            width: 0px;
+            clip: true;
+
+            report := TextInput {
+                width: 0px;
+                text: root.system-report;
+                read-only: true;
+                single-line: false;
+            }
+        }
+
+        // ── the pages ────────────────────────────────────────────────────
+        Rectangle {
+            width: 164px;
+
+            Rectangle {
+                x: parent.width - 1px;
+                y: 0;
+                width: 1px;
+                height: parent.height;
+                background: Theme.line;
+            }
+
+            VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+                alignment: start;
+
+                PageTab {
+                    label: "General";
+                    glyph: Glyph.settings;
+                    current: root.data.tab == 0;
+                    clicked => { root.page-changed(0); }
+                }
+                PageTab {
+                    label: "Appearance";
+                    glyph: Glyph.sun;
+                    current: root.data.tab == 1;
+                    clicked => { root.page-changed(1); }
+                }
+                PageTab {
+                    label: "Transcriber";
+                    glyph: Glyph.waveform;
+                    current: root.data.tab == 2;
+                    clicked => { root.page-changed(2); }
+                }
+                PageTab {
+                    label: "Speech";
+                    glyph: Glyph.music;
+                    current: root.data.tab == 3;
+                    clicked => { root.page-changed(3); }
+                }
+                PageTab {
+                    label: "About";
+                    glyph: Glyph.sparkle;
+                    current: root.data.tab == 4;
+                    clicked => { root.page-changed(4); }
+                }
+            }
+        }
+
+        // ── the page ─────────────────────────────────────────────────────
+        PaneScroll {
+            horizontal-stretch: 1;
+
+            if root.data.tab == 0: DialogSection {
+                first: true;
+                title: "Language";
+
+                // Native names: whoever is stranded in a language they cannot
+                // read must still recognise their own in this list.
+                for name[index] in root.languages: Choice {
+                    label: name;
+                    current: index == root.data.language;
+                    clicked => { root.language-changed(index); }
+                }
+            }
+
+            // Read straight off the Theme global rather than through
+            // SettingsData: the theme is not editor state — it is one bool
+            // that every colour in the tree already binds to — and routing it
+            // through the struct would be a second copy to keep in step with
+            // the first. The change still goes out as a callback, so Rust
+            // stays the one place a remembered preference will be written.
+            if root.data.tab == 1: DialogSection {
+                first: true;
+                title: "Theme";
+
+                SegmentedControl {
+                    options: ["Dark", "Light"];
+                    current: Theme.dark ? 0 : 1;
+                    changed(index) => { root.theme-changed(index == 0); }
+                }
+
+                Text {
+                    text: "Dark is the edit's own room — a bright window "
+                        + "beside the picture changes how the picture reads. "
+                        + "Light is here for the rooms that are already lit.";
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.data.tab == 2: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: "Language";
+
+                    SegmentedControl {
+                        options: ["Auto", "English", "Chinese"];
+                        current: root.data.transcribe-language;
+                        changed(index) => { root.transcribe-language-changed(index); }
+                    }
+                }
+
+                DialogSection {
+                    title: "Models";
+
+                    for model in root.transcribers: ModelRow {
+                        model: model;
+                        activated => { root.model-activated(model.id); }
+                        download => { root.model-download(model.id); }
+                        cancel => { root.model-cancel(model.id); }
+                        remove => { root.model-remove(model.id); }
+                    }
+
+                    HorizontalLayout {
+                        padding-top: 2px;
+                        spacing: 6px;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: root.data.disk;
+                            color: Theme.fg-muted;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Icon { glyph: Glyph.check; size: 12px; tint: Theme.green; }
+                        }
+
+                        Text {
+                            text: "Runs locally";
+                            color: Theme.green;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            if root.data.tab == 3: DialogSection {
+                first: true;
+                title: "Voices";
+
+                for model in root.voices: ModelRow {
+                    model: model;
+                    activated => { root.model-activated(model.id); }
+                    download => { root.model-download(model.id); }
+                    cancel => { root.model-cancel(model.id); }
+                    remove => { root.model-remove(model.id); }
+                }
+            }
+
+            if root.data.tab == 4: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: "About";
+
+                    Text {
+                        text: "Concat " + root.data.version;
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                    }
+
+                    Text {
+                        text: root.data.engine;
+                        color: Theme.fg-muted;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                    }
+
+                    Text {
+                        text: "Everything on this machine. Transcription and speech "
+                            + "run against models you download here, and nothing "
+                            + "about a project leaves the device.";
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // The block an issue report is opened with. Every line in it
+                // is something the report will be asked for and nobody has to
+                // hand — which build, which renderer, which OS — and reading
+                // them off a screen one at a time is how a report ends up
+                // missing the one that mattered. Hence the button: the whole
+                // block in one press, and the rows still selectable a line at
+                // a time for when only one of them is the answer.
+                DialogSection {
+                    title: "System information";
+
+                    HorizontalLayout {
+                        alignment: end;
+
+                        IconButton {
+                            glyph: Glyph.copy;
+                            label: "Copy system information";
+                            icon-size: 13px;
+                            // Cleared again straight away: the selection is
+                            // the mechanism, not something the reader asked
+                            // for, and leaving it set would light up a block
+                            // of text nobody can see.
+                            clicked => {
+                                report.select-all();
+                                report.copy();
+                                report.clear-selection();
+                            }
+                        }
+                    }
+
+                    // No spacing: the rows carry their own height, the way the
+                    // Details panel's table does, and the section's own 6px on
+                    // top of it opens the table back into a list of paragraphs.
+                    VerticalLayout {
+                        spacing: 0px;
+
+                        for fact in root.system-facts: FactRow {
+                            label: fact.label;
+                            value: fact.value;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,5 +1,5 @@
 [package]
-name = "wolfcut-desktop"
+name = "concat-desktop"
 version = "0.2.0"
 license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
 description = "WolfCut video editor"
@@ -8,7 +8,7 @@ edition = "2021"
 [lib]
 # The `_lib` suffix keeps the library name distinct from the binary name, which
 # otherwise collides on Windows. See rust-lang/cargo#8519.
-name = "wolfcut_desktop_lib"
+name = "concat_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -24,11 +24,11 @@ serde_json = "1"
 # The engine. Path dependencies rather than a shared workspace on purpose: the
 # engine builds, tests and versions on its own, and nothing about it should
 # depend on there being a desktop app.
-wolfcut-core = { path = "../../engine/crates/wolfcut-core" }
-wolfcut-media = { path = "../../engine/crates/wolfcut-media" }
-wolfcut-project = { path = "../../engine/crates/wolfcut-project" }
-wolfcut-render = { path = "../../engine/crates/wolfcut-render", features = ["gpu"] }
-wolfcut-export = { path = "../../engine/crates/wolfcut-export", features = ["gpu"] }
+concat-core = { path = "../../engine/crates/concat-core" }
+concat-media = { path = "../../engine/crates/concat-media" }
+concat-project = { path = "../../engine/crates/concat-project" }
+concat-render = { path = "../../engine/crates/concat-render", features = ["gpu"] }
+concat-export = { path = "../../engine/crates/concat-export", features = ["gpu"] }
 
 # Engine-owned audio playback: cpal talks to the output device, memmap2 keeps
 # decoded PCM disk-backed instead of resident.
@@ -54,7 +54,7 @@ bzip2 = "0.6"
 ts-rs = { version = "12", optional = true }
 
 [features]
-types = ["dep:ts-rs", "wolfcut-project/types"]
+types = ["dep:ts-rs", "concat-project/types"]
 
 [lints.clippy]
 # Same stance as the engine workspace: a Tauri command's arguments are its

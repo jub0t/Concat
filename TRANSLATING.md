@@ -1,6 +1,6 @@
-# Translating WolfCut
+# Translating Concat
 
-WolfCut's interface speaks whatever your system speaks, when a translation
+Concat's interface speaks whatever your system speaks, when a translation
 exists. Adding one takes a text editor and nothing else — no build tools, no
 code beyond two registry lines.
 

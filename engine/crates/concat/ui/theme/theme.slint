@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The theme: the two palettes, and the one property that chooses between them.
+//
+// Everything the interface is made of — every colour, every radius, every
+// metric, every step of the type scale — is read from `Theme`, and nowhere
+// else. Nothing outside this directory names a colour. Which colour `Theme`
+// hands back depends on `dark`, and that is the whole of the switch.
+//
+// The split across the three files is by what a theme gets to decide:
+//
+//   - `dark.slint` and `light.slint` are the palettes. Colours only, the same
+//     token names in the same order, and each one complete — no palette
+//     borrows a value from the other. Their headers say what the values mean
+//     and which relationships between them are load-bearing; read the dark
+//     one first, it is where those rules are written down.
+//   - This file holds the switch, and everything a palette does *not* get to
+//     decide: the type, the shape, and the content colours. A second theme is
+//     a retone, not a redraw — the panels are the same size and the corners
+//     are the same radius under both — and the colours a *title* can be belong
+//     to the document, which is exported the same way whichever theme the
+//     window happened to be wearing.
+//
+// To add a third theme: write the palette next door, import it here, and give
+// `dark` more than two answers to be. To fork the look wholesale: change the
+// values in a palette. Neither one touches a file outside this directory.
+//
+// Two things are deliberately *not* here:
+//
+//   - The effect previews in ui/assets, which are photographs of what an
+//     effect does rather than anything a theme decides.
+//   - Sizes under about 5px — a 2px scrollbar thumb, a 1px splitter pill.
+//     Those are shape at a scale nobody themes, and stay where they are drawn.
+import { Dark } from "dark.slint";
+import { Light } from "light.slint";
+
+export global Theme {
+    /// Which palette every colour below is read from. Settings > Appearance
+    /// picks it (main.rs, `on_settings_theme_changed`), and every binding in
+    /// the tree is a property read away from it, so the window retones in a
+    /// frame without anything being rebuilt.
+    in-out property <bool> dark: true;
+
+    // ── type ─────────────────────────────────────────────────────────────
+    //
+    // Two roles, not one, following the reference's own split.
+    //
+    // Synonym carries the interface. It is a text face, drawn for paragraph
+    // sizes, and it stays readable at the 10 and 11px this app is full of.
+    //
+    // Inter is the technical face: timecode, the ruler, clip labels, paths,
+    // dimensions, counts — anything you read as a *value* rather than as
+    // language. Its even, mechanical figures suit numbers, and keeping it off
+    // the prose is what stops the whole interface reading like a spec sheet.
+    //
+    // The reference spends a third face (Cabinet Grotesk) on display headings.
+    // There is nothing here big enough to need one yet.
+    out property <string> font: "Synonym";
+    out property <string> font-technical: "Inter";
+    /// The scale. `fs` is the body size everything inherits; the two either
+    /// side of it are the dense readout and the panel title. `xl` is for the
+    /// few lines that are content rather than chrome — a project's name in a
+    /// list — and `display` is the launch screen's heading and nothing else.
+    out property <length> fs-xs: 10px;
+    out property <length> fs-sm: 11px;
+    out property <length> fs: 12px;
+    out property <length> fs-lg: 13px;
+    out property <length> fs-xl: 14px;
+    out property <length> fs-input: 15px;
+    out property <length> fs-display: 34px;
+
+    // The weights the design actually calls for, uncompensated.
+    //
+    // Skia composites glyph coverage with gamma correction, so text comes out
+    // at the weight the tokens name — the same as it does in a browser.
+    // FemtoVG does not correct for it and thins small light-on-dark text,
+    // which is what the 500/600 these used to carry was compensating for. Put
+    // those back if you build --features wgpu; leave them alone otherwise, or
+    // the text is over-corrected and reads as too heavy.
+    //
+    // Weight is the one axis that can absorb a renderer difference without
+    // touching a colour token, and every face is bundled, so it costs nothing
+    // at runtime. Reach for it rather than nudging a surface to compensate.
+    out property <int> weight-body: 400;    // 500 under --features wgpu
+    out property <int> weight-title: 500;   // 600 under --features wgpu
+    /// The launch screen's heading, and the wordmark in the title bar. The one
+    /// weight above `title`, and the only place the type gets to be loud.
+    out property <int> weight-display: 600;
+
+    // ── shape ────────────────────────────────────────────────────────────
+    //
+    // radii
+    out property <length> r-xs: 3px;
+    out property <length> r-sm: 5px;
+    out property <length> r: 7px;
+    out property <length> r-lg: 12px;
+    /// The dialog sheet, and nothing smaller. A modal is the largest rounded
+    /// thing in the window and wants a corner to match.
+    out property <length> r-xl: 16px;
+
+    // metrics
+    out property <length> h: 28px;        // standard control height
+    out property <length> gap: 6px;
+    out property <length> pad: 14px;      // panel horizontal padding
+    out property <length> label-w: 62px;
+
+    // ── surfaces ─────────────────────────────────────────────────────────
+    out property <color> panel: dark ? Dark.panel : Light.panel;
+    out property <color> raised: dark ? Dark.raised : Light.raised;
+    out property <color> well: dark ? Dark.well : Light.well;
+    out property <color> field: dark ? Dark.field : Light.field;
+    out property <color> field-hover: dark ? Dark.field-hover : Light.field-hover;
+    out property <color> field-active: dark ? Dark.field-active : Light.field-active;
+
+    // hairlines
+    out property <color> line: dark ? Dark.line : Light.line;
+    out property <color> line-strong: dark ? Dark.line-strong : Light.line-strong;
+
+    // text
+    out property <color> fg: dark ? Dark.fg : Light.fg;
+    out property <color> fg-muted: dark ? Dark.fg-muted : Light.fg-muted;
+    out property <color> fg-dim: dark ? Dark.fg-dim : Light.fg-dim;
+
+    // accents
+    out property <color> accent: dark ? Dark.accent : Light.accent;
+    out property <color> accent-hover: dark ? Dark.accent-hover : Light.accent-hover;
+    out property <color> accent-soft: dark ? Dark.accent-soft : Light.accent-soft;
+    out property <color> green: dark ? Dark.green : Light.green;
+    out property <color> on-accent: dark ? Dark.on-accent : Light.on-accent;
+    out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+
+    // meter ramp
+    out property <color> meter-low: dark ? Dark.meter-low : Light.meter-low;
+    out property <color> meter-mid: dark ? Dark.meter-mid : Light.meter-mid;
+    out property <color> meter-high: dark ? Dark.meter-high : Light.meter-high;
+
+    // media kinds
+    out property <color> kind-video: dark ? Dark.kind-video : Light.kind-video;
+    out property <color> kind-video-well: dark ? Dark.kind-video-well : Light.kind-video-well;
+    out property <color> kind-audio: dark ? Dark.kind-audio : Light.kind-audio;
+    out property <color> kind-audio-well: dark ? Dark.kind-audio-well : Light.kind-audio-well;
+    out property <color> kind-image: dark ? Dark.kind-image : Light.kind-image;
+    out property <color> kind-image-well: dark ? Dark.kind-image-well : Light.kind-image-well;
+    out property <color> kind-text: dark ? Dark.kind-text : Light.kind-text;
+    out property <color> kind-text-well: dark ? Dark.kind-text-well : Light.kind-text-well;
+    out property <color> kind-filter: dark ? Dark.kind-filter : Light.kind-filter;
+    out property <color> kind-filter-well: dark ? Dark.kind-filter-well : Light.kind-filter-well;
+
+    // timeline
+    out property <color> lane: dark ? Dark.lane : Light.lane;
+    out property <color> lane-alt: dark ? Dark.lane-alt : Light.lane-alt;
+    out property <color> ruler: dark ? Dark.ruler : Light.ruler;
+    out property <color> grid: dark ? Dark.grid : Light.grid;
+    out property <color> playhead: dark ? Dark.playhead : Light.playhead;
+    out property <color> wave: dark ? Dark.wave : Light.wave;
+
+    // clip ink
+    out property <color> clip-ink: dark ? Dark.clip-ink : Light.clip-ink;
+    out property <color> clip-body: dark ? Dark.clip-body : Light.clip-body;
+    out property <color> clip-chip: dark ? Dark.clip-chip : Light.clip-chip;
+    out property <color> wave-centre: dark ? Dark.wave-centre : Light.wave-centre;
+    out property <color> fade-shade: dark ? Dark.fade-shade : Light.fade-shade;
+    out property <color> fade-edge: dark ? Dark.fade-edge : Light.fade-edge;
+    out property <color> transition-in: dark ? Dark.transition-in : Light.transition-in;
+    out property <color> transition-out: dark ? Dark.transition-out : Light.transition-out;
+
+    // the monitor
+    out property <color> stage: dark ? Dark.stage : Light.stage;
+    out property <color> on-stage-dim: dark ? Dark.on-stage-dim : Light.on-stage-dim;
+
+    // sheets over things that are not panels
+    out property <color> overlay: dark ? Dark.overlay : Light.overlay;
+    out property <color> scrim: dark ? Dark.scrim : Light.scrim;
+    out property <color> on-scrim: dark ? Dark.on-scrim : Light.on-scrim;
+
+    // destructive
+    out property <color> danger: dark ? Dark.danger : Light.danger;
+    out property <color> danger-soft: dark ? Dark.danger-soft : Light.danger-soft;
+    out property <color> danger-wash: dark ? Dark.danger-wash : Light.danger-wash;
+    out property <color> danger-edge: dark ? Dark.danger-edge : Light.danger-edge;
+
+    // the window ground the panes float on
+    out property <color> page: dark ? Dark.page : Light.page;
+    out property <color> page-fg-muted: dark ? Dark.page-fg-muted : Light.page-fg-muted;
+
+    // ── content ──────────────────────────────────────────────────────────
+    //
+    // Colours the *edit* can be made of, as opposed to the interface — and the
+    // one group here that does not follow the switch. A title's colour is
+    // baked into the export; the video does not have a theme, and a shelf that
+    // offered different colours depending on which way the toggle was pointing
+    // would be offering to change the cut by changing the lighting in the room.
+    //
+    // They live here rather than beside the control that offers them because
+    // there is exactly one shelf and it belongs to the whole application. The
+    // list is the neutrals first, then the interface's own status hues, then
+    // the clip palette's marks — both palettes' accents are in it, so the row
+    // agrees with the window whichever way it is set.
+    out property <[color]> swatches: [
+        #ffffff, #f5f5f7, #a1a1a6, #6e6e73, #15220a, #000000,
+        #cbf53f, #4d7c0f, #30d158, #ffd60a, #f09e2f, #ff453a,
+        #e8355e, #8b5cf6, #4d8df6, #142640,
+    ];
+    /// What a title's plate is set to when the switch is turned on. A colour
+    /// and not a flag: turning it off is clearing it, and this is what "on"
+    /// means the first time.
+    out property <color> plate-on: #000000cc;
+}

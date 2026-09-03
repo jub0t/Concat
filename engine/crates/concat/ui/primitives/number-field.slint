@@ -1,0 +1,228 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { FocusRing } from "focus-ring.slint";
+
+// The workhorse of an inspector: drag left/right anywhere on the field to
+// scrub, click to type. Shift coarsens the scrub 10x, Alt refines it 10x.
+//
+// `value` is meant to be bound two-way (`value <=> some-property`), which is
+// how Slint expresses the controlled-component contract React gets from
+// `value` + `onChange`. `changed` is there for side effects.
+export component NumberField inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum: -1000000000;
+    in property <float> maximum: 1000000000;
+    /// amount added per arrow key press, and per `px-per-step` of drag
+    in property <float> step: 1;
+    /// decimals kept on commit
+    in property <int> precision: 0;
+    /// horizontal drag distance that advances the value by one `step`
+    in property <length> px-per-step: 2px;
+    /// leading adornment: an axis letter or a unit
+    in property <string> prefix;
+    /// leading adornment as a glyph, e.g. the angle mark on a rotation field
+    in property <Glyph> prefix-glyph: Glyph.none;
+    /// appended to the displayed number, e.g. `%` or `s`
+    in property <string> suffix;
+    /// render the keyframe diamond on the trailing edge
+    in property <bool> keyframe;
+    in-out property <bool> keyframed;
+    in property <bool> enabled: true;
+
+    callback changed(value: float);
+    callback keyframe-toggled(on: bool);
+
+    // Display and parsing are overridable callbacks, the way the React version
+    // takes `format` and `parse` props. Defaults round to `precision` and
+    // append `suffix`.
+    pure callback format(value: float) -> string;
+    format(v) => {
+        return "\{Fmt.round-to(v, root.precision)}\{root.suffix}";
+    }
+
+    pure callback parse(text: string) -> float;
+    parse(t) => {
+        return t.is-float() ? t.to-float() : root.value;
+    }
+
+    property <string> display: root.format(root.value);
+    property <length> keyframe-slot: root.keyframe ? 27px : 0px;
+
+    height: Theme.h;
+    min-width: 44px;
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: (ti.has-focus || (scrub.has-hover && root.enabled)) ? Theme.field-hover : Theme.field;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // The TextInput's own `text` binding is dropped the first time it is
+    // assigned, so keep it in step with the value explicitly from here on.
+    changed display => {
+        if (!ti.has-focus) {
+            ti.text = root.display;
+        }
+    }
+
+    function apply(next: float, fine: bool) {
+        root.value = Fmt.round-to(Fmt.clamp(next, root.minimum, root.maximum),
+            fine ? root.precision + 1 : root.precision);
+        root.changed(root.value);
+    }
+
+    function nudge(direction: float, shift: bool, alt: bool) {
+        root.apply(root.value + direction * root.step * (shift ? 10 : alt ? 0.1 : 1), alt);
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 4px;
+        spacing: 5px;
+
+        if root.prefix != "": Text {
+            text: root.prefix;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+        }
+
+        if root.prefix-glyph != Glyph.none: VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.prefix-glyph;
+                size: 11px;
+                tint: Theme.fg-dim;
+            }
+        }
+
+        ti := TextInput {
+            horizontal-stretch: 1;
+            text: root.display;
+            color: Theme.fg;
+            // A number, so the technical face — this is the control the rest
+            // of the app reaches for whenever it needs a dimension typed.
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            single-line: true;
+            enabled: root.enabled;
+            vertical-alignment: center;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+
+            changed has-focus => {
+                if (self.has-focus) {
+                    self.text = root.display;
+                    self.select-all();
+                } else {
+                    root.apply(root.parse(self.text), false);
+                    self.text = root.display;
+                }
+            }
+
+            accepted => {
+                self.clear-focus();
+            }
+
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    // put the untouched display back, so the blur commits a no-op
+                    self.text = root.display;
+                    self.clear-focus();
+                    return EventResult.accept;
+                }
+                if (event.text == Key.UpArrow || event.text == Key.DownArrow) {
+                    root.nudge(event.text == Key.UpArrow ? 1 : -1,
+                        event.modifiers.shift, event.modifiers.alt);
+                    self.text = root.display;
+                    self.select-all();
+                    return EventResult.accept;
+                }
+                return EventResult.reject;
+            }
+        }
+
+        // Wrapped, because a layout start-aligns a fixed-size child on the
+        // cross axis: an 18px button in a 28px field would ride 5px high.
+        if root.keyframe: VerticalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: Theme.r-xs;
+                background: kf.has-hover ? Theme.field-active : Colors.transparent;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.keyframe;
+                    size: 10px;
+                    filled: root.keyframed;
+                    tint: root.keyframed ? Theme.accent
+                        : kf.has-hover ? Theme.fg-muted
+                        : Theme.fg-dim;
+                }
+
+                kf := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.keyframed = !root.keyframed;
+                        root.keyframe-toggled(root.keyframed);
+                    }
+                }
+            }
+        }
+    }
+
+    // Covers the text but stops short of the keyframe diamond, and steps aside
+    // once the field is being typed into so the caret and selection work. This
+    // is the Slint equivalent of the web version's preventDefault() on
+    // pointerdown: focus is withheld until the gesture resolves as a click.
+    scrub := TouchArea {
+        x: 0;
+        y: 0;
+        width: root.width - root.keyframe-slot;
+        height: root.height;
+        enabled: root.enabled && !ti.has-focus;
+        mouse-cursor: ew-resize;
+
+        property <float> origin;
+        property <bool> travelled;
+        property <bool> shift;
+        property <bool> alt;
+
+        pointer-event(event) => {
+            self.shift = event.modifiers.shift;
+            self.alt = event.modifiers.alt;
+            if (event.kind == PointerEventKind.down) {
+                self.origin = root.value;
+                self.travelled = false;
+            } else if (event.kind == PointerEventKind.up && !self.travelled) {
+                ti.focus();
+            }
+        }
+
+        moved => {
+            if (Math.abs((self.mouse-x - self.pressed-x) / 1px) > 3) {
+                self.travelled = true;
+            }
+            if (self.travelled) {
+                root.apply(self.origin
+                    + ((self.mouse-x - self.pressed-x) / root.px-per-step)
+                        * root.step * (self.shift ? 10 : self.alt ? 0.1 : 1),
+                    self.alt);
+            }
+        }
+    }
+
+    FocusRing {
+        active: ti.has-focus;
+        radius: Theme.r;
+    }
+}

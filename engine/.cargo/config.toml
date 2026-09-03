@@ -1,7 +1,7 @@
 # Where the FFmpeg development build lives - machine configuration, not
 # repository configuration.
 #
-# Only the optional `ffi` feature of wolfcut-media needs FFmpeg headers and
+# Only the optional `ffi` feature of concat-media needs FFmpeg headers and
 # libraries at build time. A normal build - which talks to FFmpeg as a
 # subprocess - needs nothing here. Do not commit machine paths into this
 # file: rusty_ffmpeg panics on an FFMPEG_INCLUDE_DIR that does not exist,

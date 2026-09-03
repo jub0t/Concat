@@ -23,7 +23,7 @@
 //!    as 16 kHz mono WAV - the input whisper wants - then `whisper-cli`
 //!    writes JSON, which is parsed into segments relative to the window.
 //!
-//! This lives in the host rather than `wolfcut-media` for now: the engine has
+//! This lives in the host rather than `concat-media` for now: the engine has
 //! no caption concept, and model downloads certainly do not belong there. If
 //! the engine grows an audio-analysis seam, the runner half graduates.
 
@@ -456,7 +456,7 @@ fn extract_wav(
     destination: &Path,
     slot: &Arc<Mutex<Option<Child>>>,
 ) -> Result<(), String> {
-    let mut command = wolfcut_media::command(wolfcut_media::ffmpeg());
+    let mut command = concat_media::command(concat_media::ffmpeg());
     command
         .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y"])
         .args(["-ss", &format!("{start:.6}")])
@@ -561,7 +561,7 @@ fn run_transcription(
             .map(|count| count.get().min(8))
             .unwrap_or(4);
 
-        let mut command = wolfcut_media::command(&binary);
+        let mut command = concat_media::command(&binary);
         command
             .arg("-m")
             .arg(&model)

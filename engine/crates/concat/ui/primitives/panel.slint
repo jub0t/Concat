@@ -1,0 +1,301 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { FocusRing } from "focus-ring.slint";
+import { Tip } from "tooltip.slint";
+
+// The floating inspector shell.
+export component Panel inherits Rectangle {
+    width: 320px;
+    background: Theme.panel;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: Theme.r-lg;
+    clip: true;
+
+    VerticalLayout {
+        alignment: start;
+        @children
+    }
+}
+
+// Panel header: a title on the leading edge, `@children` as actions on the
+// trailing one.
+export component PanelHeader inherits Rectangle {
+    in property <string> title;
+
+    height: 42px;
+
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        spacing: 8px;
+
+        Text {
+            text: root.title;
+            color: Theme.fg;
+            font-size: Theme.fs-lg;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        HorizontalLayout {
+            spacing: 2px;
+            @children
+        }
+    }
+}
+
+// A titled group of rows, separated from its neighbours by a hairline.
+//
+// React passes the header actions and the body as two props; a Slint component
+// has a single `@children` slot, so the two halves are separate components the
+// caller nests. That also makes collapsing explicit — an `if` on the body drops
+// it out of the layout, which is what `{showBody && ...}` does in JSX.
+//
+//     Section {
+//         hdr := SectionHeader { title: "Layout"; collapsible: true; }
+//         if hdr.open: SectionBody { Row { ... } }
+//     }
+export component Section inherits VerticalLayout {
+    /// suppress the leading hairline, for the first section in a panel
+    in property <bool> first;
+
+    padding-bottom: 8px;
+
+    if !root.first: Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+
+    @children
+}
+
+export component SectionHeader inherits Rectangle {
+    in property <string> title;
+    in property <bool> collapsible;
+    /// Shown in the header only while the section is folded, so a closed
+    /// section still reports what it is holding. Folding a panel to get it out
+    /// of the way should not also hide what it was set to.
+    in property <string> summary;
+    in-out property <bool> open: true;
+
+    height: 36px;
+
+    // Sits below the row so action buttons, added later in the tree, stay on
+    // top of it; the title Text itself takes no pointer events.
+    if root.collapsible: TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.open = !root.open;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        spacing: 8px;
+
+        Text {
+            text: root.title;
+            color: Theme.fg;
+            font-size: Theme.fs-lg;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+
+        if root.collapsible: VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.open ? Glyph.chevron-down : Glyph.chevron-right;
+                size: 12px;
+                tint: Theme.fg-muted;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        if root.collapsible && !root.open && root.summary != "": Text {
+            text: root.summary;
+            color: Theme.fg-dim;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        HorizontalLayout {
+            spacing: 2px;
+            @children
+        }
+    }
+}
+
+export component SectionBody inherits VerticalLayout {
+    spacing: Theme.gap;
+    @children
+}
+
+// One line of the inspector form: muted label on the leading edge, controls on
+// the trailing one. Controls with `horizontal-stretch: 1` split the remaining
+// width evenly, which is what gives paired fields (X/Y, W/H) equal columns.
+export component Row inherits HorizontalLayout {
+    in property <string> label;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 8px;
+    min-height: Theme.h;
+
+    if root.label != "": Text {
+        width: Theme.label-w;
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    HorizontalLayout {
+        spacing: Theme.gap;
+        @children
+    }
+}
+
+export component IconButton inherits Rectangle {
+    in property <Glyph> glyph;
+    /// text label instead of a glyph, for toggles like M / S
+    in property <string> text;
+    /// accessible name; also what a tooltip would show
+    in property <string> label;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    /// Destructive action: the button states in red instead of the neutral
+    /// hover, so a delete announces itself before it is pressed rather than
+    /// after. Idle it stays muted like any other — a permanently red button in
+    /// a tray is noise.
+    in property <bool> danger;
+    /// The one action in a tray worth reaching for blind — the monitor's play
+    /// button, and nothing else so far. Carries the accent at rest, not only
+    /// on hover, which is what separates it from `checked`.
+    in property <bool> accent;
+    /// widen past the square default
+    in property <bool> wide;
+    in property <length> icon-size: 14px;
+
+    callback clicked();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+    // Checked is a lime *glyph* on a darker chip, never dark ink on a lime
+    // slab and not a lime-tinted one either. Both references are explicit
+    // about this — "an activated tool button: lime glyph on a slightly darker
+    // surface, so the toolbar reads as 'this mode is on' without shouting" —
+    // and with the accent itself now lime, even a 20% tint behind eight of
+    // them turned a tray into a row of green slabs. The glyph carries the
+    // state; the chip only has to sit back far enough to be seen behind it.
+    property <brush> tint: root.checked ? Theme.accent
+        : (root.lit && root.danger) ? Theme.danger
+        : root.accent ? (root.lit ? Theme.accent-hover : Theme.accent)
+        : root.lit ? Theme.fg
+        : Theme.fg-muted;
+    property <length> side: 26px;
+    property <bool> ring;
+
+    // Fixed across, free along. A Slint layout start-aligns a fixed-size child
+    // on the cross axis — there is no `align-items: center` — so the root takes
+    // whatever height the row hands it and the chip centres itself inside,
+    // which keeps the button honest in a 28px row and a 42px header alike.
+    width: root.wide ? 40px : root.side;
+    min-height: root.side;
+
+    // First in the tree, so the TouchArea below sits above it. A FocusScope
+    // takes pointer events to focus itself, and one declared last would eat the
+    // click before the button ever saw it — focus ring, no action.
+    fs := FocusScope {
+        enabled: root.enabled;
+        // :focus-visible — a ring for keyboard focus only. Slint keeps focus
+        // after a click and has no equivalent rule, so the reason is what
+        // separates a Tab from a press.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    chip := Rectangle {
+        y: (root.height - root.side) / 2;
+        width: root.width;
+        height: root.side;
+        border-radius: Theme.r-sm;
+        opacity: root.enabled ? 1.0 : 0.4;
+        background: root.checked ? Theme.well
+            : !root.enabled ? Colors.transparent
+            : (touch.has-hover && root.danger) ? Theme.danger-soft
+            : (touch.has-hover && root.accent) ? Theme.accent-soft
+            : touch.pressed ? Theme.field-active
+            : touch.has-hover ? Theme.field
+            : Colors.transparent;
+
+        animate background {
+            duration: 100ms;
+            easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        if root.glyph != Glyph.none: Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            glyph: root.glyph;
+            size: root.icon-size;
+            tint: root.tint;
+        }
+
+        if root.text != "": Text {
+            text: root.text;
+            color: root.tint;
+            font-size: Theme.fs;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => {
+                fs.focus();
+                root.clicked();
+            }
+        }
+
+        // `label` was already the accessible name and already said it was
+        // "what a tooltip would show". This is that tooltip. Hover is taken
+        // from the TouchArea rather than from `enabled`, so a greyed-out
+        // button still explains itself — which is the moment the explanation
+        // is worth most.
+        Tip {
+            text: root.label;
+            active: touch.has-hover;
+        }
+
+        FocusRing {
+            active: root.ring;
+            radius: Theme.r-sm;
+        }
+    }
+}

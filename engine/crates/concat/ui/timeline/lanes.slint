@@ -1,0 +1,817 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt, Payload } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { ClipData, ClipKind, DropData, TimelineTool, TrackData } from "model.slint";
+import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
+
+// The lanes: the ruler, the banded track stack, the clips on it, the playhead
+// and the two band gestures.
+//
+// The reference draws all of this into a 2D canvas and hit-tests it by hand.
+// Slint has no canvas, so it is a scene graph instead — which costs an element
+// per clip and buys back the hit testing: a clip carries its own TouchArea, so
+// there is no `clipAt(x, y)` to keep in step with the renderer, and no way for
+// the two to disagree about where a clip is.
+//
+// Everything is positioned from *seconds*: `px-per-second` is the only bridge,
+// so zooming and panning are one property change rather than a model rewrite.
+// Nothing is culled beyond `visible` — a project this size does not need it,
+// and a windowing scheme is worth writing the day one does.
+
+// ── what a kind looks like ───────────────────────────────────────────────────
+
+// The two colours and the mark a clip wears, by kind. A global rather than
+// three properties on `Clip`, because the drop ghost is not a Clip and still
+// has to be painted as the clip it is about to become — and a ghost that is
+// the wrong colour is worse than no ghost.
+global Paint {
+    public pure function mark(kind: ClipKind) -> color {
+        return kind == ClipKind.audio ? Theme.kind-audio
+            : kind == ClipKind.image ? Theme.kind-image
+            : kind == ClipKind.text ? Theme.kind-text
+            : kind == ClipKind.filter ? Theme.kind-filter
+            : Theme.kind-video;
+    }
+    public pure function well(kind: ClipKind) -> color {
+        return kind == ClipKind.audio ? Theme.kind-audio-well
+            : kind == ClipKind.image ? Theme.kind-image-well
+            : kind == ClipKind.text ? Theme.kind-text-well
+            : kind == ClipKind.filter ? Theme.kind-filter-well
+            : Theme.kind-video-well;
+    }
+    public pure function badge(kind: ClipKind) -> Glyph {
+        return kind == ClipKind.audio ? Glyph.music
+            : kind == ClipKind.image ? Glyph.image
+            : kind == ClipKind.text ? Glyph.sparkle
+            : kind == ClipKind.filter ? Glyph.waveform
+            : Glyph.film;
+    }
+}
+
+// ── one clip ─────────────────────────────────────────────────────────────────
+
+component Clip inherits Rectangle {
+    in property <ClipData> item;
+    in property <length> px-per-second;
+    in property <TimelineTool> tool;
+    /// how close to an edge counts as grabbing it
+    in property <length> edge-grab: 6px;
+
+    /// A press landed: the caller resolves the selection before any drag.
+    callback pressed(additive: bool, edge: int);
+    /// Window-space delta since the press: seconds across, pixels down. Not
+    /// lanes down — the lanes are no longer one height, so which row a drag
+    /// has reached is a question only the side holding the heights can answer.
+    callback dragged(seconds: float, pixels: length);
+    callback released();
+    callback razored(seconds: float);
+    callback context-requested();
+
+    property <color> mark: Paint.mark(root.item.kind);
+    property <color> well: Paint.well(root.item.kind);
+    property <Glyph> badge: Paint.badge(root.item.kind);
+
+    /// The coloured name strip; the rest of the clip is its body.
+    property <length> header-h: 17px;
+    property <length> body-h: Math.max(0px, root.height - root.header-h);
+    /// A fade on a picture clip is shaded in a band at the foot instead of
+    /// over the whole body: the fade is an *audio* property, and shading the
+    /// picture would say it fades to black. A filter layer has no picture to
+    /// mislead about, and its ramp is the whole layer coming up, so it shades
+    /// like sound does.
+    property <bool> fade-whole: root.item.kind == ClipKind.audio
+        || root.item.kind == ClipKind.filter;
+    property <length> fade-h: root.fade-whole ? root.body-h : root.body-h * 0.45;
+
+    /// -1 body, 0 leading edge, 1 trailing edge
+    property <int> edge-at: touch.mouse-x < root.edge-grab ? 0
+        : touch.mouse-x > root.width - root.edge-grab ? 1
+        : -1;
+    /// Its lane is locked. Rust refuses the gestures either way; this is so
+    /// the clip says why before you try, rather than feeling broken.
+    in property <bool> locked;
+
+    opacity: root.locked ? 0.55 : 1.0;
+    border-radius: Theme.r-sm;
+    background: root.well;
+    border-width: root.item.selected ? 2px : 1px;
+    border-color: root.item.selected ? Theme.accent : root.mark;
+    clip: true;
+
+    // ── body ─────────────────────────────────────────────────────────────
+    Rectangle {
+        x: 0;
+        y: root.header-h;
+        width: parent.width;
+        height: root.body-h;
+        clip: true;
+
+        // The audio envelope. The commands arrive normalised into a 1x1 box
+        // and `fit: fill` stretches that onto whatever width the clip has, so
+        // the shape survives a zoom without Rust rebuilding the string. What
+        // it gives up against the reference is per-pixel extremes when zoomed
+        // right in — there the envelope is a stretched polyline rather than a
+        // fresh scan of the buckets.
+        if root.item.wave != "": Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            commands: root.item.wave;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.wave;
+        }
+
+        if root.item.wave != "": Rectangle {
+            x: 0;
+            y: (parent.height - 1px) / 2;
+            width: parent.width;
+            height: 1px;
+            background: Theme.wave-centre;
+        }
+
+        // A title has no media to draw, so the body shows the words — also the
+        // fastest way to tell two titles apart at a glance.
+        if root.item.kind == ClipKind.text && root.width > 24px: Text {
+            x: 7px;
+            y: 0;
+            width: parent.width - 14px;
+            height: parent.height;
+            text: root.item.text-body;
+            color: Theme.clip-body;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // Where the reference tiles a filmstrip. Nothing in this tree decodes
+        // a frame yet, so a picture clip falls back to its kind's mark the way
+        // a bin card does — faint and large, so it reads as a placeholder and
+        // not as a badge. A filter layer takes the same treatment for the
+        // opposite reason: there is no picture to draw, and there never will
+        // be one.
+        if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image
+            || root.item.kind == ClipKind.filter) && root.width > 40px: Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            glyph: root.badge;
+            size: Math.min(22px, parent.height - 6px);
+            tint: root.mark.with-alpha(0.3);
+        }
+
+        // The fade ramps. The shaded wedge is the part being taken away and
+        // the bright line is the envelope itself — the shape every editor
+        // draws, because it reads as "this much is being attenuated".
+        if root.item.fade-in > 0: Rectangle {
+            x: 0;
+            y: parent.height - root.fade-h;
+            width: Math.min(parent.width, root.item.fade-in * root.px-per-second);
+            height: root.fade-h;
+
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.fade-shade;
+                commands: "M 0 0 L 1 0 L 0 1 Z";
+            }
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                stroke: Theme.fade-edge;
+                stroke-width: 1px;
+                commands: "M 0 1 L 1 0";
+            }
+        }
+
+        if root.item.fade-out > 0: Rectangle {
+            x: parent.width - self.width;
+            y: parent.height - root.fade-h;
+            width: Math.min(parent.width, root.item.fade-out * root.px-per-second);
+            height: root.fade-h;
+
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.fade-shade;
+                commands: "M 0 0 L 1 0 L 1 1 Z";
+            }
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                stroke: Theme.fade-edge;
+                stroke-width: 1px;
+                commands: "M 0 0 L 1 1";
+            }
+        }
+
+        // A transition on the cut into this clip: the wedge pair every editor
+        // uses for "these two dissolve".
+        if root.item.transition-in && root.width > 16px: Rectangle {
+            x: 1px;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(9px, parent.height / 2);
+            height: self.width * 2;
+
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.transition-in;
+                commands: "M 0 0 L 1 0.5 L 0 1 Z";
+            }
+            Path {
+                width: parent.width;
+                height: parent.height;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.transition-out;
+                commands: "M 1 0 L 0 0.5 L 1 1 Z";
+            }
+        }
+    }
+
+    // ── header ───────────────────────────────────────────────────────────
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: root.header-h;
+        background: root.mark;
+
+        if root.width > 30px: Text {
+            x: 7px;
+            y: 0;
+            width: parent.width - 14px - (root.item.fx && root.width > 60px ? 20px : 0px);
+            height: parent.height;
+            text: root.item.name;
+            color: Theme.clip-ink;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // An `fx` chip when effects are live on the clip, so a styled clip is
+        // tellable from a plain one without opening a panel.
+        if root.item.fx && root.width > 60px: Rectangle {
+            x: parent.width - self.width - 4px;
+            y: 2.5px;
+            width: 14px;
+            height: parent.height - 5px;
+            border-radius: Theme.r-xs;
+            background: Theme.clip-chip;
+
+            Text {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                text: "fx";
+                color: Theme.clip-ink;
+                // Not a step of the scale: it is sized to the 12px chip it is
+                // centred in, the way a glyph is, and moves with that and not
+                // with the type.
+                font-size: 9px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // ── the gesture ──────────────────────────────────────────────────────
+    //
+    // The delta is taken in window coordinates — `absolute-position + mouse-x`
+    // — and not as `mouse-x - pressed-x`. A clip moves as it is dragged, so a
+    // local delta is measured against its own moving origin and cancels
+    // itself out; the drag stalls after the first frame. Same reasoning, and
+    // the same fix, as the workspace splitters.
+    touch := TouchArea {
+        enabled: !root.locked;
+        mouse-cursor: root.tool == TimelineTool.razor ? MouseCursor.crosshair
+            : root.edge-at >= 0 ? MouseCursor.ew-resize
+            : MouseCursor.grab;
+
+        pointer-event(event) => {
+            // The right button opens the menu and does nothing else — it must
+            // not also start a move, or the menu would appear over a clip that
+            // had already jumped.
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.right) {
+                root.context-requested();
+                return;
+            }
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                if (root.tool == TimelineTool.razor) {
+                    // The razor cuts where you click, not at the playhead.
+                    root.razored(self.mouse-x / root.px-per-second);
+                    return;
+                }
+                self.origin-x = self.absolute-position.x + self.mouse-x;
+                self.origin-y = self.absolute-position.y + self.mouse-y;
+                root.pressed(event.modifiers.shift || event.modifiers.control
+                    || event.modifiers.meta, root.edge-at);
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                // Only a release ends it. Slint delivers `move` here too, so a
+                // plain `else` would end the gesture the moment it began.
+                root.released();
+            }
+        }
+
+        moved => {
+            if (root.tool == TimelineTool.select) {
+                root.dragged(
+                    (self.absolute-position.x + self.mouse-x - self.origin-x)
+                        / root.px-per-second,
+                    self.absolute-position.y + self.mouse-y - self.origin-y);
+            }
+        }
+
+        property <length> origin-x;
+        property <length> origin-y;
+    }
+}
+
+// ── the lanes ────────────────────────────────────────────────────────────────
+
+export component Lanes inherits Rectangle {
+    in property <[TrackData]> tracks;
+    in property <[ClipData]> clips;
+    in property <TimelineTool> tool: TimelineTool.select;
+    in property <float> playhead;
+    in property <float> frame-rate: 30;
+    /// Seconds at the left edge of the lanes.
+    in property <float> scroll-left;
+    /// The zoom, as the reference spells it: seconds covered by one pixel.
+    in property <float> seconds-per-pixel: 0.05;
+    in property <length> track-scroll;
+    in property <length> ruler-height: 28px;
+
+    callback scrubbed(seconds: float);
+    callback clip-pressed(id: string, additive: bool, edge: int);
+    callback clip-dragged(seconds: float, pixels: length);
+    callback clip-released();
+    callback razored(id: string, seconds: float);
+    /// Right-click on a clip. The caller fills the menu and bumps `menu-token`;
+    /// where it opens is decided here, because only this side knows where the
+    /// pointer was.
+    callback clip-context(id: string);
+    callback menu-selected(id: string);
+
+    in property <[MenuItemData]> menu-items;
+    in property <length> menu-height;
+    in property <int> menu-token;
+
+    /// The token, but only for the Lanes that asked.
+    ///
+    /// `menu-token` is one number for the whole window, and a bump on it used
+    /// to open every menu bound to it. That was exactly one menu while there
+    /// was exactly one timeline; a second timeline seat makes it two, and the
+    /// one that was not right-clicked opens at the corner of itself, because
+    /// the position was only set on the one that was. So the pane that asked
+    /// says so, and only its own token moves.
+    property <bool> asked;
+    property <int> own-token;
+    changed menu-token => {
+        if (root.asked) {
+            root.asked = false;
+            root.own-token = root.menu-token;
+        }
+    }
+    /// A band closed over this box. Committed on release rather than live:
+    /// selecting as the band sweeps looks busy and makes a mistaken sweep hard
+    /// to back out of.
+    callback band-selected(from-seconds: float, to-seconds: float,
+        from-y: length, to-y: length, additive: bool);
+    callback scrolled(seconds: float);
+    callback track-scrolled(pixels: length);
+    callback zoomed(factor: float, anchor-seconds: float);
+
+    /// A drag from the library is over the lanes at this moment and this
+    /// place. Asked on every move of it, because the answer — the ghost below
+    /// — is where the drop would land, and that has to be recomputed as the
+    /// pointer travels.
+    callback drag-hovered(payload: string, seconds: float, y: length);
+    /// Released here. Same three arguments: the drop is the hover, committed.
+    callback dropped(payload: string, seconds: float, y: length);
+    /// The answer to the last hover. `active` is also the verdict — false is
+    /// how the drag is refused, and the cursor says so.
+    in property <DropData> drop;
+
+    property <length> px-per-second: 1px / Math.max(root.seconds-per-pixel, 0.000001);
+    property <length> lanes-h: Math.max(0px, root.height - root.ruler-height);
+    /// x of a moment, in the lanes' own coordinates
+    pure function at(seconds: float) -> length {
+        return (seconds - root.scroll-left) * root.px-per-second;
+    }
+    pure function seconds-at(x: length) -> float {
+        return root.scroll-left + x / root.px-per-second;
+    }
+    /// Pixels down the stack, from a y inside the lane area — which is what
+    /// both gestures that used to resolve a row now send instead. The band and
+    /// the drop target both start at the foot of the ruler, so their local y
+    /// needs only the scroll adding to it.
+    pure function stack-y(y: length) -> length {
+        return y + root.track-scroll;
+    }
+    /// The top of a row inside the lane area, scroll included.
+    pure function row-y(row: int) -> length {
+        return root.ruler-height + root.tracks[row].top - root.track-scroll;
+    }
+
+    // The ruler's tick ladder, from Rust. Zero means unbound, which draws no
+    // ticks rather than dividing by it.
+    property <float> tick: Fmt.tick-interval(root.seconds-per-pixel);
+    property <float> first-tick: root.tick > 0
+        ? Math.ceil(root.scroll-left / root.tick) * root.tick : 0;
+
+    background: Theme.lane;
+    clip: true;
+
+    // Ancestor of everything below, so a wheel the clips do not handle bubbles
+    // up to here. A sibling would not see it.
+    wheel := TouchArea {
+        scroll-event(event) => {
+            if (event.modifiers.control || event.modifiers.meta) {
+                // Proportional to the gesture rather than a fixed notch per
+                // event. A trackpad sends a stream of small deltas, and a flat
+                // 1.15 on each one slammed through the whole zoom range in a
+                // gesture; scaling the factor by the distance travelled makes
+                // a pinch feel like it is pulling the ruler apart.
+                //
+                // Negated because Slint's delta-y is positive scrolling *up*,
+                // which is the opposite of the DOM the reference was written
+                // against — and up is zoom in, which means a *smaller*
+                // seconds-per-pixel. This read backwards before.
+                //
+                // Clamped so one enormous delta — some mice send a whole
+                // page — cannot jump several octaves in a single event.
+                root.zoomed(
+                    Fmt.clamp(Math.pow(1.0025, -event.delta-y / 1px), 0.5, 2.0),
+                    root.seconds-at(self.mouse-x));
+                return EventResult.accept;
+            }
+            // A trackpad's horizontal axis always pans time. Shift does the
+            // same for a wheel, which has no horizontal axis of its own.
+            // Everything else scrolls the stack, which is what a plain wheel
+            // means in every other list.
+            if (event.delta-x != 0px || event.modifiers.shift) {
+                root.scrolled(Math.max(0, root.scroll-left
+                    - (event.delta-x != 0px ? event.delta-x : event.delta-y)
+                        / root.px-per-second));
+                return EventResult.accept;
+            }
+            root.track-scrolled(-event.delta-y);
+            return EventResult.accept;
+        }
+
+        // ── banded lanes ─────────────────────────────────────────────────
+        for track[row] in root.tracks: Rectangle {
+            x: 0;
+            y: root.ruler-height + track.top - root.track-scroll;
+            width: parent.width;
+            height: track.height;
+            background: Math.mod(row, 2) == 0 ? Theme.lane : Theme.lane-alt;
+            visible: self.y + track.height > root.ruler-height && self.y < root.height;
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+        }
+
+        // The grid: one rule per ruler tick, so a clip edge can be read
+        // against the ruler without following it all the way up there. Same
+        // ladder, same positions — they are the same `tick`.
+        for step in 64: Rectangle {
+            property <float> seconds: root.first-tick + step * root.tick;
+
+            x: root.at(self.seconds);
+            y: root.ruler-height;
+            width: 1px;
+            height: root.lanes-h;
+            background: Theme.grid;
+            visible: root.tick > 0 && self.x >= 0px && self.x < parent.width;
+        }
+
+        // Declared before the clips, so each clip takes its own press and what
+        // is left is the empty lane — which starts a band.
+        band := TouchArea {
+            x: 0;
+            y: root.ruler-height;
+            width: parent.width;
+            height: root.lanes-h;
+
+            property <bool> drawing;
+            property <bool> additive;
+            property <length> from-x;
+            property <length> from-y;
+            property <length> to-x;
+            property <length> to-y;
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    self.additive = event.modifiers.shift;
+                    self.from-x = self.mouse-x;
+                    self.from-y = self.mouse-y;
+                    self.to-x = self.mouse-x;
+                    self.to-y = self.mouse-y;
+                    self.drawing = true;
+                } else if (event.kind == PointerEventKind.up
+                    || event.kind == PointerEventKind.cancel) {
+                    if (self.drawing) {
+                        self.drawing = false;
+                        root.band-selected(
+                            root.seconds-at(Math.min(self.from-x, self.to-x)),
+                            root.seconds-at(Math.max(self.from-x, self.to-x)),
+                            root.stack-y(Math.min(self.from-y, self.to-y)),
+                            root.stack-y(Math.max(self.from-y, self.to-y)),
+                            self.additive);
+                    }
+                }
+            }
+
+            moved => {
+                self.to-x = self.mouse-x;
+                self.to-y = self.mouse-y;
+            }
+        }
+
+        // ── the clips ────────────────────────────────────────────────────
+        for entry in root.clips: Clip {
+            x: root.at(entry.start);
+            // Both from the lane it sits on, so a clip follows its row's
+            // height without a second copy of it to keep in step.
+            y: root.row-y(entry.row) + 4px;
+            width: Math.max(2px, entry.duration * root.px-per-second);
+            height: Math.max(2px, root.tracks[entry.row].height - 10px);
+            visible: self.x + self.width > 0 && self.x < root.width
+                && self.y + self.height > root.ruler-height && self.y < root.height;
+
+            item: entry;
+            px-per-second: root.px-per-second;
+            tool: root.tool;
+            // Read back through the lane the clip sits on rather than carried
+            // on the clip: locking is a property of the lane, and copying it
+            // onto every clip would be one more thing to keep in step.
+            locked: root.tracks[entry.row].locked;
+
+            pressed(additive, edge) => { root.clip-pressed(entry.id, additive, edge); }
+            dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
+            released => { root.clip-released(); }
+            razored(seconds) => { root.razored(entry.id, entry.start + seconds); }
+            context-requested => {
+                // Captured before the round trip: by the time the items come
+                // back the pointer may have moved, and a menu that opens away
+                // from the click reads as a misfire. `asked` goes up first for
+                // the same reason — the call below publishes before it
+                // returns, so the token can arrive inside it.
+                menu.request-x = wheel.mouse-x;
+                menu.request-y = wheel.mouse-y;
+                root.asked = true;
+                root.clip-context(entry.id);
+            }
+        }
+
+        // ── the band being drawn ─────────────────────────────────────────
+        if band.drawing: Rectangle {
+            x: Math.min(band.from-x, band.to-x);
+            y: root.ruler-height + Math.min(band.from-y, band.to-y);
+            width: Math.max(band.from-x, band.to-x) - Math.min(band.from-x, band.to-x);
+            height: Math.max(band.from-y, band.to-y) - Math.min(band.from-y, band.to-y);
+            background: Theme.accent-soft;
+            border-width: 1px;
+            border-color: Theme.accent;
+        }
+
+        // ── the drop target ──────────────────────────────────────────────
+        //
+        // Declared after the clips, so a drag reaches it before them — but a
+        // TouchArea ignores drag events and a DropArea ignores everything
+        // else, so the two never take each other's. It covers the lanes and
+        // not the ruler: a drop is a placement on a track, and the ruler is
+        // where time is scrubbed.
+        landing := DropArea {
+            x: 0;
+            y: root.ruler-height;
+            width: parent.width;
+            height: root.lanes-h;
+
+            can-drop(event) => {
+                // Rust is asked rather than told: it is the side that knows
+                // how long the media runs, what the payload names, and where
+                // the snap will pull the start to. It answers by publishing
+                // `drop`, which is both the ghost and the verdict — so this
+                // reads its own answer back, one statement later.
+                root.drag-hovered(Payload.text(event.data),
+                    root.seconds-at(event.position.x),
+                    root.stack-y(event.position.y));
+                return root.drop.active ? DragAction.copy : DragAction.none;
+            }
+
+            dropped(event) => {
+                root.dropped(Payload.text(event.data),
+                    root.seconds-at(event.position.x),
+                    root.stack-y(event.position.y));
+                return DragAction.copy;
+            }
+        }
+
+        // ── the ghost ────────────────────────────────────────────────────
+        //
+        // The clip the drop will make, drawn where it will make it. Gated on
+        // `has-drag` as well as on Rust's verdict: a drag that leaves the
+        // lanes gets an Exit and no further hover, so without it the ghost
+        // would sit there after the pointer had gone.
+        if root.drop.active && landing.has-drag: Rectangle {
+            x: root.at(root.drop.start);
+            y: root.row-y(root.drop.row) + 4px;
+            width: Math.max(2px, root.drop.duration * root.px-per-second);
+            height: Math.max(2px, root.tracks[root.drop.row].height - 10px);
+            border-radius: Theme.r-sm;
+            background: Paint.well(root.drop.kind);
+            // The accent, not the kind's mark: this is a target, and every
+            // other target in the window — the band, a selected clip — is
+            // outlined in it.
+            border-width: 2px;
+            border-color: Theme.accent;
+            opacity: 0.85;
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 17px;
+                background: Paint.mark(root.drop.kind);
+
+                if parent.width > 30px: Text {
+                    x: 7px;
+                    y: 0;
+                    width: parent.width - 14px;
+                    height: parent.height;
+                    text: root.drop.label;
+                    color: Theme.clip-ink;
+                    font-size: Theme.fs-sm;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // ── the razor guide ──────────────────────────────────────────────
+        //
+        // Follows the pointer so the cut is visible before it is made. The
+        // outer TouchArea is hovered even while the pointer is over a clip,
+        // which is what keeps the guide alive across one.
+        if root.tool == TimelineTool.razor && wheel.has-hover: Rectangle {
+            x: wheel.mouse-x;
+            y: root.ruler-height;
+            width: 1px;
+            height: root.lanes-h;
+            background: Theme.fg;
+            opacity: 0.5;
+        }
+
+        // ── the ruler ────────────────────────────────────────────────────
+        //
+        // Last, so it paints over any lane scrolled up behind it, and so its
+        // scrub area sits above the band's.
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: root.ruler-height;
+            background: Theme.ruler;
+            clip: true;
+
+            // Fixed count, clipped to the pane. A tick count derived from the
+            // width would tear down and rebuild the whole row on every frame
+            // of a splitter drag; 64 covers any window at the 90px minimum
+            // spacing the ladder guarantees.
+            for step in 64: Rectangle {
+                property <float> seconds: root.first-tick + step * root.tick;
+
+                x: root.at(self.seconds);
+                y: 0;
+                // Wide enough for the label it carries; the mark itself is the
+                // 1px child pinned at this cell's leading edge.
+                width: 64px;
+                height: root.ruler-height;
+                background: Colors.transparent;
+                visible: root.tick > 0 && self.x < parent.width;
+
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 7px;
+                    width: 1px;
+                    height: 7px;
+                    background: Theme.line-strong;
+                }
+
+                Text {
+                    x: 5px;
+                    y: 0;
+                    width: parent.width - 7px;
+                    height: parent.height - 7px;
+                    text: Fmt.frames-timecode(parent.seconds, root.frame-rate);
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            // The ruler is the scrub strip. Dragging in the lanes draws a
+            // band instead — the convention every NLE shares, and the only way
+            // the two gestures can share one surface.
+            scrub := TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
+                    }
+                }
+            }
+        }
+
+        // Last of all, so its surface is over everything. A PopupWindow is its
+        // own layer and escapes this pane's clip, but the element that places
+        // it still has to be able to measure the space it is placing into.
+        menu := ContextMenu {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            items: root.menu-items;
+            menu-height: root.menu-height;
+            token: root.own-token;
+            selected(id) => { root.menu-selected(id); }
+        }
+
+        // ── the playhead ─────────────────────────────────────────────────
+        //
+        // Over everything, ruler included: it is the one thing that must never
+        // be behind a clip.
+        Rectangle {
+            x: root.at(root.playhead);
+            y: 0;
+            width: 1px;
+            height: root.height;
+            background: Theme.playhead;
+            visible: self.x >= -1px && self.x <= root.width;
+
+            Rectangle {
+                x: -5px;
+                y: 0;
+                width: 11px;
+                height: 9px;
+
+                Path {
+                    width: parent.width;
+                    height: parent.height;
+                    viewbox-width: 1;
+                    viewbox-height: 1;
+                    fit: fill;
+                    fill: Theme.playhead;
+                    commands: "M 0 0 L 1 0 L 0.5 1 Z";
+                }
+            }
+        }
+    }
+}

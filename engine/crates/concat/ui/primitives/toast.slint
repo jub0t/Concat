@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+
+// The bottom-right notice, ported from the reference's Toast.tsx.
+//
+// Rises in, holds, sinks out. One at a time, and the next one replaces the
+// one before it rather than stacking under it: a column of notices is a log,
+// and what this is for is the one sentence about what just happened.
+
+/// A notice, as Rust hands it down.
+export struct ToastData {
+    /// Bumped once per notice, and the only thing the layer watches. It is
+    /// what lets the same sentence be said twice — "Project saved" after two
+    /// saves is two notices, and a message compared against the last one would
+    /// show the first and swallow the second.
+    token: int,
+    message: string,
+    /// Failed notices are red and hold long enough to actually be read;
+    /// confirmations only need a glance.
+    failed: bool,
+}
+
+export component ToastLayer inherits Rectangle {
+    in property <ToastData> data;
+
+    /// The reference's two holds, which are the reason it has this property at
+    /// all: an error you missed is an error you go looking for.
+    property <duration> hold: root.data.failed ? 6500ms : 3500ms;
+    /// Up and lit. Everything the toast does is this property animating.
+    property <bool> shown;
+    /// The one frame the risen toast spends at its start position, so the move
+    /// to `shown` animates rather than teleports — Slint gives a property its
+    /// first value without running its animation, exactly as a browser paints
+    /// the first frame without transitioning it, which is what the reference's
+    /// double requestAnimationFrame is working around.
+    property <bool> raising;
+
+    /// Watched instead of `data`, so the trigger is one integer changing and
+    /// not a struct comparison.
+    property <int> token: root.data.token;
+    changed token => {
+        root.shown = false;
+        root.raising = true;
+    }
+
+    // Nothing here is hit-testable: no TouchArea anywhere in the tree, so the
+    // layer sits over the whole window without taking a single event from it.
+    background: transparent;
+
+    Timer {
+        interval: 16ms;
+        running: root.raising;
+        triggered => {
+            root.raising = false;
+            root.shown = true;
+        }
+    }
+
+    // Stops itself: the trigger clears the flag it is running on. An idle
+    // window is left with no timer ticking in it, which is the same rule the
+    // tooltip layer's cooldown follows.
+    Timer {
+        interval: root.hold;
+        running: root.shown;
+        triggered => { root.shown = false; }
+    }
+
+    /// Measured rather than estimated, the way the tooltip's bubble is: a Text
+    /// parked at zero size still reports the width the string wants in the
+    /// real face, so the box can be sized before anything is placed.
+    measure := Text {
+        x: 0;
+        y: 0;
+        width: 0px;
+        height: 0px;
+        text: root.data.message;
+        font-size: Theme.fs;
+        visible: false;
+    }
+
+    Rectangle {
+        // 16px off both edges, like the reference's `bottom-4 right-4`. The
+        // 12px it is pushed down by when it is away is the rise.
+        x: root.width - self.width - 16px;
+        y: root.height - self.height - 16px + (root.shown ? 0px : 12px);
+        // Capped, then the label elides: a notice is a sentence, and one long
+        // enough to reach across the window has stopped being one.
+        width: Math.min(root.width - 32px,
+            12px + icon.width + 8px + measure.preferred-width + 12px);
+        // The reference's px-3 py-2 around a 16px line.
+        height: 32px;
+        border-radius: Theme.r-lg;
+        // Elevated and ringed, because it floats over panes that are
+        // themselves `panel` — the same reason the tooltip and the menus are.
+        // The reference spends a drop shadow here as well; Slint has none, so
+        // the hairline does that work alone and is the strong one for it.
+        background: Theme.raised;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+        opacity: root.shown ? 1.0 : 0.0;
+        // Never up before there is something to say. Also what keeps the very
+        // first frame of the window from carrying an empty box.
+        visible: root.data.message != "";
+
+        // Out is slower than in, as it is in the reference: a notice arriving
+        // should catch the eye, and one leaving should not.
+        animate y, opacity {
+            duration: root.shown ? 260ms : 420ms;
+            easing: ease-out;
+        }
+
+        icon := Icon {
+            x: 12px;
+            y: (parent.height - self.height) / 2;
+            glyph: root.data.failed ? Glyph.close : Glyph.check;
+            size: 13px;
+            tint: root.data.failed ? Theme.danger : Theme.green;
+        }
+
+        Text {
+            x: icon.x + icon.width + 8px;
+            y: 0;
+            width: parent.width - self.x - 12px;
+            height: parent.height;
+            text: root.data.message;
+            color: root.data.failed ? Theme.danger : Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

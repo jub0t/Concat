@@ -1,0 +1,366 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Section, SectionHeader, Row } from "../primitives/panel.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+import {
+    ColourField, HelpButton, InspectorFmt, Note, Param, ParamFormat, SwitchRow,
+} from "controls.slint";
+import {
+    ClipField, ClipTextField, SelectedClipData, TextAlignment,
+} from "../timeline/model.slint";
+
+// The Text tab, ported from the reference's TextPanel.tsx.
+//
+// A title is the one thing on the timeline that is not a file, so it gets its
+// own inspector and nothing else: no volume, no speed, no audio filters.
+// Offering those tabs would be offering panels that can only say "nothing
+// here", which is why the tab strip drops them rather than disabling them.
+//
+// Sizes and positions are fractions of the output frame, never points or
+// pixels: the frame can be any resolution, and a title dialled in at 1080p
+// should not move when the project is exported at 4K.
+export component TextPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+    /// The faces this build has. The reference also imports custom fonts from
+    /// disk, which needs a file picker this crate does not have — so the list
+    /// is what is bundled, and the add-a-font flow is the gap.
+    in property <[string]> families: ["Inter", "Synonym"];
+
+    callback set(field: ClipField, value: float);
+    callback set-text(field: ClipTextField, value: string);
+    callback set-colour(field: ClipTextField, value: color);
+    callback commit();
+
+    // Local editing state, seeded rather than bound — see the note on
+    // AdjustPanel, which has the same problem for the same reason.
+    property <float> size;
+    property <float> alpha;
+    property <float> stroke-width;
+    property <float> line-height;
+    property <float> tracking;
+    property <float> offset-x;
+    property <float> offset-y;
+    property <int> weight-index;
+    property <int> family-index;
+
+    property <[float]> weights: [400, 500, 600, 700];
+
+    function seed() {
+        root.size = root.selected.font-size;
+        root.alpha = root.selected.text-opacity;
+        root.stroke-width = root.selected.stroke-width;
+        root.line-height = root.selected.line-height;
+        root.tracking = root.selected.tracking;
+        root.offset-x = root.selected.offset-x;
+        root.offset-y = root.selected.offset-y;
+        root.weight-index = root.selected.font-weight >= 700 ? 3
+            : root.selected.font-weight >= 600 ? 2
+            : root.selected.font-weight >= 500 ? 1 : 0;
+        root.family-index = root.selected.font-family == "Synonym" ? 1 : 0;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    property <bool> shadow-help;
+    property <bool> plate-help;
+
+    // ── content ──────────────────────────────────────────────────────────
+    Section {
+        first: true;
+        content := SectionHeader {
+            title: "Content";
+            collapsible: true;
+            summary: root.selected.content == "" ? "Empty" : root.selected.content;
+        }
+
+        if content.open: VerticalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            padding-bottom: 4px;
+
+            Rectangle {
+                height: 64px;
+                border-radius: Theme.r;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: body.has-focus ? Theme.accent : Theme.line;
+                clip: true;
+
+                body := TextInput {
+                    x: 8px;
+                    y: 6px;
+                    width: parent.width - 16px;
+                    height: parent.height - 12px;
+                    text: root.selected.content;
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    // Multi-line: a lower third is routinely two lines, and a
+                    // single-line field would silently eat the break.
+                    single-line: false;
+                    wrap: word-wrap;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+
+                    // Committed on the way out rather than per keystroke, so a
+                    // title being typed is one change and not forty.
+                    changed has-focus => {
+                        if (!self.has-focus) {
+                            root.set-text(ClipTextField.content, self.text);
+                            root.commit();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── font ─────────────────────────────────────────────────────────────
+    Section {
+        font := SectionHeader {
+            title: "Font";
+            collapsible: true;
+            summary: root.selected.font-family + " · "
+                + InspectorFmt.format(ParamFormat.height, root.size);
+        }
+
+        if font.open: VerticalLayout {
+        Row {
+            Select {
+                options: root.families;
+                current <=> root.family-index;
+                changed(index) => {
+                    root.set-text(ClipTextField.font-family, root.families[index]);
+                    root.commit();
+                }
+            }
+        }
+
+        Row {
+            Select {
+                options: ["Regular", "Medium", "SemiBold", "Bold"];
+                current <=> root.weight-index;
+                changed(index) => {
+                    root.set(ClipField.font-weight, root.weights[index]);
+                    root.commit();
+                }
+            }
+        }
+
+        Param {
+            label: "Size";
+            value <=> root.size;
+            minimum: 0.01;
+            maximum: 0.5;
+            step: 0.005;
+            default-value: 0.09;
+            fmt: ParamFormat.height;
+            changed(v) => { root.set(ClipField.font-size, v); root.commit(); }
+        }
+
+        SwitchRow {
+            label: "Italic";
+            checked: root.selected.italic;
+            toggled(on) => { root.set(ClipField.italic, on ? 1 : 0); root.commit(); }
+        }
+        }
+    }
+
+    // ── colour ───────────────────────────────────────────────────────────
+    Section {
+        colour := SectionHeader {
+            title: "Colour";
+            collapsible: true;
+            summary: root.selected.fill-hex + " · "
+                + InspectorFmt.format(ParamFormat.fraction, root.alpha);
+        }
+
+        if colour.open: VerticalLayout {
+        ColourField {
+            label: "Fill";
+            value: root.selected.fill;
+            hex: root.selected.fill-hex;
+            changed(colour) => { root.set-colour(ClipTextField.color, colour); root.commit(); }
+        }
+
+        Param {
+            label: "Opacity";
+            value <=> root.alpha;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.text-opacity, v); root.commit(); }
+        }
+
+        SwitchRow {
+            label: "Drop shadow";
+            checked: root.selected.shadow;
+
+            HelpButton {
+                open: root.shadow-help;
+                toggled => { root.shadow-help = self.open; }
+            }
+
+            toggled(on) => { root.set(ClipField.shadow, on ? 1 : 0); root.commit(); }
+        }
+
+        if root.shadow-help: Note {
+            text: "A soft shadow under the words, for titles that have to sit"
+                + " over footage you do not control.";
+        }
+
+        SwitchRow {
+            label: "Plate";
+            checked: root.selected.plated;
+
+            HelpButton {
+                open: root.plate-help;
+                toggled => { root.plate-help = self.open; }
+            }
+
+            toggled(on) => {
+                // A plate is a colour, not a flag: turning it off is clearing
+                // it. Fully transparent is what "no plate" is stored as.
+                root.set-colour(ClipTextField.background,
+                    on ? Theme.plate-on : Colors.transparent);
+                root.commit();
+            }
+        }
+
+        if root.plate-help: Note {
+            text: "A solid band behind the words. Where a shadow softens the"
+                + " background, a plate replaces it — use it when the footage"
+                + " underneath is busy enough that neither weight nor outline"
+                + " will hold.";
+        }
+
+        if root.selected.plated: ColourField {
+            label: "Plate colour";
+            value: root.selected.plate;
+            hex: root.selected.plate-hex;
+            changed(shade) => {
+                root.set-colour(ClipTextField.background, shade);
+                root.commit();
+            }
+        }
+        }
+    }
+
+    // ── outline ──────────────────────────────────────────────────────────
+    Section {
+        outline := SectionHeader {
+            title: "Outline";
+            collapsible: true;
+            open: false;
+            summary: InspectorFmt.format(ParamFormat.outline, root.stroke-width);
+        }
+
+        if outline.open: VerticalLayout {
+        Param {
+            label: "Width";
+            value <=> root.stroke-width;
+            minimum: 0;
+            maximum: 0.15;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.outline;
+            changed(v) => { root.set(ClipField.stroke-width, v); root.commit(); }
+        }
+
+        // Only once there is an outline to colour: a swatch for a stroke of
+        // zero width sets something nobody can see.
+        if root.selected.stroke-width > 0: ColourField {
+            label: "Colour";
+            value: root.selected.stroke;
+            hex: root.selected.stroke-hex;
+            changed(shade) => {
+                root.set-colour(ClipTextField.stroke-color, shade);
+                root.commit();
+            }
+        }
+        }
+    }
+
+    // ── layout ───────────────────────────────────────────────────────────
+    Section {
+        layout := SectionHeader {
+            title: "Layout";
+            collapsible: true;
+            summary: (root.selected.align == TextAlignment.right ? "Right"
+                : root.selected.align == TextAlignment.center ? "Center" : "Left")
+                + " · " + InspectorFmt.format(ParamFormat.rate, root.line-height);
+        }
+
+        if layout.open: VerticalLayout {
+        Row {
+            SegmentedControl {
+                options: ["Left", "Center", "Right"];
+                current: root.selected.align == TextAlignment.right ? 2
+                    : root.selected.align == TextAlignment.center ? 1 : 0;
+                changed(index) => { root.set(ClipField.align, index); root.commit(); }
+            }
+        }
+
+        Param {
+            label: "Line height";
+            value <=> root.line-height;
+            minimum: 0.7;
+            maximum: 2.5;
+            step: 0.05;
+            default-value: 1.2;
+            fmt: ParamFormat.rate;
+            changed(v) => { root.set(ClipField.line-height, v); root.commit(); }
+        }
+
+        Param {
+            label: "Tracking";
+            value <=> root.tracking;
+            minimum: -0.05;
+            maximum: 0.3;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.outline;
+            changed(v) => { root.set(ClipField.tracking, v); root.commit(); }
+        }
+        }
+    }
+
+    // ── position ─────────────────────────────────────────────────────────
+    Section {
+        position := SectionHeader {
+            title: "Position";
+            collapsible: true;
+            summary: InspectorFmt.format(ParamFormat.centred, root.offset-x)
+                + " · " + InspectorFmt.format(ParamFormat.centred, root.offset-y);
+        }
+
+        if position.open: VerticalLayout {
+        Param {
+            label: "Horizontal";
+            value <=> root.offset-x;
+            minimum: -0.5;
+            maximum: 0.5;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.centred;
+            changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
+        }
+
+        Param {
+            label: "Vertical";
+            value <=> root.offset-y;
+            minimum: -0.5;
+            maximum: 0.5;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.centred;
+            changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
+        }
+        }
+    }
+}

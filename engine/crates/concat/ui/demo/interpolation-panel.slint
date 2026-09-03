@@ -1,0 +1,252 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import {
+    Theme, Bezier, Curves, Fmt, BezierEditor, NumberField, Row,
+    Section, SectionBody, SectionHeader, SegmentedControl, Select, Stepper, FocusRing,
+} from "../primitives/primitives.slint";
+import { AlignToolbar, EditorHeader } from "editor-chrome.slint";
+
+// Runs a dot across the row using the live curve as its timing function.
+//
+// CSS gets this from `transition-timing-function: cubic-bezier(...)`. Slint's
+// `easing:` takes literals only, so the dot is animated linearly and the curve
+// is applied to the result — which means the solver has to be callable, and
+// that is why Curves.ease lives in Rust.
+component EasePreview inherits Rectangle {
+    in property <Bezier> curve;
+    in property <bool> enabled;
+
+    property <bool> flipped;
+    property <float> at: root.flipped ? 1.0 : 0.0;
+    property <float> eased: root.enabled
+        ? Curves.ease(root.curve.x1, root.curve.y1, root.curve.x2, root.curve.y2, root.at)
+        : root.at;
+
+    animate at { duration: 1200ms; easing: linear; }
+
+    height: Theme.h;
+    horizontal-stretch: 1;
+    min-width: 80px;
+    background: Theme.field;
+    border-radius: Theme.r;
+
+    // Gated on hover rather than left running, which is a deliberate departure
+    // from web/.
+    //
+    // A Slint animation in flight drives the render loop at the monitor's
+    // refresh rate, and nothing here renders partially, so every one of those
+    // frames repaints the entire window. Ease is the default mode, so ungated
+    // this single animation — 1200ms out of every 1500ms — held the whole app
+    // at full refresh forever to move one dot. The browser can afford to run it
+    // always because it composites a transform on the GPU without repainting
+    // anything.
+    Timer {
+        interval: 1500ms;
+        running: root.enabled && hover.has-hover;
+        triggered => {
+            root.flipped = !root.flipped;
+        }
+    }
+
+    Rectangle {
+        x: 8px + (root.width - 26px) * root.eased;
+        y: (root.height - 10px) / 2;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        // Brighter under the pointer, so the row reads as the thing that plays
+        // rather than looking broken while it sits still.
+        background: hover.has-hover ? Theme.fg : Theme.fg-dim;
+        animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    hover := TouchArea {
+        changed has-hover => {
+            if (!self.has-hover) {
+                // Park at the start so it reads as ready to play again. The
+                // in-flight animation finishes first, then the loop idles.
+                root.flipped = false;
+            }
+        }
+    }
+}
+
+// Plain text field, styled like a NumberField but holding four numbers.
+component BezierField inherits Rectangle {
+    in property <string> value;
+    callback committed(text: string);
+
+    height: Theme.h;
+    horizontal-stretch: 1;
+    min-width: 80px;
+    background: (ti.has-focus || touch.has-hover) ? Theme.field-hover : Theme.field;
+    border-radius: Theme.r;
+
+    changed value => {
+        if (!ti.has-focus) { ti.text = root.value; }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+
+        ti := TextInput {
+            text: root.value;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            single-line: true;
+            vertical-alignment: center;
+            selection-background-color: Theme.accent;
+            selection-foreground-color: Theme.on-accent;
+
+            changed has-focus => {
+                if (self.has-focus) {
+                    self.select-all();
+                } else {
+                    root.committed(self.text);
+                    self.text = root.value;
+                }
+            }
+            accepted => { self.clear-focus(); }
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    self.text = root.value;
+                    self.clear-focus();
+                    return EventResult.accept;
+                }
+                return EventResult.reject;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: text;
+        clicked => { ti.focus(); }
+    }
+
+    FocusRing { active: ti.has-focus; radius: Theme.r; }
+}
+
+export component InterpolationPanel inherits VerticalLayout {
+    property <int> mode: 1;   // 0 hold, 1 ease, 2 spring
+    property <float> x1: 0.42;
+    property <float> y1: 0;
+    property <float> x2: 0.58;
+    property <float> y2: 1;
+    property <float> stiffness: 180;
+    property <float> damping: 22;
+
+    property <Bezier> curve: { x1: root.x1, y1: root.y1, x2: root.x2, y2: root.y2 };
+    property <string> curve-text:
+        "\{Fmt.round-to(root.x1, 2)}, \{Fmt.round-to(root.y1, 2)}, "
+        + "\{Fmt.round-to(root.x2, 2)}, \{Fmt.round-to(root.y2, 2)}";
+
+    // index 5 is Custom, which matches nothing
+    property <[Bezier]> presets: [
+        { x1: 0, y1: 0, x2: 1, y2: 1 },
+        { x1: 0.42, y1: 0, x2: 1, y2: 1 },
+        { x1: 0, y1: 0, x2: 0.58, y2: 1 },
+        { x1: 0.42, y1: 0, x2: 0.58, y2: 1 },
+        { x1: 0.34, y1: 1.26, x2: 0.64, y2: 1 },
+    ];
+
+    pure function matches(p: Bezier) -> bool {
+        return Math.abs(p.x1 - root.x1) < 0.005 && Math.abs(p.y1 - root.y1) < 0.005
+            && Math.abs(p.x2 - root.x2) < 0.005 && Math.abs(p.y2 - root.y2) < 0.005;
+    }
+
+    property <int> preset: root.matches(root.presets[0]) ? 0
+        : root.matches(root.presets[1]) ? 1
+        : root.matches(root.presets[2]) ? 2
+        : root.matches(root.presets[3]) ? 3
+        : root.matches(root.presets[4]) ? 4
+        : 5;
+
+    function set-curve(c: Bezier) {
+        root.x1 = c.x1;
+        root.y1 = c.y1;
+        root.x2 = c.x2;
+        root.y2 = c.y2;
+    }
+
+    alignment: start;
+
+    EditorHeader { }
+    AlignToolbar { }
+
+    Section {
+        SectionHeader { title: "Interpolation"; }
+        SectionBody {
+            Row {
+                SegmentedControl {
+                    options: ["Hold", "Ease", "Spring"];
+                    current <=> root.mode;
+                }
+            }
+
+            if root.mode == 0: Row {
+                Text {
+                    horizontal-stretch: 1;
+                    text: "The value snaps at the keyframe and holds until the next one.";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.mode == 1: Row {
+                BezierEditor {
+                    x1 <=> root.x1;
+                    y1 <=> root.y1;
+                    x2 <=> root.x2;
+                    y2 <=> root.y2;
+                }
+            }
+            if root.mode == 1: Row {
+                label: "Ease";
+                Select {
+                    options: ["Linear", "Ease In", "Ease Out", "Ease In & Out", "Back Out", "Custom"];
+                    current: root.preset;
+                    changed(index) => {
+                        if (index < 5) { root.set-curve(root.presets[index]); }
+                    }
+                }
+            }
+            if root.mode == 1: Row {
+                label: "Bezier";
+                BezierField {
+                    value: root.curve-text;
+                    committed(text) => { root.set-curve(Curves.parse(text, root.curve)); }
+                }
+            }
+
+            if root.mode == 2: Row {
+                label: "Stiffness";
+                NumberField { value <=> root.stiffness; minimum: 1; maximum: 1000; }
+                Stepper {
+                    stepped(direction, shift, alt) => {
+                        root.stiffness = Math.max(1, root.stiffness + direction * 10);
+                    }
+                }
+            }
+            if root.mode == 2: Row {
+                label: "Damping";
+                NumberField { value <=> root.damping; minimum: 1; maximum: 100; }
+                Stepper {
+                    stepped(direction, shift, alt) => {
+                        root.damping = Math.max(1, root.damping + direction);
+                    }
+                }
+            }
+
+            Row {
+                label: "Preview";
+                EasePreview {
+                    curve: root.curve;
+                    enabled: root.mode == 1;
+                }
+            }
+        }
+    }
+}

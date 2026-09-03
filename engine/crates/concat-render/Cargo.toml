@@ -1,0 +1,20 @@
+[package]
+name = "concat-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Turning a timeline plus a timestamp into one finished frame."
+
+[features]
+# The wgpu compositor. Off by default so the engine stays light to build; the
+# desktop app turns it on.
+gpu = ["dep:wgpu", "dep:pollster"]
+
+[dependencies]
+concat-core.workspace = true
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -31,8 +31,17 @@ nix develop        # shell with ffmpeg, whisper and the Rust/Node toolchains
 npm run app        # run the editor
 ```
 
-Without Nix you will need Rust (see `rust-version` in `engine/Cargo.toml`),
-Node, and `ffmpeg`/`ffprobe` on `PATH`. Then:
+Without Nix you will need Rust (see `rust-version` in `engine/Cargo.toml`)
+and `ffmpeg`/`ffprobe` on `PATH`. Then:
+
+```sh
+cd engine && cargo run -p concat
+```
+
+That is the Slint editor window, which is where new UI work goes. The Tauri +
+React app in `desktop/` is deprecated: it is what releases still ship until
+the Slint window can do everything it did, so bug fixes there are welcome,
+but features are not. Running it additionally needs Node:
 
 ```sh
 cd desktop && npm install && npm run app
@@ -42,9 +51,9 @@ cd desktop && npm install && npm run app
 
 | Path | What lives there |
 |---|---|
-| `engine/crates/` | The Rust engine — core, media, render, export, project, cli |
-| `desktop/src/` | The React editor UI |
-| `desktop/src-tauri/` | Tauri host: commands, session lifecycle, IPC |
+| `engine/crates/` | The Rust engine — core, media, render, export, project, cli — and `concat`, the Slint editor window |
+| `desktop/src/` | The React editor UI (deprecated) |
+| `desktop/src-tauri/` | Tauri host: commands, session lifecycle, IPC (deprecated) |
 | `test/` | Media and analysis fixtures |
 
 [`ARCHITECTURE.md`](ARCHITECTURE.md) explains how these fit together and where
@@ -55,8 +64,8 @@ the sharp edges are. Read it before touching the engine.
 Run these before opening a PR:
 
 ```sh
-cd desktop && npm run typecheck && npm run lint && npm test
 cd engine  && cargo fmt --check && cargo clippy --all-targets && cargo test
+cd desktop && npm run typecheck && npm run lint && npm test   # only if you touched desktop/
 ```
 
 New source files need a licence header — see below. Match the style of the code

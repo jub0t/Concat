@@ -580,7 +580,7 @@ fn decode_key(spec: &ClipSpec) -> String {
 /// speed, so what the preview mixes is what the export renders. A file
 /// already in the cache is reused as is - that is the point of the cache.
 fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
-    wolfcut_media::audio::validate_chain(&spec.chain).map_err(|error| error.to_string())?;
+    concat_media::audio::validate_chain(&spec.chain).map_err(|error| error.to_string())?;
 
     let directory = project.join("cache").join("audio");
     // `.wav`, and `.pcm` before the muxer change - old raw caches are simply
@@ -596,7 +596,7 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
     // graph applies, because these are one definition, not two. The engine
     // owns what speed *means*; this function only decodes.
     let mut filters: Vec<String> =
-        wolfcut_media::audio::speed_filters(spec.speed, spec.preserve_pitch);
+        concat_media::audio::speed_filters(spec.speed, spec.preserve_pitch);
     if !spec.chain.is_empty() {
         filters.push(spec.chain.clone());
     }
@@ -606,13 +606,13 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
     // A sped-up clip reads further into the file than it occupies on the
     // timeline: the source window is `duration * speed`, exactly the window
     // the exporter trims.
-    let window = spec.duration * wolfcut_media::audio::clamp_speed(spec.speed);
+    let window = spec.duration * concat_media::audio::clamp_speed(spec.speed);
 
     let temporary = directory.join(format!("{key}.wav.decoding"));
     let file = std::fs::File::create(&temporary)
         .map_err(|error| format!("could not create {}: {error}", temporary.display()))?;
 
-    let status = wolfcut_media::command(wolfcut_media::ffmpeg())
+    let status = concat_media::command(concat_media::ffmpeg())
         .args(["-hide_banner", "-nostdin", "-loglevel", "error"])
         .args(["-ss", &format!("{:.6}", spec.source_start)])
         .args(["-t", &format!("{window:.6}")])

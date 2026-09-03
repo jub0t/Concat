@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// Small numeric and string helpers shared by the primitives, plus the two
+// globals whose bodies live in Rust.
+
+export struct Bezier {
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+}
+
+export global Fmt {
+    public pure function clamp(v: float, lo: float, hi: float) -> float {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    public pure function round-to(v: float, digits: int) -> float {
+        return Math.round(v * Math.pow(10, digits)) / Math.pow(10, digits);
+    }
+
+    public pure function pad2(n: int) -> string {
+        return n < 10 ? "0\{n}" : "\{n}";
+    }
+
+    // hh:mm:ss, the format the reference In/Out fields print.
+    public pure function timecode(seconds: float) -> string {
+        return Fmt.pad2(Math.floor(seconds / 3600))
+            + ":" + Fmt.pad2(Math.mod(Math.floor(seconds / 60), 60))
+            + ":" + Fmt.pad2(Math.mod(Math.floor(seconds), 60));
+    }
+
+    // "m:ss" — the compact duration a bin thumbnail carries, where the hours
+    // field of a full timecode would be three characters of nothing. Minutes
+    // are not wrapped at 60: a two-hour clip should read 120:00, not 0:00.
+    public pure function short-duration(seconds: float) -> string {
+        return "\{Math.floor(Math.max(0, seconds) / 60)}"
+            + ":" + Fmt.pad2(Math.mod(Math.floor(Math.max(0, seconds)), 60));
+    }
+
+    // hh:mm:ss:ff — the ruler's spelling, and the tray readout's. Both fields
+    // derive from the frame count rather than from the wall clock, which is
+    // non-drop-frame timecode: at 29.97 a seconds field taken from the clock
+    // disagrees with its own frame field near the boundaries. NDF runs
+    // slightly behind the clock at NTSC rates; that is the standard trade.
+    public pure function frames-timecode(seconds: float, rate: float) -> string {
+        return Fmt.pad2(Math.floor(Fmt.total-frames(seconds, rate) / Math.round(rate) / 3600))
+            + ":" + Fmt.pad2(Math.mod(Math.floor(Fmt.total-frames(seconds, rate) / Math.round(rate) / 60), 60))
+            + ":" + Fmt.pad2(Math.mod(Math.floor(Fmt.total-frames(seconds, rate) / Math.round(rate)), 60))
+            + ":" + Fmt.pad2(Math.mod(Fmt.total-frames(seconds, rate), Math.round(rate)));
+    }
+
+    pure function total-frames(seconds: float, rate: float) -> int {
+        return Math.floor(Math.max(0, seconds) * rate);
+    }
+
+    public pure function decibels(v: float) -> string {
+        return (v > 0 ? "+" : "") + "\{Fmt.round-to(v, 1)} dB";
+    }
+
+    // Slint's string type has no split(), so the inverse of timecode() is
+    // implemented in Rust and bound in main.rs.
+    pure callback parse-timecode(text: string) -> float;
+
+    // The ruler's tick spacing: the smallest interval from a fixed ladder of
+    // musical-looking durations (a frame, a tenth, a quarter, ... an hour)
+    // that is still at least 90px apart at this zoom. Picking from a table
+    // means searching one, which is a loop — so it lives in Rust with the
+    // bezier solve. Unbound it returns 0, which the ruler reads as "draw no
+    // ticks" rather than dividing by it.
+    pure callback tick-interval(seconds-per-pixel: float) -> float;
+
+    // hh:mm:ss:ff -> frames. The monitor counts in frames, so its field parses
+    // in frames; `parse-timecode` above stops at seconds and would drop the
+    // one field that makes a monitor a monitor. Rust, for want of split().
+    pure callback parse-frames(text: string, rate: float) -> float;
+}
+
+export global Curves {
+    // Solving a CSS cubic-bezier for y at a given x needs an iterative solve,
+    // which Slint's expression language cannot express. Bound in main.rs.
+    pure callback ease(x1: float, y1: float, x2: float, y2: float, at: float) -> float;
+
+    // "0.42, 0, 0.58, 1" -> Bezier. Also Rust, for want of split().
+    pure callback parse(text: string, fallback: Bezier) -> Bezier;
+}
+
+// The drag payloads the library panels hand the timeline.
+//
+// A `data-transfer` is opaque in Slint — it is the platform's clipboard/drag
+// object, and only the host language can build or read one. So the payload
+// travels as text through these two, and every drag in this tree names itself
+// the way the menus do: "media:12", "text:default", "filter:telephone".
+export global Payload {
+    /// Wrap a payload string for a DragArea's `data`. A DragArea whose data is
+    /// empty never starts a drag, which is how a card opts out.
+    pure callback of(text: string) -> data-transfer;
+    /// Read one back in a DropArea. Empty for a drag from another application,
+    /// which is how the timeline rejects one.
+    pure callback text(payload: data-transfer) -> string;
+
+    /// The picture that hangs off the cursor while one of these is in flight.
+    ///
+    /// A `DragArea` with no `drag-image` gives the pointer nothing but a
+    /// cursor, and the cursor spends most of a drag saying "no drop here" —
+    /// which is true of the panel you started in and of every pane between it
+    /// and the lanes, and reads as the drag having failed rather than as being
+    /// under way. So each source hands over a chip naming what it is carrying.
+    ///
+    /// Built in Rust, and for the same reason the ghost is: the payload names
+    /// a row of the bin or an entry of a catalogue, and this side has neither.
+    /// It comes back as an SVG image — Slint rasterises those through the
+    /// window's own font collection, so the name on the chip is set in the
+    /// same Inter the cards are. Unbound it returns an empty image, which
+    /// draws nothing: the drag still works, it just goes back to bare cursors.
+    pure callback preview(text: string) -> image;
+
+    /// The seat index in a `pane:N:...` payload, or -1 for anything else —
+    /// including a drag from another application, whose payload this tree
+    /// cannot read. Rust, for want of split(); see `parse-timecode`.
+    pure callback pane-seat(text: string) -> int;
+}
+
+export global Geom {
+    // Point on a circle, in path (viewbox) units. Degrees run clockwise from
+    // 3 o'clock, matching the SVG convention the web Knob uses.
+    public pure function polar-x(cx: float, radius: float, degrees: float) -> float {
+        return cx + radius * Math.cos(degrees * 1deg);
+    }
+
+    public pure function polar-y(cy: float, radius: float, degrees: float) -> float {
+        return cy + radius * Math.sin(degrees * 1deg);
+    }
+}

@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Editor } from "../editor.slint";
+import { ColSplitter, RowSplitter } from "splitter.slint";
+import { Seat } from "seat.slint";
+
+// The editor shell: whatever arrangement of views the layout tree currently
+// describes, drawn out of the two lists Rust publishes.
+//
+// This file used to hold the arrangement itself — three boxes across the top
+// and one along the bottom, with two shares and a splitter for each boundary.
+// That is one layout, and hard-coding it is what made it the only one. The
+// arrangement is a tree now (see dock.slint), it lives in Rust because Slint
+// has no recursion to walk one with, and what arrives here is that tree
+// already walked: a box per view, a box per gutter.
+//
+// So there is nothing to lay out here and nothing to arbitrate. The one thing
+// this side knows and Rust does not is how big it is, which is why it says so.
+export component Workspace inherits Rectangle {
+    // One value for the margin and the gutters, so the border around the
+    // workspace and the space between any two panes read as the same gap.
+    // 8px, matching the reference exactly: its resizers are `w-2`/`h-2` and
+    // the layout around them is `p-2`, which is the same single value said
+    // twice. 12px here read as loose beside it.
+    //
+    // Applied on the Rust side rather than here: the gutters are between the
+    // halves of a split, at whatever depth, and only the side walking the tree
+    // knows where those are.
+
+    background: Theme.page;
+
+    // The box, on the way up. `init` as well as the two `changed` handlers,
+    // because a window that opens and is never resized still has to be laid
+    // out once — and the first layout is exactly when nothing has changed yet.
+    init => { Editor.workspace-resized(root.width, root.height); }
+    changed width => { Editor.workspace-resized(root.width, root.height); }
+    changed height => { Editor.workspace-resized(root.width, root.height); }
+
+    for seat in Editor.seats: Seat {
+        x: seat.x;
+        y: seat.y;
+        width: seat.width;
+        height: seat.height;
+        kind: seat.kind;
+        index: seat.index;
+
+        picked(kind) => { Editor.dock-set(seat.index, kind); }
+        dropped-on(from, side) => { Editor.dock-dropped(from, seat.index, side); }
+        removed => { Editor.dock-remove(seat.index); }
+    }
+
+    // Declared after the seats so a gutter is hit before the panes either side
+    // of it. The two orientations are the same two handles the fixed layout
+    // used; which one a gutter gets is a fact about its split, so it comes
+    // down with the box rather than being decided here.
+    for divider in Editor.dividers: Rectangle {
+        x: divider.x;
+        y: divider.y;
+        width: divider.width;
+        height: divider.height;
+
+        if divider.columns: ColSplitter {
+            width: parent.width;
+            height: parent.height;
+
+            pressed => { Editor.divider-pressed(divider.index); }
+            moved(delta) => { Editor.divider-dragged(divider.index, delta); }
+        }
+
+        if !divider.columns: RowSplitter {
+            width: parent.width;
+            height: parent.height;
+
+            pressed => { Editor.divider-pressed(divider.index); }
+            moved(delta) => { Editor.divider-dragged(divider.index, delta); }
+        }
+    }
+}

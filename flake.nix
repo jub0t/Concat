@@ -2,9 +2,9 @@
   # Nix support (#7). Linux only on purpose: Tauri under Nix on macOS means
   # Apple SDK juggling, and the people asking for a flake run Linux.
   #
-  #   nix build .#wolfcut     the app, with ffmpeg and whisper-cli wired in
+  #   nix build .#concat     the app, with ffmpeg and whisper-cli wired in
   #   nix develop             a shell with everything `npm run app` needs
-  description = "WolfCut - free and open source video editor";
+  description = "Concat - free and open source video editor";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -19,9 +19,9 @@
     in
     {
       packages = eachSystem (pkgs: rec {
-        default = wolfcut;
-        wolfcut = pkgs.rustPlatform.buildRustPackage rec {
-          pname = "wolfcut";
+        default = concat;
+        concat = pkgs.rustPlatform.buildRustPackage rec {
+          pname = "concat";
           version = "0.2.0";
           src = self;
 
@@ -39,7 +39,7 @@
           # binaries because a Finder/desktop launch has no PATH to fall back
           # on. The Nix wrapper guarantees them on PATH, so this build opts
           # out of bundling explicitly.
-          env.WOLFCUT_SYSTEM_TOOLS = "1";
+          env.CONCAT_SYSTEM_TOOLS = "1";
 
           nativeBuildInputs = with pkgs; [
             cargo-tauri.hook
@@ -86,10 +86,10 @@
 
           desktopItems = [
             (pkgs.makeDesktopItem {
-              name = "wolfcut";
-              exec = "wolfcut-desktop";
-              icon = "wolfcut";
-              desktopName = "WolfCut";
+              name = "concat";
+              exec = "concat-desktop";
+              icon = "concat";
+              desktopName = "Concat";
               comment = "Free and open source video editor";
               categories = [
                 "AudioVideo"
@@ -100,22 +100,22 @@
 
           postInstall = ''
             install -Dm644 desktop/src-tauri/icons/128x128.png \
-              $out/share/icons/hicolor/128x128/apps/wolfcut.png
+              $out/share/icons/hicolor/128x128/apps/concat.png
           '';
 
           meta = {
             description = "Free and open source video editor";
-            homepage = "https://github.com/jub0t/WolfCut";
-            license = pkgs.lib.licenses.mpl20;
+            homepage = "https://github.com/jub0t/Concat";
+            license = pkgs.lib.licenses.agpl3Plus;
             platforms = systems;
-            mainProgram = "wolfcut-desktop";
+            mainProgram = "concat-desktop";
           };
         };
       });
 
       devShells = eachSystem (pkgs: {
         default = pkgs.mkShell {
-          inputsFrom = [ self.packages.${pkgs.system}.wolfcut ];
+          inputsFrom = [ self.packages.${pkgs.system}.concat ];
           packages = with pkgs; [
             cargo
             rustc

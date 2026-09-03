@@ -1,6 +1,6 @@
 name: Build App
 
-# Compiles the WolfCut desktop app for macOS, Windows and Linux.
+# Compiles the Concat desktop app for macOS, Windows and Linux.
 #
 # Every build stages the static FFmpeg pair into desktop/src-tauri/ffmpeg/
 # first - the release guard in build.rs refuses to build without it, because a
@@ -34,6 +34,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+      # The concat crate builds Slint with its Skia renderer, which links
+      # fontconfig and freetype on Linux; winit and glutin dlopen the rest at
+      # run time, so only these headers are needed to compile the workspace.
+      - name: Slint build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev
       - run: cargo test --workspace
         working-directory: engine
       # -D warnings covers rustc lints too (missing_docs among them), so a
@@ -250,7 +257,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: WolfCut-${{ matrix.platform }}
+          name: Concat-${{ matrix.platform }}
           path: |
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/release/bundle/msi/*.msi
@@ -307,7 +314,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           target_commitish: ${{ github.sha }}
-          name: WolfCut ${{ steps.tag.outputs.name }}
+          name: Concat ${{ steps.tag.outputs.name }}
           # A hyphen in the tag (v0.2.0-alpha.3) marks a pre-release.
           prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
           generate_release_notes: true

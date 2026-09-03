@@ -1,0 +1,700 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { IconButton, Row, Section, SectionHeader } from "../primitives/panel.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import {
+    Fader, HelpButton, InspectorFmt, InspectorSearch, Note, Param, ParamFormat,
+    SearchField, Switch, SwitchRow,
+} from "controls.slint";
+import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
+
+// The editor's clip inspector, ported from web/src/demo/inspector/: one
+// panel, three tabs. Adjust is direct controls; Filters and Effects differ
+// only in their catalogue, so both are PresetStack with different data.
+
+/// One parameter a preset exposes. `value` doubles as the default in the
+/// catalogue: applying a preset copies the row, and double-click restores
+/// `default-value`.
+export struct ParamData {
+    id: string,
+    label: string,
+    min: float,
+    max: float,
+    step: float,
+    default-value: float,
+    value: float,
+    fmt: ParamFormat,
+}
+
+/// One preset in an applied chain: which one, whether it is live, its values.
+/// Every preset in the catalogue exposes exactly two parameters, so the pair
+/// is flattened here instead of nested in a model a struct cannot hold.
+export struct AppliedPresetData {
+    id: string,
+    name: string,
+    on: bool,
+    p1: ParamData,
+    p2: ParamData,
+}
+
+/// A catalogue entry: the preset as it would be applied, plus its shelf.
+export struct PresetDef {
+    group: int,
+    preset: AppliedPresetData,
+}
+
+// The applied chain plus the library that feeds it.
+export component PresetStack inherits VerticalLayout {
+    /// lower-case singular, for labels and placeholders
+    in property <string> noun: "filter";
+    in property <string> library-title: "Filter library";
+    in property <[string]> group-labels;
+    in property <[PresetDef]> catalogue;
+    /// Owned by Rust: a chain is edited by index, and Slint models cannot be
+    /// spliced from the language.
+    in property <[AppliedPresetData]> applied;
+
+    callback add(preset: AppliedPresetData);
+    callback toggle(index: int);
+    callback move-by(index: int, delta: int);
+    callback remove(index: int);
+    callback set-param(index: int, second: bool, value: float);
+
+    property <int> group;
+    property <string> query;
+    property <bool> help;
+
+    function shown(def: PresetDef) -> bool {
+        return def.group == root.group
+            && (root.query == "" || InspectorSearch.matches(def.preset.name, root.query));
+    }
+
+    function in-chain(id: string) -> bool {
+        // Two is the deepest the demo chains go before this reads awkwardly;
+        // a real member test wants a model lookup Slint cannot express, so
+        // Rust flags it the day chains grow params. Linear scan over a model
+        // is fine at this size.
+        return root.applied.length > 0 && (root.applied[0].id == id
+            || (root.applied.length > 1 && root.applied[1].id == id)
+            || (root.applied.length > 2 && root.applied[2].id == id)
+            || (root.applied.length > 3 && root.applied[3].id == id)
+            || (root.applied.length > 4 && root.applied[4].id == id)
+            || (root.applied.length > 5 && root.applied[5].id == id)
+            || (root.applied.length > 6 && root.applied[6].id == id)
+            || (root.applied.length > 7 && root.applied[7].id == id));
+    }
+
+    // No empty shell: the section arrives with the first preset, so an
+    // untouched clip shows only its library.
+    if root.applied.length > 0: Section {
+        first: true;
+
+        SectionHeader {
+            title: "Applied";
+            HelpButton {
+                open: root.help;
+                toggled => { root.help = self.open; }
+            }
+        }
+
+        if root.help: Note {
+            text: "The chain runs top to bottom — reorder it with the chevrons."
+                + " The eye bypasses one link without losing the values you"
+                + " dialled into it.";
+        }
+
+        VerticalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            padding-bottom: 6px;
+            spacing: 6px;
+
+            for item[index] in root.applied: Rectangle {
+                border-radius: Theme.r;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: Theme.line;
+                opacity: item.on ? 1.0 : 0.55;
+
+                VerticalLayout {
+                    padding-bottom: 8px;
+                    spacing: 4px;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 6px;
+                        padding-top: 6px;
+                        spacing: 2px;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: item.name;
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            font-weight: Theme.weight-title;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        IconButton {
+                            glyph: Glyph.eye;
+                            label: item.on ? "Bypass \{item.name}" : "Enable \{item.name}";
+                            checked: item.on;
+                            clicked => { root.toggle(index); }
+                        }
+                        IconButton {
+                            glyph: Glyph.chevron-up;
+                            label: "Move \{item.name} up";
+                            enabled: index > 0;
+                            clicked => { root.move-by(index, -1); }
+                        }
+                        IconButton {
+                            glyph: Glyph.chevron-down;
+                            label: "Move \{item.name} down";
+                            enabled: index < root.applied.length - 1;
+                            clicked => { root.move-by(index, 1); }
+                        }
+                        IconButton {
+                            glyph: Glyph.close;
+                            label: "Remove \{item.name}";
+                            clicked => { root.remove(index); }
+                        }
+                    }
+
+                    Param {
+                        label: item.p1.label;
+                        value: item.p1.value;
+                        minimum: item.p1.min;
+                        maximum: item.p1.max;
+                        step: item.p1.step;
+                        default-value: item.p1.default-value;
+                        fmt: item.p1.fmt;
+                        enabled: item.on;
+                        changed(v) => { root.set-param(index, false, v); }
+                    }
+
+                    Param {
+                        label: item.p2.label;
+                        value: item.p2.value;
+                        minimum: item.p2.min;
+                        maximum: item.p2.max;
+                        step: item.p2.step;
+                        default-value: item.p2.default-value;
+                        fmt: item.p2.fmt;
+                        enabled: item.on;
+                        changed(v) => { root.set-param(index, true, v); }
+                    }
+                }
+            }
+        }
+    }
+
+    Section {
+        first: root.applied.length == 0;
+
+        SectionHeader { title: root.library-title; }
+
+        Row {
+            SearchField {
+                text <=> root.query;
+                placeholder: "Search \{root.noun}s";
+            }
+        }
+
+        Row {
+            SegmentedControl {
+                options: root.group-labels;
+                current <=> root.group;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            padding-top: 4px;
+
+            // `visible` toggles, not `if`: the filter changes with every
+            // keystroke and a hidden row costing zero height is the cheap,
+            // geometry-proof way to narrow the list (see media-pane's
+            // sidebar for the scar tissue behind this choice).
+            for def[index] in root.catalogue: row := Rectangle {
+                // Named rather than reached through `parent`: a layout is not
+                // transparent to a parent chain, so a descendant inside the
+                // HorizontalLayout below cannot see the row's own properties
+                // any other way.
+                property <bool> shown: root.shown(def);
+                property <bool> in-chain: root.in-chain(def.preset.id);
+
+                visible: row.shown;
+                height: row.shown ? 26px : 0;
+                border-radius: Theme.r-sm;
+                background: row-touch.has-hover && !row.in-chain
+                    ? Theme.field : Colors.transparent;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 8px;
+                    spacing: 6px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            glyph: row.in-chain ? Glyph.check : Glyph.plus;
+                            size: 11px;
+                            tint: row.in-chain ? Theme.green : Theme.fg-muted;
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: def.preset.name;
+                        color: row.in-chain ? Theme.fg-dim : Theme.fg;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if row.in-chain: Text {
+                        text: "in chain";
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
+                }
+
+                row-touch := TouchArea {
+                    enabled: !row.in-chain;
+                    mouse-cursor: pointer;
+                    clicked => { root.add(def.preset); }
+                }
+            }
+        }
+    }
+}
+
+// The Adjust tab: what can be changed about the selected clip.
+//
+// The panel adapts to the kind rather than the tab strip doing it all, which
+// is how the reference splits it (AdjustPanel.tsx): a still has picture but no
+// sound, so it gets Transform and nothing else; an audio clip has sound but no
+// picture, so it gets everything but Transform.
+//
+// The fader for level works in decibels, not linear gain. Linear puts every
+// useful setting in the bottom sixth of the travel; decibels is both how the
+// ear works and how anyone mixing thinks.
+export component AdjustPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    /// A control gesture finished: the accumulated change becomes one command.
+    callback commit();
+
+    property <bool> has-picture: root.selected.kind == ClipKind.video
+        || root.selected.kind == ClipKind.image;
+    /// A still is picture only: no gain to set, nothing a fade could quieten.
+    property <bool> has-sound: root.selected.kind != ClipKind.image;
+    /// A fade longer than half the clip would overlap the other one.
+    property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
+
+    // Local editing state, assigned rather than bound.
+    //
+    // A control writes to its own `value` as it is dragged, and an assignment
+    // in Slint replaces whatever binding the parent declared on that property
+    // — so binding these straight to `clip` would work exactly once and then
+    // go deaf to the model. They are seeded instead, on init and whenever the
+    // selection changes under us.
+    property <float> scale;
+    property <float> offset-x;
+    property <float> offset-y;
+    property <float> rotation;
+    property <float> alpha;
+    property <float> level;
+    property <float> speed;
+    property <float> fade-in;
+    property <float> fade-out;
+
+    function seed() {
+        root.scale = root.selected.scale;
+        root.offset-x = root.selected.offset-x;
+        root.offset-y = root.selected.offset-y;
+        root.rotation = root.selected.rotation;
+        root.alpha = root.selected.opacity;
+        root.level = InspectorFmt.to-decibels(root.selected.volume);
+        root.speed = root.selected.speed;
+        root.fade-in = root.selected.fade-in;
+        root.fade-out = root.selected.fade-out;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    property <bool> transform-help;
+    property <bool> speed-help;
+
+    if root.has-picture: Section {
+        first: true;
+        transform := SectionHeader {
+            title: "Transform";
+            collapsible: true;
+            summary: "\{Math.round(root.scale * 100)}% · \{Math.round(root.rotation)}°";
+            HelpButton {
+                open: root.transform-help;
+                toggled => { root.transform-help = self.open; }
+            }
+        }
+
+        if transform.open: VerticalLayout {
+
+        if root.transform-help: Note {
+            text: "Scale and position are fractions of the output frame, so a"
+                + " clip keeps its framing if the project is re-sized.";
+        }
+
+        Param {
+            label: "Scale";
+            value <=> root.scale;
+            minimum: 0.05;
+            maximum: 8;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.scale, v); root.commit(); }
+        }
+        Param {
+            label: "Position X";
+            value <=> root.offset-x;
+            minimum: -1;
+            maximum: 1;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.centred;
+            changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
+        }
+        Param {
+            label: "Position Y";
+            value <=> root.offset-y;
+            minimum: -1;
+            maximum: 1;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.centred;
+            changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
+        }
+        Param {
+            label: "Rotation";
+            value <=> root.rotation;
+            minimum: -180;
+            maximum: 180;
+            step: 1;
+            default-value: 0;
+            fmt: ParamFormat.degrees;
+            changed(v) => { root.set(ClipField.rotation, v); root.commit(); }
+        }
+        Param {
+            label: "Opacity";
+            value <=> root.alpha;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
+        }
+
+        }
+    }
+
+    if root.has-sound: Section {
+        first: !root.has-picture;
+        volume := SectionHeader {
+            title: "Volume";
+            collapsible: true;
+            summary: InspectorFmt.format(ParamFormat.gain, root.level);
+        }
+        if volume.open: Param {
+            label: "Level";
+            value <=> root.level;
+            // The bottom is silence, not -60. +24 at the top because quiet
+            // material genuinely needs it — a distant lavalier is routinely
+            // 15-20 dB under, and a limit that cannot fix that is in the
+            // wrong place.
+            minimum: -60;
+            maximum: 24;
+            step: 0.5;
+            default-value: 0;
+            fmt: ParamFormat.gain;
+            changed(v) => {
+                root.set(ClipField.volume, InspectorFmt.from-decibels(v));
+                root.commit();
+            }
+        }
+    }
+
+    if root.has-sound: Section {
+        speed := SectionHeader {
+            title: "Speed";
+            collapsible: true;
+            summary: InspectorFmt.format(ParamFormat.rate, root.speed);
+            HelpButton {
+                open: root.speed-help;
+                toggled => { root.speed-help = self.open; }
+            }
+        }
+
+        if speed.open: VerticalLayout {
+
+        if root.speed-help: Note {
+            text: "Rate re-times the clip in place, so the timeline length"
+                + " changes with it. Trim afterwards, not before.";
+        }
+
+        Param {
+            label: "Rate";
+            value <=> root.speed;
+            // The engine's full range. The track is linear, so the useful
+            // 0.25-4x band sits left of centre and the number field beside it
+            // is how the extremes are actually dialled in.
+            minimum: 0.0625;
+            maximum: 16;
+            step: 0.05;
+            default-value: 1;
+            fmt: ParamFormat.rate;
+            changed(v) => { root.set(ClipField.speed, v); root.commit(); }
+        }
+
+        SwitchRow {
+            label: "Change pitch with speed";
+            checked: !root.selected.preserve-pitch;
+            toggled(on) => {
+                root.set(ClipField.preserve-pitch, on ? 0 : 1);
+                root.commit();
+            }
+        }
+
+        }
+    }
+
+    if root.has-sound: Section {
+        fades := SectionHeader {
+            title: "Fades";
+            collapsible: true;
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? "none"
+                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
+                    + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+        }
+        if fades.open: VerticalLayout {
+        Param {
+            label: "Fade in";
+            value <=> root.fade-in;
+            minimum: 0;
+            maximum: root.fade-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+        }
+        Param {
+            label: "Fade out";
+            value <=> root.fade-out;
+            minimum: 0;
+            maximum: root.fade-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+        }
+        }
+    }
+}
+
+// The panel a filter layer gets instead of Adjust.
+//
+// A layer is not a clip of anything: it has no picture to frame, no gain to
+// set and no rate to change — it treats whatever is playing under it, for as
+// long as it runs. So it gets the two things that *are* its own: how hard it
+// is applied, and how it comes in and goes out.
+//
+// Strength is the clip's `opacity`. That is the same number a picture clip
+// dissolves with, which is exactly what it means here — how much of the
+// treated signal is heard — and one field that means one thing on every kind
+// beats a second that means it only on this one.
+export component FilterPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    /// A ramp longer than half the layer would overlap the other one.
+    property <float> ramp-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
+
+    // Seeded, not bound, for the reason AdjustPanel's are: a control writes to
+    // its own `value`, and an assignment replaces the binding declared here.
+    property <float> strength;
+    property <float> fade-in;
+    property <float> fade-out;
+
+    function seed() {
+        root.strength = root.selected.opacity;
+        root.fade-in = root.selected.fade-in;
+        root.fade-out = root.selected.fade-out;
+    }
+
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    property <bool> layer-help;
+
+    Section {
+        first: true;
+        layer := SectionHeader {
+            title: "Layer";
+            collapsible: true;
+            summary: InspectorFmt.format(ParamFormat.fraction, root.strength);
+            HelpButton {
+                open: root.layer-help;
+                toggled => { root.layer-help = self.open; }
+            }
+        }
+
+        if layer.open: VerticalLayout {
+
+        if root.layer-help: Note {
+            text: "A layer treats everything under it for as long as it runs."
+                + " Trim it on the timeline to change what it covers.";
+        }
+
+        Param {
+            label: "Strength";
+            value <=> root.strength;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
+        }
+
+        }
+    }
+
+    Section {
+        ramps := SectionHeader {
+            title: "Ramps";
+            collapsible: true;
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? "none"
+                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
+                    + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+        }
+        if ramps.open: VerticalLayout {
+        Param {
+            label: "Ramp in";
+            value <=> root.fade-in;
+            minimum: 0;
+            maximum: root.ramp-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+        }
+        Param {
+            label: "Ramp out";
+            value <=> root.fade-out;
+            minimum: 0;
+            maximum: root.ramp-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+        }
+        }
+    }
+}
+
+// The catalogues, mirrored from web/src/demo/inspector/presets.ts. Data only:
+// the stack renders whatever params a preset declares, so adding a processor
+// is one entry here and no change to the panel.
+export global PresetCatalog {
+    out property <[string]> filter-groups: ["Voice", "Tone", "Space"];
+    out property <[string]> effect-groups: ["Dynamics", "Time", "Colour"];
+
+    out property <[PresetDef]> filters: [
+        { group: 0, preset: { id: "sweet", name: "Sweet", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 65, value: 65, fmt: ParamFormat.percent },
+            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
+        { group: 0, preset: { id: "deep", name: "Deep", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 70, value: 70, fmt: ParamFormat.percent },
+            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
+        { group: 0, preset: { id: "chipmunk", name: "Chipmunk", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 80, value: 80, fmt: ParamFormat.percent },
+            p2: { id: "pitch", label: "Pitch", min: 0, max: 12, step: 1, default-value: 0, value: 0, fmt: ParamFormat.pitch } } },
+        { group: 0, preset: { id: "robot", name: "Robot", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 60, value: 60, fmt: ParamFormat.percent },
+            p2: { id: "carrier", label: "Carrier", min: 40, max: 400, step: 10, default-value: 120, value: 120, fmt: ParamFormat.hertz } } },
+
+        { group: 1, preset: { id: "warm", name: "Warm", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 50, value: 50, fmt: ParamFormat.percent },
+            p2: { id: "tilt", label: "Tilt", min: -12, max: 12, step: 0.5, default-value: -2, value: -2, fmt: ParamFormat.decibels } } },
+        { group: 1, preset: { id: "bright", name: "Bright", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 45, value: 45, fmt: ParamFormat.percent },
+            p2: { id: "tilt", label: "Tilt", min: -12, max: 12, step: 0.5, default-value: 3, value: 3, fmt: ParamFormat.decibels } } },
+        { group: 1, preset: { id: "telephone", name: "Telephone", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent },
+            p2: { id: "band", label: "Band", min: 300, max: 4000, step: 10, default-value: 1800, value: 1800, fmt: ParamFormat.hertz } } },
+        { group: 1, preset: { id: "radio", name: "Radio", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 75, value: 75, fmt: ParamFormat.percent },
+            p2: { id: "noise", label: "Noise", min: 0, max: 100, step: 1, default-value: 12, value: 12, fmt: ParamFormat.percent } } },
+
+        { group: 2, preset: { id: "room", name: "Room", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 30, value: 30, fmt: ParamFormat.percent },
+            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 0.6, value: 0.6, fmt: ParamFormat.seconds } } },
+        { group: 2, preset: { id: "hall", name: "Hall", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 40, value: 40, fmt: ParamFormat.percent },
+            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 2.2, value: 2.2, fmt: ParamFormat.seconds } } },
+        { group: 2, preset: { id: "plate", name: "Plate", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 35, value: 35, fmt: ParamFormat.percent },
+            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 1.4, value: 1.4, fmt: ParamFormat.seconds } } },
+        { group: 2, preset: { id: "cathedral", name: "Cathedral", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 55, value: 55, fmt: ParamFormat.percent },
+            p2: { id: "decay", label: "Decay", min: 0, max: 8, step: 0.1, default-value: 5, value: 5, fmt: ParamFormat.seconds } } },
+    ];
+
+    out property <[PresetDef]> effects: [
+        { group: 0, preset: { id: "compressor", name: "Compressor", on: true,
+            p1: { id: "threshold", label: "Threshold", min: -60, max: 0, step: 0.5, default-value: -18, value: -18, fmt: ParamFormat.decibels },
+            p2: { id: "ratio", label: "Ratio", min: 1, max: 20, step: 0.5, default-value: 4, value: 4, fmt: ParamFormat.ratio } } },
+        { group: 0, preset: { id: "limiter", name: "Limiter", on: true,
+            p1: { id: "ceiling", label: "Ceiling", min: -12, max: 0, step: 0.5, default-value: -1, value: -1, fmt: ParamFormat.decibels },
+            p2: { id: "release", label: "Release", min: 0, max: 500, step: 5, default-value: 60, value: 60, fmt: ParamFormat.millis } } },
+        { group: 0, preset: { id: "gate", name: "Noise gate", on: true,
+            p1: { id: "threshold", label: "Threshold", min: -80, max: 0, step: 0.5, default-value: -42, value: -42, fmt: ParamFormat.decibels },
+            p2: { id: "hold", label: "Hold", min: 0, max: 1000, step: 5, default-value: 120, value: 120, fmt: ParamFormat.millis } } },
+        { group: 0, preset: { id: "deesser", name: "De-esser", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 45, value: 45, fmt: ParamFormat.percent },
+            p2: { id: "centre", label: "Centre", min: 2000, max: 12000, step: 10, default-value: 6500, value: 6500, fmt: ParamFormat.hertz } } },
+
+        { group: 1, preset: { id: "delay", name: "Delay", on: true,
+            p1: { id: "time", label: "Time", min: 0, max: 1500, step: 5, default-value: 320, value: 320, fmt: ParamFormat.millis },
+            p2: { id: "feedback", label: "Feedback", min: 0, max: 100, step: 1, default-value: 28, value: 28, fmt: ParamFormat.percent } } },
+        { group: 1, preset: { id: "echo", name: "Echo", on: true,
+            p1: { id: "time", label: "Time", min: 0, max: 2000, step: 5, default-value: 500, value: 500, fmt: ParamFormat.millis },
+            p2: { id: "repeats", label: "Repeats", min: 1, max: 12, step: 1, default-value: 3, value: 3, fmt: ParamFormat.steps } } },
+        { group: 1, preset: { id: "stutter", name: "Stutter", on: true,
+            p1: { id: "rate", label: "Rate", min: 0.1, max: 24, step: 0.1, default-value: 8, value: 8, fmt: ParamFormat.rate-hz },
+            p2: { id: "depth", label: "Depth", min: 0, max: 100, step: 1, default-value: 70, value: 70, fmt: ParamFormat.percent } } },
+        { group: 1, preset: { id: "reverse", name: "Reverse", on: true,
+            p1: { id: "amount", label: "Amount", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent },
+            p2: { id: "crossfade", label: "Crossfade", min: 0, max: 400, step: 5, default-value: 40, value: 40, fmt: ParamFormat.millis } } },
+
+        { group: 2, preset: { id: "saturator", name: "Saturator", on: true,
+            p1: { id: "drive", label: "Drive", min: 0, max: 100, step: 1, default-value: 35, value: 35, fmt: ParamFormat.percent },
+            p2: { id: "mix", label: "Mix", min: 0, max: 100, step: 1, default-value: 100, value: 100, fmt: ParamFormat.percent } } },
+        { group: 2, preset: { id: "bitcrush", name: "Bitcrush", on: true,
+            p1: { id: "bits", label: "Bits", min: 2, max: 16, step: 1, default-value: 12, value: 12, fmt: ParamFormat.steps },
+            p2: { id: "mix", label: "Mix", min: 0, max: 100, step: 1, default-value: 60, value: 60, fmt: ParamFormat.percent } } },
+        { group: 2, preset: { id: "chorus", name: "Chorus", on: true,
+            p1: { id: "rate", label: "Rate", min: 0.1, max: 8, step: 0.1, default-value: 1.2, value: 1.2, fmt: ParamFormat.rate-hz },
+            p2: { id: "depth", label: "Depth", min: 0, max: 100, step: 1, default-value: 40, value: 40, fmt: ParamFormat.percent } } },
+        { group: 2, preset: { id: "flanger", name: "Flanger", on: true,
+            p1: { id: "rate", label: "Rate", min: 0.1, max: 8, step: 0.1, default-value: 0.4, value: 0.4, fmt: ParamFormat.rate-hz },
+            p2: { id: "feedback", label: "Feedback", min: 0, max: 100, step: 1, default-value: 55, value: 55, fmt: ParamFormat.percent } } },
+    ];
+}

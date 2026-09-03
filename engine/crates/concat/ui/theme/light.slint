@@ -1,0 +1,206 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The light palette — the same tokens as `dark.slint`, answered for a window
+// that is mostly white.
+//
+// Read the dark palette's header first: it is where the relationships a
+// palette has to keep are written down, and this file only records where it
+// had to answer them differently. Which is in three places, and all three are
+// why this is a file rather than a `1 - x` applied to the other one.
+//
+//   - **The ladder does not invert.** `well < panel < raised < field <
+//     field-hover < field-active` is a ladder of *prominence*, and in the dark
+//     palette prominence happens to run towards white. Here it cannot: white
+//     is the ceiling, and the panes are already sitting under it. So the
+//     ladder is walked downwards — a raised card is the one pure white in the
+//     window, and everything a pointer engages gets *darker* rather than
+//     lighter. Two rungs then have to be placed by hand rather than by rule:
+//     `field` and `field-hover` both stay above `well`, because the segmented
+//     control's thumb is a `field-hover` riding on a `well` track and the
+//     mute/solo pair are `field` buttons inset into one. `field-active` is the
+//     rung that drops below the well, which is right — pressed is recessed.
+//
+//   - **The accent comes down.** #cbf53f is a light on a dark ground. On a
+//     near-white panel it is a highlighter: illegible as ink, and barely a
+//     shape as a fill. This takes the same hue to where it can do both jobs —
+//     dark enough to read as text on the panel, dark enough for white to read
+//     on it — and `on-accent` flips to white in the same edit, which is
+//     exactly the pairing the dark palette says has to hold. `green` and
+//     `danger` move for the same reason and by the same amount.
+//
+//   - **The clips are tinted, not shaded.** Each kind's `-well` is a light
+//     wash of its hue here rather than a dark one, so everything drawn on the
+//     body of a clip — a title's words, an envelope, a fade's wedge — is dark
+//     ink where the dark palette has light. `clip-ink` is the exception and
+//     stays white, because it is only ever drawn on the kind's own saturated
+//     *mark*, which is a mid-tone in both themes.
+//
+// Everything else follows the dark palette's rules unchanged: `page` is under
+// every surface so the gutters read as gaps, the lanes are darker than the
+// pane they are cut into, the ruler is a step under the darker lane, and the
+// stage stays black because a tinted ground behind picture is a tinted
+// picture — a light theme does not get to relight the footage.
+//
+// The greys carry a trace of blue as they darken, the way `page` does in the
+// dark palette. It is what keeps a large field of light grey from going warm
+// and reading as paper.
+export global Light {
+    // surfaces
+    //
+    // The panes are near-white and the ground under them is a soft grey, which
+    // is the same arrangement as the dark palette read the other way up: the
+    // panes are the lit thing, the ground is not, and the step between them is
+    // the gutter. `raised` is the only pure white in the window and is spent
+    // where something genuinely floats — a menu, a tooltip, a dialog sheet.
+    out property <color> panel: #f7f7f8;
+    out property <color> raised: #ffffff;
+    out property <color> well: #dfdfe4;
+    out property <color> field: #f0f0f2;
+    out property <color> field-hover: #e8e8ec;
+    out property <color> field-active: #d6d6dd;
+
+    // hairlines — black-alpha, the mirror of the dark palette's white-alpha,
+    // so they hold on panel, well, and ground alike. A shade heavier than a
+    // straight inversion: dark hairlines on light surfaces are read at lower
+    // contrast than light ones on dark, and 10% black all but disappears.
+    out property <color> line: #0000001f;         // rgb(0 0 0 / 0.12)
+    out property <color> line-strong: #00000038;  // rgb(0 0 0 / 0.22)
+
+    // text — the three steps of the dark palette's ramp, matched on contrast
+    // against `panel` rather than by inverting the channels.
+    out property <color> fg: #16161a;
+    out property <color> fg-muted: #56565e;
+    out property <color> fg-dim: #86868c;
+
+    // accents
+    //
+    // Still the lime, taken down to where a near-white ground can hold it. At
+    // this value it clears 4.5:1 against `panel` as ink and white clears 5:1
+    // on it as a fill, which is what lets one token keep doing both jobs — the
+    // 41 places that tint a glyph or a border with it and the 26 that fill a
+    // control with it are the same token, and splitting them into an ink and a
+    // fill would be a second accent to keep in step.
+    //
+    // Hover goes darker, not lighter: on this ground more contrast is more
+    // engagement, which is the same sentence the dark palette's brighter hover
+    // is saying.
+    out property <color> accent: #4d7c0f;
+    out property <color> accent-hover: #3f680b;
+    out property <color> accent-soft: #4d7c0f2e;   // rgb(77 124 15 / 0.18)
+    out property <color> green: #248a3d;
+    // Light ink, because the accent is now dark — the pairing the dark
+    // palette's `on-accent` comment insists on, honoured from the other side.
+    out property <color> on-accent: #ffffff;
+    out property <color> on-green: #ffffff;
+
+    // meter ramp — the same three readings, each deep enough to be told from
+    // the light well it is drawn in. The yellow is the one that has to move
+    // furthest: #ffd60a on near-white is a smear.
+    out property <color> meter-low: #2a9648;
+    out property <color> meter-mid: #c08a00;
+    out property <color> meter-high: #d70015;
+
+    // media kinds
+    //
+    // The pair is still a mark and the ground it sits on, and the bin card and
+    // the timeline clip still wear the same two. What changes is which way the
+    // ground goes: a light tint of the hue rather than a dark shade of it, so
+    // a clip reads as a coloured object on a light lane rather than as a hole
+    // punched in one. The marks are a step deeper than the dark palette's, so
+    // that `clip-ink` — white, on the mark, in both themes — still holds.
+    out property <color> kind-video: #2f6ad0;
+    out property <color> kind-video-well: #dbe6fa;
+    out property <color> kind-audio: #a8620a;
+    out property <color> kind-audio-well: #fbeacf;
+    out property <color> kind-image: #6d3fd6;
+    out property <color> kind-image-well: #e7dffb;
+    out property <color> kind-text: #cc2049;
+    out property <color> kind-text-well: #fbdde3;
+    out property <color> kind-filter: #0d7f6e;
+    out property <color> kind-filter-well: #d5f2ec;
+
+    // timeline
+    //
+    // Darker than `panel`, and banded, for the reasons the dark palette gives:
+    // the pane is a well the clips sit in, and the alternation answers "which
+    // lane" where the grid only answers "where in time". The ruler is a step
+    // under the darker of the two, so the strip carrying the timestamps is the
+    // floor of the pane and the banding starts below it.
+    out property <color> lane: #e9e9ed;
+    out property <color> lane-alt: #e2e2e6;
+    out property <color> ruler: #d9d9de;
+    /// The vertical rules. 13% black, under `line-strong` for the same reason
+    /// the dark palette's 14% white is: the grid places a clip, it does not
+    /// compete with one.
+    out property <color> grid: #00000021;
+    // Red, and used for nothing else.
+    out property <color> playhead: #d70015;
+    // Drawn on the audio clip's own light ground, so it is a *darker* wash of
+    // the kind's hue — the dark palette's light one would vanish into it.
+    out property <color> wave: #b06a12b3;          // 0.7 alpha
+
+    // clip ink
+    //
+    // The family that has to hold against five hues rather than against a
+    // grey. Only the first of these is still light: it is drawn on the kind's
+    // saturated mark, which has not become a pale colour. Everything below it
+    // lands on the kind's tinted body, and is dark for that reason.
+    out property <color> clip-ink: #ffffff;
+    /// A title's words in the body of its clip. Warm and dimmed, the same
+    /// intent as the dark palette's — read as the content of the clip rather
+    /// than as a second label — inverted in value and not in temperature.
+    out property <color> clip-body: #3a2a10c7;
+    /// The chip a clip wears when effects are live on it. Still a dark wash:
+    /// it sits on the header's mark, next to `clip-ink`, not on the body.
+    out property <color> clip-chip: #00000059;
+    /// The centre line under a drawn envelope.
+    out property <color> wave-centre: #00000038;
+    /// A fade: the wedge of what is being taken away, and the line of the
+    /// envelope itself over it. Both dark now — on a tinted body the wedge is
+    /// still a shadow, and the envelope over it has to be darker still to be
+    /// the edge rather than part of the shade.
+    out property <color> fade-shade: #0000004d;
+    out property <color> fade-edge: #000000b3;
+    /// The two halves of a transition's wedge pair — the outgoing clip and
+    /// the incoming one, which is why they are not the same black.
+    out property <color> transition-in: #000000b3;
+    out property <color> transition-out: #00000059;
+
+    // the monitor
+    //
+    // Black in both themes, and deliberately: the stage is the frame, what is
+    // drawn there is picture, and a light ground behind picture is a lit
+    // picture. This is the one place a light theme is asked to stay dark.
+    out property <color> stage: #000000;
+    out property <color> on-stage-dim: #ffffff6b;
+
+    // The sheet that covers the window behind a dialog. Lighter than the dark
+    // palette's — it only has to push a light window back far enough for a
+    // white sheet to read as being in front of it, and 60% black over a light
+    // editor reads as the lights going out.
+    out property <color> overlay: #00000059;
+
+    // Chips that sit on artwork rather than on a panel, so they bring their
+    // own ground. Unchanged from the dark palette on purpose: the surface
+    // underneath is a video frame, which has no idea which theme is on.
+    out property <color> scrim: #0000008c;
+    out property <color> on-scrim: #ffffff;
+
+    // destructive
+    out property <color> danger: #d70015;
+    out property <color> danger-soft: #d7001524;   // rgb(215 0 21 / 0.14)
+    /// A progress bar that has failed: the track it runs in, and the hairline
+    /// round it. Desaturated rather than `danger-soft` over the usual well,
+    /// because a bar is a large area and the alpha version of a saturated red
+    /// reads pink at that size.
+    out property <color> danger-wash: #fbe8e6;
+    out property <color> danger-edge: #eeb8b3;
+
+    // The window ground the panes float on. Far enough under the lightest
+    // panel for the gutters to read as gaps rather than as seams, and still a
+    // step under the darkest surface inside a pane, so a pane's floor never
+    // mistakes itself for the space between panes.
+    out property <color> page: #d2d2d9;
+    out property <color> page-fg-muted: #56565e;
+}

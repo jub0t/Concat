@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The dark palette — the colours the interface is made of, and one of the two
+// files in the tree allowed to name one.
+//
+// `theme.slint` next door picks between this and `light.slint` on a single
+// property. Nothing else in the tree knows a colour by anything but its name
+// in `Theme`, so a value changed here changes it everywhere and nowhere else
+// needs touching.
+//
+// ── what a palette has to keep ───────────────────────────────────────────────
+//
+// The values are not a list of favourite colours; they are a set of
+// relationships, and a fork that keeps them will look like a theme rather than
+// a recolour. This is where they are written down; the light palette answers
+// the same list, and its header only says where it had to answer differently.
+// The load-bearing ones:
+//
+//   - `page` is under every surface, and stays there. The panes float on it,
+//     and the gap between what a pane is and what the ground is *is* the
+//     gutter — there are no outlines doing that job any more.
+//   - The surface ladder `well < panel < raised < field < field-hover <
+//     field-active` only means anything as a ladder. Each step exists to be
+//     told from the one under it: a sunken well inside a panel, a raised card
+//     on it, a field on the card, and the two answers a field gives a pointer.
+//     Move them together or not at all. What the ladder is measuring is
+//     prominence, and here prominence happens to run towards white; that is
+//     the one thing about it a light palette cannot copy.
+//   - `on-accent` is the ink that sits *on* the accent, and it is dark because
+//     the accent is bright. Swap the accent for a dark one and this has to
+//     become light in the same edit, or every activated control loses its
+//     label — which is exactly what the light palette does. The same pairing
+//     holds for `on-green` and `on-scrim`.
+//   - The five media kinds are pairs: a vivid mark and the darker same-hue
+//     ground it sits on. A card in the bin and the clip it becomes on a track
+//     wear the same pair, which is what makes them read as one object moved.
+//   - The lanes are *darker* than the pane they are in. A timeline is a well
+//     the clips sit in, and lanes brighter than the pane make the empty
+//     stretches read as content.
+//   - The clip-ink family holds against all five kind hues, not against a
+//     grey. It cannot be borrowed from the text colours for that reason.
+//
+// ── where the values came from ───────────────────────────────────────────────
+//
+// The surfaces are the web prototype's neutral grey scale (web/src/styles/
+// tokens.css), not the legacy editor's. The legacy panels were a blue-cast
+// near-black; the prototype's are flat neutral, which lets the accent and the
+// clip hues carry all of the colour in the window instead of competing with a
+// tinted ground.
+//
+// Everything else — the clip and media-kind hues, the meter ramp — still
+// mirrors the legacy editor (desktop/src/styles.css, the
+// `:root[data-theme="dark"]` block), because those name things the engine and
+// the project format also name.
+export global Dark {
+    // surfaces — web/src/styles/tokens.css
+    //
+    // Panels are a grey that visibly floats on the near-black ground — never
+    // the ground colour itself, or the panes melt into the window and their
+    // grab-able gutters vanish.
+    //
+    // The panel sits at the prototype's #111111 — the tone its preview
+    // viewport uses, which is the one surface in that design big enough to
+    // judge a ground by. Its #0d0d0d panel was a stop too dark once whole
+    // panes were painted in it rather than narrow strips.
+    //
+    // Moving the panel up makes room underneath, so `well` goes back to being
+    // genuinely sunken — darker than the surface it is cut into, the way the
+    // legacy theme has it and the way a sunken thing reads without having to
+    // be explained.
+    // The whole ladder moves together, not just the panel. Each step exists
+    // to be told apart from the one under it — a raised card has to read as
+    // raised, a field has to read as a field on top of that — so lifting the
+    // panel without lifting the rest would close those gaps instead of moving
+    // them. Only `page` stays where it is: it is the ground the panes float
+    // on, and holding it down is what widens the gutters as the panes lighten.
+    //
+    // Lifted a notch again once the outlines came off the panes. An outline
+    // was doing part of the work of separating a pane from the ground; with
+    // it gone the value step has to do all of it, and the darker ladder left
+    // the panes reading as holes in the window rather than as surfaces on it.
+    // Everything moves by the same amount, so no two steps change places.
+    out property <color> panel: #1c1c1c;
+    out property <color> raised: #262626;
+    out property <color> well: #131313;
+    out property <color> field: #2c2c2c;
+    out property <color> field-hover: #343434;
+    out property <color> field-active: #3f3f3f;
+
+    // hairlines — white-alpha like the reference, so they hold on panel,
+    // well, and ground alike.
+    out property <color> line: #ffffff1a;         // rgb(255 255 255 / 0.1)
+    out property <color> line-strong: #ffffff33;  // rgb(255 255 255 / 0.2)
+
+    // text
+    out property <color> fg: #f5f5f7;         // --color-primary
+    out property <color> fg-muted: #a1a1a6;   // --color-secondary
+    out property <color> fg-dim: #6e6e73;     // --color-tertiary
+
+    // accents
+    //
+    // Lime, not blue. Both codebases land here from different directions: the
+    // prototype makes it the accent outright (--cp-accent), and the legacy
+    // editor keeps a blue --color-accent but spends the lime on the two places
+    // that carry the look — the selection highlight and every activated tool
+    // (--color-selection / --color-tool-active, both #c6f432). Taking it as
+    // the one accent says the same thing with one token instead of three.
+    //
+    // It is legible against near-black and near-white alike, which is what a
+    // selection has to be: it lands on whatever happens to be underneath it.
+    // What sits *on* it therefore has to be dark ink, and fixed — see
+    // `on-accent` below.
+    out property <color> accent: #cbf53f;          // --cp-accent
+    out property <color> accent-hover: #d9ff63;    // --cp-accent-hover
+    out property <color> accent-soft: #cbf53f33;   // rgb(203 245 63 / 0.2)
+    out property <color> green: #30d158;
+    // Ink for text and glyphs sitting ON the accent. A bright accent needs a
+    // dark one; swap this back to #ffffff the day the accent goes dark again.
+    out property <color> on-accent: #15220a;       // --cp-on-accent
+    out property <color> on-green: #06210f;
+
+    // meter ramp
+    out property <color> meter-low: #34c759;
+    out property <color> meter-mid: #ffd60a;
+    out property <color> meter-high: #ff453a;
+
+    // media kinds
+    //
+    // Each kind gets a vivid mark and the darker same-hue ground it sits on,
+    // taken from the reference editor's clip palette. The pair is deliberately
+    // shared with the timeline: a card in the bin and the clip it becomes on a
+    // track are the same two colours, so they read as one object moved rather
+    // than two things that happen to have the same name.
+    out property <color> kind-video: #4d8df6;
+    out property <color> kind-video-well: #142640;
+    out property <color> kind-audio: #f09e2f;
+    out property <color> kind-audio-well: #33220e;
+    out property <color> kind-image: #8b5cf6;
+    out property <color> kind-image-well: #251a3d;
+    out property <color> kind-text: #e8355e;
+    out property <color> kind-text-well: #38131d;
+    // A filter layer is not a medium — nothing was imported to make one — so
+    // it takes the one hue the four media kinds leave free rather than
+    // borrowing whichever of them it happens to sit over.
+    out property <color> kind-filter: #2bc2a8;
+    out property <color> kind-filter-well: #0e2f2a;
+
+    // timeline
+    //
+    // The lanes are darker than `panel`, not lighter: the timeline is a well
+    // the clips sit in, and a lane brighter than the pane would make the empty
+    // stretches read as content. `lane-alt` is the banded neighbour that keeps
+    // a stack of eight tracks countable without a rule between every pair.
+    //
+    // Two tones, alternating, and neither of them black. Both follow the
+    // panel ladder up: they are the floor of a pane, and a floor that stays
+    // put while the walls lift stops reading as part of the same room. Pitch black made the
+    // grid do all of the work: it answers "where in time" but never "which
+    // lane", so an eight-track stack had to be counted from the headers every
+    // time. Banding answers the second question for free, and the grid keeps
+    // answering the first — they are different axes and both are wanted.
+    //
+    // Black also cost the clips their mount. A dark neutral a few steps up
+    // still reads as a well cut into the pane, and a clip's own dark ground
+    // now sits *on* something rather than floating in a hole. Both stay well
+    // under `panel`, or the empty stretches would read as content.
+    out property <color> lane: #101011;
+    out property <color> lane-alt: #171718;
+    // The ruler is its own surface, not the first row of the stack: a step
+    // under the darker lane, so the strip carrying the timestamps reads as
+    // the floor of the pane and the banding starts below it. It followed
+    // `raised` before, which put it above the panel and made it the brightest
+    // thing in the pane — the opposite of what a ruler should be.
+    out property <color> ruler: #0b0b0c;
+    /// The vertical rules. 6% white was set against a lane that was still a
+    /// dark grey, and all but vanished when the lanes went black — a grid that
+    /// costs elements and reads as nothing. 14% clears both of the tones the
+    /// lanes now carry while staying under `line-strong`, so the rules place a
+    /// clip without competing with it.
+    out property <color> grid: #ffffff24;
+    // Red, and used for nothing else. A playhead that shared the accent would
+    // be one more blue line among the selection outlines.
+    out property <color> playhead: #ff453a;    // --color-playhead
+    // Drawn on the audio clip's own dark ground, so it is a light wash of the
+    // kind's hue rather than the vivid mark itself.
+    out property <color> wave: #fad69eb3;      // --color-clip-wave, 0.7 alpha
+
+    // clip ink
+    //
+    // Everything drawn *on* a clip rather than on a panel. A clip brings its
+    // own ground — the kind's mark for its header, the kind's well for its
+    // body — so none of these can be one of the greys above: they have to hold
+    // against five hues and their two tones, which is what makes them a family
+    // of their own rather than a reach into the text colours.
+    out property <color> clip-ink: #ffffff;
+    /// A title's words in the body of its clip. Warm and dimmed, so they read
+    /// as the content of the clip rather than as a second label.
+    out property <color> clip-body: #ffe4b2b8;
+    /// The chip a clip wears when effects are live on it.
+    out property <color> clip-chip: #00000059;
+    /// The centre line under a drawn envelope.
+    out property <color> wave-centre: #ffffff2e;
+    /// A fade: the wedge of what is being taken away, and the bright line of
+    /// the envelope itself over it.
+    out property <color> fade-shade: #00000073;
+    out property <color> fade-edge: #ffffffa6;
+    /// The two halves of a transition's wedge pair — the outgoing clip and
+    /// the incoming one, which is why they are not the same white.
+    out property <color> transition-in: #ffffffcc;
+    out property <color> transition-out: #ffffff73;
+
+    // the monitor
+    //
+    // The stage is the frame itself, so it is black and not a surface: what is
+    // drawn there is picture, and a tinted ground behind picture is a tinted
+    // picture. The dim ink is for the line that says there is none.
+    out property <color> stage: #000000;
+    out property <color> on-stage-dim: #ffffff6b;
+
+    // The sheet that covers the window behind a dialog. Dark rather than
+    // tinted: it has to work over the whole editor, and any hue in it would
+    // land differently on the timeline than on the monitor.
+    out property <color> overlay: #00000099;
+
+    // Chips that sit on artwork instead of on a panel, so they bring their own
+    // ground — the surface underneath is a video frame and cannot be relied on
+    // for contrast.
+    out property <color> scrim: #0000008c;         // rgb(0 0 0 / 0.55)
+    out property <color> on-scrim: #ffffff;
+
+    // destructive
+    out property <color> danger: #ff453a;
+    out property <color> danger-soft: #ff453a24;   // rgb(255 69 58 / 0.14)
+    /// A progress bar that has failed: the track it runs in, and the hairline
+    /// round it. Desaturated rather than `danger-soft` over the usual well,
+    /// because a bar is a large area and the alpha version of a saturated red
+    /// reads pink at that size.
+    out property <color> danger-wash: #2a1614;
+    out property <color> danger-edge: #5a2b28;
+
+    // window ground the panes float on — the prototype's page, a shade under
+    // the darkest panel so the gutters read as gaps and not as seams
+    out property <color> page: #08080a;
+    out property <color> page-fg-muted: #a1a1a6;
+}

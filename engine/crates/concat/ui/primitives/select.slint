@@ -1,0 +1,234 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { FocusRing } from "focus-ring.slint";
+
+// Custom listbox dropdown rather than a native combo box, so options can carry
+// icons and match the panel styling. Arrows, Home/End, Enter and Escape all
+// work; the list flips above the trigger when there is no room below, which
+// Slint's PopupWindow does on its own.
+export component Select inherits Rectangle {
+    in property <[string]> options;
+    /// Optional second column, set against the trailing edge of each row —
+    /// the "1:2" beside "Half". Shorter than `options` is fine; rows past its
+    /// end simply have none. The trigger never shows it: it is what you open
+    /// the list to compare.
+    in property <[string]> details;
+    in-out property <int> current;
+    in property <string> placeholder: "Select";
+    /// leading adornment on the trigger
+    in property <Glyph> glyph: Glyph.none;
+    in property <bool> enabled: true;
+    /// drop the field background, for a select used as panel chrome
+    in property <bool> flat;
+
+    callback changed(index: int);
+
+    property <bool> ring;
+    property <length> row-h: 26px;
+    property <length> list-h: Math.min(240px, root.options.length * root.row-h + 8px);
+    // Read from the popup rather than tracked here: a click outside closes it
+    // without telling us, so a hand-rolled flag goes stale.
+    property <bool> open: list.is-open;
+    property <int> active;
+    property <string> label: (root.current >= 0 && root.current < root.options.length)
+        ? root.options[root.current]
+        : root.placeholder;
+
+    height: Theme.h;
+    min-width: 60px;
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: root.flat && !root.open ? Colors.transparent
+        : (root.open || (trigger.has-hover && root.enabled)) ? Theme.field-hover
+        : Theme.field;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    function commit(index: int) {
+        if (index >= 0 && index < root.options.length) {
+            root.current = index;
+            root.changed(index);
+        }
+        list.close();
+        fs.focus();
+    }
+
+    function reveal() {
+        if (!root.enabled) {
+            return;
+        }
+        root.active = Math.max(root.current, 0);
+        list.show();
+    }
+
+    fs := FocusScope {
+        enabled: root.enabled;
+        // :focus-visible — keyboard focus only, see IconButton.
+        focus-gained(reason) => {
+            root.ring = reason == FocusReason.tab-navigation;
+        }
+        focus-lost(reason) => {
+            root.ring = false;
+        }
+        key-pressed(event) => {
+            if (event.text == Key.DownArrow || event.text == Key.UpArrow
+                || event.text == "\n" || event.text == " ") {
+                root.reveal();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 6px;
+
+        if root.glyph != Glyph.none: VerticalLayout {
+            alignment: center;
+            Icon { glyph: root.glyph; size: 12px; tint: Theme.fg-dim; }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: root.current >= 0 ? (root.flat ? Theme.fg-muted : Theme.fg) : Theme.fg-dim;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Icon { glyph: Glyph.chevron-down; size: 12px; tint: Theme.fg-muted; }
+        }
+    }
+
+    trigger := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            fs.focus();
+            root.reveal();
+        }
+    }
+
+    FocusRing {
+        active: root.ring || root.open;
+        radius: Theme.r;
+    }
+
+    list := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: root.width;
+        height: root.list-h;
+        close-policy: close-on-click-outside;
+
+        // The popup is torn down on close, so `init` runs on every open.
+        init => {
+            keys.focus();
+        }
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            keys := FocusScope {
+                key-pressed(event) => {
+                    if (event.text == Key.DownArrow) {
+                        root.active = Math.min(root.active + 1, root.options.length - 1);
+                        return EventResult.accept;
+                    }
+                    if (event.text == Key.UpArrow) {
+                        root.active = Math.max(root.active - 1, 0);
+                        return EventResult.accept;
+                    }
+                    if (event.text == Key.Home) {
+                        root.active = 0;
+                        return EventResult.accept;
+                    }
+                    if (event.text == Key.End) {
+                        root.active = root.options.length - 1;
+                        return EventResult.accept;
+                    }
+                    if (event.text == "\n" || event.text == " ") {
+                        root.commit(root.active);
+                        return EventResult.accept;
+                    }
+                    if (event.text == Key.Escape) {
+                        list.close();
+                        fs.focus();
+                        return EventResult.accept;
+                    }
+                    return EventResult.reject;
+                }
+            }
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                for option[index] in root.options: Rectangle {
+                    height: root.row-h;
+                    border-radius: Theme.r-sm;
+                    background: index == root.active ? Theme.accent : Colors.transparent;
+
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 6px;
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: option;
+                            color: index == root.active ? Theme.on-accent : Theme.fg-muted;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        if index < root.details.length: Text {
+                            text: root.details[index];
+                            color: index == root.active ? Theme.on-accent : Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+
+                        if index == root.current: VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                glyph: Glyph.check;
+                                size: 12px;
+                                tint: index == root.active ? Theme.on-accent : Theme.accent;
+                            }
+                        }
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        // pointer-enter has no dedicated callback; has-hover
+                        // drives the same highlight the web sets on hover.
+                        changed has-hover => {
+                            if (self.has-hover) {
+                                root.active = index;
+                            }
+                        }
+                        clicked => {
+                            root.commit(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

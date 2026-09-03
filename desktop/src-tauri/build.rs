@@ -10,8 +10,8 @@ fn main() {
     // A packager whose launcher guarantees the tools on the app's PATH - the
     // Nix wrapper puts ffmpeg, ffprobe and whisper-cli there - opts out
     // explicitly instead of staging copies it is not allowed to ship.
-    println!("cargo:rerun-if-env-changed=WOLFCUT_SYSTEM_TOOLS");
-    let system_tools = std::env::var_os("WOLFCUT_SYSTEM_TOOLS").is_some();
+    println!("cargo:rerun-if-env-changed=CONCAT_SYSTEM_TOOLS");
+    let system_tools = std::env::var_os("CONCAT_SYSTEM_TOOLS").is_some();
 
     if !system_tools && std::env::var("PROFILE").as_deref() == Ok("release") {
         let suffix = if cfg!(target_os = "windows") { ".exe" } else { "" };
