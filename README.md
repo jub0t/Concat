@@ -41,10 +41,28 @@ start cutting, no account, no extra downloads, no setup.
 
 ## Get started
 
-Currently in Alpha (pre-release), Download from [Releases](https://github.com/jub0t/Concat/releases), Supports:
-- Windows (tested)
-- MacOs (tested) - unsigned binaries, use `xattr -dr com.apple.quarantine /Applications/Concat.app`
-- Linux
+Concat is currently in **Alpha (pre-release)**. Download the latest build from [Releases](https://github.com/jub0t/Concat/releases).
+
+**Platform support:**
+
+* ✅ **Windows** — tested
+* ✅ **macOS** — unsigned binaries; run:
+  `xattr -dr com.apple.quarantine /Applications/Concat.app`
+* ✅ **Linux**
+
+  * 🧪 ARM
+  * 🧪 x86_64
+* 🚧 **Android**
+
+  * Phones
+  * Tablets
+* 🚧 **iOS / iPadOS**
+
+  * iPhone
+  * iPad
+* 🧪 **Raspberry Pi 5**
+
+**Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
 ### Nix (Linux)
 
