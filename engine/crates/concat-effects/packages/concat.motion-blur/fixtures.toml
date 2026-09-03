@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "gblur=sigma=18.0:sigmaV=0.1"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "gblur=sigma=2.0:sigmaV=0.1"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "gblur=sigma=60.0:sigmaV=0.1"

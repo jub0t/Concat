@@ -1,0 +1,11 @@
+[effect]
+id = "concat.sepia"
+name = "Sepia"
+kind = "effect"
+category = "Basic"
+order = 11
+aliases = ["sepia"]
+description = "The warm brown of an old photograph."
+
+[ffmpeg]
+chain = "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"

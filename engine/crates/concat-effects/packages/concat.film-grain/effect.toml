@@ -1,0 +1,21 @@
+[effect]
+id = "concat.film-grain"
+name = "Film Grain"
+kind = "effect"
+category = "Stylize"
+order = 41
+intensity = "amount"
+aliases = ["film-grain"]
+description = "Dancing grain, the texture of film stock."
+
+[[param]]
+key = "amount"
+label = "Amount"
+type = "int"
+min = 2
+max = 40
+default = 12
+step = 1
+
+[ffmpeg]
+chain = "noise=alls={round(amount)}:allf=t+u"

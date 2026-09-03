@@ -1,0 +1,11 @@
+[effect]
+id = "concat.black-white"
+name = "Black & White"
+kind = "effect"
+category = "Basic"
+order = 10
+aliases = ["black-white"]
+description = "Drops every colour to grey."
+
+[ffmpeg]
+chain = "hue=s=0"

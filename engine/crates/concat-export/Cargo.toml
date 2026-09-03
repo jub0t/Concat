@@ -16,6 +16,7 @@ concat-core.workspace = true
 concat-media.workspace = true
 concat-render.workspace = true
 concat-project = { path = "../concat-project" }
+concat-effects.workspace = true
 serde = { version = "1", features = ["derive"] }
 
 [lints]

@@ -1,0 +1,35 @@
+[effect]
+id = "concat.shake"
+name = "Shake"
+kind = "effect"
+category = "Distort"
+order = 53
+intensity = "amount"
+aliases = ["shake"]
+description = "A handheld jitter."
+
+[[param]]
+key = "amount"
+label = "Amount"
+type = "int"
+min = 2
+max = 40
+default = 12
+step = 1
+unit = "px"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 2
+max = 30
+default = 13
+step = 1
+
+[ffmpeg]
+let = [
+  "a = round(amount)",
+  "f = round(speed)",
+  "f2 = round(f * 1.3)",
+]
+chain = "crop=iw-{2 * a}:ih-{2 * a}:{a}+{a}*sin(t*{f}):{a}+{a}*cos(t*{f2})"

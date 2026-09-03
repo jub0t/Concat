@@ -1,0 +1,33 @@
+[effect]
+id = "concat.deep"
+name = "Deep"
+kind = "filter"
+category = "Voice"
+order = 11
+intensity = "pitch"
+aliases = ["deep"]
+description = "Lower and fuller."
+
+[[param]]
+key = "pitch"
+label = "Pitch"
+min = -8
+max = -1
+default = -3
+step = 0.5
+unit = "st"
+
+[[param]]
+key = "body"
+label = "Body"
+min = 0
+max = 8
+default = 3
+step = 0.5
+unit = "dB"
+
+[ffmpeg]
+let = [
+  "ratio = pow(2, pitch / 12)",
+]
+chain = "aresample=48000,asetrate={fixed(48000 * ratio, 6)},aresample=48000,atempo={fixed(1 / ratio, 8)},highpass=f=55,equalizer=f=140:t=q:w=1.0:g={fixed(body, 2)},equalizer=f=2600:t=q:w=0.9:g=-1.2,alimiter=limit=0.94:attack=5:release=60"

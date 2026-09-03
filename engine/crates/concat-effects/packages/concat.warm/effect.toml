@@ -1,0 +1,21 @@
+[effect]
+id = "concat.warm"
+name = "Warm"
+kind = "effect"
+category = "Color"
+order = 30
+intensity = "temperature"
+aliases = ["warm"]
+description = "Shifts the picture towards candlelight."
+
+[[param]]
+key = "temperature"
+label = "Temperature"
+min = 3000
+max = 6000
+default = 4600
+step = 50
+unit = "K"
+
+[ffmpeg]
+chain = "colortemperature=temperature={round(temperature)}"

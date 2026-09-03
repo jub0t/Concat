@@ -1,0 +1,22 @@
+[effect]
+id = "concat.box-blur"
+name = "Box Blur"
+kind = "effect"
+category = "Blur"
+order = 21
+intensity = "radius"
+aliases = ["box-blur"]
+description = "A flat, boxy blur."
+
+[[param]]
+key = "radius"
+label = "Radius"
+type = "int"
+min = 1
+max = 30
+default = 6
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "boxblur={round(radius)}:1"

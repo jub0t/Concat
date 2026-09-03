@@ -16,6 +16,7 @@ concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
 concat-host = { path = "crates/concat-host" }
 concat-speech = { path = "crates/concat-speech" }
+concat-effects = { path = "crates/concat-effects" }
 
 serde_json = "1"
 thiserror = "2"

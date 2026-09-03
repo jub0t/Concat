@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "vignette=angle=0.775"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "vignette=angle=0.355"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "vignette=angle=1.300"

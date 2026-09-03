@@ -1,0 +1,20 @@
+[effect]
+id = "concat.contrast-pop"
+name = "Contrast Pop"
+kind = "effect"
+category = "Color"
+order = 33
+intensity = "contrast"
+aliases = ["contrast-pop"]
+description = "Deeper shadows, brighter highlights."
+
+[[param]]
+key = "contrast"
+label = "Contrast"
+min = 1
+max = 2
+default = 1.25
+step = 0.05
+
+[ffmpeg]
+chain = "eq=contrast={fixed(contrast, 2)}"

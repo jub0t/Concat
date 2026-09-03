@@ -1,0 +1,21 @@
+[effect]
+id = "concat.treble"
+name = "Treble"
+kind = "filter"
+category = "Tone"
+order = 21
+intensity = "gain"
+aliases = ["treble"]
+description = "More sparkle."
+
+[[param]]
+key = "gain"
+label = "Gain"
+min = 0
+max = 12
+default = 4
+step = 0.5
+unit = "dB"
+
+[ffmpeg]
+chain = "treble=g={fixed(gain, 2)}:f=9000:w=0.7,alimiter=limit=0.95"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "lenscorrection=k1=-0.275:k2=-0.100:i=bilinear"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "lenscorrection=k1=-0.028:k2=-0.010:i=bilinear"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "lenscorrection=k1=-0.550:k2=-0.200:i=bilinear"

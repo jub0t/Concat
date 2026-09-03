@@ -1,0 +1,24 @@
+[effect]
+id = "concat.posterize"
+name = "Posterize"
+kind = "effect"
+category = "Stylize"
+order = 43
+intensity = "levels"
+aliases = ["posterize"]
+description = "Flat bands of colour, like a screen print."
+
+[[param]]
+key = "levels"
+label = "Levels"
+type = "int"
+min = 2
+max = 8
+default = 4
+step = 1
+
+[ffmpeg]
+let = [
+  "size = round(256 / max(round(levels), 2))",
+]
+chain = "lutrgb=r=trunc(val/{size})*{size}:g=trunc(val/{size})*{size}:b=trunc(val/{size})*{size}"

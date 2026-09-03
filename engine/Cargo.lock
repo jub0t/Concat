@@ -1124,10 +1124,21 @@ name = "concat-core"
 version = "0.2.0"
 
 [[package]]
+name = "concat-effects"
+version = "0.2.0"
+dependencies = [
+ "concat-project",
+ "serde",
+ "thiserror 2.0.20",
+ "toml",
+]
+
+[[package]]
 name = "concat-export"
 version = "0.2.0"
 dependencies = [
  "concat-core",
+ "concat-effects",
  "concat-media",
  "concat-project",
  "concat-render",

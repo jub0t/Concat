@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "unsharp=5:5:1.00:5:5:0"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "unsharp=5:5:0.20:5:5:0"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "unsharp=5:5:3.00:5:5:0"

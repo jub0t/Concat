@@ -1,0 +1,35 @@
+[effect]
+id = "concat.sweet"
+name = "Sweet"
+kind = "filter"
+category = "Voice"
+order = 10
+intensity = "amount"
+aliases = ["sweet"]
+description = "A brighter, lighter, closer voice. Pitch at 0 follows the amount."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 65
+step = 1
+unit = "%"
+
+[[param]]
+key = "pitch"
+label = "Pitch"
+min = 0
+max = 8
+default = 0
+step = 0.5
+unit = "st"
+
+[ffmpeg]
+let = [
+  "strength = clamp(amount, 0, 100) / 100",
+  "shift = if(pitch > 0, pitch, 1.2 + 3.8 * strength)",
+  "ratio = pow(2, shift / 12)",
+]
+chain = "aresample=48000,asetrate={fixed(48000 * ratio, 6)},aresample=48000,atempo={fixed(1 / ratio, 8)},highpass=f=85,equalizer=f=300:t=q:w=1.1:g=-1.4,equalizer=f=4200:t=q:w=0.8:g={fixed(0.8 + 5.2 * strength, 3)},equalizer=f=10500:t=q:w=0.7:g={fixed(1.0 + 7.0 * strength, 3)},compand=attacks=0.010:decays=0.180:points=-80/-80|-30/-24|-18/-13|-8/-5|0/-1.5:soft-knee=5:gain=1,deesser=i={fixed(0.18 + 0.32 * strength, 3)}:m=0.45:f=0.55,aecho=0.8:0.82:38:{fixed(0.012 + 0.048 * strength, 4)},alimiter=limit=0.94:attack=5:release=60"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "aphaser=type=t:speed=1.20:decay=0.6,flanger=delay=2:depth=4:speed=0.8,equalizer=f=1800:t=q:w=1.2:g=3,alimiter=limit=0.94"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "aphaser=type=t:speed=0.56:decay=0.6,flanger=delay=2:depth=4:speed=0.8,equalizer=f=1800:t=q:w=1.2:g=3,alimiter=limit=0.94"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "aphaser=type=t:speed=2.00:decay=0.6,flanger=delay=2:depth=4:speed=0.8,equalizer=f=1800:t=q:w=1.2:g=3,alimiter=limit=0.94"

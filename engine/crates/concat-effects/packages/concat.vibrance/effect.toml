@@ -1,0 +1,20 @@
+[effect]
+id = "concat.vibrance"
+name = "Vibrance"
+kind = "effect"
+category = "Color"
+order = 32
+intensity = "intensity"
+aliases = ["vibrance"]
+description = "Richer colour where it is muted, without blowing out what is already strong."
+
+[[param]]
+key = "intensity"
+label = "Intensity"
+min = 0.1
+max = 2
+default = 0.7
+step = 0.05
+
+[ffmpeg]
+chain = "vibrance=intensity={fixed(intensity, 2)}"

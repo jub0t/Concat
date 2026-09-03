@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "lutrgb=r=trunc(val/64)*64:g=trunc(val/64)*64:b=trunc(val/64)*64"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "lutrgb=r=trunc(val/128)*128:g=trunc(val/128)*128:b=trunc(val/128)*128"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "lutrgb=r=trunc(val/32)*32:g=trunc(val/32)*32:b=trunc(val/32)*32"

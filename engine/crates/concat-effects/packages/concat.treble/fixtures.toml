@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "treble=g=4.00:f=9000:w=0.7,alimiter=limit=0.95"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "treble=g=0.00:f=9000:w=0.7,alimiter=limit=0.95"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "treble=g=12.00:f=9000:w=0.7,alimiter=limit=0.95"

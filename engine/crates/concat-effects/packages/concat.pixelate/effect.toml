@@ -1,0 +1,22 @@
+[effect]
+id = "concat.pixelate"
+name = "Pixelate"
+kind = "effect"
+category = "Distort"
+order = 50
+intensity = "size"
+aliases = ["pixelate"]
+description = "Big square pixels."
+
+[[param]]
+key = "size"
+label = "Size"
+type = "int"
+min = 2
+max = 64
+default = 16
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "pixelize=width={round(size)}:height={round(size)}"

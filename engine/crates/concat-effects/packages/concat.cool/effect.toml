@@ -1,0 +1,21 @@
+[effect]
+id = "concat.cool"
+name = "Cool"
+kind = "effect"
+category = "Color"
+order = 31
+intensity = "temperature"
+aliases = ["cool"]
+description = "Shifts the picture towards daylight shade."
+
+[[param]]
+key = "temperature"
+label = "Temperature"
+min = 7000
+max = 11000
+default = 8500
+step = 50
+unit = "K"
+
+[ffmpeg]
+chain = "colortemperature=temperature={round(temperature)}"

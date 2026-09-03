@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "aresample=48000,asetrate=40363.027932,aresample=48000,atempo=1.18920712,highpass=f=55,equalizer=f=140:t=q:w=1.0:g=3.00,equalizer=f=2600:t=q:w=0.9:g=-1.2,alimiter=limit=0.94:attack=5:release=60"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "aresample=48000,asetrate=30238.105197,aresample=48000,atempo=1.58740105,highpass=f=55,equalizer=f=140:t=q:w=1.0:g=0.00,equalizer=f=2600:t=q:w=0.9:g=-1.2,alimiter=limit=0.94:attack=5:release=60"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "aresample=48000,asetrate=45305.967009,aresample=48000,atempo=1.05946309,highpass=f=55,equalizer=f=140:t=q:w=1.0:g=8.00,equalizer=f=2600:t=q:w=0.9:g=-1.2,alimiter=limit=0.94:attack=5:release=60"

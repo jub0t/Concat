@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "eq=contrast=1.25"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "eq=contrast=1.00"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "eq=contrast=2.00"

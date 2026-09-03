@@ -1,0 +1,11 @@
+[effect]
+id = "concat.invert"
+name = "Invert"
+kind = "effect"
+category = "Basic"
+order = 12
+aliases = ["invert"]
+description = "Every colour becomes its opposite."
+
+[ffmpeg]
+chain = "negate"

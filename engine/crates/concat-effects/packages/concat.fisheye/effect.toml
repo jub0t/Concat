@@ -1,0 +1,24 @@
+[effect]
+id = "concat.fisheye"
+name = "Fisheye"
+kind = "effect"
+category = "Distort"
+order = 52
+intensity = "strength"
+aliases = ["fisheye"]
+description = "The bulge of a very wide lens."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 5
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "k = strength / 100",
+]
+chain = "lenscorrection=k1={fixed(-0.55 * k, 3)}:k2={fixed(-0.2 * k, 3)}:i=bilinear"

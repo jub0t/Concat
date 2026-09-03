@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "aresample=48000,asetrate=59334.357554,aresample=48000,atempo=0.80897480,highpass=f=85,equalizer=f=300:t=q:w=1.1:g=-1.4,equalizer=f=4200:t=q:w=0.8:g=4.180,equalizer=f=10500:t=q:w=0.7:g=5.550,compand=attacks=0.010:decays=0.180:points=-80/-80|-30/-24|-18/-13|-8/-5|0/-1.5:soft-knee=5:gain=1,deesser=i=0.388:m=0.45:f=0.55,aecho=0.8:0.82:38:0.0432,alimiter=limit=0.94:attack=5:release=60"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "aresample=48000,asetrate=51445.126202,aresample=48000,atempo=0.93303299,highpass=f=85,equalizer=f=300:t=q:w=1.1:g=-1.4,equalizer=f=4200:t=q:w=0.8:g=0.800,equalizer=f=10500:t=q:w=0.7:g=1.000,compand=attacks=0.010:decays=0.180:points=-80/-80|-30/-24|-18/-13|-8/-5|0/-1.5:soft-knee=5:gain=1,deesser=i=0.180:m=0.45:f=0.55,aecho=0.8:0.82:38:0.0120,alimiter=limit=0.94:attack=5:release=60"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "aresample=48000,asetrate=76195.250494,aresample=48000,atempo=0.62996052,highpass=f=85,equalizer=f=300:t=q:w=1.1:g=-1.4,equalizer=f=4200:t=q:w=0.8:g=6.000,equalizer=f=10500:t=q:w=0.7:g=8.000,compand=attacks=0.010:decays=0.180:points=-80/-80|-30/-24|-18/-13|-8/-5|0/-1.5:soft-knee=5:gain=1,deesser=i=0.500:m=0.45:f=0.55,aecho=0.8:0.82:38:0.0600,alimiter=limit=0.94:attack=5:release=60"

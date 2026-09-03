@@ -1,0 +1,21 @@
+[effect]
+id = "concat.vignette"
+name = "Vignette"
+kind = "effect"
+category = "Stylize"
+order = 40
+intensity = "strength"
+aliases = ["vignette"]
+description = "Darkened corners that draw the eye to the middle."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 10
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "vignette=angle={fixed(0.25 + (strength / 100) * 1.05, 3)}"

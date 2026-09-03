@@ -1,0 +1,24 @@
+[effect]
+id = "concat.room"
+name = "Room"
+kind = "filter"
+category = "Space"
+order = 31
+intensity = "size"
+aliases = ["room"]
+description = "The early reflections of a room."
+
+[[param]]
+key = "size"
+label = "Size"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "scale = 0.4 + (size / 100) * 1.6",
+]
+chain = "aecho=0.8:0.88:{round(23 * scale)}|{round(41 * scale)}|{round(67 * scale)}|{round(97 * scale)}:0.320|0.240|0.170|0.110"

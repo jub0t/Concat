@@ -1,0 +1,11 @@
+[effect]
+id = "concat.mirror"
+name = "Mirror"
+kind = "effect"
+category = "Distort"
+order = 51
+aliases = ["mirror"]
+description = "The left half, reflected onto the right."
+
+[ffmpeg]
+chain = "crop=iw/2:ih:0:0,split[mirl{index}][mirr{index}];[mirr{index}]hflip[mirf{index}];[mirl{index}][mirf{index}]hstack"

@@ -1,0 +1,21 @@
+[effect]
+id = "concat.bass"
+name = "Bass"
+kind = "filter"
+category = "Tone"
+order = 20
+intensity = "gain"
+aliases = ["bass"]
+description = "More low end."
+
+[[param]]
+key = "gain"
+label = "Gain"
+min = 0
+max = 12
+default = 5
+step = 0.5
+unit = "dB"
+
+[ffmpeg]
+chain = "bass=g={fixed(gain, 2)}:f=110:w=0.6,alimiter=limit=0.95"

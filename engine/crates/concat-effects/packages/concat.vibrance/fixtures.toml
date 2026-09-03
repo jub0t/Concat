@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "vibrance=intensity=0.70"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "vibrance=intensity=0.10"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "vibrance=intensity=2.00"

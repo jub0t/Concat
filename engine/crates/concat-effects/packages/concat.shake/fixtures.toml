@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "crop=iw-24:ih-24:12+12*sin(t*13):12+12*cos(t*17)"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "crop=iw-4:ih-4:2+2*sin(t*2):2+2*cos(t*3)"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "crop=iw-80:ih-80:40+40*sin(t*30):40+40*cos(t*39)"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=0.45"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=0.10"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=1.00"

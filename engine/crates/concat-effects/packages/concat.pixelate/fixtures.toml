@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "pixelize=width=16:height=16"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "pixelize=width=2:height=2"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "pixelize=width=64:height=64"

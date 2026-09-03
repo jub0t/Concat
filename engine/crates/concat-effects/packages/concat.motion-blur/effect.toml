@@ -1,0 +1,21 @@
+[effect]
+id = "concat.motion-blur"
+name = "Motion Blur"
+kind = "effect"
+category = "Blur"
+order = 22
+intensity = "length"
+aliases = ["motion-blur"]
+description = "A horizontal streak, as if the camera panned."
+
+[[param]]
+key = "length"
+label = "Length"
+min = 2
+max = 60
+default = 18
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "gblur=sigma={fixed(length, 1)}:sigmaV=0.1"

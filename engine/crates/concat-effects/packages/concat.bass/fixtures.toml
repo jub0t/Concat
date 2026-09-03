@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "bass=g=5.00:f=110:w=0.6,alimiter=limit=0.95"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "bass=g=0.00:f=110:w=0.6,alimiter=limit=0.95"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "bass=g=12.00:f=110:w=0.6,alimiter=limit=0.95"

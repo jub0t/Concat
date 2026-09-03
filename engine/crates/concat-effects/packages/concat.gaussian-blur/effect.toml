@@ -1,0 +1,21 @@
+[effect]
+id = "concat.gaussian-blur"
+name = "Gaussian Blur"
+kind = "effect"
+category = "Blur"
+order = 20
+intensity = "radius"
+aliases = ["gaussian-blur"]
+description = "A soft, even blur."
+
+[[param]]
+key = "radius"
+label = "Radius"
+min = 1
+max = 50
+default = 10
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "gblur=sigma={fixed(radius, 1)}"

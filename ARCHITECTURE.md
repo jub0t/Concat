@@ -24,6 +24,7 @@ flowchart LR
     end
     subgraph ENGINE["the engine"]
         PROJECT[concat-project]
+        EFFECTS[concat-effects]
         EXPORT[concat-export]
         RENDER[concat-render]
         MEDIA[concat-media]
@@ -53,10 +54,14 @@ The dependency arrows point one way:
 ```
 concat (window) → concat-speech → concat-host → {export, project, media} → core
                                               → render → core
+                                                 export → effects → project
 ```
 
 `concat-core` depends on nothing. `concat-project` knows nothing about
 rendering. `concat-media` is the only crate that knows FFmpeg exists.
+`concat-effects` knows what an effect *is* (its manifest and its template)
+and nothing about running one; the decoder runs FFmpeg chains and the
+compositor will run shaders.
 
 | Crate | Lines | Tests | Owns |
 |---|---|---|---|
@@ -64,7 +69,8 @@ rendering. `concat-media` is the only crate that knows FFmpeg exists.
 | `concat-media` | 3.4k | 39 | Linked FFmpeg: probe, video decode with filter graphs and frame pacing, audio decode through a graph, H.264 encode, AAC mixing through libavfilter, muxing, waveform peaks, the reader pool with its byte-budgeted frame cache, JPEG stills. |
 | `concat-project` | 3.3k | 41 | The document: model, every edit command, undo `Editor`, `concat.json` round-trip. |
 | `concat-render` | 1.3k | 28 | Compositing. `CpuCompositor` is the reference; `WgpuCompositor` behind `gpu`. |
-| `concat-export` | 2.5k | 32 | Timeline → file: flatten, filtergraph builders (`chains.rs`), the frame-by-frame render loop, the paused monitor's true frame. |
+| `concat-effects` | 1.1k | 22 | Effect packages: the manifest format, the chain-template expression language, the catalogue. Every built-in effect is a folder under `packages/`, compiled in; user packages load from a directory. |
+| `concat-export` | 2.3k | 6 | Timeline → file: flatten, the frame-by-frame render loop, the paused monitor's true frame. Chains come from `concat-effects`. |
 | `concat-host` | 3.4k | 22 | Sessions, project folders and recents, media caches beside the project, the monitor's reader pool, the export slot, audio playback, templates, one-at-a-time job slots, app directories. |
 | `concat-speech` | 1.2k | 6 | Transcription (whisper.cpp in-process) and text to speech (Kokoro via sherpa-onnx), with model downloads. |
 | `concat-cli` | 0.2k | 3 | Probe/render vertical slice for testing the engine without the app. |
@@ -384,7 +390,7 @@ tests, which is fine.
 
 | Area | Tests | Gaps |
 |---|---|---|
-| Engine crates | 174 (core 31, media 39, project 41, render 28, export 32, cli 3) | `mix_to_file`/`mux` untested end to end (§8.6); `gpu` feature untested at defaults |
+| Engine crates | 170 (core 31, media 39, project 41, render 28, effects 22, export 6, cli 3) | `mix_to_file`/`mux` untested end to end (§8.6); `gpu` feature untested at defaults |
 | Host | 22 | `Playback` (threads, cpal) has unit tests only for the WAV walk and the sweep; no test drives the decode workers |
 | Speech | 6 | Model downloads and whisper itself are network- and model-bound; test with `tiny.en` behind an opt-in feature |
 | Window | 3 | Formatting helpers only. Drive `Studio` against a `Session` from a headless harness and snapshot what it publishes |

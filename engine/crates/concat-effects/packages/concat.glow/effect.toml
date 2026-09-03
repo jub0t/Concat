@@ -1,0 +1,21 @@
+[effect]
+id = "concat.glow"
+name = "Glow"
+kind = "effect"
+category = "Stylize"
+order = 42
+intensity = "amount"
+aliases = ["glow"]
+description = "A soft bloom around the bright parts of the picture."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 10
+max = 100
+default = 45
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "split[glowa{index}][glowb{index}];[glowb{index}]gblur=sigma=18[glowg{index}];[glowa{index}][glowg{index}]blend=all_mode=screen:all_opacity={fixed(amount / 100, 2)}"

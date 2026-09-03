@@ -1,0 +1,3 @@
+[[case]]
+name = "default"
+chain = "crop=iw/2:ih:0:0,split[mirl0][mirr0];[mirr0]hflip[mirf0];[mirl0][mirf0]hstack"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "noise=alls=12:allf=t+u"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "noise=alls=2:allf=t+u"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "noise=alls=40:allf=t+u"

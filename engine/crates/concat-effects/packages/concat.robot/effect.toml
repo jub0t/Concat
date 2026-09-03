@@ -1,0 +1,20 @@
+[effect]
+id = "concat.robot"
+name = "Robot"
+kind = "filter"
+category = "Voice"
+order = 13
+intensity = "depth"
+aliases = ["robot"]
+description = "A metallic, modulated voice."
+
+[[param]]
+key = "depth"
+label = "Depth"
+min = 1
+max = 10
+default = 5
+step = 0.5
+
+[ffmpeg]
+chain = "aphaser=type=t:speed={fixed(0.4 + (depth / 10) * 1.6, 2)}:decay=0.6,flanger=delay=2:depth=4:speed=0.8,equalizer=f=1800:t=q:w=1.2:g=3,alimiter=limit=0.94"
