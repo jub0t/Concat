@@ -136,13 +136,23 @@ jobs:
             echo "FFMPEG_DIR=$PWD/ffmpeg-dev"
             echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib"
             # The shipped binary finds the libraries beside itself, in lib/.
-            echo "RUSTFLAGS=-C link-arg=-Wl,-rpath,\$ORIGIN/lib"
+            # --disable-new-dtags makes that an old-style DT_RPATH, which is
+            # consulted for *every* object in the process - DT_RUNPATH is
+            # not transitive, so libavformat's own load of libavcodec would
+            # ignore it and the staged binary would not stand alone.
+            echo "RUSTFLAGS=-C link-arg=-Wl,-rpath,\$ORIGIN/lib -C link-arg=-Wl,--disable-new-dtags"
           } >> "$GITHUB_ENV"
 
       # ── macOS ──────────────────────────────────────────────────────────
+      # FFMPEG_DIR, same as the other platforms: ffmpeg-sys honours it ahead
+      # of every fallback, so the build never depends on the runner image
+      # happening to carry a pkg-config that knows about Homebrew - the
+      # arm64 image did not, and the build died in the pkg-config fallback.
       - name: FFmpeg development libraries (macOS)
         if: matrix.platform == 'macos'
-        run: brew install ffmpeg cmake dylibbundler
+        run: |
+          brew install ffmpeg cmake dylibbundler
+          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
 
       # ── Windows ────────────────────────────────────────────────────────
       # libclang for bindgen. Chocolatey's LLVM is x64; the arm64 runner
@@ -171,8 +181,29 @@ jobs:
       # ── Build ──────────────────────────────────────────────────────────
       # The shipping profile: fat LTO, panic=abort, stripped. See the
       # workspace Cargo.toml for what each knob costs.
-      - run: cargo build --profile app -p concat --target ${{ matrix.target }}
+      #
+      # Bash on every platform, teed to a log: raw job logs need a login to
+      # read, but the step summary is public - so on failure the tail of the
+      # build goes there, and a red run explains itself to anyone.
+      - name: Build
+        shell: bash
         working-directory: engine
+        run: |
+          set -o pipefail
+          cargo build --profile app -p concat --target ${{ matrix.target }} 2>&1 | tee build.log
+
+      - name: Build log to the summary (failure only)
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f engine/build.log ]; then
+            {
+              echo "### Build failed: ${{ matrix.target }}"
+              echo '```'
+              tail -n 150 engine/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # ── Package: macOS ─────────────────────────────────────────────────
       # An .app bundle: the binary, an icon set made from the repository's
@@ -316,7 +347,17 @@ jobs:
           DESKTOP
           cp LICENSE THIRD_PARTY_NOTICES.md "stage/$name/"
           # The binary must resolve every library from the folder alone.
-          if env -u LD_LIBRARY_PATH ldd "stage/$name/concat" | grep -i 'not found'; then
+          # The whole ldd report goes to the public summary when it does
+          # not, so the failure names the library instead of just a step.
+          report=$(env -u LD_LIBRARY_PATH ldd "stage/$name/concat" || true)
+          if grep -i 'not found' <<<"$report"; then
+            {
+              echo "### Unresolved libraries: ${{ matrix.target }}"
+              echo '```'
+              echo "$report"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "$report"
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
