@@ -614,7 +614,7 @@ mod tests {
 
         let pool = ReaderPool::new(64 * 1024 * 1024, 4);
         let rate = FrameRate::THIRTY;
-        let red_at = |pool: &mut ReaderPool, index: i64| -> i64 {
+        let red_at = |pool: &ReaderPool, index: i64| -> i64 {
             let frame = pool
                 .frame_at(&path, rate.time_of_frame(index), 64, 64, false, None)
                 .expect("frame decodes");
