@@ -40,7 +40,7 @@ jobs:
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -111,7 +111,7 @@ jobs:
           Copy-Item engine/target/app/concat.exe stage/
           Copy-Item "$env:FFMPEG_DIR\bin\*.dll" stage/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Concat-${{ matrix.platform }}
           path: stage

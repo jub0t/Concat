@@ -1,0 +1,63 @@
+name: Nix
+
+# Proves the flake: `nix build` on Linux whenever the flake, the lock, or
+# the workspace's dependencies change, and on demand. The first run on a
+# tree without a flake.lock writes one and commits it, so the lock is
+# always the one CI built with.
+on:
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - engine/Cargo.lock
+      - engine/Cargo.toml
+      - engine/crates/*/Cargo.toml
+      - .github/workflows/nix.yml
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - engine/Cargo.lock
+      - .github/workflows/nix.yml
+  workflow_dispatch:
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: nix build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Lock the flake
+        run: nix flake lock
+
+      - name: Build
+        run: nix build .#concat --print-build-logs
+
+      # A window cannot open on the runner, so the check is that the binary
+      # is there, links, and resolves every library it needs.
+      - name: Check the binary links
+        run: |
+          file result/bin/.concat-wrapped || file result/bin/concat
+          ldd result/bin/.concat-wrapped 2>/dev/null | grep -i 'not found' && exit 1 || true
+
+      # A lock CI wrote is a lock the repo should carry: the next run then
+      # builds exactly this, and so does everyone running `nix build`.
+      - name: Commit the lock
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if git status --porcelain flake.lock | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add flake.lock
+            git commit -m "Lock the flake"
+            git push
+          fi

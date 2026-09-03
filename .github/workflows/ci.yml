@@ -20,8 +20,10 @@ jobs:
     env:
       FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
@@ -49,11 +51,13 @@ jobs:
 
       - run: cargo fmt --check
         working-directory: engine
-      - run: cargo test --workspace
-        working-directory: engine
       # -D warnings covers rustc lints too (missing_docs among them), so a
-      # public item without documentation fails here, not in review.
+      # public item without documentation fails here, not in review. Lints
+      # before tests: they finish in a fraction of the time and catch the
+      # most.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: engine
+      - run: cargo test --workspace
         working-directory: engine
 
   app:

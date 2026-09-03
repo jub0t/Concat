@@ -11,9 +11,9 @@
   # in sync. Three native pieces need care inside the sandbox, which has no
   # network:
   #
-  # - FFmpeg is linked, not spawned. nixpkgs' ffmpeg (7+) provides the
-  #   headers and libraries; bindgen finds them through pkg-config and
-  #   bindgenHook's libclang.
+  # - FFmpeg is linked, not spawned. nixpkgs' ffmpeg_8 provides the headers
+  #   and libraries; bindgen finds them through pkg-config and bindgenHook's
+  #   libclang.
   # - whisper.cpp is compiled in by cmake from the source vendored inside
   #   whisper-rs-sys, so it needs cmake and a C++ toolchain and nothing else.
   # - sherpa-onnx (text to speech) links prebuilt static libraries that its
@@ -88,7 +88,9 @@
 
       buildInputs =
         pkgs: with pkgs; [
-          ffmpeg
+          # 8, by name: the engine needs 7 or newer, and nixpkgs' unversioned
+          # `ffmpeg` is whichever major the distribution defaults to.
+          ffmpeg_8
           alsa-lib
           fontconfig
           freetype

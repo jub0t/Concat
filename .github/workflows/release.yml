@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: bundles
 
@@ -36,7 +36,7 @@ jobs:
           (cd bundles/Concat-windows && zip -qr "../../out/Concat-${tag}-windows-x86_64.zip" .)
           ls -l out
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Concat ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
