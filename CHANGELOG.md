@@ -6,27 +6,22 @@ behaviour.
 
 ## Unreleased
 
-- The engine links FFmpeg and compiles whisper.cpp in: nothing spawns an
-  `ffmpeg`, `ffprobe` or `whisper-cli` process any more, so a build is one
-  binary with no tools to stage beside it. Seeks are frame-accurate and
-  every decoded frame carries its real timestamp.
-- Releases are archives now, built by the `release.yml` workflow from a
-  pushed `v*` tag: one binary per platform, with FFmpeg's runtime libraries
-  beside it on Windows and Linux. Installers return with packaging.
-- The editor window is rebuilt in Slint as the `concat` crate inside the
-  engine workspace: one native Rust binary with no web view, embedding its
-  own fonts and effect previews, driving the engine in-process. The Tauri +
-  React app is gone, and with it Node, npm and the Nix flake.
+- The engine links FFmpeg and compiles whisper.cpp in: a build is one
+  binary with no tools beside it. Seeks are frame-accurate and every
+  decoded frame carries its real timestamp.
+- Releases are built by the `release.yml` workflow from a pushed `v*` tag:
+  one archive per platform, the binary with FFmpeg's runtime libraries
+  beside it on Windows and Linux.
+- The editor window is built in Slint as the `concat` crate inside the
+  engine workspace: one native Rust binary, embedding its own fonts and
+  effect previews, driving the engine in-process.
+- Nix flake for Linux: `nix build`, `nix run` and `nix develop` at the
+  repository root, with FFmpeg, whisper.cpp and the speech libraries pinned.
 - Text to speech: File → Text to speech turns typed narration into an audio
   clip at the playhead, spoken by one of 36 Kokoro voices (American and
   British English, Chinese) at a chosen pace. Generation runs entirely on
   this machine; the voice model downloads once (about 130 MB) from the sheet
   itself or Settings → Speech.
-- The entire interface is translatable: the app follows the system language
-  when a translation exists, with an override in Settings → General.
-  Translations are plain JSON files contributors can add — see TRANSLATING.md.
-- Simplified Chinese ships as the first translation (machine-drafted,
-  pending native review).
 
 ## v0.2.0-alpha.6 — 2026-08-29
 

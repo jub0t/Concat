@@ -7,6 +7,10 @@ target/
 **/target/
 *.pdb
 
+# Nix build output
+/result
+/result-*
+
 # Python (tooling and one-off scripts live at the repo root for now)
 __pycache__/
 *.py[cod]
