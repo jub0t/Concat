@@ -376,8 +376,7 @@ tests, which is fine.
 
 - **Zero TODO/FIXME/HACK comments** in the tree. Invariants live in prose
   comments instead; keep it that way.
-- `cargo fmt --check` is not enforced in CI. Run it across the workspace
-  once and add it to `ci.yml`.
+- `cargo fmt --check` runs in CI; keep it clean.
 
 ---
 

@@ -49,7 +49,12 @@ impl Editor {
         let project = from_document(document)?;
         let mut mint = IdMint::default();
         mint.adopt_project(&project);
-        Some(Self { project, mint, undo: VecDeque::new(), redo: Vec::new() })
+        Some(Self {
+            project,
+            mint,
+            undo: VecDeque::new(),
+            redo: Vec::new(),
+        })
     }
 
     /// The current state, read-only: all mutation goes through
@@ -81,7 +86,8 @@ impl Editor {
     pub fn undo(&mut self) -> bool {
         match self.undo.pop_back() {
             Some(previous) => {
-                self.redo.push(std::mem::replace(&mut self.project, previous));
+                self.redo
+                    .push(std::mem::replace(&mut self.project, previous));
                 true
             }
             None => false,
@@ -92,7 +98,8 @@ impl Editor {
     pub fn redo(&mut self) -> bool {
         match self.redo.pop() {
             Some(next) => {
-                self.undo.push_back(std::mem::replace(&mut self.project, next));
+                self.undo
+                    .push_back(std::mem::replace(&mut self.project, next));
                 true
             }
             None => false,

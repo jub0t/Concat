@@ -30,8 +30,12 @@ pub struct Placement {
 
 impl Placement {
     /// Unscaled, unrotated, unmoved.
-    pub const IDENTITY: Placement =
-        Placement { scale: 1.0, rotation: 0.0, translate_x: 0.0, translate_y: 0.0 };
+    pub const IDENTITY: Placement = Placement {
+        scale: 1.0,
+        rotation: 0.0,
+        translate_x: 0.0,
+        translate_y: 0.0,
+    };
 
     /// True when applying this placement would change nothing.
     pub fn is_identity(&self) -> bool {
@@ -63,7 +67,13 @@ pub struct Layer<'a> {
 impl<'a> Layer<'a> {
     /// A layer drawn at the origin, fully opaque.
     pub fn new(frame: &'a Frame) -> Self {
-        Self { frame, opacity: 1.0, x: 0, y: 0, placement: Placement::IDENTITY }
+        Self {
+            frame,
+            opacity: 1.0,
+            x: 0,
+            y: 0,
+            placement: Placement::IDENTITY,
+        }
     }
 
     /// Sets the blend strength.
@@ -265,8 +275,9 @@ fn blend_region(
         let src_row = &src_pixels[src_offset..src_offset + span];
         let dst_row = &mut dst_pixels[dst_offset..dst_offset + span];
 
-        for (src_pixel, dst_pixel) in
-            src_row.chunks_exact(BYTES_PER_PIXEL).zip(dst_row.chunks_exact_mut(BYTES_PER_PIXEL))
+        for (src_pixel, dst_pixel) in src_row
+            .chunks_exact(BYTES_PER_PIXEL)
+            .zip(dst_row.chunks_exact_mut(BYTES_PER_PIXEL))
         {
             let alpha = (f32::from(src_pixel[3]) / 255.0) * opacity;
             if alpha <= 0.0 {
@@ -341,7 +352,11 @@ mod tests {
         // Placed so only its bottom-right pixel lands on the output's top-left.
         let frame = CpuCompositor.composite(2, 2, &[Layer::new(&red).at(-1, -1)]);
         assert_eq!(frame.pixel(0, 0), Some([255, 0, 0, 255]));
-        assert_eq!(frame.pixel(1, 1), Some([0, 0, 0, 255]), "must not wrap around");
+        assert_eq!(
+            frame.pixel(1, 1),
+            Some([0, 0, 0, 255]),
+            "must not wrap around"
+        );
     }
 
     #[test]
@@ -362,7 +377,10 @@ mod tests {
     #[test]
     fn scaling_doubles_coverage() {
         let red = solid(2, 2, [255, 0, 0, 255]);
-        let placement = Placement { scale: 2.0, ..Placement::IDENTITY };
+        let placement = Placement {
+            scale: 2.0,
+            ..Placement::IDENTITY
+        };
         let frame =
             CpuCompositor.composite(4, 4, &[Layer::new(&red).at(1, 1).with_placement(placement)]);
         // A 2x2 layer based at (1,1) scaled x2 about its centre covers the
@@ -374,7 +392,10 @@ mod tests {
     #[test]
     fn translation_moves_the_layer() {
         let red = solid(1, 1, [255, 0, 0, 255]);
-        let placement = Placement { translate_x: 2.0, ..Placement::IDENTITY };
+        let placement = Placement {
+            translate_x: 2.0,
+            ..Placement::IDENTITY
+        };
         let frame = CpuCompositor.composite(3, 1, &[Layer::new(&red).with_placement(placement)]);
         assert_eq!(frame.pixel(0, 0), Some([0, 0, 0, 255]));
         assert_eq!(frame.pixel(2, 0), Some([255, 0, 0, 255]));
@@ -385,7 +406,10 @@ mod tests {
         let mut strip = Frame::transparent(2, 1);
         strip.set_pixel(0, 0, [255, 0, 0, 255]);
         strip.set_pixel(1, 0, [0, 0, 255, 255]);
-        let placement = Placement { rotation: std::f32::consts::PI, ..Placement::IDENTITY };
+        let placement = Placement {
+            rotation: std::f32::consts::PI,
+            ..Placement::IDENTITY
+        };
         let frame = CpuCompositor.composite(2, 1, &[Layer::new(&strip).with_placement(placement)]);
         assert_eq!(frame.pixel(0, 0), Some([0, 0, 255, 255]));
         assert_eq!(frame.pixel(1, 0), Some([255, 0, 0, 255]));
@@ -394,7 +418,10 @@ mod tests {
     #[test]
     fn a_transformed_layer_is_clipped_at_the_frame_edge() {
         let red = solid(2, 2, [255, 0, 0, 255]);
-        let placement = Placement { scale: 100.0, ..Placement::IDENTITY };
+        let placement = Placement {
+            scale: 100.0,
+            ..Placement::IDENTITY
+        };
         let frame = CpuCompositor.composite(2, 2, &[Layer::new(&red).with_placement(placement)]);
         assert_eq!(frame.width(), 2);
         assert_eq!(frame.pixel(1, 1), Some([255, 0, 0, 255]));

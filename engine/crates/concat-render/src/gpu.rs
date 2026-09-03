@@ -130,8 +130,7 @@ impl WgpuCompositor {
     /// Builds a compositor on the best available adapter, or `None` when the
     /// machine has nothing usable - callers fall back to the CPU path.
     pub fn new() -> Option<Self> {
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
@@ -262,7 +261,11 @@ impl WgpuCompositor {
         if stale {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("concat output"),
-                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -277,7 +280,13 @@ impl WgpuCompositor {
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             });
-            self.target = Some(Target { width, height, texture, staging, padded_row });
+            self.target = Some(Target {
+                width,
+                height,
+                texture,
+                staging,
+                padded_row,
+            });
         }
         self.target.as_ref().expect("just ensured")
     }
@@ -318,7 +327,10 @@ impl WgpuCompositor {
                     },
                 ],
             });
-            pool.push(PooledTexture { texture, bind_group });
+            pool.push(PooledTexture {
+                texture,
+                bind_group,
+            });
         }
 
         let index = *used;
@@ -381,7 +393,14 @@ impl WgpuCompositor {
         let top_right = corner(1.0, -1.0, 1.0, 0.0);
         let bottom_left = corner(-1.0, 1.0, 0.0, 1.0);
         let bottom_right = corner(1.0, 1.0, 1.0, 1.0);
-        [top_left, top_right, bottom_left, top_right, bottom_right, bottom_left]
+        [
+            top_left,
+            top_right,
+            bottom_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        ]
     }
 
     /// Copies the rendered target back into a [`Frame`], forcing it opaque.
@@ -450,15 +469,19 @@ impl Compositor for WgpuCompositor {
             });
         }
         if !vertices.is_empty() {
-            self.queue.write_buffer(&self.vertices, 0, as_bytes(&vertices));
+            self.queue
+                .write_buffer(&self.vertices, 0, as_bytes(&vertices));
         }
 
         self.target(width, height);
         let target = self.target.as_ref().expect("just ensured");
-        let view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = target
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder =
-            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("concat composite"),
             });
         {
@@ -481,8 +504,7 @@ impl Compositor for WgpuCompositor {
             pass.set_pipeline(&self.pipeline);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
             for (draw, (layer_width, layer_height, pooled)) in draws.iter().enumerate() {
-                let bind_group =
-                    &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
+                let bind_group = &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
                 pass.set_bind_group(0, bind_group, &[]);
                 let first = (draw * 6) as u32;
                 pass.draw(first..first + 6, 0..1);
@@ -504,7 +526,11 @@ impl Compositor for WgpuCompositor {
                     rows_per_image: Some(height),
                 },
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
 
         self.queue.submit([encoder.finish()]);
@@ -618,7 +644,10 @@ mod tests {
     fn scaling_matches_the_cpu_reference_away_from_edges() {
         let Some(mut gpu) = gpu() else { return };
         let red = solid(4, 4, [255, 0, 0, 255]);
-        let placement = Placement { scale: 2.0, ..Placement::IDENTITY };
+        let placement = Placement {
+            scale: 2.0,
+            ..Placement::IDENTITY
+        };
         let layers = [Layer::new(&red).at(2, 2).with_placement(placement)];
 
         // Interior pixels are unambiguous; the half-pixel border where the two
@@ -627,7 +656,10 @@ mod tests {
         for (x, y) in [(1, 1), (4, 4), (6, 6)] {
             assert_eq!(frame.pixel(x, y), Some([255, 0, 0, 255]), "at ({x},{y})");
         }
-        assert_eq!(CpuCompositor.composite(8, 8, &layers).pixel(4, 4), Some([255, 0, 0, 255]));
+        assert_eq!(
+            CpuCompositor.composite(8, 8, &layers).pixel(4, 4),
+            Some([255, 0, 0, 255])
+        );
     }
 
     #[test]
@@ -636,7 +668,10 @@ mod tests {
         let mut strip = Frame::transparent(2, 1);
         strip.set_pixel(0, 0, [255, 0, 0, 255]);
         strip.set_pixel(1, 0, [0, 0, 255, 255]);
-        let placement = Placement { rotation: std::f32::consts::PI, ..Placement::IDENTITY };
+        let placement = Placement {
+            rotation: std::f32::consts::PI,
+            ..Placement::IDENTITY
+        };
         let frame = gpu.composite(2, 1, &[Layer::new(&strip).with_placement(placement)]);
         assert_eq!(frame.pixel(0, 0), Some([0, 0, 255, 255]));
         assert_eq!(frame.pixel(1, 0), Some([255, 0, 0, 255]));

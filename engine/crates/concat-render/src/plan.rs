@@ -89,7 +89,12 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
         });
     }
 
-    FramePlan { time, width: timeline.width, height: timeline.height, layers }
+    FramePlan {
+        time,
+        width: timeline.width,
+        height: timeline.height,
+        layers,
+    }
 }
 
 #[cfg(test)]
@@ -109,15 +114,28 @@ mod tests {
         let lower = timeline.add_track(Track::new("V1", TrackKind::Video));
         let upper = timeline.add_track(Track::new("V2", TrackKind::Video));
         timeline
-            .add_clip(lower, Clip::new(MediaRef::new("bottom.mp4"), seconds(0), seconds(10)))
+            .add_clip(
+                lower,
+                Clip::new(MediaRef::new("bottom.mp4"), seconds(0), seconds(10)),
+            )
             .expect("track exists");
         timeline
-            .add_clip(upper, Clip::new(MediaRef::new("top.mp4"), seconds(0), seconds(10)))
+            .add_clip(
+                upper,
+                Clip::new(MediaRef::new("top.mp4"), seconds(0), seconds(10)),
+            )
             .expect("track exists");
 
         let plan = plan_frame(&timeline, seconds(4));
-        let media: Vec<_> = plan.layers.iter().map(|layer| layer.media.clone()).collect();
-        assert_eq!(media, vec![PathBuf::from("bottom.mp4"), PathBuf::from("top.mp4")]);
+        let media: Vec<_> = plan
+            .layers
+            .iter()
+            .map(|layer| layer.media.clone())
+            .collect();
+        assert_eq!(
+            media,
+            vec![PathBuf::from("bottom.mp4"), PathBuf::from("top.mp4")]
+        );
         assert_eq!((plan.width, plan.height), (640, 360));
     }
 
@@ -130,7 +148,11 @@ mod tests {
         timeline.add_clip(track, clip).expect("track exists");
 
         let plan = plan_frame(&timeline, seconds(7));
-        assert_eq!(plan.layers[0].source_time, seconds(32), "2s into a clip that starts at 30s");
+        assert_eq!(
+            plan.layers[0].source_time,
+            seconds(32),
+            "2s into a clip that starts at 30s"
+        );
     }
 
     #[test]
@@ -142,7 +164,11 @@ mod tests {
         timeline.add_clip(track, clip).expect("track exists");
 
         let plan = plan_frame(&timeline, seconds(3));
-        assert_eq!(plan.layers[0].source_time, seconds(6), "3s in at 2x is 6s of source");
+        assert_eq!(
+            plan.layers[0].source_time,
+            seconds(6),
+            "3s in at 2x is 6s of source"
+        );
         assert_eq!(plan.layers[0].speed, Rational::from_int(2));
     }
 
@@ -151,7 +177,10 @@ mod tests {
         let mut timeline = Timeline::new(640, 360, FrameRate::THIRTY);
         let track = timeline.add_track(Track::new("V1", TrackKind::Video));
         timeline
-            .add_clip(track, Clip::new(MediaRef::new("a.mp4"), seconds(0), seconds(2)))
+            .add_clip(
+                track,
+                Clip::new(MediaRef::new("a.mp4"), seconds(0), seconds(2)),
+            )
             .expect("track exists");
 
         assert!(plan_frame(&timeline, seconds(5)).is_empty());
@@ -166,7 +195,10 @@ mod tests {
 
         for track in [muted, audio] {
             timeline
-                .add_clip(track, Clip::new(MediaRef::new("a.mp4"), seconds(0), seconds(10)))
+                .add_clip(
+                    track,
+                    Clip::new(MediaRef::new("a.mp4"), seconds(0), seconds(10)),
+                )
                 .expect("track exists");
         }
 

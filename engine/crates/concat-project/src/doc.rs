@@ -21,8 +21,8 @@
 use serde_json::{Map, Value, json};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, TextAlign,
-    TextStyle, Timeline, Track, Transition,
+    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, TextAlign, TextStyle,
+    Timeline, Track, Transition,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -33,7 +33,10 @@ fn text(value: Option<&Value>, fallback: &str) -> String {
 }
 
 fn number(value: Option<&Value>, fallback: f64) -> f64 {
-    value.and_then(Value::as_f64).filter(|n| n.is_finite()).unwrap_or(fallback)
+    value
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .unwrap_or(fallback)
 }
 
 fn flag(value: Option<&Value>, fallback: bool) -> bool {
@@ -41,7 +44,9 @@ fn flag(value: Option<&Value>, fallback: bool) -> bool {
 }
 
 fn opt_u32(value: Option<&Value>) -> Option<u32> {
-    value.and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())
+    value
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
 }
 
 fn opt_string(value: Option<&Value>) -> Option<String> {
@@ -49,7 +54,9 @@ fn opt_string(value: Option<&Value>) -> Option<String> {
 }
 
 fn read_media(raw: Option<&Value>) -> Vec<MediaItem> {
-    let Some(entries) = raw.and_then(Value::as_array) else { return Vec::new() };
+    let Some(entries) = raw.and_then(Value::as_array) else {
+        return Vec::new();
+    };
     entries
         .iter()
         .filter_map(|entry| {
@@ -80,7 +87,9 @@ fn read_media(raw: Option<&Value>) -> Vec<MediaItem> {
 }
 
 fn read_tracks(raw: Option<&Value>) -> Vec<Track> {
-    let Some(entries) = raw.and_then(Value::as_array) else { return Vec::new() };
+    let Some(entries) = raw.and_then(Value::as_array) else {
+        return Vec::new();
+    };
     entries
         .iter()
         .filter_map(|entry| {
@@ -96,7 +105,9 @@ fn read_tracks(raw: Option<&Value>) -> Vec<Track> {
 }
 
 fn read_filters(raw: Option<&Value>) -> Vec<AppliedFilter> {
-    let Some(entries) = raw.and_then(Value::as_array) else { return Vec::new() };
+    let Some(entries) = raw.and_then(Value::as_array) else {
+        return Vec::new();
+    };
     entries
         .iter()
         .filter_map(|entry| {
@@ -110,14 +121,20 @@ fn read_filters(raw: Option<&Value>) -> Vec<AppliedFilter> {
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(AppliedFilter { id, params, enabled: flag(entry.get("enabled"), true) })
+            Some(AppliedFilter {
+                id,
+                params,
+                enabled: flag(entry.get("enabled"), true),
+            })
         })
         .collect()
 }
 
 fn read_text_style(raw: Option<&Value>) -> TextStyle {
     let base = TextStyle::default();
-    let Some(style) = raw.filter(|value| value.is_object()) else { return base };
+    let Some(style) = raw.filter(|value| value.is_object()) else {
+        return base;
+    };
     TextStyle {
         content: text(style.get("content"), &base.content),
         font_family: text(style.get("fontFamily"), &base.font_family),
@@ -143,7 +160,9 @@ fn read_text_style(raw: Option<&Value>) -> TextStyle {
 }
 
 fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec<Clip> {
-    let Some(entries) = raw.and_then(Value::as_array) else { return Vec::new() };
+    let Some(entries) = raw.and_then(Value::as_array) else {
+        return Vec::new();
+    };
     entries
         .iter()
         .filter_map(|entry| {
@@ -228,7 +247,9 @@ pub fn from_document(document: &Value) -> Option<Project> {
     let mut timelines: Vec<Timeline> = Vec::new();
     if let Some(entries) = document.get("timelines").and_then(Value::as_array) {
         for entry in entries {
-            let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+            let Some(id) = entry.get("id").and_then(Value::as_str) else {
+                continue;
+            };
             if timelines.iter().any(|existing| existing.id == id) {
                 continue;
             }
@@ -282,7 +303,12 @@ pub fn from_document(document: &Value) -> Option<Project> {
         })
         .unwrap_or_default();
 
-    Some(Project { media, fonts, timelines, active_timeline_id })
+    Some(Project {
+        media,
+        fonts,
+        timelines,
+        active_timeline_id,
+    })
 }
 
 /// Settings the host manages around the edit: the manifest's identity fields.
@@ -316,14 +342,28 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
             "rateDen": settings.rate_den,
         }),
     );
-    document.insert("media".into(), serde_json::to_value(&project.media).expect("serialises"));
+    document.insert(
+        "media".into(),
+        serde_json::to_value(&project.media).expect("serialises"),
+    );
     // The flat mirror of the active timeline, for builds that predate
     // multiple timelines.
-    document.insert("tracks".into(), serde_json::to_value(&active.tracks).expect("serialises"));
-    document.insert("clips".into(), serde_json::to_value(&active.clips).expect("serialises"));
-    document.insert("fonts".into(), serde_json::to_value(&project.fonts).expect("serialises"));
-    document
-        .insert("timelines".into(), serde_json::to_value(&project.timelines).expect("serialises"));
+    document.insert(
+        "tracks".into(),
+        serde_json::to_value(&active.tracks).expect("serialises"),
+    );
+    document.insert(
+        "clips".into(),
+        serde_json::to_value(&active.clips).expect("serialises"),
+    );
+    document.insert(
+        "fonts".into(),
+        serde_json::to_value(&project.fonts).expect("serialises"),
+    );
+    document.insert(
+        "timelines".into(),
+        serde_json::to_value(&project.timelines).expect("serialises"),
+    );
     document.insert("activeTimelineId".into(), json!(project.active_timeline_id));
     Value::Object(document)
 }

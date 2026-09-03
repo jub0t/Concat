@@ -47,6 +47,8 @@ jobs:
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
 
+      - run: cargo fmt --check
+        working-directory: engine
       - run: cargo test --workspace
         working-directory: engine
       # -D warnings covers rustc lints too (missing_docs among them), so a
