@@ -1,7 +1,7 @@
 [effect]
 id = "concat.echo"
 name = "Echo"
-kind = "filter"
+kind = "audio"
 category = "Space"
 order = 30
 intensity = "decay"

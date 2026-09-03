@@ -1,7 +1,7 @@
 [effect]
 id = "concat.vibrance"
 name = "Vibrance"
-kind = "effect"
+kind = "filter"
 category = "Color"
 order = 32
 intensity = "intensity"

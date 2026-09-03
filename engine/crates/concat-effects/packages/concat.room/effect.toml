@@ -1,7 +1,7 @@
 [effect]
 id = "concat.room"
 name = "Room"
-kind = "filter"
+kind = "audio"
 category = "Space"
 order = 31
 intensity = "size"

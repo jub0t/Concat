@@ -1,7 +1,7 @@
 [effect]
 id = "concat.chipmunk"
 name = "Chipmunk"
-kind = "filter"
+kind = "audio"
 category = "Voice"
 order = 12
 intensity = "pitch"

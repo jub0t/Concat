@@ -66,18 +66,33 @@ fn one() -> u32 {
     1
 }
 
-/// Which catalogue a package belongs to.
+/// Which catalogue a package belongs to. The vocabulary is the one video
+/// editors' users already know: an effect is something that *happens* to
+/// the picture, a filter is a colour look with an intensity, and audio is
+/// its own world.
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
-    /// A video effect: image in, image out.
+    /// A video effect: image in, image out. Light, blur, distortion,
+    /// texture, motion.
     Effect,
-    /// An audio filter: sound in, sound out.
+    /// A colour look: image in, image out, one intensity. Warm, mono,
+    /// film, cinematic.
     Filter,
+    /// An audio effect: sound in, sound out. Voices, tone, space.
+    Audio,
     /// A transition: two images and a progress, one image out.
     Transition,
     /// A generator: no input, an image out.
     Generator,
+}
+
+impl Kind {
+    /// Whether the package works on the picture: effects, filters,
+    /// transitions and generators do; audio does not.
+    pub fn is_visual(self) -> bool {
+        self != Kind::Audio
+    }
 }
 
 /// One `[[param]]`.
@@ -289,10 +304,10 @@ impl Manifest {
             _ => {}
         }
         if self.ffmpeg.is_some() && matches!(self.effect.kind, Kind::Transition | Kind::Generator) {
-            return Err(self.invalid("an [ffmpeg] package must be an effect or a filter"));
+            return Err(self.invalid("an [ffmpeg] package must be an effect, a filter or audio"));
         }
-        if self.wgsl.is_some() && self.effect.kind == Kind::Filter {
-            return Err(self.invalid("a [wgsl] package cannot be an audio filter"));
+        if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
+            return Err(self.invalid("a [wgsl] package cannot be audio"));
         }
         Ok(())
     }
@@ -369,7 +384,7 @@ mod tests {
         );
         rejects(
             &GOOD.replace("kind = \"effect\"", "kind = \"transition\""),
-            "effect or a filter",
+            "effect, a filter or audio",
         );
     }
 

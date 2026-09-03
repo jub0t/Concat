@@ -1,7 +1,7 @@
 [effect]
 id = "concat.deep"
 name = "Deep"
-kind = "filter"
+kind = "audio"
 category = "Voice"
 order = 11
 intensity = "pitch"

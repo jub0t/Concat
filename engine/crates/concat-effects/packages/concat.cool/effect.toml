@@ -1,7 +1,7 @@
 [effect]
 id = "concat.cool"
 name = "Cool"
-kind = "effect"
+kind = "filter"
 category = "Color"
 order = 31
 intensity = "temperature"

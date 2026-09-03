@@ -1,7 +1,7 @@
 [effect]
 id = "concat.sweet"
 name = "Sweet"
-kind = "filter"
+kind = "audio"
 category = "Voice"
 order = 10
 intensity = "amount"

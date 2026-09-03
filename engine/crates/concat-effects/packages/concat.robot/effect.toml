@@ -1,7 +1,7 @@
 [effect]
 id = "concat.robot"
 name = "Robot"
-kind = "filter"
+kind = "audio"
 category = "Voice"
 order = 13
 intensity = "depth"

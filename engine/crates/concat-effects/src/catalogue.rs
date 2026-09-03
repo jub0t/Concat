@@ -412,28 +412,28 @@ impl Catalogue {
     /// empty string if it has none. Effects apply in the order they were
     /// added.
     pub fn video_chain(&self, effects: &[AppliedFilter]) -> String {
-        self.compose(Kind::Effect, effects)
+        self.compose(&[Kind::Effect, Kind::Filter], effects)
     }
 
     /// The complete FFmpeg audio filter string for a clip's filters, or the
     /// empty string if it has none. Filters apply in the order they were
     /// added: EQ before a limiter is a different sound from the reverse.
     pub fn audio_chain(&self, filters: &[AppliedFilter]) -> String {
-        self.compose(Kind::Filter, filters)
+        self.compose(&[Kind::Audio], filters)
     }
 
-    /// Enabled entries of `kind` in applied order, comma-joined. Bypassed
+    /// Enabled entries of these `kinds` in applied order, comma-joined. Bypassed
     /// entries, unknown ids, packages of another kind and packages without
     /// an FFmpeg backend contribute nothing. The index each fragment is
     /// rendered at is its *emitted* position, so labels stay stable when a
     /// bypassed entry sits earlier in the list.
-    fn compose(&self, kind: Kind, applied: &[AppliedFilter]) -> String {
+    fn compose(&self, kinds: &[Kind], applied: &[AppliedFilter]) -> String {
         let mut fragments: Vec<String> = Vec::new();
         for applied in applied.iter().filter(|applied| applied.enabled) {
             let Some(package) = self.get(&applied.id) else {
                 continue;
             };
-            if package.kind() != kind {
+            if !kinds.contains(&package.kind()) {
                 continue;
             }
             match package.ffmpeg_fragment(&applied.params, fragments.len()) {

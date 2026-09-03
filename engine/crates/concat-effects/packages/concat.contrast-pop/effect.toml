@@ -1,7 +1,7 @@
 [effect]
 id = "concat.contrast-pop"
 name = "Contrast Pop"
-kind = "effect"
+kind = "filter"
 category = "Color"
 order = 33
 intensity = "contrast"

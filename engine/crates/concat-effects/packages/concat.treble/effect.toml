@@ -1,7 +1,7 @@
 [effect]
 id = "concat.treble"
 name = "Treble"
-kind = "filter"
+kind = "audio"
 category = "Tone"
 order = 21
 intensity = "gain"

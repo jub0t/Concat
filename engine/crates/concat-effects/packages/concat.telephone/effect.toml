@@ -1,7 +1,7 @@
 [effect]
 id = "concat.telephone"
 name = "Telephone"
-kind = "filter"
+kind = "audio"
 category = "Tone"
 order = 22
 intensity = "drive"

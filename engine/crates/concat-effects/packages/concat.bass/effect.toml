@@ -1,7 +1,7 @@
 [effect]
 id = "concat.bass"
 name = "Bass"
-kind = "filter"
+kind = "audio"
 category = "Tone"
 order = 20
 intensity = "gain"
