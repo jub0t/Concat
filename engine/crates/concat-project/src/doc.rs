@@ -21,8 +21,8 @@
 use serde_json::{Map, Value, json};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, SpeedPoint,
-    TextAlign, TextStyle, Timeline, Track, Transition,
+    AppliedFilter, Clip, ClipAnimation, ClipKind, CustomFont, MediaItem, MediaKind, Project,
+    SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -230,6 +230,9 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                     (!points.is_empty()).then_some(points)
                 }),
                 reverse: flag(entry.get("reverse"), false),
+                animation_in: read_animation(entry.get("animationIn")),
+                animation_out: read_animation(entry.get("animationOut")),
+                animation_combo: read_animation(entry.get("animationCombo")),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),
@@ -383,4 +386,17 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
     );
     document.insert("activeTimelineId".into(), json!(project.active_timeline_id));
     Value::Object(document)
+}
+
+/// A named animation on a slot, or None when the entry says nothing usable.
+fn read_animation(value: Option<&Value>) -> Option<ClipAnimation> {
+    let value = value?;
+    let preset = value.get("preset")?.as_str()?.trim().to_owned();
+    if preset.is_empty() {
+        return None;
+    }
+    Some(ClipAnimation {
+        preset,
+        duration: number(value.get("duration"), 0.5).max(0.0),
+    })
 }

@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, SpeedPoint,
-    TextStyle, Timeline, Track, Transition,
+    AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, CustomFont, MediaItem, MediaKind,
+    Project, SpeedPoint, TextStyle, Timeline, Track, Transition,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -277,6 +277,15 @@ pub enum Command {
         clip_id: String,
         /// The curve, or None for a constant rate at the current mean.
         curve: Option<Vec<SpeedPoint>>,
+    },
+    /// Sets or clears the animation on one slot of a clip.
+    SetClipAnimation {
+        /// The clip.
+        clip_id: String,
+        /// Which end, or the whole.
+        slot: AnimationSlot,
+        /// The shape and its seconds, or None to take it off.
+        animation: Option<ClipAnimation>,
     },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
@@ -573,6 +582,9 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         preserve_pitch: true,
         speed_curve: None,
         reverse: false,
+        animation_in: None,
+        animation_out: None,
+        animation_combo: None,
         filters: Vec::new(),
         video_effects: Vec::new(),
         muted: None,
@@ -907,6 +919,9 @@ pub fn apply(
                 preserve_pitch: true,
                 speed_curve: None,
                 reverse: false,
+                animation_in: None,
+                animation_out: None,
+                animation_combo: None,
                 filters: Vec::new(),
                 video_effects: Vec::new(),
                 muted: None,
@@ -964,6 +979,9 @@ pub fn apply(
                 preserve_pitch: true,
                 speed_curve: None,
                 reverse: false,
+                animation_in: None,
+                animation_out: None,
+                animation_combo: None,
                 filters: Vec::new(),
                 video_effects: vec![AppliedFilter {
                     id: effect_id,
@@ -1195,6 +1213,33 @@ pub fn apply(
                     (source_covered / next).max(MIN_CLIP_DURATION),
                 )
                 | assign(&mut clip.speed_curve, None);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipAnimation {
+            clip_id,
+            slot,
+            animation,
+        } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let animation = animation
+                .filter(|set| crate::animation::index_of(slot, &set.preset).is_some())
+                .map(|set| ClipAnimation {
+                    preset: set.preset,
+                    duration: set.duration.clamp(0.05, 60.0),
+                });
+            let field = match slot {
+                AnimationSlot::In => &mut clip.animation_in,
+                AnimationSlot::Out => &mut clip.animation_out,
+                AnimationSlot::Combo => &mut clip.animation_combo,
+            };
+            let applied = assign(field, animation);
             Ok(Outcome {
                 created_id: None,
                 applied,

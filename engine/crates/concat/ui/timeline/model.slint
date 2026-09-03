@@ -152,6 +152,7 @@ export enum TextAlignment { left, center, right }
 export enum ClipField {
     scale, offset-x, offset-y, rotation, opacity,
     volume, speed, preserve-pitch, speed-curve, reverse, fade-in, fade-out,
+    anim-in, anim-out, anim-combo, anim-in-duration, anim-out-duration,
     font-size, font-weight, italic, text-opacity, align,
     stroke-width, shadow, line-height, tracking,
 }
@@ -192,6 +193,14 @@ export struct SelectedClipData {
     /// presets' count for a custom shape.
     speed-curve: int,
     reverse: bool,
+
+    // animation — a shape per slot, as an index into the slot's list, or
+    // -1 for none; the seconds the head and tail shapes take
+    anim-in: int,
+    anim-out: int,
+    anim-combo: int,
+    anim-in-duration: float,
+    anim-out-duration: float,
     fade-in: float,
     fade-out: float,
 

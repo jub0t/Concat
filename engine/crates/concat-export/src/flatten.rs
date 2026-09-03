@@ -16,7 +16,7 @@
 use concat_project::model::{ClipKind as ModelClipKind, Project, Timeline};
 
 use crate::chains::{audio_filter_chain, video_effect_chain};
-use crate::{ClipKind, ExportClip, TransitionSpec};
+use crate::{ClipKind, ExportClip, ExportKey, TransitionSpec};
 
 /// Flattens one timeline of `project` for the exporter - the active one
 /// when `timeline_id` is `None`. Text clips are excluded (they rasterise
@@ -60,6 +60,7 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     preserve_pitch: true,
                     speed_curve: Vec::new(),
                     reverse: false,
+                    animation: Vec::new(),
                     scale: 1.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
@@ -106,6 +107,7 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     .map(|point| (point.at, point.speed))
                     .collect(),
                 reverse: clip.reverse,
+                animation: export_keys(clip),
                 scale: clip.scale,
                 offset_x: clip.offset_x,
                 offset_y: clip.offset_y,
@@ -142,6 +144,39 @@ fn pick_timeline<'a>(project: &'a Project, timeline_id: Option<&str>) -> Option<
         .iter()
         .find(|timeline| timeline.id == wanted)
         .or_else(|| project.timelines.first())
+}
+
+/// The clip's animation presets, materialised for its current length as
+/// the keys the engine plays. See `concat_project::animation`.
+pub fn export_keys(clip: &concat_project::model::Clip) -> Vec<ExportKey> {
+    use concat_core::animate::Ease;
+    let Some(animation) = concat_project::animation::animation_of(clip) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (property, track) in [
+        ("scale", &animation.scale),
+        ("offsetX", &animation.offset_x),
+        ("offsetY", &animation.offset_y),
+        ("rotation", &animation.rotation),
+        ("opacity", &animation.opacity),
+    ] {
+        for key in track.keys() {
+            out.push(ExportKey {
+                property: property.to_owned(),
+                at: key.at,
+                value: key.value,
+                ease: match key.ease {
+                    Ease::Linear => "linear",
+                    Ease::In => "in",
+                    Ease::Out => "out",
+                    Ease::InOut => "inOut",
+                }
+                .to_owned(),
+            });
+        }
+    }
+    out
 }
 
 #[cfg(test)]

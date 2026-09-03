@@ -16,6 +16,7 @@
 //! If you are about to add a dependency to this crate, the thing you are adding
 //! probably belongs in `concat-media` or `concat-render` instead.
 
+pub mod animate;
 pub mod arena;
 pub mod frame;
 pub mod retime;

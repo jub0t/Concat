@@ -611,6 +611,105 @@ export component SpeedPanel inherits VerticalLayout {
     }
 }
 
+/// Animation: how the clip comes in, goes out, and moves in between. Each
+/// slot is a named shape from Rust's list and, for the head and tail, the
+/// seconds it takes. The shapes are keys on the clip's own placement, so
+/// the stage box follows them at the playhead.
+export component AnimationPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    property <[string]> in-shapes: ["None", "Fade", "Zoom In", "Zoom Out",
+        "Slide Up", "Slide Down", "Slide Left", "Slide Right", "Spin"];
+    property <[string]> out-shapes: ["None", "Fade", "Zoom In", "Zoom Out",
+        "Slide Up", "Slide Down", "Slide Left", "Slide Right", "Spin"];
+    property <[string]> combo-shapes: ["None", "Pulse", "Shake", "Spin", "Bounce", "Drift"];
+
+    property <float> in-seconds;
+    property <float> out-seconds;
+    function seed() {
+        root.in-seconds = root.selected.anim-in-duration;
+        root.out-seconds = root.selected.anim-out-duration;
+    }
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    /// The longest a head or tail shape may take: half the clip, so the
+    /// two cannot cross.
+    property <float> limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
+    property <bool> help;
+
+    Section {
+        first: true;
+        SectionHeader {
+            title: "In";
+            HelpButton {
+                open: root.help;
+                toggled => { root.help = self.open; }
+            }
+        }
+        if root.help: Note {
+            text: "In and Out play over the clip's first and last seconds;"
+                + " Combo runs its whole length. Each moves the clip from"
+                + " where you placed it, so position it first.";
+        }
+        Row {
+            label: "Shape";
+            Select {
+                options: root.in-shapes;
+                current: root.selected.anim-in + 1;
+                changed(index) => { root.set(ClipField.anim-in, index - 1); root.commit(); }
+            }
+        }
+        if root.selected.anim-in >= 0: Param {
+            label: "Length";
+            value <=> root.in-seconds;
+            minimum: 0.1;
+            maximum: root.limit;
+            step: 0.05;
+            default-value: 0.5;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.anim-in-duration, v); root.commit(); }
+        }
+    }
+
+    Section {
+        SectionHeader { title: "Out"; }
+        Row {
+            label: "Shape";
+            Select {
+                options: root.out-shapes;
+                current: root.selected.anim-out + 1;
+                changed(index) => { root.set(ClipField.anim-out, index - 1); root.commit(); }
+            }
+        }
+        if root.selected.anim-out >= 0: Param {
+            label: "Length";
+            value <=> root.out-seconds;
+            minimum: 0.1;
+            maximum: root.limit;
+            step: 0.05;
+            default-value: 0.5;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.anim-out-duration, v); root.commit(); }
+        }
+    }
+
+    Section {
+        SectionHeader { title: "Combo"; }
+        Row {
+            label: "Shape";
+            Select {
+                options: root.combo-shapes;
+                current: root.selected.anim-combo + 1;
+                changed(index) => { root.set(ClipField.anim-combo, index - 1); root.commit(); }
+            }
+        }
+    }
+}
+
 /// Adjust: the manual colour panel. Every knob is a parameter of the one
 /// built-in `concat.adjust` package, which Rust puts at the head of the
 /// picture's chain the first time a knob moves; until then the rows show the

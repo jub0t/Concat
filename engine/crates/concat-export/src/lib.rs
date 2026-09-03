@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::SpeedCurve;
+use concat_core::animate::Animation;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
@@ -105,6 +106,10 @@ pub struct ExportClip {
     /// Played backwards.
     #[serde(default)]
     pub reverse: bool,
+    /// Keys over the clip's placement and opacity, resolved by the UI from
+    /// its animation presets. Empty for none.
+    #[serde(default)]
+    pub animation: Vec<ExportKey>,
     /// Multiplier over the fitted size. 1 fills the frame, preserving aspect.
     #[serde(default = "unity")]
     pub scale: f64,
@@ -147,6 +152,22 @@ pub struct ExportClip {
     /// older caller still exports correctly - just slower to start.
     #[serde(default)]
     pub has_audio: Option<bool>,
+}
+
+/// One animation key, as the flattener hands it over.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportKey {
+    /// "scale", "offsetX", "offsetY", "rotation" or "opacity".
+    pub property: String,
+    /// Where in the clip, `0..=1`.
+    pub at: f64,
+    /// The value there, relative to the clip's own; see the engine's
+    /// `animate` module.
+    pub value: f64,
+    /// "linear", "in", "out" or "inOut".
+    #[serde(default)]
+    pub ease: String,
 }
 
 /// A transition on the cut into a clip.
@@ -890,6 +911,7 @@ fn build_timeline(
             engine_clip.retime = SpeedCurve::new(&clip.speed_curve);
             engine_clip.reverse = clip.reverse;
         }
+        engine_clip.animation = animation_of(&clip.animation);
         engine_clip.transform = Transform {
             scale: clip.scale,
             offset_x: clip.offset_x,
@@ -923,6 +945,44 @@ fn build_timeline(
         tracks: tracks_of,
         treatments,
     }
+}
+
+/// The engine's keys for a flattened clip's animation, or None for none.
+fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
+    use concat_core::animate::{Ease, Key, Track};
+    if keys.is_empty() {
+        return None;
+    }
+    let mut tracks: [Vec<Key>; 5] = Default::default();
+    for key in keys {
+        let slot = match key.property.as_str() {
+            "scale" => 0,
+            "offsetX" => 1,
+            "offsetY" => 2,
+            "rotation" => 3,
+            "opacity" => 4,
+            _ => continue,
+        };
+        tracks[slot].push(Key {
+            at: key.at,
+            value: key.value,
+            ease: match key.ease.as_str() {
+                "in" => Ease::In,
+                "out" => Ease::Out,
+                "inOut" => Ease::InOut,
+                _ => Ease::Linear,
+            },
+        });
+    }
+    let [scale, x, y, rotation, opacity] = tracks;
+    let animation = Animation {
+        scale: Track::new(scale),
+        offset_x: Track::new(x),
+        offset_y: Track::new(y),
+        rotation: Track::new(rotation),
+        opacity: Track::new(opacity),
+    };
+    (!animation.is_empty()).then_some(animation)
 }
 
 /// The source's contain-fitted size inside the output frame, or `None` when
@@ -1285,6 +1345,7 @@ mod tests {
             preserve_pitch: true,
             speed_curve: Vec::new(),
             reverse: false,
+            animation: Vec::new(),
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,

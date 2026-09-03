@@ -12,6 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::animate::Animation;
 use crate::arena::{Arena, Id};
 use crate::retime::SpeedCurve;
 use crate::time::{FrameRate, Rational, TimeRange};
@@ -91,6 +92,9 @@ pub struct Clip {
     /// Played backwards: the source is consumed from its far end towards
     /// `source_start`.
     pub reverse: bool,
+    /// Keys over the clip's placement and opacity, when it has any. See
+    /// [`Animation`].
+    pub animation: Option<Animation>,
 }
 
 /// A clip's placement in the output frame.
@@ -147,6 +151,34 @@ impl Clip {
             transform: Transform::IDENTITY,
             retime: None,
             reverse: false,
+            animation: None,
+        }
+    }
+
+    /// Where in the clip `time` falls, `0..=1`; zero outside it.
+    pub fn fraction_at(&self, time: Rational) -> f64 {
+        if self.duration.is_zero() {
+            return 0.0;
+        }
+        ((time - self.start) / self.duration)
+            .as_f64()
+            .clamp(0.0, 1.0)
+    }
+
+    /// The placement at `time`: the clip's own, moved by its animation.
+    pub fn transform_at(&self, time: Rational) -> Transform {
+        match &self.animation {
+            Some(animation) => animation.transform_at(self.transform, self.fraction_at(time)),
+            None => self.transform,
+        }
+    }
+
+    /// The opacity at `time`, before the fade ramps: the clip's own, scaled
+    /// by its animation.
+    pub fn opacity_at(&self, time: Rational) -> f32 {
+        match &self.animation {
+            Some(animation) => animation.opacity_at(self.opacity, self.fraction_at(time)),
+            None => self.opacity,
         }
     }
 

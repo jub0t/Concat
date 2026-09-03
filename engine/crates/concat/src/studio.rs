@@ -643,6 +643,40 @@ fn format_of(unit: &str) -> ParamFormat {
     }
 }
 
+/// The menu row of a slot's animation: -1 for none.
+fn slot_index(
+    slot: concat_project::model::AnimationSlot,
+    set: &Option<concat_project::model::ClipAnimation>,
+) -> i32 {
+    set.as_ref()
+        .and_then(|set| concat_project::animation::index_of(slot, &set.preset))
+        .map(|index| index as i32)
+        .unwrap_or(-1)
+}
+
+/// A slot set from its menu row: -1 takes it off, else the row's shape at
+/// the length already set or `seconds`.
+fn set_slot(
+    slot: concat_project::model::AnimationSlot,
+    field: &mut Option<concat_project::model::ClipAnimation>,
+    row: f64,
+    seconds: f64,
+) {
+    if row < 0.0 {
+        *field = None;
+        return;
+    }
+    let names = concat_project::animation::names(slot);
+    let Some(name) = names.get(row as usize) else {
+        return;
+    };
+    let duration = field.as_ref().map(|set| set.duration).unwrap_or(seconds);
+    *field = Some(concat_project::model::ClipAnimation {
+        preset: (*name).to_owned(),
+        duration,
+    });
+}
+
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
 
@@ -2138,6 +2172,34 @@ impl Studio {
             }
             ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
             ClipField::Reverse => clip.reverse = value != 0.0,
+            ClipField::AnimIn => set_slot(
+                concat_project::model::AnimationSlot::In,
+                &mut clip.animation_in,
+                value,
+                0.5,
+            ),
+            ClipField::AnimOut => set_slot(
+                concat_project::model::AnimationSlot::Out,
+                &mut clip.animation_out,
+                value,
+                0.5,
+            ),
+            ClipField::AnimCombo => set_slot(
+                concat_project::model::AnimationSlot::Combo,
+                &mut clip.animation_combo,
+                value,
+                clip.duration,
+            ),
+            ClipField::AnimInDuration => {
+                if let Some(set) = clip.animation_in.as_mut() {
+                    set.duration = value.clamp(0.05, 60.0);
+                }
+            }
+            ClipField::AnimOutDuration => {
+                if let Some(set) = clip.animation_out.as_mut() {
+                    set.duration = value.clamp(0.05, 60.0);
+                }
+            }
             ClipField::SpeedCurve => {
                 // The same arithmetic as the command: the source covered is
                 // held, so the length follows the curve's mean.
@@ -2294,6 +2356,31 @@ impl Studio {
         if after.reverse != before.reverse {
             patch.reverse = Some(after.reverse);
         }
+        for (slot, now, was) in [
+            (
+                concat_project::model::AnimationSlot::In,
+                &after.animation_in,
+                &before.animation_in,
+            ),
+            (
+                concat_project::model::AnimationSlot::Out,
+                &after.animation_out,
+                &before.animation_out,
+            ),
+            (
+                concat_project::model::AnimationSlot::Combo,
+                &after.animation_combo,
+                &before.animation_combo,
+            ),
+        ] {
+            if now != was {
+                commands.push(Command::SetClipAnimation {
+                    clip_id: id.clone(),
+                    slot,
+                    animation: now.clone(),
+                });
+            }
+        }
         if after.text != before.text {
             patch.text = Some(after.text.clone());
         }
@@ -2379,12 +2466,28 @@ impl Studio {
                 None => (clip.scale, clip.scale),
             }
         };
-        Footprint {
-            cx: 0.5 + clip.offset_x,
-            cy: 0.5 + clip.offset_y,
-            w,
-            h,
+        // The placement at the playhead: the clip's own, moved by its
+        // animation, so the box follows a slide or a spin.
+        let base = concat_core::timeline::Transform {
+            scale: clip.scale,
+            offset_x: clip.offset_x,
+            offset_y: clip.offset_y,
             rotation: clip.rotation,
+        };
+        let placed = match concat_project::animation::animation_of(clip) {
+            Some(animation) if clip.duration > 0.0 => {
+                let x = ((f64::from(self.playhead) - clip.start) / clip.duration).clamp(0.0, 1.0);
+                animation.transform_at(base, x)
+            }
+            _ => base,
+        };
+        let factor = placed.scale / clip.scale.max(1e-6);
+        Footprint {
+            cx: 0.5 + placed.offset_x,
+            cy: 0.5 + placed.offset_y,
+            w: w * factor,
+            h: h * factor,
+            rotation: placed.rotation,
         }
     }
 
@@ -3706,6 +3809,25 @@ impl Studio {
                     .unwrap_or(concat_project::speed::PRESETS.len() as i32),
             },
             reverse: clip.reverse,
+            anim_in: slot_index(concat_project::model::AnimationSlot::In, &clip.animation_in),
+            anim_out: slot_index(
+                concat_project::model::AnimationSlot::Out,
+                &clip.animation_out,
+            ),
+            anim_combo: slot_index(
+                concat_project::model::AnimationSlot::Combo,
+                &clip.animation_combo,
+            ),
+            anim_in_duration: clip
+                .animation_in
+                .as_ref()
+                .map(|set| set.duration as f32)
+                .unwrap_or(0.5),
+            anim_out_duration: clip
+                .animation_out
+                .as_ref()
+                .map(|set| set.duration as f32)
+                .unwrap_or(0.5),
             fade_in: clip.fade_in as f32,
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),

@@ -87,8 +87,8 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             speed: clip.speed,
             // The fade ramp multiplies in here, so the compositor only ever
             // sees a per-frame opacity - it has no idea fades exist.
-            opacity: (clip.opacity * clip.video_fade_factor(time)).clamp(0.0, 1.0),
-            transform: clip.transform,
+            opacity: (clip.opacity_at(time) * clip.video_fade_factor(time)).clamp(0.0, 1.0),
+            transform: clip.transform_at(time),
             paced: clip.is_paced(),
         });
     }

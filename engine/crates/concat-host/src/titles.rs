@@ -112,6 +112,7 @@ impl Titles {
                     preserve_pitch: true,
                     speed_curve: Vec::new(),
                     reverse: false,
+                    animation: concat_export::flatten::export_keys(clip),
                     scale: clip.scale,
                     offset_x: clip.offset_x,
                     offset_y: clip.offset_y,

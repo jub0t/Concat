@@ -139,6 +139,30 @@ fn yes() -> bool {
     true
 }
 
+/// Which end of a clip an animation belongs to, or the whole of it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnimationSlot {
+    /// The first seconds.
+    In,
+    /// The last seconds.
+    Out,
+    /// The whole clip.
+    Combo,
+}
+
+/// A named animation on one slot. The keys are made from the name for the
+/// clip's current length whenever they are needed; see the `animation`
+/// module.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipAnimation {
+    /// The shape's name, e.g. "Fade".
+    pub preset: String,
+    /// Seconds the shape takes, for In and Out; ignored by a Combo.
+    pub duration: f64,
+}
+
 /// One point of a speed curve.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,6 +313,15 @@ pub struct Clip {
     /// Played backwards.
     #[serde(default, skip_serializing_if = "is_false")]
     pub reverse: bool,
+    /// How the clip comes in: a named shape over its first seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation_in: Option<ClipAnimation>,
+    /// How it goes out: a named shape over its last seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation_out: Option<ClipAnimation>,
+    /// A shape over its whole length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation_combo: Option<ClipAnimation>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
