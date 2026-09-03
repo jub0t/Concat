@@ -33,28 +33,27 @@ pub fn os_description() -> String {
     {
         // The distribution's own name for itself, which is what a report
         // wants; the kernel version is the next question, not the first.
-        if let Ok(release) = std::fs::read_to_string("/etc/os-release") {
-            if let Some(pretty) = release
-                .lines()
-                .find_map(|line| line.strip_prefix("PRETTY_NAME="))
-                .map(|value| value.trim_matches('"'))
-                .filter(|value| !value.is_empty())
-            {
-                return pretty.to_owned();
-            }
-        }
-        return "Linux".into();
+        let pretty = std::fs::read_to_string("/etc/os-release")
+            .ok()
+            .and_then(|release| {
+                release
+                    .lines()
+                    .find_map(|line| line.strip_prefix("PRETTY_NAME="))
+                    .map(|value| value.trim_matches('"').to_owned())
+            })
+            .filter(|value| !value.is_empty());
+        pretty.unwrap_or_else(|| "Linux".into())
     }
     #[cfg(target_os = "windows")]
     {
-        return std::process::Command::new("cmd")
+        std::process::Command::new("cmd")
             .args(["/c", "ver"])
             .output()
             .ok()
             .filter(|out| out.status.success())
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
             .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Windows".into());
+            .unwrap_or_else(|| "Windows".into())
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
