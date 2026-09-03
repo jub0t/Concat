@@ -19,3 +19,6 @@ unit = "%"
 
 [ffmpeg]
 chain = "vignette=angle={fixed(0.25 + (strength / 100) * 1.05, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -30,10 +30,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use concat_core::SpeedCurve;
 use concat_core::animate::Animation;
 use concat_core::frame::Frame;
+use concat_core::shader::ShaderPass;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
+use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource};
+use concat_project::model::AppliedFilter;
 use concat_render::{Compositor, CpuCompositor, Layer, Placement, plan_frame};
 use serde::Deserialize;
 
@@ -123,6 +126,16 @@ pub struct ExportClip {
     /// is fitted; absent for none.
     #[serde(default)]
     pub crop: Option<[f64; 4]>,
+    /// The clip's applied effects, as the document holds them. When present
+    /// they take precedence over `video_filter_chain`: the renderer builds
+    /// the chain for its own backend from them, and runs the ones with
+    /// shaders on the GPU.
+    #[serde(default)]
+    pub effects: Vec<AppliedFilter>,
+    /// The fades transition resolution bakes in, kept apart from the effects
+    /// so either can be rebuilt without the other.
+    #[serde(skip)]
+    pub transition_chain: String,
     /// Multiplier over the fitted size. 1 fills the frame, preserving aspect.
     #[serde(default = "unity")]
     pub scale: f64,
@@ -345,7 +358,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
                     let frames = ((half.min(a.duration) * fps).round() as i64).max(1);
                     let total = (a.duration * fps).round() as i64;
                     append_filter(
-                        &mut a.video_filter_chain,
+                        &mut a.transition_chain,
                         &format!(
                             "fade=t=out:start_frame={}:nb_frames={frames}{colour}",
                             (total - frames).max(0)
@@ -356,7 +369,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
                     let b = &mut clips[cut.incoming];
                     let frames = ((half.min(b.duration) * fps).round() as i64).max(1);
                     append_filter(
-                        &mut b.video_filter_chain,
+                        &mut b.transition_chain,
                         &format!("fade=t=in:start_frame=0:nb_frames={frames}{colour}"),
                     );
                 }
@@ -546,6 +559,18 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
         .collect()
 }
 
+/// One decoded picture on its way to the compositor, with everything the
+/// layer it becomes needs. Generic over how the frame is held: owned in the
+/// export, shared out of the reader pool in the monitor.
+struct Source<F> {
+    frame: F,
+    opacity: f32,
+    transform: Transform,
+    track: usize,
+    blend: concat_core::timeline::Blend,
+    passes: Vec<ShaderPass>,
+}
+
 /// The fraction-to-pixel placement of one composited layer: fitted and
 /// centred is the base, the clip's transform moves it from there. The one
 /// definition the exporter and the preview share - these two paths must
@@ -579,12 +604,12 @@ fn place_layer<'a>(
 /// The best compositor this machine offers: the GPU when the `gpu` feature is
 /// on and the machine has one, the CPU reference otherwise. Never an error -
 /// a machine with no adapter renders slower, not not-at-all.
-fn best_compositor() -> Box<dyn Compositor> {
+fn best_compositor() -> (Box<dyn Compositor>, bool) {
     #[cfg(feature = "gpu")]
     if let Some(gpu) = concat_render::WgpuCompositor::new() {
-        return Box::new(gpu);
+        return (Box::new(gpu), true);
     }
-    Box::new(CpuCompositor)
+    (Box::new(CpuCompositor), false)
 }
 
 /// Composites every frame of the timeline into a soundless video file.
@@ -596,6 +621,7 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
+    let (mut compositor, gpu) = best_compositor();
     let BuiltTimeline {
         timeline,
         stills,
@@ -604,7 +630,8 @@ fn render_picture(
         tracks,
         treatments,
         pre_chains,
-    } = build_timeline(request, rate, visible);
+        passes,
+    } = build_timeline(request, rate, visible, gpu);
 
     let mut encoder = Encoder::create(
         destination,
@@ -618,8 +645,6 @@ fn render_picture(
         },
     )
     .map_err(|error| error.to_string())?;
-
-    let mut compositor = best_compositor();
 
     // One decoder per clip, opened at its in-point the first time the clip is
     // needed and dropped the moment it leaves the playhead. Every decoder is
@@ -638,8 +663,7 @@ fn render_picture(
         let time = rate.time_of_frame(index);
         let plan = plan_frame(&timeline, time);
 
-        let mut sources: Vec<(Frame, f32, Transform, usize, concat_core::timeline::Blend)> =
-            Vec::with_capacity(plan.layers.len());
+        let mut sources: Vec<Source<Frame>> = Vec::with_capacity(plan.layers.len());
         for layer in &plan.layers {
             if !layer.paced {
                 let (decode_width, decode_height) = decode_sizes
@@ -657,14 +681,14 @@ fn render_picture(
                     chain,
                     pre,
                 ) {
-                    let track = tracks.get(&layer.clip).copied().unwrap_or(0);
-                    sources.push((
-                        frame.as_ref().clone(),
-                        layer.opacity,
-                        layer.transform,
-                        track,
-                        layer.blend,
-                    ));
+                    sources.push(Source {
+                        frame: frame.as_ref().clone(),
+                        opacity: layer.opacity,
+                        transform: layer.transform,
+                        track: tracks.get(&layer.clip).copied().unwrap_or(0),
+                        blend: layer.blend,
+                        passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                    });
                 }
                 continue;
             }
@@ -721,18 +745,33 @@ fn render_picture(
             // aborting the export - a clip trimmed past its media's end is a
             // mistake in the edit, not a failure of the renderer.
             if let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
-                let track = tracks.get(&layer.clip).copied().unwrap_or(0);
-                sources.push((frame, layer.opacity, layer.transform, track, layer.blend));
+                sources.push(Source {
+                    frame,
+                    opacity: layer.opacity,
+                    transform: layer.transform,
+                    track: tracks.get(&layer.clip).copied().unwrap_or(0),
+                    blend: layer.blend,
+                    passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                });
             }
         }
 
+        let seconds = time.as_f64() as f32;
         let layers: Vec<(Layer<'_>, usize)> = sources
             .iter()
-            .map(|(frame, opacity, transform, track, blend)| {
+            .map(|source| {
                 (
-                    place_layer(frame, *opacity, transform, request.width, request.height)
-                        .with_blend(*blend),
-                    *track,
+                    place_layer(
+                        &source.frame,
+                        source.opacity,
+                        &source.transform,
+                        request.width,
+                        request.height,
+                    )
+                    .with_blend(source.blend)
+                    .with_passes(&source.passes)
+                    .at_time(seconds),
+                    source.track,
                 )
             })
             .collect();
@@ -776,6 +815,8 @@ struct BuiltTimeline {
     tracks: HashMap<ClipId, usize>,
     /// The clip's pre-fit chain - its crop - where it has one.
     pre_chains: HashMap<ClipId, String>,
+    /// The clip's shader passes, on a GPU renderer.
+    passes: HashMap<ClipId, Vec<ShaderPass>>,
     /// The layers: treatments over the stack, by span.
     treatments: Vec<Treatment>,
 }
@@ -788,6 +829,9 @@ struct Treatment {
     end: Rational,
     track: usize,
     chain: String,
+    /// The layer's shader passes, when the renderer runs them; the chain is
+    /// then whatever the GPU cannot.
+    passes: Vec<ShaderPass>,
     strength: f32,
     ramp_in: f64,
     ramp_out: f64,
@@ -863,7 +907,22 @@ fn composite_treated(
         let treated = if strength <= 0.0 {
             below
         } else {
-            match concat_media::treat(&below, &treatment.chain) {
+            // Shader passes run through the compositor over the ground as a
+            // layer of its own; whatever is left for FFmpeg runs after.
+            let shaded = if treatment.passes.is_empty() {
+                below.clone()
+            } else {
+                let ground = [Layer::new(&below)
+                    .with_passes(&treatment.passes)
+                    .at_time(time.as_f64() as f32)];
+                compositor.composite(width, height, &ground)
+            };
+            let result = if treatment.chain.is_empty() {
+                Ok(shaded)
+            } else {
+                concat_media::treat(&shaded, &treatment.chain)
+            };
+            match result {
                 Ok(treated) if strength >= 1.0 => treated,
                 Ok(treated) => mix(&below, &treated, strength),
                 // A chain FFmpeg refuses leaves the picture as it was
@@ -884,6 +943,7 @@ fn build_timeline(
     request: &ExportRequest,
     rate: FrameRate,
     visible: &[&ExportClip],
+    gpu: bool,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     let mut stills = std::collections::HashSet::new();
@@ -892,6 +952,7 @@ fn build_timeline(
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
+    let mut passes: HashMap<ClipId, Vec<ShaderPass>> = HashMap::new();
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
     let tracks: Vec<_> = (0..lanes)
@@ -911,12 +972,15 @@ fn build_timeline(
         // A layer has no pixels to decode: it is a treatment over the
         // stack, kept beside the timeline rather than in it.
         if clip.kind == ClipKind::Layer {
-            if !clip.video_filter_chain.is_empty() {
+            let chain = full_chain(clip, gpu);
+            let layer_passes = if gpu { shader_passes(clip) } else { Vec::new() };
+            if !chain.is_empty() || !layer_passes.is_empty() {
                 treatments.push(Treatment {
                     start,
                     end: start + duration,
                     track: clip.track,
-                    chain: clip.video_filter_chain.clone(),
+                    chain,
+                    passes: layer_passes,
                     strength: clip.opacity.clamp(0.0, 1.0) as f32,
                     ramp_in: clip.fade_in.max(0.0),
                     ramp_out: clip.fade_out.max(0.0),
@@ -956,13 +1020,19 @@ fn build_timeline(
             if let Some(size) = fitted_size(request, clip) {
                 decode_sizes.insert(id, size);
             }
-            let chain = full_chain(clip);
+            let chain = full_chain(clip, gpu);
             if !chain.is_empty() {
                 filter_chains.insert(id, chain);
             }
             let pre = pre_chain(clip);
             if !pre.is_empty() {
                 pre_chains.insert(id, pre);
+            }
+            if gpu {
+                let clip_passes = shader_passes(clip);
+                if !clip_passes.is_empty() {
+                    passes.insert(id, clip_passes);
+                }
             }
         }
     }
@@ -975,6 +1045,7 @@ fn build_timeline(
         tracks: tracks_of,
         treatments,
         pre_chains,
+        passes,
     }
 }
 
@@ -995,21 +1066,38 @@ fn pre_chain(clip: &ExportClip) -> String {
     }
 }
 
-/// The clip's effect chain with its flips in front: a flip is a treatment
-/// of the picture like any other, and comes first so the effects see the
-/// picture the viewer will.
-fn full_chain(clip: &ExportClip) -> String {
-    let mut parts: Vec<&str> = Vec::new();
+/// The clip's FFmpeg chain for one backend: flips first - a flip is a
+/// treatment of the picture like any other, and comes first so the effects
+/// see the picture the viewer will - then the effects this backend runs as
+/// chains, then the transition fades. On the GPU every effect with a shader
+/// is left out here and carried by [`shader_passes`] instead.
+fn full_chain(clip: &ExportClip, gpu: bool) -> String {
+    let mut parts: Vec<String> = Vec::new();
     if clip.flip_h {
-        parts.push("hflip");
+        parts.push("hflip".to_owned());
     }
     if clip.flip_v {
-        parts.push("vflip");
+        parts.push("vflip".to_owned());
     }
-    if !clip.video_filter_chain.is_empty() {
-        parts.push(&clip.video_filter_chain);
+    let effects = if clip.effects.is_empty() {
+        clip.video_filter_chain.clone()
+    } else if gpu {
+        Catalogue::builtin().video_chain_gpu(&clip.effects)
+    } else {
+        Catalogue::builtin().video_chain(&clip.effects)
+    };
+    if !effects.is_empty() {
+        parts.push(effects);
+    }
+    if !clip.transition_chain.is_empty() {
+        parts.push(clip.transition_chain.clone());
     }
     parts.join(",")
+}
+
+/// The clip's shader passes, for a renderer that runs them.
+fn shader_passes(clip: &ExportClip) -> Vec<ShaderPass> {
+    Catalogue::builtin().shader_passes(&clip.effects)
 }
 
 /// The engine's keys for a flattened clip's animation, or None for none.
@@ -1112,7 +1200,7 @@ pub fn preview_frame(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
-    let sources = preview_sources(pool, request)?;
+    let sources = preview_sources(pool, request, false)?;
     // CPU on purpose: one frame at preview size is milliseconds, and holding
     // a GPU context alive for occasional scrubs is not worth its memory. The
     // window composites on its own device through `preview_sources`.
@@ -1123,13 +1211,7 @@ pub fn preview_frame(
 /// compositor needs to draw the paused monitor's frame, decoded but not yet
 /// drawn, so a caller with a GPU can draw them where they are shown.
 pub struct PreviewSources {
-    sources: Vec<(
-        std::sync::Arc<Frame>,
-        f32,
-        Transform,
-        usize,
-        concat_core::timeline::Blend,
-    )>,
+    sources: Vec<Source<std::sync::Arc<Frame>>>,
     width: u32,
     height: u32,
     time: Rational,
@@ -1141,11 +1223,20 @@ impl PreviewSources {
     /// caller drawing these itself is skipping the treatments, so check
     /// [`PreviewSources::has_treatments`] first.
     pub fn layers(&self) -> Vec<Layer<'_>> {
+        let seconds = self.time.as_f64() as f32;
         self.sources
             .iter()
-            .map(|(frame, opacity, transform, _, blend)| {
-                place_layer(frame.as_ref(), *opacity, transform, self.width, self.height)
-                    .with_blend(*blend)
+            .map(|source| {
+                place_layer(
+                    source.frame.as_ref(),
+                    source.opacity,
+                    &source.transform,
+                    self.width,
+                    self.height,
+                )
+                .with_blend(source.blend)
+                .with_passes(&source.passes)
+                .at_time(seconds)
             })
             .collect()
     }
@@ -1163,11 +1254,19 @@ impl PreviewSources {
         let placed: Vec<(Layer<'_>, usize)> = self
             .sources
             .iter()
-            .map(|(frame, opacity, transform, track, blend)| {
+            .map(|source| {
                 (
-                    place_layer(frame.as_ref(), *opacity, transform, self.width, self.height)
-                        .with_blend(*blend),
-                    *track,
+                    place_layer(
+                        source.frame.as_ref(),
+                        source.opacity,
+                        &source.transform,
+                        self.width,
+                        self.height,
+                    )
+                    .with_blend(source.blend)
+                    .with_passes(&source.passes)
+                    .at_time(self.time.as_f64() as f32),
+                    source.track,
                 )
             })
             .collect();
@@ -1198,6 +1297,7 @@ impl PreviewSources {
 pub fn preview_sources(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
+    gpu: bool,
 ) -> Result<PreviewSources, String> {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
     let BuiltTimeline {
@@ -1208,17 +1308,12 @@ pub fn preview_sources(
         tracks,
         treatments,
         pre_chains,
-    } = preview_timeline(request, rate);
+        passes,
+    } = preview_timeline(request, rate, gpu);
     let time = quantise(request.time, rate);
     let plan = plan_frame(&timeline, time);
 
-    let mut sources: Vec<(
-        std::sync::Arc<Frame>,
-        f32,
-        Transform,
-        usize,
-        concat_core::timeline::Blend,
-    )> = Vec::with_capacity(plan.layers.len());
+    let mut sources: Vec<Source<std::sync::Arc<Frame>>> = Vec::with_capacity(plan.layers.len());
     let mut failures: Vec<String> = Vec::new();
     for layer in &plan.layers {
         let (decode_width, decode_height) = decode_sizes
@@ -1238,13 +1333,14 @@ pub fn preview_sources(
             chain,
             pre,
         ) {
-            Ok(frame) => sources.push((
+            Ok(frame) => sources.push(Source {
                 frame,
-                layer.opacity,
-                layer.transform,
-                tracks.get(&layer.clip).copied().unwrap_or(0),
-                layer.blend,
-            )),
+                opacity: layer.opacity,
+                transform: layer.transform,
+                track: tracks.get(&layer.clip).copied().unwrap_or(0),
+                blend: layer.blend,
+                passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+            }),
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
         }
     }
@@ -1270,7 +1366,7 @@ pub fn preview_sources(
 }
 
 /// The preview's timeline, built the exporter's way.
-fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate) -> BuiltTimeline {
+fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate, gpu: bool) -> BuiltTimeline {
     let mut resolved = request.clips.clone();
     resolve_transitions(&mut resolved, rate, false);
     let visible: Vec<&ExportClip> = resolved
@@ -1290,7 +1386,7 @@ fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate) -> BuiltTime
         preset: String::new(),
         clips: Vec::new(),
     };
-    build_timeline(&shim, rate, &visible)
+    build_timeline(&shim, rate, &visible, gpu)
 }
 
 /// Warms the reader pool for the frames about to be presented.
@@ -1308,6 +1404,7 @@ pub fn preview_prefetch(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
     frames: u32,
+    gpu: bool,
 ) {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
     let BuiltTimeline {
@@ -1317,7 +1414,7 @@ pub fn preview_prefetch(
         filter_chains,
         pre_chains,
         ..
-    } = preview_timeline(request, rate);
+    } = preview_timeline(request, rate, gpu);
     let fps = rate.fps().as_f64();
 
     for ahead in 0..frames {
@@ -1366,6 +1463,7 @@ mod tests {
             end: Rational::from_int(10),
             track: 1,
             chain: "negate".to_owned(),
+            passes: Vec::new(),
             strength: 1.0,
             ramp_in: 0.0,
             ramp_out: 0.0,
@@ -1447,6 +1545,8 @@ mod tests {
             flip_v: false,
             blend: String::new(),
             crop: None,
+            effects: Vec::new(),
+            transition_chain: String::new(),
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,
@@ -1621,11 +1721,11 @@ mod tests {
 
         // Half a second each side at 30fps is 15 frames.
         assert_eq!(
-            clips[0].video_filter_chain,
+            clips[0].transition_chain,
             "fade=t=out:start_frame=105:nb_frames=15"
         );
         assert_eq!(
-            clips[1].video_filter_chain,
+            clips[1].transition_chain,
             "fade=t=in:start_frame=0:nb_frames=15"
         );
         assert_eq!(clips[1].start, 4.0, "nothing moves for an edge fade");
@@ -1639,8 +1739,8 @@ mod tests {
         ];
         clips[1].transition = spec("fade-white", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        assert!(clips[0].video_filter_chain.ends_with(":color=white"));
-        assert!(clips[1].video_filter_chain.contains("t=in"));
+        assert!(clips[0].transition_chain.ends_with(":color=white"));
+        assert!(clips[1].transition_chain.contains("t=in"));
     }
 
     #[test]
@@ -1652,11 +1752,10 @@ mod tests {
         clips[1].video_filter_chain = "hue=s=0".to_owned();
         clips[1].transition = spec("fade-black", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        assert!(
-            clips[1].video_filter_chain.starts_with("hue=s=0,fade=t=in"),
-            "was: {}",
-            clips[1].video_filter_chain
-        );
+        // The fade lives beside the effects and joins after them when the
+        // decoder's chain is built.
+        let chain = full_chain(&clips[1], false);
+        assert!(chain.starts_with("hue=s=0,fade=t=in"), "was: {chain}");
     }
 
     #[test]

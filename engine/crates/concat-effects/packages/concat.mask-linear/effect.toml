@@ -39,3 +39,6 @@ let = [
   "soft = feather / 100",
 ]
 chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs({round(invert)}-clip((W*{fixed(edge, 4)}+W*{fixed(soft, 4)}/2-X)/(W*{fixed(soft, 4)}+0.5),0,1))'"
+
+[wgsl]
+entry = "effect.wgsl"

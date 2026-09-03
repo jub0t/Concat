@@ -9,3 +9,6 @@ description = "Every colour becomes its opposite."
 
 [ffmpeg]
 chain = "negate"
+
+[wgsl]
+entry = "effect.wgsl"

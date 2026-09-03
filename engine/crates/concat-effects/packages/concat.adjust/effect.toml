@@ -118,3 +118,6 @@ let = [
   "high = clamp(0.75 + highlights / 100 * 0.18, 0.55, 0.95)",
 ]
 chain = "exposure=exposure={fixed(exposure, 2)},eq=brightness={fixed(brightness / 100 * 0.5, 3)}:contrast={fixed(1 + contrast / 100, 3)}:saturation={fixed(1 + saturation / 100 * 2, 3)},colortemperature=temperature={round(temperature)},colorbalance=gm={fixed(0 - tint / 100 * 0.5, 3)},curves=all='0/{fixed(lift, 3)} 0.25/{fixed(low, 3)} 0.75/{fixed(high, 3)} 1/1',unsharp=5:5:{fixed(sharpen / 100 * 2, 2)},vignette=a={fixed(vignette / 100 * 1.2, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

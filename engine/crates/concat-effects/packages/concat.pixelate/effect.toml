@@ -20,3 +20,6 @@ unit = "px"
 
 [ffmpeg]
 chain = "pixelize=width={round(size)}:height={round(size)}"
+
+[wgsl]
+entry = "effect.wgsl"

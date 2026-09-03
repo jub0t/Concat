@@ -19,3 +19,6 @@ unit = "px"
 
 [ffmpeg]
 chain = "gblur=sigma={fixed(length, 1)}:sigmaV=0.1"
+
+[wgsl]
+entry = "effect.wgsl"

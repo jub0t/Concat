@@ -294,14 +294,10 @@ impl Manifest {
                 "intensity names `{intensity}`, which is not a parameter"
             )));
         }
-        match (&self.ffmpeg, &self.wgsl) {
-            (None, None) => {
-                return Err(self.invalid("no backend: add an [ffmpeg] or a [wgsl] table"));
-            }
-            (Some(_), Some(_)) => {
-                return Err(self.invalid("two backends: keep one of [ffmpeg] and [wgsl]"));
-            }
-            _ => {}
+        // Both backends may be present: the shader renders wherever there
+        // is a GPU, and the chain is what a machine without one gets.
+        if self.ffmpeg.is_none() && self.wgsl.is_none() {
+            return Err(self.invalid("no backend: add an [ffmpeg] or a [wgsl] table"));
         }
         if self.ffmpeg.is_some() && matches!(self.effect.kind, Kind::Transition | Kind::Generator) {
             return Err(self.invalid("an [ffmpeg] package must be an effect, a filter or audio"));

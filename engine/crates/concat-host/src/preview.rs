@@ -102,7 +102,7 @@ impl Monitor {
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
         let request = Self::request(clips, settings, spec);
-        let sources = concat_export::preview_sources(&self.pool, &request)?;
+        let sources = concat_export::preview_sources(&self.pool, &request, true)?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         if sources.has_treatments() {
             // A layer's chain runs on the CPU, so the frame is drawn there
@@ -157,7 +157,7 @@ impl Monitor {
         frames: u32,
     ) {
         let request = Self::request(clips, settings, spec);
-        concat_export::preview_prefetch(&self.pool, &request, frames.min(8));
+        concat_export::preview_prefetch(&self.pool, &request, frames.min(8), self.has_gpu());
     }
 
     /// Forgets every cached frame and reader, for when the project closes.

@@ -33,3 +33,6 @@ let = [
   "f2 = round(f * 1.3)",
 ]
 chain = "crop=iw-{2 * a}:ih-{2 * a}:{a}+{a}*sin(t*{f}):{a}+{a}*cos(t*{f2})"
+
+[wgsl]
+entry = "effect.wgsl"

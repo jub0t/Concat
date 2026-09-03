@@ -9,3 +9,6 @@ description = "Drops every colour to grey."
 
 [ffmpeg]
 chain = "hue=s=0"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -22,3 +22,6 @@ let = [
   "k = strength / 100",
 ]
 chain = "lenscorrection=k1={fixed(-0.55 * k, 3)}:k2={fixed(-0.2 * k, 3)}:i=bilinear"
+
+[wgsl]
+entry = "effect.wgsl"

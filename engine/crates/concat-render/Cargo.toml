@@ -16,5 +16,10 @@ concat-core.workspace = true
 wgpu = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 
+[dev-dependencies]
+# The pass test compiles a real package shader through the catalogue's
+# stitching, so what the test runs is what a package would run.
+concat-effects.workspace = true
+
 [lints]
 workspace = true

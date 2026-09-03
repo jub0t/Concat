@@ -19,3 +19,6 @@ unit = "K"
 
 [ffmpeg]
 chain = "colortemperature=temperature={round(temperature)}"
+
+[wgsl]
+entry = "effect.wgsl"

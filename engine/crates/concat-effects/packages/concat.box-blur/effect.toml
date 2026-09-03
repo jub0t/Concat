@@ -20,3 +20,6 @@ unit = "px"
 
 [ffmpeg]
 chain = "boxblur={round(radius)}:1"
+
+[wgsl]
+entry = "effect.wgsl"

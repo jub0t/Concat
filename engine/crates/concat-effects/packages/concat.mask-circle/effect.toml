@@ -59,3 +59,6 @@ let = [
   "py = y / 100",
 ]
 chain = "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*abs({round(invert)}-clip(({fixed(radius, 4)}*min(W,H)+{fixed(soft, 4)}*min(W,H)/2-hypot(X-W*{fixed(px, 4)},Y-H*{fixed(py, 4)}))/({fixed(soft, 4)}*min(W,H)+0.5),0,1))'"
+
+[wgsl]
+entry = "effect.wgsl"

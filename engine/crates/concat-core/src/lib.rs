@@ -20,10 +20,12 @@ pub mod animate;
 pub mod arena;
 pub mod frame;
 pub mod retime;
+pub mod shader;
 pub mod time;
 pub mod timeline;
 
 pub use frame::Frame;
 pub use retime::SpeedCurve;
+pub use shader::ShaderPass;
 pub use time::{FrameRate, Rational, TimeRange};
 pub use timeline::{Blend, Clip, ClipId, Project, Timeline, Track, TrackId, TrackKind};

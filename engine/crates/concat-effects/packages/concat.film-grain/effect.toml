@@ -19,3 +19,6 @@ step = 1
 
 [ffmpeg]
 chain = "noise=alls={round(amount)}:allf=t+u"
+
+[wgsl]
+entry = "effect.wgsl"

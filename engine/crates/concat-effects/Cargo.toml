@@ -8,7 +8,11 @@ description = "Effect packages: the catalogue of video effects, audio filters, t
 
 [dependencies]
 concat-project.workspace = true
+concat-core.workspace = true
 serde = { version = "1", features = ["derive"] }
+# Shaders are parsed and checked at load, and their `Params` struct read
+# for its layout, with the same front end the renderer's wgpu uses.
+naga = { version = "29", features = ["wgsl-in"] }
 thiserror.workspace = true
 # Manifests are TOML: the format people hand-write. Project files stay JSON.
 toml = "1.1"

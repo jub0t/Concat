@@ -117,6 +117,8 @@ impl Titles {
                     flip_v: clip.flip_v,
                     blend: clip.blend.clone(),
                     crop: None,
+                    effects: clip.video_effects.clone(),
+                    transition_chain: String::new(),
                     scale: clip.scale,
                     offset_x: clip.offset_x,
                     offset_y: clip.offset_y,

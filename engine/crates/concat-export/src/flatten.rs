@@ -65,6 +65,8 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     flip_v: false,
                     blend: String::new(),
                     crop: None,
+                    effects: clip.video_effects.clone(),
+                    transition_chain: String::new(),
                     scale: 1.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
@@ -119,6 +121,8 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     .crop
                     .filter(|crop| !crop.is_none())
                     .map(|crop| [crop.left, crop.top, crop.right, crop.bottom]),
+                effects: clip.video_effects.clone(),
+                transition_chain: String::new(),
                 scale: clip.scale,
                 offset_x: clip.offset_x,
                 offset_y: clip.offset_y,

@@ -17,7 +17,10 @@ use serde::Deserialize;
 
 use crate::Error;
 use crate::expr::{Expr, Value};
+use concat_core::ShaderPass;
+
 use crate::manifest::{Kind, Manifest};
+use crate::shader::Shader;
 use crate::template::Template;
 
 /// A compiled FFmpeg backend.
@@ -67,6 +70,9 @@ pub struct Package {
     /// What the package declares.
     pub manifest: Manifest,
     chain: Option<Chain>,
+    /// The shader, when the package has one: the GPU renders it, and the
+    /// chain - if the package has that too - is the CPU's fallback.
+    shader: Option<Shader>,
     /// The pinned outputs shipped with the package.
     pub fixtures: Vec<Fixture>,
 }
@@ -114,13 +120,43 @@ struct FixtureFile {
 
 impl Package {
     /// Compiles a package from the text of its manifest and, if it ships
-    /// one, its fixtures file.
-    pub fn from_sources(manifest: &str, fixtures: Option<&str>) -> Result<Package, Error> {
+    /// them, its fixtures file and its shader.
+    pub fn from_sources(
+        manifest: &str,
+        fixtures: Option<&str>,
+        shader: Option<&str>,
+    ) -> Result<Package, Error> {
         let manifest = Manifest::parse(manifest)?;
         let invalid = |message: String| Error::Invalid {
             id: manifest.effect.id.clone(),
             message,
         };
+
+        // A `[wgsl]` table without the file, or the file without the table,
+        // is a package that does not know what it is.
+        let shader = match (&manifest.wgsl, shader) {
+            (Some(_), Some(body)) => Some(
+                Shader::compile(&manifest, body)
+                    .map_err(|message| invalid(format!("shader: {message}")))?,
+            ),
+            (Some(wgsl), None) => {
+                return Err(invalid(format!(
+                    "[wgsl] names `{}` but no shader was given",
+                    wgsl.entry
+                )));
+            }
+            (None, Some(_)) => {
+                return Err(invalid(
+                    "a shader was given but the manifest has no [wgsl] table".to_owned(),
+                ));
+            }
+            (None, None) => None,
+        };
+        if shader.is_none() && manifest.ffmpeg.is_none() && manifest.effect.kind != Kind::Audio {
+            return Err(invalid(
+                "the package has neither a shader nor a chain".to_owned(),
+            ));
+        }
 
         let chain = match &manifest.ffmpeg {
             None => None,
@@ -174,6 +210,7 @@ impl Package {
         let package = Package {
             manifest,
             chain,
+            shader,
             fixtures,
         };
         // Render at every bound now, so a type error in an expression is a
@@ -199,6 +236,11 @@ impl Package {
     /// Which catalogue the package belongs to.
     pub fn kind(&self) -> Kind {
         self.manifest.effect.kind
+    }
+
+    /// The shader, when the package renders on the GPU.
+    pub fn shader(&self) -> Option<&Shader> {
+        self.shader.as_ref()
     }
 
     /// Whether `id` is this package's id or one of its aliases.
@@ -327,8 +369,8 @@ impl Catalogue {
         static BUILTIN: OnceLock<Catalogue> = OnceLock::new();
         BUILTIN.get_or_init(|| {
             let mut catalogue = Catalogue::new();
-            for (folder, manifest, fixtures) in crate::builtins::BUILTIN_SOURCES {
-                let package = Package::from_sources(manifest, *fixtures)
+            for (folder, manifest, fixtures, shader) in crate::builtins::BUILTIN_SOURCES {
+                let package = Package::from_sources(manifest, *fixtures, *shader)
                     .unwrap_or_else(|error| panic!("built-in package {folder}: {error}"));
                 assert_eq!(
                     package.id(),
@@ -396,7 +438,10 @@ impl Catalogue {
                 }
             };
             let fixtures = read("fixtures.toml").ok();
-            match Package::from_sources(&manifest, fixtures.as_deref()).and_then(|p| self.add(p)) {
+            let shader = read("effect.wgsl").ok();
+            match Package::from_sources(&manifest, fixtures.as_deref(), shader.as_deref())
+                .and_then(|p| self.add(p))
+            {
                 Ok(()) => {}
                 Err(error) => errors.push(error),
             }
@@ -446,14 +491,42 @@ impl Catalogue {
     /// empty string if it has none. Effects apply in the order they were
     /// added.
     pub fn video_chain(&self, effects: &[AppliedFilter]) -> String {
-        self.compose(&[Kind::Effect, Kind::Filter], effects)
+        self.compose(&[Kind::Effect, Kind::Filter], effects, false)
+    }
+
+    /// The video chain for a renderer that runs shaders: every package with
+    /// one is left out, because [`Catalogue::shader_passes`] carries it.
+    pub fn video_chain_gpu(&self, effects: &[AppliedFilter]) -> String {
+        self.compose(&[Kind::Effect, Kind::Filter], effects, true)
+    }
+
+    /// The shader passes of a clip's chain, in applied order: one per enabled
+    /// entry whose package has a shader. A filter's intensity rides along;
+    /// an effect is always whole.
+    pub fn shader_passes(&self, effects: &[AppliedFilter]) -> Vec<ShaderPass> {
+        effects
+            .iter()
+            .filter(|applied| applied.enabled)
+            .filter_map(|applied| {
+                let package = self.get(&applied.id)?;
+                let shader = package.shader()?;
+                let intensity = if package.kind() == Kind::Filter {
+                    (applied.params.get(INTENSITY).copied().unwrap_or(100.0) / 100.0)
+                        .clamp(0.0, 1.0) as f32
+                } else {
+                    1.0
+                };
+                let values = package.resolve(&applied.params);
+                Some(shader.pass(&values, &package.manifest.params, intensity))
+            })
+            .collect()
     }
 
     /// The complete FFmpeg audio filter string for a clip's filters, or the
     /// empty string if it has none. Filters apply in the order they were
     /// added: EQ before a limiter is a different sound from the reverse.
     pub fn audio_chain(&self, filters: &[AppliedFilter]) -> String {
-        self.compose(&[Kind::Audio], filters)
+        self.compose(&[Kind::Audio], filters, false)
     }
 
     /// Enabled entries of these `kinds` in applied order, comma-joined. Bypassed
@@ -461,13 +534,16 @@ impl Catalogue {
     /// an FFmpeg backend contribute nothing. The index each fragment is
     /// rendered at is its *emitted* position, so labels stay stable when a
     /// bypassed entry sits earlier in the list.
-    fn compose(&self, kinds: &[Kind], applied: &[AppliedFilter]) -> String {
+    fn compose(&self, kinds: &[Kind], applied: &[AppliedFilter], skip_shaders: bool) -> String {
         let mut fragments: Vec<String> = Vec::new();
         for applied in applied.iter().filter(|applied| applied.enabled) {
             let Some(package) = self.get(&applied.id) else {
                 continue;
             };
             if !kinds.contains(&package.kind()) {
+                continue;
+            }
+            if skip_shaders && package.shader().is_some() {
                 continue;
             }
             match package.ffmpeg_fragment(&applied.params, fragments.len()) {

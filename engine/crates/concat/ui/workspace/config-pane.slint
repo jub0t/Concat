@@ -434,8 +434,9 @@ export component ConfigPane inherits Rectangle {
             }
         }
 
-        // The tab's sections, as a dropdown under the strip. One section
-        // needs no dropdown: the strip already says where you are.
+        // The tab's sections, as a second strip under the first, in the
+        // same segmented style. One section needs no strip: the tab already
+        // says where you are.
         if root.has-selection && root.sections.length > 1: Rectangle {
             height: 40px;
             background: Theme.panel;
@@ -449,23 +450,11 @@ export component ConfigPane inherits Rectangle {
             }
 
             HorizontalLayout {
-                padding-left: Theme.pad;
-                padding-right: Theme.pad;
-                spacing: 8px;
-
-                Text {
-                    text: "Section";
-                    color: Theme.fg-muted;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                }
-
-                Rectangle { horizontal-stretch: 1; }
-
+                padding-left: 8px;
+                padding-right: 8px;
                 VerticalLayout {
                     alignment: center;
-                    Select {
-                        width: 168px;
+                    SegmentedControl {
                         options: root.sections;
                         current: Math.max(0, Math.min(root.section, root.sections.length - 1));
                         changed(index) => { root.pick-section(index); }

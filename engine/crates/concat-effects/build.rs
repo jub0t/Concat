@@ -25,9 +25,9 @@ fn main() {
     ids.sort();
 
     let mut table = String::from(
-        "/// Every built-in package: its folder name, its manifest, and its \
-         fixtures if it has any.\n\
-         pub(crate) static BUILTIN_SOURCES: &[(&str, &str, Option<&str>)] = &[\n",
+        "/// Every built-in package: its folder name, its manifest, its \
+         fixtures if it has any, and its shader if it has one.\n\
+         pub(crate) static BUILTIN_SOURCES: &[(&str, &str, Option<&str>, Option<&str>)] = &[\n",
     );
     for id in &ids {
         let dir = packages.join(id);
@@ -40,9 +40,16 @@ fn main() {
         } else {
             "None".to_owned()
         };
+        let shader = dir.join("effect.wgsl");
+        println!("cargo:rerun-if-changed={}", shader.display());
+        let shader = if shader.is_file() {
+            format!("Some(include_str!({:?}))", shader.display().to_string())
+        } else {
+            "None".to_owned()
+        };
         writeln!(
             table,
-            "    ({id:?}, include_str!({:?}), {fixtures}),",
+            "    ({id:?}, include_str!({:?}), {fixtures}, {shader}),",
             manifest.display().to_string()
         )
         .expect("write");

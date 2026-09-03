@@ -9,6 +9,7 @@
 //! `wgpu` will slot into.
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
+use concat_core::shader::ShaderPass;
 use concat_core::timeline::Blend;
 
 /// A layer's placement beyond its base position, in output pixels.
@@ -65,6 +66,12 @@ pub struct Layer<'a> {
     pub placement: Placement,
     /// How the layer's colour meets the ground.
     pub blend: Blend,
+    /// Shader passes to run over the layer's pixels before it is placed, in
+    /// order. The GPU compositor runs them; the CPU reference cannot, and
+    /// draws the layer untreated.
+    pub passes: &'a [ShaderPass],
+    /// Seconds into the timeline, for passes that move.
+    pub time: f32,
 }
 
 impl<'a> Layer<'a> {
@@ -77,7 +84,21 @@ impl<'a> Layer<'a> {
             y: 0,
             placement: Placement::IDENTITY,
             blend: Blend::Normal,
+            passes: &[],
+            time: 0.0,
         }
+    }
+
+    /// Sets the shader passes to run over the layer first.
+    pub fn with_passes(mut self, passes: &'a [ShaderPass]) -> Self {
+        self.passes = passes;
+        self
+    }
+
+    /// Sets the timeline instant the passes see.
+    pub fn at_time(mut self, time: f32) -> Self {
+        self.time = time;
+        self
     }
 
     /// Sets the blend mode.
