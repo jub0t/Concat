@@ -19,11 +19,11 @@ The dependency arrows point one way: `{concat, cli} -> {media, render} -> core`.
 If you ever find yourself wanting `core` to depend on `media`, something has
 been put in the wrong crate.
 
-`concat` replaces the Tauri + React app in `../desktop`, which is deprecated
-and stays only until this window can do everything it did. The window was
-built in the wc-ui-rnd repository against the same design as the React
-editor; what landed here is the whole UI driven by demo data, and the work
-now is to hand it the engine's real project, preview and export.
+`concat` is the app. The window was built in the wc-ui-rnd repository
+against the same design as the earlier web-based editor, then wired to the
+engine here: it opens project folders through `concat-host`, reads the
+engine's project to draw the bin and the lanes, and writes every edit as a
+`concat-project` command.
 
 ## Build and run
 

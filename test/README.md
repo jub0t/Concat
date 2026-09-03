@@ -43,7 +43,7 @@ file (`face_detection_yunet_*.onnx` from the OpenCV zoo) beside it or via
 
 ## Findings worth keeping
 
-- The `sweet` chain graduated: `desktop/src/lib/filters.ts` and
+- The `sweet` chain graduated: `concat-export`'s catalogue,
   `concat-export::chains` carry it verbatim.
 - `enhance_voice.py`'s stage *order* is the finding: surgical repairs
   (clicks, plosives) must run before the neural pass - networks trained on

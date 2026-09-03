@@ -6,19 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 description = "The edit itself: the project document, its operations, and undo. The engine's ownership of the model."
 
-[features]
-# TypeScript bindings for the wire types, generated straight from these serde
-# structs so the UI cannot drift from the engine. Off by default: normal
-# builds never pay for the generator. Regenerate with
-# `TS_RS_EXPORT_DIR=<abs path to desktop/src/lib/generated> cargo test -p concat-project --features types export_bindings`
-# (see desktop/src/lib/generated/README.md).
-types = ["dep:ts-rs"]
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
-ts-rs = { version = "12", optional = true }
 
 [lints]
 workspace = true

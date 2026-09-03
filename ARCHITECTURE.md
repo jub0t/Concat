@@ -15,7 +15,7 @@ references are current as of this writing.
 flowchart LR
     subgraph WINDOW["engine/crates/concat — the window (Slint)"]
         UI["ui/*.slint<br/>panes, dialogs, primitives"]
-        MAIN["src/main.rs<br/>state, bindings, demo data"]
+        MAIN["src/main.rs · studio.rs<br/>bindings, view state"]
     end
     subgraph HOST["concat-host · concat-speech"]
         SESSION[Session]
@@ -75,7 +75,7 @@ rendering. `concat-media` is the only crate that knows FFmpeg exists.
 | `concat-host` | 3.4k | 22 | Sessions, project folders and recents, media caches beside the project, the monitor's reader pool, the export slot, audio playback, templates, one-at-a-time job slots, app directories. |
 | `concat-speech` | 1.2k | 6 | Transcription (whisper.cpp in-process) and text to speech (Kokoro via sherpa-onnx), with model downloads. |
 | `concat-cli` | 0.2k | 3 | Probe/render vertical slice for testing the engine without the app. |
-| `concat` | 5.0k Rust + 14.9k Slint | 0 | The window. Every pane, dialog and primitive, and - today - a demo model that stands in for the engine. |
+| `concat` | 4.5k Rust + 14.9k Slint | 3 | The window. Every pane, dialog and primitive, bound to the host layer: sessions, imports, gestures as commands, the monitor, playback, export, speech. |
 
 ---
 
@@ -269,43 +269,35 @@ Hybrid pipeline in `concat-export`, unchanged in shape:
 
 ---
 
-## 7. The window, and the wiring that is not done
+## 7. The window
 
 `engine/crates/concat` is the Slint tree ported from the wc-ui-rnd research
 repository: 14.9k lines of `.slint` across the workspace (dockable seats
 holding four views), the timeline (lanes, tabs, track headers, tray), the
 inspector, the media bin, the launch screen, the export and settings sheets,
 menus, tooltips, toasts, and the primitives under them. Fonts and effect
-previews are embedded in the binary. It builds under the workspace's edition
-and lints and it runs.
+previews are embedded in the binary.
 
-What drives it today is `src/main.rs`: 5k lines binding every callback of
-the `Editor` global to a **demo model** - `Studio`, `TimelineDoc`,
-`ClipDoc`, `Library`, `ExportState`, `SettingsState` - with fake media,
-synthetic waveforms and simulated downloads. That model exists so the UI
-could be built and judged before the engine was attached. It is the thing to
-replace, and replacing it is the single largest open item in the codebase.
+The Rust side is small and split by what it owns:
 
-The mapping is direct, which is why it was worth porting the window first:
-
-| Demo state in `main.rs` | Becomes |
+| File | Owns |
 |---|---|
-| `TimelineDoc` / `ClipDoc` / `TrackDoc` | `concat_project::Project` read through `Session::project()`; edits become `Command`s |
-| `Library` (bin rows, counts, filter) | `Project::media` plus `concat_host::media::probe` on import |
-| `wave_path` from a seeded synthesiser | `concat_host::media::peaks` → the same SVG path builder |
-| the empty preview stage | `Monitor::frame` → `slint::Image` |
-| `playing` / `playhead` ticked by a timer | `Playback` and its clock |
-| `ExportState`'s simulated progress | `Exporter` + `export::run` on a thread, progress through `invoke_from_event_loop` |
-| `demo_transcribers` / `demo_voices` | `Transcriber::status` / `Speech::status`, downloads with real progress |
-| `StartState` / `demo_recents` | `projects::create` / `open` / `list` / `forget` |
-| `Dock` layout, gestures, selection, tool, zoom | stay in the window: this is what the UI genuinely owns |
+| `main.rs` | Startup (renderer selection, the services), and one binding per callback the `Editor` global exposes. Every handler is "mutate the state, then republish". |
+| `studio.rs` | The window's state. Reads the engine's `Project` through the open `Session`; writes every edit as a `Command`. Holds what the document does not: selection, playhead, zoom, tool, which lanes are locked, the dock tree, what the sheets show. Publishes it all into Slint's models. |
+| `host.rs` | The engine's services (playback, monitor, exporter, transcriber, speech, app directories) and the bridge from worker threads back to the event loop. |
+| `dock.rs` | The workspace's arrangement as a tree, walked flat for Slint. |
+| `chips.rs` · `format.rs` · `prefs.rs` · `sysinfo.rs` | Drag chips, formatting and the waveform path, remembered preferences, the About block. |
 
-Recommended order, each step leaving a runnable app: projects and recents →
-media import with real probes and peaks → the timeline reading `Project`
-and writing `Command`s → the monitor → playback → export → speech →
-templates. Threading pattern for all of it: `std::thread::spawn` the work,
-`slint::invoke_from_event_loop` the result; never block the event loop on a
-decoder.
+Two mechanisms carry the whole design:
+
+- **The echo.** A press clones the project; the pointer mutates the clone;
+  `publish` draws whichever exists; release turns the difference into one
+  `MoveClips` or `TrimClip`. The inspector's knobs do the same and commit
+  as one batch. Undo therefore undoes the gesture, never a pixel of it.
+- **`spawn` and `Shell::with`.** Anything slow runs on its own thread and
+  hands its result to `slint::invoke_from_event_loop`, where the state is
+  reached again through a thread-local. Nothing but the event-loop thread
+  ever touches the state, which is why it needs no lock.
 
 ---
 
@@ -314,17 +306,21 @@ decoder.
 The honest list, ordered by how much they matter. Nothing here is on fire,
 but several are traps for a contributor who does not know the invariant.
 
-### 8.1 The window is a demo (highest priority)
+### 8.1 The window is newly wired (highest priority)
 
-Everything in §7. Until the wiring lands, the app cannot open a real
-project. The host and engine are complete enough to support every feature
-the Tauri app had; the gap is entirely in `main.rs`.
+The wiring landed in one pass and has had one afternoon of use. Known from
+that afternoon: the clip context menu's actions did not take effect in one
+report, timeline clips draw no filmstrip (only audio clips draw their
+waveform; `lanes.slint` still has the slot the reference tiled a filmstrip
+into), and the monitor's failures used to be swallowed - they now log to
+stderr and toast once. Expect more of this: every flow in §7 needs a real
+project put through it, and the window has no tests of its own.
 
 ### 8.2 Title clips have no rasteriser
 
-The Tauri UI rasterised text clips to PNGs in the webview (`rasterize.ts`)
-and shipped them into the export as image clips - `ExportRequest` still
-expects titles that way. Nothing in the Rust tree draws text into a `Frame`.
+The earlier web-based UI rasterised text clips to PNGs in the browser and
+shipped them into the export as image clips - `ExportRequest` still expects
+titles that way. Nothing in the Rust tree draws text into a `Frame`.
 This needs a text rasteriser (a `cosmic-text`/`fontdue`-shaped crate against
 the embedded Inter and Synonym faces) in the engine, so titles render
 identically in the monitor and the export. Until then, text clips are
@@ -360,10 +356,9 @@ rebuildable) and apply it once.
 
 `mix_graph` is pinned by a dozen unit tests, and the export loop has tests
 that render synthetic video; `mix_to_file` and `mux` are exercised by no
-test with real audio. The old subprocess path was covered by
-`desktop/src-tauri/tests/export_integration.rs`, which died with the host.
-Write the replacement against a generated tone before anything else touches
-the audio path.
+test with real audio; the integration test that covered the old subprocess
+path went with the host it lived in. Write the replacement against a
+generated tone before anything else touches the audio path.
 
 ### 8.7 Build-environment fragility
 
@@ -379,19 +374,12 @@ the audio path.
   for all of this and have not yet run green on all three platforms. Windows in particular
   (libclang via chocolatey, `FFMPEG_DIR`, MSVC for whisper.cpp) is untested.
 
-### 8.8 Dead code still in the repository
+### 8.8 Shapes left over from the wire
 
-- `desktop/` no longer builds: its host Rust moved into `concat-host` and
-  `concat-speech`, the media API it used is gone, and the Tauri commands were
-  its only reason to exist. It stays as a reference for UI behaviour until
-  the Slint window reproduces it, then it should be deleted along with the
-  `types` features of `concat-project` and `concat-export` (ts-rs exports
-  for a TypeScript that no longer exists),
-  and the `desktop/src/lib/...` references in `chains.rs`'s comments.
-- `flake.nix` packages the Tauri app and therefore does not build either.
-- `ExportClip`, `ExportRequest` and `PreviewFrameRequest` are wire types
-  shaped for JSON; with no wire, `concat-export` could take the engine's
-  `Project` and settings directly and drop the flattening-through-a-DTO.
+`ExportClip`, `ExportRequest` and `PreviewFrameRequest` are wire types
+shaped for JSON; with no wire, `concat-export` could take the engine's
+`Project` and settings directly and drop the flattening-through-a-DTO. The
+`serde` derives on the host's view types are the same vestige.
 
 ### 8.9 Panics in runtime paths
 
@@ -406,8 +394,8 @@ tests, which is fine.
 - **Zero TODO/FIXME/HACK comments** in the tree. Invariants live in prose
   comments instead; keep it that way.
 - Comments in `concat/ui/*.slint` still cite `web/` (the React reference in
-  the wc-ui-rnd repository) and `desktop/` (the Tauri app). They are history,
-  not pointers; rewrite them as the files are touched.
+  the wc-ui-rnd repository) and `desktop/` (the earlier app, deleted). They
+  are history, not pointers; rewrite them as the files are touched.
 - Code comments still cite `docs/decisions/…` paths deleted long ago. Either
   restore the records or strip the references.
 - `cargo fmt --check` is not clean across the older crates and is not
@@ -422,7 +410,7 @@ tests, which is fine.
 | Engine crates | 174 (core 31, media 39, project 41, render 28, export 32, cli 3) | `mix_to_file`/`mux` untested end to end (§8.6); `gpu` feature untested at defaults |
 | Host | 22 | `Playback` (threads, cpal) has unit tests only for the WAV walk and the sweep; no test drives the decode workers |
 | Speech | 6 | Model downloads and whisper itself are network- and model-bound; test with `tiny.en` behind an opt-in feature |
-| Window | 0 | Nothing yet; once wired, drive `Session` from a headless harness and snapshot the Slint models |
+| Window | 3 | Formatting helpers only. Drive `Studio` against a `Session` from a headless harness and snapshot what it publishes |
 
 The real-media tests generate their own fixtures with the linked encoder
 (a 90-frame colour ramp, a 60-frame strip) so they run anywhere the engine
@@ -433,16 +421,15 @@ variable frame rate, and odd containers are the cases most likely to bite.
 
 ## 10. Where to improve first (opinionated)
 
-1. **Wire the window** (§7), in the order given, committing after each step.
+1. **Put a real project through every flow in the window** (§8.1) and fix
+   what breaks; then filmstrips on the lanes.
 2. **A tone-based mix test** (§8.6) before touching the audio path again.
 3. **A text rasteriser in the engine** (§8.2) - the one feature the Rust
    tree cannot express today.
-4. **Delete `desktop/`** and the ts-rs vestiges (§8.8) once the window covers
-   its features; it is a liability every day it looks like code.
-5. **One poison policy** in `playback.rs` (§8.4) - mechanical, removes the
+4. **One poison policy** in `playback.rs` (§8.4) - mechanical, removes the
    cascade failure mode.
-6. **Cap the redo stack** (§8.5) - a small patch, a real leak.
-7. **Green CI on all three platforms** (§8.7), then package the window and
+5. **Cap the redo stack** (§8.5) - a small patch, a real leak.
+6. **Green CI on all three platforms** (§8.7), then package the window and
    restore automatic alpha releases.
-8. **Frame-for-frame compare an exported dissolve** against a build from
+7. **Frame-for-frame compare an exported dissolve** against a build from
    before the FFI move (§8.3).

@@ -1132,7 +1132,6 @@ dependencies = [
  "concat-project",
  "concat-render",
  "serde",
- "ts-rs",
 ]
 
 [[package]]
@@ -1166,7 +1165,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "ts-rs",
 ]
 
 [[package]]
@@ -6052,28 +6050,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "ts-rs"
-version = "12.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "756050066659291d47a554a9f558125db17428b073c5ffce1daf5dcb0f7231d8"
-dependencies = [
- "thiserror 2.0.20",
- "ts-rs-macros",
-]
-
-[[package]]
-name = "ts-rs-macros"
-version = "12.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d90eea51bc7988ef9e674bf80a85ba6804739e535e9cab48e4bb34a8b652aa"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
- "termcolor",
 ]
 
 [[package]]

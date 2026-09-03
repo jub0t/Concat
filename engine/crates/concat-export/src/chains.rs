@@ -6,14 +6,14 @@
 //! This is a byte-for-byte port of the two TypeScript catalogues that are the
 //! ground truth for exported pixels and sound:
 //!
-//! - `desktop/src/lib/effects.ts` - the video effect catalogue and
+//! - the video effect catalogue and
 //!   `buildEffectChain`.
-//! - `desktop/src/lib/filters.ts` - the audio filter catalogue and
+//! - the audio filter catalogue and
 //!   `buildChain`.
 //!
 //! The contract is the same one `lib/editor.ts`'s ported arithmetic lives
 //! under: the TS files are the mirror, and their fixtures
-//! (`desktop/src/lib/effects.test.ts`, `desktop/src/lib/filters.test.ts`) pin
+//! The pinned-string tests below
 //! the exact chain string for every catalogue entry at its default, minimum
 //! and maximum settings. The tests at the bottom of this file assert those
 //! same strings, character for character - a change to either side that the
@@ -87,7 +87,7 @@ fn round(value: f64) -> i64 {
     value.round() as i64
 }
 
-// ─── the video effect catalogue ─ mirror of desktop/src/lib/effects.ts ──────
+// ─── the video effect catalogue ─────────────────────────────────────────────
 
 fn fx_black_white(_: &Params, _index: usize) -> String {
     "hue=s=0".to_owned()
@@ -391,7 +391,7 @@ static EFFECTS: &[Entry] = &[
     },
 ];
 
-// ─── the audio filter catalogue ─ mirror of desktop/src/lib/filters.ts ──────
+// ─── the audio filter catalogue ─────────────────────────────────────────────
 
 /// Pitch shift that moves the formants with the pitch.
 ///

@@ -161,7 +161,7 @@ fn main() -> Result<(), slint::PlatformError> {
     app.set_languages(ModelRc::from(Rc::new(VecModel::from(
         LANGUAGES
             .iter()
-            .map(|(label, _)| SharedString::from(*label))
+            .map(|label| SharedString::from(*label))
             .collect::<Vec<_>>(),
     ))));
 
@@ -784,7 +784,9 @@ fn main() -> Result<(), slint::PlatformError> {
         state.prefs.save(&state.host.dirs);
     }));
     app.on_settings_transcribe_language_changed(on_window!(|state, index: i32| {
-        state.settings.transcribe_language = index.max(0).min(LANGUAGES.len() as i32 - 1);
+        state.settings.transcribe_language = index
+            .max(0)
+            .min(studio::TRANSCRIBE_LANGUAGES.len() as i32 - 1);
         state.prefs.transcribe_language = Some(state.settings.transcribe_language);
         state.prefs.save(&state.host.dirs);
     }));

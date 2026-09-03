@@ -103,22 +103,13 @@ pub const START_RATES: [(&str, i64, i64); 5] = [
     ("60", 60, 1),
 ];
 
-/// The transcriber's languages: what Settings lists, and the whisper code
-/// each row means.
-pub const LANGUAGES: [(&str, &str); 12] = [
-    ("Auto-detect", "auto"),
-    ("English", "en"),
-    ("中文", "zh"),
-    ("Español", "es"),
-    ("Français", "fr"),
-    ("Deutsch", "de"),
-    ("日本語", "ja"),
-    ("한국어", "ko"),
-    ("Português", "pt"),
-    ("Русский", "ru"),
-    ("Italiano", "it"),
-    ("हिन्दी", "hi"),
-];
+/// The interface's languages, as Settings > General lists them. One, until
+/// the `.slint` tree's strings are wrapped for translation.
+pub const LANGUAGES: [&str; 1] = ["English"];
+
+/// The transcriber's languages: the rows of the Auto / English / Chinese
+/// control in Settings > Transcriber, and the whisper code each means.
+pub const TRANSCRIBE_LANGUAGES: [&str; 3] = ["auto", "en", "zh"];
 
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
@@ -394,6 +385,9 @@ pub struct Studio {
     pub preview: slint::Image,
     preview_busy: bool,
     preview_wanted: bool,
+    /// Said once per session: a monitor that cannot decode says so, and
+    /// then stops repeating itself.
+    preview_failed: bool,
 
     // ── the sheets and menus ──
     pub export: ExportState,
@@ -510,6 +504,7 @@ impl Studio {
             preview: slint::Image::default(),
             preview_busy: false,
             preview_wanted: false,
+            preview_failed: false,
             export: ExportState::default(),
             settings: SettingsState::default(),
             transcribers: Vec::new(),
@@ -861,11 +856,21 @@ impl Studio {
             },
             |studio, _, _, result| {
                 studio.preview_busy = false;
-                if let Ok((bytes, width, height)) = result {
-                    let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                        &bytes, width, height,
-                    );
-                    studio.preview = slint::Image::from_rgba8(buffer);
+                match result {
+                    Ok((bytes, width, height)) => {
+                        let buffer =
+                            slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                                &bytes, width, height,
+                            );
+                        studio.preview = slint::Image::from_rgba8(buffer);
+                    }
+                    Err(error) => {
+                        eprintln!("concat: preview: {error}");
+                        if !studio.preview_failed {
+                            studio.preview_failed = true;
+                            studio.notify(&format!("Preview failed: {error}"), true);
+                        }
+                    }
                 }
                 if studio.preview_wanted {
                     studio.request_preview();
@@ -1888,6 +1893,7 @@ impl Studio {
                 self.playhead = 0.0;
                 self.scroll_left = 0.0;
                 self.on_start = false;
+                self.preview_failed = false;
                 self.start.busy = false;
                 self.start.error.clear();
                 self.recents = projects::list(&self.host.dirs.config);
@@ -2267,9 +2273,10 @@ impl Studio {
     }
 
     fn language_code(&self) -> &'static str {
-        LANGUAGES
+        TRANSCRIBE_LANGUAGES
             .get(self.settings.transcribe_language.max(0) as usize)
-            .map_or("auto", |(_, code)| code)
+            .copied()
+            .unwrap_or("auto")
     }
 
     /// Auto captions for the selected clip: the transcription runs on a

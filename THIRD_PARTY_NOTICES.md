@@ -14,9 +14,6 @@ terms. Which FFmpeg a binary carries depends on the machine that built it:
 Homebrew's on macOS, a BtbN `shared` build (https://github.com/BtbN/FFmpeg-Builds)
 on Windows and in CI. FFmpeg source code: https://ffmpeg.org/download.html
 
-The deprecated Tauri app in `desktop/` still bundles `ffmpeg` and `ffprobe`
-binaries as separate programs; that arrangement goes away with it.
-
 ## whisper.cpp
 
 Transcription compiles whisper.cpp (https://github.com/ggml-org/whisper.cpp,
@@ -59,10 +56,7 @@ resolved set of any given build.
 
 ## Fonts
 
-Cabinet Grotesk and Synonym are bundled under the ITF Free Font License; the
-full texts ship beside the font files in `desktop/src/assets/fonts/`.
-
-The Slint window embeds its fonts into the binary
+The window embeds its fonts into the binary
 (`engine/crates/concat/build.rs`, `EmbedResourcesKind::EmbedFiles`), so a
 distributed binary carries them and their licences travel with it. Full texts
 are in `engine/crates/concat/ui/fonts/`.
@@ -98,6 +92,6 @@ bundled with the app.
 The effect catalogue thumbnails are rendered from a photograph by
 Vitaly Gariev on Unsplash (https://unsplash.com/@silverkblack), used
 under the Unsplash License. The source still lives at
-`assets/effect-preview-source.jpg`; regenerate the tiles with
-`scripts/generate-effect-previews.mjs`. The Slint window embeds its own copy
-of the tiles from `engine/crates/concat/ui/assets/effect-previews/`.
+`assets/effect-preview-source.jpg`; the tiles are each effect's real FFmpeg
+chain (`concat-export`'s `chains.rs`) run over it, and are embedded from
+`engine/crates/concat/ui/assets/effect-previews/`.

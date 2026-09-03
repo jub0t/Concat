@@ -24,37 +24,22 @@ down for reasons that were invisible from outside.
 
 ## Setting up
 
-The repo is a Nix flake, which is the shortest path to a working toolchain:
-
-```sh
-nix develop        # shell with ffmpeg, whisper and the Rust/Node toolchains
-npm run app        # run the editor
-```
-
-Without Nix you will need Rust (see `rust-version` in `engine/Cargo.toml`),
-the FFmpeg 7+ development libraries (`brew install ffmpeg`; see
-`engine/README.md` for Windows and Linux), cmake and a C++ compiler. Then:
+You will need Rust (see `rust-version` in `engine/Cargo.toml`), the FFmpeg
+7+ development libraries (`brew install ffmpeg`; see `engine/README.md` for
+Windows and Linux), cmake and a C++ compiler. Then:
 
 ```sh
 cd engine && cargo run -p concat
 ```
 
-That is the Slint editor window, which is where new UI work goes. The Tauri +
-React app in `desktop/` is deprecated: it is what releases still ship until
-the Slint window can do everything it did, so bug fixes there are welcome,
-but features are not. Running it additionally needs Node:
-
-```sh
-cd desktop && npm install && npm run app
-```
+That is the editor window. Everything - the engine, the host layer and the
+Slint UI - is one Cargo workspace under `engine/`.
 
 ## Layout
 
 | Path | What lives there |
 |---|---|
-| `engine/crates/` | The Rust engine — core, media, render, export, project, cli — and `concat`, the Slint editor window |
-| `desktop/src/` | The React editor UI (deprecated) |
-| `desktop/src-tauri/` | Tauri host: commands, session lifecycle, IPC (deprecated) |
+| `engine/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
 | `test/` | Media and analysis fixtures |
 
 [`ARCHITECTURE.md`](ARCHITECTURE.md) explains how these fit together and where
@@ -65,8 +50,7 @@ the sharp edges are. Read it before touching the engine.
 Run these before opening a PR:
 
 ```sh
-cd engine  && cargo fmt --check && cargo clippy --all-targets && cargo test
-cd desktop && npm run typecheck && npm run lint && npm test   # only if you touched desktop/
+cd engine && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
 New source files need a licence header — see below. Match the style of the code
@@ -102,10 +86,6 @@ Every source file starts with:
 
 Keep your own copyright line if you want one — add it, don't replace what's
 there.
-
-Generated files are exempt: `desktop/src/lib/generated/` is ts-rs output and is
-rewritten wholesale, so headers there would not survive. Those files are covered
-by the repository licence like everything else.
 
 ### Third-party code
 

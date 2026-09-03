@@ -28,9 +28,9 @@ interface does the editing, and it all runs on your machine: install it and
 start cutting, no account, no extra downloads, no setup.
 
 > [!NOTE]
-> The interface is moving from Tauri + React (`desktop/`) to Slint, as the
-> `concat` crate in `engine/`. Releases still ship the Tauri app while the
-> Slint window catches up; see [`engine/README.md`](./engine/README.md).
+> The interface was rebuilt in Slint in September 2026 - one native Rust
+> binary, no web view. It lives in [`engine/crates/concat`](./engine/crates/concat);
+> see [`engine/README.md`](./engine/README.md) for how to build it.
 
 ## Highlights
 
@@ -65,12 +65,6 @@ Concat is currently in **Alpha (pre-release)**. Download the latest build from [
 - 🧪 **Raspberry Pi 5**
 
 **Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
-
-### Nix (Linux)
-
-The repository is a flake. `nix run github:jub0t/Concat` starts the editor
-with ffmpeg and whisper wired in; `nix develop` opens a shell with everything
-`npm run app` needs.
 
 ## Contribution
 

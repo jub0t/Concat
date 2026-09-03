@@ -7,21 +7,6 @@ target/
 **/target/
 *.pdb
 
-# Node
-node_modules/
-dist/
-dist-ssr/
-.vite/
-*.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Tauri build output
-desktop/src-tauri/gen/
-desktop/src-tauri/target/
-
 # Python (tooling and one-off scripts live at the repo root for now)
 __pycache__/
 *.py[cod]
@@ -59,23 +44,8 @@ desktop.ini
 .env
 .env.local
 
-# FFmpeg development build for the FFI decoder (headers + import libs).
-# Large, machine-specific, and not needed for a normal build - see BUILD.md.
+# An FFmpeg development build unpacked locally for the linked engine
+# (headers + import libraries), pointed at with FFMPEG_DIR. Large and
+# machine-specific.
 /vendor/
-
-# Bundled FFmpeg, staged for packaging. Produced by .github/workflows/ffmpeg.yml
-# or copied from a dev build - either way it is a binary artifact, not source.
-# The README stays tracked so the directory exists on a fresh checkout - the
-# `ffmpeg/*` resources glob in tauri.conf.json fails the build if it matches
-# nothing.
-desktop/src-tauri/ffmpeg/*
-!desktop/src-tauri/ffmpeg/README.md
-
-# Guard against staging-script cwd mistakes: a `desktop/...`-relative copy run
-# from inside desktop/ once committed a whisper-cli binary to git history.
-desktop/desktop/
-
-# ts-rs's default export directory. The real output goes to
-# desktop/src/lib/generated/ via scripts/generate-ipc-types.sh; this appears
-# only when the `types` feature's tests run without TS_RS_EXPORT_DIR set.
-desktop/src-tauri/bindings/
+/ffmpeg-dev/

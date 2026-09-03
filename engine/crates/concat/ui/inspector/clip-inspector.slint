@@ -204,12 +204,18 @@ export component PresetStack inherits VerticalLayout {
             }
         }
 
+        // Air between the field and the strip under it: two rows butted
+        // together read as one control, and they are not.
+        Rectangle { height: 8px; }
+
         Row {
             SegmentedControl {
                 options: root.group-labels;
                 current <=> root.group;
             }
         }
+
+        Rectangle { height: 4px; }
 
         VerticalLayout {
             padding-left: Theme.pad;

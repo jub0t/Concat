@@ -40,8 +40,6 @@ use serde::Deserialize;
 /// What a flattened clip is. Typed, so a kind check the compiler has not
 /// seen cannot exist - the wire still says "video"/"audio"/"image".
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export, export_to = "export/"))]
 #[serde(rename_all = "lowercase")]
 pub enum ClipKind {
     /// Footage: pictures over time, possibly with its own sound.
@@ -61,8 +59,6 @@ impl ClipKind {
 
 /// One clip, as the frontend's flattener describes it.
 #[derive(Deserialize, Clone)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export, export_to = "export/"))]
 #[serde(rename_all = "camelCase")]
 pub struct ExportClip {
     /// The media file this clip shows or plays.
@@ -122,36 +118,29 @@ pub struct ExportClip {
     /// The transition into this clip's cut, when the UI put one there. The
     /// clip before it on the same track is found here, by adjacency - the UI
     /// only says what it wants, never how to overlap decoders.
-    #[cfg_attr(feature = "types", ts(optional = nullable))]
     #[serde(default)]
     pub transition: Option<TransitionSpec>,
     /// Video opacity ramp up from the clip's start, in seconds. Set by
     /// transition resolution below, never by the UI directly.
-    #[cfg_attr(feature = "types", ts(as = "Option<f64>", optional))]
     #[serde(default)]
     pub video_fade_in: f64,
     /// The source's pixel width, when the UI knows it. What makes an
     /// aspect-correct decode possible - absent, the frame is filled edge to
     /// edge the way it always was.
-    #[cfg_attr(feature = "types", ts(optional = nullable))]
     #[serde(default)]
     pub media_width: Option<u32>,
     /// The source's pixel height; see `media_width`.
-    #[cfg_attr(feature = "types", ts(optional = nullable))]
     #[serde(default)]
     pub media_height: Option<u32>,
     /// Whether the file carries an audio stream, when the UI knows (the
     /// document records it at import). Absent falls back to probing, so an
     /// older caller still exports correctly - just slower to start.
-    #[cfg_attr(feature = "types", ts(optional = nullable))]
     #[serde(default)]
     pub has_audio: Option<bool>,
 }
 
 /// A transition on the cut into a clip.
 #[derive(Deserialize, Clone)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export, export_to = "export/"))]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionSpec {
     /// "cross-fade", "fade-black" or "fade-white". Anything else is ignored.

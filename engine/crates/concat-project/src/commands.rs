@@ -37,8 +37,6 @@ const JOIN_EPSILON: f64 = 1e-6;
 /// Which end of a clip a trim drags. The two are not symmetric: see
 /// [`Command::TrimClip`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum TrimEdge {
     /// The head. Trimming here moves the in-point with the edge, so the
@@ -50,8 +48,6 @@ pub enum TrimEdge {
 
 /// Which per-track toggle a [`Command::SetTrackFlag`] flips.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "lowercase")]
 pub enum TrackFlag {
     /// [`Track::visible`]: whether the track's video reaches the composite.
@@ -62,8 +58,6 @@ pub enum TrackFlag {
 
 /// Where one clip is going, in a multi-clip move.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct ClipMove {
     /// The clip to move. An unknown id is skipped, not an error - the rest
@@ -80,46 +74,34 @@ pub struct ClipMove {
 /// `text` are double-optional so "clear it" and "leave it alone" stay
 /// distinct on the wire (absent = untouched, null = cleared).
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct ClipPatch {
     /// New display name, taken verbatim. A later `text` patch overwrites it
     /// with the title's first line.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub name: Option<String>,
     /// New gain; floored at 0, deliberately not capped at 1 - boosting quiet
     /// footage is legitimate.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub volume: Option<f64>,
     /// New fade-in length in seconds, floored at 0.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub fade_in: Option<f64>,
     /// New fade-out length in seconds, floored at 0.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub fade_out: Option<f64>,
     /// New opacity, clamped into 0..=1.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub opacity: Option<f64>,
     /// New pitch-preservation setting, taken as sent.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub preserve_pitch: Option<bool>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub filters: Option<Vec<AppliedFilter>>,
     /// Wholesale replacement of the video effect chain, like `filters`.
-    #[cfg_attr(feature = "types", ts(optional))]
     pub video_effects: Option<Vec<AppliedFilter>>,
     /// The transition on the cut into the clip: absent leaves it alone,
     /// null clears it, a value replaces it.
     #[serde(default, with = "double_option", skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "types", ts(as = "Option<Transition>", optional = nullable))]
     pub transition_in: Option<Option<Transition>>,
     /// The title styling, same three-way wire semantics as `transition_in`.
     /// Setting a style also renames the clip after its first line.
     #[serde(default, with = "double_option", skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "types", ts(as = "Option<TextStyle>", optional = nullable))]
     pub text: Option<Option<TextStyle>>,
 }
 
@@ -146,8 +128,6 @@ mod double_option {
 
 /// A media item as probed by the host, before the model mints its id.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct NewMedia {
     /// Absolute path on disk. Adding a path already in the bin is a no-op,
@@ -181,8 +161,6 @@ pub struct NewMedia {
 /// notes here state the contract - clamps, tolerances, what gets minted -
 /// so a caller need not read `apply` to know what a command will do.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Command {
     /// Imports a file into the bin, minting an "m" id. A path already
@@ -256,12 +234,10 @@ pub enum Command {
         /// Seconds on the timeline; the editorial default when absent. Here
         /// so a caption run can land as one batch instead of add-then-trim
         /// per clip - a batch cannot trim a clip whose id it cannot know yet.
-        #[cfg_attr(feature = "types", ts(optional))]
         #[serde(default)]
         duration: Option<f64>,
         /// Vertical placement as a frame-height fraction, clamped like
         /// SetClipTransform. Lower thirds are made of this.
-        #[cfg_attr(feature = "types", ts(optional))]
         #[serde(default)]
         offset_y: Option<f64>,
     },
@@ -331,17 +307,13 @@ pub enum Command {
         /// The clip to place. An unknown id is a no-op.
         clip_id: String,
         /// New scale, clamped into 0.05..=8.
-        #[cfg_attr(feature = "types", ts(optional))]
         scale: Option<f64>,
         /// New horizontal offset as a frame-width fraction, clamped to ±3.
-        #[cfg_attr(feature = "types", ts(optional))]
         offset_x: Option<f64>,
         /// New vertical offset as a frame-height fraction, clamped to ±3.
-        #[cfg_attr(feature = "types", ts(optional))]
         offset_y: Option<f64>,
         /// New rotation in degrees, wrapped into (-180, 180] so a full drag
         /// never accumulates turns.
-        #[cfg_attr(feature = "types", ts(optional))]
         rotation: Option<f64>,
     },
     /// Pulls a video clip's sound out into its own audio clip on a free
@@ -435,14 +407,11 @@ pub enum Command {
 /// What a command produced, beyond the new state: the ids it minted, so the
 /// UI can select what it just created, and whether anything changed at all.
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "types", derive(ts_rs::TS))]
-#[cfg_attr(feature = "types", ts(export))]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
     /// The id of what the command created - a clip, track, timeline, or
     /// media item - or, for a batch, the last id minted inside it. Absent
     /// when nothing was created, including tolerated no-ops.
-    #[cfg_attr(feature = "types", ts(optional))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_id: Option<String>,
     /// Whether the command actually changed the project. A tolerated no-op -
@@ -455,7 +424,7 @@ pub struct Outcome {
 
 /// Why a command was refused. Every variant renders through `Display` as the
 /// exact user-facing sentence the UI shows - byte for byte the strings
-/// `desktop/src/lib/editor.ts` treats as the contract; the enum only gives
+/// the window treats as the contract; the enum only gives
 /// those sentences names a host can match on.
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
 pub enum CommandError {
