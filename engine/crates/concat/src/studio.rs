@@ -273,6 +273,9 @@ pub enum Gesture {
     /// A drag on the stage: every selected picture under the playhead slides
     /// with the pointer, from where each one was when the press landed.
     StageMove {
+        /// The picture grabbed; it is the one that snaps, and the rest
+        /// follow it by the same amount.
+        primary: String,
         origins: Vec<StageOrigin>,
         /// The press, in fractions of the frame.
         from: (f64, f64),
@@ -318,6 +321,20 @@ pub struct Footprint {
 }
 
 impl Footprint {
+    /// The half-extents of the turned box's axis-aligned bounds, in fractions
+    /// of the frame: what snapping measures, since an edge of a turned
+    /// picture is not a line the frame's edges can meet.
+    pub fn half_bounds(&self, frame: (u32, u32)) -> (f64, f64) {
+        let (width, height) = (f64::from(frame.0), f64::from(frame.1));
+        let (sin, cos) = self.rotation.to_radians().sin_cos();
+        let w = self.w * width;
+        let h = self.h * height;
+        (
+            (w * cos.abs() + h * sin.abs()) / 2.0 / width,
+            (w * sin.abs() + h * cos.abs()) / 2.0 / height,
+        )
+    }
+
     /// True when the frame point `(x, y)`, in fractions, is inside the turned
     /// box. `frame` is the output size, because the box is not square in
     /// pixels and the turn has to happen in pixels.
@@ -356,6 +373,7 @@ pub struct Models {
     pub tracks: Rc<VecModel<TrackData>>,
     pub clips: Rc<VecModel<ClipData>>,
     pub stage: Rc<VecModel<StageItemData>>,
+    pub guides: Rc<VecModel<StageGuideData>>,
     pub media: Rc<VecModel<MediaItemData>>,
     pub video_effects: Rc<VecModel<EffectData>>,
     pub audio_effects: Rc<VecModel<EffectData>>,
@@ -376,6 +394,7 @@ impl Models {
             tracks: Rc::new(VecModel::default()),
             clips: Rc::new(VecModel::default()),
             stage: Rc::new(VecModel::default()),
+            guides: Rc::new(VecModel::default()),
             media: Rc::new(VecModel::default()),
             video_effects: Rc::new(VecModel::default()),
             audio_effects: Rc::new(VecModel::default()),
@@ -493,6 +512,8 @@ pub struct Studio {
     pub workspace: (f32, f32),
     pub divider_press: Option<(usize, f32, f32)>,
     pub gesture: Gesture,
+    /// The snap lines of a stage move in flight; empty between moves.
+    pub stage_guides: Vec<StageGuideData>,
     pub drop: Option<DropPlan>,
 }
 
@@ -605,6 +626,7 @@ impl Studio {
             workspace: (0.0, 0.0),
             divider_press: None,
             gesture: Gesture::None,
+            stage_guides: Vec::new(),
             drop: None,
             host,
         };
@@ -2055,10 +2077,30 @@ impl Studio {
             })
             .collect();
         self.begin_echo();
+        self.stage_guides.clear();
         self.gesture = Gesture::StageMove {
+            primary: id,
             origins,
             from: (x, y),
         };
+    }
+
+    /// Where a picture's bounds pull to on one axis. Every candidate is a
+    /// feature of the moving picture — an edge or the centre — against a
+    /// target — the frame's edges and centre, and every other picture's —
+    /// and the nearest pair inside `pull` wins. Returns the shift that lands
+    /// it and the target's position, for the guide.
+    fn stage_snap(features: [f64; 3], targets: &[f64], pull: f64) -> Option<(f64, f64)> {
+        let mut best: Option<(f64, f64)> = None;
+        for feature in features {
+            for &target in targets {
+                let shift = target - feature;
+                if shift.abs() < pull && best.is_none_or(|(held, _)| shift.abs() < held.abs()) {
+                    best = Some((shift, target));
+                }
+            }
+        }
+        best
     }
 
     /// A press on a grip of `id`'s box: a corner scales, the handle above
@@ -2103,7 +2145,11 @@ impl Studio {
         let (width, height) = self.output_size();
         let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         match &gesture {
-            Gesture::StageMove { origins, from } => {
+            Gesture::StageMove {
+                primary,
+                origins,
+                from,
+            } => {
                 let (mut dx, mut dy) = (x - from.0, y - from.1);
                 if snap {
                     // Shift holds the axis the drag is mostly along, measured
@@ -2112,6 +2158,54 @@ impl Studio {
                         dy = 0.0;
                     } else {
                         dx = 0.0;
+                    }
+                }
+                self.stage_guides.clear();
+                if self.snap {
+                    // The same pull on both axes, in frame pixels: a
+                    // hundredth of the long side, which is about eight
+                    // pixels on a stage of the size a laptop gives it.
+                    let pull = 0.01 * f64::from(width.max(height));
+                    let frame = (width, height);
+                    let moving = origins
+                        .iter()
+                        .find(|origin| &origin.clip == primary)
+                        .and_then(|origin| self.clip(&origin.clip).map(|clip| (origin, clip)));
+                    if let Some((origin, clip)) = moving {
+                        let (hw, hh) = self.footprint(clip).half_bounds(frame);
+                        let cx = 0.5 + origin.offset_x + dx;
+                        let cy = 0.5 + origin.offset_y + dy;
+                        // The frame's own lines, then every picture that is
+                        // staying put.
+                        let mut xs = vec![0.0, 0.5, 1.0];
+                        let mut ys = vec![0.0, 0.5, 1.0];
+                        for other in self.stage_clips() {
+                            if origins.iter().any(|origin| origin.clip == other.id) {
+                                continue;
+                            }
+                            let footprint = self.footprint(other);
+                            let (ow, oh) = footprint.half_bounds(frame);
+                            xs.extend([footprint.cx - ow, footprint.cx, footprint.cx + ow]);
+                            ys.extend([footprint.cy - oh, footprint.cy, footprint.cy + oh]);
+                        }
+                        if let Some((shift, at)) =
+                            Self::stage_snap([cx - hw, cx, cx + hw], &xs, pull / f64::from(width))
+                        {
+                            dx += shift;
+                            self.stage_guides.push(StageGuideData {
+                                vertical: true,
+                                at: at as f32,
+                            });
+                        }
+                        if let Some((shift, at)) =
+                            Self::stage_snap([cy - hh, cy, cy + hh], &ys, pull / f64::from(height))
+                        {
+                            dy += shift;
+                            self.stage_guides.push(StageGuideData {
+                                vertical: false,
+                                at: at as f32,
+                            });
+                        }
                     }
                 }
                 for origin in origins {
@@ -2169,6 +2263,7 @@ impl Studio {
     /// The stage gesture is over: whatever the echo moved becomes one
     /// transform command per picture, batched when there are several.
     pub fn stage_released(&mut self) {
+        self.stage_guides.clear();
         let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         let touched: Vec<String> = match gesture {
             Gesture::StageMove { origins, .. } => {
@@ -3078,6 +3173,7 @@ impl Studio {
         editor.set_playing(self.playing);
         editor.set_preview_frame(self.preview.clone());
         sync(&models.stage, self.stage_items());
+        sync(&models.guides, self.stage_guides.clone());
 
         editor.set_drop(match &self.drop {
             Some(plan) => DropData {
@@ -3791,9 +3887,43 @@ impl Studio {
 
 #[cfg(test)]
 mod tests {
-    use super::Footprint;
+    use super::{Footprint, Studio};
 
     const FRAME: (u32, u32) = (1920, 1080);
+
+    /// A quarter turn swaps the bounds' pixel extents, which in fractions
+    /// of a 16:9 frame is not a swap of the numbers.
+    #[test]
+    fn half_bounds_follow_the_turn() {
+        let flat = Footprint {
+            cx: 0.5,
+            cy: 0.5,
+            w: 0.5,
+            h: 0.5,
+            rotation: 0.0,
+        };
+        let (hw, hh) = flat.half_bounds(FRAME);
+        assert!((hw - 0.25).abs() < 1e-9 && (hh - 0.25).abs() < 1e-9);
+        let turned = Footprint {
+            rotation: 90.0,
+            ..flat
+        };
+        let (hw, hh) = turned.half_bounds(FRAME);
+        // 540px tall becomes 540px wide: 270px each side of 1920.
+        assert!((hw - 270.0 / 1920.0).abs() < 1e-9);
+        assert!((hh - 480.0 / 1080.0).abs() < 1e-9);
+    }
+
+    /// The nearest pair inside the pull wins, and nothing outside it pulls.
+    #[test]
+    fn snap_picks_the_nearest_target_inside_the_pull() {
+        // Centre 0.5 sits just off the frame's centre; the left edge at
+        // 0.2 is nearer to another picture's edge at 0.21.
+        let features = [0.2, 0.5, 0.8];
+        let hit = Studio::stage_snap(features, &[0.0, 0.505, 1.0, 0.21], 0.02).unwrap();
+        assert!((hit.0 - 0.005).abs() < 1e-9 && (hit.1 - 0.505).abs() < 1e-9);
+        assert!(Studio::stage_snap(features, &[0.3, 0.6], 0.02).is_none());
+    }
 
     /// A fitted 16:9 picture at rest covers the frame exactly.
     #[test]

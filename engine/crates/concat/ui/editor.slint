@@ -8,7 +8,8 @@ import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
 import {
     ClipData, ClipField, ClipTextField, DropData, SelectedClipData,
-    StageItemData, TimelineTabData, TimelineTool, TrackData, TrackSize,
+    StageGuideData, StageItemData, TimelineTabData, TimelineTool, TrackData,
+    TrackSize,
 } from "timeline/model.slint";
 
 // Everything the four editor views read and everything they report, in one
@@ -125,6 +126,9 @@ export global Editor {
     /// The stage outlines the selected ones and lets them be moved, scaled
     /// and turned in place; see StageOverlay in the preview pane.
     in-out property <[StageItemData]> stage-items;
+    /// The snap lines live while a picture is being moved on the stage, and
+    /// empty otherwise. Rust decides what snapped; the pane only draws it.
+    in-out property <[StageGuideData]> stage-guides;
     /// A press on the stage itself, in fractions of the frame. Rust decides
     /// what it landed on — a picture starts a move, empty stage clears the
     /// selection — the way `clip-pressed` does for the lanes.

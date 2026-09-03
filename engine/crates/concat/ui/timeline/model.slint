@@ -239,3 +239,14 @@ export struct StageItemData {
     /// The clip's scale, for the readout under the box.
     scale: float,
 }
+
+/// One snap guide across the stage while a picture is dragged: the line the
+/// picture's centre or edge has just landed on, at the target's position.
+/// A vertical guide says the x axis snapped, a horizontal one the y axis;
+/// centring on both draws both, as a crosshair through the frame.
+export struct StageGuideData {
+    vertical: bool,
+    /// Where the line is, as a fraction of the frame's width (vertical) or
+    /// height (horizontal).
+    at: float,
+}

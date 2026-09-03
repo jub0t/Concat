@@ -9,7 +9,7 @@ import { NumberField } from "../primitives/number-field.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
-import { ClipKind, StageItemData } from "../timeline/model.slint";
+import { ClipKind, StageGuideData, StageItemData } from "../timeline/model.slint";
 
 // The programme monitor: a header that says what the output is, a stage on a
 // sunken viewport, and a transport tray under it in three parts — timecode on
@@ -419,10 +419,35 @@ component StageItem inherits Rectangle {
     }
 }
 
+/// One snap line, dashed by hand: Slint's Path strokes have no dash pattern,
+/// so the line is a run of short rectangles along the axis it marks. Thin and
+/// in the accent, the same as the box it is guiding.
+component Guide inherits Rectangle {
+    in property <StageGuideData> guide;
+
+    property <length> dash: 5px;
+    property <length> gap: 4px;
+    property <length> run: root.guide.vertical ? root.height : root.width;
+    property <int> count: Math.floor(root.run / (root.dash + root.gap)) + 1;
+
+    background: transparent;
+
+    for index in root.count: Rectangle {
+        x: root.guide.vertical ? root.guide.at * root.width - 0.5px
+            : index * (root.dash + root.gap);
+        y: root.guide.vertical ? index * (root.dash + root.gap)
+            : root.guide.at * root.height - 0.5px;
+        width: root.guide.vertical ? 1px : root.dash;
+        height: root.guide.vertical ? root.dash : 1px;
+        background: Theme.accent;
+    }
+}
+
 /// The layer over the stage: the floor that takes a press on a picture or on
 /// nothing, and one StageItem per selected picture above it.
 component StageOverlay inherits Rectangle {
     in property <[StageItemData]> items;
+    in property <[StageGuideData]> guides;
 
     callback pressed(x: float, y: float, additive: bool);
     callback grip-pressed(id: string, grip: int, x: float, y: float);
@@ -459,6 +484,16 @@ component StageOverlay inherits Rectangle {
                     self.snap);
             }
         }
+    }
+
+    // The snap lines, under the boxes: a guide runs the whole frame and the
+    // grips have to stay on top of it.
+    for guide in root.guides: Guide {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        guide: guide;
     }
 
     for entry in root.items: Rectangle {
@@ -501,6 +536,8 @@ export component PreviewPane inherits Rectangle {
     /// Every picture under the playhead, for the selection drawn over the
     /// frame. See StageOverlay.
     in property <[StageItemData]> stage-items;
+    /// The snap lines while one of them is being moved.
+    in property <[StageGuideData]> stage-guides;
 
     callback play-toggled();
     /// Absolute, in seconds.
@@ -669,6 +706,7 @@ export component PreviewPane inherits Rectangle {
                 width: stage.width;
                 height: stage.height;
                 items: root.stage-items;
+                guides: root.stage-guides;
                 pressed(x, y, additive) => { root.stage-pressed(x, y, additive); }
                 grip-pressed(id, grip, x, y) => { root.stage-grip-pressed(id, grip, x, y); }
                 dragged(x, y, snap) => { root.stage-dragged(x, y, snap); }

@@ -121,6 +121,7 @@ fn main() -> Result<(), slint::PlatformError> {
         editor.set_tracks(ModelRc::from(models.tracks.clone()));
         editor.set_clips(ModelRc::from(models.clips.clone()));
         editor.set_stage_items(ModelRc::from(models.stage.clone()));
+        editor.set_stage_guides(ModelRc::from(models.guides.clone()));
         editor.set_media(ModelRc::from(models.media.clone()));
         editor.set_video_effects(ModelRc::from(models.video_effects.clone()));
         editor.set_audio_effects(ModelRc::from(models.audio_effects.clone()));
