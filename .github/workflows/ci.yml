@@ -1,0 +1,61 @@
+name: CI
+
+# The engine's tests and lints on every push and pull request, and the app
+# built for all three platforms on every push to main (artifacts, not a
+# release - see release.yml for those).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    name: Engine tests and lints
+    runs-on: ubuntu-latest
+    env:
+      FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      # Slint's Skia renderer links fontconfig and freetype; cpal links
+      # ALSA; bindgen needs libclang; whisper.cpp is built by cmake; the
+      # file dialogs link GTK on Linux.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
+            libgtk-3-dev libasound2-dev libclang-dev cmake
+
+      # Ubuntu's packaged FFmpeg is older than the 7 the engine needs, so the
+      # libraries come from BtbN, and FFMPEG_DIR tells the bindings where.
+      - name: FFmpeg development libraries
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$FFMPEG_LINUX"
+          mkdir -p ffmpeg-dev
+          tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
+          echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
+
+      - run: cargo test --workspace
+        working-directory: engine
+      # -D warnings covers rustc lints too (missing_docs among them), so a
+      # public item without documentation fails here, not in review.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: engine
+
+  app:
+    name: Build app
+    if: github.event_name != 'pull_request'
+    needs: [engine]
+    uses: ./.github/workflows/build-app.yml

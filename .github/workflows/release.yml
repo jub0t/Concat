@@ -1,0 +1,54 @@
+name: Release
+
+# Pushing a tag that starts with v (v0.3.0, v0.3.0-alpha.1, ...) builds the
+# app for all three platforms and publishes a GitHub release under that tag
+# with one archive per platform. A tag containing a hyphen is a pre-release.
+#
+# Archives rather than installers for now: the Slint window is a single
+# binary plus, on Windows and Linux, the FFmpeg runtime libraries beside it.
+# Signed installers and bundles are the next packaging step.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-app.yml
+
+  publish:
+    name: Publish release
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+
+      - name: Pack one archive per platform
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          tag="${GITHUB_REF_NAME}"
+          (cd bundles/Concat-macos   && tar -czf "../../out/Concat-${tag}-macos-arm64.tar.gz" .)
+          (cd bundles/Concat-linux   && tar -czf "../../out/Concat-${tag}-linux-x86_64.tar.gz" .)
+          (cd bundles/Concat-windows && zip -qr "../../out/Concat-${tag}-windows-x86_64.zip" .)
+          ls -l out
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Concat ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            Concat is AGPL-3.0-or-later, with a plugin exception for Concat API
+            plugins ([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
+            The binaries link FFmpeg (GPL builds with x264; the Windows and
+            Linux archives carry its runtime libraries), compile in whisper.cpp
+            (MIT), and statically link sherpa-onnx with GPL-3.0 espeak-ng -
+            sources and licences in
+            [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
+            Slint is used under its GPL-3.0-only option.
+          fail_on_unmatched_files: true
+          files: out/*

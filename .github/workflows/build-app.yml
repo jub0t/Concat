@@ -1,29 +1,21 @@
-name: Build App
+name: Build app
 
-# Tests the engine and builds Concat - the Slint window, `engine/crates/concat`
-# - for macOS, Windows and Linux.
+# Builds Concat - the Slint window, `engine/crates/concat` - for macOS,
+# Windows and Linux, and uploads each as an artifact named Concat-<platform>.
 #
-# The engine links FFmpeg and compiles whisper.cpp in, so a build needs the
-# FFmpeg 7+ development libraries (headers and import libraries), cmake and a
-# C++ toolchain - nothing is staged beside the binary any more. Homebrew's
-# FFmpeg serves on macOS; Windows and Linux use a BtbN `shared` build, which
-# ships headers, import libraries and the runtime libraries together.
+# Reusable: ci.yml calls it on every push to main, release.yml on every tag.
+# It is the one place the build environment is described:
 #
-# - Pushes to main and manual runs: test, build, and upload the binaries as
-#   artifacts.
-# - Releases: none yet. The Tauri app in desktop/ used to be packaged and
-#   published from here; it is deprecated and no longer built. Automatic
-#   alpha releases resume once the Slint window is packaged for each
-#   platform.
+# - The engine links FFmpeg and compiles whisper.cpp in, so a build needs the
+#   FFmpeg 7+ development libraries (headers and import libraries), cmake, a
+#   C++ toolchain and libclang for bindgen. Nothing is staged beside the
+#   binary any more.
+# - Homebrew's FFmpeg serves on macOS. Windows and Linux use a BtbN `shared`
+#   build, which ships headers, import libraries and the runtime libraries
+#   together; FFMPEG_DIR tells the bindings where it is, and the runtime
+#   libraries travel with the binary in the artifact.
 on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    tags: ["v*"]
-
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 env:
   # BtbN's autobuilds: GPL (x264 in), shared, FFmpeg 8.1.
@@ -31,47 +23,8 @@ env:
   FFMPEG_WINDOWS: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip
 
 jobs:
-  engine-tests:
-    name: Engine tests (ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: engine
-
-      # Slint's Skia renderer links fontconfig and freetype; cpal links
-      # ALSA; bindgen (for the FFmpeg bindings) needs libclang; whisper.cpp
-      # is built by cmake.
-      - name: System libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
-            libasound2-dev libclang-dev cmake
-
-      # Ubuntu's packaged FFmpeg is older than the 7 the engine needs, so the
-      # libraries come from BtbN, and FFMPEG_DIR tells the bindings where.
-      - name: FFmpeg development libraries
-        run: |
-          set -euo pipefail
-          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$FFMPEG_LINUX"
-          mkdir -p ffmpeg-dev
-          tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
-          echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
-
-      - run: cargo test --workspace
-        working-directory: engine
-      # -D warnings covers rustc lints too (missing_docs among them), so a
-      # public item without documentation fails here, not in review.
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-        working-directory: engine
-
   app:
-    name: App (${{ matrix.platform }})
-    needs: [engine-tests]
+    name: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,14 +46,17 @@ jobs:
         with:
           workspaces: engine
 
+      # Slint's Skia renderer links fontconfig and freetype; cpal links
+      # ALSA; bindgen needs libclang; whisper.cpp is built by cmake.
       - name: System libraries (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
-            libasound2-dev libclang-dev cmake
+            libgtk-3-dev libasound2-dev libclang-dev cmake
 
+      # Ubuntu's packaged FFmpeg is older than the 7 the engine needs.
       - name: FFmpeg development libraries (Linux)
         if: matrix.platform == 'linux'
         run: |
@@ -115,8 +71,8 @@ jobs:
         if: matrix.platform == 'macos'
         run: brew install ffmpeg cmake
 
-      # bindgen needs libclang on Windows too; LLVM from chocolatey provides
-      # it. The BtbN zip unpacks to one top-level folder.
+      # LLVM from chocolatey provides libclang. The BtbN zip unpacks to one
+      # top-level folder.
       - name: FFmpeg development libraries (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -135,16 +91,19 @@ jobs:
       - run: cargo build --profile app -p concat
         working-directory: engine
 
-      # The binary, plus the FFmpeg runtime libraries it loads on the
-      # platforms where those are not the system's.
-      - name: Stage the build (unix)
+      # The binary, plus the FFmpeg runtime libraries it loads where those
+      # are not the system's.
+      - name: Stage (unix)
         if: matrix.platform != 'windows'
         run: |
           set -euo pipefail
           mkdir -p stage
           cp engine/target/app/concat stage/
-          if [ -d ffmpeg-dev/lib ]; then mkdir -p stage/lib && cp -a ffmpeg-dev/lib/*.so* stage/lib/; fi
-      - name: Stage the build (Windows)
+          if [ -d ffmpeg-dev/lib ]; then
+            mkdir -p stage/lib
+            cp -a ffmpeg-dev/lib/*.so* stage/lib/
+          fi
+      - name: Stage (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |

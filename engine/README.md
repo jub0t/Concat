@@ -45,7 +45,7 @@ toolchain for whisper.cpp. The window builds with Slint's
 Skia renderer by default; `--no-default-features --features wgpu` swaps in
 FemtoVG over wgpu, and the two are meant to be compared, not chosen once.
 On Linux, Skia needs the fontconfig and freetype headers at build time (see
-the engine job in `.github/workflows/build.yml` for the package list).
+`.github/workflows/build-app.yml` for the package list).
 
 ## Reading this codebase cold
 
