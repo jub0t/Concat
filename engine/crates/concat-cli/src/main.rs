@@ -106,7 +106,7 @@ fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(
 
     let timeline = single_clip_timeline(input, width, height, rate, frames);
 
-    let mut pool = ReaderPool::with_defaults();
+    let pool = ReaderPool::with_defaults();
     let mut encoder = Encoder::create(output, width, height, rate, &EncodeOptions::default())?;
     let mut compositor = CpuCompositor;
 
