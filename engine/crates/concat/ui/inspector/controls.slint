@@ -42,6 +42,7 @@ export enum ParamFormat {
     // named in a unit nothing above spells.
     plain,       // "1.25", or "12" when it is whole
     kelvin,      // "4600 K"
+    stops,       // "+0.50 EV", "0.00 EV"
 }
 
 export global InspectorFmt {
@@ -108,6 +109,9 @@ export global InspectorFmt {
                 : InspectorFmt.fixed2(v);
         }
         if (fmt == ParamFormat.kelvin) { return "\{Math.round(v)} K"; }
+        if (fmt == ParamFormat.stops) {
+            return (v > 0 ? "+" : "") + InspectorFmt.fixed2(v) + " EV";
+        }
         return v == 0 ? "none" : InspectorFmt.fixed1(v) + " s";
     }
 

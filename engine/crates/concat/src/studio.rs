@@ -391,6 +391,8 @@ pub struct Models {
     pub applied_audio: Rc<VecModel<AppliedEntryData>>,
     pub visual_params: Rc<VecModel<AppliedParamData>>,
     pub audio_params: Rc<VecModel<AppliedParamData>>,
+    /// The colour panel's knobs.
+    pub adjust_params: Rc<VecModel<AppliedParamData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub av: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
@@ -422,6 +424,7 @@ impl Models {
             applied_audio: Rc::new(VecModel::default()),
             visual_params: Rc::new(VecModel::default()),
             audio_params: Rc::new(VecModel::default()),
+            adjust_params: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             av: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
@@ -590,6 +593,11 @@ fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
     let mut entries = Vec::new();
     for package in Catalogue::builtin().of_kind(kind) {
         let meta = &package.manifest.effect;
+        // The colour panel's own package: every picture clip can carry it,
+        // and it has a tab, not a shelf.
+        if meta.id == ADJUST_ID {
+            continue;
+        }
         let category = if meta.category.is_empty() {
             "Other".to_owned()
         } else {
@@ -627,10 +635,45 @@ fn format_of(unit: &str) -> ParamFormat {
         "ms" => ParamFormat::Millis,
         "st" => ParamFormat::Pitch,
         "K" => ParamFormat::Kelvin,
+        "EV" => ParamFormat::Stops,
         "°" => ParamFormat::Degrees,
         "x" => ParamFormat::Rate,
         _ => ParamFormat::Plain,
     }
+}
+
+/// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
+const ADJUST_ID: &str = "concat.adjust";
+
+/// The colour panel's rows: the adjust package's parameters, at the values
+/// the clip's chain holds or at the defaults when the clip carries none.
+fn adjust_rows(chain: &[AppliedFilter]) -> Vec<AppliedParamData> {
+    let Some(package) = Catalogue::builtin().get(ADJUST_ID) else {
+        return Vec::new();
+    };
+    let held = chain.iter().find(|entry| entry.id == ADJUST_ID);
+    package
+        .manifest
+        .params
+        .iter()
+        .map(|param| AppliedParamData {
+            entry: -1,
+            key: param.key.as_str().into(),
+            label: param.label.as_str().into(),
+            min: param.min as f32,
+            max: param.max as f32,
+            step: if param.step > 0.0 {
+                param.step as f32
+            } else {
+                ((param.max - param.min) / 200.0) as f32
+            },
+            default_value: param.default as f32,
+            value: held
+                .and_then(|entry| entry.params.get(&param.key).copied())
+                .unwrap_or(param.default) as f32,
+            fmt: format_of(&param.unit),
+        })
+        .collect()
 }
 
 /// A chain as the inspector's stack draws it: one row per link, and one per
@@ -655,6 +698,11 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             known: package.is_some(),
         });
         let Some(package) = package else { continue };
+        // The adjust link shows as a link - it can be bypassed or removed
+        // here - but its knobs are the Adjust tab's, not the chain's.
+        if package.id() == ADJUST_ID {
+            continue;
+        }
         for param in &package.manifest.params {
             let step = if param.step > 0.0 {
                 param.step
@@ -1769,6 +1817,43 @@ impl Studio {
         if let Some(entry) = usize::try_from(index).ok().and_then(|i| chain.get_mut(i)) {
             entry.params.insert(key.to_owned(), f64::from(value));
         }
+    }
+
+    /// One knob of the colour panel, on the echo. The adjust package joins
+    /// the head of the picture's chain the first time a knob moves, so an
+    /// untouched clip carries nothing.
+    pub fn adjust_set(&mut self, key: &str, value: f32) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        self.begin_echo();
+        let Some(clip) = self.echo_clip_mut(&id) else {
+            return;
+        };
+        if !clip.kind.is_visual() {
+            return;
+        }
+        let at = match clip
+            .video_effects
+            .iter()
+            .position(|entry| entry.id == ADJUST_ID)
+        {
+            Some(at) => at,
+            None => {
+                clip.video_effects.insert(
+                    0,
+                    AppliedFilter {
+                        id: ADJUST_ID.to_owned(),
+                        params: std::collections::BTreeMap::new(),
+                        enabled: true,
+                    },
+                );
+                0
+            }
+        };
+        clip.video_effects[at]
+            .params
+            .insert(key.to_owned(), f64::from(value));
     }
 
     // ── gestures ──
@@ -3504,6 +3589,13 @@ impl Studio {
         sync(&models.visual_params, visual_params);
         sync(&models.applied_audio, sound);
         sync(&models.audio_params, sound_params);
+        sync(
+            &models.adjust_params,
+            match self.sole_selection().and_then(|id| self.clip(&id)) {
+                Some(clip) if clip.kind.is_visual() => adjust_rows(&clip.video_effects),
+                _ => Vec::new(),
+            },
+        );
     }
 
     /// The selection, flattened for the inspector: exactly one clip or

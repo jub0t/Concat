@@ -135,6 +135,7 @@ fn main() -> Result<(), slint::PlatformError> {
         editor.set_applied_audio(ModelRc::from(models.applied_audio.clone()));
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
+        editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         editor.set_av_items(ModelRc::from(models.av.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
@@ -674,6 +675,10 @@ fn main() -> Result<(), slint::PlatformError> {
             state.chain_set_param(audio, index, key.as_str(), value);
         }
     ));
+
+    editor.on_adjust_set(on_lanes!(|state, key: SharedString, value: f32| {
+        state.adjust_set(key.as_str(), value);
+    }));
 
     // ── the monitor ──
     editor.on_seek(on_lanes!(|state, seconds: f32| {

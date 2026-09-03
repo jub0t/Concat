@@ -1,0 +1,120 @@
+[effect]
+id = "concat.adjust"
+name = "Adjust"
+kind = "filter"
+category = "Adjust"
+order = 0
+intensity = "exposure"
+description = "The manual colour panel every picture clip carries: exposure, tone, balance, sharpness and edge."
+
+# Exposure in stops; brightness, contrast and saturation as a signed
+# percent of the untouched picture; temperature in kelvin with 6500 the
+# picture as shot; tint green to magenta; shadows and highlights lift or
+# crush their end of the curve; sharpen, vignette and fade add from zero.
+
+[[param]]
+key = "exposure"
+label = "Exposure"
+min = -3
+max = 3
+default = 0
+step = 0.05
+unit = "EV"
+
+[[param]]
+key = "brightness"
+label = "Brightness"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "contrast"
+label = "Contrast"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "saturation"
+label = "Saturation"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "temperature"
+label = "Temperature"
+min = 2000
+max = 11000
+default = 6500
+step = 50
+unit = "K"
+
+[[param]]
+key = "tint"
+label = "Tint"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "shadows"
+label = "Shadows"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "highlights"
+label = "Highlights"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "sharpen"
+label = "Sharpen"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "vignette"
+label = "Vignette"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "fade"
+label = "Fade"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "lift = fade / 100 * 0.25",
+  "low = clamp(0.25 + shadows / 100 * 0.18, 0.05, 0.45)",
+  "high = clamp(0.75 + highlights / 100 * 0.18, 0.55, 0.95)",
+]
+chain = "exposure=exposure={fixed(exposure, 2)},eq=brightness={fixed(brightness / 100 * 0.5, 3)}:contrast={fixed(1 + contrast / 100, 3)}:saturation={fixed(1 + saturation / 100 * 2, 3)},colortemperature=temperature={round(temperature)},colorbalance=gm={fixed(0 - tint / 100 * 0.5, 3)},curves=all='0/{fixed(lift, 3)} 0.25/{fixed(low, 3)} 0.75/{fixed(high, 3)} 1/1',unsharp=5:5:{fixed(sharpen / 100 * 2, 2)},vignette=a={fixed(vignette / 100 * 1.2, 3)}"

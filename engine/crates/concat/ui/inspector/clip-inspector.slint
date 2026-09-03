@@ -307,45 +307,30 @@ export component PresetStack inherits VerticalLayout {
     }
 }
 
-// The Adjust tab: what can be changed about the selected clip.
+// The clip's own tabs, one panel each. The tab strip follows the kind (see
+// config-pane): a still has picture but no sound, so it gets Video and not
+// Audio or Speed; a sound clip is the reverse. Every panel here is a set of
+// fields on the selected clip; the chains have their own stacks.
 //
-// The panel adapts to the kind rather than the tab strip doing it all: a
-// still has picture but no sound, so it gets Transform and nothing else; an
-// audio clip has sound but no picture, so it gets everything but Transform.
-//
-// The fader for level works in decibels, not linear gain. Linear puts every
-// useful setting in the bottom sixth of the travel; decibels is both how the
-// ear works and how anyone mixing thinks.
-export component AdjustPanel inherits VerticalLayout {
+// Local editing state is assigned rather than bound. A control writes to its
+// own `value` as it is dragged, and an assignment in Slint replaces whatever
+// binding the parent declared on that property — so binding these straight
+// to `selected` would work exactly once and then go deaf to the model. They
+// are seeded instead, on init and whenever the selection changes under us.
+
+/// Video: how the picture sits in the frame, and how solid it is.
+export component VideoPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
     callback commit();
 
-    property <bool> has-picture: root.selected.kind == ClipKind.video
-        || root.selected.kind == ClipKind.image;
-    /// A still is picture only: no gain to set, nothing a fade could quieten.
-    property <bool> has-sound: root.selected.kind != ClipKind.image;
-    /// A fade longer than half the clip would overlap the other one.
-    property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
-
-    // Local editing state, assigned rather than bound.
-    //
-    // A control writes to its own `value` as it is dragged, and an assignment
-    // in Slint replaces whatever binding the parent declared on that property
-    // — so binding these straight to `clip` would work exactly once and then
-    // go deaf to the model. They are seeded instead, on init and whenever the
-    // selection changes under us.
     property <float> scale;
     property <float> offset-x;
     property <float> offset-y;
     property <float> rotation;
     property <float> alpha;
-    property <float> level;
-    property <float> speed;
-    property <float> fade-in;
-    property <float> fade-out;
 
     function seed() {
         root.scale = root.selected.scale;
@@ -353,19 +338,14 @@ export component AdjustPanel inherits VerticalLayout {
         root.offset-y = root.selected.offset-y;
         root.rotation = root.selected.rotation;
         root.alpha = root.selected.opacity;
-        root.level = InspectorFmt.to-decibels(root.selected.volume);
-        root.speed = root.selected.speed;
-        root.fade-in = root.selected.fade-in;
-        root.fade-out = root.selected.fade-out;
     }
 
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
     property <bool> transform-help;
-    property <bool> speed-help;
 
-    if root.has-picture: Section {
+    Section {
         first: true;
         transform := SectionHeader {
             title: "Transform";
@@ -381,7 +361,8 @@ export component AdjustPanel inherits VerticalLayout {
 
         if root.transform-help: Note {
             text: "Scale and position are fractions of the output frame, so a"
-                + " clip keeps its framing if the project is re-sized.";
+                + " clip keeps its framing if the project is re-sized. The"
+                + " same numbers move with the box on the monitor.";
         }
 
         Param {
@@ -424,7 +405,17 @@ export component AdjustPanel inherits VerticalLayout {
             fmt: ParamFormat.degrees;
             changed(v) => { root.set(ClipField.rotation, v); root.commit(); }
         }
-        Param {
+
+        }
+    }
+
+    Section {
+        blend := SectionHeader {
+            title: "Blend";
+            collapsible: true;
+            summary: "\{Math.round(root.alpha * 100)}%";
+        }
+        if blend.open: Param {
             label: "Opacity";
             value <=> root.alpha;
             minimum: 0;
@@ -434,12 +425,39 @@ export component AdjustPanel inherits VerticalLayout {
             fmt: ParamFormat.fraction;
             changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
         }
+    }
+}
 
-        }
+/// Audio: the level and the fades. The voice and room chain sits under it
+/// in the same tab; see config-pane.
+///
+/// The fader for level works in decibels, not linear gain. Linear puts every
+/// useful setting in the bottom sixth of the travel; decibels is both how the
+/// ear works and how anyone mixing thinks.
+export component AudioPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    /// A fade longer than half the clip would overlap the other one.
+    property <float> fade-limit: Math.max(0.1, Math.min(10, root.selected.duration / 2));
+
+    property <float> level;
+    property <float> fade-in;
+    property <float> fade-out;
+
+    function seed() {
+        root.level = InspectorFmt.to-decibels(root.selected.volume);
+        root.fade-in = root.selected.fade-in;
+        root.fade-out = root.selected.fade-out;
     }
 
-    if root.has-sound: Section {
-        first: !root.has-picture;
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    Section {
+        first: true;
         volume := SectionHeader {
             title: "Volume";
             collapsible: true;
@@ -464,7 +482,54 @@ export component AdjustPanel inherits VerticalLayout {
         }
     }
 
-    if root.has-sound: Section {
+    Section {
+        fades := SectionHeader {
+            title: "Fades";
+            collapsible: true;
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? "none"
+                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
+                    + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+        }
+        if fades.open: VerticalLayout {
+        Param {
+            label: "Fade in";
+            value <=> root.fade-in;
+            minimum: 0;
+            maximum: root.fade-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+        }
+        Param {
+            label: "Fade out";
+            value <=> root.fade-out;
+            minimum: 0;
+            maximum: root.fade-limit;
+            step: 0.05;
+            fmt: ParamFormat.seconds2;
+            changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
+        }
+        }
+    }
+}
+
+/// Speed: the rate, and whether pitch follows it. Curves come later and
+/// will live here too.
+export component SpeedPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback set(field: ClipField, value: float);
+    callback commit();
+
+    property <float> speed;
+    function seed() { root.speed = root.selected.speed; }
+    init => { root.seed(); }
+    changed selected => { root.seed(); }
+
+    property <bool> speed-help;
+
+    Section {
+        first: true;
         speed := SectionHeader {
             title: "Speed";
             collapsible: true;
@@ -507,34 +572,53 @@ export component AdjustPanel inherits VerticalLayout {
 
         }
     }
+}
 
-    if root.has-sound: Section {
-        fades := SectionHeader {
-            title: "Fades";
-            collapsible: true;
-            summary: (root.fade-in == 0 && root.fade-out == 0) ? "none"
-                : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
-                    + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+/// Adjust: the manual colour panel. Every knob is a parameter of the one
+/// built-in `concat.adjust` package, which Rust puts at the head of the
+/// picture's chain the first time a knob moves; until then the rows show the
+/// package's defaults, which are the picture as shot. The rows come from the
+/// manifest, so a knob added there appears here without a line of UI.
+export component AdjustPanel inherits VerticalLayout {
+    in property <[AppliedParamData]> params;
+
+    callback set(key: string, value: float);
+    callback commit();
+
+    property <bool> help;
+
+    Section {
+        first: true;
+        SectionHeader {
+            title: "Colour";
+            HelpButton {
+                open: root.help;
+                toggled => { root.help = self.open; }
+            }
         }
-        if fades.open: VerticalLayout {
-        Param {
-            label: "Fade in";
-            value <=> root.fade-in;
-            minimum: 0;
-            maximum: root.fade-limit;
-            step: 0.05;
-            fmt: ParamFormat.seconds2;
-            changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
+
+        if root.help: Note {
+            text: "Exposure is in stops; the rest is a signed percent of the"
+                + " picture as shot, and zero everywhere is the picture as"
+                + " shot. Double-click a knob to put it back.";
         }
-        Param {
-            label: "Fade out";
-            value <=> root.fade-out;
-            minimum: 0;
-            maximum: root.fade-limit;
-            step: 0.05;
-            fmt: ParamFormat.seconds2;
-            changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
-        }
+
+        // See PresetStack for why each row re-seeds its knob.
+        for p in root.params: Rectangle {
+            property <AppliedParamData> data: p;
+            height: knob.preferred-height;
+            changed data => { knob.value = self.data.value; }
+
+            knob := Param {
+                label: p.label;
+                value: p.value;
+                minimum: p.min;
+                maximum: p.max;
+                step: p.step;
+                default-value: p.default-value;
+                fmt: p.fmt;
+                changed(v) => { root.set(p.key, v); root.commit(); }
+            }
         }
     }
 }

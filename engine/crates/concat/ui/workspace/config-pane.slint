@@ -6,8 +6,8 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AppliedEntryData, AppliedParamData, CatalogueEntryData,
-    FilterPanel, PresetStack,
+    AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel,
+    CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
 import {
@@ -136,6 +136,10 @@ export component ConfigPane inherits Rectangle {
     in property <[AppliedEntryData]> applied-audio;
     in property <[AppliedParamData]> visual-params;
     in property <[AppliedParamData]> audio-params;
+    /// The colour panel's knobs: the adjust package's parameters, at the
+    /// selected clip's values or the defaults.
+    in property <[AppliedParamData]> adjust-params;
+    callback adjust-set(key: string, value: float);
 
     callback chain-add(audio: bool, id: string);
     callback chain-toggle(audio: bool, index: int);
@@ -166,9 +170,9 @@ export component ConfigPane inherits Rectangle {
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
     property <[string]> tabs: root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
-        : root.is-image ? ["Adjust", "Filters", "Effects"]
-        : root.is-audio ? ["Adjust", "Audio"]
-        : ["Adjust", "Audio", "Filters", "Effects"];
+        : root.is-image ? ["Video", "Adjust", "Filters", "Effects"]
+        : root.is-audio ? ["Audio", "Speed"]
+        : ["Video", "Audio", "Speed", "Adjust", "Filters", "Effects"];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -382,9 +386,21 @@ export component ConfigPane inherits Rectangle {
             padding: 0px;
 
             PaneScroll {
-                if root.showing == "Adjust": AdjustPanel {
+                if root.showing == "Video": VideoPanel {
                     selected: root.selected;
                     set(field, value) => { root.clip-set(field, value); }
+                    commit => { root.clip-commit(); }
+                }
+
+                if root.showing == "Speed": SpeedPanel {
+                    selected: root.selected;
+                    set(field, value) => { root.clip-set(field, value); }
+                    commit => { root.clip-commit(); }
+                }
+
+                if root.showing == "Adjust": AdjustPanel {
+                    params: root.adjust-params;
+                    set(key, value) => { root.adjust-set(key, value); }
                     commit => { root.clip-commit(); }
                 }
 
@@ -402,22 +418,31 @@ export component ConfigPane inherits Rectangle {
                     commit => { root.clip-commit(); }
                 }
 
-                if root.showing == "Audio": PresetStack {
-                    noun: "audio effect";
-                    library-title: "Audio effects";
-                    group-labels: root.audio-groups;
-                    catalogue: root.catalogue-audio;
-                    applied: root.applied-audio;
-                    params: root.audio-params;
-
-                    add(id) => { root.chain-add(true, id); }
-                    toggle(index) => { root.chain-toggle(true, index); }
-                    move-by(index, delta) => { root.chain-move-by(true, index, delta); }
-                    remove(index) => { root.chain-remove(true, index); }
-                    set-param(index, key, value) => {
-                        root.chain-set-param(true, index, key, value);
+                // Audio: the level and fades, then the voice and room chain
+                // under them, as CapCut's audio tab has it.
+                if root.showing == "Audio": VerticalLayout {
+                    AudioPanel {
+                        selected: root.selected;
+                        set(field, value) => { root.clip-set(field, value); }
+                        commit => { root.clip-commit(); }
                     }
-                    commit => { root.clip-commit(); }
+                    PresetStack {
+                        noun: "audio effect";
+                        library-title: "Audio effects";
+                        group-labels: root.audio-groups;
+                        catalogue: root.catalogue-audio;
+                        applied: root.applied-audio;
+                        params: root.audio-params;
+
+                        add(id) => { root.chain-add(true, id); }
+                        toggle(index) => { root.chain-toggle(true, index); }
+                        move-by(index, delta) => { root.chain-move-by(true, index, delta); }
+                        remove(index) => { root.chain-remove(true, index); }
+                        set-param(index, key, value) => {
+                            root.chain-set-param(true, index, key, value);
+                        }
+                        commit => { root.clip-commit(); }
+                    }
                 }
 
                 // Filters and Effects share one chain — a look and a blur

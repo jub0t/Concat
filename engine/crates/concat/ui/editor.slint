@@ -112,6 +112,9 @@ export global Editor {
     in-out property <[AppliedEntryData]> applied-audio;
     in-out property <[AppliedParamData]> visual-params;
     in-out property <[AppliedParamData]> audio-params;
+    /// The Adjust tab: the colour package's knobs for the selected clip.
+    in-out property <[AppliedParamData]> adjust-params;
+    callback adjust-set(key: string, value: float);
     /// `audio` picks the chain: the sound's, or the picture's. A parameter
     /// change lands on the echo and `clip-commit` makes it a command, the
     /// same as every other inspector control.

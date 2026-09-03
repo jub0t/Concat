@@ -1,0 +1,13 @@
+[[case]]
+name = "default is the picture as shot"
+chain = "exposure=exposure=0.00,eq=brightness=0.000:contrast=1.000:saturation=1.000,colortemperature=temperature=6500,colorbalance=gm=0.000,curves=all='0/0.000 0.25/0.250 0.75/0.750 1/1',unsharp=5:5:0.00,vignette=a=0.000"
+
+[[case]]
+name = "everything down"
+at = "min"
+chain = "exposure=exposure=-3.00,eq=brightness=-0.500:contrast=0.000:saturation=-1.000,colortemperature=temperature=2000,colorbalance=gm=0.500,curves=all='0/0.000 0.25/0.070 0.75/0.570 1/1',unsharp=5:5:0.00,vignette=a=0.000"
+
+[[case]]
+name = "everything up"
+at = "max"
+chain = "exposure=exposure=3.00,eq=brightness=0.500:contrast=2.000:saturation=3.000,colortemperature=temperature=11000,colorbalance=gm=-0.500,curves=all='0/0.250 0.25/0.430 0.75/0.930 1/1',unsharp=5:5:2.00,vignette=a=1.200"
