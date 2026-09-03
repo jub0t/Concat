@@ -514,6 +514,10 @@ pub struct Studio {
     pub gesture: Gesture,
     /// The snap lines of a stage move in flight; empty between moves.
     pub stage_guides: Vec<StageGuideData>,
+    /// Each title's painted block in frame pixels, by clip id, as of the
+    /// last time the monitor asked for a frame. What the stage box for a
+    /// text clip is drawn from; see `footprint`.
+    pub title_blocks: HashMap<String, (u32, u32)>,
     pub drop: Option<DropPlan>,
 }
 
@@ -627,6 +631,7 @@ impl Studio {
             divider_press: None,
             gesture: Gesture::None,
             stage_guides: Vec::new(),
+            title_blocks: HashMap::new(),
             drop: None,
             host,
         };
@@ -942,8 +947,13 @@ impl Studio {
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
         // had it. Same flattening the session does for itself.
-        let clips = concat_export::flatten::flatten_timeline(self.project(), None);
+        let mut clips = concat_export::flatten::flatten_timeline(self.project(), None);
         let (width, height) = self.output_size();
+        // Titles, painted to pictures and rejoined; see concat-host's titles.
+        for title in self.host.titles.clips(self.project(), width, height) {
+            self.title_blocks.insert(title.clip_id, title.block);
+            clips.push(title.clip);
+        }
         let scale = match self.quality {
             0 => 1.0,
             1 => 0.5,
@@ -1931,11 +1941,20 @@ impl Studio {
     pub fn footprint(&self, clip: &Clip) -> Footprint {
         let (width, height) = self.output_size();
         let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
-        let (w, h) = if clip.kind == model::ClipKind::Text {
-            // The engine does not report where a title's glyphs landed, so
-            // this is a reading of the style: an em is `font_size` of the
-            // frame's height, a glyph runs about six tenths of one, and a
-            // little air is left around the block the way the plate would.
+        let painted = (clip.kind == model::ClipKind::Text)
+            .then(|| self.title_blocks.get(&clip.id).copied())
+            .flatten();
+        let (w, h) = if let Some((bw, bh)) = painted {
+            // The painter said how big the block came out.
+            (
+                f64::from(bw) * clip.scale / width,
+                f64::from(bh) * clip.scale / height,
+            )
+        } else if clip.kind == model::ClipKind::Text {
+            // Not painted yet: a reading of the style until it is. An em is
+            // `font_size` of the frame's height, a glyph runs about six
+            // tenths of one, and a little air is left around the block the
+            // way the plate would.
             let text = clip.text.clone().unwrap_or_default();
             let lines: Vec<&str> = text.content.lines().collect();
             let rows = lines.len().max(1) as f64;
@@ -2617,7 +2636,15 @@ impl Studio {
             crf: EXPORT_CRF[self.export.quality.min(2)],
             preset: "medium".into(),
         };
-        let mut request = export::request(session, &spec, Vec::new());
+        let (frame_w, frame_h) = self.output_size();
+        let titles = self
+            .host
+            .titles
+            .clips(session.project(), frame_w, frame_h)
+            .into_iter()
+            .map(|title| title.clip)
+            .collect();
+        let mut request = export::request(session, &spec, titles);
         let (width, height) = EXPORT_SIZES[self.export.resolution.min(3)];
         let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
         request.width = width;

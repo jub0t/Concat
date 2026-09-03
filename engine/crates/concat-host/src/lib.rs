@@ -26,8 +26,10 @@ pub mod preview;
 pub mod projects;
 pub mod session;
 pub mod templates;
+pub mod titles;
 
 pub use dirs::AppDirs;
 pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use session::{EditorView, Session, SettingsView};
+pub use titles::{TitleClip, Titles};

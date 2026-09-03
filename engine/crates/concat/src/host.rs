@@ -39,6 +39,8 @@ pub struct Host {
     pub transcriber: Arc<Transcriber>,
     /// Kokoro, and its model downloads.
     pub speech: Arc<Speech>,
+    /// Titles painted to pictures, and the cache of them.
+    pub titles: concat_host::Titles,
 }
 
 impl Host {
@@ -50,6 +52,7 @@ impl Host {
         let dirs = AppDirs::locate()?;
         let _ = std::fs::create_dir_all(&dirs.config);
         Ok(Host {
+            titles: concat_host::Titles::new(&dirs),
             dirs,
             playback: Playback::start(Arc::new(Events)),
             monitor: match gpu {

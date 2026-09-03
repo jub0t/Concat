@@ -1,0 +1,22 @@
+[package]
+name = "concat-text"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Titles as pixels: shapes a text clip's words and rasterises them onto a frame-sized transparent canvas."
+
+[dependencies]
+# Font discovery - the system's faces plus the files a project carries.
+fontdb = "0.23"
+# Shaping: glyph ids and advances from the words, kerning and ligatures
+# included. Pure Rust HarfBuzz.
+rustybuzz = "0.20"
+# Outlines out of the font, into paths.
+ttf-parser = "0.25"
+# Fill, stroke and anti-aliasing of those paths, and the PNG encoder.
+tiny-skia = { version = "0.12", features = ["png-format"] }
+
+[lints]
+workspace = true
