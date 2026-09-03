@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use concat_core::SpeedCurve;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
@@ -97,6 +98,13 @@ pub struct ExportClip {
     /// False lets pitch rise with the rate, like tape.
     #[serde(default = "yes")]
     pub preserve_pitch: bool,
+    /// Speed over the clip as `(at, speed)` points, `at` a fraction of the
+    /// clip's length; empty for the constant `speed`. See `SpeedCurve`.
+    #[serde(default)]
+    pub speed_curve: Vec<(f64, f64)>,
+    /// Played backwards.
+    #[serde(default)]
+    pub reverse: bool,
     /// Multiplier over the fitted size. 1 fills the frame, preserving aspect.
     #[serde(default = "unity")]
     pub scale: f64,
@@ -422,7 +430,7 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
 
         reporter.cancelled()?;
         reporter.emit(0, total_frames, "mixing audio");
-        let mix: Vec<AudioClip> = sound.iter().map(|clip| audio_clip(clip)).collect();
+        let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
         audio::mix_to_file(&mix, timeline_end, &mixed).map_err(|error| error.to_string())?;
 
         reporter.cancelled()?;
@@ -436,20 +444,72 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
     result.map(|()| output.to_string_lossy().into_owned())
 }
 
-/// The engine's view of one audible clip.
-fn audio_clip(clip: &ExportClip) -> AudioClip {
-    AudioClip {
-        path: PathBuf::from(&clip.path),
-        start: clip.start,
-        duration: clip.duration,
-        source_start: clip.source_start,
-        speed: audio::clamp_speed(clip.speed),
-        preserve_pitch: clip.preserve_pitch,
-        volume: clip.volume,
-        fade_in: clip.fade_in,
-        fade_out: clip.fade_out,
-        filter_chain: clip.filter_chain.clone(),
+/// The engine's view of one audible clip - or several, when its speed
+/// changes over it. Sound can only change tempo in steps, so a curve is cut
+/// into pieces of constant rate, each at the mean of its stretch of the
+/// curve and starting where the curve says the source had got to. A reverse
+/// runs the pieces' sound backwards, and the pieces themselves in reverse
+/// order of source, which is what playing the clip backwards means.
+pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
+    let mut chain = clip.filter_chain.clone();
+    if clip.reverse {
+        chain = if chain.is_empty() {
+            "areverse".to_owned()
+        } else {
+            format!("areverse,{chain}")
+        };
     }
+    let Some(curve) = SpeedCurve::new(&clip.speed_curve) else {
+        return vec![AudioClip {
+            path: PathBuf::from(&clip.path),
+            start: clip.start,
+            duration: clip.duration,
+            source_start: clip.source_start,
+            speed: audio::clamp_speed(clip.speed),
+            preserve_pitch: clip.preserve_pitch,
+            volume: clip.volume,
+            fade_in: clip.fade_in,
+            fade_out: clip.fade_out,
+            filter_chain: chain,
+        }];
+    };
+    // Pieces a tenth of a second long, or eight at least: fine enough that
+    // a tempo step is not heard, coarse enough that the graph stays small.
+    let count = ((clip.duration / 0.1).ceil() as usize).clamp(8, 400);
+    let span = curve.mean() * clip.duration;
+    curve
+        .pieces(count)
+        .into_iter()
+        .map(|(x0, x1, consumed, mean)| {
+            let piece_duration = (x1 - x0) * clip.duration;
+            let forward = consumed * clip.duration;
+            let source_start = if clip.reverse {
+                // Backwards: this piece plays the source that ends where the
+                // forward map had got to, so it starts one piece earlier.
+                clip.source_start + (span - forward - mean * piece_duration).max(0.0)
+            } else {
+                clip.source_start + forward
+            };
+            let piece_start = clip.start + x0 * clip.duration;
+            let piece_end = piece_start + piece_duration;
+            // The clip's fades, as they fall on this piece.
+            let fade_in = (clip.fade_in - x0 * clip.duration).clamp(0.0, piece_duration);
+            let fade_out_from = clip.start + clip.duration - clip.fade_out;
+            let fade_out = (piece_end - fade_out_from.max(piece_start)).clamp(0.0, piece_duration);
+            AudioClip {
+                path: PathBuf::from(&clip.path),
+                start: piece_start,
+                duration: piece_duration,
+                source_start,
+                speed: audio::clamp_speed(mean),
+                preserve_pitch: clip.preserve_pitch,
+                volume: clip.volume,
+                fade_in: if clip.fade_in > 0.0 { fade_in } else { 0.0 },
+                fade_out: if clip.fade_out > 0.0 { fade_out } else { 0.0 },
+                filter_chain: chain.clone(),
+            }
+        })
+        .collect()
 }
 
 /// The fraction-to-pixel placement of one composited layer: fitted and
@@ -532,6 +592,10 @@ fn render_picture(
     // output frame keeps each of them in step with the plan's source times
     // without any seeking - including retimed clips.
     let mut decoders: HashMap<ClipId, Decoder> = HashMap::new();
+    // A clip whose speed changes, or runs backwards, cannot be followed by a
+    // paced decoder: each of its frames is sought by its own source time,
+    // through a pool that keeps the reader rolling where it can.
+    let sought = concat_media::ReaderPool::with_defaults();
 
     for index in 0..total_frames {
         reporter.cancelled()?;
@@ -542,6 +606,30 @@ fn render_picture(
         let mut sources: Vec<(Frame, f32, Transform, usize)> =
             Vec::with_capacity(plan.layers.len());
         for layer in &plan.layers {
+            if !layer.paced {
+                let (decode_width, decode_height) = decode_sizes
+                    .get(&layer.clip)
+                    .copied()
+                    .unwrap_or((request.width, request.height));
+                let chain = filter_chains.get(&layer.clip).map(String::as_str);
+                if let Ok(frame) = sought.frame_at(
+                    &layer.media,
+                    layer.source_time,
+                    decode_width,
+                    decode_height,
+                    stills.contains(&layer.clip),
+                    chain,
+                ) {
+                    let track = tracks.get(&layer.clip).copied().unwrap_or(0);
+                    sources.push((
+                        frame.as_ref().clone(),
+                        layer.opacity,
+                        layer.transform,
+                        track,
+                    ));
+                }
+                continue;
+            }
             let decoder = match decoders.entry(layer.clip) {
                 std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::hash_map::Entry::Vacant(entry) => {
@@ -799,6 +887,8 @@ fn build_timeline(
         if clip.kind != ClipKind::Image {
             engine_clip.speed =
                 Rational::approximate(audio::clamp_speed(clip.speed)).unwrap_or(Rational::ONE);
+            engine_clip.retime = SpeedCurve::new(&clip.speed_curve);
+            engine_clip.reverse = clip.reverse;
         }
         engine_clip.transform = Transform {
             scale: clip.scale,
@@ -1130,7 +1220,7 @@ mod tests {
             8,
             Rational::from_int(1),
             &sources,
-            &[negate.clone()],
+            std::slice::from_ref(&negate),
         );
         // Red negated is cyan where nothing sits on top...
         let at = |x: usize, y: usize| &out.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -1193,6 +1283,8 @@ mod tests {
             filter_chain: String::new(),
             speed: 1.0,
             preserve_pitch: true,
+            speed_curve: Vec::new(),
+            reverse: false,
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,

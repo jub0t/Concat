@@ -58,6 +58,8 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     filter_chain: String::new(),
                     speed: 1.0,
                     preserve_pitch: true,
+                    speed_curve: Vec::new(),
+                    reverse: false,
                     scale: 1.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
@@ -96,6 +98,14 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                 filter_chain: audio_filter_chain(&clip.filters),
                 speed: clip.speed,
                 preserve_pitch: clip.preserve_pitch,
+                speed_curve: clip
+                    .speed_curve
+                    .as_deref()
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|point| (point.at, point.speed))
+                    .collect(),
+                reverse: clip.reverse,
                 scale: clip.scale,
                 offset_x: clip.offset_x,
                 offset_y: clip.offset_y,

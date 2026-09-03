@@ -139,6 +139,16 @@ fn yes() -> bool {
     true
 }
 
+/// One point of a speed curve.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeedPoint {
+    /// Where in the clip, as a fraction of its timeline length, 0..=1.
+    pub at: f64,
+    /// Source seconds per timeline second there.
+    pub speed: f64,
+}
+
 /// A transition on the cut into a clip.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -269,8 +279,16 @@ pub struct Clip {
     pub rotation: f64,
     /// Blend strength over whatever is beneath, in 0..1.
     pub opacity: f64,
-    /// Playback rate. 1 is normal.
+    /// Playback rate. 1 is normal. With a curve set this is the curve's
+    /// mean, kept in step by the commands that set either.
     pub speed: f64,
+    /// Speed as it changes over the clip: points of `(at, speed)`, `at` a
+    /// fraction of the clip's timeline length. None is the constant rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed_curve: Option<Vec<SpeedPoint>>,
+    /// Played backwards.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reverse: bool,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,

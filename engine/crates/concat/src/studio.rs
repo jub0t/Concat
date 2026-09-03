@@ -1094,17 +1094,20 @@ impl Studio {
                         || (clip.kind == concat_export::ClipKind::Video
                             && clip.has_audio.unwrap_or(true)))
             })
-            .map(|clip| ClipSpec {
-                path: clip.path.clone(),
-                start: clip.start,
-                duration: clip.duration,
-                source_start: clip.source_start,
-                volume: clip.volume as f32,
-                fade_in: clip.fade_in,
-                fade_out: clip.fade_out,
-                speed: clip.speed,
-                preserve_pitch: clip.preserve_pitch,
-                chain: clip.filter_chain.clone(),
+            // Through the exporter's own cut into pieces, so a curve or a
+            // reverse sounds in the window as it will in the file.
+            .flat_map(concat_export::audio_pieces)
+            .map(|piece| ClipSpec {
+                path: piece.path.to_string_lossy().into_owned(),
+                start: piece.start,
+                duration: piece.duration,
+                source_start: piece.source_start,
+                volume: piece.volume as f32,
+                fade_in: piece.fade_in,
+                fade_out: piece.fade_out,
+                speed: piece.speed,
+                preserve_pitch: piece.preserve_pitch,
+                chain: piece.filter_chain,
             })
             .collect();
         self.host
@@ -2134,6 +2137,25 @@ impl Studio {
                 clip.speed = speed;
             }
             ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
+            ClipField::Reverse => clip.reverse = value != 0.0,
+            ClipField::SpeedCurve => {
+                // The same arithmetic as the command: the source covered is
+                // held, so the length follows the curve's mean.
+                let curve = if value < 0.0 {
+                    None
+                } else {
+                    concat_project::speed::preset(value as usize)
+                };
+                let covered = clip.duration * clip.speed;
+                let mean = curve
+                    .as_ref()
+                    .map(|points| concat_project::speed::mean_of(points))
+                    .unwrap_or(clip.speed)
+                    .clamp(0.0625, 16.0);
+                clip.speed_curve = curve;
+                clip.speed = mean;
+                clip.duration = (covered / mean).max(f64::from(MIN_DURATION));
+            }
             ClipField::FadeIn => clip.fade_in = value.clamp(0.0, clip.duration / 2.0),
             ClipField::FadeOut => clip.fade_out = value.clamp(0.0, clip.duration / 2.0),
             ClipField::FontSize => text.font_size = value.clamp(0.01, 0.5),
@@ -2239,7 +2261,12 @@ impl Studio {
                 rotation: Some(after.rotation),
             });
         }
-        if after.speed != before.speed {
+        if after.speed_curve != before.speed_curve {
+            commands.push(Command::SetClipSpeedCurve {
+                clip_id: id.clone(),
+                curve: after.speed_curve.clone(),
+            });
+        } else if after.speed != before.speed {
             commands.push(Command::SetClipSpeed {
                 clip_id: id.clone(),
                 speed: after.speed,
@@ -2263,6 +2290,9 @@ impl Studio {
         }
         if after.preserve_pitch != before.preserve_pitch {
             patch.preserve_pitch = Some(after.preserve_pitch);
+        }
+        if after.reverse != before.reverse {
+            patch.reverse = Some(after.reverse);
         }
         if after.text != before.text {
             patch.text = Some(after.text.clone());
@@ -3669,6 +3699,13 @@ impl Studio {
             volume: clip.volume as f32,
             speed: clip.speed as f32,
             preserve_pitch: clip.preserve_pitch,
+            speed_curve: match &clip.speed_curve {
+                None => -1,
+                Some(points) => concat_project::speed::preset_of(points)
+                    .map(|index| index as i32)
+                    .unwrap_or(concat_project::speed::PRESETS.len() as i32),
+            },
+            reverse: clip.reverse,
             fade_in: clip.fade_in as f32,
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),

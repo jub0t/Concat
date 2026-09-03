@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, TextStyle, Timeline,
-    Track, Transition,
+    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, SpeedPoint,
+    TextStyle, Timeline, Track, Transition,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -90,6 +90,9 @@ pub struct ClipPatch {
     pub opacity: Option<f64>,
     /// New pitch-preservation setting, taken as sent.
     pub preserve_pitch: Option<bool>,
+    /// Play backwards.
+    #[serde(default)]
+    pub reverse: Option<bool>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
     pub filters: Option<Vec<AppliedFilter>>,
@@ -265,6 +268,15 @@ pub enum Command {
         effect_id: String,
         /// What the lane calls it.
         name: String,
+    },
+    /// Gives a clip a speed curve, or takes it away. The source covered is
+    /// held constant, as a speed change does, so the clip's timeline length
+    /// follows the curve's mean; `speed` is kept at that mean.
+    SetClipSpeedCurve {
+        /// The clip to retime.
+        clip_id: String,
+        /// The curve, or None for a constant rate at the current mean.
+        curve: Option<Vec<SpeedPoint>>,
     },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
@@ -559,6 +571,8 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         opacity: 1.0,
         speed: 1.0,
         preserve_pitch: true,
+        speed_curve: None,
+        reverse: false,
         filters: Vec::new(),
         video_effects: Vec::new(),
         muted: None,
@@ -891,6 +905,8 @@ pub fn apply(
                 opacity: 1.0,
                 speed: 1.0,
                 preserve_pitch: true,
+                speed_curve: None,
+                reverse: false,
                 filters: Vec::new(),
                 video_effects: Vec::new(),
                 muted: None,
@@ -946,6 +962,8 @@ pub fn apply(
                 opacity: 1.0,
                 speed: 1.0,
                 preserve_pitch: true,
+                speed_curve: None,
+                reverse: false,
                 filters: Vec::new(),
                 video_effects: vec![AppliedFilter {
                     id: effect_id,
@@ -1026,6 +1044,21 @@ pub fn apply(
                 let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
                     continue;
                 };
+                {
+                    // A curve or a reverse does not survive a cut in halves:
+                    // the map from here to the source is not affine, so both
+                    // halves go to the constant mean, which is what they
+                    // averaged.
+                    let clip = &mut timeline.clips[index];
+                    let offset = time - clip.start;
+                    if offset > MIN_CLIP_DURATION
+                        && offset < clip.duration - MIN_CLIP_DURATION
+                        && (clip.speed_curve.is_some() || clip.reverse)
+                    {
+                        clip.speed_curve = None;
+                        clip.reverse = false;
+                    }
+                }
                 let clip = &timeline.clips[index];
                 let offset = time - clip.start;
                 if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
@@ -1120,6 +1153,9 @@ pub fn apply(
             if let Some(preserve) = patch.preserve_pitch {
                 applied |= assign(&mut clip.preserve_pitch, preserve);
             }
+            if let Some(reverse) = patch.reverse {
+                applied |= assign(&mut clip.reverse, reverse);
+            }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);
             }
@@ -1151,11 +1187,37 @@ pub fn apply(
             // makes this a speed change rather than a trim.
             let next = speed.clamp(MIN_SPEED, MAX_SPEED);
             let source_covered = clip.duration * clip.speed;
-            // Bitwise so no assignment is short-circuited away.
+            // Bitwise so no assignment is short-circuited away. A rate set
+            // by hand is a constant rate: the curve goes.
             let applied = assign(&mut clip.speed, next)
                 | assign(
                     &mut clip.duration,
                     (source_covered / next).max(MIN_CLIP_DURATION),
+                )
+                | assign(&mut clip.speed_curve, None);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipSpeedCurve { clip_id, curve } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let curve = curve.filter(|points| crate::speed::curve_of(points).is_some());
+            let source_covered = clip.duration * clip.speed;
+            let mean = curve
+                .as_ref()
+                .map(|points| crate::speed::mean_of(points))
+                .unwrap_or(clip.speed)
+                .clamp(MIN_SPEED, MAX_SPEED);
+            let applied = assign(&mut clip.speed_curve, curve)
+                | assign(&mut clip.speed, mean)
+                | assign(
+                    &mut clip.duration,
+                    (source_covered / mean).max(MIN_CLIP_DURATION),
                 );
             Ok(Outcome {
                 created_id: None,

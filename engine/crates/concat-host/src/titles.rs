@@ -110,6 +110,8 @@ impl Titles {
                     filter_chain: String::new(),
                     speed: 1.0,
                     preserve_pitch: true,
+                    speed_curve: Vec::new(),
+                    reverse: false,
                     scale: clip.scale,
                     offset_x: clip.offset_x,
                     offset_y: clip.offset_y,

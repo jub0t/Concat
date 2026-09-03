@@ -25,6 +25,7 @@ pub mod commands;
 pub mod doc;
 pub mod editor;
 pub mod model;
+pub mod speed;
 
 pub use commands::{Command, CommandError, Outcome, why_not_merge};
 pub use doc::{DocumentSettings, from_document, to_document};

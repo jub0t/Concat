@@ -21,8 +21,8 @@
 use serde_json::{Map, Value, json};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, TextAlign, TextStyle,
-    Timeline, Track, Transition,
+    AppliedFilter, Clip, ClipKind, CustomFont, MediaItem, MediaKind, Project, SpeedPoint,
+    TextAlign, TextStyle, Timeline, Track, Transition,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -217,6 +217,19 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 // the preview clamps it on screen.
                 opacity: number(entry.get("opacity"), 1.0).clamp(0.0, 1.0),
                 speed: number(entry.get("speed"), 1.0).clamp(0.0625, 16.0),
+                speed_curve: entry.get("speedCurve").and_then(|value| {
+                    let points: Vec<SpeedPoint> = value
+                        .as_array()?
+                        .iter()
+                        .map(|point| SpeedPoint {
+                            at: number(point.get("at"), -1.0),
+                            speed: number(point.get("speed"), 1.0),
+                        })
+                        .filter(|point| (0.0..=1.0).contains(&point.at))
+                        .collect();
+                    (!points.is_empty()).then_some(points)
+                }),
+                reverse: flag(entry.get("reverse"), false),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),

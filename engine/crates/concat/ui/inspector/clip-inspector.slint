@@ -5,6 +5,7 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton, Row, Section, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
 import {
     Fader, HelpButton, InspectorFmt, InspectorSearch, Note, Param, ParamFormat,
     SearchField, Switch, SwitchRow,
@@ -513,8 +514,7 @@ export component AudioPanel inherits VerticalLayout {
     }
 }
 
-/// Speed: the rate, and whether pitch follows it. Curves come later and
-/// will live here too.
+/// Speed: the rate or a curve, whether pitch follows it, and backwards.
 export component SpeedPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
 
@@ -527,6 +527,11 @@ export component SpeedPanel inherits VerticalLayout {
     changed selected => { root.seed(); }
 
     property <bool> speed-help;
+    /// The Select's rows: the constant rate first, then the shapes in the
+    /// order Rust keeps them, then Custom for a shape that is none of them.
+    property <[string]> curves: ["Normal", "Montage", "Hero", "Bullet",
+        "Jump Cut", "Flash In", "Flash Out", "Custom"];
+    property <bool> curved: root.selected.speed-curve >= 0;
 
     Section {
         first: true;
@@ -544,12 +549,35 @@ export component SpeedPanel inherits VerticalLayout {
 
         if root.speed-help: Note {
             text: "Rate re-times the clip in place, so the timeline length"
-                + " changes with it. Trim afterwards, not before.";
+                + " changes with it. Trim afterwards, not before. A curve"
+                + " varies the rate over the clip; the same footage plays,"
+                + " faster here and slower there.";
+        }
+
+        Row {
+            label: "Curve";
+            Select {
+                options: root.curves;
+                // Custom is one past the presets; Rust says so with their
+                // count, which lands on the same row.
+                current: root.curved ? Math.min(root.selected.speed-curve + 1,
+                    root.curves.length - 1) : 0;
+                changed(index) => {
+                    // Custom cannot be chosen, only arrived at.
+                    if (index < root.curves.length - 1) {
+                        root.set(ClipField.speed-curve, index - 1);
+                        root.commit();
+                    }
+                }
+            }
         }
 
         Param {
             label: "Rate";
             value <=> root.speed;
+            // With a curve the rate is the curve's mean, read-only: the
+            // shape decides it.
+            enabled: !root.curved;
             // The engine's full range. The track is linear, so the useful
             // 0.25-4x band sits left of centre and the number field beside it
             // is how the extremes are actually dialled in.
@@ -566,6 +594,15 @@ export component SpeedPanel inherits VerticalLayout {
             checked: !root.selected.preserve-pitch;
             toggled(on) => {
                 root.set(ClipField.preserve-pitch, on ? 0 : 1);
+                root.commit();
+            }
+        }
+
+        SwitchRow {
+            label: "Reverse";
+            checked: root.selected.reverse;
+            toggled(on) => {
+                root.set(ClipField.reverse, on ? 1 : 0);
                 root.commit();
             }
         }

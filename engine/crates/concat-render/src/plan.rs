@@ -33,6 +33,9 @@ pub struct PlannedLayer {
     pub opacity: f32,
     /// The clip's placement in the frame, resolution-independent.
     pub transform: Transform,
+    /// Whether one decoder paced at `output rate / speed` follows this clip;
+    /// false for a curve or a reverse, where each frame is sought.
+    pub paced: bool,
 }
 
 /// Everything needed to draw one output frame.
@@ -86,6 +89,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             // sees a per-frame opacity - it has no idea fades exist.
             opacity: (clip.opacity * clip.video_fade_factor(time)).clamp(0.0, 1.0),
             transform: clip.transform,
+            paced: clip.is_paced(),
         });
     }
 

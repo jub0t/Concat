@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::arena::{Arena, Id};
+use crate::retime::SpeedCurve;
 use crate::time::{FrameRate, Rational, TimeRange};
 
 /// Handle to a [`Track`].
@@ -83,6 +84,13 @@ pub struct Clip {
     pub video_fade_out: Rational,
     /// How the picture sits in the frame. Identity is fitted and centred.
     pub transform: Transform,
+    /// Speed as it changes over the clip, when it does. Overrides `speed`
+    /// for the time map; `speed` is then the curve's mean, kept so a sound
+    /// path that needs one number has one. See [`SpeedCurve`].
+    pub retime: Option<SpeedCurve>,
+    /// Played backwards: the source is consumed from its far end towards
+    /// `source_start`.
+    pub reverse: bool,
 }
 
 /// A clip's placement in the output frame.
@@ -137,6 +145,8 @@ impl Clip {
             video_fade_in: Rational::ZERO,
             video_fade_out: Rational::ZERO,
             transform: Transform::IDENTITY,
+            retime: None,
+            reverse: false,
         }
     }
 
@@ -177,13 +187,47 @@ impl Clip {
     /// piece of arithmetic that every trim, ripple, slip and retime operation
     /// ultimately has to agree with, so it lives in exactly one place.
     pub fn source_time_at(&self, time: Rational) -> Option<Rational> {
-        self.contains(time)
-            .then(|| self.source_start + (time - self.start) * self.speed)
+        if !self.contains(time) {
+            return None;
+        }
+        let forward = match &self.retime {
+            // The area under the curve, in fractions of the clip's length,
+            // scaled back to seconds. Approximated to a rational at the end
+            // so the rest of the arithmetic stays exact.
+            Some(curve) => {
+                let x = ((time - self.start) / self.duration).as_f64();
+                let consumed = curve.consumed(x) * self.duration.as_f64();
+                Rational::approximate(consumed).unwrap_or(Rational::ZERO)
+            }
+            None => (time - self.start) * self.speed,
+        };
+        Some(if self.reverse {
+            // From the far end back: the last instant lands on the first
+            // source frame, and the first on the frame just short of the
+            // end, which is the one a forward play would have shown last.
+            let span = self.source_duration();
+            let back = span - forward;
+            self.source_start + back.clamp_to(Rational::ZERO, span)
+        } else {
+            self.source_start + forward
+        })
     }
 
-    /// How much of the source this clip consumes: `duration * speed`.
+    /// How much of the source this clip consumes: `duration * speed`, or the
+    /// area under the curve when there is one.
     pub fn source_duration(&self) -> Rational {
-        self.duration * self.speed
+        match &self.retime {
+            Some(curve) => Rational::approximate(curve.mean() * self.duration.as_f64())
+                .unwrap_or(self.duration),
+            None => self.duration * self.speed,
+        }
+    }
+
+    /// Whether a decoder can be paced at one rate for this clip: false when
+    /// the speed changes over it or it runs backwards, in which case every
+    /// frame has to be sought by its own source time.
+    pub fn is_paced(&self) -> bool {
+        self.retime.is_none() && !self.reverse
     }
 }
 
@@ -376,6 +420,7 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::retime::SpeedCurve;
 
     fn seconds(value: i64) -> Rational {
         Rational::from_int(value)
@@ -406,6 +451,38 @@ mod tests {
             None,
             "the end is exclusive"
         );
+    }
+
+    /// A curve makes the map the area under the speed line, and a reverse
+    /// walks it from the far end; both keep the source covered the same.
+    #[test]
+    fn a_curve_bends_the_map_and_a_reverse_walks_it_backwards() {
+        let mut clip = Clip::new(
+            MediaRef::new("a.mp4"),
+            Rational::ZERO,
+            Rational::from_int(10),
+        );
+        // Half speed for the first half, double for the second: 2.5 s of
+        // source in the first 5 s of timeline, 10 s in the second.
+        clip.retime = SpeedCurve::new(&[(0.0, 0.5), (0.5, 0.5), (0.5, 2.0), (1.0, 2.0)]);
+        fn at(clip: &Clip, seconds: i64) -> f64 {
+            clip.source_time_at(Rational::from_int(seconds))
+                .unwrap()
+                .as_f64()
+        }
+        assert!((at(&clip, 5) - 2.5).abs() < 1e-6);
+        assert!((at(&clip, 9) - 10.5).abs() < 1e-3);
+        assert!((clip.source_duration().as_f64() - 12.5).abs() < 1e-6);
+        assert!(!clip.is_paced());
+
+        clip.retime = None;
+        clip.speed = Rational::from_int(2);
+        clip.reverse = true;
+        // Backwards at 2x over 10 s covers 20 s of source: the start shows
+        // the far end, the middle the middle.
+        assert!((at(&clip, 0) - 20.0).abs() < 1e-9);
+        assert!((at(&clip, 5) - 10.0).abs() < 1e-9);
+        assert!(!clip.is_paced());
     }
 
     #[test]
