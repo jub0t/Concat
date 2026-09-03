@@ -76,6 +76,19 @@ jobs:
                 done
           fi
 
+      # The notes are the commits since the previous nightly, read before
+      # the tag moves; the first nightly counts from the last release.
+      - name: Write the notes
+        run: |
+          set -euo pipefail
+          previous=$(git rev-parse -q --verify refs/tags/nightly 2>/dev/null \
+            || git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null \
+            || git rev-list --max-parents=0 HEAD | tail -1)
+          .github/release-notes.sh "$previous" HEAD \
+            "Nightly ${{ steps.stamp.outputs.version }} · ${{ steps.stamp.outputs.date }} · ${{ steps.stamp.outputs.sha }}" nightly \
+            > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
       # The tag follows main, so the release always points at the commit
       # its bundles came from.
       - name: Move the nightly tag
@@ -90,17 +103,6 @@ jobs:
           tag_name: nightly
           name: Nightly ${{ steps.stamp.outputs.version }} (${{ steps.stamp.outputs.date }}, ${{ steps.stamp.outputs.sha }})
           prerelease: true
-          body: |
-            The latest main, built ${{ steps.stamp.outputs.date }} from
-            `${{ steps.stamp.outputs.sha }}`. Refreshed on every push; the
-            files below replace the previous nightly's.
-
-            | | Apple silicon | Intel / x86_64 | arm64 |
-            |---|---|---|---|
-            | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
-            | Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
-            | Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
-
-            Nightlies are for testing. For a release, see the tagged ones.
+          body_path: ${{ runner.temp }}/notes.md
           fail_on_unmatched_files: true
           files: bundles/*

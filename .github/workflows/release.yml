@@ -73,31 +73,27 @@ jobs:
           ls -l
           sha256sum -- * > SHA256SUMS
 
+      # The notes are the commits since the previous tag; see the script.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+          fetch-depth: 0
+          path: source
+      - name: Write the notes
+        id: notes
+        run: |
+          set -euo pipefail
+          cd source
+          tag="${{ needs.check.outputs.tag }}"
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+          .github/release-notes.sh "$previous" "$tag" "Concat ${tag#v}" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.check.outputs.tag }}
           name: Concat ${{ needs.check.outputs.tag }}
           prerelease: ${{ contains(needs.check.outputs.tag, '-') }}
-          generate_release_notes: true
-          body: |
-            One bundle per platform and architecture; pick yours:
-
-            | | Apple silicon | Intel / x86_64 | arm64 |
-            |---|---|---|---|
-            | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
-            | Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
-            | Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
-
-            Every bundle runs with nothing else installed. `SHA256SUMS` lists
-            each file's checksum.
-
-            Concat is AGPL-3.0-or-later, with a plugin exception for Concat API
-            plugins ([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
-            The binaries link FFmpeg (GPL builds with x264; the bundles carry
-            its runtime libraries), compile in whisper.cpp (MIT), and
-            statically link sherpa-onnx with GPL-3.0 espeak-ng - sources and
-            licences in
-            [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
-            Slint is used under its GPL-3.0-only option.
+          body_path: ${{ runner.temp }}/notes.md
           fail_on_unmatched_files: true
           files: bundles/*
