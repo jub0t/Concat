@@ -6,12 +6,45 @@ behaviour.
 
 ## Unreleased
 
+## v0.2.0-beta.1 — 2026-09-03
+
+The first beta: the editing surface CapCut users expect, on an engine that
+renders effects on the GPU.
+
+- Titles render. A text clip is painted into the frame in the monitor and
+  the export, with its font, outline, shadow, plate and spacing; captions
+  are visible for the same reason.
+- Select, move, scale and turn pictures on the monitor, with a lime box and
+  grips, snapping to the frame and to other pictures with dashed guides.
+- The inspector is three tabs with sections: Video (Basic, Speed,
+  Animation, Adjust), Audio (Sound, and Speed on a sound clip) and Effects
+  (Filters, Effects). Adjust is a colour panel: exposure, brightness,
+  contrast, saturation, temperature, tint, shadows, highlights, sharpen,
+  vignette and fade.
+- Effects are packages the inspector reads: every knob a package declares
+  is a control, and every filter has an intensity. Applying a card from
+  the library opens the inspector on it.
+- Filters as layers: drag a look onto the lanes and it treats everything
+  beneath it for as long as it runs, with a strength and ramps.
+- Speed curves (Montage, Hero, Bullet, Jump Cut, Flash In, Flash Out) and
+  Reverse, for picture and sound alike.
+- Animation: In, Out and Combo shapes with a length, on video, stills and
+  titles.
+- Flip, blend modes (Multiply, Screen, Add, Lighten, Darken) and crop.
+- New effects: Green Screen and Blue Screen, three masks, and for sound
+  Normalize Loudness, Noise Reduction, Enhance Voice, Pitch, Lo-fi and
+  Distorted; Bright, Radio, Hall, Plate and Cathedral render at last.
+- Every visual effect is a shader on the GPU, with the FFmpeg chain kept
+  for a machine without one.
+- Undo and redo answer Cmd+Z and Shift+Cmd+Z, and a dragged control is
+  one undo step.
+- Transitions and audio effects show as compact named cards.
 - The engine links FFmpeg and compiles whisper.cpp in: a build is one
   binary with no tools beside it. Seeks are frame-accurate and every
   decoded frame carries its real timestamp.
-- Releases are built by the `release.yml` workflow from a pushed `v*` tag:
-  one archive per platform, the binary with FFmpeg's runtime libraries
-  beside it on Windows and Linux.
+- Releases are built for six targets - macOS on Apple silicon and Intel,
+  Linux and Windows on x86_64 and arm64 - as self-contained bundles, and
+  every push to main refreshes a nightly.
 - The editor window is built in Slint as the `concat` crate inside the
   engine workspace: one native Rust binary, embedding its own fonts and
   effect previews, driving the engine in-process.
