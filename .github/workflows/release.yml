@@ -3,9 +3,10 @@ name: Release
 # Pushing a tag that starts with v (v0.3.0, v0.3.0-alpha.1, ...) builds the
 # app for every platform and architecture and publishes a GitHub release
 # under that tag with one bundle per target and a checksum file. A tag
-# containing a hyphen is a pre-release. The tag must match the workspace's
-# version: a release whose files say one number and whose tag says another
-# is a release nobody can reason about.
+# containing a hyphen is a pre-release. The tag must be the workspace's
+# version, alone or with a pre-release suffix: a release whose files say
+# one number and whose tag says another is a release nobody can reason
+# about.
 #
 # The bundles are self-contained: the macOS .dmg carries its FFmpeg dylibs
 # and is notarised when the signing secrets are set; the Linux tarball and
@@ -37,10 +38,15 @@ jobs:
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
-          if [ "$tag" != "v$version" ]; then
-            echo "tag $tag does not match engine/Cargo.toml version $version" >&2
-            exit 1
-          fi
+          # The tag is the version, or the version with a pre-release
+          # suffix: v0.2.0 and v0.2.0-alpha.22 both belong to 0.2.0.
+          case "$tag" in
+            "v$version" | "v$version-"*) ;;
+            *)
+              echo "tag $tag does not match engine/Cargo.toml version $version" >&2
+              exit 1
+              ;;
+          esac
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   build:
