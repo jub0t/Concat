@@ -29,15 +29,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::Deserialize;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_media::audio::{self, AudioClip};
-use concat_media::{
-    DecodeOptions, EncodeOptions, FfmpegDecoder, FfmpegEncoder, FrameSink, FrameSource,
-};
+use concat_media::{DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource};
 use concat_render::{Compositor, CpuCompositor, Layer, Placement, plan_frame};
+use serde::Deserialize;
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
 /// seen cannot exist - the wire still says "video"/"audio"/"image".
@@ -240,7 +238,9 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
     }
     let mut cuts: Vec<Cut> = Vec::new();
     for (incoming, clip) in clips.iter().enumerate() {
-        let Some(transition) = &clip.transition else { continue };
+        let Some(transition) = &clip.transition else {
+            continue;
+        };
         if clip.hidden || !clip.kind.is_visual() {
             continue;
         }
@@ -301,7 +301,11 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
                 // at decode. Frame-based, because the decoder emits exactly
                 // one frame per output frame - so the fade lands on the same
                 // frames the timeline arithmetic says it covers.
-                let colour = if cut.kind == "fade-white" { ":color=white" } else { "" };
+                let colour = if cut.kind == "fade-white" {
+                    ":color=white"
+                } else {
+                    ""
+                };
                 let half = cut.duration / 2.0;
                 {
                     let a = &mut clips[cut.outgoing];
@@ -402,13 +406,22 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
 
     // Render into siblings of the output so the move at the end stays on one
     // filesystem, then clean up whatever we made.
-    let stem = output.file_stem().map_or_else(|| "concat".into(), |s| s.to_string_lossy());
+    let stem = output
+        .file_stem()
+        .map_or_else(|| "concat".into(), |s| s.to_string_lossy());
     let directory = output.parent().unwrap_or(Path::new("."));
     let silent = directory.join(format!(".{stem}.concat-video.mp4"));
     let mixed = directory.join(format!(".{stem}.concat-audio.m4a"));
 
     let result = (|| -> Result<(), String> {
-        render_picture(request, rate, total_frames, &visible, &silent, &mut reporter)?;
+        render_picture(
+            request,
+            rate,
+            total_frames,
+            &visible,
+            &silent,
+            &mut reporter,
+        )?;
 
         if sound.is_empty() {
             std::fs::rename(&silent, &output)
@@ -498,10 +511,14 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
-    let BuiltTimeline { timeline, stills, decode_sizes, filter_chains } =
-        build_timeline(request, rate, visible);
+    let BuiltTimeline {
+        timeline,
+        stills,
+        decode_sizes,
+        filter_chains,
+    } = build_timeline(request, rate, visible);
 
-    let mut encoder = FfmpegEncoder::create(
+    let mut encoder = Encoder::create(
         destination,
         request.width,
         request.height,
@@ -521,7 +538,7 @@ fn render_picture(
     // opened at `output rate / clip speed`, so pulling exactly one frame per
     // output frame keeps each of them in step with the plan's source times
     // without any seeking - including retimed clips.
-    let mut decoders: HashMap<ClipId, FfmpegDecoder> = HashMap::new();
+    let mut decoders: HashMap<ClipId, Decoder> = HashMap::new();
 
     for index in 0..total_frames {
         reporter.cancelled()?;
@@ -572,8 +589,7 @@ fn render_picture(
                     }
 
                     entry.insert(
-                        FfmpegDecoder::open(&layer.media, &options)
-                            .map_err(|error| error.to_string())?,
+                        Decoder::open(&layer.media, &options).map_err(|error| error.to_string())?,
                     )
                 }
             };
@@ -594,7 +610,9 @@ fn render_picture(
             .collect();
 
         let composed = compositor.composite(request.width, request.height, &layers);
-        encoder.write_frame(&composed).map_err(|error| error.to_string())?;
+        encoder
+            .write_frame(&composed)
+            .map_err(|error| error.to_string())?;
 
         // Retire decoders whose clip has finished, so a long timeline does not
         // hold an ffmpeg process open for every clip it has ever passed.
@@ -622,7 +640,11 @@ struct BuiltTimeline {
 }
 
 /// Converts the flattened clip list into an engine timeline.
-fn build_timeline(request: &ExportRequest, rate: FrameRate, visible: &[&ExportClip]) -> BuiltTimeline {
+fn build_timeline(
+    request: &ExportRequest,
+    rate: FrameRate,
+    visible: &[&ExportClip],
+) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     let mut stills = std::collections::HashSet::new();
     let mut decode_sizes: HashMap<ClipId, (u32, u32)> = HashMap::new();
@@ -648,8 +670,8 @@ fn build_timeline(request: &ExportRequest, rate: FrameRate, visible: &[&ExportCl
         // The same clamp the audio path applies, so a 2x clip means the same
         // thing to picture and sound. A still has no meaningful rate.
         if clip.kind != ClipKind::Image {
-            engine_clip.speed = Rational::approximate(audio::clamp_speed(clip.speed))
-                .unwrap_or(Rational::ONE);
+            engine_clip.speed =
+                Rational::approximate(audio::clamp_speed(clip.speed)).unwrap_or(Rational::ONE);
         }
         engine_clip.transform = Transform {
             scale: clip.scale,
@@ -675,7 +697,12 @@ fn build_timeline(request: &ExportRequest, rate: FrameRate, visible: &[&ExportCl
         }
     }
 
-    BuiltTimeline { timeline, stills, decode_sizes, filter_chains }
+    BuiltTimeline {
+        timeline,
+        stills,
+        decode_sizes,
+        filter_chains,
+    }
 }
 
 /// The source's contain-fitted size inside the output frame, or `None` when
@@ -730,8 +757,12 @@ pub fn preview_frame(
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
-    let BuiltTimeline { timeline, stills, decode_sizes, filter_chains } =
-        preview_timeline(request, rate);
+    let BuiltTimeline {
+        timeline,
+        stills,
+        decode_sizes,
+        filter_chains,
+    } = preview_timeline(request, rate);
     let plan = plan_frame(&timeline, quantise(request.time, rate));
 
     let mut sources: Vec<(std::sync::Arc<Frame>, f32, Transform)> =
@@ -773,7 +804,13 @@ pub fn preview_frame(
     let layers: Vec<Layer<'_>> = sources
         .iter()
         .map(|(frame, opacity, transform)| {
-            place_layer(frame.as_ref(), *opacity, transform, request.width, request.height)
+            place_layer(
+                frame.as_ref(),
+                *opacity,
+                transform,
+                request.width,
+                request.height,
+            )
         })
         .collect();
 
@@ -824,8 +861,12 @@ pub fn preview_prefetch(
     frames: u32,
 ) {
     let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
-    let BuiltTimeline { timeline, stills, decode_sizes, filter_chains } =
-        preview_timeline(request, rate);
+    let BuiltTimeline {
+        timeline,
+        stills,
+        decode_sizes,
+        filter_chains,
+    } = preview_timeline(request, rate);
     let fps = rate.fps().as_f64();
 
     for ahead in 0..frames {
@@ -888,7 +929,10 @@ mod tests {
     }
 
     fn spec(kind: &str, duration: f64) -> Option<TransitionSpec> {
-        Some(TransitionSpec { kind: kind.to_owned(), duration })
+        Some(TransitionSpec {
+            kind: kind.to_owned(),
+            duration,
+        })
     }
 
     /// End to end against a real FFmpeg: the paused monitor's frame must show
@@ -896,16 +940,12 @@ mod tests {
     #[test]
     fn preview_frame_shows_the_footage_not_black() {
         use concat_core::frame::Frame;
-        use concat_media::{EncodeOptions, FfmpegEncoder, FrameSink};
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
 
         let path = std::env::temp_dir().join("concat-preview-test.mp4");
-        let Ok(mut encoder) = FfmpegEncoder::create(
-            &path,
-            64,
-            64,
-            FrameRate::THIRTY,
-            &EncodeOptions::default(),
-        ) else {
+        let Ok(mut encoder) =
+            Encoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
+        else {
             return; // no ffmpeg here
         };
         for _ in 0..30 {
@@ -986,14 +1026,20 @@ mod tests {
 
     #[test]
     fn a_cross_fade_overlaps_the_incoming_clip_on_its_own_lane() {
-        let mut clips = vec![clip("video", 0, 0.0, 4.0, 0.0), clip("video", 0, 4.0, 4.0, 2.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 2.0),
+        ];
         clips[1].transition = spec("cross-fade", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
 
         let b = &clips[1];
         assert_eq!(b.start, 3.0, "extends backwards over the cut");
         assert_eq!(b.duration, 5.0);
-        assert_eq!(b.source_start, 1.0, "consumes the handle before the in-point");
+        assert_eq!(
+            b.source_start, 1.0,
+            "consumes the handle before the in-point"
+        );
         assert_eq!(b.video_fade_in, 1.0);
         assert_eq!(b.fade_in, 1.0, "sound rides the picture");
         assert_eq!(clips[0].track, 0, "outgoing stays on its doubled lane");
@@ -1002,7 +1048,10 @@ mod tests {
 
     #[test]
     fn a_cross_fade_clamps_to_the_available_handle() {
-        let mut clips = vec![clip("video", 0, 0.0, 4.0, 0.0), clip("video", 0, 4.0, 4.0, 0.25)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 0.25),
+        ];
         clips[1].transition = spec("cross-fade", 2.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
 
@@ -1015,28 +1064,46 @@ mod tests {
 
     #[test]
     fn a_still_needs_no_handle_to_dissolve() {
-        let mut clips = vec![clip("video", 0, 0.0, 4.0, 0.0), clip("image", 0, 4.0, 4.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("image", 0, 4.0, 4.0, 0.0),
+        ];
         clips[1].transition = spec("cross-fade", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
         assert_eq!(clips[1].video_fade_in, 1.0);
-        assert_eq!(clips[1].source_start, 0.0, "a still has no source clock to rewind");
+        assert_eq!(
+            clips[1].source_start, 0.0,
+            "a still has no source clock to rewind"
+        );
     }
 
     #[test]
     fn a_fade_to_black_splits_across_the_cut_as_fade_filters() {
-        let mut clips = vec![clip("video", 0, 0.0, 4.0, 0.0), clip("video", 0, 4.0, 4.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 0.0),
+        ];
         clips[1].transition = spec("fade-black", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
 
         // Half a second each side at 30fps is 15 frames.
-        assert_eq!(clips[0].video_filter_chain, "fade=t=out:start_frame=105:nb_frames=15");
-        assert_eq!(clips[1].video_filter_chain, "fade=t=in:start_frame=0:nb_frames=15");
+        assert_eq!(
+            clips[0].video_filter_chain,
+            "fade=t=out:start_frame=105:nb_frames=15"
+        );
+        assert_eq!(
+            clips[1].video_filter_chain,
+            "fade=t=in:start_frame=0:nb_frames=15"
+        );
         assert_eq!(clips[1].start, 4.0, "nothing moves for an edge fade");
     }
 
     #[test]
     fn a_fade_to_white_names_its_colour() {
-        let mut clips = vec![clip("video", 0, 0.0, 2.0, 0.0), clip("video", 0, 2.0, 2.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 0.0),
+        ];
         clips[1].transition = spec("fade-white", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
         assert!(clips[0].video_filter_chain.ends_with(":color=white"));
@@ -1045,7 +1112,10 @@ mod tests {
 
     #[test]
     fn transition_fades_append_after_the_clips_own_effects() {
-        let mut clips = vec![clip("video", 0, 0.0, 2.0, 0.0), clip("video", 0, 2.0, 2.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 0.0),
+        ];
         clips[1].video_filter_chain = "hue=s=0".to_owned();
         clips[1].transition = spec("fade-black", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
@@ -1058,7 +1128,10 @@ mod tests {
 
     #[test]
     fn a_transition_with_no_adjacent_clip_is_orphaned_not_fatal() {
-        let mut clips = vec![clip("video", 0, 0.0, 2.0, 0.0), clip("video", 0, 5.0, 2.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 5.0, 2.0, 0.0),
+        ];
         clips[1].transition = spec("cross-fade", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
         assert_eq!(clips[1].start, 5.0);
@@ -1067,7 +1140,10 @@ mod tests {
 
     #[test]
     fn track_indices_are_doubled_for_everyone() {
-        let mut clips = vec![clip("video", 0, 0.0, 2.0, 0.0), clip("audio", 3, 0.0, 2.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("audio", 3, 0.0, 2.0, 0.0),
+        ];
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
         assert_eq!(clips[0].track, 0);
         assert_eq!(clips[1].track, 6);
@@ -1075,7 +1151,10 @@ mod tests {
 
     #[test]
     fn an_unknown_transition_kind_renders_as_a_plain_cut() {
-        let mut clips = vec![clip("video", 0, 0.0, 2.0, 0.0), clip("video", 0, 2.0, 2.0, 0.0)];
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 0.0),
+        ];
         clips[1].transition = spec("wipe-left", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
         assert_eq!(clips[1].start, 2.0);

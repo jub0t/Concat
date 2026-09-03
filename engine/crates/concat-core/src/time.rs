@@ -215,7 +215,8 @@ impl PartialOrd for Rational {
 impl Add for Rational {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
-        let num = i128::from(self.num) * i128::from(rhs.den) + i128::from(rhs.num) * i128::from(self.den);
+        let num =
+            i128::from(self.num) * i128::from(rhs.den) + i128::from(rhs.num) * i128::from(self.den);
         Self::reduce(num, i128::from(self.den) * i128::from(rhs.den))
     }
 }
@@ -251,7 +252,10 @@ impl Div for Rational {
 impl Neg for Rational {
     type Output = Self;
     fn neg(self) -> Self {
-        Self { num: -self.num, den: self.den }
+        Self {
+            num: -self.num,
+            den: self.den,
+        }
     }
 }
 
@@ -298,17 +302,26 @@ pub struct FrameRate(Rational);
 
 impl FrameRate {
     /// 23.976 fps (24000/1001).
-    pub const FILM_NTSC: Self = Self(Rational { num: 24000, den: 1001 });
+    pub const FILM_NTSC: Self = Self(Rational {
+        num: 24000,
+        den: 1001,
+    });
     /// 24 fps.
     pub const FILM: Self = Self(Rational { num: 24, den: 1 });
     /// 25 fps.
     pub const PAL: Self = Self(Rational { num: 25, den: 1 });
     /// 29.97 fps (30000/1001).
-    pub const NTSC_30: Self = Self(Rational { num: 30000, den: 1001 });
+    pub const NTSC_30: Self = Self(Rational {
+        num: 30000,
+        den: 1001,
+    });
     /// 30 fps.
     pub const THIRTY: Self = Self(Rational { num: 30, den: 1 });
     /// 59.94 fps (60000/1001).
-    pub const NTSC_60: Self = Self(Rational { num: 60000, den: 1001 });
+    pub const NTSC_60: Self = Self(Rational {
+        num: 60000,
+        den: 1001,
+    });
     /// 60 fps.
     pub const SIXTY: Self = Self(Rational { num: 60, den: 1 });
 
@@ -317,7 +330,10 @@ impl FrameRate {
     /// # Panics
     /// If `fps` is zero or negative.
     pub fn new(fps: Rational) -> Self {
-        assert!(!fps.is_zero() && !fps.is_negative(), "frame rate must be positive");
+        assert!(
+            !fps.is_zero() && !fps.is_negative(),
+            "frame rate must be positive"
+        );
         Self(fps)
     }
 
@@ -376,7 +392,10 @@ impl TimeRange {
     /// # Panics
     /// If `duration` is negative.
     pub fn new(start: Rational, duration: Rational) -> Self {
-        assert!(!duration.is_negative(), "TimeRange duration must not be negative");
+        assert!(
+            !duration.is_negative(),
+            "TimeRange duration must not be negative"
+        );
         Self { start, duration }
     }
 
@@ -440,7 +459,10 @@ mod tests {
     fn frame_boundaries_belong_to_the_frame_that_starts_there() {
         let rate = FrameRate::THIRTY;
         assert_eq!(rate.frame_at(rate.time_of_frame(7)), 7);
-        assert_eq!(rate.frame_at(rate.time_of_frame(7) - Rational::new(1, 1_000_000)), 6);
+        assert_eq!(
+            rate.frame_at(rate.time_of_frame(7) - Rational::new(1, 1_000_000)),
+            6
+        );
     }
 
     #[test]
@@ -453,7 +475,10 @@ mod tests {
 
     #[test]
     fn parses_ffmpeg_fractions() {
-        assert_eq!(Rational::parse("30000/1001"), Some(FrameRate::NTSC_30.fps()));
+        assert_eq!(
+            Rational::parse("30000/1001"),
+            Some(FrameRate::NTSC_30.fps())
+        );
         assert_eq!(Rational::parse("25"), Some(Rational::from_int(25)));
         assert_eq!(Rational::parse("1.5"), Some(Rational::new(3, 2)));
         assert_eq!(Rational::parse("-1.25"), Some(Rational::new(-5, 4)));

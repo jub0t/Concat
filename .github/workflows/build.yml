@@ -1,19 +1,20 @@
 name: Build App
 
-# Compiles the Concat desktop app for macOS, Windows and Linux.
+# Tests the engine and builds Concat - the Slint window, `engine/crates/concat`
+# - for macOS, Windows and Linux.
 #
-# Every build stages the static FFmpeg pair into desktop/src-tauri/ffmpeg/
-# first - the release guard in build.rs refuses to build without it, because a
-# packaged app without its FFmpeg ships broken (no PATH fallback from Finder).
+# The engine links FFmpeg and compiles whisper.cpp in, so a build needs the
+# FFmpeg 7+ development libraries (headers and import libraries), cmake and a
+# C++ toolchain - nothing is staged beside the binary any more. Homebrew's
+# FFmpeg serves on macOS; Windows and Linux use a BtbN `shared` build, which
+# ships headers, import libraries and the runtime libraries together.
 #
-# - Pushes to main: build, and when every job is green, automatically publish
-#   a pre-release tagged v<version>-alpha.<n> - the version comes from
-#   tauri.conf.json, and <n> increments past the highest existing alpha tag
-#   for that version. A red build publishes nothing.
-# - Tags starting with v (v0.2.0, ...): publish the installers under that tag
-#   name. Tags containing a hyphen are marked as pre-releases. This is the
-#   path for stable releases; alphas take care of themselves.
-# - Manual runs: build and upload the bundles as artifacts only.
+# - Pushes to main and manual runs: test, build, and upload the binaries as
+#   artifacts.
+# - Releases: none yet. The Tauri app in desktop/ used to be packaged and
+#   published from here; it is deprecated and no longer built. Automatic
+#   alpha releases resume once the Slint window is packaged for each
+#   platform.
 on:
   workflow_dispatch:
   push:
@@ -23,6 +24,11 @@ on:
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # BtbN's autobuilds: GPL (x264 in), shared, FFmpeg 8.1.
+  FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz
+  FFMPEG_WINDOWS: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip
 
 jobs:
   engine-tests:
@@ -34,28 +40,38 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
-      # The concat crate builds Slint with its Skia renderer, which links
-      # fontconfig and freetype on Linux; winit and glutin dlopen the rest at
-      # run time, so only these headers are needed to compile the workspace.
-      - name: Slint build dependencies
+
+      # Slint's Skia renderer links fontconfig and freetype; cpal links
+      # ALSA; bindgen (for the FFmpeg bindings) needs libclang; whisper.cpp
+      # is built by cmake.
+      - name: System libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
+            libasound2-dev libclang-dev cmake
+
+      # Ubuntu's packaged FFmpeg is older than the 7 the engine needs, so the
+      # libraries come from BtbN, and FFMPEG_DIR tells the bindings where.
+      - name: FFmpeg development libraries
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$FFMPEG_LINUX"
+          mkdir -p ffmpeg-dev
+          tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
+          echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
+
       - run: cargo test --workspace
         working-directory: engine
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review.
       - run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: engine
-      # The committed TypeScript IPC types must match the Rust source of
-      # truth: regenerate the engine-owned bindings and fail on any drift.
-      - name: IPC type freshness (engine)
-        run: |
-          scripts/generate-ipc-types.sh engine
-          git diff --exit-code desktop/src/lib/generated
 
   app:
     name: App (${{ matrix.platform }})
+    needs: [engine-tests]
     strategy:
       fail-fast: false
       matrix:
@@ -64,271 +80,80 @@ jobs:
             os: macos-latest
           - platform: windows
             os: windows-latest
-          # 22.04, not latest: bundles link the build machine's glibc and
-          # webkit, so the oldest supported runner is what keeps the deb and
-          # AppImage runnable on older distros.
+          # 22.04, not latest: the binary links the build machine's glibc,
+          # so the oldest supported runner is what keeps it runnable on
+          # older distributions.
           - platform: linux
             os: ubuntu-22.04
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
 
-      # Tauri's Linux prerequisites, plus libfuse2 for the AppImage tooling.
-      - name: Linux system libraries
+      - name: System libraries (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential curl wget file \
-            libxdo-dev libssl-dev \
-            libayatana-appindicator3-dev librsvg2-dev \
-            libgtk-3-dev libfuse2 \
-            libasound2-dev
+            libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
+            libasound2-dev libclang-dev cmake
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: desktop/package-lock.json
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: desktop/src-tauri
-
-      # Static builds, so the pair runs on machines with nothing installed.
-      # macos-latest is Apple Silicon, hence the arm64 build.
-      - name: Stage bundled FFmpeg (macOS)
-        if: matrix.platform == 'macos'
-        run: |
-          set -euo pipefail
-          mkdir -p desktop/src-tauri/ffmpeg ffdl
-          curl -fsSL --retry 5 --retry-all-errors -o ffdl/ffmpeg.zip \
-            "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip"
-          curl -fsSL --retry 5 --retry-all-errors -o ffdl/ffprobe.zip \
-            "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip"
-          unzip -o ffdl/ffmpeg.zip -d ffdl/ffmpeg-out
-          unzip -o ffdl/ffprobe.zip -d ffdl/ffprobe-out
-          mv "$(find ffdl/ffmpeg-out -type f -name ffmpeg | head -1)" desktop/src-tauri/ffmpeg/ffmpeg
-          mv "$(find ffdl/ffprobe-out -type f -name ffprobe | head -1)" desktop/src-tauri/ffmpeg/ffprobe
-          chmod +x desktop/src-tauri/ffmpeg/ffmpeg desktop/src-tauri/ffmpeg/ffprobe
-          desktop/src-tauri/ffmpeg/ffmpeg -version | head -1
-          desktop/src-tauri/ffmpeg/ffprobe -version | head -1
-
-      # Same static-build service as macOS, linux/amd64 flavour.
-      - name: Stage bundled FFmpeg (Linux)
+      - name: FFmpeg development libraries (Linux)
         if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
-          mkdir -p desktop/src-tauri/ffmpeg ffdl
-          curl -fsSL --retry 5 --retry-all-errors -o ffdl/ffmpeg.zip \
-            "https://ffmpeg.martin-riedl.de/redirect/latest/linux/amd64/release/ffmpeg.zip"
-          curl -fsSL --retry 5 --retry-all-errors -o ffdl/ffprobe.zip \
-            "https://ffmpeg.martin-riedl.de/redirect/latest/linux/amd64/release/ffprobe.zip"
-          unzip -o ffdl/ffmpeg.zip -d ffdl/ffmpeg-out
-          unzip -o ffdl/ffprobe.zip -d ffdl/ffprobe-out
-          mv "$(find ffdl/ffmpeg-out -type f -name ffmpeg | head -1)" desktop/src-tauri/ffmpeg/ffmpeg
-          mv "$(find ffdl/ffprobe-out -type f -name ffprobe | head -1)" desktop/src-tauri/ffmpeg/ffprobe
-          chmod +x desktop/src-tauri/ffmpeg/ffmpeg desktop/src-tauri/ffmpeg/ffprobe
-          desktop/src-tauri/ffmpeg/ffmpeg -version | head -1
-          desktop/src-tauri/ffmpeg/ffprobe -version | head -1
+          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$FFMPEG_LINUX"
+          mkdir -p ffmpeg-dev
+          tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
+          echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
 
-      # The transcriber ships too: users never install a binary (see desktop
-      # decision 0010). Built from source where no official binary exists,
-      # cached by version so it costs one cold build per platform.
-      - name: Cache whisper-cli (unix)
-        if: matrix.platform != 'windows'
-        uses: actions/cache@v4
-        with:
-          path: whisper-stage
-          key: whisper-cli-v1.8.2-${{ matrix.platform }}
+      - name: FFmpeg development libraries (macOS)
+        if: matrix.platform == 'macos'
+        run: brew install ffmpeg cmake
 
-      - name: Stage bundled whisper-cli (unix)
-        if: matrix.platform != 'windows'
-        run: |
-          set -euo pipefail
-          if [ ! -x whisper-stage/whisper-cli ]; then
-            git clone --depth 1 --branch v1.8.2 https://github.com/ggml-org/whisper.cpp.git wbuild
-            cmake -S wbuild -B wbuild/build -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=OFF -DGGML_METAL_EMBED_LIBRARY=ON -DWHISPER_BUILD_TESTS=OFF
-            cmake --build wbuild/build --config Release -j 4 --target whisper-cli
-            mkdir -p whisper-stage
-            cp wbuild/build/bin/whisper-cli whisper-stage/whisper-cli
-          fi
-          mkdir -p desktop/src-tauri/whisper
-          cp whisper-stage/whisper-cli desktop/src-tauri/whisper/whisper-cli
-          chmod +x desktop/src-tauri/whisper/whisper-cli
-          desktop/src-tauri/whisper/whisper-cli --help >/dev/null 2>&1 || true
-
-      - name: Stage bundled whisper-cli (Windows)
+      # bindgen needs libclang on Windows too; LLVM from chocolatey provides
+      # it. The BtbN zip unpacks to one top-level folder.
+      - name: FFmpeg development libraries (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force desktop/src-tauri/whisper | Out-Null
-          curl.exe -fsSL --retry 5 --retry-all-errors -o whisper-win.zip `
-            "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.2/whisper-bin-x64.zip"
-          Expand-Archive whisper-win.zip -DestinationPath wdl
-          Copy-Item (Get-ChildItem wdl -Recurse -Filter whisper-cli.exe | Select-Object -First 1).FullName desktop/src-tauri/whisper/
-          # The official build is dynamic; its DLLs ride along in the same
-          # resource folder, which is also the executable's search path.
-          Get-ChildItem wdl -Recurse -Filter *.dll | ForEach-Object {
-            Copy-Item $_.FullName desktop/src-tauri/whisper/
-          }
-
-      - name: Stage bundled FFmpeg (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force desktop/src-tauri/ffmpeg | Out-Null
-          curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip `
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-8.1.zip"
+          choco install llvm -y --no-progress
+          curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip "$env:FFMPEG_WINDOWS"
           Expand-Archive ffmpeg-win.zip -DestinationPath ffdl
-          Copy-Item (Get-ChildItem ffdl -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName desktop/src-tauri/ffmpeg/
-          Copy-Item (Get-ChildItem ffdl -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName desktop/src-tauri/ffmpeg/
-          & desktop/src-tauri/ffmpeg/ffmpeg.exe -version | Select-Object -First 1
-          & desktop/src-tauri/ffmpeg/ffprobe.exe -version | Select-Object -First 1
+          $dir = (Get-ChildItem ffdl -Directory | Select-Object -First 1).FullName
+          "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - run: npm ci
-        working-directory: desktop
+      # The shipping profile: fat LTO, panic=abort, stripped. See the
+      # workspace Cargo.toml for what each knob costs.
+      - run: cargo build --profile app -p concat
+        working-directory: engine
 
-      - run: npm run typecheck
-        working-directory: desktop
-
-      - run: npm run lint
-        working-directory: desktop
-
-      - run: npm test
-        working-directory: desktop
-
-      # Host lints on one platform: the host compiles on all three anyway,
-      # and clippy findings do not vary by OS enough to pay for three runs.
-      - name: Host clippy (macOS)
-        if: matrix.platform == 'macos'
-        run: cargo clippy --all-targets -- -D warnings
-        working-directory: desktop/src-tauri
-
-      # The host half of the IPC type freshness gate (EditorView and
-      # friends). Here rather than in engine-tests because compiling the
-      # host needs Tauri's system libraries, which this job already has.
-      - name: IPC type freshness (host)
-        if: matrix.platform == 'macos'
-        run: |
-          scripts/generate-ipc-types.sh host
-          git diff --exit-code desktop/src/lib/generated
-
-      # Full release build - LTO and codegen-units=1 make this the slow step.
-      - run: npm run app:build
-        working-directory: desktop
-
-      # The runtime looks for the pair in the app's resource directory; a
-      # bundle that lost them (or their execute bit) would ship broken while
-      # this workflow reports green.
-      - name: Verify FFmpeg made it into the bundle (macOS)
-        if: matrix.platform == 'macos'
+      # The binary, plus the FFmpeg runtime libraries it loads on the
+      # platforms where those are not the system's.
+      - name: Stage the build (unix)
+        if: matrix.platform != 'windows'
         run: |
           set -euo pipefail
-          app="$(find desktop/src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' | head -1)"
-          test -n "$app" || { echo "no .app produced"; exit 1; }
-          for binary in ffmpeg ffprobe; do
-            staged="$app/Contents/Resources/ffmpeg/$binary"
-            test -x "$staged" || { echo "$staged missing or not executable"; exit 1; }
-            "$staged" -version | head -1
-          done
-
-      - name: Verify FFmpeg made it into the bundle (Linux)
-        if: matrix.platform == 'linux'
+          mkdir -p stage
+          cp engine/target/app/concat stage/
+          if [ -d ffmpeg-dev/lib ]; then mkdir -p stage/lib && cp -a ffmpeg-dev/lib/*.so* stage/lib/; fi
+      - name: Stage the build (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
         run: |
-          set -euo pipefail
-          deb="$(find desktop/src-tauri/target/release/bundle/deb -name '*.deb' | head -1)"
-          test -n "$deb" || { echo "no .deb produced"; exit 1; }
-          dpkg-deb -x "$deb" unpacked
-          # Tauri's deb puts resources straight under usr/lib/<product>/ -
-          # there is no literal "resources" path component - so match the
-          # binary inside its own ffmpeg/ folder wherever that landed.
-          for binary in ffmpeg ffprobe; do
-            staged="$(find unpacked -type f -path "*/ffmpeg/$binary" | head -1)"
-            test -n "$staged" && test -x "$staged" || { echo "$binary missing from the deb or not executable"; exit 1; }
-            "$staged" -version | head -1
-          done
+          New-Item -ItemType Directory -Force stage | Out-Null
+          Copy-Item engine/target/app/concat.exe stage/
+          Copy-Item "$env:FFMPEG_DIR\bin\*.dll" stage/
 
       - uses: actions/upload-artifact@v4
         with:
           name: Concat-${{ matrix.platform }}
-          path: |
-            desktop/src-tauri/target/release/bundle/dmg/*.dmg
-            desktop/src-tauri/target/release/bundle/msi/*.msi
-            desktop/src-tauri/target/release/bundle/nsis/*.exe
-            desktop/src-tauri/target/release/bundle/deb/*.deb
-            desktop/src-tauri/target/release/bundle/rpm/*.rpm
-            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          path: stage
           if-no-files-found: error
-
-  release:
-    name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    needs: [engine-tests, app]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      # fetch-depth 0 so every existing tag is present locally - the next
-      # alpha number is computed from them.
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: bundles
-          merge-multiple: true
-
-      - name: List what is being published
-        run: find bundles -type f | sort
-
-      # A pushed tag releases under its own name. A green main build mints the
-      # next alpha tag itself: v<version>-alpha.<n>, where <n> is one past the
-      # highest alpha already tagged for this version. action-gh-release
-      # creates the tag while publishing, and because it authenticates with
-      # GITHUB_TOKEN, that tag does not re-trigger this workflow.
-      - name: Decide the tag
-        id: tag
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "name=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          version="$(jq -r .version desktop/src-tauri/tauri.conf.json)"
-          highest=0
-          for tag in $(git tag --list "v${version}-alpha.*"); do
-            n="${tag##*.}"
-            if [[ "$n" =~ ^[0-9]+$ ]] && (( n > highest )); then highest="$n"; fi
-          done
-          echo "name=v${version}-alpha.$((highest + 1))" >> "$GITHUB_OUTPUT"
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.name }}
-          target_commitish: ${{ github.sha }}
-          name: Concat ${{ steps.tag.outputs.name }}
-          # A hyphen in the tag (v0.2.0-alpha.3) marks a pre-release.
-          prerelease: ${{ contains(steps.tag.outputs.name, '-') }}
-          generate_release_notes: true
-          body: |
-            Concat is AGPL-3.0-or-later, with a plugin exception for Concat API
-            plugins ([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
-            The installers bundle GPL-built FFmpeg binaries, invoked as separate
-            programs, and statically link GPL-3.0 espeak-ng — sources and licenses
-            in [THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
-          fail_on_unmatched_files: true
-          files: |
-            bundles/**/*.dmg
-            bundles/**/*.msi
-            bundles/**/*.exe
-            bundles/**/*.deb
-            bundles/**/*.rpm
-            bundles/**/*.AppImage

@@ -105,8 +105,12 @@ pub struct Transform {
 
 impl Transform {
     /// Fitted, centred, unrotated.
-    pub const IDENTITY: Transform =
-        Transform { scale: 1.0, offset_x: 0.0, offset_y: 0.0, rotation: 0.0 };
+    pub const IDENTITY: Transform = Transform {
+        scale: 1.0,
+        offset_x: 0.0,
+        offset_y: 0.0,
+        rotation: 0.0,
+    };
 
     /// True when applying this transform would change nothing.
     pub fn is_identity(&self) -> bool {
@@ -198,7 +202,12 @@ pub struct Track {
 impl Track {
     /// An empty, enabled track.
     pub fn new(name: impl Into<String>, kind: TrackKind) -> Self {
-        Self { name: name.into(), kind, enabled: true, clips: Vec::new() }
+        Self {
+            name: name.into(),
+            kind,
+            enabled: true,
+            clips: Vec::new(),
+        }
     }
 
     /// The clips on this track, in insertion order.
@@ -263,7 +272,9 @@ impl Timeline {
 
     /// Iterates over tracks bottom-most first.
     pub fn tracks(&self) -> impl Iterator<Item = (TrackId, &Track)> {
-        self.order.iter().filter_map(|&id| self.tracks.get(id).map(|track| (id, track)))
+        self.order
+            .iter()
+            .filter_map(|&id| self.tracks.get(id).map(|track| (id, track)))
     }
 
     /// Removes a track and every clip on it.
@@ -282,7 +293,11 @@ impl Timeline {
         // otherwise a stale handle leaks an orphaned clip.
         self.tracks.get(track)?;
         let id = self.clips.insert(clip);
-        self.tracks.get_mut(track).expect("checked above").clips.push(id);
+        self.tracks
+            .get_mut(track)
+            .expect("checked above")
+            .clips
+            .push(id);
         Some(id)
     }
 
@@ -326,7 +341,11 @@ impl Timeline {
 
     /// Where the last clip ends. Zero for an empty timeline.
     pub fn duration(&self) -> Rational {
-        self.clips.iter().map(|(_, clip)| clip.range().end()).max().unwrap_or(Rational::ZERO)
+        self.clips
+            .iter()
+            .map(|(_, clip)| clip.range().end())
+            .max()
+            .unwrap_or(Rational::ZERO)
     }
 
     /// How many whole output frames the timeline runs for.
@@ -347,7 +366,10 @@ pub struct Project {
 impl Project {
     /// A new, empty project at the given output format.
     pub fn new(name: impl Into<String>, timeline: Timeline) -> Self {
-        Self { name: name.into(), timeline }
+        Self {
+            name: name.into(),
+            timeline,
+        }
     }
 }
 
@@ -363,7 +385,10 @@ mod tests {
         let mut timeline = Timeline::hd();
         let track = timeline.add_track(Track::new("V1", TrackKind::Video));
         let clip = timeline
-            .add_clip(track, Clip::new(MediaRef::new("a.mp4"), seconds(2), seconds(3)))
+            .add_clip(
+                track,
+                Clip::new(MediaRef::new("a.mp4"), seconds(2), seconds(3)),
+            )
             .expect("track exists");
         (timeline, track, clip)
     }
@@ -376,7 +401,11 @@ mod tests {
         assert_eq!(clip.source_time_at(seconds(2)), Some(Rational::ZERO));
         assert_eq!(clip.source_time_at(seconds(4)), Some(seconds(2)));
         assert_eq!(clip.source_time_at(seconds(1)), None, "before the clip");
-        assert_eq!(clip.source_time_at(seconds(5)), None, "the end is exclusive");
+        assert_eq!(
+            clip.source_time_at(seconds(5)),
+            None,
+            "the end is exclusive"
+        );
     }
 
     #[test]
@@ -421,9 +450,21 @@ mod tests {
         let clip = timeline.clip(id).expect("clip exists");
 
         assert_eq!(clip.video_fade_factor(seconds(2)), 0.0, "starts at zero");
-        assert_eq!(clip.video_fade_factor(Rational::new(5, 2)), 0.5, "halfway up");
-        assert_eq!(clip.video_fade_factor(seconds(3)), 1.0, "holds at one between fades");
-        assert_eq!(clip.video_fade_factor(Rational::new(9, 2)), 0.5, "halfway down");
+        assert_eq!(
+            clip.video_fade_factor(Rational::new(5, 2)),
+            0.5,
+            "halfway up"
+        );
+        assert_eq!(
+            clip.video_fade_factor(seconds(3)),
+            1.0,
+            "holds at one between fades"
+        );
+        assert_eq!(
+            clip.video_fade_factor(Rational::new(9, 2)),
+            0.5,
+            "halfway down"
+        );
     }
 
     #[test]
@@ -447,7 +488,10 @@ mod tests {
         assert_eq!(timeline.duration(), seconds(5));
 
         timeline
-            .add_clip(track, Clip::new(MediaRef::new("b.mp4"), seconds(5), seconds(4)))
+            .add_clip(
+                track,
+                Clip::new(MediaRef::new("b.mp4"), seconds(5), seconds(4)),
+            )
             .expect("track exists");
         assert_eq!(timeline.duration(), seconds(9));
         assert_eq!(timeline.frame_count(), 270); // 9s at 30fps
@@ -477,9 +521,18 @@ mod tests {
         let (mut timeline, track, clip) = fixture();
         assert!(timeline.remove_clip(clip).is_some());
 
-        assert!(timeline.track(track).expect("track exists").clips().is_empty());
+        assert!(
+            timeline
+                .track(track)
+                .expect("track exists")
+                .clips()
+                .is_empty()
+        );
         assert_eq!(timeline.clip_on_track_at(track, seconds(3)), None);
-        assert!(timeline.remove_clip(clip).is_none(), "removing twice is harmless");
+        assert!(
+            timeline.remove_clip(clip).is_none(),
+            "removing twice is harmless"
+        );
     }
 
     #[test]
@@ -487,7 +540,10 @@ mod tests {
         let (mut timeline, track, _) = fixture();
         timeline.remove_track(track);
 
-        let orphan = timeline.add_clip(track, Clip::new(MediaRef::new("c.mp4"), seconds(0), seconds(1)));
+        let orphan = timeline.add_clip(
+            track,
+            Clip::new(MediaRef::new("c.mp4"), seconds(0), seconds(1)),
+        );
         assert_eq!(orphan, None);
         assert_eq!(timeline.clip_count(), 0);
     }

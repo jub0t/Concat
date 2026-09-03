@@ -211,85 +211,181 @@ fn fx_shake(p: &Params, _index: usize) -> String {
 /// Every video effect, in the catalogue's order. Ids are forever: they are
 /// written into project files.
 static EFFECTS: &[Entry] = &[
-    Entry { id: "black-white", params: &[], chain: fx_black_white },
-    Entry { id: "sepia", params: &[], chain: fx_sepia },
-    Entry { id: "invert", params: &[], chain: fx_invert },
+    Entry {
+        id: "black-white",
+        params: &[],
+        chain: fx_black_white,
+    },
+    Entry {
+        id: "sepia",
+        params: &[],
+        chain: fx_sepia,
+    },
+    Entry {
+        id: "invert",
+        params: &[],
+        chain: fx_invert,
+    },
     Entry {
         id: "sharpen",
-        params: &[Param { key: "amount", min: 0.2, max: 3.0, default: 1.0 }],
+        params: &[Param {
+            key: "amount",
+            min: 0.2,
+            max: 3.0,
+            default: 1.0,
+        }],
         chain: fx_sharpen,
     },
     Entry {
         id: "gaussian-blur",
-        params: &[Param { key: "radius", min: 1.0, max: 50.0, default: 10.0 }],
+        params: &[Param {
+            key: "radius",
+            min: 1.0,
+            max: 50.0,
+            default: 10.0,
+        }],
         chain: fx_gaussian_blur,
     },
     Entry {
         id: "box-blur",
-        params: &[Param { key: "radius", min: 1.0, max: 30.0, default: 6.0 }],
+        params: &[Param {
+            key: "radius",
+            min: 1.0,
+            max: 30.0,
+            default: 6.0,
+        }],
         chain: fx_box_blur,
     },
     Entry {
         id: "motion-blur",
-        params: &[Param { key: "length", min: 2.0, max: 60.0, default: 18.0 }],
+        params: &[Param {
+            key: "length",
+            min: 2.0,
+            max: 60.0,
+            default: 18.0,
+        }],
         chain: fx_motion_blur,
     },
     Entry {
         id: "warm",
-        params: &[Param { key: "temperature", min: 3000.0, max: 6000.0, default: 4600.0 }],
+        params: &[Param {
+            key: "temperature",
+            min: 3000.0,
+            max: 6000.0,
+            default: 4600.0,
+        }],
         chain: fx_temperature,
     },
     Entry {
         id: "cool",
-        params: &[Param { key: "temperature", min: 7000.0, max: 11000.0, default: 8500.0 }],
+        params: &[Param {
+            key: "temperature",
+            min: 7000.0,
+            max: 11000.0,
+            default: 8500.0,
+        }],
         chain: fx_temperature,
     },
     Entry {
         id: "vibrance",
-        params: &[Param { key: "intensity", min: 0.1, max: 2.0, default: 0.7 }],
+        params: &[Param {
+            key: "intensity",
+            min: 0.1,
+            max: 2.0,
+            default: 0.7,
+        }],
         chain: fx_vibrance,
     },
     Entry {
         id: "contrast-pop",
-        params: &[Param { key: "contrast", min: 1.0, max: 2.0, default: 1.25 }],
+        params: &[Param {
+            key: "contrast",
+            min: 1.0,
+            max: 2.0,
+            default: 1.25,
+        }],
         chain: fx_contrast_pop,
     },
     Entry {
         id: "vignette",
-        params: &[Param { key: "strength", min: 10.0, max: 100.0, default: 50.0 }],
+        params: &[Param {
+            key: "strength",
+            min: 10.0,
+            max: 100.0,
+            default: 50.0,
+        }],
         chain: fx_vignette,
     },
     Entry {
         id: "film-grain",
-        params: &[Param { key: "amount", min: 2.0, max: 40.0, default: 12.0 }],
+        params: &[Param {
+            key: "amount",
+            min: 2.0,
+            max: 40.0,
+            default: 12.0,
+        }],
         chain: fx_film_grain,
     },
     Entry {
         id: "glow",
-        params: &[Param { key: "amount", min: 10.0, max: 100.0, default: 45.0 }],
+        params: &[Param {
+            key: "amount",
+            min: 10.0,
+            max: 100.0,
+            default: 45.0,
+        }],
         chain: fx_glow,
     },
     Entry {
         id: "posterize",
-        params: &[Param { key: "levels", min: 2.0, max: 8.0, default: 4.0 }],
+        params: &[Param {
+            key: "levels",
+            min: 2.0,
+            max: 8.0,
+            default: 4.0,
+        }],
         chain: fx_posterize,
     },
     Entry {
         id: "pixelate",
-        params: &[Param { key: "size", min: 2.0, max: 64.0, default: 16.0 }],
+        params: &[Param {
+            key: "size",
+            min: 2.0,
+            max: 64.0,
+            default: 16.0,
+        }],
         chain: fx_pixelate,
     },
-    Entry { id: "mirror", params: &[], chain: fx_mirror },
+    Entry {
+        id: "mirror",
+        params: &[],
+        chain: fx_mirror,
+    },
     Entry {
         id: "fisheye",
-        params: &[Param { key: "strength", min: 5.0, max: 100.0, default: 50.0 }],
+        params: &[Param {
+            key: "strength",
+            min: 5.0,
+            max: 100.0,
+            default: 50.0,
+        }],
         chain: fx_fisheye,
     },
     Entry {
         id: "shake",
         params: &[
-            Param { key: "amount", min: 2.0, max: 40.0, default: 12.0 },
-            Param { key: "speed", min: 2.0, max: 30.0, default: 13.0 },
+            Param {
+                key: "amount",
+                min: 2.0,
+                max: 40.0,
+                default: 12.0,
+            },
+            Param {
+                key: "speed",
+                min: 2.0,
+                max: 30.0,
+                default: 13.0,
+            },
         ],
         chain: fx_shake,
     },
@@ -321,7 +417,11 @@ fn af_sweet(p: &Params, _index: usize) -> String {
 
     // The coefficients are the TS entry's own (see its comment on why they
     // are steeper than the reference chain it was ported from).
-    let shift = if pitch > 0.0 { pitch } else { 1.2 + 3.8 * strength };
+    let shift = if pitch > 0.0 {
+        pitch
+    } else {
+        1.2 + 3.8 * strength
+    };
     let presence = fixed(0.8 + 5.2 * strength, 3);
     let air = fixed(1.0 + 7.0 * strength, 3);
     let deess = fixed(0.18 + 0.32 * strength, 3);
@@ -356,7 +456,10 @@ fn af_deep(p: &Params, _index: usize) -> String {
 
 fn af_chipmunk(p: &Params, _index: usize) -> String {
     let mut parts = pitch_shift(p.get("pitch"));
-    parts.extend(["highpass=f=120".to_owned(), "alimiter=limit=0.94".to_owned()]);
+    parts.extend([
+        "highpass=f=120".to_owned(),
+        "alimiter=limit=0.94".to_owned(),
+    ]);
     parts.join(",")
 }
 
@@ -421,57 +524,117 @@ static FILTERS: &[Entry] = &[
     Entry {
         id: "sweet",
         params: &[
-            Param { key: "amount", min: 0.0, max: 100.0, default: 65.0 },
+            Param {
+                key: "amount",
+                min: 0.0,
+                max: 100.0,
+                default: 65.0,
+            },
             // 0 means "follow amount", which is what the original did when
             // no explicit pitch was passed.
-            Param { key: "pitch", min: 0.0, max: 8.0, default: 0.0 },
+            Param {
+                key: "pitch",
+                min: 0.0,
+                max: 8.0,
+                default: 0.0,
+            },
         ],
         chain: af_sweet,
     },
     Entry {
         id: "deep",
         params: &[
-            Param { key: "pitch", min: -8.0, max: -1.0, default: -3.0 },
-            Param { key: "body", min: 0.0, max: 8.0, default: 3.0 },
+            Param {
+                key: "pitch",
+                min: -8.0,
+                max: -1.0,
+                default: -3.0,
+            },
+            Param {
+                key: "body",
+                min: 0.0,
+                max: 8.0,
+                default: 3.0,
+            },
         ],
         chain: af_deep,
     },
     Entry {
         id: "chipmunk",
-        params: &[Param { key: "pitch", min: 3.0, max: 12.0, default: 7.0 }],
+        params: &[Param {
+            key: "pitch",
+            min: 3.0,
+            max: 12.0,
+            default: 7.0,
+        }],
         chain: af_chipmunk,
     },
     Entry {
         id: "robot",
-        params: &[Param { key: "depth", min: 1.0, max: 10.0, default: 5.0 }],
+        params: &[Param {
+            key: "depth",
+            min: 1.0,
+            max: 10.0,
+            default: 5.0,
+        }],
         chain: af_robot,
     },
     Entry {
         id: "bass",
-        params: &[Param { key: "gain", min: 0.0, max: 12.0, default: 5.0 }],
+        params: &[Param {
+            key: "gain",
+            min: 0.0,
+            max: 12.0,
+            default: 5.0,
+        }],
         chain: af_bass,
     },
     Entry {
         id: "treble",
-        params: &[Param { key: "gain", min: 0.0, max: 12.0, default: 4.0 }],
+        params: &[Param {
+            key: "gain",
+            min: 0.0,
+            max: 12.0,
+            default: 4.0,
+        }],
         chain: af_treble,
     },
     Entry {
         id: "telephone",
-        params: &[Param { key: "drive", min: 0.0, max: 10.0, default: 3.0 }],
+        params: &[Param {
+            key: "drive",
+            min: 0.0,
+            max: 10.0,
+            default: 3.0,
+        }],
         chain: af_telephone,
     },
     Entry {
         id: "echo",
         params: &[
-            Param { key: "delay", min: 0.05, max: 1.0, default: 0.25 },
-            Param { key: "decay", min: 0.1, max: 0.9, default: 0.4 },
+            Param {
+                key: "delay",
+                min: 0.05,
+                max: 1.0,
+                default: 0.25,
+            },
+            Param {
+                key: "decay",
+                min: 0.1,
+                max: 0.9,
+                default: 0.4,
+            },
         ],
         chain: af_echo,
     },
     Entry {
         id: "room",
-        params: &[Param { key: "size", min: 0.0, max: 100.0, default: 40.0 }],
+        params: &[Param {
+            key: "size",
+            min: 0.0,
+            max: 100.0,
+            default: 40.0,
+        }],
         chain: af_room,
     },
 ];
@@ -485,7 +648,12 @@ fn resolve(entry: &Entry, set: &BTreeMap<String, f64>) -> Params {
         entry
             .params
             .iter()
-            .map(|param| (param.key, set.get(param.key).copied().unwrap_or(param.default)))
+            .map(|param| {
+                (
+                    param.key,
+                    set.get(param.key).copied().unwrap_or(param.default),
+                )
+            })
             .collect(),
     )
 }
@@ -532,7 +700,10 @@ mod tests {
     fn applied(id: &str, params: &[(&str, f64)]) -> AppliedFilter {
         AppliedFilter {
             id: id.to_owned(),
-            params: params.iter().map(|(key, value)| ((*key).to_owned(), *value)).collect(),
+            params: params
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), *value))
+                .collect(),
             enabled: true,
         }
     }
@@ -547,14 +718,20 @@ mod tests {
 
     /// The definition's sliders, all pushed to one bound.
     fn at_bound(catalogue: &[Entry], id: &str, minimum: bool) -> AppliedFilter {
-        let entry = catalogue.iter().find(|entry| entry.id == id).expect("known id");
+        let entry = catalogue
+            .iter()
+            .find(|entry| entry.id == id)
+            .expect("known id");
         AppliedFilter {
             id: id.to_owned(),
             params: entry
                 .params
                 .iter()
                 .map(|param| {
-                    (param.key.to_owned(), if minimum { param.min } else { param.max })
+                    (
+                        param.key.to_owned(),
+                        if minimum { param.min } else { param.max },
+                    )
                 })
                 .collect(),
             enabled: true,
@@ -567,7 +744,10 @@ mod tests {
         let mut covered: Vec<&str> = table.iter().map(|(id, _)| *id).collect();
         covered.sort_unstable();
         ids.sort_unstable();
-        assert_eq!(covered, ids, "the {which} fixture table must cover the catalogue");
+        assert_eq!(
+            covered, ids,
+            "the {which} fixture table must cover the catalogue"
+        );
     }
 
     fn parameterised(catalogue: &[Entry]) -> Vec<&'static str> {
@@ -583,7 +763,10 @@ mod tests {
 
     const EFFECT_DEFAULTS: &[(&str, &str)] = &[
         ("black-white", "hue=s=0"),
-        ("sepia", "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"),
+        (
+            "sepia",
+            "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+        ),
         ("invert", "negate"),
         ("sharpen", "unsharp=5:5:1.00:5:5:0"),
         ("gaussian-blur", "gblur=sigma=10.0"),
@@ -600,9 +783,15 @@ mod tests {
             "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];\
              [glowa0][glowg0]blend=all_mode=screen:all_opacity=0.45",
         ),
-        ("posterize", "lutrgb=r=trunc(val/64)*64:g=trunc(val/64)*64:b=trunc(val/64)*64"),
+        (
+            "posterize",
+            "lutrgb=r=trunc(val/64)*64:g=trunc(val/64)*64:b=trunc(val/64)*64",
+        ),
         ("pixelate", "pixelize=width=16:height=16"),
-        ("mirror", "crop=iw/2:ih:0:0,split[mirl0][mirr0];[mirr0]hflip[mirf0];[mirl0][mirf0]hstack"),
+        (
+            "mirror",
+            "crop=iw/2:ih:0:0,split[mirl0][mirr0];[mirr0]hflip[mirf0];[mirl0][mirf0]hstack",
+        ),
         ("fisheye", "lenscorrection=k1=-0.275:k2=-0.100:i=bilinear"),
         ("shake", "crop=iw-24:ih-24:12+12*sin(t*13):12+12*cos(t*17)"),
     ];
@@ -623,7 +812,10 @@ mod tests {
             "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];\
              [glowa0][glowg0]blend=all_mode=screen:all_opacity=0.10",
         ),
-        ("posterize", "lutrgb=r=trunc(val/128)*128:g=trunc(val/128)*128:b=trunc(val/128)*128"),
+        (
+            "posterize",
+            "lutrgb=r=trunc(val/128)*128:g=trunc(val/128)*128:b=trunc(val/128)*128",
+        ),
         ("pixelate", "pixelize=width=2:height=2"),
         ("fisheye", "lenscorrection=k1=-0.028:k2=-0.010:i=bilinear"),
         ("shake", "crop=iw-4:ih-4:2+2*sin(t*2):2+2*cos(t*3)"),
@@ -645,7 +837,10 @@ mod tests {
             "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];\
              [glowa0][glowg0]blend=all_mode=screen:all_opacity=1.00",
         ),
-        ("posterize", "lutrgb=r=trunc(val/32)*32:g=trunc(val/32)*32:b=trunc(val/32)*32"),
+        (
+            "posterize",
+            "lutrgb=r=trunc(val/32)*32:g=trunc(val/32)*32:b=trunc(val/32)*32",
+        ),
         ("pixelate", "pixelize=width=64:height=64"),
         ("fisheye", "lenscorrection=k1=-0.550:k2=-0.200:i=bilinear"),
         ("shake", "crop=iw-80:ih-80:40+40*sin(t*30):40+40*cos(t*39)"),
@@ -684,7 +879,10 @@ mod tests {
             "highpass=f=400,lowpass=f=3400,equalizer=f=1600:t=q:w=1.4:g=4.50,alimiter=limit=0.92",
         ),
         ("echo", "aecho=0.8:0.85:250:0.40"),
-        ("room", "aecho=0.8:0.88:24|43|70|101:0.320|0.240|0.170|0.110"),
+        (
+            "room",
+            "aecho=0.8:0.88:24|43|70|101:0.320|0.240|0.170|0.110",
+        ),
     ];
 
     const FILTER_MINIMA: &[(&str, &str)] = &[
@@ -760,7 +958,10 @@ mod tests {
             "highpass=f=400,lowpass=f=3400,equalizer=f=1600:t=q:w=1.4:g=8.00,alimiter=limit=0.92",
         ),
         ("echo", "aecho=0.8:0.85:1000:0.90"),
-        ("room", "aecho=0.8:0.88:46|82|134|194:0.320|0.240|0.170|0.110"),
+        (
+            "room",
+            "aecho=0.8:0.88:46|82|134|194:0.320|0.240|0.170|0.110",
+        ),
     ];
 
     #[test]
@@ -928,6 +1129,9 @@ mod tests {
     #[test]
     fn a_set_parameter_overrides_the_default() {
         // The filters.test.ts chainKey fixture's chain, minus the key parts.
-        assert_eq!(one_filter("echo", &[("delay", 0.5)]), "aecho=0.8:0.85:500:0.40");
+        assert_eq!(
+            one_filter("echo", &[("delay", 0.5)]),
+            "aecho=0.8:0.85:500:0.40"
+        );
     }
 }

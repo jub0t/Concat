@@ -10,11 +10,10 @@
 //! module is the piece the decision log has called "the next real piece of
 //! work" since the first CLI commit:
 //!
-//! - **One reader per (file, size)**, kept warm between requests. A request
-//!   near the reader's current position rolls forward (cheap, exact); a
-//!   request elsewhere seeks - frame-accurately through the FFI decoder when
-//!   the `ffi` feature is on, by respawning the subprocess decoder at the
-//!   target otherwise.
+//! - **One reader per (file, size, chain)**, kept warm between requests. A
+//!   request near the reader's current position rolls forward (cheap,
+//!   exact); a request elsewhere seeks - frame-accurately, guided by the
+//!   real timestamps the linked decoder reports.
 //! - **A byte-budgeted LRU frame cache** in front of the readers. Scrubbing
 //!   back over ground just covered, or dwelling on one frame, costs a hash
 //!   lookup. Frames roll into the cache as decoding passes them, so rolling
@@ -22,7 +21,7 @@
 //!
 //! The pool is deliberately not used by export: export decodes every frame
 //! exactly once in order, and a cache in that path is pure overhead. This is
-//! playback infrastructure - see `docs/decisions/0002`.
+//! playback infrastructure.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -31,7 +30,7 @@ use std::sync::Arc;
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 
-use crate::decode::{DecodeOptions, FfmpegDecoder, FrameSource};
+use crate::decode::{DecodeOptions, Decoder, FrameSource, SeekableSource};
 use crate::error::Result;
 use crate::probe;
 
@@ -68,7 +67,12 @@ pub struct FrameCache {
 impl FrameCache {
     /// An empty cache holding at most `budget` bytes of frames.
     pub fn new(budget: usize) -> Self {
-        Self { budget, held: 0, tick: 0, frames: HashMap::new() }
+        Self {
+            budget,
+            held: 0,
+            tick: 0,
+            frames: HashMap::new(),
+        }
     }
 
     fn get(&mut self, key: &FrameKey) -> Option<Arc<Frame>> {
@@ -147,19 +151,10 @@ fn plan_access(current_next: Option<i64>, target: i64) -> Access {
 
 /// One warm reader: a decoder plus where its *next* frame will land.
 struct Reader {
-    backend: Backend,
-    /// The frame index `next_frame` will produce, in the media's own rate.
+    decoder: Decoder,
+    /// The frame index `next_frame` will produce, in the media's own rate,
+    /// or `i64::MIN` right after a seek, when only the timestamps know.
     next_index: i64,
-}
-
-enum Backend {
-    /// Frame-accurate seeks, real timestamps. Only with the `ffi` feature.
-    #[cfg(feature = "ffi")]
-    Linked(crate::ffi::FfiDecoder),
-    /// The subprocess pipe: no seeking, so "seek" means respawn at the
-    /// target's keyframe-fast `-ss` and count ordinally from there. Exact for
-    /// constant-frame-rate material, the pipe's known limit otherwise.
-    Pipe { decoder: FfmpegDecoder, path: PathBuf, width: u32, height: u32, chain: Option<String> },
 }
 
 impl Reader {
@@ -171,90 +166,41 @@ impl Reader {
         rate: FrameRate,
         index: i64,
     ) -> Result<Self> {
-        #[cfg(feature = "ffi")]
-        // The linked decoder produces raw frames; a clip with an effect chain
-        // needs FFmpeg's filters, so it stays on the pipe.
-        if chain.is_none() {
-            if let Ok(mut linked) = crate::ffi::FfiDecoder::open(path, width, height) {
-                use crate::decode::SeekableSource;
-                linked.seek(rate.time_of_frame(index))?;
-                // The linked decoder lands on the keyframe at or before the
-                // target; rolling forward from there is what `frame_at` does,
-                // guided by real timestamps. Report where decoding resumes.
-                return Ok(Self { backend: Backend::Linked(linked), next_index: i64::MIN });
-            }
-            // A file the linked build cannot open falls through to the pipe.
-        }
-
+        // Unpaced, so every source frame comes out with its own timestamp
+        // and the index is read from that; a seek lands on the keyframe at
+        // or before the target and `frame_at` rolls forward from there.
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
-            .scaled_to(width, height)
-            .at_rate(rate);
+            .scaled_to(width, height);
         if let Some(chain) = chain {
             options = options.filtered(chain);
         }
-        let decoder = FfmpegDecoder::open(path, &options)?;
+        let decoder = Decoder::open(path, &options)?;
         Ok(Self {
-            backend: Backend::Pipe {
-                decoder,
-                path: path.to_path_buf(),
-                width,
-                height,
-                chain: chain.map(str::to_owned),
-            },
-            next_index: index,
+            decoder,
+            next_index: i64::MIN,
         })
     }
 
-    #[cfg_attr(not(feature = "ffi"), allow(unused_variables))]
     fn next_frame(&mut self, rate: FrameRate) -> Result<Option<(i64, Frame)>> {
-        match &mut self.backend {
-            #[cfg(feature = "ffi")]
-            Backend::Linked(decoder) => {
-                let Some(frame) = decoder.next_frame()? else { return Ok(None) };
-                // The linked decoder tells us where the frame really sits; a
-                // half-frame nudge keeps exact boundary timestamps from
-                // rounding down a frame.
-                let index = decoder
-                    .position()
-                    .map(|position| rate.frame_at(position + rate.frame_duration() / Rational::from_int(2)))
-                    .unwrap_or(self.next_index.max(0));
-                self.next_index = index + 1;
-                Ok(Some((index, frame)))
-            }
-            Backend::Pipe { decoder, .. } => {
-                let Some(frame) = decoder.next_frame()? else { return Ok(None) };
-                let index = self.next_index;
-                self.next_index = index + 1;
-                Ok(Some((index, frame)))
-            }
-        }
+        let Some(frame) = self.decoder.next_frame()? else {
+            return Ok(None);
+        };
+        // The decoder says where the frame really sits; a half-frame nudge
+        // keeps exact boundary timestamps from rounding down a frame.
+        let index = self
+            .decoder
+            .position()
+            .map(|position| rate.frame_at(position + rate.frame_duration() / Rational::from_int(2)))
+            .unwrap_or(self.next_index.max(0));
+        self.next_index = index + 1;
+        Ok(Some((index, frame)))
     }
 
     fn seek(&mut self, rate: FrameRate, index: i64) -> Result<()> {
-        match &mut self.backend {
-            #[cfg(feature = "ffi")]
-            Backend::Linked(decoder) => {
-                use crate::decode::SeekableSource;
-                decoder.seek(rate.time_of_frame(index))?;
-                self.next_index = i64::MIN;
-                Ok(())
-            }
-            Backend::Pipe { decoder, path, width, height, chain } => {
-                // The pipe cannot seek; a new process at the target is the
-                // seek. This is the cost the FFI backend exists to remove.
-                let mut options = DecodeOptions::default()
-                    .starting_at(rate.time_of_frame(index))
-                    .scaled_to(*width, *height)
-                    .at_rate(rate);
-                if let Some(chain) = chain {
-                    options = options.filtered(chain.clone());
-                }
-                *decoder = FfmpegDecoder::open(path.as_path(), &options)?;
-                self.next_index = index;
-                Ok(())
-            }
-        }
+        self.decoder.seek(rate.time_of_frame(index))?;
+        self.next_index = i64::MIN;
+        Ok(())
     }
 }
 
@@ -318,7 +264,11 @@ impl ReaderPool {
     ) -> Result<Arc<Frame>> {
         let facts = self.facts_for(path, still)?;
         let rate = facts.rate;
-        let mut target = if facts.still { 0 } else { rate.frame_at(time).max(0) };
+        let mut target = if facts.still {
+            0
+        } else {
+            rate.frame_at(time).max(0)
+        };
         // A clip can outlive its media - an end-trim past the file's length -
         // and the honest picture for any time past the end is the last frame,
         // exactly what the roll-forward case already serves. Clamp before
@@ -406,17 +356,19 @@ impl ReaderPool {
             }
         }
 
-        latest.ok_or_else(|| crate::error::Error::PartialFrame {
+        latest.ok_or_else(|| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
-            got: 0,
-            want: Frame::byte_len(width, height),
         })
     }
 
     fn facts_for(&mut self, path: &Path, still: bool) -> Result<&MediaFacts> {
         if !self.facts.contains_key(path) {
             let facts = if still {
-                MediaFacts { rate: FrameRate::THIRTY, still: true, frames: None }
+                MediaFacts {
+                    rate: FrameRate::THIRTY,
+                    still: true,
+                    frames: None,
+                }
             } else {
                 let info = probe::probe(path)?;
                 let rate = info
@@ -430,7 +382,11 @@ impl ReaderPool {
                     .duration
                     .map(|duration| (duration * rate.fps()).ceil())
                     .filter(|count| *count > 0);
-                MediaFacts { rate, still: false, frames }
+                MediaFacts {
+                    rate,
+                    still: false,
+                    frames,
+                }
             };
             self.facts.insert(path.to_path_buf(), facts);
         }
@@ -488,19 +444,31 @@ impl ReaderPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encode::{EncodeOptions, FfmpegEncoder, FrameSink};
+    use crate::encode::{EncodeOptions, Encoder, FrameSink};
 
     #[test]
     fn the_access_policy_rolls_forward_and_seeks_backward() {
-        assert_eq!(plan_access(Some(10), 10), Access::Roll(0), "the very next frame");
-        assert_eq!(plan_access(Some(10), 30), Access::Roll(20), "a short hop ahead");
+        assert_eq!(
+            plan_access(Some(10), 10),
+            Access::Roll(0),
+            "the very next frame"
+        );
+        assert_eq!(
+            plan_access(Some(10), 30),
+            Access::Roll(20),
+            "a short hop ahead"
+        );
         assert_eq!(plan_access(Some(10), 9), Access::Seek, "behind means seek");
         assert_eq!(
             plan_access(Some(10), 10 + ROLL_FORWARD_FRAMES + 1),
             Access::Seek,
             "too far ahead means seek"
         );
-        assert_eq!(plan_access(None, 5), Access::Seek, "unknown position means seek");
+        assert_eq!(
+            plan_access(None, 5),
+            Access::Seek,
+            "unknown position means seek"
+        );
     }
 
     #[test]
@@ -533,23 +501,27 @@ mod tests {
     fn an_oversized_frame_is_served_but_never_cached() {
         let mut cache = FrameCache::new(8);
         cache.insert(
-            FrameKey { path: PathBuf::from("a"), width: 2, height: 2, chain: None, index: 0 },
+            FrameKey {
+                path: PathBuf::from("a"),
+                width: 2,
+                height: 2,
+                chain: None,
+                index: 0,
+            },
             Arc::new(Frame::black(2, 2)),
         );
         assert!(cache.is_empty(), "16 bytes cannot fit an 8 byte budget");
     }
 
-    /// End to end against a real FFmpeg: encode a tiny video whose frames are
-    /// identifiable by colour, then read arbitrary frames back out of order.
-    /// Skips silently on machines without FFmpeg, like the encoder's own test.
+    /// End to end against the linked FFmpeg: encode a tiny video whose frames
+    /// are identifiable by colour, then read arbitrary frames back out of
+    /// order.
     #[test]
     fn random_access_returns_the_right_frames() {
         let path = std::env::temp_dir().join("concat-pool-test.mp4");
-        let Ok(mut encoder) =
-            FfmpegEncoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
-        else {
-            return; // no ffmpeg here
-        };
+        let mut encoder =
+            Encoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("the linked FFmpeg encodes h264");
         // 90 frames; the red channel encodes the frame index (x2 to survive
         // compression rounding).
         for index in 0..90u32 {
@@ -577,14 +549,23 @@ mod tests {
         let back_at_20 = red_at(&mut pool, 20);
         assert!(near(back_at_20, 20), "backward to 20 read {back_at_20}");
         let again_at_50 = red_at(&mut pool, 50);
-        assert_eq!(again_at_50, at_50, "revisit must come from cache, identical");
-        assert!(!pool.cache.is_empty(), "rolling forward populated the cache");
+        assert_eq!(
+            again_at_50, at_50,
+            "revisit must come from cache, identical"
+        );
+        assert!(
+            !pool.cache.is_empty(),
+            "rolling forward populated the cache"
+        );
 
         // Far past the end - a clip that outlives its media. The last real
         // frame is the answer, not an error: a seek there decodes nothing,
         // which used to surface as PartialFrame(0 bytes) and a black monitor.
         let past_end = red_at(&mut pool, 300);
-        assert!(near(past_end, 89), "past the end read {past_end}, wanted the last frame");
+        assert!(
+            near(past_end, 89),
+            "past the end read {past_end}, wanted the last frame"
+        );
 
         let _ = std::fs::remove_file(&path);
     }

@@ -4,23 +4,18 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Getting pixels in and out of media files. The only crate that knows FFmpeg exists."
+description = "Getting pixels and samples in and out of media files. The only crate that knows FFmpeg exists."
 
 [dependencies]
 concat-core.workspace = true
-rusty_ffmpeg = { version = "0.17.0", default-features = false, features = ["ffmpeg8", "use_prebuilt_binding"], optional = true }
-serde_json.workspace = true
+# Linked FFmpeg: the safe wrapper over libavformat, libavcodec, libavfilter,
+# libswscale and libswresample. Built against the FFmpeg development
+# libraries on the machine - pkg-config where there is one, FFMPEG_DIR
+# pointing at an unpacked shared build otherwise. FFmpeg 7 or newer: the
+# display-rotation side data is read from where 7.0 moved it.
+ffmpeg-the-third = "6"
+libc = "0.2"
 thiserror.workspace = true
 
 [lints]
 workspace = true
-
-[features]
-# Links FFmpeg directly instead of only spawning it.
-#
-# Off by default, and deliberately so: the subprocess backend needs nothing but
-# `ffmpeg` on PATH, while this one needs a development build with headers and
-# import libraries. Building the engine must not require that.
-#
-# See docs/decisions/0002-ffmpeg-over-a-pipe.md.
-ffi = ["dep:rusty_ffmpeg"]

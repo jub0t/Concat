@@ -5,21 +5,14 @@
 //!
 //! The timeline draws a clip's waveform from a few hundred buckets per
 //! second, not from the samples themselves. This module produces those
-//! buckets by streaming FFmpeg's decode of the file's audio - the samples
-//! are folded into buckets as they arrive and never accumulate, so an
-//! hour-long recording costs the same memory as a jingle.
-//!
-//! This used to live in the UI, which read the entire file over IPC and
-//! decoded it with WebAudio on the main thread. Moving it here removed the
-//! app's last whole-file read across the IPC boundary.
+//! buckets by streaming the file's decoded audio - the samples are folded
+//! into buckets as they arrive and never accumulate, so an hour-long
+//! recording costs the same memory as a jingle.
 
-use std::io::Read;
 use std::path::Path;
-use std::process::Stdio;
 
-use crate::binaries::ffmpeg;
-use crate::error::{Error, Result};
-use crate::process::{StderrTail, base_command};
+use crate::error::Result;
+use crate::samples::{AudioDecoder, AudioOptions, SampleFormat};
 
 /// The rate audio is resampled to before bucketing.
 ///
@@ -62,174 +55,107 @@ impl Peaks {
         }
         bytes
     }
+
+    /// The inverse of [`Peaks::encode`]: `None` for bytes that do not have
+    /// that shape, so a corrupt cache entry regenerates instead of drawing.
+    pub fn decode(bytes: &[u8]) -> Option<Peaks> {
+        if bytes.len() < 8 {
+            return None;
+        }
+        let buckets_per_second = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let count = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+        if bytes.len() != 8 + count * 8 {
+            return None;
+        }
+        let floats = |offset: usize| -> Vec<f32> {
+            bytes[offset..offset + count * 4]
+                .chunks_exact(4)
+                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                .collect()
+        };
+        Some(Peaks {
+            min: floats(8),
+            max: floats(8 + count * 4),
+            buckets_per_second,
+        })
+    }
 }
 
 /// Decodes one file's audio and reduces it to peaks.
 ///
-/// The decode is mono 16-bit at [`PEAK_RATE`], piped back as WAV - `wav`
-/// rather than raw `s16le` because the bundled FFmpeg is a trimmed build
-/// and the raw muxer is not in it. A file with no audio stream fails the
-/// FFmpeg run, and the error carries what FFmpeg said.
+/// The decode is mono 16-bit at [`PEAK_RATE`]. A file with no audio stream
+/// is an error that says so.
 pub fn extract(path: &Path, buckets_per_second: u32) -> Result<Peaks> {
-    let mut child = base_command(ffmpeg())
-        .arg("-i")
-        .arg(path)
-        .args(["-vn", "-ac", "1"])
-        .args(["-ar", &PEAK_RATE.to_string()])
-        .args(["-c:a", "pcm_s16le", "-f", "wav", "pipe:1"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| Error::Spawn { program: "ffmpeg", source })?;
-
-    let mut tail = StderrTail::drain(&mut child);
-    let mut stdout = child.stdout.take().expect("stdout was piped");
-    let parsed = peaks_from_wav(&mut stdout, path, buckets_per_second);
-
-    if parsed.is_err() {
-        // A parse failure leaves FFmpeg still writing into a pipe nobody
-        // reads; waiting on it now would deadlock on the full pipe.
-        let _ = child.kill();
+    let mut decoder = AudioDecoder::open(
+        path,
+        &AudioOptions {
+            rate: PEAK_RATE,
+            channels: 1,
+            format: SampleFormat::I16,
+            ..AudioOptions::default()
+        },
+    )?;
+    let mut folder = Folder::new(buckets_per_second);
+    while let Some(chunk) = decoder.next_i16()? {
+        folder.fold_all(chunk.iter().map(|sample| f32::from(*sample) / 32768.0));
     }
-    let status = child.wait().map_err(|source| Error::Io { program: "ffmpeg", source })?;
-
-    // FFmpeg's own account of the failure - "no audio stream", "no such
-    // file" - beats whatever the parser tripped over downstream of it.
-    if !status.success() {
-        return Err(Error::Exited {
-            program: "ffmpeg",
-            path: path.to_path_buf(),
-            status,
-            stderr: tail.summary(),
-        });
-    }
-    parsed
+    Ok(folder.finish())
 }
 
-/// Folds a WAV stream into peaks without holding the samples.
-///
-/// A plain chunk walk, not a format library: the stream comes from our own
-/// FFmpeg invocation above, so the only variability is which bookkeeping
-/// chunks precede `data`. Sizes written to a pipe are `u32::MAX`
-/// placeholders - the muxer could not seek back to patch them - in which
-/// case the payload is simply the rest of the stream.
-fn peaks_from_wav(
-    reader: &mut impl Read,
-    path: &Path,
-    buckets_per_second: u32,
-) -> Result<Peaks> {
-    let malformed = |detail: &str| Error::Probe {
-        path: path.to_path_buf(),
-        detail: format!("ffmpeg piped back something other than the wav asked for: {detail}"),
-    };
-    let io = |source| Error::Io { program: "ffmpeg", source };
-
-    let buckets_per_second = buckets_per_second.clamp(1, PEAK_RATE);
-    let bucket_size = (PEAK_RATE / buckets_per_second) as usize;
-
-    let mut riff = [0u8; 12];
-    reader.read_exact(&mut riff).map_err(io)?;
-    if &riff[0..4] != b"RIFF" || &riff[8..12] != b"WAVE" {
-        return Err(malformed("missing RIFF/WAVE header"));
-    }
-
-    // Walk the bookkeeping chunks until `data`. Its payload runs to EOF
-    // when the size is a placeholder.
-    let mut remaining: Option<usize> = loop {
-        let mut header = [0u8; 8];
-        reader.read_exact(&mut header).map_err(io)?;
-        let size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-        if &header[0..4] == b"data" {
-            break if size == u32::MAX { None } else { Some(size as usize) };
-        }
-        // A placeholder size on any other chunk means the walk cannot
-        // continue - refuse rather than misread samples as headers.
-        if size == u32::MAX {
-            return Err(malformed("placeholder size before the data chunk"));
-        }
-        // Chunks are word-aligned; an odd size is followed by a pad byte.
-        let skip = size as usize + (size as usize & 1);
-        std::io::copy(&mut reader.take(skip as u64), &mut std::io::sink()).map_err(io)?;
-    };
-
-    let mut min = Vec::new();
-    let mut max = Vec::new();
-    let mut low = 0.0f32;
-    let mut high = 0.0f32;
-    let mut filled = 0usize;
-
-    let mut chunk = [0u8; 8192];
-    // A sample split across two reads: its first byte waits here.
-    let mut half: Option<u8> = None;
-    loop {
-        let want = remaining.map_or(chunk.len(), |left| left.min(chunk.len()));
-        if want == 0 {
-            break;
-        }
-        let read = reader.read(&mut chunk[..want]).map_err(io)?;
-        if read == 0 {
-            break;
-        }
-        if let Some(left) = remaining.as_mut() {
-            *left -= read;
-        }
-
-        let mut bytes = &chunk[..read];
-        if let Some(first) = half.take() {
-            let sample = f32::from(i16::from_le_bytes([first, bytes[0]])) / 32768.0;
-            fold(sample, &mut low, &mut high);
-            bump(&mut filled, bucket_size, &mut min, &mut max, &mut low, &mut high);
-            bytes = &bytes[1..];
-        }
-        for pair in bytes.chunks_exact(2) {
-            let sample = f32::from(i16::from_le_bytes([pair[0], pair[1]])) / 32768.0;
-            fold(sample, &mut low, &mut high);
-            bump(&mut filled, bucket_size, &mut min, &mut max, &mut low, &mut high);
-        }
-        if bytes.len() & 1 == 1 {
-            half = Some(bytes[bytes.len() - 1]);
-        }
-    }
-
-    // The trailing partial bucket still counts - dropping it would shave
-    // the last fraction of a second off every waveform.
-    if filled > 0 {
-        min.push(low);
-        max.push(high);
-    }
-
-    Ok(Peaks {
-        min,
-        max,
-        buckets_per_second: PEAK_RATE as f32 / bucket_size as f32,
-    })
-}
-
-fn fold(sample: f32, low: &mut f32, high: &mut f32) {
-    if sample < *low {
-        *low = sample;
-    }
-    if sample > *high {
-        *high = sample;
-    }
-}
-
-fn bump(
-    filled: &mut usize,
+/// Folds a sample stream into peaks without holding the samples.
+struct Folder {
     bucket_size: usize,
-    min: &mut Vec<f32>,
-    max: &mut Vec<f32>,
-    low: &mut f32,
-    high: &mut f32,
-) {
-    *filled += 1;
-    if *filled == bucket_size {
-        min.push(*low);
-        max.push(*high);
-        *low = 0.0;
-        *high = 0.0;
-        *filled = 0;
+    min: Vec<f32>,
+    max: Vec<f32>,
+    low: f32,
+    high: f32,
+    filled: usize,
+}
+
+impl Folder {
+    fn new(buckets_per_second: u32) -> Self {
+        let buckets_per_second = buckets_per_second.clamp(1, PEAK_RATE);
+        Self {
+            bucket_size: (PEAK_RATE / buckets_per_second) as usize,
+            min: Vec::new(),
+            max: Vec::new(),
+            low: 0.0,
+            high: 0.0,
+            filled: 0,
+        }
+    }
+
+    fn fold_all(&mut self, samples: impl Iterator<Item = f32>) {
+        for sample in samples {
+            if sample < self.low {
+                self.low = sample;
+            }
+            if sample > self.high {
+                self.high = sample;
+            }
+            self.filled += 1;
+            if self.filled == self.bucket_size {
+                self.min.push(self.low);
+                self.max.push(self.high);
+                self.low = 0.0;
+                self.high = 0.0;
+                self.filled = 0;
+            }
+        }
+    }
+
+    fn finish(mut self) -> Peaks {
+        // The trailing partial bucket still counts - dropping it would shave
+        // the last fraction of a second off every waveform.
+        if self.filled > 0 {
+            self.min.push(self.low);
+            self.max.push(self.high);
+        }
+        Peaks {
+            min: self.min,
+            max: self.max,
+            buckets_per_second: PEAK_RATE as f32 / self.bucket_size as f32,
+        }
     }
 }
 
@@ -237,22 +163,10 @@ fn bump(
 mod tests {
     use super::*;
 
-    /// A WAV as FFmpeg writes one to a pipe: placeholder sizes, an `fmt `
-    /// chunk, then `data` running to EOF.
-    fn piped_wav(samples: &[i16]) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(b"RIFF");
-        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
-        bytes.extend_from_slice(b"WAVE");
-        bytes.extend_from_slice(b"fmt ");
-        bytes.extend_from_slice(&16u32.to_le_bytes());
-        bytes.extend_from_slice(&[0u8; 16]);
-        bytes.extend_from_slice(b"data");
-        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
-        for sample in samples {
-            bytes.extend_from_slice(&sample.to_le_bytes());
-        }
-        bytes
+    fn fold(samples: &[i16], buckets_per_second: u32) -> Peaks {
+        let mut folder = Folder::new(buckets_per_second);
+        folder.fold_all(samples.iter().map(|sample| f32::from(*sample) / 32768.0));
+        folder.finish()
     }
 
     #[test]
@@ -264,9 +178,7 @@ mod tests {
         samples[100] = 16384;
         samples.extend(std::iter::repeat_n(-8192i16, 10));
 
-        let wav = piped_wav(&samples);
-        let peaks = peaks_from_wav(&mut wav.as_slice(), Path::new("test.wav"), 200).unwrap();
-
+        let peaks = fold(&samples, 200);
         assert_eq!(peaks.buckets_per_second, 200.0);
         assert_eq!(peaks.min.len(), 2);
         assert_eq!(peaks.min[0], -1.0);
@@ -278,27 +190,32 @@ mod tests {
 
     #[test]
     fn silence_is_flat_zeroes() {
-        let wav = piped_wav(&[0i16; 480]);
-        let peaks = peaks_from_wav(&mut wav.as_slice(), Path::new("test.wav"), 200).unwrap();
+        let peaks = fold(&[0i16; 480], 200);
         assert_eq!(peaks.min, vec![0.0, 0.0]);
         assert_eq!(peaks.max, vec![0.0, 0.0]);
     }
 
     #[test]
-    fn a_stream_that_is_not_wav_is_refused() {
-        let junk = b"MPEG something else entirely, long enough to read".to_vec();
-        let error = peaks_from_wav(&mut junk.as_slice(), Path::new("test.mp3"), 200);
-        assert!(error.is_err());
+    fn a_file_with_no_audio_is_an_error() {
+        assert!(extract(Path::new("does-not-exist.mp3"), 200).is_err());
     }
 
     #[test]
-    fn encode_lays_out_rate_count_min_max() {
-        let peaks = Peaks { min: vec![-0.5, 0.0], max: vec![0.25, 0.0], buckets_per_second: 200.0 };
+    fn encode_lays_out_rate_count_min_max_and_decode_reads_it_back() {
+        let peaks = Peaks {
+            min: vec![-0.5, 0.0],
+            max: vec![0.25, 0.0],
+            buckets_per_second: 200.0,
+        };
         let bytes = peaks.encode();
         assert_eq!(bytes.len(), 8 + 2 * 8);
         assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 200.0);
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 2);
         assert_eq!(f32::from_le_bytes(bytes[8..12].try_into().unwrap()), -0.5);
         assert_eq!(f32::from_le_bytes(bytes[16..20].try_into().unwrap()), 0.25);
+        let back = Peaks::decode(&bytes).expect("decodes");
+        assert_eq!(back.min, peaks.min);
+        assert_eq!(back.max, peaks.max);
+        assert!(Peaks::decode(&bytes[..10]).is_none());
     }
 }

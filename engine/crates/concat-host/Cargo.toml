@@ -1,0 +1,28 @@
+[package]
+name = "concat-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "What the editor window needs that is not the edit itself: sessions, project folders, previews, playback, templates."
+
+[features]
+# The wgpu compositor for previews and exports, off by default for the same
+# reason as everywhere else in the engine; the window turns it on.
+gpu = ["concat-export/gpu"]
+
+[dependencies]
+concat-core.workspace = true
+concat-media.workspace = true
+concat-project.workspace = true
+concat-export.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+# Engine-owned audio playback: cpal talks to the output device, memmap2 keeps
+# decoded PCM disk-backed instead of resident.
+cpal = "0.16"
+memmap2 = "0.9"
+
+[lints]
+workspace = true

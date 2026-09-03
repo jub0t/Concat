@@ -4,45 +4,32 @@
 //! What can go wrong when talking to FFmpeg.
 
 use std::path::PathBuf;
-use std::process::ExitStatus;
 
 /// Shorthand for results in this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// A media IO failure.
 ///
-/// The messages name the program and the file, because the first question you
-/// will ask six months from now is "which file, and what did FFmpeg say".
+/// The messages name the operation and the file, because the first question
+/// you will ask six months from now is "which file, and what did FFmpeg say".
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The `ffmpeg` or `ffprobe` binary could not be started at all.
-    #[error("could not run `{program}` - is FFmpeg installed and on PATH?")]
-    Spawn {
-        /// Which binary we tried to start.
-        program: &'static str,
-        /// The underlying OS error.
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// The child process ran and exited unhappily.
-    #[error("`{program}` exited with {status} while handling {path}: {stderr}")]
-    Exited {
-        /// Which binary failed.
-        program: &'static str,
-        /// The file it was working on.
+    /// A libav* call failed.
+    #[error("{operation} failed for {path}: {detail}")]
+    Ffi {
+        /// The libav function or step that failed.
+        operation: &'static str,
+        /// The file being worked on.
         path: PathBuf,
-        /// Its exit status.
-        status: ExitStatus,
-        /// The tail of what it printed - the actual reason, when there is one.
-        stderr: String,
+        /// FFmpeg's own description of the error.
+        detail: String,
     },
 
-    /// An IO error moving bytes over the pipe.
-    #[error("io error talking to `{program}`")]
+    /// An IO error on a file this crate reads or writes itself.
+    #[error("io error on {path}")]
     Io {
-        /// Which binary we were talking to.
-        program: &'static str,
+        /// The file.
+        path: PathBuf,
         /// The underlying OS error.
         #[source]
         source: std::io::Error,
@@ -58,8 +45,8 @@ pub enum Error {
         detail: String,
     },
 
-    /// `ffprobe` returned something we could not make sense of.
-    #[error("could not understand ffprobe output for {path}: {detail}")]
+    /// The container said something we could not make sense of.
+    #[error("could not understand {path}: {detail}")]
     Probe {
         /// The file being probed.
         path: PathBuf,
@@ -74,26 +61,18 @@ pub enum Error {
         path: PathBuf,
     },
 
-    /// The decoder stopped mid-frame, which means FFmpeg died partway through.
-    #[error("{path} produced a partial frame ({got} of {want} bytes)")]
-    PartialFrame {
-        /// The file being decoded.
+    /// The file has no audio stream, but we were asked to decode sound.
+    #[error("{path} has no audio stream")]
+    NoAudioStream {
+        /// The file in question.
         path: PathBuf,
-        /// How many bytes arrived.
-        got: usize,
-        /// How many bytes a frame needs.
-        want: usize,
     },
 
-    /// A libav* call failed. Only produced by the linked backend.
-    #[error("{operation} failed for {path}: {detail}")]
-    Ffi {
-        /// The libav function that failed.
-        operation: &'static str,
-        /// The file being worked on.
+    /// A seek landed past every decodable frame.
+    #[error("{path} has no frame to show at the requested time")]
+    NoFrame {
+        /// The file being decoded.
         path: PathBuf,
-        /// FFmpeg's own description of the error code.
-        detail: String,
     },
 
     /// A frame handed to an encoder was not the size the encoder was opened for.
@@ -107,5 +86,15 @@ pub enum Error {
         got_width: u32,
         /// Height of the offending frame.
         got_height: u32,
+    },
+
+    /// The linked FFmpeg was built without something this operation needs -
+    /// an encoder, a filter, a muxer.
+    #[error("the linked FFmpeg has no {what} {name:?}")]
+    Missing {
+        /// "encoder", "filter", "muxer".
+        what: &'static str,
+        /// Its name.
+        name: String,
     },
 }

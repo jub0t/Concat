@@ -1980,7 +1980,7 @@ impl Studio {
                 format!("{count} installed · {on_disk:.0} MB on disk").into()
             },
             version: "0.1.0".into(),
-            engine: "concat-engine · ffmpeg 7.1".into(),
+            engine: format!("concat-engine · FFmpeg {}", concat_media::linked_version()).into(),
         });
         sync(&models.transcribers, Studio::model_rows(&self.transcribers));
         sync(&models.voices, Studio::model_rows(&self.voices));
@@ -2922,7 +2922,10 @@ fn system_facts() -> Vec<(&'static str, String)> {
             }
             .into(),
         ),
-        ("Engine", "concat-engine · ffmpeg 7.1".into()),
+        (
+            "Engine",
+            format!("concat-engine · FFmpeg {}", concat_media::linked_version()),
+        ),
         ("Operating system", os_description()),
         (
             "Processor",

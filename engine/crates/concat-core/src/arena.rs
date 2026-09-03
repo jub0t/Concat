@@ -41,7 +41,11 @@ pub struct Id<T> {
 
 impl<T> Id<T> {
     fn new(index: u32, generation: u32) -> Self {
-        Self { index, generation, marker: PhantomData }
+        Self {
+            index,
+            generation,
+            marker: PhantomData,
+        }
     }
 
     /// The slot this handle points at. Useful for stable display ordering; it
@@ -76,7 +80,10 @@ impl<T> Hash for Id<T> {
 
 impl<T> fmt::Debug for Id<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = std::any::type_name::<T>().rsplit("::").next().unwrap_or("?");
+        let name = std::any::type_name::<T>()
+            .rsplit("::")
+            .next()
+            .unwrap_or("?");
         write!(f, "{name}#{}v{}", self.index, self.generation)
     }
 }
@@ -97,12 +104,20 @@ pub struct Arena<T> {
 impl<T> Arena<T> {
     /// An empty arena.
     pub fn new() -> Self {
-        Self { slots: Vec::new(), free: Vec::new(), len: 0 }
+        Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+            len: 0,
+        }
     }
 
     /// An empty arena with room for `capacity` values.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { slots: Vec::with_capacity(capacity), free: Vec::new(), len: 0 }
+        Self {
+            slots: Vec::with_capacity(capacity),
+            free: Vec::new(),
+            len: 0,
+        }
     }
 
     /// Stores `value` and returns a handle to it.
@@ -121,7 +136,10 @@ impl<T> Arena<T> {
             Id::new(index, generation)
         } else {
             let index = u32::try_from(self.slots.len()).expect("arena exceeded u32::MAX slots");
-            self.slots.push(Slot::Occupied { value, generation: 0 });
+            self.slots.push(Slot::Occupied {
+                value,
+                generation: 0,
+            });
             self.len += 1;
             Id::new(index, 0)
         }
@@ -157,7 +175,12 @@ impl<T> Arena<T> {
             _ => return None,
         }
         let next_generation = id.generation.wrapping_add(1);
-        let previous = std::mem::replace(slot, Slot::Vacant { generation: next_generation });
+        let previous = std::mem::replace(
+            slot,
+            Slot::Vacant {
+                generation: next_generation,
+            },
+        );
         self.free.push(id.index);
         self.len -= 1;
         match previous {
@@ -178,22 +201,28 @@ impl<T> Arena<T> {
 
     /// Iterates over live values in slot order, paired with their handles.
     pub fn iter(&self) -> impl Iterator<Item = (Id<T>, &T)> {
-        self.slots.iter().enumerate().filter_map(|(index, slot)| match slot {
-            Slot::Occupied { value, generation } => {
-                Some((Id::new(index as u32, *generation), value))
-            }
-            Slot::Vacant { .. } => None,
-        })
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| match slot {
+                Slot::Occupied { value, generation } => {
+                    Some((Id::new(index as u32, *generation), value))
+                }
+                Slot::Vacant { .. } => None,
+            })
     }
 
     /// Mutably iterates over live values in slot order, paired with handles.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Id<T>, &mut T)> {
-        self.slots.iter_mut().enumerate().filter_map(|(index, slot)| match slot {
-            Slot::Occupied { value, generation } => {
-                Some((Id::new(index as u32, *generation), value))
-            }
-            Slot::Vacant { .. } => None,
-        })
+        self.slots
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(index, slot)| match slot {
+                Slot::Occupied { value, generation } => {
+                    Some((Id::new(index as u32, *generation), value))
+                }
+                Slot::Vacant { .. } => None,
+            })
     }
 }
 

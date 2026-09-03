@@ -7,10 +7,12 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | Crate | What it is | Dependencies |
 |---|---|---|
 | `concat-core` | Time, arena, frames, timeline model. The vocabulary every other crate speaks. | **none** (std only) |
-| `concat-media` | Getting pixels in and out of files. FFmpeg lives here and nowhere else. | `concat-core`, serde_json |
+| `concat-media` | Getting pixels and samples in and out of files. Links FFmpeg (libav*), and is the only crate that knows it exists. | `concat-core`, ffmpeg-the-third |
 | `concat-project` | The edit itself: document model, operations as commands, undo, concat.json IO. | serde, serde_json |
 | `concat-render` | Turning a timeline plus a timestamp into one finished frame. | `concat-core` |
 | `concat-cli` | A binary to drive the above. The vertical slice. | all of them |
+| `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
+| `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint (engine wiring is next) |
 
 The dependency arrows point one way: `{concat, cli} -> {media, render} -> core`.
@@ -34,7 +36,12 @@ cargo run -p concat                    # the editor window, debug
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped
 ```
 
-Requires `ffmpeg` and `ffprobe` on `PATH`. The window builds with Slint's
+Nothing is spawned at run time: FFmpeg is linked, whisper.cpp and sherpa-onnx
+are compiled in. A build needs the FFmpeg 7+ development libraries (headers
+and import libraries) - `brew install ffmpeg` on macOS, a BtbN `shared` build
+unpacked and pointed at with `FFMPEG_DIR` on Windows and on Linux
+distributions whose packaged FFmpeg is older than 7 - plus cmake and a C++
+toolchain for whisper.cpp. The window builds with Slint's
 Skia renderer by default; `--no-default-features --features wgpu` swaps in
 FemtoVG over wgpu, and the two are meant to be compared, not chosen once.
 On Linux, Skia needs the fontconfig and freetype headers at build time (see

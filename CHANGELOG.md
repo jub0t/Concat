@@ -6,6 +6,10 @@ behaviour.
 
 ## Unreleased
 
+- The engine links FFmpeg and compiles whisper.cpp in: nothing spawns an
+  `ffmpeg`, `ffprobe` or `whisper-cli` process any more, so a build is one
+  binary with no tools to stage beside it. Seeks are frame-accurate and
+  every decoded frame carries its real timestamp.
 - The editor window is being rebuilt in Slint as the `concat` crate inside
   the engine workspace: a native Rust window with no web view, embedding its
   own fonts and effect previews. It is not what releases ship yet — the

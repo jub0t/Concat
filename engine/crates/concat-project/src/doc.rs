@@ -4,7 +4,7 @@
 //! Reading and writing `concat.json`.
 //!
 //! Projects saved before the renames carry the same document as
-//! `wolfcut.json` or `relay.json`. The name on disk is the host's concern:
+//! `wolfcut.json`. The name on disk is the host's concern:
 //! it keeps whichever name a project already has, and this module never
 //! looks at a filename.
 //!

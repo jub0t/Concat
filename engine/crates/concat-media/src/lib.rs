@@ -1,35 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! Media IO: reading frames out of files and writing them back.
+//! Media IO: reading frames and samples out of files and writing them back.
 //!
-//! This is the only crate that knows FFmpeg exists, and it talks to it as a
-//! child process rather than through FFI. See
-//! `docs/decisions/0002-ffmpeg-over-a-pipe.md` for the reasoning and the exit
-//! criteria.
+//! This is the only crate that knows FFmpeg exists, and it links it -
+//! libavformat, libavcodec, libavfilter, libswscale and libswresample -
+//! rather than spawning the `ffmpeg` binary. Nothing here needs a program on
+//! `PATH`; a build needs the FFmpeg development libraries, and the binary
+//! carries the rest.
 //!
-//! Everything process-shaped hides behind two traits, [`FrameSource`] and
-//! [`FrameSink`]. A future GPU-decode or FFI backend implements those two and
-//! nothing else in the workspace changes.
+//! Everything codec-shaped hides behind two traits, [`FrameSource`] and
+//! [`FrameSink`]. A GPU-decode backend would implement those two and nothing
+//! else in the workspace changes.
 
 pub mod audio;
-pub mod binaries;
 pub mod decode;
 pub mod encode;
-#[cfg(feature = "ffi")]
-pub mod ffi;
 pub mod error;
+mod ffi;
 pub mod peaks;
 pub mod pool;
 pub mod probe;
+pub mod samples;
 
-mod process;
-
-pub use binaries::{ffmpeg, ffprobe, set_binaries};
-pub use decode::{DecodeOptions, FfmpegDecoder, FrameSource, SeekableSource};
-pub use encode::{EncodeOptions, FfmpegEncoder, FrameSink};
+pub use decode::{DecodeOptions, Decoder, FrameSource, SeekableSource};
+pub use encode::{EncodeOptions, Encoder, FrameSink, jpeg};
 pub use error::{Error, Result};
+pub use ffi::{init, linked_version};
 pub use peaks::Peaks;
 pub use pool::{FrameCache, ReaderPool};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
-pub use process::command;
+pub use samples::{AudioDecoder, AudioOptions, SampleFormat};

@@ -41,12 +41,20 @@ impl Frame {
         for pixel in pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
             pixel[3] = 255;
         }
-        Self { width, height, pixels }
+        Self {
+            width,
+            height,
+            pixels,
+        }
     }
 
     /// A fully transparent frame.
     pub fn transparent(width: u32, height: u32) -> Self {
-        Self { width, height, pixels: vec![0u8; Self::byte_len(width, height)] }
+        Self {
+            width,
+            height,
+            pixels: vec![0u8; Self::byte_len(width, height)],
+        }
     }
 
     /// Wraps an existing buffer.
@@ -54,7 +62,11 @@ impl Frame {
     /// Returns `None` if the buffer is not exactly `width * height * 4` bytes.
     /// Decoders should use this rather than trusting their own arithmetic.
     pub fn from_rgba(width: u32, height: u32, pixels: Vec<u8>) -> Option<Self> {
-        (pixels.len() == Self::byte_len(width, height)).then_some(Self { width, height, pixels })
+        (pixels.len() == Self::byte_len(width, height)).then_some(Self {
+            width,
+            height,
+            pixels,
+        })
     }
 
     /// Width in pixels.
@@ -114,6 +126,27 @@ impl Frame {
         }
     }
 
+    /// Copies `source` into this frame with its top-left corner at (`x`, `y`),
+    /// clipping whatever falls outside. No blending: the source's pixels
+    /// replace what was there.
+    pub fn blit(&mut self, source: &Frame, x: u32, y: u32) {
+        let width = self.width;
+        let height = self.height;
+        let columns = source.width.min(width.saturating_sub(x)) as usize;
+        let rows = source.height.min(height.saturating_sub(y)) as usize;
+        if columns == 0 || rows == 0 {
+            return;
+        }
+        let source_row = source.width as usize * 4;
+        let target_row = width as usize * 4;
+        for row in 0..rows {
+            let from = row * source_row;
+            let to = (y as usize + row) * target_row + x as usize * 4;
+            self.pixels[to..to + columns * 4]
+                .copy_from_slice(&source.pixels[from..from + columns * 4]);
+        }
+    }
+
     /// Fills the whole frame with one colour.
     pub fn fill(&mut self, rgba: [u8; 4]) {
         for pixel in self.pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
@@ -123,7 +156,8 @@ impl Frame {
 
     /// Iterates over rows, top to bottom.
     pub fn rows(&self) -> impl Iterator<Item = &[u8]> {
-        self.pixels.chunks_exact(self.width as usize * BYTES_PER_PIXEL)
+        self.pixels
+            .chunks_exact(self.width as usize * BYTES_PER_PIXEL)
     }
 }
 

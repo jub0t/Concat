@@ -1,5 +1,10 @@
 {
-  # Nix support (#7). Linux only on purpose: Tauri under Nix on macOS means
+  # Nix support (#7). Packages the deprecated Tauri app in desktop/, which no
+  # longer builds against the engine (the engine links FFmpeg now and the
+  # host's Rust moved into engine/crates). To be repointed at the Slint
+  # window, engine/crates/concat, once that is packaged.
+  #
+  # Linux only on purpose: Tauri under Nix on macOS means
   # Apple SDK juggling, and the people asking for a flake run Linux.
   #
   #   nix build .#concat     the app, with ffmpeg and whisper-cli wired in

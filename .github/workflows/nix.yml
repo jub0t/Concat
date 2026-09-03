@@ -1,6 +1,7 @@
-# Validates the Nix flake (#7) on anything the Nix build actually consumes -
-# the flake itself, the engine, the desktop app and its lockfiles - so the
-# check shows up beside the other builds instead of only on flake edits.
+# Validates the Nix flake (#7). The flake still packages the deprecated Tauri
+# app in desktop/, which no longer builds against the engine - so this runs
+# only when the flake or that tree changes, until the flake packages the
+# Slint window instead.
 name: Nix
 
 on:
@@ -10,14 +11,12 @@ on:
       - "flake.nix"
       - "flake.lock"
       - ".github/workflows/nix.yml"
-      - "engine/**"
       - "desktop/**"
   pull_request:
     paths:
       - "flake.nix"
       - "flake.lock"
       - ".github/workflows/nix.yml"
-      - "engine/**"
       - "desktop/**"
 
 jobs:

@@ -1,0 +1,35 @@
+[package]
+name = "concat-speech"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Speech in and out: on-device transcription with whisper.cpp, and text to speech with Kokoro."
+
+[dependencies]
+concat-host.workspace = true
+concat-media.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+# Model downloads. Blocking on purpose: downloads run on their own thread,
+# and an async HTTP stack would be a second runtime's worth of dependencies
+# for one GET.
+ureq = "2"
+
+# Text to speech: the official k2-fsa bindings, linked statically so the
+# binary carries no extra dylibs. Kokoro models arrive as tar.bz2 archives,
+# hence tar + bzip2 (pure-Rust decoder) for unpacking them.
+sherpa-onnx = "1.13"
+tar = "0.4"
+bzip2 = "0.6"
+
+# Transcription: whisper.cpp in-process. Built from source by cmake at build
+# time; on macOS with Metal so the encoder runs on the GPU.
+whisper-rs = "0.16"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
+
+[lints]
+workspace = true

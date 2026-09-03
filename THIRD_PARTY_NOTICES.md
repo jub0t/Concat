@@ -2,18 +2,27 @@
 
 ## FFmpeg
 
-Concat bundles unmodified `ffmpeg` and `ffprobe` binaries and invokes them as
-separate child processes; the app does not link against them.
+Concat links FFmpeg's libraries - libavformat, libavcodec, libavfilter,
+libswscale and libswresample - through the `ffmpeg-the-third` crate. The
+Slint app spawns no `ffmpeg` or `ffprobe` process.
 
-- **Windows**: static GPL builds from the BtbN autobuild project
-  (`ffmpeg-n8.1-latest-win64-gpl`), built with x264.
-  Source and build scripts: https://github.com/BtbN/FFmpeg-Builds
-- **macOS**: static builds by Martin Riedl.
-  Source and build info: https://ffmpeg.martin-riedl.de
+FFmpeg is licensed under the LGPL-2.1-or-later; builds that include x264
+(which the H.264 export uses) are GPL-2.0-or-later. Concat's own sources are
+AGPL-3.0-or-later, and section 13 of the GPL-3.0 and AGPL-3.0 expressly
+permits linking the two, so a distributed build may be conveyed on those
+terms. Which FFmpeg a binary carries depends on the machine that built it:
+Homebrew's on macOS, a BtbN `shared` build (https://github.com/BtbN/FFmpeg-Builds)
+on Windows and in CI. FFmpeg source code: https://ffmpeg.org/download.html
 
-FFmpeg is licensed under the LGPL-2.1-or-later, with the bundled builds
-compiled as GPL-2.0-or-later (they include x264). FFmpeg source code:
-https://ffmpeg.org/download.html
+The deprecated Tauri app in `desktop/` still bundles `ffmpeg` and `ffprobe`
+binaries as separate programs; that arrangement goes away with it.
+
+## whisper.cpp
+
+Transcription compiles whisper.cpp (https://github.com/ggml-org/whisper.cpp,
+MIT) and ggml into the app through the `whisper-rs` crate. Whisper models
+are downloaded on demand from https://huggingface.co/ggerganov/whisper.cpp
+(MIT) and never bundled.
 
 ## Slint — used under GPL-3.0-only
 
@@ -66,12 +75,6 @@ are in `engine/crates/concat/ui/fonts/`.
 Neither licence permits selling the fonts on their own, and the OFL requires
 that Inter's copyright notice and licence travel with any redistribution. Both
 are satisfied by shipping the `fonts/` directory as it stands.
-
-## Whisper models (optional download)
-
-Auto-captions can download ggml Whisper models from
-https://huggingface.co/ggerganov/whisper.cpp (MIT). Models are fetched on
-demand and never bundled.
 
 ## sherpa-onnx and Kokoro voices
 

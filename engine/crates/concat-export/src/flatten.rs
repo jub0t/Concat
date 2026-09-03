@@ -76,10 +76,13 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                 // flattener pre-filtered with its own 1/60 gate - identical
                 // at 30fps, and where the two differ, resolving is the
                 // kinder read of what the user placed.
-                transition: clip.transition_in.as_ref().map(|transition| TransitionSpec {
-                    kind: transition.id.clone(),
-                    duration: transition.duration,
-                }),
+                transition: clip
+                    .transition_in
+                    .as_ref()
+                    .map(|transition| TransitionSpec {
+                        kind: transition.id.clone(),
+                        duration: transition.duration,
+                    }),
                 video_fade_in: 0.0,
                 media_width: media.width,
                 media_height: media.height,
@@ -104,8 +107,8 @@ fn pick_timeline<'a>(project: &'a Project, timeline_id: Option<&str>) -> Option<
 mod tests {
     use std::collections::BTreeMap;
 
-    use concat_project::model::AppliedFilter;
     use concat_project::commands::{ClipPatch, NewMedia, TrackFlag};
+    use concat_project::model::AppliedFilter;
     use concat_project::{Command, Editor};
 
     use super::*;
@@ -135,7 +138,11 @@ mod tests {
             .expect("mints an id");
         let track_id = editor.project().timelines[0].tracks[0].id.clone();
         let clip_id = editor
-            .apply(Command::AddClip { media_id: media_id.clone(), track_id, start: 1.0 })
+            .apply(Command::AddClip {
+                media_id: media_id.clone(),
+                track_id,
+                start: 1.0,
+            })
             .expect("adds clip")
             .created_id
             .expect("mints an id");
@@ -231,7 +238,9 @@ mod tests {
     #[test]
     fn a_clip_whose_media_vanished_is_skipped_not_fatal() {
         let (mut editor, media_id, _) = project_with_clip();
-        editor.apply(Command::RemoveMedia { media_id }).expect("removes");
+        editor
+            .apply(Command::RemoveMedia { media_id })
+            .expect("removes");
         // RemoveMedia also removes the clips; force the orphan case instead
         // by asking for a timeline that does not exist.
         assert!(flatten_timeline(editor.project(), None).is_empty());

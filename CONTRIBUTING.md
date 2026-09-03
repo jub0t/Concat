@@ -31,8 +31,9 @@ nix develop        # shell with ffmpeg, whisper and the Rust/Node toolchains
 npm run app        # run the editor
 ```
 
-Without Nix you will need Rust (see `rust-version` in `engine/Cargo.toml`)
-and `ffmpeg`/`ffprobe` on `PATH`. Then:
+Without Nix you will need Rust (see `rust-version` in `engine/Cargo.toml`),
+the FFmpeg 7+ development libraries (`brew install ffmpeg`; see
+`engine/README.md` for Windows and Linux), cmake and a C++ compiler. Then:
 
 ```sh
 cd engine && cargo run -p concat

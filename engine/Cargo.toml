@@ -11,8 +11,11 @@ license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
 [workspace.dependencies]
 concat-core = { path = "crates/concat-core" }
 concat-media = { path = "crates/concat-media" }
+concat-project = { path = "crates/concat-project" }
 concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
+concat-host = { path = "crates/concat-host" }
+concat-speech = { path = "crates/concat-speech" }
 
 serde_json = "1"
 thiserror = "2"

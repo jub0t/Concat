@@ -38,6 +38,10 @@ slint = { version = "1.17", default-features = false, features = [
     "unstable-winit-030",
 ] }
 
+# The engine. What Settings > About reports about it comes from here; the
+# rest of the wiring is the work in progress.
+concat-media.workspace = true
+
 # The renderer is picked by a feature here rather than by editing the
 # dependency, so both variants build from one tree and can be compared:
 #

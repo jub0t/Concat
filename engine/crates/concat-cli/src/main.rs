@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
-use concat_media::{EncodeOptions, FfmpegEncoder, FrameSink, ReaderPool};
+use concat_media::{EncodeOptions, Encoder, FrameSink, ReaderPool};
 use concat_render::{Compositor, CpuCompositor, Layer, plan_frame};
 
 #[derive(Parser)]
@@ -49,9 +49,12 @@ enum Command {
 fn main() -> Result<(), Box<dyn Error>> {
     match Cli::parse().command {
         Command::Probe { path } => probe(&path),
-        Command::Render { input, output, frames, fade } => {
-            render(&input, &output, frames, fade)
-        }
+        Command::Render {
+            input,
+            output,
+            frames,
+            fade,
+        } => render(&input, &output, frames, fade),
     }
 }
 
@@ -95,12 +98,7 @@ fn probe(path: &PathBuf) -> Result<(), Box<dyn Error>> {
 /// not just one clip played start to finish. The shortcut this function
 /// carried for its whole early life is gone; the pool it was waiting for
 /// exists (`concat_media::pool`).
-fn render(
-    input: &PathBuf,
-    output: &PathBuf,
-    frames: u64,
-    fade: u64,
-) -> Result<(), Box<dyn Error>> {
+fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(), Box<dyn Error>> {
     let info = concat_media::probe(input)?;
     let video = info.require_video()?;
     let (width, height) = (video.width, video.height);
@@ -109,8 +107,7 @@ fn render(
     let timeline = single_clip_timeline(input, width, height, rate, frames);
 
     let mut pool = ReaderPool::with_defaults();
-    let mut encoder =
-        FfmpegEncoder::create(output, width, height, rate, &EncodeOptions::default())?;
+    let mut encoder = Encoder::create(output, width, height, rate, &EncodeOptions::default())?;
     let mut compositor = CpuCompositor;
 
     println!("rendering {frames} frames at {width}x{height} {rate}");
@@ -156,7 +153,10 @@ fn single_clip_timeline(
     let track = timeline.add_track(Track::new("V1", TrackKind::Video));
     let duration = rate.time_of_frame(frames as i64);
     timeline
-        .add_clip(track, Clip::new(MediaRef::new(input), Rational::ZERO, duration))
+        .add_clip(
+            track,
+            Clip::new(MediaRef::new(input), Rational::ZERO, duration),
+        )
         .expect("the track was just added");
     timeline
 }
@@ -189,13 +189,8 @@ mod tests {
 
     #[test]
     fn the_timeline_covers_exactly_the_requested_frames() {
-        let timeline = single_clip_timeline(
-            &PathBuf::from("a.mp4"),
-            1920,
-            1080,
-            FrameRate::NTSC_30,
-            90,
-        );
+        let timeline =
+            single_clip_timeline(&PathBuf::from("a.mp4"), 1920, 1080, FrameRate::NTSC_30, 90);
         assert_eq!(timeline.frame_count(), 90);
         assert_eq!(timeline.clip_count(), 1);
     }
