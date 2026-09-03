@@ -1011,7 +1011,7 @@ mod tests {
             rate_den: 1,
             clips: vec![outliving],
         };
-        let bytes = preview_frame(&mut pool, &late).expect("previews past the media's end");
+        let bytes = preview_frame(&pool, &late).expect("previews past the media's end");
         assert!(
             bytes[centre] > 120 && bytes[centre + 1] < 90,
             "past the end should freeze on the last frame, got {:?}",
@@ -1034,7 +1034,7 @@ mod tests {
             rate_den: 1,
             clips: vec![effected],
         };
-        let bytes = preview_frame(&mut pool, &filtered).expect("previews with a chain");
+        let bytes = preview_frame(&pool, &filtered).expect("previews with a chain");
         assert!(
             bytes[centre] < 90 && bytes[centre + 1] > 120,
             "the chain must be baked into the paused frame, got {:?}",
