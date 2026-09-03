@@ -332,6 +332,10 @@ export component VideoPanel inherits VerticalLayout {
     property <float> offset-y;
     property <float> rotation;
     property <float> alpha;
+    property <float> crop-left;
+    property <float> crop-top;
+    property <float> crop-right;
+    property <float> crop-bottom;
 
     function seed() {
         root.scale = root.selected.scale;
@@ -339,7 +343,13 @@ export component VideoPanel inherits VerticalLayout {
         root.offset-y = root.selected.offset-y;
         root.rotation = root.selected.rotation;
         root.alpha = root.selected.opacity;
+        root.crop-left = root.selected.crop-left;
+        root.crop-top = root.selected.crop-top;
+        root.crop-right = root.selected.crop-right;
+        root.crop-bottom = root.selected.crop-bottom;
     }
+
+    property <[string]> blends: ["Normal", "Multiply", "Screen", "Add", "Lighten", "Darken"];
 
     init => { root.seed(); }
     changed selected => { root.seed(); }
@@ -414,9 +424,11 @@ export component VideoPanel inherits VerticalLayout {
         blend := SectionHeader {
             title: "Blend";
             collapsible: true;
-            summary: "\{Math.round(root.alpha * 100)}%";
+            summary: "\{Math.round(root.alpha * 100)}% · "
+                + root.blends[Math.max(0, Math.min(root.selected.blend, root.blends.length - 1))];
         }
-        if blend.open: Param {
+        if blend.open: VerticalLayout {
+        Param {
             label: "Opacity";
             value <=> root.alpha;
             minimum: 0;
@@ -425,6 +437,80 @@ export component VideoPanel inherits VerticalLayout {
             default-value: 1;
             fmt: ParamFormat.fraction;
             changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
+        }
+        Row {
+            label: "Mode";
+            Select {
+                options: root.blends;
+                current: root.selected.blend;
+                changed(index) => { root.set(ClipField.blend, index); root.commit(); }
+            }
+        }
+        SwitchRow {
+            label: "Flip horizontal";
+            checked: root.selected.flip-h;
+            toggled(on) => { root.set(ClipField.flip-h, on ? 1 : 0); root.commit(); }
+        }
+        SwitchRow {
+            label: "Flip vertical";
+            checked: root.selected.flip-v;
+            toggled(on) => { root.set(ClipField.flip-v, on ? 1 : 0); root.commit(); }
+        }
+        }
+    }
+
+    // What is cut off the source before it is fitted. Fractions of the
+    // source's own edges, so a crop survives a change of output size.
+    Section {
+        crop := SectionHeader {
+            title: "Crop";
+            collapsible: true;
+            summary: (root.crop-left == 0 && root.crop-top == 0
+                && root.crop-right == 0 && root.crop-bottom == 0) ? "none"
+                : "\{Math.round(root.crop-left * 100)} · \{Math.round(root.crop-top * 100)}"
+                    + " · \{Math.round(root.crop-right * 100)} · \{Math.round(root.crop-bottom * 100)}";
+        }
+        if crop.open: VerticalLayout {
+        Param {
+            label: "Left";
+            value <=> root.crop-left;
+            minimum: 0;
+            maximum: 0.9;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.crop-left, v); root.commit(); }
+        }
+        Param {
+            label: "Top";
+            value <=> root.crop-top;
+            minimum: 0;
+            maximum: 0.9;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.crop-top, v); root.commit(); }
+        }
+        Param {
+            label: "Right";
+            value <=> root.crop-right;
+            minimum: 0;
+            maximum: 0.9;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.crop-right, v); root.commit(); }
+        }
+        Param {
+            label: "Bottom";
+            value <=> root.crop-bottom;
+            minimum: 0;
+            maximum: 0.9;
+            step: 0.005;
+            default-value: 0;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.crop-bottom, v); root.commit(); }
+        }
         }
     }
 }

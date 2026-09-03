@@ -26,4 +26,4 @@ pub mod timeline;
 pub use frame::Frame;
 pub use retime::SpeedCurve;
 pub use time::{FrameRate, Rational, TimeRange};
-pub use timeline::{Clip, ClipId, Project, Timeline, Track, TrackId, TrackKind};
+pub use timeline::{Blend, Clip, ClipId, Project, Timeline, Track, TrackId, TrackKind};

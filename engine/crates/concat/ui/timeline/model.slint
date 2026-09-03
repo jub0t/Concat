@@ -153,6 +153,7 @@ export enum ClipField {
     scale, offset-x, offset-y, rotation, opacity,
     volume, speed, preserve-pitch, speed-curve, reverse, fade-in, fade-out,
     anim-in, anim-out, anim-combo, anim-in-duration, anim-out-duration,
+    flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
     font-size, font-weight, italic, text-opacity, align,
     stroke-width, shadow, line-height, tracking,
 }
@@ -201,6 +202,16 @@ export struct SelectedClipData {
     anim-combo: int,
     anim-in-duration: float,
     anim-out-duration: float,
+
+    // the picture's edges and colour
+    flip-h: bool,
+    flip-v: bool,
+    /// index into the blend list: normal, multiply, screen, add, lighten, darken
+    blend: int,
+    crop-left: float,
+    crop-top: float,
+    crop-right: float,
+    crop-bottom: float,
     fade-in: float,
     fade-out: float,
 

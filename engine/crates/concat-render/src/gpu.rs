@@ -29,6 +29,7 @@
 use std::collections::HashMap;
 
 use concat_core::frame::Frame;
+use concat_core::timeline::Blend;
 
 use crate::compositor::{Compositor, CpuCompositor, Layer};
 
@@ -126,7 +127,8 @@ const PRESENT_RING: usize = 3;
 pub struct WgpuCompositor {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::RenderPipeline,
+    /// One pipeline per blend mode, indexed as `Blend::ALL` is.
+    pipelines: Vec<wgpu::RenderPipeline>,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     vertices: wgpu::Buffer,
@@ -204,46 +206,79 @@ impl WgpuCompositor {
         };
 
         // ONE / ONE_MINUS_SRC_ALPHA over premultiplied shader output is
-        // source-over. Alpha accumulates the same way; the readback forces the
-        // final frame opaque regardless.
-        let blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
-            },
+        // source-over. The other modes are the fixed-function blends the
+        // CPU reference spells the same way (see `Blend`), one pipeline
+        // each, since a blend state is baked into a pipeline. Alpha always
+        // accumulates as source-over; the readback forces the final frame
+        // opaque regardless.
+        let alpha = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            operation: wgpu::BlendOperation::Add,
         };
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("concat compositor"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[vertex_layout],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: Some(blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipelines: Vec<wgpu::RenderPipeline> = Blend::ALL
+            .into_iter()
+            .map(|mode| {
+                use wgpu::{BlendFactor, BlendOperation};
+                let color = match mode {
+                    Blend::Normal => wgpu::BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::OneMinusSrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                    Blend::Multiply => wgpu::BlendComponent {
+                        src_factor: BlendFactor::Dst,
+                        dst_factor: BlendFactor::OneMinusSrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                    Blend::Screen => wgpu::BlendComponent {
+                        src_factor: BlendFactor::OneMinusDst,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    },
+                    Blend::Add => wgpu::BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Add,
+                    },
+                    Blend::Lighten => wgpu::BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Max,
+                    },
+                    Blend::Darken => wgpu::BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Min,
+                    },
+                };
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("concat compositor"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        compilation_options: Default::default(),
+                        buffers: std::slice::from_ref(&vertex_layout),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: Some(wgpu::BlendState { color, alpha }),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            })
+            .collect();
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("concat layer"),
@@ -264,7 +299,7 @@ impl WgpuCompositor {
         Self {
             device,
             queue,
-            pipeline,
+            pipelines,
             bind_layout,
             sampler,
             vertices,
@@ -325,17 +360,27 @@ impl WgpuCompositor {
     }
 
     /// Uploads every visible layer and writes its quad; the draws, in order.
-    fn prepare(&mut self, width: u32, height: u32, layers: &[Layer<'_>]) -> Vec<(u32, u32, usize)> {
+    fn prepare(
+        &mut self,
+        width: u32,
+        height: u32,
+        layers: &[Layer<'_>],
+    ) -> Vec<(u32, u32, usize, Blend)> {
         self.used.values_mut().for_each(|used| *used = 0);
 
-        let mut draws: Vec<(u32, u32, usize)> = Vec::with_capacity(layers.len());
+        let mut draws: Vec<(u32, u32, usize, Blend)> = Vec::with_capacity(layers.len());
         let mut vertices: Vec<Vertex> = Vec::with_capacity(layers.len() * 6);
         for layer in layers {
             if layer.opacity <= 0.0 {
                 continue;
             }
             let index = self.upload(layer.frame);
-            draws.push((layer.frame.width(), layer.frame.height(), index));
+            draws.push((
+                layer.frame.width(),
+                layer.frame.height(),
+                index,
+                layer.blend,
+            ));
             vertices.extend_from_slice(&Self::quad(layer, width, height));
         }
 
@@ -360,7 +405,7 @@ impl WgpuCompositor {
     fn encode(
         &self,
         view: &wgpu::TextureView,
-        draws: &[(u32, u32, usize)],
+        draws: &[(u32, u32, usize, Blend)],
     ) -> wgpu::CommandEncoder {
         let mut encoder = self
             .device
@@ -384,9 +429,13 @@ impl WgpuCompositor {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (draw, (layer_width, layer_height, pooled)) in draws.iter().enumerate() {
+            for (draw, (layer_width, layer_height, pooled, blend)) in draws.iter().enumerate() {
+                let which = Blend::ALL
+                    .iter()
+                    .position(|mode| mode == blend)
+                    .unwrap_or(0);
+                pass.set_pipeline(&self.pipelines[which]);
                 let bind_group = &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
                 pass.set_bind_group(0, bind_group, &[]);
                 let first = (draw * 6) as u32;

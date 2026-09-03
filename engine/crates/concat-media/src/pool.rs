@@ -46,6 +46,8 @@ struct FrameKey {
     /// The clip's effect chain, part of the frame's identity: the same source
     /// frame through two different chains is two different pictures.
     chain: Option<String>,
+    /// The pre-fit chain - a crop - on the same terms.
+    pre: Option<String>,
     index: i64,
 }
 
@@ -161,6 +163,7 @@ impl Reader {
         width: u32,
         height: u32,
         chain: Option<&str>,
+        pre: Option<&str>,
         rate: FrameRate,
         index: i64,
     ) -> Result<Self> {
@@ -172,6 +175,9 @@ impl Reader {
             .scaled_to(width, height);
         if let Some(chain) = chain {
             options = options.filtered(chain);
+        }
+        if let Some(pre) = pre {
+            options = options.prefiltered(pre);
         }
         let decoder = Decoder::open(path, &options)?;
         Ok(Self {
@@ -215,7 +221,7 @@ struct MediaFacts {
 }
 
 /// One reader's identity: the file, the decode size, the effect chain.
-type ReaderKey = (PathBuf, u32, u32, Option<String>);
+type ReaderKey = (PathBuf, u32, u32, Option<String>, Option<String>);
 
 /// The warm readers and their recency, behind one short lock. A reader is
 /// found here and then used outside this lock, under its own, so a decode
@@ -293,6 +299,7 @@ impl ReaderPool {
         height: u32,
         still: bool,
         chain: Option<&str>,
+        pre: Option<&str>,
     ) -> Result<Arc<Frame>> {
         let facts = self.facts_for(path, still)?;
         let rate = facts.rate;
@@ -309,19 +316,21 @@ impl ReaderPool {
             target = target.min((frames - 1).max(0));
         }
         let chain_key = chain.map(str::to_owned);
+        let pre_key = pre.map(str::to_owned);
 
         let key = FrameKey {
             path: path.to_path_buf(),
             width,
             height,
             chain: chain_key.clone(),
+            pre: pre_key.clone(),
             index: target,
         };
         if let Some(frame) = self.cached(&key) {
             return Ok(frame);
         }
 
-        let shared = self.reader(path, width, height, chain, rate, target)?;
+        let shared = self.reader(path, width, height, chain, pre, rate, target)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -348,6 +357,7 @@ impl ReaderPool {
                     width,
                     height,
                     chain: chain_key.clone(),
+                    pre: pre_key.clone(),
                     index,
                 },
                 Arc::clone(&frame),
@@ -377,6 +387,7 @@ impl ReaderPool {
                             width,
                             height,
                             chain: chain_key.clone(),
+                            pre: pre_key.clone(),
                             index,
                         },
                         Arc::clone(&frame),
@@ -459,10 +470,17 @@ impl ReaderPool {
         width: u32,
         height: u32,
         chain: Option<&str>,
+        pre: Option<&str>,
         rate: FrameRate,
         target: i64,
     ) -> Result<Arc<Mutex<Reader>>> {
-        let key = (path.to_path_buf(), width, height, chain.map(str::to_owned));
+        let key = (
+            path.to_path_buf(),
+            width,
+            height,
+            chain.map(str::to_owned),
+            pre.map(str::to_owned),
+        );
         {
             let mut readers = self
                 .readers
@@ -481,7 +499,7 @@ impl ReaderPool {
         // part, and nobody else needs to wait for it. A decode in flight on
         // an evicted reader finishes on its own handle.
         let opened = Arc::new(Mutex::new(Reader::open(
-            path, width, height, chain, rate, target,
+            path, width, height, chain, pre, rate, target,
         )?));
         let mut readers = self
             .readers
@@ -561,6 +579,7 @@ mod tests {
             width: 2,
             height: 2,
             chain: None,
+            pre: None,
             index,
         };
         cache.insert(key(0), Arc::new(Frame::black(2, 2)));
@@ -587,6 +606,7 @@ mod tests {
                 width: 2,
                 height: 2,
                 chain: None,
+                pre: None,
                 index: 0,
             },
             Arc::new(Frame::black(2, 2)),
@@ -616,7 +636,7 @@ mod tests {
         let rate = FrameRate::THIRTY;
         let red_at = |pool: &ReaderPool, index: i64| -> i64 {
             let frame = pool
-                .frame_at(&path, rate.time_of_frame(index), 64, 64, false, None)
+                .frame_at(&path, rate.time_of_frame(index), 64, 64, false, None, None)
                 .expect("frame decodes");
             i64::from(frame.pixel(32, 32).expect("in bounds")[0])
         };

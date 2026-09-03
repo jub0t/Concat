@@ -2172,6 +2172,34 @@ impl Studio {
             }
             ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
             ClipField::Reverse => clip.reverse = value != 0.0,
+            ClipField::FlipH => clip.flip_h = value != 0.0,
+            ClipField::FlipV => clip.flip_v = value != 0.0,
+            ClipField::Blend => {
+                let mode = concat_core::Blend::ALL
+                    .get(value.max(0.0) as usize)
+                    .copied()
+                    .unwrap_or_default();
+                clip.blend = if mode == concat_core::Blend::Normal {
+                    String::new()
+                } else {
+                    mode.name().to_owned()
+                };
+            }
+            ClipField::CropLeft
+            | ClipField::CropTop
+            | ClipField::CropRight
+            | ClipField::CropBottom => {
+                let mut crop = clip.crop.unwrap_or_default();
+                let edge = match field {
+                    ClipField::CropLeft => &mut crop.left,
+                    ClipField::CropTop => &mut crop.top,
+                    ClipField::CropRight => &mut crop.right,
+                    _ => &mut crop.bottom,
+                };
+                *edge = value.clamp(0.0, 0.9);
+                let crop = crop.tidy();
+                clip.crop = (!crop.is_none()).then_some(crop);
+            }
             ClipField::AnimIn => set_slot(
                 concat_project::model::AnimationSlot::In,
                 &mut clip.animation_in,
@@ -2356,6 +2384,22 @@ impl Studio {
         if after.reverse != before.reverse {
             patch.reverse = Some(after.reverse);
         }
+        if after.flip_h != before.flip_h {
+            patch.flip_h = Some(after.flip_h);
+        }
+        if after.flip_v != before.flip_v {
+            patch.flip_v = Some(after.flip_v);
+        }
+        if after.blend != before.blend {
+            patch.blend = Some(if after.blend.is_empty() {
+                "normal".to_owned()
+            } else {
+                after.blend.clone()
+            });
+        }
+        if after.crop != before.crop {
+            patch.crop = Some(after.crop);
+        }
         for (slot, now, was) in [
             (
                 concat_project::model::AnimationSlot::In,
@@ -2452,7 +2496,15 @@ impl Studio {
             let source = media
                 .and_then(|item| Some((item.width?, item.height?)))
                 .filter(|(w, h)| *w > 0 && *h > 0)
-                .map(|(w, h)| (f64::from(w), f64::from(h)));
+                .map(|(w, h)| (f64::from(w), f64::from(h)))
+                // What is left after the crop is what gets fitted.
+                .map(|(w, h)| match clip.crop {
+                    Some(crop) => (
+                        w * (1.0 - crop.left - crop.right).max(0.1),
+                        h * (1.0 - crop.top - crop.bottom).max(0.1),
+                    ),
+                    None => (w, h),
+                });
             match source {
                 Some((sw, sh)) => {
                     let fit = (width / sw).min(height / sh);
@@ -3828,6 +3880,16 @@ impl Studio {
                 .as_ref()
                 .map(|set| set.duration as f32)
                 .unwrap_or(0.5),
+            flip_h: clip.flip_h,
+            flip_v: clip.flip_v,
+            blend: concat_core::Blend::ALL
+                .iter()
+                .position(|mode| *mode == concat_core::Blend::parse(&clip.blend))
+                .unwrap_or(0) as i32,
+            crop_left: clip.crop.map(|crop| crop.left as f32).unwrap_or(0.0),
+            crop_top: clip.crop.map(|crop| crop.top as f32).unwrap_or(0.0),
+            crop_right: clip.crop.map(|crop| crop.right as f32).unwrap_or(0.0),
+            crop_bottom: clip.crop.map(|crop| crop.bottom as f32).unwrap_or(0.0),
             fade_in: clip.fade_in as f32,
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),

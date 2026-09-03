@@ -121,8 +121,15 @@ fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(
         } else {
             let mut sources = Vec::with_capacity(plan.layers.len());
             for layer in &plan.layers {
-                let frame =
-                    pool.frame_at(&layer.media, layer.source_time, width, height, false, None)?;
+                let frame = pool.frame_at(
+                    &layer.media,
+                    layer.source_time,
+                    width,
+                    height,
+                    false,
+                    None,
+                    None,
+                )?;
                 sources.push((frame, layer.opacity));
             }
             let layers: Vec<Layer<'_>> = sources

@@ -36,6 +36,8 @@ pub struct PlannedLayer {
     /// Whether one decoder paced at `output rate / speed` follows this clip;
     /// false for a curve or a reverse, where each frame is sought.
     pub paced: bool,
+    /// How the layer's colour meets what is beneath it.
+    pub blend: concat_core::timeline::Blend,
 }
 
 /// Everything needed to draw one output frame.
@@ -90,6 +92,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
             opacity: (clip.opacity_at(time) * clip.video_fade_factor(time)).clamp(0.0, 1.0),
             transform: clip.transform_at(time),
             paced: clip.is_paced(),
+            blend: clip.blend,
         });
     }
 

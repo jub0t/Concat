@@ -95,6 +95,65 @@ pub struct Clip {
     /// Keys over the clip's placement and opacity, when it has any. See
     /// [`Animation`].
     pub animation: Option<Animation>,
+    /// How the clip's colour meets what is beneath it.
+    pub blend: Blend,
+}
+
+/// How a layer's colour meets what is beneath it.
+///
+/// Source-over is the ordinary case. The rest are the fixed-function
+/// blends a GPU offers over premultiplied colour, spelled the same way on
+/// the CPU so the two paths agree pixel for pixel: with `s` the layer's
+/// colour times its alpha and `d` the ground, Multiply is `s·d + d(1-a)`,
+/// Screen `s(1-d) + d`, Add `s + d`, Lighten `max(s, d)`, Darken
+/// `min(s, d)`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Blend {
+    /// Source over: the layer covers what is beneath by its alpha.
+    #[default]
+    Normal,
+    /// Darkens: the ground times the layer.
+    Multiply,
+    /// Lightens: the inverse of multiplying the inverses.
+    Screen,
+    /// The sum, clipped.
+    Add,
+    /// The brighter of the two, per channel.
+    Lighten,
+    /// The darker of the two, per channel.
+    Darken,
+}
+
+impl Blend {
+    /// Every mode, in menu order.
+    pub const ALL: [Blend; 6] = [
+        Blend::Normal,
+        Blend::Multiply,
+        Blend::Screen,
+        Blend::Add,
+        Blend::Lighten,
+        Blend::Darken,
+    ];
+
+    /// The mode's name in a document: "normal", "multiply", ...
+    pub fn name(self) -> &'static str {
+        match self {
+            Blend::Normal => "normal",
+            Blend::Multiply => "multiply",
+            Blend::Screen => "screen",
+            Blend::Add => "add",
+            Blend::Lighten => "lighten",
+            Blend::Darken => "darken",
+        }
+    }
+
+    /// The mode a document names, Normal for anything unknown.
+    pub fn parse(name: &str) -> Blend {
+        Blend::ALL
+            .into_iter()
+            .find(|mode| mode.name() == name.trim())
+            .unwrap_or_default()
+    }
 }
 
 /// A clip's placement in the output frame.
@@ -152,6 +211,7 @@ impl Clip {
             retime: None,
             reverse: false,
             animation: None,
+            blend: Blend::Normal,
         }
     }
 

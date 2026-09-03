@@ -12,8 +12,8 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, CustomFont, MediaItem, MediaKind,
-    Project, SpeedPoint, TextStyle, Timeline, Track, Transition,
+    AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, MediaItem,
+    MediaKind, Project, SpeedPoint, TextStyle, Timeline, Track, Transition,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -93,6 +93,18 @@ pub struct ClipPatch {
     /// Play backwards.
     #[serde(default)]
     pub reverse: Option<bool>,
+    /// Mirror left to right.
+    #[serde(default)]
+    pub flip_h: Option<bool>,
+    /// Mirror top to bottom.
+    #[serde(default)]
+    pub flip_v: Option<bool>,
+    /// The blend mode's name; empty is normal.
+    #[serde(default)]
+    pub blend: Option<String>,
+    /// The crop; `Some(None)` takes it off.
+    #[serde(default)]
+    pub crop: Option<Option<Crop>>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
     pub filters: Option<Vec<AppliedFilter>>,
@@ -585,6 +597,10 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         animation_in: None,
         animation_out: None,
         animation_combo: None,
+        flip_h: false,
+        flip_v: false,
+        blend: String::new(),
+        crop: None,
         filters: Vec::new(),
         video_effects: Vec::new(),
         muted: None,
@@ -922,6 +938,10 @@ pub fn apply(
                 animation_in: None,
                 animation_out: None,
                 animation_combo: None,
+                flip_h: false,
+                flip_v: false,
+                blend: String::new(),
+                crop: None,
                 filters: Vec::new(),
                 video_effects: Vec::new(),
                 muted: None,
@@ -982,6 +1002,10 @@ pub fn apply(
                 animation_in: None,
                 animation_out: None,
                 animation_combo: None,
+                flip_h: false,
+                flip_v: false,
+                blend: String::new(),
+                crop: None,
                 filters: Vec::new(),
                 video_effects: vec![AppliedFilter {
                     id: effect_id,
@@ -1173,6 +1197,24 @@ pub fn apply(
             }
             if let Some(reverse) = patch.reverse {
                 applied |= assign(&mut clip.reverse, reverse);
+            }
+            if let Some(flip) = patch.flip_h {
+                applied |= assign(&mut clip.flip_h, flip);
+            }
+            if let Some(flip) = patch.flip_v {
+                applied |= assign(&mut clip.flip_v, flip);
+            }
+            if let Some(blend) = patch.blend {
+                let blend = if blend == "normal" {
+                    String::new()
+                } else {
+                    blend
+                };
+                applied |= assign(&mut clip.blend, blend);
+            }
+            if let Some(crop) = patch.crop {
+                let crop = crop.map(Crop::tidy).filter(|crop| !crop.is_none());
+                applied |= assign(&mut clip.crop, crop);
             }
             if let Some(filters) = patch.filters {
                 applied |= assign(&mut clip.filters, filters);

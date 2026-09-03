@@ -110,6 +110,19 @@ pub struct ExportClip {
     /// its animation presets. Empty for none.
     #[serde(default)]
     pub animation: Vec<ExportKey>,
+    /// Mirrored left to right.
+    #[serde(default)]
+    pub flip_h: bool,
+    /// Mirrored top to bottom.
+    #[serde(default)]
+    pub flip_v: bool,
+    /// The blend mode's name; empty or "normal" is source-over.
+    #[serde(default)]
+    pub blend: String,
+    /// Fractions cut off the source's left, top, right and bottom before it
+    /// is fitted; absent for none.
+    #[serde(default)]
+    pub crop: Option<[f64; 4]>,
     /// Multiplier over the fitted size. 1 fills the frame, preserving aspect.
     #[serde(default = "unity")]
     pub scale: f64,
@@ -590,6 +603,7 @@ fn render_picture(
         filter_chains,
         tracks,
         treatments,
+        pre_chains,
     } = build_timeline(request, rate, visible);
 
     let mut encoder = Encoder::create(
@@ -624,7 +638,7 @@ fn render_picture(
         let time = rate.time_of_frame(index);
         let plan = plan_frame(&timeline, time);
 
-        let mut sources: Vec<(Frame, f32, Transform, usize)> =
+        let mut sources: Vec<(Frame, f32, Transform, usize, concat_core::timeline::Blend)> =
             Vec::with_capacity(plan.layers.len());
         for layer in &plan.layers {
             if !layer.paced {
@@ -633,6 +647,7 @@ fn render_picture(
                     .copied()
                     .unwrap_or((request.width, request.height));
                 let chain = filter_chains.get(&layer.clip).map(String::as_str);
+                let pre = pre_chains.get(&layer.clip).map(String::as_str);
                 if let Ok(frame) = sought.frame_at(
                     &layer.media,
                     layer.source_time,
@@ -640,6 +655,7 @@ fn render_picture(
                     decode_height,
                     stills.contains(&layer.clip),
                     chain,
+                    pre,
                 ) {
                     let track = tracks.get(&layer.clip).copied().unwrap_or(0);
                     sources.push((
@@ -647,6 +663,7 @@ fn render_picture(
                         layer.opacity,
                         layer.transform,
                         track,
+                        layer.blend,
                     ));
                 }
                 continue;
@@ -684,6 +701,9 @@ fn render_picture(
                     if let Some(chain) = filter_chains.get(&layer.clip) {
                         options = options.filtered(chain.clone());
                     }
+                    if let Some(pre) = pre_chains.get(&layer.clip) {
+                        options = options.prefiltered(pre.clone());
+                    }
 
                     // A still is a one-frame stream. Without looping it would
                     // contribute a single frame and then disappear.
@@ -702,15 +722,16 @@ fn render_picture(
             // mistake in the edit, not a failure of the renderer.
             if let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
                 let track = tracks.get(&layer.clip).copied().unwrap_or(0);
-                sources.push((frame, layer.opacity, layer.transform, track));
+                sources.push((frame, layer.opacity, layer.transform, track, layer.blend));
             }
         }
 
         let layers: Vec<(Layer<'_>, usize)> = sources
             .iter()
-            .map(|(frame, opacity, transform, track)| {
+            .map(|(frame, opacity, transform, track, blend)| {
                 (
-                    place_layer(frame, *opacity, transform, request.width, request.height),
+                    place_layer(frame, *opacity, transform, request.width, request.height)
+                        .with_blend(*blend),
                     *track,
                 )
             })
@@ -753,6 +774,8 @@ struct BuiltTimeline {
     filter_chains: HashMap<ClipId, String>,
     /// Each picture's track, so a treatment knows what lies beneath it.
     tracks: HashMap<ClipId, usize>,
+    /// The clip's pre-fit chain - its crop - where it has one.
+    pre_chains: HashMap<ClipId, String>,
     /// The layers: treatments over the stack, by span.
     treatments: Vec<Treatment>,
 }
@@ -868,6 +891,7 @@ fn build_timeline(
     let mut filter_chains: HashMap<ClipId, String> = HashMap::new();
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
+    let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
     let tracks: Vec<_> = (0..lanes)
@@ -912,6 +936,7 @@ fn build_timeline(
             engine_clip.reverse = clip.reverse;
         }
         engine_clip.animation = animation_of(&clip.animation);
+        engine_clip.blend = concat_core::timeline::Blend::parse(&clip.blend);
         engine_clip.transform = Transform {
             scale: clip.scale,
             offset_x: clip.offset_x,
@@ -931,8 +956,13 @@ fn build_timeline(
             if let Some(size) = fitted_size(request, clip) {
                 decode_sizes.insert(id, size);
             }
-            if !clip.video_filter_chain.is_empty() {
-                filter_chains.insert(id, clip.video_filter_chain.clone());
+            let chain = full_chain(clip);
+            if !chain.is_empty() {
+                filter_chains.insert(id, chain);
+            }
+            let pre = pre_chain(clip);
+            if !pre.is_empty() {
+                pre_chains.insert(id, pre);
             }
         }
     }
@@ -944,7 +974,42 @@ fn build_timeline(
         filter_chains,
         tracks: tracks_of,
         treatments,
+        pre_chains,
     }
+}
+
+/// The chain that runs in the source's own pixels before the fit: the crop.
+fn pre_chain(clip: &ExportClip) -> String {
+    match clip.crop {
+        Some([left, top, right, bottom])
+            if left > 0.0 || top > 0.0 || right > 0.0 || bottom > 0.0 =>
+        {
+            let w = (1.0 - left - right).max(0.1);
+            let h = (1.0 - top - bottom).max(0.1);
+            // Even sizes, for the same reason `fitted_size` wants them.
+            format!(
+                "crop=w=floor(iw*{w:.4}/2)*2:h=floor(ih*{h:.4}/2)*2:x=floor(iw*{left:.4}):y=floor(ih*{top:.4})"
+            )
+        }
+        _ => String::new(),
+    }
+}
+
+/// The clip's effect chain with its flips in front: a flip is a treatment
+/// of the picture like any other, and comes first so the effects see the
+/// picture the viewer will.
+fn full_chain(clip: &ExportClip) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if clip.flip_h {
+        parts.push("hflip");
+    }
+    if clip.flip_v {
+        parts.push("vflip");
+    }
+    if !clip.video_filter_chain.is_empty() {
+        parts.push(&clip.video_filter_chain);
+    }
+    parts.join(",")
 }
 
 /// The engine's keys for a flattened clip's animation, or None for none.
@@ -990,6 +1055,18 @@ fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
 fn fitted_size(request: &ExportRequest, clip: &ExportClip) -> Option<(u32, u32)> {
     let media_width = clip.media_width.filter(|value| *value > 0)?;
     let media_height = clip.media_height.filter(|value| *value > 0)?;
+    // What is left after the crop is what gets fitted.
+    let (media_width, media_height) = match clip.crop {
+        Some([left, top, right, bottom]) => (
+            (f64::from(media_width) * (1.0 - left - right).max(0.1))
+                .round()
+                .max(2.0) as u32,
+            (f64::from(media_height) * (1.0 - top - bottom).max(0.1))
+                .round()
+                .max(2.0) as u32,
+        ),
+        None => (media_width, media_height),
+    };
 
     let fit = (f64::from(request.width) / f64::from(media_width))
         .min(f64::from(request.height) / f64::from(media_height));
@@ -1046,7 +1123,13 @@ pub fn preview_frame(
 /// compositor needs to draw the paused monitor's frame, decoded but not yet
 /// drawn, so a caller with a GPU can draw them where they are shown.
 pub struct PreviewSources {
-    sources: Vec<(std::sync::Arc<Frame>, f32, Transform, usize)>,
+    sources: Vec<(
+        std::sync::Arc<Frame>,
+        f32,
+        Transform,
+        usize,
+        concat_core::timeline::Blend,
+    )>,
     width: u32,
     height: u32,
     time: Rational,
@@ -1060,8 +1143,9 @@ impl PreviewSources {
     pub fn layers(&self) -> Vec<Layer<'_>> {
         self.sources
             .iter()
-            .map(|(frame, opacity, transform, _)| {
+            .map(|(frame, opacity, transform, _, blend)| {
                 place_layer(frame.as_ref(), *opacity, transform, self.width, self.height)
+                    .with_blend(*blend)
             })
             .collect()
     }
@@ -1079,9 +1163,10 @@ impl PreviewSources {
         let placed: Vec<(Layer<'_>, usize)> = self
             .sources
             .iter()
-            .map(|(frame, opacity, transform, track)| {
+            .map(|(frame, opacity, transform, track, blend)| {
                 (
-                    place_layer(frame.as_ref(), *opacity, transform, self.width, self.height),
+                    place_layer(frame.as_ref(), *opacity, transform, self.width, self.height)
+                        .with_blend(*blend),
                     *track,
                 )
             })
@@ -1122,12 +1207,18 @@ pub fn preview_sources(
         filter_chains,
         tracks,
         treatments,
+        pre_chains,
     } = preview_timeline(request, rate);
     let time = quantise(request.time, rate);
     let plan = plan_frame(&timeline, time);
 
-    let mut sources: Vec<(std::sync::Arc<Frame>, f32, Transform, usize)> =
-        Vec::with_capacity(plan.layers.len());
+    let mut sources: Vec<(
+        std::sync::Arc<Frame>,
+        f32,
+        Transform,
+        usize,
+        concat_core::timeline::Blend,
+    )> = Vec::with_capacity(plan.layers.len());
     let mut failures: Vec<String> = Vec::new();
     for layer in &plan.layers {
         let (decode_width, decode_height) = decode_sizes
@@ -1135,6 +1226,7 @@ pub fn preview_sources(
             .copied()
             .unwrap_or((request.width, request.height));
         let chain = filter_chains.get(&layer.clip).map(String::as_str);
+        let pre = pre_chains.get(&layer.clip).map(String::as_str);
         // A source that fails to decode contributes nothing rather than
         // blanking the monitor - same grace the exporter extends.
         match pool.frame_at(
@@ -1144,12 +1236,14 @@ pub fn preview_sources(
             decode_height,
             stills.contains(&layer.clip),
             chain,
+            pre,
         ) {
             Ok(frame) => sources.push((
                 frame,
                 layer.opacity,
                 layer.transform,
                 tracks.get(&layer.clip).copied().unwrap_or(0),
+                layer.blend,
             )),
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
         }
@@ -1221,6 +1315,7 @@ pub fn preview_prefetch(
         stills,
         decode_sizes,
         filter_chains,
+        pre_chains,
         ..
     } = preview_timeline(request, rate);
     let fps = rate.fps().as_f64();
@@ -1234,6 +1329,7 @@ pub fn preview_prefetch(
                 .copied()
                 .unwrap_or((request.width, request.height));
             let chain = filter_chains.get(&layer.clip).map(String::as_str);
+            let pre = pre_chains.get(&layer.clip).map(String::as_str);
             let _ = pool.frame_at(
                 std::path::Path::new(&layer.media),
                 layer.source_time,
@@ -1241,6 +1337,7 @@ pub fn preview_prefetch(
                 decode_height,
                 stills.contains(&layer.clip),
                 chain,
+                pre,
             );
         }
     }
@@ -1346,6 +1443,10 @@ mod tests {
             speed_curve: Vec::new(),
             reverse: false,
             animation: Vec::new(),
+            flip_h: false,
+            flip_v: false,
+            blend: String::new(),
+            crop: None,
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,

@@ -9,6 +9,7 @@
 //! `wgpu` will slot into.
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
+use concat_core::timeline::Blend;
 
 /// A layer's placement beyond its base position, in output pixels.
 ///
@@ -62,6 +63,8 @@ pub struct Layer<'a> {
     pub y: i32,
     /// Scale, rotation and translation about the layer's centre.
     pub placement: Placement,
+    /// How the layer's colour meets the ground.
+    pub blend: Blend,
 }
 
 impl<'a> Layer<'a> {
@@ -73,7 +76,14 @@ impl<'a> Layer<'a> {
             x: 0,
             y: 0,
             placement: Placement::IDENTITY,
+            blend: Blend::Normal,
         }
+    }
+
+    /// Sets the blend mode.
+    pub fn with_blend(mut self, blend: Blend) -> Self {
+        self.blend = blend;
+        self
     }
 
     /// Sets the blend strength.
@@ -141,10 +151,26 @@ impl Compositor for CpuCompositor {
                 (src_x, src_y),
                 (columns, rows),
                 opacity,
+                layer.blend,
             );
         }
 
         output
+    }
+}
+
+/// One channel of `blend`: `over` is the layer's colour already times its
+/// alpha, `under` the ground, both in `0..=255`. The formulas are the GPU's
+/// fixed-function ones over premultiplied colour, so the two paths agree.
+#[inline]
+fn mix(blend: Blend, over: f32, under: f32, alpha: f32) -> f32 {
+    match blend {
+        Blend::Normal => over + under * (1.0 - alpha),
+        Blend::Multiply => over * under / 255.0 + under * (1.0 - alpha),
+        Blend::Screen => over * (1.0 - under / 255.0) + under,
+        Blend::Add => over + under,
+        Blend::Lighten => over.max(under),
+        Blend::Darken => over.min(under),
     }
 }
 
@@ -227,8 +253,10 @@ fn blend_transformed(output: &mut Frame, layer: &Layer<'_>, opacity: f32) {
             let at = y as usize * dst_stride + x as usize * BYTES_PER_PIXEL;
             for channel in 0..3 {
                 let over = sample[channel] * alpha;
-                let under = f32::from(dst_pixels[at + channel]) * (1.0 - alpha);
-                dst_pixels[at + channel] = (over + under).round().clamp(0.0, 255.0) as u8;
+                let under = f32::from(dst_pixels[at + channel]);
+                dst_pixels[at + channel] = mix(layer.blend, over, under, alpha)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
             }
             dst_pixels[at + 3] = 255;
         }
@@ -260,6 +288,7 @@ fn blend_region(
     (src_x, src_y): (u32, u32),
     (columns, rows): (u32, u32),
     opacity: f32,
+    blend: Blend,
 ) {
     let src_stride = source.width() as usize * BYTES_PER_PIXEL;
     let dst_stride = output.width() as usize * BYTES_PER_PIXEL;
@@ -285,8 +314,8 @@ fn blend_region(
             }
             for channel in 0..3 {
                 let over = f32::from(src_pixel[channel]) * alpha;
-                let under = f32::from(dst_pixel[channel]) * (1.0 - alpha);
-                dst_pixel[channel] = (over + under).round().clamp(0.0, 255.0) as u8;
+                let under = f32::from(dst_pixel[channel]);
+                dst_pixel[channel] = mix(blend, over, under, alpha).round().clamp(0.0, 255.0) as u8;
             }
             dst_pixel[3] = 255;
         }
@@ -295,6 +324,42 @@ fn blend_region(
 
 #[cfg(test)]
 mod tests {
+    /// Multiply by white and screen with black both leave the ground as it
+    /// was; add brightens it, darken cannot, lighten takes the brighter.
+    #[test]
+    fn the_blend_modes_do_what_their_names_say() {
+        let over = |rgba: [u8; 4], blend: Blend| {
+            let ground_frame = {
+                let mut frame = Frame::black(2, 2);
+                for pixel in frame.pixels_mut().chunks_exact_mut(4) {
+                    pixel.copy_from_slice(&[100, 100, 100, 255]);
+                }
+                frame
+            };
+            let mut layer_frame = Frame::black(2, 2);
+            for pixel in layer_frame.pixels_mut().chunks_exact_mut(4) {
+                pixel.copy_from_slice(&rgba);
+            }
+            let out = CpuCompositor.composite(
+                2,
+                2,
+                &[
+                    Layer::new(&ground_frame),
+                    Layer::new(&layer_frame).with_blend(blend),
+                ],
+            );
+            out.pixels()[0]
+        };
+        assert_eq!(over([255, 255, 255, 255], Blend::Multiply), 100);
+        assert_eq!(over([0, 0, 0, 255], Blend::Screen), 100);
+        assert_eq!(over([255, 255, 255, 255], Blend::Screen), 255);
+        assert_eq!(over([50, 50, 50, 255], Blend::Add), 150);
+        assert_eq!(over([255, 255, 255, 255], Blend::Darken), 100);
+        assert_eq!(over([30, 30, 30, 255], Blend::Lighten), 100);
+        assert_eq!(over([200, 200, 200, 255], Blend::Lighten), 200);
+        assert_eq!(over([200, 200, 200, 255], Blend::Normal), 200);
+    }
+
     use super::*;
 
     fn solid(width: u32, height: u32, rgba: [u8; 4]) -> Frame {

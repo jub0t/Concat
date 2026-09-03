@@ -139,6 +139,45 @@ fn yes() -> bool {
     true
 }
 
+/// A crop: what is taken off each edge, as fractions of the source.
+#[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Crop {
+    /// Off the left, `0..1`.
+    pub left: f64,
+    /// Off the top.
+    pub top: f64,
+    /// Off the right.
+    pub right: f64,
+    /// Off the bottom.
+    pub bottom: f64,
+}
+
+impl Crop {
+    /// True when nothing is cut.
+    pub fn is_none(&self) -> bool {
+        self.left <= 0.0 && self.top <= 0.0 && self.right <= 0.0 && self.bottom <= 0.0
+    }
+
+    /// Each edge held to `0..=0.9`, and a pair that would meet pulled back
+    /// so at least a tenth of the picture is left.
+    pub fn tidy(self) -> Crop {
+        let mut out = Crop {
+            left: self.left.clamp(0.0, 0.9),
+            top: self.top.clamp(0.0, 0.9),
+            right: self.right.clamp(0.0, 0.9),
+            bottom: self.bottom.clamp(0.0, 0.9),
+        };
+        if out.left + out.right > 0.9 {
+            out.right = (0.9 - out.left).max(0.0);
+        }
+        if out.top + out.bottom > 0.9 {
+            out.bottom = (0.9 - out.top).max(0.0);
+        }
+        out
+    }
+}
+
 /// Which end of a clip an animation belongs to, or the whole of it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -322,6 +361,20 @@ pub struct Clip {
     /// A shape over its whole length.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation_combo: Option<ClipAnimation>,
+    /// Mirrored left to right.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flip_h: bool,
+    /// Mirrored top to bottom.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flip_v: bool,
+    /// How the picture's colour meets what is beneath it: "normal",
+    /// "multiply", "screen", "add", "lighten", "darken".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub blend: String,
+    /// What is cut off each edge of the source before it is fitted, as
+    /// fractions of the source's width and height.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<Crop>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,

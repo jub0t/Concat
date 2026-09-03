@@ -61,6 +61,10 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     speed_curve: Vec::new(),
                     reverse: false,
                     animation: Vec::new(),
+                    flip_h: false,
+                    flip_v: false,
+                    blend: String::new(),
+                    crop: None,
                     scale: 1.0,
                     offset_x: 0.0,
                     offset_y: 0.0,
@@ -108,6 +112,13 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     .collect(),
                 reverse: clip.reverse,
                 animation: export_keys(clip),
+                flip_h: clip.flip_h,
+                flip_v: clip.flip_v,
+                blend: clip.blend.clone(),
+                crop: clip
+                    .crop
+                    .filter(|crop| !crop.is_none())
+                    .map(|crop| [crop.left, crop.top, crop.right, crop.bottom]),
                 scale: clip.scale,
                 offset_x: clip.offset_x,
                 offset_y: clip.offset_y,

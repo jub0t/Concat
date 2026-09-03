@@ -21,7 +21,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::model::{
-    AppliedFilter, Clip, ClipAnimation, ClipKind, CustomFont, MediaItem, MediaKind, Project,
+    AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, MediaItem, MediaKind, Project,
     SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 
@@ -233,6 +233,18 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 animation_in: read_animation(entry.get("animationIn")),
                 animation_out: read_animation(entry.get("animationOut")),
                 animation_combo: read_animation(entry.get("animationCombo")),
+                flip_h: flag(entry.get("flipH"), false),
+                flip_v: flag(entry.get("flipV"), false),
+                blend: text(entry.get("blend"), ""),
+                crop: entry.get("crop").map(|crop| {
+                    Crop {
+                        left: number(crop.get("left"), 0.0),
+                        top: number(crop.get("top"), 0.0),
+                        right: number(crop.get("right"), 0.0),
+                        bottom: number(crop.get("bottom"), 0.0),
+                    }
+                    .tidy()
+                }),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),

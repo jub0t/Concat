@@ -86,6 +86,9 @@ pub struct DecodeOptions {
     /// size follows the chain, so an effect that changes the frame size
     /// cannot change what the caller receives.
     pub filter_chain: Option<String>,
+    /// A filter chain applied *before* the fit scale, in the source's own
+    /// pixels: where a crop lives, since a crop changes what the fit is of.
+    pub pre_chain: Option<String>,
 }
 
 impl DecodeOptions {
@@ -119,6 +122,13 @@ impl DecodeOptions {
         self
     }
 
+    /// Applies `chain` before the fit scale. See [`DecodeOptions::pre_chain`].
+    pub fn prefiltered(mut self, chain: impl Into<String>) -> Self {
+        let chain = chain.into();
+        self.pre_chain = (!chain.is_empty()).then_some(chain);
+        self
+    }
+
     /// Applies `chain` after scaling. See [`DecodeOptions::filter_chain`].
     pub fn filtered(mut self, chain: impl Into<String>) -> Self {
         let chain = chain.into();
@@ -138,6 +148,9 @@ fn video_filter(rotation: i64, options: &DecodeOptions, width: u32, height: u32)
     let mut parts: Vec<String> = Vec::new();
     if let Some(turn) = ffi::rotation_filters(rotation) {
         parts.push(turn.to_owned());
+    }
+    if let Some(pre) = &options.pre_chain {
+        parts.push(pre.clone());
     }
     parts.push(format!("scale={width}:{height}:flags=bilinear"));
     if let Some(chain) = &options.filter_chain {
