@@ -16,3 +16,6 @@
 - [ ] In Inspector: for panels with lots of Subsections, give the "header" of each subsection a lighter background color than the rest of the background (kind of like in wc-ui-rnd/web/ -> Editor panels>Text panel expandable accordion-like subsections).
 - [ ] For things like filter: use the other rectangular green-fill input-range slider like in wc-ui-rnd/web/->Inspectors>Text panel.
 - [ ] ux: For the right-click context menu on timelines, increase the padding and increase the border-radius.
+- [ ] fix: on Inspector>Details>Modify Button: Create an actual modal for the Modify button and wire it in so users can actually modify project settings.
+- [ ] fix: The details panel does not render correct data, fix it.
+- [ ] tweak: in Timelines the Text object should have Small height and instead of rendering the Text in a top header and then the body we can just still to header. This way we save more space and don't render the text preview twice on its timeline card.
