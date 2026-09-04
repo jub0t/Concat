@@ -12,4 +12,7 @@
 - [ ] in Settings>Appearance: remove the "Dark is the edit's own room" text-paragraph.
 - [ ] Change the Timeline>Timestamps-line tray background color from dark to the same as Tracks section background.
 - [ ] Inside Library>Media>Images(for images): replace the "still" label with the format/mimetype of the Image (eg png, jpg, etc).
-- [ ] For "Generate Auto-Captions" and "Text-to-Speech" feature, instead of directly generating the output, show a modal to let the user decide what configs they want.
+- [ ] For "Generate Auto-Captions" and "Text-to-Speech" feature, instead of directly generating the output, show a modal to let the user decide what configs they want. Design examples: wc-ui-rnd/web/ -> Waiting & Text to speech sections.
+- [ ] In Inspector: for panels with lots of Subsections, give the "header" of each subsection a lighter background color than the rest of the background (kind of like in wc-ui-rnd/web/ -> Editor panels>Text panel expandable accordion-like subsections).
+- [ ] For things like filter: use the other rectangular green-fill input-range slider like in wc-ui-rnd/web/->Inspectors>Text panel.
+- [ ] ux: For the right-click context menu on timelines, increase the padding and increase the border-radius.
