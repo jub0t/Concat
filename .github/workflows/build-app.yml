@@ -95,6 +95,9 @@ jobs:
             target: aarch64-pc-windows-msvc
             ffmpeg: winarm64
     runs-on: ${{ matrix.os }}
+    # The slowest target (Intel macOS, fat LTO) finishes in under half an
+    # hour. A job still running past this is stuck, not slow.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -151,13 +154,32 @@ jobs:
       - name: FFmpeg development libraries (macOS)
         if: matrix.platform == 'macos'
         run: |
+          set -euo pipefail
           brew install ffmpeg cmake dylibbundler
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
+          # ggml's Metal code asks `@available(macOS 15, *)` before using
+          # residency sets. Below that deployment target the question is
+          # answered at run time by ___isPlatformVersionAtLeast, which lives
+          # in clang's compiler-rt - and rustc links with -nodefaultlibs, so
+          # nothing pulls that archive in. Name it on the link line. (A
+          # build on a developer's Mac never sees this: with no deployment
+          # target set, the check is folded away at compile time.)
+          echo "RUSTFLAGS=-C link-arg=$(xcrun clang --print-file-name=libclang_rt.osx.a)" >> "$GITHUB_ENV"
 
       # ── Windows ────────────────────────────────────────────────────────
-      # libclang for bindgen. Chocolatey's LLVM is x64; the arm64 runner
-      # takes LLVM's own Windows-on-Arm installer. The BtbN zip unpacks to
-      # one top-level folder.
+      # LLVM: libclang for bindgen on both architectures, and the C/C++
+      # compiler on arm64. Chocolatey's LLVM is x64; the arm64 runner takes
+      # LLVM's own Windows-on-Arm installer. The BtbN zip unpacks to one
+      # top-level folder.
+      #
+      # On arm64 the whole C side is compiled by clang-cl rather than cl:
+      # ggml refuses MSVC for ARM outright (its NEON kernels need clang),
+      # and ring picks clang there on its own. clang-cl speaks cl's command
+      # line and links against the same CRT, so the objects mix with the
+      # rest of the build; the cc crate hands it the Visual Studio
+      # environment, and the cmake crate passes it to CMake - but only
+      # under a Ninja generator, since the Visual Studio generator chooses
+      # the compiler itself. Ninja ships on the runner image.
       - name: FFmpeg development libraries (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -167,15 +189,19 @@ jobs:
             $llvm = "21.1.0"
             curl.exe -fsSL --retry 5 --retry-all-errors -o llvm.exe "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm/LLVM-$llvm-woa64.exe"
             Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S"
+            "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
             choco install llvm -y --no-progress
           }
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
           $url = "$env:FFMPEG_RELEASE/ffmpeg-n$env:FFMPEG_VERSION-latest-${{ matrix.ffmpeg }}-gpl-shared-$env:FFMPEG_VERSION.zip"
           curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip "$url"
           Expand-Archive ffmpeg-win.zip -DestinationPath ffdl
           $dir = (Get-ChildItem ffdl -Directory | Select-Object -First 1).FullName
           "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # sherpa-onnx links shared on Windows (see concat-speech's manifest for
@@ -186,6 +212,12 @@ jobs:
       # for one named after $PROFILE - which panics under the custom `app`
       # profile, whose directory is not called "release". The DLLs are kept
       # apart and the packaging step ships them beside the binary.
+      #
+      # The archive is .tar.bz2, and Windows' own tar has no bzip2 of its
+      # own: it pipes through an external decoder, and on the x64 image
+      # that pipe can hang without a word. Python's tarfile unpacks it
+      # in-process. Each command announces itself, so a stall would name
+      # the culprit.
       - name: sherpa-onnx shared libraries (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -195,8 +227,11 @@ jobs:
           $version = (Select-String -Path engine\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
           $arch = if ("${{ matrix.arch }}" -eq "aarch64") { "win-arm64" } else { "win-x64" }
           $stem = "sherpa-onnx-v$version-$arch-shared-MT-Release-lib"
+          Write-Host "Downloading $stem"
           curl.exe -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
-          tar -xjf sherpa.tar.bz2
+          Write-Host "Unpacking"
+          python -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall(**({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
+          if (-not (Test-Path "$stem\lib")) { throw "$stem\lib is not there after unpacking" }
           New-Item -ItemType Directory -Force sherpa-libs, sherpa-dlls | Out-Null
           Copy-Item "$stem\lib\*.lib" sherpa-libs\
           Copy-Item "$stem\lib\*.dll" sherpa-dlls\
