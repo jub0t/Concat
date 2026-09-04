@@ -147,6 +147,11 @@ export component SectionHeader inherits Rectangle {
 }
 
 export component SectionBody inherits VerticalLayout {
+    // Air between the header and the first row, and under the last, on top
+    // of the gap between rows: a section reads as a header and a block, not
+    // a header with rows jammed against it.
+    padding-top: 4px;
+    padding-bottom: 4px;
     spacing: Theme.gap;
     @children
 }

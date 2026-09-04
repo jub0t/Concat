@@ -3,7 +3,7 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { IconButton, Row, Section, SectionHeader } from "../primitives/panel.slint";
+import { IconButton, Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
@@ -401,7 +401,7 @@ export component VideoPanel inherits VerticalLayout {
             }
         }
 
-        if transform.open: VerticalLayout {
+        if transform.open: SectionBody {
 
         if root.transform-help: Note {
             text: "Scale and position are fractions of the output frame, so a"
@@ -482,7 +482,7 @@ export component VideoPanel inherits VerticalLayout {
             summary: "\{Math.round(root.alpha * 100)}% · "
                 + root.blends[Math.max(0, Math.min(root.selected.blend, root.blends.length - 1))];
         }
-        if blend.open: VerticalLayout {
+        if blend.open: SectionBody {
         Param {
             label: "Opacity";
             value <=> root.alpha;
@@ -527,7 +527,7 @@ export component VideoPanel inherits VerticalLayout {
                 toggled => { root.cutout-help = self.open; }
             }
         }
-        if cutout.open: VerticalLayout {
+        if cutout.open: SectionBody {
 
         if root.cutout-help: Note {
             text: "Keys one colour out of the picture so what is beneath"
@@ -594,7 +594,7 @@ export component VideoPanel inherits VerticalLayout {
                 : "\{Math.round(root.crop-left * 100)} · \{Math.round(root.crop-top * 100)}"
                     + " · \{Math.round(root.crop-right * 100)} · \{Math.round(root.crop-bottom * 100)}";
         }
-        if crop.open: VerticalLayout {
+        if crop.open: SectionBody {
         Param {
             label: "Left";
             value <=> root.crop-left;
@@ -674,7 +674,8 @@ export component AudioPanel inherits VerticalLayout {
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.gain, root.level);
         }
-        if volume.open: Param {
+        if volume.open: SectionBody {
+        Param {
             label: "Level";
             value <=> root.level;
             // The bottom is silence, not -60. +24 at the top because quiet
@@ -691,6 +692,7 @@ export component AudioPanel inherits VerticalLayout {
                 root.commit();
             }
         }
+        }
     }
 
     Section {
@@ -701,7 +703,7 @@ export component AudioPanel inherits VerticalLayout {
                 : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
                     + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
         }
-        if fades.open: VerticalLayout {
+        if fades.open: SectionBody {
         Param {
             label: "Fade in";
             value <=> root.fade-in;
@@ -755,7 +757,7 @@ export component SpeedPanel inherits VerticalLayout {
             }
         }
 
-        if speed.open: VerticalLayout {
+        if speed.open: SectionBody {
 
         if root.speed-help: Note {
             text: "Rate re-times the clip in place, so the timeline length"
@@ -860,6 +862,7 @@ export component AnimationPanel inherits VerticalLayout {
                 toggled => { root.help = self.open; }
             }
         }
+        SectionBody {
         if root.help: Note {
             text: "In and Out play over the clip's first and last seconds;"
                 + " Combo runs its whole length. Each moves the clip from"
@@ -883,10 +886,12 @@ export component AnimationPanel inherits VerticalLayout {
             fmt: ParamFormat.seconds2;
             changed(v) => { root.set(ClipField.anim-in-duration, v); root.commit(); }
         }
+        }
     }
 
     Section {
         SectionHeader { title: "Out"; }
+        SectionBody {
         Row {
             label: "Shape";
             Select {
@@ -905,10 +910,12 @@ export component AnimationPanel inherits VerticalLayout {
             fmt: ParamFormat.seconds2;
             changed(v) => { root.set(ClipField.anim-out-duration, v); root.commit(); }
         }
+        }
     }
 
     Section {
         SectionHeader { title: "Combo"; }
+        SectionBody {
         Row {
             label: "Shape";
             Select {
@@ -916,6 +923,7 @@ export component AnimationPanel inherits VerticalLayout {
                 current: root.selected.anim-combo + 1;
                 changed(index) => { root.set(ClipField.anim-combo, index - 1); root.commit(); }
             }
+        }
         }
     }
 }
@@ -950,20 +958,22 @@ export component AdjustPanel inherits VerticalLayout {
         }
 
         // See PresetStack for why each row re-seeds its knob.
-        for p in root.params: Rectangle {
-            property <AppliedParamData> data: p;
-            height: knob.preferred-height;
-            changed data => { knob.value = self.data.value; }
+        SectionBody {
+            for p in root.params: Rectangle {
+                property <AppliedParamData> data: p;
+                height: knob.preferred-height;
+                changed data => { knob.value = self.data.value; }
 
-            knob := Param {
-                label: p.label;
-                value: p.value;
-                minimum: p.min;
-                maximum: p.max;
-                step: p.step;
-                default-value: p.default-value;
-                fmt: p.fmt;
-                changed(v) => { root.set(p.key, v); root.commit(); }
+                knob := Param {
+                    label: p.label;
+                    value: p.value;
+                    minimum: p.min;
+                    maximum: p.max;
+                    step: p.step;
+                    default-value: p.default-value;
+                    fmt: p.fmt;
+                    changed(v) => { root.set(p.key, v); root.commit(); }
+                }
             }
         }
     }
@@ -1018,7 +1028,7 @@ export component FilterPanel inherits VerticalLayout {
             }
         }
 
-        if layer.open: VerticalLayout {
+        if layer.open: SectionBody {
 
         if root.layer-help: Note {
             text: "A layer treats everything under it for as long as it runs."
@@ -1047,7 +1057,7 @@ export component FilterPanel inherits VerticalLayout {
                 : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
                     + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
         }
-        if ramps.open: VerticalLayout {
+        if ramps.open: SectionBody {
         Param {
             label: "Ramp in";
             value <=> root.fade-in;

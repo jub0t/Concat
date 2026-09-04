@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "../theme/theme.slint";
-import { Section, SectionHeader, Row } from "../primitives/panel.slint";
+import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
@@ -75,7 +75,7 @@ export component TextPanel inherits VerticalLayout {
             summary: root.selected.content == "" ? "Empty" : root.selected.content;
         }
 
-        if content.open: VerticalLayout {
+        if content.open: SectionBody {
             padding-left: Theme.pad;
             padding-right: Theme.pad;
             padding-bottom: 4px;
@@ -125,7 +125,7 @@ export component TextPanel inherits VerticalLayout {
                 + InspectorFmt.format(ParamFormat.height, root.size);
         }
 
-        if font.open: VerticalLayout {
+        if font.open: SectionBody {
         Row {
             Select {
                 options: root.families;
@@ -176,7 +176,7 @@ export component TextPanel inherits VerticalLayout {
                 + InspectorFmt.format(ParamFormat.fraction, root.alpha);
         }
 
-        if colour.open: VerticalLayout {
+        if colour.open: SectionBody {
         ColourField {
             label: "Fill";
             value: root.selected.fill;
@@ -258,7 +258,7 @@ export component TextPanel inherits VerticalLayout {
             summary: InspectorFmt.format(ParamFormat.outline, root.stroke-width);
         }
 
-        if outline.open: VerticalLayout {
+        if outline.open: SectionBody {
         Param {
             label: "Width";
             value <=> root.stroke-width;
@@ -294,7 +294,7 @@ export component TextPanel inherits VerticalLayout {
                 + " · " + InspectorFmt.format(ParamFormat.rate, root.line-height);
         }
 
-        if layout.open: VerticalLayout {
+        if layout.open: SectionBody {
         Row {
             SegmentedControl {
                 options: ["Left", "Center", "Right"];
@@ -337,7 +337,7 @@ export component TextPanel inherits VerticalLayout {
                 + " · " + InspectorFmt.format(ParamFormat.centred, root.offset-y);
         }
 
-        if position.open: VerticalLayout {
+        if position.open: SectionBody {
         Param {
             label: "Horizontal";
             value <=> root.offset-x;
