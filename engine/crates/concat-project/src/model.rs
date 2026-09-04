@@ -97,6 +97,14 @@ pub struct MediaItem {
     pub placeholder: bool,
 }
 
+fn unity() -> f64 {
+    1.0
+}
+
+fn is_unity(value: &f64) -> bool {
+    *value == 1.0
+}
+
 fn is_false(value: &bool) -> bool {
     !value
 }
@@ -340,6 +348,13 @@ pub struct Clip {
     pub offset_y: f64,
     /// Clockwise rotation in degrees, about the picture's centre.
     pub rotation: f64,
+    /// A multiplier on the fitted width beyond `scale`, for a picture
+    /// pulled wider or narrower than its aspect; 1 keeps the aspect.
+    #[serde(default = "unity", skip_serializing_if = "is_unity")]
+    pub stretch_x: f64,
+    /// The same for the height.
+    #[serde(default = "unity", skip_serializing_if = "is_unity")]
+    pub stretch_y: f64,
     /// Blend strength over whatever is beneath, in 0..1.
     pub opacity: f64,
     /// Playback rate. 1 is normal. With a curve set this is the curve's

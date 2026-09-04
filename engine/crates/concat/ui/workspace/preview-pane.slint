@@ -406,6 +406,45 @@ component StageItem inherits Rectangle {
         released => { root.released(); }
     }
 
+    // The edges' midpoints, top, right, bottom, left as Rust numbers them:
+    // a pull on one stretches that axis alone.
+    Grip {
+        at-x: root.px(0px, -root.bh / 2);
+        at-y: root.py(0px, -root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ns-resize;
+        pressed(x, y) => { root.grip-pressed(5, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(root.bw / 2, 0px);
+        at-y: root.py(root.bw / 2, 0px);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ew-resize;
+        pressed(x, y) => { root.grip-pressed(6, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(0px, root.bh / 2);
+        at-y: root.py(0px, root.bh / 2);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ns-resize;
+        pressed(x, y) => { root.grip-pressed(7, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+    Grip {
+        at-x: root.px(-root.bw / 2, 0px);
+        at-y: root.py(-root.bw / 2, 0px);
+        stage-w: root.width; stage-h: root.height;
+        cursor: MouseCursor.ew-resize;
+        pressed(x, y) => { root.grip-pressed(8, x, y); }
+        dragged(x, y, snap) => { root.dragged(x, y, snap); }
+        released => { root.released(); }
+    }
+
     // The rotation handle, above the top edge.
     Grip {
         turn: true;

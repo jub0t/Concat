@@ -851,6 +851,8 @@ mod tests {
                     offset_x: Some(f64::from(step) / 1000.0 + 0.001),
                     offset_y: None,
                     rotation: None,
+                    stretch_x: None,
+                    stretch_y: None,
                 })
                 .expect("applies");
         }
@@ -1185,6 +1187,8 @@ mod tests {
                     offset_x: None,
                     offset_y: None,
                     rotation: Some(sent),
+                    stretch_x: None,
+                    stretch_y: None,
                 })
                 .expect("sets");
             assert_eq!(
@@ -1392,6 +1396,8 @@ mod tests {
                 offset_x: None,
                 offset_y: Some(-0.25),
                 rotation: Some(90.0),
+                stretch_x: None,
+                stretch_y: None,
             },
             Command::DetachAudio {
                 clip_id: "c1".to_owned(),

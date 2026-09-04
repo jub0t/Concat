@@ -150,7 +150,7 @@ export enum TextAlignment { left, center, right }
 /// and alignment as its ordinal, which keeps this to two callbacks instead of
 /// one per control.
 export enum ClipField {
-    scale, offset-x, offset-y, rotation, opacity,
+    scale, offset-x, offset-y, rotation, stretch-x, stretch-y, opacity,
     volume, speed, preserve-pitch, speed-curve, reverse, fade-in, fade-out,
     anim-in, anim-out, anim-combo, anim-in-duration, anim-out-duration,
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
@@ -183,6 +183,9 @@ export struct SelectedClipData {
     offset-x: float,
     offset-y: float,
     rotation: float,
+    /// the width and height pulled beyond the scale; 1 keeps the aspect
+    stretch-x: float,
+    stretch-y: float,
     opacity: float,
 
     // sound — everything but a still

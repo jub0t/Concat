@@ -142,6 +142,8 @@ impl Animation {
             offset_x: base.offset_x + self.offset_x.value_at(x, 0.0),
             offset_y: base.offset_y + self.offset_y.value_at(x, 0.0),
             rotation: base.rotation + self.rotation.value_at(x, 0.0),
+            stretch_x: base.stretch_x,
+            stretch_y: base.stretch_y,
         }
     }
 
@@ -198,6 +200,8 @@ mod tests {
             offset_x: 0.1,
             offset_y: -0.2,
             rotation: 10.0,
+            stretch_x: 1.0,
+            stretch_y: 1.0,
         };
         let mid = animation.transform_at(base, 0.5);
         assert!((mid.scale - 1.5).abs() < 1e-12);

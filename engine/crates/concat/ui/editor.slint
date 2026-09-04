@@ -170,7 +170,8 @@ export global Editor {
     /// selection — the way `clip-pressed` does for the lanes.
     callback stage-pressed(x: float, y: float, additive: bool);
     /// A press on one of a selected box's grips: 0..3 are its corners,
-    /// clockwise from top-left, and 4 is the rotation handle above it.
+    /// clockwise from top-left, 4 is the rotation handle above it, and
+    /// 5..8 are the edges' midpoints, top, right, bottom, left.
     callback stage-grip-pressed(id: string, grip: int, x: float, y: float);
     /// The pointer moved with a stage gesture live. `snap` is shift: an axis
     /// for a move, steps for a scale, fifteen degrees for a turn.

@@ -362,6 +362,21 @@ pub enum Gesture {
         /// an edge's position at any later scale is one multiplication.
         half: (f64, f64),
     },
+    /// An edge grip pulls one axis: the picture's stretch across or down,
+    /// about its centre, measured along the box's own axis so a turned
+    /// picture stretches along itself and not along the frame.
+    StageStretch {
+        clip: String,
+        /// The left and right edges pull the width; the others the height.
+        across: bool,
+        stretch: f64,
+        centre: (f64, f64),
+        /// The pointer's distance from the centre along the axis at the
+        /// press, in frame pixels.
+        from: f64,
+        /// The picture's turn, to project the pointer onto its axes.
+        rotation: f64,
+    },
     /// The rotation grip dragged: the picture turns by the angle the pointer
     /// has swept about the centre since the press.
     StageRotate {
@@ -2242,7 +2257,8 @@ impl Studio {
             Gesture::None
             | Gesture::StageMove { .. }
             | Gesture::StageScale { .. }
-            | Gesture::StageRotate { .. } => {}
+            | Gesture::StageRotate { .. }
+            | Gesture::StageStretch { .. } => {}
         }
         self.gesture = gesture;
     }
@@ -2302,7 +2318,8 @@ impl Studio {
             // Not a lane gesture: hand it back untouched, echo and all.
             other @ (Gesture::StageMove { .. }
             | Gesture::StageScale { .. }
-            | Gesture::StageRotate { .. }) => {
+            | Gesture::StageRotate { .. }
+            | Gesture::StageStretch { .. }) => {
                 self.gesture = other;
             }
         }
@@ -2324,6 +2341,8 @@ impl Studio {
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
             ClipField::Scale => clip.scale = value.clamp(0.05, 8.0),
+            ClipField::StretchX => clip.stretch_x = value.clamp(0.1, 10.0),
+            ClipField::StretchY => clip.stretch_y = value.clamp(0.1, 10.0),
             ClipField::OffsetX => clip.offset_x = value.clamp(-1.0, 1.0),
             ClipField::OffsetY => clip.offset_y = value.clamp(-1.0, 1.0),
             ClipField::Rotation => clip.rotation = value.clamp(-180.0, 180.0),
@@ -2506,6 +2525,8 @@ impl Studio {
             || after.offset_x != before.offset_x
             || after.offset_y != before.offset_y
             || after.rotation != before.rotation
+            || after.stretch_x != before.stretch_x
+            || after.stretch_y != before.stretch_y
         {
             commands.push(Command::SetClipTransform {
                 clip_id: id.clone(),
@@ -2513,6 +2534,8 @@ impl Studio {
                 offset_x: Some(after.offset_x),
                 offset_y: Some(after.offset_y),
                 rotation: Some(after.rotation),
+                stretch_x: Some(after.stretch_x),
+                stretch_y: Some(after.stretch_y),
             });
         }
         if after.speed_curve != before.speed_curve {
@@ -2702,6 +2725,8 @@ impl Studio {
                 None => (clip.scale, clip.scale),
             }
         };
+        // Then pulled along each axis, as the compositor pulls it.
+        let (w, h) = (w * clip.stretch_x, h * clip.stretch_y);
         // The placement at the playhead: the clip's own, moved by its
         // animation, so the box follows a slide or a spin.
         let base = concat_core::timeline::Transform {
@@ -2709,6 +2734,8 @@ impl Studio {
             offset_x: clip.offset_x,
             offset_y: clip.offset_y,
             rotation: clip.rotation,
+            stretch_x: clip.stretch_x,
+            stretch_y: clip.stretch_y,
         };
         let placed = match concat_project::animation::animation_of(clip) {
             Some(animation) if clip.duration > 0.0 => {
@@ -2877,6 +2904,28 @@ impl Studio {
                 centre,
                 from: dy.atan2(dx),
             }
+        } else if grip >= 5 {
+            // 5 top, 6 right, 7 bottom, 8 left: the pointer's offset from
+            // the centre, turned back into the box's own frame.
+            let across = grip == 6 || grip == 8;
+            let (sin, cos) = clip.rotation.to_radians().sin_cos();
+            let along = if across {
+                dx * cos + dy * sin
+            } else {
+                -dx * sin + dy * cos
+            };
+            Gesture::StageStretch {
+                clip: id.to_owned(),
+                across,
+                stretch: if across {
+                    clip.stretch_x
+                } else {
+                    clip.stretch_y
+                },
+                centre,
+                from: along.abs().max(1.0),
+                rotation: clip.rotation,
+            }
         } else {
             Gesture::StageScale {
                 clip: id.to_owned(),
@@ -3035,6 +3084,34 @@ impl Studio {
                     clip.scale = next.clamp(0.05, 8.0);
                 }
             }
+            Gesture::StageStretch {
+                clip,
+                across,
+                stretch,
+                centre,
+                from,
+                rotation,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                let along = if *across {
+                    dx * cos + dy * sin
+                } else {
+                    -dx * sin + dy * cos
+                };
+                let mut next = stretch * along.abs() / from;
+                if snap {
+                    next = (next * 20.0).round() / 20.0;
+                }
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    if *across {
+                        clip.stretch_x = next.clamp(0.1, 10.0);
+                    } else {
+                        clip.stretch_y = next.clamp(0.1, 10.0);
+                    }
+                }
+            }
             Gesture::StageRotate {
                 clip,
                 rotation,
@@ -3073,7 +3150,9 @@ impl Studio {
             Gesture::StageMove { origins, .. } => {
                 origins.into_iter().map(|origin| origin.clip).collect()
             }
-            Gesture::StageScale { clip, .. } | Gesture::StageRotate { clip, .. } => vec![clip],
+            Gesture::StageScale { clip, .. }
+            | Gesture::StageRotate { clip, .. }
+            | Gesture::StageStretch { clip, .. } => vec![clip],
             other => {
                 // Not ours to end; a lane gesture is still live.
                 self.gesture = other;
@@ -3097,6 +3176,8 @@ impl Studio {
                 || after.offset_x != before.offset_x
                 || after.offset_y != before.offset_y
                 || after.rotation != before.rotation
+                || after.stretch_x != before.stretch_x
+                || after.stretch_y != before.stretch_y
             {
                 commands.push(Command::SetClipTransform {
                     clip_id: id,
@@ -3104,6 +3185,8 @@ impl Studio {
                     offset_x: Some(after.offset_x),
                     offset_y: Some(after.offset_y),
                     rotation: Some(after.rotation),
+                    stretch_x: Some(after.stretch_x),
+                    stretch_y: Some(after.stretch_y),
                 });
             }
         }
@@ -3862,7 +3945,11 @@ impl Studio {
             self.speech.message = "Download a voice model in Settings › Speech first".to_owned();
             return;
         };
-        let Some(voice) = self.speakers.get(self.speech.voice).map(|speaker| speaker.id) else {
+        let Some(voice) = self
+            .speakers
+            .get(self.speech.voice)
+            .map(|speaker| speaker.id)
+        else {
             self.speech.message = "No voice to read with".to_owned();
             return;
         };
@@ -4280,6 +4367,8 @@ impl Studio {
             offset_x: clip.offset_x as f32,
             offset_y: clip.offset_y as f32,
             rotation: clip.rotation as f32,
+            stretch_x: clip.stretch_x as f32,
+            stretch_y: clip.stretch_y as f32,
             opacity: clip.opacity as f32,
             volume: clip.volume as f32,
             speed: clip.speed as f32,

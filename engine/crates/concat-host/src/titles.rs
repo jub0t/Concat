@@ -123,6 +123,8 @@ impl Titles {
                     offset_x: clip.offset_x,
                     offset_y: clip.offset_y,
                     rotation: clip.rotation,
+                    stretch_x: clip.stretch_x,
+                    stretch_y: clip.stretch_y,
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: (clip.opacity * text.opacity).clamp(0.0, 1.0),

@@ -172,6 +172,11 @@ pub struct Transform {
     pub offset_y: f64,
     /// Clockwise rotation about the picture's centre, in degrees.
     pub rotation: f64,
+    /// A multiplier on the fitted width beyond `scale`, for a picture
+    /// pulled wider or narrower than its aspect. 1 keeps the aspect.
+    pub stretch_x: f64,
+    /// The same for the height.
+    pub stretch_y: f64,
 }
 
 impl Transform {
@@ -181,6 +186,8 @@ impl Transform {
         offset_x: 0.0,
         offset_y: 0.0,
         rotation: 0.0,
+        stretch_x: 1.0,
+        stretch_y: 1.0,
     };
 
     /// True when applying this transform would change nothing.

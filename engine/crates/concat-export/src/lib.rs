@@ -148,6 +148,13 @@ pub struct ExportClip {
     /// Clockwise rotation in degrees.
     #[serde(default)]
     pub rotation: f64,
+    /// Multipliers on the fitted width and height beyond `scale`, for a
+    /// picture pulled along one axis; 1 keeps the aspect.
+    #[serde(default = "unity")]
+    pub stretch_x: f64,
+    /// The height's half of `stretch_x`'s pair.
+    #[serde(default = "unity")]
+    pub stretch_y: f64,
     /// Blend strength over the layers beneath, 1 being solid. Defaulted for
     /// requests from a UI that predates it.
     #[serde(default = "unity")]
@@ -593,6 +600,8 @@ fn place_layer<'a>(
             rotation: transform.rotation.to_radians() as f32,
             translate_x: (transform.offset_x * f64::from(width)) as f32,
             translate_y: (transform.offset_y * f64::from(height)) as f32,
+            stretch_x: transform.stretch_x as f32,
+            stretch_y: transform.stretch_y as f32,
         }
     };
     Layer::new(frame)
@@ -1006,6 +1015,8 @@ fn build_timeline(
             offset_x: clip.offset_x,
             offset_y: clip.offset_y,
             rotation: clip.rotation,
+            stretch_x: clip.stretch_x,
+            stretch_y: clip.stretch_y,
         };
         engine_clip.opacity = clip.opacity.clamp(0.0, 1.0) as f32;
         // Quantised like every other time: the ramp must land on the same
@@ -1551,6 +1562,8 @@ mod tests {
             offset_x: 0.0,
             offset_y: 0.0,
             rotation: 0.0,
+            stretch_x: 1.0,
+            stretch_y: 1.0,
             opacity: 1.0,
             video_filter_chain: String::new(),
             transition: None,

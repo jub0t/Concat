@@ -71,6 +71,8 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                     offset_x: 0.0,
                     offset_y: 0.0,
                     rotation: 0.0,
+                    stretch_x: 1.0,
+                    stretch_y: 1.0,
                     opacity: clip.opacity,
                     video_filter_chain: video_effect_chain(&clip.video_effects),
                     transition: None,
@@ -127,6 +129,8 @@ pub fn flatten_timeline(project: &Project, timeline_id: Option<&str>) -> Vec<Exp
                 offset_x: clip.offset_x,
                 offset_y: clip.offset_y,
                 rotation: clip.rotation,
+                stretch_x: clip.stretch_x,
+                stretch_y: clip.stretch_y,
                 opacity: clip.opacity,
                 video_filter_chain: video_effect_chain(&clip.video_effects),
                 // Passed through unconditionally: `resolve_transitions` is

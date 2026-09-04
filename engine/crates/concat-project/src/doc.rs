@@ -20,6 +20,7 @@
 
 use serde_json::{Map, Value, json};
 
+use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
     AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, MediaItem, MediaKind, Project,
     SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -213,6 +214,8 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 offset_x: number(entry.get("offsetX"), 0.0),
                 offset_y: number(entry.get("offsetY"), 0.0),
                 rotation: number(entry.get("rotation"), 0.0),
+                stretch_x: number(entry.get("stretchX"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
+                stretch_y: number(entry.get("stretchY"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
                 // Clamped: a hand-edited 2 would export differently from how
                 // the preview clamps it on screen.
                 opacity: number(entry.get("opacity"), 1.0).clamp(0.0, 1.0),

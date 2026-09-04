@@ -30,6 +30,10 @@ const MIN_SPEED: f64 = 0.0625;
 const MAX_SPEED: f64 = 16.0;
 const MIN_SCALE: f64 = 0.05;
 const MAX_SCALE: f64 = 8.0;
+/// How far a picture may be pulled along one axis: a tenth to ten times
+/// its fitted extent, which covers every squash and every banner.
+pub(crate) const MIN_STRETCH: f64 = 0.1;
+pub(crate) const MAX_STRETCH: f64 = 10.0;
 const MAX_OFFSET: f64 = 3.0;
 /// How far apart two clips may sit and still count as touching, in seconds.
 const JOIN_EPSILON: f64 = 1e-6;
@@ -373,6 +377,12 @@ pub enum Command {
         /// New rotation in degrees, wrapped into (-180, 180] so a full drag
         /// never accumulates turns.
         rotation: Option<f64>,
+        /// New width multiplier beyond the scale, clamped into 0.1..=10.
+        #[serde(default)]
+        stretch_x: Option<f64>,
+        /// New height multiplier, on the same terms.
+        #[serde(default)]
+        stretch_y: Option<f64>,
     },
     /// Pulls a video clip's sound out into its own audio clip on a free
     /// lane (minting one if none is free), muting the video and moving its
@@ -589,6 +599,8 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         offset_x: 0.0,
         offset_y: 0.0,
         rotation: 0.0,
+        stretch_x: 1.0,
+        stretch_y: 1.0,
         opacity: 1.0,
         speed: 1.0,
         preserve_pitch: true,
@@ -930,6 +942,8 @@ pub fn apply(
                 offset_x: 0.0,
                 offset_y: offset_y.unwrap_or(0.0).clamp(-MAX_OFFSET, MAX_OFFSET),
                 rotation: 0.0,
+                stretch_x: 1.0,
+                stretch_y: 1.0,
                 opacity: 1.0,
                 speed: 1.0,
                 preserve_pitch: true,
@@ -994,6 +1008,8 @@ pub fn apply(
                 offset_x: 0.0,
                 offset_y: 0.0,
                 rotation: 0.0,
+                stretch_x: 1.0,
+                stretch_y: 1.0,
                 opacity: 1.0,
                 speed: 1.0,
                 preserve_pitch: true,
@@ -1318,6 +1334,8 @@ pub fn apply(
             offset_x,
             offset_y,
             rotation,
+            stretch_x,
+            stretch_y,
         } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
@@ -1338,6 +1356,12 @@ pub fn apply(
                 let wrapped = ((rotation % 360.0) + 540.0) % 360.0 - 180.0;
                 let next = if wrapped == -180.0 { 180.0 } else { wrapped };
                 applied |= assign(&mut clip.rotation, next);
+            }
+            if let Some(stretch) = stretch_x {
+                applied |= assign(&mut clip.stretch_x, stretch.clamp(MIN_STRETCH, MAX_STRETCH));
+            }
+            if let Some(stretch) = stretch_y {
+                applied |= assign(&mut clip.stretch_y, stretch.clamp(MIN_STRETCH, MAX_STRETCH));
             }
             Ok(Outcome {
                 created_id: None,

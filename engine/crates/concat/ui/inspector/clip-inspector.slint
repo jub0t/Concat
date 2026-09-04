@@ -359,6 +359,8 @@ export component VideoPanel inherits VerticalLayout {
     property <float> offset-x;
     property <float> offset-y;
     property <float> rotation;
+    property <float> stretch-x;
+    property <float> stretch-y;
     property <float> alpha;
     property <float> crop-left;
     property <float> crop-top;
@@ -370,6 +372,8 @@ export component VideoPanel inherits VerticalLayout {
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
         root.rotation = root.selected.rotation;
+        root.stretch-x = root.selected.stretch-x;
+        root.stretch-y = root.selected.stretch-y;
         root.alpha = root.selected.opacity;
         root.crop-left = root.selected.crop-left;
         root.crop-top = root.selected.crop-top;
@@ -402,7 +406,9 @@ export component VideoPanel inherits VerticalLayout {
         if root.transform-help: Note {
             text: "Scale and position are fractions of the output frame, so a"
                 + " clip keeps its framing if the project is re-sized. The"
-                + " same numbers move with the box on the monitor.";
+                + " same numbers move with the box on the monitor. Width and"
+                + " height pull one axis beyond the scale; the edge grips on"
+                + " the monitor do the same.";
         }
 
         Param {
@@ -444,6 +450,26 @@ export component VideoPanel inherits VerticalLayout {
             default-value: 0;
             fmt: ParamFormat.degrees;
             changed(v) => { root.set(ClipField.rotation, v); root.commit(); }
+        }
+        Param {
+            label: "Width";
+            value <=> root.stretch-x;
+            minimum: 0.1;
+            maximum: 4;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.stretch-x, v); root.commit(); }
+        }
+        Param {
+            label: "Height";
+            value <=> root.stretch-y;
+            minimum: 0.1;
+            maximum: 4;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            changed(v) => { root.set(ClipField.stretch-y, v); root.commit(); }
         }
 
         }

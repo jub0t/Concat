@@ -811,13 +811,15 @@ impl WgpuCompositor {
         let centre_x = layer.x as f32 + width / 2.0 + placement.translate_x;
         let centre_y = layer.y as f32 + height / 2.0 + placement.translate_y;
         let (sin, cos) = placement.rotation.sin_cos();
-        let scale = placement.scale.max(1e-6);
+        let scale_x = (placement.scale * placement.stretch_x).max(1e-6);
+        let scale_y = (placement.scale * placement.stretch_y).max(1e-6);
 
         let corner = |sx: f32, sy: f32, u: f32, v: f32| {
-            // Source-space offset from centre, scaled, then rotated clockwise
-            // in y-down coordinates - the forward form of the CPU inverse map.
-            let dx = sx * width / 2.0 * scale;
-            let dy = sy * height / 2.0 * scale;
+            // Source-space offset from centre, scaled per axis, then rotated
+            // clockwise in y-down coordinates - the forward form of the CPU
+            // inverse map.
+            let dx = sx * width / 2.0 * scale_x;
+            let dy = sy * height / 2.0 * scale_y;
             let px = centre_x + dx * cos - dy * sin;
             let py = centre_y + dx * sin + dy * cos;
             Vertex {

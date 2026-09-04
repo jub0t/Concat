@@ -28,6 +28,10 @@ pub struct Placement {
     pub translate_x: f32,
     /// Vertical offset of the layer's centre from its base position, pixels.
     pub translate_y: f32,
+    /// A multiplier on the width beyond `scale`; 1 keeps the aspect.
+    pub stretch_x: f32,
+    /// The same for the height.
+    pub stretch_y: f32,
 }
 
 impl Placement {
@@ -37,6 +41,8 @@ impl Placement {
         rotation: 0.0,
         translate_x: 0.0,
         translate_y: 0.0,
+        stretch_x: 1.0,
+        stretch_y: 1.0,
     };
 
     /// True when applying this placement would change nothing.
@@ -205,7 +211,9 @@ fn mix(blend: Blend, over: f32, under: f32, alpha: f32) -> f32 {
 fn blend_transformed(output: &mut Frame, layer: &Layer<'_>, opacity: f32) {
     let source = layer.frame;
     let placement = layer.placement;
-    let scale = placement.scale.max(1e-6);
+    // One factor per axis: the scale, and the stretch that axis carries.
+    let scale_x = (placement.scale * placement.stretch_x).max(1e-6);
+    let scale_y = (placement.scale * placement.stretch_y).max(1e-6);
     let (sin, cos) = placement.rotation.sin_cos();
 
     let src_w = source.width() as f32;
@@ -215,8 +223,8 @@ fn blend_transformed(output: &mut Frame, layer: &Layer<'_>, opacity: f32) {
     let centre_y = layer.y as f32 + src_h / 2.0 + placement.translate_y;
 
     // Bounding box of the transformed rectangle, clamped to the output.
-    let half_w = src_w * scale / 2.0;
-    let half_h = src_h * scale / 2.0;
+    let half_w = src_w * scale_x / 2.0;
+    let half_h = src_h * scale_y / 2.0;
     let reach_x = (half_w * cos.abs()) + (half_h * sin.abs());
     let reach_y = (half_w * sin.abs()) + (half_h * cos.abs());
 
@@ -239,8 +247,8 @@ fn blend_transformed(output: &mut Frame, layer: &Layer<'_>, opacity: f32) {
             // untranslate, unrotate, unscale, then re-origin at the corner.
             let dx = (x as f32 + 0.5) - centre_x;
             let dy = (y as f32 + 0.5) - centre_y;
-            let sx = (dx * cos + dy * sin) / scale + src_w / 2.0 - 0.5;
-            let sy = (-dx * sin + dy * cos) / scale + src_h / 2.0 - 0.5;
+            let sx = (dx * cos + dy * sin) / scale_x + src_w / 2.0 - 0.5;
+            let sy = (-dx * sin + dy * cos) / scale_y + src_h / 2.0 - 0.5;
 
             if sx < -0.5 || sy < -0.5 || sx > src_w - 0.5 || sy > src_h - 0.5 {
                 continue;
