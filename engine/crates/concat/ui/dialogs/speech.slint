@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+
+// Text to speech: what the tray's Speak tool and File › Text to speech open.
+//
+// A text box, a voice and a button is enough to send a job and not enough to
+// get the read you wanted, so the three things that change a read are on the
+// surface: which voice, which model, and the pace. Opened from a title the
+// script is the title's words; opened from the menu it is whatever you type.
+// While it runs the sheet is the progress report, with a clock beside it.
+
+export struct SpeechSheetData {
+    open: bool,
+    text: string,
+    /// Row in the voice list.
+    voice: int,
+    /// Row in the installed voice model list.
+    model: int,
+    /// 0 Slower, 1 Natural, 2 Faster
+    pace: int,
+    running: bool,
+    /// 0..1, as sentences complete.
+    progress: float,
+    /// A voice model is installed.
+    ready: bool,
+    /// Where the sound will land, for the header's note.
+    placement: string,
+    /// "About 0:12 in Heart", or what stops it being read.
+    estimate: string,
+    /// Why the last run failed, when it did.
+    message: string,
+}
+
+export component SpeechDialog inherits Modal {
+    in property <SpeechSheetData> data;
+    in property <[string]> models;
+    in property <[string]> voices;
+    /// "American · female", beside each voice.
+    in property <[string]> voice-details;
+
+    callback text-edited(text: string);
+    callback voice-changed(index: int);
+    callback model-changed(index: int);
+    callback pace-changed(index: int);
+    callback begin();
+    callback cancel();
+
+    open: root.data.open;
+    title: "Text to speech";
+    glyph: Glyph.volume;
+    surface-width: 520px;
+    dismissable: !root.data.running;
+    note: root.data.placement;
+
+    // The script being typed, held apart from `data.text` the way the Field
+    // primitive holds its draft: a TextInput's binding is dropped on the
+    // first keystroke, so the sheet re-seeds it when it opens and never
+    // while it is being typed into.
+    property <string> draft;
+    property <bool> running: root.data.running;
+    /// The script has the caret. Kept up here because the box lives under
+    /// an `if`, and nothing outside one can reach into it.
+    property <bool> typing;
+    changed data => {
+        if (!root.typing) {
+            root.draft = root.data.text;
+        }
+    }
+    init => { root.draft = root.data.text; }
+
+    /// Seconds since the run began; the reference beside the bar.
+    property <int> elapsed;
+    changed running => { root.elapsed = 0; }
+    Timer {
+        interval: 1s;
+        running: root.running;
+        triggered => { root.elapsed += 1; }
+    }
+
+    VerticalLayout {
+        if !root.running: DialogSection {
+            first: true;
+            title: "Script";
+
+            Rectangle {
+                height: 104px;
+                border-radius: Theme.r;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: script.has-focus ? Theme.accent : Theme.line;
+                clip: true;
+
+                script := TextInput {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: parent.height - 16px;
+                    text <=> root.draft;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    single-line: false;
+                    wrap: word-wrap;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+                    changed has-focus => { root.typing = self.has-focus; }
+                    edited => { root.text-edited(self.text); }
+                }
+
+                if root.draft == "" && !script.has-focus: Text {
+                    x: 10px;
+                    y: 8px;
+                    text: "Type the narration to read aloud…";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-lg;
+                }
+            }
+
+            Text {
+                text: root.data.estimate;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+            }
+        }
+
+        if !root.running: DialogSection {
+            title: "Voice";
+
+            DialogRow {
+                label: "Voice";
+                Select {
+                    options: root.voices;
+                    details: root.voice-details;
+                    current: root.data.voice;
+                    changed(index) => { root.voice-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Model";
+                Select {
+                    options: root.models;
+                    current: root.data.model;
+                    placeholder: "None installed";
+                    enabled: root.models.length > 0;
+                    changed(index) => { root.model-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Pace";
+                SegmentedControl {
+                    options: ["Slower", "Natural", "Faster"];
+                    current: root.data.pace;
+                    changed(index) => { root.pace-changed(index); }
+                }
+            }
+
+            if !root.data.ready: Text {
+                text: "Download a voice model in Settings › Speech first.";
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+
+            if root.data.message != "": Rectangle {
+                border-radius: Theme.r;
+                background: Theme.danger-soft;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: start;
+                        Icon { glyph: Glyph.close; size: 13px; tint: Theme.danger; }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.message;
+                        color: Theme.danger;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.running: HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Generating voice";
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "\{Math.round(root.data.progress * 100)}%";
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "\{Math.floor(root.elapsed / 60)}:"
+                        + (Math.mod(root.elapsed, 60) < 10 ? "0" : "")
+                        + "\{Math.mod(root.elapsed, 60)}";
+                    color: Theme.fg-dim;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.running: Progress { value: root.data.progress; }
+
+            if root.running: HorizontalLayout {
+                alignment: start;
+                Button {
+                    label: "Cancel";
+                    glyph: Glyph.close;
+                    ghost: true;
+                    clicked => { root.cancel(); }
+                }
+            }
+
+            if !root.running: Button {
+                block: true;
+                primary: true;
+                large: true;
+                glyph: Glyph.volume;
+                label: "Generate speech";
+                enabled: root.data.ready && root.data.text != "";
+                clicked => { root.begin(); }
+            }
+        }
+    }
+}

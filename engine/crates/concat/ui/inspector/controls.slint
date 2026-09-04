@@ -143,6 +143,12 @@ export global InspectorSearch {
 }
 
 // Horizontal fader. Click to jump, drag to ride, double-click to reset.
+//
+// A sunken track the height of a field, filled from the left in the soft
+// accent up to a bar in the full one. The fill is what reads at a glance -
+// how much of the range is dialled in - and the bar, not a bead, is what
+// lands on a value: flat edges have a precision a circle never has, and at
+// zero the bar still sits inside the track rather than hanging off its end.
 export component Fader inherits Rectangle {
     in-out property <float> value;
     in property <float> minimum: 0;
@@ -154,12 +160,18 @@ export component Fader inherits Rectangle {
 
     callback changed(value: float);
 
-    height: 18px;
+    height: Theme.h;
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: (touch.has-hover && root.enabled) ? Theme.line-strong : Theme.line;
+    background: Theme.well;
     opacity: root.enabled ? 1.0 : 0.45;
 
+    animate border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
     property <float> span: Math.max(root.maximum - root.minimum, 0.000001);
-    // The rail is inset so the cap lands under the pointer at both ends
-    // instead of a few px short of them.
+    // The rail is inset by the border and two pixels, so the bar lands under
+    // the pointer at both ends instead of a few px short of them.
     property <length> inset: 3px;
     property <length> usable: Math.max(1px, root.width - 2 * root.inset);
     property <float> percent: Fmt.clamp((root.value - root.minimum) / root.span, 0, 1);
@@ -194,33 +206,25 @@ export component Fader inherits Rectangle {
         }
     }
 
-    rail := Rectangle {
+    fill := Rectangle {
         x: root.inset;
-        y: (parent.height - self.height) / 2;
-        width: root.usable;
-        height: 4px;
-        border-radius: 2px;
-        background: Theme.field-active;
-
-        Rectangle {
-            x: 0;
-            y: 0;
-            width: parent.width * root.percent;
-            height: parent.height;
-            border-radius: 2px;
-            background: Theme.accent;
-        }
+        y: root.inset;
+        width: root.usable * root.percent;
+        height: parent.height - 2 * root.inset;
+        border-radius: Theme.r-xs;
+        background: Theme.accent-soft;
     }
 
     cap := Rectangle {
         x: root.inset + root.usable * root.percent - self.width * root.percent;
-        y: (parent.height - self.height) / 2;
-        width: 10px;
-        height: 14px;
-        border-radius: 3px;
-        background: Theme.fg;
-        border-width: 1px;
-        border-color: Theme.line-strong;
+        y: root.inset;
+        width: 3px;
+        height: parent.height - 2 * root.inset;
+        border-radius: 2px;
+        background: (touch.has-hover || touch.pressed) && root.enabled
+            ? Theme.accent-hover : Theme.accent;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
     }
 }
 

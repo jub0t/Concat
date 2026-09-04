@@ -97,7 +97,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
-        editor.set_av_items(ModelRc::from(models.av.clone()));
+        app.set_caption_models(ModelRc::from(models.caption_models.clone()));
+        app.set_speech_models(ModelRc::from(models.speech_models.clone()));
+        app.set_speech_voices(ModelRc::from(models.speakers.clone()));
+        app.set_speech_voice_details(ModelRc::from(models.speaker_details.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
         app.set_voices(ModelRc::from(models.voices.clone()));
@@ -823,25 +826,66 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.model_remove(id.as_str());
     }));
 
-    // ── the tray's A/V menu ──
-    editor.on_av_tools(on_window!(|state| {
-        state.av_token += 1;
+    // ── the tray's sound and word tools ──
+    editor.on_captions(on_window!(|state| {
+        state.captions_open();
     }));
-    editor.on_av_selected(on_window!(|state, action: SharedString| {
-        let Some(id) = state.selection.first().cloned() else {
-            return;
-        };
-        match action.as_str() {
-            "captions" => state.caption_selected(),
-            "speak" => state.speak_selected(),
-            "detach" => {
-                state.apply(concat_project::Command::DetachAudio { clip_id: id });
-            }
-            "reattach" => {
-                state.apply(concat_project::Command::ReattachAudio { clip_id: id });
-            }
-            _ => {}
+    editor.on_speak(on_window!(|state| {
+        state.speech_open();
+    }));
+    editor.on_detach_audio(on_window!(|state| {
+        if let Some(clip_id) = state.sole_selection() {
+            state.apply(concat_project::Command::DetachAudio { clip_id });
         }
+    }));
+    editor.on_reattach_audio(on_window!(|state| {
+        if let Some(clip_id) = state.sole_selection() {
+            state.apply(concat_project::Command::ReattachAudio { clip_id });
+        }
+    }));
+
+    app.on_captions_closed(on_window!(|state| {
+        state.captions.open = false;
+    }));
+    app.on_captions_language_changed(on_window!(|state, index: i32| {
+        state.captions.language = index.clamp(0, studio::TRANSCRIBE_LANGUAGES.len() as i32 - 1);
+    }));
+    app.on_captions_model_changed(on_window!(|state, index: i32| {
+        state.captions.model = index.max(0) as usize;
+    }));
+    app.on_captions_placement_changed(on_window!(|state, index: i32| {
+        state.captions.placement = (index.max(0) as usize).min(2);
+    }));
+    app.on_captions_size_changed(on_window!(|state, index: i32| {
+        state.captions.size = (index.max(0) as usize).min(2);
+    }));
+    app.on_captions_begin(on_window!(|state| {
+        state.captions_run();
+    }));
+    app.on_captions_cancel(on_window!(|state| {
+        state.captions_cancel();
+    }));
+
+    app.on_speech_closed(on_window!(|state| {
+        state.speech.open = false;
+    }));
+    app.on_speech_text_edited(on_window!(|state, text: SharedString| {
+        state.speech.text = text.to_string();
+    }));
+    app.on_speech_voice_changed(on_window!(|state, index: i32| {
+        state.speech.voice = index.max(0) as usize;
+    }));
+    app.on_speech_model_changed(on_window!(|state, index: i32| {
+        state.speech.model = index.max(0) as usize;
+    }));
+    app.on_speech_pace_changed(on_window!(|state, index: i32| {
+        state.speech.pace = (index.max(0) as usize).min(2);
+    }));
+    app.on_speech_begin(on_window!(|state| {
+        state.speech_run();
+    }));
+    app.on_speech_cancel(on_window!(|state| {
+        state.speech_cancel();
     }));
 
     // ── the title-bar menus ──
@@ -868,7 +912,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             state.export.message.clear();
                         }
                         "template" => state.save_template(),
-                        "speech" => state.speak_selected(),
+                        "speech" => state.speech_open(),
                         "settings" => {
                             state.refresh_models();
                             state.settings.open = true;

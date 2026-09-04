@@ -86,11 +86,19 @@ export component SectionHeader inherits Rectangle {
     in-out property <bool> open: true;
 
     height: 36px;
+    // A step up from the panel, so a column of sections reads as a stack of
+    // labelled drawers rather than one long form - the same lift a dialog's
+    // collapsible group has, and the same answer to the pointer when the
+    // header is one that opens.
+    background: root.collapsible && head.has-hover ? Theme.field : Theme.raised;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
     // Sits below the row so action buttons, added later in the tree, stay on
     // top of it; the title Text itself takes no pointer events.
-    if root.collapsible: TouchArea {
-        mouse-cursor: pointer;
+    head := TouchArea {
+        enabled: root.collapsible;
+        mouse-cursor: root.collapsible ? pointer : default;
         clicked => {
             root.open = !root.open;
         }

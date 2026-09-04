@@ -5,7 +5,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Pane } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
-import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
+import { MenuItemData } from "../primitives/context-menu.slint";
 import { HairlineSplitter } from "splitter.slint";
 import { ThinScrollbar } from "../primitives/scrollbar.slint";
 import {
@@ -38,31 +38,20 @@ export component TimelinePane inherits Rectangle {
     in property <bool> snap: true;
     in property <int> selected-count;
     in property <string> merge-blocked-because;
-    in property <bool> has-av-tools;
+    in property <bool> can-caption;
+    in property <bool> can-speak;
+    in property <bool> can-detach;
+    in property <bool> can-reattach;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
     callback split();
     callback merge();
     callback delete-selected();
-    callback av-tools();
-
-    in property <[MenuItemData]> av-items;
-    in property <length> av-height;
-    in property <int> av-token;
-
-    /// The token, but only for the pane that asked — see the same pair in
-    /// lanes.slint. Two timeline seats share one token, and a bump on it
-    /// would open a menu in both.
-    property <bool> asked-av;
-    property <int> own-av-token;
-    changed av-token => {
-        if (root.asked-av) {
-            root.asked-av = false;
-            root.own-av-token = root.av-token;
-        }
-    }
-    callback av-selected(id: string);
+    callback captions();
+    callback speak();
+    callback detach();
+    callback reattach();
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
@@ -191,7 +180,10 @@ export component TimelinePane inherits Rectangle {
             snap: root.snap;
             selected-count: root.selected-count;
             merge-blocked-because: root.merge-blocked-because;
-            has-av-tools: root.has-av-tools;
+            can-caption: root.can-caption;
+            can-speak: root.can-speak;
+            can-detach: root.can-detach;
+            can-reattach: root.can-reattach;
             readout: Fmt.frames-timecode(root.playhead, root.frame-rate);
 
             tool-changed(tool) => { root.tool-changed(tool); }
@@ -199,15 +191,10 @@ export component TimelinePane inherits Rectangle {
             split => { root.split(); }
             merge => { root.merge(); }
             delete-selected => { root.delete-selected(); }
-            av-tools(at-x) => {
-                root.asked-av = true;
-                av.request-x = at-x;
-                // Just under the tray: the menu's own origin is the top of
-                // the lane grid, so a couple of pixels is all the air it
-                // needs to clear the button it hangs from.
-                av.request-y = 2px;
-                root.av-tools();
-            }
+            captions => { root.captions(); }
+            speak => { root.speak(); }
+            detach => { root.detach(); }
+            reattach => { root.reattach(); }
             add-track => { root.add-track(); }
             fit => { root.zoom-to-fit(lanes.width); }
             // No anchor from a button: a wheel zooms about the pointer and a
@@ -223,22 +210,6 @@ export component TimelinePane inherits Rectangle {
         Rectangle {
             vertical-stretch: 1;
             clip: true;
-
-            // Inside the grid rather than beside it: a Pane lays its children
-            // out and a layout owns their y, so a menu placed as a sibling of
-            // the tabs and the tray cannot position itself. Here the origin is
-            // the top of the lanes, which is where the tray's button points
-            // anyway. The popup escapes this element's clip on its own.
-            av := ContextMenu {
-                x: 0;
-                y: 0;
-                width: parent.width;
-                height: parent.height;
-                items: root.av-items;
-                menu-height: root.av-height;
-                token: root.own-av-token;
-                selected(id) => { root.av-selected(id); }
-            }
 
             TrackHeaders {
                 x: 0;

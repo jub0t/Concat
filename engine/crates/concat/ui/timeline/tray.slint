@@ -4,22 +4,93 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
+import { Tip } from "../primitives/tooltip.slint";
 import { TimelineTool } from "model.slint";
 
 // The timeline's tool tray.
 //
-// The tool set: pointer and razor, then the three edit actions, then snapping
-// and the A/V tools, then add-track, and the view controls pushed to the far
-// end behind the timecode readout. The metrics: 40px tall, 4px between
-// buttons, an 18px hairline with 4px of air on each side between groups.
-// Tight, without crowding a 26px button.
+// The tool set: pointer and razor, then the three edit actions, then
+// snapping, then the tools a clip's sound and words need - captions, a
+// spoken title, detaching the sound - then add-track, and the view controls
+// pushed to the far end behind the timecode readout. The metrics: 40px
+// tall, 4px between buttons, an 18px hairline with 4px of air on each side
+// between groups. Tight, without crowding a 26px button.
 //
-// Two decisions worth naming. A disabled Merge carries the reason it is
-// blocked, because a button that greys out without saying why leaves you
-// guessing at the rule: `merge-blocked-because` is accepted and becomes the
-// button's label, which is its accessible name and where a tooltip reads
-// from. And the A/V tools button only reports a press; the popup is the
-// caller's to grow.
+// The sound and word tools carry their names on the bar. They used to hang
+// off one menu button, and a menu is where a tool goes to not be found:
+// nobody looking for captions opens a waveform icon. Greyed rather than
+// absent when the selection cannot use them, because a greyed button with
+// a tip answers "why not" and an absent one only asks it.
+//
+// A disabled Merge carries the reason it is blocked, because a button that
+// greys out without saying why leaves you guessing at the rule:
+// `merge-blocked-because` is accepted and becomes the button's label, which
+// is its accessible name and where a tooltip reads from.
+
+// A tool with its name beside its mark: the same chip an IconButton is,
+// wide enough for a word.
+component TrayTool inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <string> caption;
+    /// what the tip says; the reason, when the tool is greyed
+    in property <string> label;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+    property <brush> tint: root.lit ? Theme.fg : Theme.fg-muted;
+
+    width: text.preferred-width + 35px;
+    min-height: 26px;
+
+    chip := Rectangle {
+        y: (root.height - self.height) / 2;
+        width: root.width;
+        height: 26px;
+        border-radius: Theme.r-sm;
+        opacity: root.enabled ? 1.0 : 0.4;
+        background: !root.enabled ? Colors.transparent
+            : touch.pressed ? Theme.field-active
+            : touch.has-hover ? Theme.field
+            : Colors.transparent;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 9px;
+            spacing: 5px;
+
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: root.glyph;
+                    size: 14px;
+                    tint: root.tint;
+                }
+            }
+
+            text := Text {
+                text: root.caption;
+                color: root.tint;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+            }
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: pointer;
+            clicked => { root.clicked(); }
+        }
+
+        Tip {
+            text: root.label;
+            active: touch.has-hover;
+        }
+    }
+}
 
 component Divider inherits Rectangle {
     width: 9px;
@@ -39,8 +110,12 @@ export component TimelineTray inherits Rectangle {
     in property <int> selected-count;
     /// Empty when the selection can be merged; otherwise why it cannot.
     in property <string> merge-blocked-because;
-    /// The selected clip has sound to detach or words to speak.
-    in property <bool> has-av-tools;
+    /// What the selection can have done to its sound and its words. Each
+    /// is one clip's worth of truth, decided by Rust; see the Editor global.
+    in property <bool> can-caption;
+    in property <bool> can-speak;
+    in property <bool> can-detach;
+    in property <bool> can-reattach;
     /// hh:mm:ss:ff at the playhead, formatted by the caller
     in property <string> readout;
 
@@ -49,7 +124,10 @@ export component TimelineTray inherits Rectangle {
     callback split();
     callback merge();
     callback delete-selected();
-    callback av-tools(at-x: length);
+    callback captions();
+    callback speak();
+    callback detach();
+    callback reattach();
     callback add-track();
     callback fit();
     callback zoom(factor: float);
@@ -74,7 +152,7 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.pointer;
-            label: "Select (V)";
+            label: "Select (A or V)";
             icon-size: 16px;
             checked: root.tool == TimelineTool.select;
             clicked => { root.tool-changed(TimelineTool.select); }
@@ -91,7 +169,7 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.split;
-            label: "Split at playhead (S)";
+            label: "Split at playhead (S, or ⌘B for every clip)";
             icon-size: 16px;
             clicked => { root.split(); }
         }
@@ -138,24 +216,38 @@ export component TimelineTray inherits Rectangle {
             clicked => { root.snap-changed(!root.snap); }
         }
 
-        // Only while the selected clip has tools to offer — sound to detach or
-        // transcribe, or a title's words to speak. A menu of grey rows teaches
-        // nothing, so the button is absent rather than disabled.
-        if root.has-av-tools: HorizontalLayout {
-            spacing: 0px;
-            Divider { }
-            av := IconButton {
-                glyph: Glyph.waveform;
-                label: "Audio and video tools";
-                icon-size: 16px;
-                wide: true;
-                // Reported in the tray's own coordinates: the button slides
-                // along the bar as the selection count and the merge reason
-                // come and go, and a menu pinned to a guess would drift off it.
-                clicked => {
-                    root.av-tools(av.absolute-position.x - root.absolute-position.x);
-                }
-            }
+        Divider { }
+
+        TrayTool {
+            glyph: Glyph.text-mark;
+            caption: "Captions";
+            label: root.can-caption ? "Auto captions from this clip's sound"
+                : "Select one clip with sound to caption it";
+            enabled: root.can-caption;
+            clicked => { root.captions(); }
+        }
+        TrayTool {
+            glyph: Glyph.volume;
+            caption: "Speak";
+            label: root.can-speak ? "Read this title aloud"
+                : "Select a title to read it aloud";
+            enabled: root.can-speak;
+            clicked => { root.speak(); }
+        }
+        // One slot, two verbs: the sound is either on its picture or off it.
+        if !root.can-reattach: TrayTool {
+            glyph: Glyph.waveform;
+            caption: "Detach audio";
+            label: root.can-detach ? "Put this clip's sound on its own lane"
+                : "Select one video clip to detach its sound";
+            enabled: root.can-detach;
+            clicked => { root.detach(); }
+        }
+        if root.can-reattach: TrayTool {
+            glyph: Glyph.merge;
+            caption: "Reattach";
+            label: "Put the detached sound back on its picture";
+            clicked => { root.reattach(); }
         }
 
         Divider { }

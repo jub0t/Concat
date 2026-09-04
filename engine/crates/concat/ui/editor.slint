@@ -186,7 +186,13 @@ export global Editor {
     in-out property <bool> snap;
     in-out property <int> selected-count;
     in-out property <string> merge-blocked-because;
-    in-out property <bool> has-av-tools;
+    /// What the tray's sound and word tools may do to the selection: one
+    /// clip with sound to caption, one title to speak, one video clip whose
+    /// sound is on it to detach, or whose sound is off it to put back.
+    in-out property <bool> can-caption;
+    in-out property <bool> can-speak;
+    in-out property <bool> can-detach;
+    in-out property <bool> can-reattach;
     in-out property <float> playhead;
     in-out property <float> frame-rate;
     in-out property <float> scroll-left;
@@ -201,11 +207,12 @@ export global Editor {
     callback split();
     callback merge();
     callback delete-selected();
-    callback av-tools();
-    in-out property <[MenuItemData]> av-items;
-    in-out property <length> av-height;
-    in-out property <int> av-token;
-    callback av-selected(id: string);
+    /// The tray's tools for a clip's sound and words. The first two open a
+    /// sheet; the last two are the edit itself.
+    callback captions();
+    callback speak();
+    callback detach-audio();
+    callback reattach-audio();
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);

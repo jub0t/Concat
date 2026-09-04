@@ -24,6 +24,8 @@ import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slin
 import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
+import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
+import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
@@ -52,6 +54,7 @@ export {
     StageGuideData, StageItemData, TextAlignment, TimelineTabData, TimelineTool,
     TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
+    CaptionsSheetData, SpeechSheetData,
 }
 
 export component App inherits Window {
@@ -162,6 +165,31 @@ export component App inherits Window {
     callback project-size-changed(index: int);
     callback project-rate-changed(index: int);
     callback project-apply();
+
+    /// The two speech sheets: captions from a clip's sound, and a title's
+    /// words - or any words - read aloud. Their option lists come from what
+    /// is installed, so they are handed over as models.
+    in property <CaptionsSheetData> captions;
+    in property <[string]> caption-models;
+    callback captions-closed();
+    callback captions-language-changed(index: int);
+    callback captions-model-changed(index: int);
+    callback captions-placement-changed(index: int);
+    callback captions-size-changed(index: int);
+    callback captions-begin();
+    callback captions-cancel();
+
+    in property <SpeechSheetData> speech;
+    in property <[string]> speech-models;
+    in property <[string]> speech-voices;
+    in property <[string]> speech-voice-details;
+    callback speech-closed();
+    callback speech-text-edited(text: string);
+    callback speech-voice-changed(index: int);
+    callback speech-model-changed(index: int);
+    callback speech-pace-changed(index: int);
+    callback speech-begin();
+    callback speech-cancel();
 
     /// Takes focus back from whatever field holds it. The keyboard scope is
     /// where focus rests when nothing is being typed into, so giving it the
@@ -415,6 +443,42 @@ export component App inherits Window {
         size-changed(index) => { root.project-size-changed(index); }
         rate-changed(index) => { root.project-rate-changed(index); }
         apply => { root.project-apply(); }
+    }
+
+    CaptionsDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.captions;
+        models: root.caption-models;
+
+        closed => { root.captions-closed(); }
+        language-changed(index) => { root.captions-language-changed(index); }
+        model-changed(index) => { root.captions-model-changed(index); }
+        placement-changed(index) => { root.captions-placement-changed(index); }
+        size-changed(index) => { root.captions-size-changed(index); }
+        begin => { root.captions-begin(); }
+        cancel => { root.captions-cancel(); }
+    }
+
+    SpeechDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.speech;
+        models: root.speech-models;
+        voices: root.speech-voices;
+        voice-details: root.speech-voice-details;
+
+        closed => { root.speech-closed(); }
+        text-edited(text) => { root.speech-text-edited(text); }
+        voice-changed(index) => { root.speech-voice-changed(index); }
+        model-changed(index) => { root.speech-model-changed(index); }
+        pace-changed(index) => { root.speech-pace-changed(index); }
+        begin => { root.speech-begin(); }
+        cancel => { root.speech-cancel(); }
     }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to

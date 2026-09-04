@@ -277,7 +277,10 @@ export component Seat inherits Rectangle {
             snap: Editor.snap;
             selected-count: Editor.selected-count;
             merge-blocked-because: Editor.merge-blocked-because;
-            has-av-tools: Editor.has-av-tools;
+            can-caption: Editor.can-caption;
+            can-speak: Editor.can-speak;
+            can-detach: Editor.can-detach;
+            can-reattach: Editor.can-reattach;
             playhead: Editor.playhead;
             frame-rate: Editor.frame-rate;
             scroll-left: Editor.scroll-left;
@@ -293,11 +296,10 @@ export component Seat inherits Rectangle {
             split => { Editor.split(); }
             merge => { Editor.merge(); }
             delete-selected => { Editor.delete-selected(); }
-            av-tools => { Editor.av-tools(); }
-            av-items: Editor.av-items;
-            av-height: Editor.av-height;
-            av-token: Editor.av-token;
-            av-selected(id) => { Editor.av-selected(id); }
+            captions => { Editor.captions(); }
+            speak => { Editor.speak(); }
+            detach => { Editor.detach-audio(); }
+            reattach => { Editor.reattach-audio(); }
             add-track => { Editor.add-track(); }
             zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }

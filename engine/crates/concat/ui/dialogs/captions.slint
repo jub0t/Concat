@@ -1,0 +1,196 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
+
+// Auto captions: what the tray's Captions tool opens.
+//
+// The choices a caption pass turns on - which language the speech is in,
+// which model listens, where the lines sit and how big they are - then one
+// button. While it runs the sheet is the progress report: a transcription
+// knows how far through the sound it is, so it gets a real bar and not a
+// sweep.
+
+export struct CaptionsSheetData {
+    open: bool,
+    /// The clip being transcribed, for the header's note.
+    clip: string,
+    /// 0 Auto, 1 English, 2 Chinese - the transcriber's own list.
+    language: int,
+    /// Row in the installed transcriber list.
+    model: int,
+    /// 0 Bottom, 1 Centre, 2 Top
+    placement: int,
+    /// 0 Small, 1 Medium, 2 Large
+    size: int,
+    running: bool,
+    /// 0..1
+    progress: float,
+    /// A transcriber model is installed.
+    ready: bool,
+    /// Why the last run failed, when it did.
+    message: string,
+}
+
+export component CaptionsDialog inherits Modal {
+    in property <CaptionsSheetData> data;
+    /// The installed transcriber models, by name.
+    in property <[string]> models;
+
+    callback language-changed(index: int);
+    callback model-changed(index: int);
+    callback placement-changed(index: int);
+    callback size-changed(index: int);
+    callback begin();
+    callback cancel();
+
+    open: root.data.open;
+    title: "Auto captions";
+    glyph: Glyph.text-mark;
+    surface-width: 460px;
+    dismissable: !root.data.running;
+    note: root.data.clip;
+
+    VerticalLayout {
+        if !root.data.running: DialogSection {
+            first: true;
+            title: "Transcriber";
+
+            DialogRow {
+                label: "Language";
+                SegmentedControl {
+                    options: ["Auto", "English", "Chinese"];
+                    current: root.data.language;
+                    changed(index) => { root.language-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Model";
+                Select {
+                    options: root.models;
+                    current: root.data.model;
+                    placeholder: "None installed";
+                    enabled: root.models.length > 0;
+                    changed(index) => { root.model-changed(index); }
+                }
+            }
+
+            if !root.data.ready: Text {
+                text: "Download a transcriber model in Settings › Transcriber first.";
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        if !root.data.running: DialogSection {
+            title: "Captions";
+
+            DialogRow {
+                label: "Placement";
+                SegmentedControl {
+                    options: ["Bottom", "Centre", "Top"];
+                    current: root.data.placement;
+                    changed(index) => { root.placement-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Size";
+                SegmentedControl {
+                    options: ["Small", "Medium", "Large"];
+                    current: root.data.size;
+                    changed(index) => { root.size-changed(index); }
+                }
+            }
+
+            Text {
+                text: "One title per phrase spoken, cut to the words' own timing,"
+                    + " on the first lane with room.";
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+
+            if root.data.message != "": Rectangle {
+                border-radius: Theme.r;
+                background: Theme.danger-soft;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: start;
+                        Icon { glyph: Glyph.close; size: 13px; tint: Theme.danger; }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.message;
+                        color: Theme.danger;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            if root.data.running: HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.data.progress < 0.02 ? "Loading the model" : "Transcribing";
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: "\{Math.round(root.data.progress * 100)}%";
+                    color: Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                }
+            }
+
+            if root.data.running: Progress { value: root.data.progress; }
+
+            if root.data.running: HorizontalLayout {
+                alignment: start;
+                Button {
+                    label: "Cancel";
+                    glyph: Glyph.close;
+                    ghost: true;
+                    clicked => { root.cancel(); }
+                }
+            }
+
+            if !root.data.running: Button {
+                block: true;
+                primary: true;
+                large: true;
+                glyph: Glyph.text-mark;
+                label: "Generate captions";
+                enabled: root.data.ready;
+                clicked => { root.begin(); }
+            }
+        }
+    }
+}

@@ -145,6 +145,56 @@ pub struct ProjectSheet {
     pub rate: usize,
 }
 
+/// The captions sheet: the tray's Captions tool, as a form and then as a
+/// progress report.
+#[derive(Default)]
+pub struct CaptionsSheet {
+    pub open: bool,
+    /// The clip being transcribed.
+    pub clip: Option<String>,
+    /// Row in `TRANSCRIBE_LANGUAGES`.
+    pub language: i32,
+    /// Row in the installed transcriber list.
+    pub model: usize,
+    /// 0 bottom, 1 centre, 2 top.
+    pub placement: usize,
+    /// 0 small, 1 medium, 2 large.
+    pub size: usize,
+    pub running: bool,
+    pub progress: f32,
+    /// Why the last run failed, when it did.
+    pub message: String,
+}
+
+/// The speech sheet: a title's words, or any words, read aloud.
+#[derive(Default)]
+pub struct SpeechSheet {
+    pub open: bool,
+    /// The title the words came from, and where the sound lands. None
+    /// reads a script of its own at the playhead.
+    pub clip: Option<String>,
+    pub text: String,
+    /// Row in `Studio::speakers`.
+    pub voice: usize,
+    /// Row in the installed voice model list.
+    pub model: usize,
+    /// 0 slower, 1 natural, 2 faster.
+    pub pace: usize,
+    pub running: bool,
+    pub progress: f32,
+    pub message: String,
+}
+
+/// The paces the speech sheet offers, as the voice's rate multiplier.
+const PACES: [f32; 3] = [0.85, 1.0, 1.15];
+/// Where a caption sits, by the sheet's row: a frame-height fraction from
+/// the centre, positive down. Bottom, centre, top.
+const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
+/// A caption's cap height by the sheet's row, as a fraction of the frame.
+const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
+/// A rough speaking rate, for the estimate under the script.
+const CHARS_PER_SECOND: f32 = 14.0;
+
 /// The export sheet's state.
 pub struct ExportState {
     pub open: bool,
@@ -411,8 +461,12 @@ pub struct Models {
     /// The colour panel's knobs.
     pub adjust_params: Rc<VecModel<AppliedParamData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
-    pub av: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
+    /// The sheets' option lists: what is installed, and who can speak.
+    pub caption_models: Rc<VecModel<SharedString>>,
+    pub speech_models: Rc<VecModel<SharedString>>,
+    pub speakers: Rc<VecModel<SharedString>>,
+    pub speaker_details: Rc<VecModel<SharedString>>,
     pub transcribers: Rc<VecModel<ModelData>>,
     pub voices: Rc<VecModel<ModelData>>,
     pub seats: Rc<VecModel<SeatBox>>,
@@ -443,8 +497,11 @@ impl Models {
             audio_params: Rc::new(VecModel::default()),
             adjust_params: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
-            av: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
+            caption_models: Rc::new(VecModel::default()),
+            speech_models: Rc::new(VecModel::default()),
+            speakers: Rc::new(VecModel::default()),
+            speaker_details: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
             voices: Rc::new(VecModel::default()),
             seats: Rc::new(VecModel::default()),
@@ -536,7 +593,6 @@ pub struct Studio {
     pub settings: SettingsState,
     pub transcribers: Vec<ModelState>,
     pub voices: Vec<ModelState>,
-    pub av_token: i32,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -572,6 +628,10 @@ pub struct Studio {
     pub title_blocks: HashMap<String, (u32, u32)>,
     pub drop: Option<DropPlan>,
     pub project_sheet: ProjectSheet,
+    pub captions: CaptionsSheet,
+    pub speech: SpeechSheet,
+    /// Every speaker the voice engine offers, in its own order.
+    pub speakers: Vec<concat_speech::tts::VoiceInfo>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -911,7 +971,6 @@ impl Studio {
             settings: SettingsState::default(),
             transcribers: Vec::new(),
             voices: Vec::new(),
-            av_token: 0,
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
@@ -933,6 +992,9 @@ impl Studio {
             title_blocks: HashMap::new(),
             drop: None,
             project_sheet: ProjectSheet::default(),
+            captions: CaptionsSheet::default(),
+            speech: SpeechSheet::default(),
+            speakers: Vec::new(),
             host,
         };
         studio.settings.language = studio.prefs.language.unwrap_or(0);
@@ -3127,15 +3189,26 @@ impl Studio {
         self.selection = vec![created];
     }
 
-    /// Sound to detach, or a title's words to speak - the tray only hangs
-    /// the A/V menu when the selection has something to offer it.
-    pub fn has_av_tools(&self) -> bool {
-        self.sole_selection()
-            .and_then(|id| {
-                self.clip(&id)
-                    .map(|clip| clip.kind != model::ClipKind::Image)
-            })
-            .unwrap_or(false)
+    /// What the tray's sound and word tools may do to the selection: one
+    /// clip with sound to caption, one title to speak, one video clip whose
+    /// sound is on it to detach, or whose sound is off it to put back.
+    fn sound_tools(&self) -> (bool, bool, bool, bool) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return (false, false, false, false);
+        };
+        let detached = self
+            .timeline()
+            .clips
+            .iter()
+            .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
+        let video = clip.kind == model::ClipKind::Video;
+        (
+            matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio),
+            clip.kind == model::ClipKind::Text,
+            video && !detached,
+            (video && detached)
+                || (clip.kind == model::ClipKind::Audio && clip.detached_from.is_some()),
+        )
     }
 
     // ── projects ──
@@ -3430,6 +3503,7 @@ impl Studio {
                 .collect();
         }
         if let Ok(status) = concat_speech::Speech::status(dirs) {
+            self.speakers = status.voices.clone();
             self.voices = status
                 .models
                 .iter()
@@ -3561,99 +3635,176 @@ impl Studio {
         self.refresh_models();
     }
 
-    fn language_code(&self) -> &'static str {
-        TRANSCRIBE_LANGUAGES
-            .get(self.settings.transcribe_language.max(0) as usize)
-            .copied()
-            .unwrap_or("auto")
+    /// The models of a kind that are on disk, in the settings' order: the
+    /// rows of a sheet's model list.
+    fn installed(models: &[ModelState]) -> Vec<&ModelState> {
+        models.iter().filter(|model| model.installed).collect()
     }
 
-    /// Auto captions for the selected clip: the transcription runs on a
-    /// worker and lands as one batch of title clips.
-    pub fn caption_selected(&mut self) {
+    /// Opens the captions sheet on the selected clip, with the settings'
+    /// language and the chosen model already picked.
+    pub fn captions_open(&mut self) {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let Some(clip) = self.clip(&id).cloned() else {
+        let installed = Self::installed(&self.transcribers);
+        let model = installed.iter().position(|model| model.active).unwrap_or(0);
+        self.captions = CaptionsSheet {
+            open: true,
+            clip: Some(id),
+            language: self.settings.transcribe_language,
+            model,
+            placement: 0,
+            size: 1,
+            ..CaptionsSheet::default()
+        };
+    }
+
+    /// Runs the pass the sheet describes. The transcription runs on a
+    /// worker, reports into the sheet as it goes, and lands as one batch of
+    /// title clips - one undo step - when it is done.
+    pub fn captions_run(&mut self) {
+        let Some(clip) = self
+            .captions
+            .clip
+            .as_ref()
+            .and_then(|id| self.clip(id))
+            .cloned()
+        else {
+            self.captions.message = "The clip is no longer on the timeline".to_owned();
             return;
         };
         let Some(media) = self.project().media_by_id(&clip.media_id).cloned() else {
-            self.notify("This clip has no file to transcribe", true);
+            self.captions.message = "This clip has no file to transcribe".to_owned();
             return;
         };
-        let Some(model) = self
-            .transcribers
-            .iter()
-            .find(|model| model.active && model.installed)
+        let Some(model) = Self::installed(&self.transcribers)
+            .get(self.captions.model)
+            .map(|model| model.id.clone())
         else {
-            self.notify(
-                "Download a transcriber model in Settings > Transcriber first",
-                true,
-            );
+            self.captions.message =
+                "Download a transcriber model in Settings › Transcriber first".to_owned();
             return;
         };
+        let language = TRANSCRIBE_LANGUAGES
+            .get(self.captions.language.max(0) as usize)
+            .copied()
+            .unwrap_or("auto");
+        let offset_y = CAPTION_OFFSETS[self.captions.placement.min(2)];
+        let font_size = CAPTION_SIZES[self.captions.size.min(2)];
         let request = concat_speech::transcribe::TranscribeRequest {
             path: media.path.clone(),
             source_start: clip.source_start,
             window: clip.duration * clip.speed,
-            language: self.language_code().to_owned(),
-            model_id: model.id.clone(),
+            language: language.to_owned(),
+            model_id: model,
         };
         let dirs = self.host.dirs.clone();
         let transcriber = Arc::clone(&self.host.transcriber);
-        self.notify("Transcribing…", false);
+        self.captions.running = true;
+        self.captions.progress = 0.0;
+        self.captions.message.clear();
         spawn(
-            move || transcriber.transcribe(&dirs, &request, |_| {}),
-            move |studio, _, _, result| match result {
-                Ok(segments) => {
-                    let commands: Vec<Command> = segments
-                        .iter()
-                        .map(|segment| Command::AddTextClip {
-                            track_id: None,
-                            start: clip.start + segment.start / clip.speed,
-                            style: Some(TextStyle {
-                                content: segment.text.clone(),
-                                font_family: "Inter".to_owned(),
-                                font_size: 0.05,
-                                font_weight: 600.0,
-                                ..TextStyle::default()
-                            }),
-                            duration: Some(((segment.end - segment.start) / clip.speed).max(0.2)),
-                            offset_y: Some(0.35),
-                        })
-                        .collect();
-                    let count = commands.len();
-                    if count == 0 {
-                        studio.notify("Nothing was said in that clip", true);
-                    } else {
-                        studio.apply(Command::Batch { commands });
-                        studio.notify(&format!("Added {count} captions"), false);
+            move || {
+                transcriber.transcribe(&dirs, &request, |percent| {
+                    on_ui(move |studio, _, _| {
+                        studio.captions.progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
+                    });
+                })
+            },
+            move |studio, _, _, result| {
+                studio.captions.running = false;
+                match result {
+                    Ok(segments) => {
+                        let commands: Vec<Command> = segments
+                            .iter()
+                            .filter(|segment| !segment.text.trim().is_empty())
+                            .map(|segment| Command::AddTextClip {
+                                track_id: None,
+                                start: clip.start + segment.start / clip.speed,
+                                style: Some(TextStyle {
+                                    content: segment.text.trim().to_owned(),
+                                    font_family: "Inter".to_owned(),
+                                    font_size,
+                                    font_weight: 600.0,
+                                    ..TextStyle::default()
+                                }),
+                                duration: Some(
+                                    ((segment.end - segment.start) / clip.speed).max(0.2),
+                                ),
+                                offset_y: Some(offset_y),
+                            })
+                            .collect();
+                        let count = commands.len();
+                        studio.captions.open = false;
+                        if count == 0 {
+                            studio.notify("Nothing was said in that clip", true);
+                        } else {
+                            studio.apply(Command::Batch { commands });
+                            studio.notify(&format!("Added {count} captions"), false);
+                        }
                     }
+                    // Asked for: the sheet is already on its way down.
+                    Err(error) if error.contains("cancel") => studio.captions.open = false,
+                    Err(error) => studio.captions.message = error,
                 }
-                Err(error) => studio.notify(&error, true),
             },
         );
     }
 
-    /// A title's words, spoken: the WAV lands in the project and on the
-    /// timeline at the title's start.
-    pub fn speak_selected(&mut self) {
-        let Some(id) = self.sole_selection() else {
-            return;
-        };
-        let Some(clip) = self.clip(&id).cloned() else {
-            return;
-        };
-        let Some(text) = clip.text.as_ref().map(|text| text.content.clone()) else {
-            self.notify("Select a title to speak", true);
-            return;
-        };
-        let Some(model) = self
-            .voices
+    pub fn captions_cancel(&mut self) {
+        self.host.transcriber.cancel();
+        self.captions.running = false;
+        self.captions.open = false;
+    }
+
+    /// Opens the speech sheet: on the selected title's words when a title
+    /// is selected, else on a blank script to be read at the playhead. The
+    /// voice is the one chosen last time.
+    pub fn speech_open(&mut self) {
+        let title = self
+            .sole_selection()
+            .and_then(|id| self.clip(&id))
+            .filter(|clip| clip.kind == model::ClipKind::Text)
+            .cloned();
+        let installed = Self::installed(&self.voices);
+        let model = installed.iter().position(|model| model.active).unwrap_or(0);
+        let wanted = self.prefs.tts_voice.unwrap_or(DEFAULT_VOICE);
+        let voice = self
+            .speakers
             .iter()
-            .find(|model| model.active && model.installed)
+            .position(|speaker| speaker.id == wanted)
+            .unwrap_or(0);
+        self.speech = SpeechSheet {
+            open: true,
+            clip: title.as_ref().map(|clip| clip.id.clone()),
+            text: title
+                .and_then(|clip| clip.text.map(|text| text.content))
+                .unwrap_or_default(),
+            voice,
+            model,
+            pace: 1,
+            ..SpeechSheet::default()
+        };
+    }
+
+    /// Reads the script: the WAV lands in the bin and on the timeline, at
+    /// the title's start or at the playhead.
+    pub fn speech_run(&mut self) {
+        let text = self.speech.text.trim().to_owned();
+        if text.is_empty() {
+            self.speech.message = "Nothing to read yet".to_owned();
+            return;
+        }
+        let Some(model) = Self::installed(&self.voices)
+            .get(self.speech.model)
+            .map(|model| model.id.clone())
         else {
-            self.notify("Download a voice model in Settings > Speech first", true);
+            self.speech.message = "Download a voice model in Settings › Speech first".to_owned();
+            return;
+        };
+        let Some(voice) = self.speakers.get(self.speech.voice).map(|speaker| speaker.id) else {
+            self.speech.message = "No voice to read with".to_owned();
             return;
         };
         let Some(project) = self
@@ -3663,46 +3814,125 @@ impl Studio {
         else {
             return;
         };
+        // Remembered: the voice chosen is the voice wanted next time.
+        self.prefs.tts_voice = Some(voice);
+        self.prefs.save(&self.host.dirs);
+        let start = self
+            .speech
+            .clip
+            .as_ref()
+            .and_then(|id| self.clip(id))
+            .map(|clip| clip.start)
+            .unwrap_or(f64::from(self.playhead));
         let request = concat_speech::tts::SpeakRequest {
-            model_id: model.id.clone(),
-            voice: self.prefs.tts_voice.unwrap_or(DEFAULT_VOICE),
+            model_id: model,
+            voice,
             text,
-            speed: 1.0,
+            speed: PACES[self.speech.pace.min(2)],
             project,
         };
         let dirs = self.host.dirs.clone();
         let speech = Arc::clone(&self.host.speech);
-        self.notify("Generating voice…", false);
+        self.speech.running = true;
+        self.speech.progress = 0.0;
+        self.speech.message.clear();
         spawn(
             move || {
-                let spoken = speech.speak(&dirs, &request, |_| {})?;
+                let spoken = speech.speak(&dirs, &request, |fraction| {
+                    on_ui(move |studio, _, _| {
+                        studio.speech.progress = fraction.clamp(0.0, 1.0);
+                    });
+                })?;
                 let summary = media::probe(&spoken.path)?;
                 Ok::<_, String>(summary)
             },
-            move |studio, _, _, result| match result {
-                Ok(summary) => {
-                    let created = studio.apply(Command::AddMedia {
-                        item: summary.to_new_media(),
-                    });
-                    let media_id = created.or_else(|| {
-                        studio
-                            .project()
-                            .media
-                            .iter()
-                            .find(|item| item.path == summary.path)
-                            .map(|item| item.id.clone())
-                    });
-                    if let Some(media_id) = media_id {
-                        studio.apply(Command::AddClipAtFirstFree {
-                            media_id,
-                            start: clip.start,
+            move |studio, _, _, result| {
+                studio.speech.running = false;
+                match result {
+                    Ok(summary) => {
+                        let created = studio.apply(Command::AddMedia {
+                            item: summary.to_new_media(),
                         });
-                        studio.notify("Voice added at the title", false);
+                        let media_id = created.or_else(|| {
+                            studio
+                                .project()
+                                .media
+                                .iter()
+                                .find(|item| item.path == summary.path)
+                                .map(|item| item.id.clone())
+                        });
+                        studio.speech.open = false;
+                        if let Some(media_id) = media_id {
+                            studio.apply(Command::AddClipAtFirstFree { media_id, start });
+                            studio.notify("Voice added to the timeline", false);
+                        }
                     }
+                    Err(error) if error.contains("cancel") => studio.speech.open = false,
+                    Err(error) => studio.speech.message = error,
                 }
-                Err(error) => studio.notify(&error, true),
             },
         );
+    }
+
+    pub fn speech_cancel(&mut self) {
+        self.host.speech.cancel();
+        self.speech.running = false;
+        self.speech.open = false;
+    }
+
+    /// "af_heart" as a person would say it: the name, and the accent and
+    /// gender its prefix encodes.
+    fn voice_label(name: &str) -> (String, String) {
+        let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
+        let mut chars = rest.chars();
+        let title = match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        };
+        let accent = match prefix.chars().next() {
+            Some('a') => "American",
+            Some('b') => "British",
+            Some('e') => "Spanish",
+            Some('f') => "French",
+            Some('h') => "Hindi",
+            Some('i') => "Italian",
+            Some('j') => "Japanese",
+            Some('p') => "Portuguese",
+            Some('z') => "Chinese",
+            _ => "",
+        };
+        let gender = match prefix.chars().nth(1) {
+            Some('f') => "female",
+            Some('m') => "male",
+            _ => "",
+        };
+        let detail = [accent, gender]
+            .iter()
+            .filter(|part| !part.is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        (title, detail)
+    }
+
+    /// What the sheet's script would take to say, for the line under it.
+    fn speech_estimate(&self) -> String {
+        let chars = self.speech.text.trim().chars().count();
+        if chars == 0 {
+            return "Nothing to read yet".to_owned();
+        }
+        let seconds = chars as f32 / CHARS_PER_SECOND / PACES[self.speech.pace.min(2)];
+        let whole = seconds.round() as i32;
+        let voice = self
+            .speakers
+            .get(self.speech.voice)
+            .map(|speaker| Self::voice_label(&speaker.name).0)
+            .unwrap_or_default();
+        format!(
+            "About {}:{:02} in {voice} · {chars} characters",
+            whole / 60,
+            whole % 60
+        )
     }
 
     /// Packs the open project into the template library.
@@ -3910,7 +4140,11 @@ impl Studio {
         editor.set_tool(self.tool);
         editor.set_snap(self.snap);
         editor.set_selected_count(self.selection.len() as i32);
-        editor.set_has_av_tools(self.has_av_tools());
+        let (can_caption, can_speak, can_detach, can_reattach) = self.sound_tools();
+        editor.set_can_caption(can_caption);
+        editor.set_can_speak(can_speak);
+        editor.set_can_detach(can_detach);
+        editor.set_can_reattach(can_reattach);
         editor.set_merge_blocked_because(match self.merge_blocked() {
             Some(reason) => reason.into(),
             None => SharedString::new(),
@@ -4226,10 +4460,73 @@ impl Studio {
         sync(&models.transcribers, Self::model_rows(&self.transcribers));
         sync(&models.voices, Self::model_rows(&self.voices));
 
-        let av = self.av_menu();
-        editor.set_av_height(Self::menu_height(&av));
-        sync(&models.av, av);
-        editor.set_av_token(self.av_token);
+        // The speech sheets, and the lists they choose from.
+        let transcribers = Self::installed(&self.transcribers);
+        sync(
+            &models.caption_models,
+            transcribers
+                .iter()
+                .map(|model| SharedString::from(model.name.as_str()))
+                .collect(),
+        );
+        app.set_captions(CaptionsSheetData {
+            open: self.captions.open,
+            clip: self
+                .captions
+                .clip
+                .as_ref()
+                .and_then(|id| self.clip(id))
+                .map(|clip| SharedString::from(clip.name.as_str()))
+                .unwrap_or_default(),
+            language: self.captions.language,
+            model: self.captions.model as i32,
+            placement: self.captions.placement as i32,
+            size: self.captions.size as i32,
+            running: self.captions.running,
+            progress: self.captions.progress,
+            ready: !transcribers.is_empty(),
+            message: self.captions.message.as_str().into(),
+        });
+        let voices = Self::installed(&self.voices);
+        sync(
+            &models.speech_models,
+            voices
+                .iter()
+                .map(|model| SharedString::from(model.name.as_str()))
+                .collect(),
+        );
+        sync(
+            &models.speakers,
+            self.speakers
+                .iter()
+                .map(|speaker| Self::voice_label(&speaker.name).0.into())
+                .collect(),
+        );
+        sync(
+            &models.speaker_details,
+            self.speakers
+                .iter()
+                .map(|speaker| Self::voice_label(&speaker.name).1.into())
+                .collect(),
+        );
+        app.set_speech(SpeechSheetData {
+            open: self.speech.open,
+            text: self.speech.text.as_str().into(),
+            voice: self.speech.voice as i32,
+            model: self.speech.model as i32,
+            pace: self.speech.pace as i32,
+            running: self.speech.running,
+            progress: self.speech.progress,
+            ready: !voices.is_empty(),
+            placement: if self.speech.clip.is_some() {
+                "at the title"
+            } else {
+                "at the playhead"
+            }
+            .into(),
+            estimate: self.speech_estimate().into(),
+            message: self.speech.message.as_str().into(),
+        });
 
         let bar = self.menu_bar();
         app.set_app_menu_height(Self::menu_height(&bar));
@@ -4421,54 +4718,6 @@ impl Studio {
         rows.iter().map(|row| metrics(row.kind)).sum::<f32>() + 12.0
     }
 
-    /// The tray's A/V menu. What it offers depends on what is selected.
-    fn av_menu(&self) -> Vec<MenuItemData> {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
-            return Vec::new();
-        };
-        let row = |id: &str, label: &str, glyph: Glyph, enabled: bool| MenuItemData {
-            id: id.into(),
-            label: label.into(),
-            kind: MenuRow::Action,
-            glyph,
-            shortcut: SharedString::new(),
-            enabled,
-            danger: false,
-            checkable: false,
-            checked: false,
-        };
-        if clip.kind == model::ClipKind::Text {
-            return vec![row("speak", "Generate voice", Glyph::Volume, true)];
-        }
-        let has_sound = clip.kind != model::ClipKind::Image;
-        let detached = self
-            .timeline()
-            .clips
-            .iter()
-            .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
-        vec![
-            row("captions", "Auto captions", Glyph::TextMark, has_sound),
-            MenuItemData {
-                kind: MenuRow::Separator,
-                ..Default::default()
-            },
-            row(
-                "detach",
-                "Detach audio",
-                Glyph::Waveform,
-                clip.kind == model::ClipKind::Video && !detached,
-            ),
-            row(
-                "reattach",
-                "Reattach audio",
-                Glyph::Merge,
-                (clip.kind == model::ClipKind::Video && detached)
-                    || (clip.kind == model::ClipKind::Audio && clip.detached_from.is_some()),
-            ),
-        ]
-    }
-
-    /// The File / Edit / View menus.
     fn menu_bar(&self) -> Vec<MenuItemData> {
         let row =
             |id: &str, label: String, glyph: Glyph, shortcut: &str, enabled: bool| MenuItemData {
