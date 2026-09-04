@@ -3,7 +3,7 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, CopyChip, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
 
 // The export dialog.
@@ -300,6 +300,11 @@ export component ExportDialog inherits Modal {
                         color: Theme.danger;
                         font-size: Theme.fs-sm;
                         wrap: word-wrap;
+                    }
+
+                    VerticalLayout {
+                        alignment: start;
+                        CopyChip { text: root.data.message; }
                     }
                 }
             }

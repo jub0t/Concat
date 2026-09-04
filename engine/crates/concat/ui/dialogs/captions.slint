@@ -3,7 +3,7 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 
@@ -146,6 +146,11 @@ export component CaptionsDialog inherits Modal {
                         color: Theme.danger;
                         font-size: Theme.fs-sm;
                         wrap: word-wrap;
+                    }
+
+                    VerticalLayout {
+                        alignment: start;
+                        CopyChip { text: root.data.message; }
                     }
                 }
             }

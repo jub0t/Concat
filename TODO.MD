@@ -3,30 +3,30 @@
 DO NOT DELETE ANY OF THE TODOs, JUST MARK THEM DONE.
 
 ### QoL or UX features
-- [ ] Add a copy button to the red "error" modals and popups. So issues, bugs, errors can be easily reported and communicated.
+- [x] Add a copy button to the red "error" modals and popups. So issues, bugs, errors can be easily reported and communicated. _(Copy chip on failed notices, the export / captions / speech sheets' failure blocks, and the launch screen's error.)_
 - [x] add mobile (ios and android) artifacts to nightly builds too.
-- [ ] The ability to move/reposition timelines on the timeline tray. For example if one has three different timelines they can drag and drop the first between, after, or before the other timelines thereby reordering the order.
+- [x] The ability to move/reposition timelines on the timeline tray. For example if one has three different timelines they can drag and drop the first between, after, or before the other timelines thereby reordering the order. _(Drag a tab along the strip; a bar shows the side it lands on.)_
 - feature: add langauge support locales and fast i18n support. Locales live in editable json files.
-- [ ] in Library>Media panel: the audio waveform pattern has padding/margin on the x-axis which should be removed. we need the waveform pattern to start at the very begining of the audio preview card.
-- [ ] The timeline tools tray needs a revamp, a lot of people wont be able to find tools like Text to Speech if they are placed in tabs in File (macOS). We need to show more tools (or dropdowns) on the Timeline tools tray.
+- [x] in Library>Media panel: the audio waveform pattern has padding/margin on the x-axis which should be removed. we need the waveform pattern to start at the very begining of the audio preview card.
+- [x] The timeline tools tray needs a revamp, a lot of people wont be able to find tools like Text to Speech if they are placed in tabs in File (macOS). We need to show more tools (or dropdowns) on the Timeline tools tray. _(Captions, Speak and Detach audio sit on the tray with names; greyed with a reason when the selection cannot use them.)_
 - [ ] We need to add texts presets. In Library>Text, create a new tab/dropdown under Text in the sidebar called Presets where pre-designed Texts profiles/configs are shown and can be used immediately. Text profiles use typography settings like font, size, etc. For font we create a consistent/idempotent copy where if a Text preset is distributed openly among the users/community the "Installer" checks if the new text preset-profile font is already cached/installed/imported for used in Concat, else it installs the font bundled with the Text preset/profile. Each profile has a unique name/identifier.
-- [ ] In Library>Transitions>Basic: use the same light/thinner font-weight as Transitions>Motion.
-- [ ] Remove the "Concat" watermark from the bottom-left of the Preview.
-- [ ] Add basic CapCut-like keybinds to the app. Like for delete, CTRL+B to toggle split tool, etc.
-- [ ] Recheck and fix Export system/modal. Things like 9:16 export output is broken and does not work.
-- [ ] in Settings>Appearance: remove the "Dark is the edit's own room" text-paragraph.
-- [ ] Change the Timeline>Timestamps-line tray background color from dark to the same as Tracks section background.
-- [ ] Inside Library>Media>Images(for images): replace the "still" label with the format/mimetype of the Image (eg png, jpg, etc).
-- [ ] For "Generate Auto-Captions" and "Text-to-Speech" feature, instead of directly generating the output, show a modal to let the user decide what configs they want. Design examples: wc-ui-rnd/web/ -> Waiting & Text to speech sections.
-- [ ] In Inspector: for panels with lots of Subsections, give the "header" of each subsection a lighter background color than the rest of the background (kind of like in wc-ui-rnd/web/ -> Editor panels>Text panel expandable accordion-like subsections).
-- [ ] For things like filter: use the other rectangular green-fill input-range slider like in wc-ui-rnd/web/->Inspectors>Text panel.
-- [ ] ux: For the right-click context menu on timelines, increase the padding and increase the border-radius.
-- [ ] fix: on Inspector>Details>Modify Button: Create an actual modal for the Modify button and wire it in so users can actually modify project settings.
-- [ ] fix: The details panel does not render correct data, fix it.
-- [ ] tweak: in Timelines the Text object should have Small height and instead of rendering the Text in a top header and then the body we can just still to header. This way we save more space and don't render the text preview twice on its timeline card.
-- [ ] ux qol: For Library>Media>{Videos,Images}: grabbing (mouse button down) any visual media should immediately show its "floating preview" and not wait for the first-drag, it makes the app look snappier and faster.
-- [ ] ux: remove the "Concat" label from the right-click context menu that shows on timelines.
-- [ ] fix: a lot of inputs have a bug where when they are focused and you click somewhere else to de-focus, it does not work. fix that.
+- [x] In Library>Transitions>Basic: use the same light/thinner font-weight as Transitions>Motion.
+- [x] Remove the "Concat" watermark from the bottom-left of the Preview. _(That corner showed the name of the clip under the playhead; it no longer does.)_
+- [x] Add basic CapCut-like keybinds to the app. Like for delete, CTRL+B to toggle split tool, etc. _(⌘B split all at playhead · S split selected · A/V select · B razor toggle · N snap · M mute · Delete/Backspace · ⌘A select all · ⌘C/⌘V/⌘D · ⌘E export · ⌘I import · ⌘, settings · ⌘+/⌘- zoom · Home/End · ←/→ a frame, ⇧ ten.)_
+- [x] Recheck and fix Export system/modal. Things like 9:16 export output is broken and does not work. _(Export follows the project's own aspect (a 9:16 project exports 1080 × 1920); the picker sets the short side. Please try a 9:16 export.)_
+- [x] in Settings>Appearance: remove the "Dark is the edit's own room" text-paragraph.
+- [x] Change the Timeline>Timestamps-line tray background color from dark to the same as Tracks section background.
+- [x] Inside Library>Media>Images(for images): replace the "still" label with the format/mimetype of the Image (eg png, jpg, etc).
+- [x] For "Generate Auto-Captions" and "Text-to-Speech" feature, instead of directly generating the output, show a modal to let the user decide what configs they want. Design examples: wc-ui-rnd/web/ -> Waiting & Text to speech sections. _(Both open a sheet from the tray (and File › Text to speech); language / model / placement / size for captions, voice / model / pace for speech, with progress and cancel.)_
+- [x] In Inspector: for panels with lots of Subsections, give the "header" of each subsection a lighter background color than the rest of the background (kind of like in wc-ui-rnd/web/ -> Editor panels>Text panel expandable accordion-like subsections).
+- [x] For things like filter: use the other rectangular green-fill input-range slider like in wc-ui-rnd/web/->Inspectors>Text panel. _(Every inspector fader is now the filled track with a bar.)_
+- [x] ux: For the right-click context menu on timelines, increase the padding and increase the border-radius.
+- [x] fix: on Inspector>Details>Modify Button: Create an actual modal for the Modify button and wire it in so users can actually modify project settings. _(Opens a Project sheet: name, frame, frame rate.)_
+- [x] fix: The details panel does not render correct data, fix it. _(The seat never handed the panel its facts; it does now.)_
+- [x] tweak: in Timelines the Text object should have Small height and instead of rendering the Text in a top header and then the body we can just still to header. This way we save more space and don't render the text preview twice on its timeline card.
+- [x] ux qol: For Library>Media>{Videos,Images}: grabbing (mouse button down) any visual media should immediately show its "floating preview" and not wait for the first-drag, it makes the app look snappier and faster. _(The chip appears on the press and the drag takes over from it.)_
+- [x] ux: remove the "Concat" label from the right-click context menu that shows on timelines. _(That row was the clip's name; gone.)_
+- [x] fix: a lot of inputs have a bug where when they are focused and you click somewhere else to de-focus, it does not work. fix that. _(Any press on a lane, the stage, a clip, the ruler or the bin's floor takes focus back.)_
 - [ ] feature: right now visual-media (images, videos) can only be scaled (resized on both dimensions propotionally). We need to add a feature to allow single-axis scale/stretch as well using the 2d bounding box in preview.
-- [ ] feature: add a "resize/scale" snapping too along with translate snapping.
+- [x] feature: add a "resize/scale" snapping too along with translate snapping. _(Scaling from a corner pulls the picture's edges to the frame's lines and other pictures' edges, with the same guides a move draws.)_
 - [ ] we need to add a "Remove BG" toggle feature in Inspector for Images and Videos, enabling this removes the media's background like how CapCut does (CapCut has different options like Auto Removal, Custom Removal, Chroma key, etc.). Custom removal gives the user Smart Brush, Brush, Smart Eraser, Eraser to outline the target.

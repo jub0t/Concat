@@ -358,6 +358,9 @@ pub enum Gesture {
         /// a tall frame and a wide one scale at the same rate.
         centre: (f64, f64),
         from: f64,
+        /// Half the picture's bounds at the press, in frame fractions, so
+        /// an edge's position at any later scale is one multiplication.
+        half: (f64, f64),
     },
     /// The rotation grip dragged: the picture turns by the angle the pointer
     /// has swept about the centre since the press.
@@ -2865,6 +2868,7 @@ impl Studio {
         );
         let dx = f64::from(x) * f64::from(width) - centre.0;
         let dy = f64::from(y) * f64::from(height) - centre.1;
+        let half = footprint.half_bounds((width, height));
         self.begin_echo();
         self.gesture = if grip == 4 {
             Gesture::StageRotate {
@@ -2879,6 +2883,7 @@ impl Studio {
                 scale: clip.scale,
                 centre,
                 from: dx.hypot(dy).max(1.0),
+                half,
             }
         };
     }
@@ -2965,12 +2970,66 @@ impl Studio {
                 scale,
                 centre,
                 from,
+                half,
             } => {
                 let dx = x * f64::from(width) - centre.0;
                 let dy = y * f64::from(height) - centre.1;
                 let mut next = scale * dx.hypot(dy) / from;
                 if snap {
                     next = (next * 20.0).round() / 20.0;
+                }
+                self.stage_guides.clear();
+                if self.snap && *scale > 0.0 {
+                    // The edges pull to the same lines a move pulls to - the
+                    // frame's, and every other picture's - but here the pull
+                    // sets the size, not the place: the scale that lands the
+                    // nearest edge on its target, when one is inside reach.
+                    let pull = 0.01 * f64::from(width.max(height));
+                    let frame = (width, height);
+                    let (cx, cy) = (centre.0 / f64::from(width), centre.1 / f64::from(height));
+                    let mut xs = vec![0.0, 0.5, 1.0];
+                    let mut ys = vec![0.0, 0.5, 1.0];
+                    for other in self.stage_clips() {
+                        if other.id == *clip {
+                            continue;
+                        }
+                        let footprint = self.footprint(other);
+                        let (ow, oh) = footprint.half_bounds(frame);
+                        xs.extend([footprint.cx - ow, footprint.cx, footprint.cx + ow]);
+                        ys.extend([footprint.cy - oh, footprint.cy, footprint.cy + oh]);
+                    }
+                    // Four edges: each is the centre plus or minus a half
+                    // bound that grows with the scale.
+                    let edges = [
+                        (-1.0, half.0, cx, &xs, true, width),
+                        (1.0, half.0, cx, &xs, true, width),
+                        (-1.0, half.1, cy, &ys, false, height),
+                        (1.0, half.1, cy, &ys, false, height),
+                    ];
+                    let mut best: Option<(f64, f64, bool, f64)> = None;
+                    for (sign, base, at_centre, targets, vertical, extent) in edges {
+                        if base <= 0.0 {
+                            continue;
+                        }
+                        let edge = at_centre + sign * base * next / scale;
+                        for &target in targets.iter() {
+                            let distance = (target - edge).abs() * f64::from(extent);
+                            let wanted = (target - at_centre) * sign;
+                            if distance < pull
+                                && wanted > 0.0
+                                && best.is_none_or(|(held, ..)| distance < held)
+                            {
+                                best = Some((distance, scale * wanted / base, vertical, target));
+                            }
+                        }
+                    }
+                    if let Some((_, snapped, vertical, at)) = best {
+                        next = snapped;
+                        self.stage_guides.push(StageGuideData {
+                            vertical,
+                            at: at as f32,
+                        });
+                    }
                 }
                 if let Some(clip) = self.echo_clip_mut(clip) {
                     clip.scale = next.clamp(0.05, 8.0);

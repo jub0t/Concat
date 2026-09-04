@@ -3,6 +3,7 @@
 
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
+import { CopyChip } from "modal.slint";
 
 // The bottom-right notice.
 //
@@ -44,8 +45,9 @@ export component ToastLayer inherits Rectangle {
         root.raising = true;
     }
 
-    // Nothing here is hit-testable: no TouchArea anywhere in the tree, so the
-    // layer sits over the whole window without taking a single event from it.
+    // Nothing here is hit-testable but the copy chip on a failure, and that
+    // is its own few pixels: the layer sits over the whole window without
+    // taking an event from it.
     background: transparent;
 
     Timer {
@@ -85,9 +87,11 @@ export component ToastLayer inherits Rectangle {
         x: root.width - self.width - 16px;
         y: root.height - self.height - 16px + (root.shown ? 0px : 12px);
         // Capped, then the label elides: a notice is a sentence, and one long
-        // enough to reach across the window has stopped being one.
+        // enough to reach across the window has stopped being one. A failure
+        // keeps room for its copy chip.
         width: Math.min(root.width - 32px,
-            12px + icon.width + 8px + measure.preferred-width + 12px);
+            12px + icon.width + 8px + measure.preferred-width + 12px
+                + (root.data.failed ? 60px : 0px));
         // 12px by 8px of padding around a 16px line.
         height: 32px;
         border-radius: Theme.r-lg;
@@ -121,13 +125,21 @@ export component ToastLayer inherits Rectangle {
         Text {
             x: icon.x + icon.width + 8px;
             y: 0;
-            width: parent.width - self.x - 12px;
+            width: parent.width - self.x - 12px - (root.data.failed ? 60px : 0px);
             height: parent.height;
             text: root.data.message;
             color: root.data.failed ? Theme.danger : Theme.fg;
             font-size: Theme.fs;
             vertical-alignment: center;
             overflow: elide;
+        }
+
+        // A failure can be lifted off the screen whole, elided or not: what
+        // the chip copies is the message, not what fitted.
+        if root.data.failed: CopyChip {
+            x: parent.width - self.width - 6px;
+            y: (parent.height - self.height) / 2;
+            text: root.data.message;
         }
     }
 }

@@ -235,6 +235,60 @@ export component Button inherits Rectangle {
     }
 }
 
+// A chip that puts a line of text on the clipboard.
+//
+// For the notices that report a failure: a bug that can be pasted into a
+// report is a bug that gets reported, where one that has to be retyped from
+// a screenshot is not. Slint reaches the clipboard through a TextInput and
+// nothing else, so one rides underneath at a pixel, holding the text.
+export component CopyChip inherits Rectangle {
+    in property <string> text;
+    /// Said for a moment after a press, so the press is seen to have worked.
+    property <bool> done;
+
+    width: 52px;
+    height: 20px;
+    border-radius: Theme.r-xs;
+    background: touch.has-hover ? Theme.field-hover : Theme.field;
+    border-width: 1px;
+    border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+
+    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    hidden := TextInput {
+        x: 0;
+        y: 0;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        text: root.text;
+        read-only: true;
+    }
+
+    Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.done ? "Copied" : "Copy";
+        color: root.done ? Theme.green : Theme.fg-muted;
+        font-size: Theme.fs-xs;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            hidden.select-all();
+            hidden.copy();
+            root.done = true;
+        }
+    }
+
+    Timer {
+        interval: 1500ms;
+        running: root.done;
+        triggered => { root.done = false; }
+    }
+}
+
 // A determinate bar. Nothing indeterminate: every job in this app can say how
 // far along it is, and a barber's pole for one that can is a lie.
 export component Progress inherits Rectangle {

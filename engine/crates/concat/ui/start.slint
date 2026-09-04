@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "theme/theme.slint";
+import { CopyChip } from "primitives/modal.slint";
 import { Glyph, Icon } from "icons.slint";
 import { SegmentedControl } from "primitives/segmented-control.slint";
 import { ThinScrollbar } from "primitives/scrollbar.slint";
@@ -549,13 +550,19 @@ export component StartScreen inherits Rectangle {
                             Text {
                                 x: 31px;
                                 y: 0;
-                                width: parent.width - 62px;
+                                width: parent.width - 122px;
                                 height: parent.height;
                                 text: root.data.error;
                                 color: Theme.danger;
                                 font-size: Theme.fs;
                                 vertical-alignment: center;
                                 overflow: elide;
+                            }
+
+                            CopyChip {
+                                x: parent.width - self.width - 34px;
+                                y: (parent.height - self.height) / 2;
+                                text: root.data.error;
                             }
 
                             Rectangle {
