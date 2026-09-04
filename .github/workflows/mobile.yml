@@ -34,9 +34,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      # The engine pins its toolchain in rust-toolchain.toml, so the phone's
+      # standard library is added to that toolchain from inside engine/,
+      # where the pin applies.
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
+      - run: rustup target add aarch64-linux-android
+        working-directory: engine
       - uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-apk
@@ -48,15 +51,24 @@ jobs:
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
 
+      # Restored and saved as two steps rather than one, so the FFmpeg
+      # build is kept the moment it finishes, whatever happens to the Rust
+      # build after it.
       - name: FFmpeg for Android (cached)
         id: ffmpeg
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: engine/vendor/ffmpeg/aarch64-linux-android
           key: ffmpeg-aarch64-linux-android-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: engine/scripts/ffmpeg-mobile.sh aarch64-linux-android
+      - name: FFmpeg for Android (save)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: engine/vendor/ffmpeg/aarch64-linux-android
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
       - name: sherpa-onnx for Android
         run: engine/scripts/sherpa-mobile.sh aarch64-linux-android
@@ -100,21 +112,33 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      # The engine pins its toolchain in rust-toolchain.toml, so the phone's
+      # standard library is added to that toolchain from inside engine/,
+      # where the pin applies.
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios
+      - run: rustup target add aarch64-apple-ios
+        working-directory: engine
 
       - run: brew install cmake
 
+      # Restored and saved as two steps rather than one, so the FFmpeg
+      # build is kept the moment it finishes, whatever happens to the Rust
+      # build after it.
       - name: FFmpeg for iOS (cached)
         id: ffmpeg
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: engine/vendor/ffmpeg/aarch64-apple-ios
           key: ffmpeg-aarch64-apple-ios-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for iOS
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: engine/scripts/ffmpeg-mobile.sh aarch64-apple-ios
+      - name: FFmpeg for iOS (save)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: engine/vendor/ffmpeg/aarch64-apple-ios
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
       - name: sherpa-onnx for iOS
         run: engine/scripts/sherpa-mobile.sh aarch64-apple-ios
