@@ -1,9 +1,9 @@
 name: Nightly
 
 # Every push to main that passes the engine's tests builds the app for every
-# platform and architecture and refreshes the rolling `nightly` pre-release
-# with the bundles: the latest main, always downloadable, without anyone
-# cutting a tag. The tag is moved to the commit the bundles were built from,
+# platform and architecture, desktops and phones, and refreshes the rolling
+# `nightly` pre-release with the bundles: the latest main, always
+# downloadable, without anyone cutting a tag. The tag is moved to the commit the bundles were built from,
 # so the release page's "compare" and its notes stay honest.
 #
 # Tagged releases (release.yml) are the ones to point people at; this is the
@@ -27,9 +27,14 @@ jobs:
     uses: ./.github/workflows/build-app.yml
     secrets: inherit
 
+  phones:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/mobile.yml
+    secrets: inherit
+
   publish:
     name: Refresh the nightly release
-    needs: [build]
+    needs: [build, phones]
     runs-on: ubuntu-latest
     permissions:
       contents: write

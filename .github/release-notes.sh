@@ -44,6 +44,8 @@ cat <<'EOF'
 | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
 | Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
 | Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
+| Android | | | `android-arm64.apk` |
+| iOS / iPadOS | | | `ios-arm64.ipa` |
 
 Every bundle runs with nothing else installed.
 
@@ -53,6 +55,11 @@ Every bundle runs with nothing else installed.
   stay beside it.
 - **Linux**: `tar xzf` the archive and run `./concat` from the folder;
   `concat.desktop` is there for a launcher.
+- **Android**: open the `.apk` on the phone and allow the install from
+  this source; Android 8.0 or newer, 64-bit.
+- **iOS / iPadOS**: sideload the `.ipa` with AltStore, Sideloadly or
+  Xcode's Devices window, which sign it with your Apple ID; iOS 15 or
+  newer.
 
 `SHA256SUMS` lists each file's checksum.
 

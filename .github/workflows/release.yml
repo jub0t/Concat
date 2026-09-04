@@ -1,8 +1,9 @@
 name: Release
 
 # Pushing a tag that starts with v (v0.3.0, v0.3.0-alpha.1, ...) builds the
-# app for every platform and architecture and publishes a GitHub release
-# under that tag with one bundle per target and a checksum file. A tag
+# app for every platform and architecture, desktops and phones, and
+# publishes a GitHub release under that tag with one bundle per target and
+# a checksum file. A tag
 # containing a hyphen is a pre-release. The tag must be the workspace's
 # version, alone or with a pre-release suffix: a release whose files say
 # one number and whose tag says another is a release nobody can reason
@@ -10,7 +11,9 @@ name: Release
 #
 # The bundles are self-contained: the macOS .dmg carries its FFmpeg dylibs
 # and is notarised when the signing secrets are set; the Linux tarball and
-# the Windows zip carry the FFmpeg runtime libraries beside the binary.
+# the Windows zip carry the FFmpeg runtime libraries beside the binary; the
+# Android .apk is signed with the repository's key, and the iOS .ipa is
+# signed by the tester on the way onto the phone.
 on:
   push:
     tags: ["v*"]
@@ -39,7 +42,7 @@ jobs:
           tag="${{ inputs.tag || github.ref_name }}"
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
           # The tag is the version, or the version with a pre-release
-          # suffix: v0.2.0 and v0.2.0-alpha.22 both belong to 0.2.0.
+          # suffix: v0.2.1 and v0.2.1-alpha.22 both belong to 0.2.1.
           case "$tag" in
             "v$version" | "v$version-"*) ;;
             *)
@@ -54,9 +57,14 @@ jobs:
     uses: ./.github/workflows/build-app.yml
     secrets: inherit
 
+  phones:
+    needs: [check]
+    uses: ./.github/workflows/mobile.yml
+    secrets: inherit
+
   publish:
     name: Publish release
-    needs: [check, build]
+    needs: [check, build, phones]
     runs-on: ubuntu-latest
     permissions:
       contents: write

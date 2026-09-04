@@ -1,29 +1,47 @@
 name: Build for phones
 
-# Builds Concat for Android and iOS on every push to main and every pull
-# request, and uploads what each produces: an APK, and the iOS app bundle
-# ready for a signing identity. Phones are cross-compiled - the Android
-# job runs on Linux with the NDK, the iOS job on macOS with Xcode - and
-# the two native libraries that cannot be fetched prebuilt for a phone are
-# built from source here and cached: FFmpeg by engine/scripts/ffmpeg-mobile.sh,
-# with the platform's hardware codecs, and whisper.cpp by its crate.
-# sherpa-onnx comes prebuilt from k2-fsa through engine/scripts/sherpa-mobile.sh.
+# Builds Concat for Android and iOS and uploads one artifact per phone,
+# named like the desktop bundles from build-app.yml:
+#
+#   Android  arm64  -> Concat-<version>-android-arm64.apk
+#   iOS      arm64  -> Concat-<version>-ios-arm64.ipa
+#
+# Reusable, the way build-app.yml is: nightly.yml calls it on every push
+# to main and release.yml on every tag, so the nightly and the releases
+# carry the phones beside the desktops. Pull requests build here directly.
+#
+# Phones are cross-compiled - the Android job runs on Linux with the NDK,
+# the iOS job on macOS with Xcode - and the two native libraries that
+# cannot be fetched prebuilt for a phone are built from source here and
+# cached: FFmpeg by engine/scripts/ffmpeg-mobile.sh, with the platform's
+# hardware codecs, and whisper.cpp by its crate. sherpa-onnx comes prebuilt
+# from k2-fsa through engine/scripts/sherpa-mobile.sh.
 #
 # engine/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
 #
 # The APK is signed with the repository's key when ANDROID_KEYSTORE (the
 # keystore, base64) and ANDROID_KEYSTORE_PASSWORD are set as secrets, and
-# with a key made for the run when they are not.
+# with a key made for the run when they are not. The .ipa is ad-hoc
+# signed: a tester signs it with their own Apple ID on the way onto a
+# phone (AltStore, Sideloadly, Xcode's Devices window all do this).
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    secrets:
+      ANDROID_KEYSTORE:
+        description: Base64 of the release keystore
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
   pull_request:
   workflow_dispatch:
 
+# Keyed by the calling workflow too, so a call from the nightly or a
+# release never shares a group with a pull request's run. A tag's release
+# is never cancelled; everything else is superseded by the next push.
 concurrency:
-  group: mobile-${{ github.ref }}
-  cancel-in-progress: true
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,6 +56,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Concat $version for aarch64-linux-android"
       # The engine pins its toolchain in rust-toolchain.toml, so the phone's
       # standard library is added to that toolchain from inside engine/,
       # where the pin applies.
@@ -125,10 +149,21 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/upload-artifact@v4
+      # Named by version and target, as the desktop bundles are; the
+      # nightly stamps its commit into the same name.
+      - name: Stage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          cp engine/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-arm64.apk"
+          ls -l stage
+
+      - uses: actions/upload-artifact@v7
         with:
           name: Concat-android-arm64
-          path: engine/target/release/apk/Concat.apk
+          path: stage/*
           if-no-files-found: error
 
   ios:
@@ -137,6 +172,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Concat $version for aarch64-apple-ios"
       # The engine pins its toolchain in rust-toolchain.toml, so the phone's
       # standard library is added to that toolchain from inside engine/,
       # where the pin applies.
@@ -198,8 +239,23 @@ jobs:
       - name: Bundle
         run: engine/scripts/ios-app.sh aarch64-apple-ios release
 
-      - uses: actions/upload-artifact@v4
+      # An .ipa is the bundle under Payload/ in a zip: the form every
+      # sideloading tool and Xcode's Devices window take, re-signing it
+      # with the tester's own identity on the way onto the phone. ditto
+      # keeps the bundle's signature and resource forks where zip would
+      # not.
+      - name: Stage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage payload/Payload
+          cp -R engine/target/aarch64-apple-ios/release/Concat.app payload/Payload/
+          (cd payload && ditto -c -k --keepParent Payload "../stage/Concat-$VERSION-ios-arm64.ipa")
+          ls -l stage
+
+      - uses: actions/upload-artifact@v7
         with:
           name: Concat-ios-arm64
-          path: engine/target/aarch64-apple-ios/release/Concat.app
+          path: stage/*
           if-no-files-found: error
