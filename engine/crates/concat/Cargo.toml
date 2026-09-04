@@ -97,6 +97,8 @@ concat-effects.workspace = true
 # Remembered preferences, as a small JSON file in the config directory.
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
+# Text presets are TOML files, as the effect manifests are.
+toml = "1.1"
 
 # The renderer is picked by a feature here rather than by editing the
 # dependency, so both variants build from one tree and can be compared:

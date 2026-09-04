@@ -5,7 +5,7 @@ import { EffectData } from "demo/effects-panel.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData,
 } from "inspector/clip-inspector.slint";
-import { MediaFilter, MediaItemData } from "workspace/media-pane.slint";
+import { MediaFilter, MediaItemData, TextPresetData } from "workspace/media-pane.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
@@ -86,7 +86,11 @@ export global Editor {
     callback media-activate(id: int);
 
     // library catalogue pages
-    callback library-add-text();
+    /// The looks the Text page offers, published once.
+    in-out property <[TextPresetData]> text-presets;
+    /// A title placed at the playhead in the look `preset` names;
+    /// "default" is the plain title.
+    callback library-add-text(preset: string);
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
     callback library-apply-filter(filter-id: string, label: string);

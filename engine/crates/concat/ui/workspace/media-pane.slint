@@ -5,6 +5,7 @@ import { Theme, Fmt, Glyph, Icon, Payload } from "../primitives/primitives.slint
 import { Pane, PaneScroll } from "pane.slint";
 import { HairlineSplitter } from "splitter.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+import { TextAlignment } from "../timeline/model.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -17,6 +18,27 @@ export enum MediaKind { video, audio, image }
 /// the row that is highlighted when every kind is on, which is why it is a
 /// value here and not the absence of one.
 export enum MediaFilter { all, video, audio, images }
+
+/// One look a title can be given, as the Text page's Presets shelf shows
+/// it: enough of the style to draw the name in it. Published by Rust from
+/// the preset list; the id is what is placed, and ids are stable for ever
+/// because project files store them.
+export struct TextPresetData {
+    id: string,
+    name: string,
+    family: string,
+    weight: int,
+    italic: bool,
+    fill: color,
+    plate: color,
+    plated: bool,
+    stroke: color,
+    /// as a fraction of the frame; zero for none
+    stroke-width: float,
+    /// the cap height as a fraction of the frame, for the sample's size
+    size: float,
+    align: TextAlignment,
+}
 
 export struct MediaItemData {
     id: int,
@@ -952,6 +974,126 @@ component TextPage inherits Rectangle {
     }
 }
 
+// One preset, as a card: the name drawn in the look, on the stage's own
+// dark ground so a white title reads as it will on footage, with the plate
+// behind it when the look has one.
+component PresetCard inherits Rectangle {
+    in property <TextPresetData> preset;
+
+    callback applied();
+
+    opacity: drag.dragging ? 0.45 : 1.0;
+
+    /// The sample's size follows the preset's: the plain title's 9% of the
+    /// frame is 16px on a card, and the rest scale with it within reason.
+    property <length> sample-size: Fmt.clamp(root.preset.size / 0.09, 0.6, 1.6) * 16px;
+
+    drag := DragArea {
+        data: Payload.of("text:\{root.preset.id}:\{root.preset.name}");
+        drag-image: Payload.preview("text:\{root.preset.id}:\{root.preset.name}");
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+        allow-copy: true;
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.applied(); }
+            double-clicked => { root.applied(); }
+
+            tile := Rectangle {
+                y: 0;
+                height: root.width * 9 / 16;
+                border-radius: Theme.r;
+                background: Theme.stage;
+                border-width: 1px;
+                border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+                clip: true;
+
+                if root.preset.plated: Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: Math.min(parent.width - 8px, sample.preferred-width + 14px);
+                    height: sample.preferred-height + 6px;
+                    border-radius: Theme.r-xs;
+                    background: root.preset.plate;
+                }
+
+                sample := Text {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: Math.min(parent.width - 12px, self.preferred-width);
+                    text: root.preset.name;
+                    color: root.preset.fill;
+                    font-family: root.preset.family;
+                    font-weight: root.preset.weight;
+                    font-italic: root.preset.italic;
+                    font-size: root.sample-size;
+                    stroke: root.preset.stroke;
+                    stroke-width: root.preset.stroke-width > 0 ? 1px : 0px;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                }
+
+                if touch.has-hover: Rectangle {
+                    x: parent.width - self.width - 4px;
+                    y: parent.height - self.height - 4px;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.scrim;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        glyph: Glyph.plus;
+                        size: 11px;
+                        tint: Theme.on-scrim;
+                    }
+                }
+            }
+
+            Text {
+                x: 0;
+                y: tile.height + 4px;
+                width: root.width;
+                height: 14px;
+                text: root.preset.name;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// The Presets shelf: the same auto-fill arithmetic as the other grids.
+component PresetGrid inherits Rectangle {
+    in property <[TextPresetData]> items;
+
+    callback applied(id: string);
+
+    property <length> gap: 8px;
+    property <length> min-card: 88px;
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px;
+    property <int> rows: Math.ceil(root.items.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.items: PresetCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        preset: entry;
+
+        applied => { root.applied(entry.id); }
+    }
+}
+
 // ── the pane ─────────────────────────────────────────────────────────────────
 
 // Centred placeholder for a page with nothing on it.
@@ -1009,8 +1151,10 @@ export component MediaPane inherits Rectangle {
     /// double-clicked: place it on the timeline at the playhead
     callback activate(id: int);
 
-    /// Text page: add a title at the playhead.
-    callback add-text();
+    /// The looks the Text page's Presets shelf offers.
+    in property <[TextPresetData]> presets;
+    /// Text page: add a title at the playhead, in the look `preset` names.
+    callback add-text(preset: string);
     /// Catalogue pages: apply to the selected clip; Rust validates & explains.
     callback apply-effect(effect-id: string);
     callback apply-transition(transition-id: string);
@@ -1034,6 +1178,8 @@ export component MediaPane inherits Rectangle {
     property <int> tab;
     property <bool> categories-open: true;
     property <bool> text-open: true;
+    /// 0 = Titles, 1 = Presets
+    property <int> text-category;
     property <bool> transitions-open: true;
     property <bool> effects-open: true;
     property <bool> filters-open: true;
@@ -1340,7 +1486,14 @@ export component MediaPane inherits Rectangle {
                         if root.text-open: CategoryRow {
                             height: 24px;
                             label: "Titles";
-                            current: true;
+                            current: root.text-category == 0;
+                            clicked => { root.text-category = 0; }
+                        }
+                        if root.text-open: CategoryRow {
+                            height: 24px;
+                            label: "Presets";
+                            current: root.text-category == 1;
+                            clicked => { root.text-category = 1; }
                         }
                     }
 
@@ -1564,12 +1717,25 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 1: HorizontalLayout {
+                if root.tab == 1 && root.text-category == 0: HorizontalLayout {
                     padding: 8px;
 
                     TextPage {
                         horizontal-stretch: 1;
-                        add-text => { root.add-text(); }
+                        add-text => { root.add-text("default"); }
+                    }
+                }
+
+                // The looks. Each card is a title in that look, placed at
+                // the playhead on a click or dragged onto a lane; a preset
+                // that brings a font installs it on the way.
+                if root.tab == 1 && root.text-category == 1: HorizontalLayout {
+                    padding: 8px;
+
+                    PresetGrid {
+                        horizontal-stretch: 1;
+                        items: root.presets;
+                        applied(id) => { root.add-text(id); }
                     }
                 }
 

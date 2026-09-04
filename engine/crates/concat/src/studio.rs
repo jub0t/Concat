@@ -45,6 +45,7 @@ use crate::format::{
 };
 use crate::host::{Host, MediaArt, image_at, image_of, media_art, on_ui, spawn};
 use crate::prefs::Preferences;
+use crate::presets::{self, TextPreset};
 use crate::ui::*;
 
 /// The monitor's output sizes, matching the picker's rows.
@@ -490,6 +491,8 @@ pub struct Models {
     pub seats: Rc<VecModel<SeatBox>>,
     pub dividers: Rc<VecModel<DockDivider>>,
     pub recents: Rc<VecModel<RecentProjectData>>,
+    /// The Text page's presets, published once from the loaded list.
+    pub text_presets: Rc<VecModel<TextPresetData>>,
 }
 
 impl Models {
@@ -525,6 +528,7 @@ impl Models {
             seats: Rc::new(VecModel::default()),
             dividers: Rc::new(VecModel::default()),
             recents: Rc::new(VecModel::default()),
+            text_presets: Rc::new(VecModel::default()),
         }
     }
 }
@@ -650,6 +654,8 @@ pub struct Studio {
     pub speech: SpeechSheet,
     /// Every speaker the voice engine offers, in its own order.
     pub speakers: Vec<concat_speech::tts::VoiceInfo>,
+    /// The looks the Text page offers; see `presets`.
+    pub text_presets: Vec<TextPreset>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -953,6 +959,7 @@ impl Studio {
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
         let recents = projects::list(&host.dirs.config);
+        let text_presets = presets::all(&host.dirs);
         let mut studio = Self {
             prefs,
             session: None,
@@ -1013,6 +1020,7 @@ impl Studio {
             captions: CaptionsSheet::default(),
             speech: SpeechSheet::default(),
             speakers: Vec::new(),
+            text_presets,
             host,
         };
         studio.settings.language = studio.prefs.language.unwrap_or(0);
@@ -1751,10 +1759,12 @@ impl Studio {
                     row: 0,
                 })
             }
+            // A title: the preset's id rides where a file's media id would,
+            // "default" for the plain one.
             "text" => Some(DropPlan {
                 kind: ClipKind::Text,
                 label: label.to_owned(),
-                media: String::new(),
+                media: id.to_owned(),
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
@@ -1799,13 +1809,12 @@ impl Studio {
             return;
         };
         let created = if plan.kind == ClipKind::Text {
-            self.apply(Command::AddTextClip {
-                track_id: Some(track_id),
-                start: f64::from(plan.start),
-                style: Some(new_title_style()),
-                duration: Some(f64::from(plan.duration)),
-                offset_y: None,
-            })
+            self.add_title(
+                Some(track_id),
+                f64::from(plan.start),
+                f64::from(plan.duration),
+                &plan.media,
+            )
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
                 track_id: Some(track_id),
@@ -1834,13 +1843,7 @@ impl Studio {
         };
         let start = f64::from(self.playhead.max(0.0));
         let created = if plan.kind == ClipKind::Text {
-            self.apply(Command::AddTextClip {
-                track_id: None,
-                start,
-                style: Some(new_title_style()),
-                duration: Some(f64::from(plan.duration)),
-                offset_y: None,
-            })
+            self.add_title(None, start, f64::from(plan.duration), &plan.media)
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
                 track_id: None,
@@ -1857,6 +1860,41 @@ impl Studio {
         };
         if let Some(id) = created {
             self.selection = vec![id];
+        }
+    }
+
+    /// Places a title in the look a preset names - "default" for the plain
+    /// title - and, when the preset brings a font, registers the font on
+    /// the project in the same step, so the painter finds it the first
+    /// time it draws the words.
+    fn add_title(
+        &mut self,
+        track_id: Option<String>,
+        start: f64,
+        duration: f64,
+        preset: &str,
+    ) -> Option<String> {
+        let (style, offset_y, font) = match self.text_presets.iter().find(|held| held.id == preset)
+        {
+            Some(found) => (
+                found.style.clone(),
+                found.offset_y,
+                presets::install_font(&self.host.dirs, found),
+            ),
+            None => (new_title_style(), None, None),
+        };
+        let add = Command::AddTextClip {
+            track_id,
+            start,
+            style: Some(style),
+            duration: Some(duration),
+            offset_y,
+        };
+        match font {
+            Some((family, path)) => self.apply(Command::Batch {
+                commands: vec![Command::AddFont { family, path }, add],
+            }),
+            None => self.apply(add),
         }
     }
 
@@ -4491,6 +4529,31 @@ impl Studio {
                     .into(),
                     when: when_phrase(project.opened_at).into(),
                     poster: self.posters.get(&project.path).cloned().unwrap_or_default(),
+                })
+                .collect(),
+        );
+
+        // The Text page's presets: the look each card draws its name in.
+        sync(
+            &models.text_presets,
+            self.text_presets
+                .iter()
+                .map(|preset| {
+                    let plate = colour_of(&preset.style.background);
+                    TextPresetData {
+                        id: preset.id.as_str().into(),
+                        name: preset.name.as_str().into(),
+                        family: preset.style.font_family.trim_matches('"').into(),
+                        weight: preset.style.font_weight.round() as i32,
+                        italic: preset.style.italic,
+                        fill: colour_of(&preset.style.color),
+                        plate,
+                        plated: plate.alpha() > 0,
+                        stroke: colour_of(&preset.style.stroke_color),
+                        stroke_width: preset.style.stroke_width as f32,
+                        size: preset.style.font_size as f32,
+                        align: align_of(preset.style.align),
+                    }
                 })
                 .collect(),
         );

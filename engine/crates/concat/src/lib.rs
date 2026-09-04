@@ -38,6 +38,7 @@ mod gpu;
 mod host;
 mod platform;
 mod prefs;
+mod presets;
 mod studio;
 mod sysinfo;
 
@@ -107,6 +108,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_seats(ModelRc::from(models.seats.clone()));
         editor.set_dividers(ModelRc::from(models.dividers.clone()));
         app.set_recents(ModelRc::from(models.recents.clone()));
+        editor.set_text_presets(ModelRc::from(models.text_presets.clone()));
     }
 
     // Settings > About's block, gathered once: nothing in it changes while
@@ -372,8 +374,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_media_activate(on_window!(|state, id: i32| {
         state.place_at_playhead(&format!("media:{id}"));
     }));
-    editor.on_library_add_text(on_window!(|state| {
-        state.place_at_playhead("text:default:Title");
+    editor.on_library_add_text(on_window!(|state, preset: SharedString| {
+        state.place_at_playhead(&format!("text:{preset}:Title"));
     }));
     // A filter is a colour look on the picture; audio is the sound's chain.
     editor.on_library_apply_filter(on_window!(
@@ -1020,7 +1022,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 }
                 // A timeline tab in flight wears the timeline pane's mark.
                 if let Some(rest) = payload.strip_prefix("tab:") {
-                    let name = rest.splitn(2, ':').nth(1).unwrap_or_default();
+                    let name = rest.split_once(':').map_or("", |(_, name)| name);
                     let chip = slint::Image::load_from_svg_data(
                         chips::drag_chip_svg(
                             chips::pane_glyph("timeline"),

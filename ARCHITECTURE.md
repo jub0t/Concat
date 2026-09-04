@@ -566,7 +566,13 @@ object moved. `dock.rs` is the workspace tree, addressed by path rather
 than index, with a default of library beside preview-over-inspector,
 above the timeline. `chips.rs` draws drag chips as SVG so Slint rasterises
 them with the window's fonts at the window's scale. `prefs.rs` is a small
-JSON file of remembered choices. `sysinfo.rs` gathers one list of facts
+JSON file of remembered choices. `presets.rs` is the Text page's looks: the
+built-in ones, a folder of TOML files that adds more, and the font
+installer that copies a preset's face into the app's `fonts/` once and
+registers it on the project the first time the preset is placed. The
+sheets - export, settings, the project's own facts, captions and speech -
+are structs on the studio published whole, the way the export sheet always
+was, each with its worker reporting into it through `on_ui`. `sysinfo.rs` gathers one list of facts
 that feeds both the About rows and the copyable block, so a fact cannot be
 on the page and missing from the report. Fonts, the logo and the effect
 previews are embedded by `build.rs`.
@@ -704,6 +710,13 @@ loudly.
   maximum. Nothing in Rust changes.
 - **A new pane.** A `PaneKind`, its entry in the `Panes` global, a branch
   in `Seat`, and the `Editor` properties and callbacks it needs.
+- **A new text preset.** A TOML file under the config directory's
+  `text-presets/`, or a folder there with `preset.toml` and the font
+  beside it; the format is at the top of `concat/src/presets.rs`. Nothing
+  in Rust changes.
+- **A new keyboard chord.** A line in the key table in `app.slint` that
+  names a verb, and the verb's arm in `Studio::shortcut` - or, for a chord
+  that is also a menu row, the row's id, so the two stay one thing.
 - **A new decode or encode backend.** Implement `FrameSource` or
   `FrameSink` in `concat-media`. Nothing else in the workspace changes.
 - **A new platform.** `platform.rs` for the window's three seams,
