@@ -10,6 +10,12 @@ description = "Turning a timeline plus a timestamp into one finished frame."
 # The wgpu compositor. Off by default so the engine stays light to build; the
 # desktop app turns it on.
 gpu = ["dep:wgpu", "dep:pollster"]
+# The same, under the name the window's renderer feature uses. Cargo checks
+# a `--features` name against every member of the workspace, and refuses
+# one that matches an optional dependency hidden behind `dep:`; without
+# this alias, `cargo metadata --features wgpu` fails on this crate, and so
+# does everything built on it (cargo-auditable, hence the Nix package).
+wgpu = ["gpu"]
 
 [dependencies]
 concat-core.workspace = true
