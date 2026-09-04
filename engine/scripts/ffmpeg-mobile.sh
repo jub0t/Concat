@@ -54,8 +54,9 @@ common=(
   --enable-static --disable-shared --enable-pic
   --disable-programs --disable-doc
   --disable-debug
-  # Nothing external. zlib is part of both platforms' SDKs.
-  --enable-zlib
+  # Nothing external. zlib is part of both platforms' SDKs; bzip2 and
+  # lzma are on one and not the other, so neither is taken.
+  --enable-zlib --disable-bzlib --disable-lzma
   --disable-iconv --disable-sdl2 --disable-xlib --disable-libxcb
   --disable-vulkan --disable-opencl --disable-vaapi --disable-vdpau
 )
@@ -97,6 +98,7 @@ case "$target" in
       --ar="$(xcrun --sdk $sdk -f ar)" --nm="$(xcrun --sdk $sdk -f nm)" \
       --ranlib="$(xcrun --sdk $sdk -f ranlib)" --strip="$(xcrun --sdk $sdk -f strip)" \
       --enable-videotoolbox --enable-audiotoolbox \
+      --disable-avfoundation --disable-coreimage \
       --extra-cflags="-arch arm64 $min_flag" \
       --extra-ldflags="-arch arm64 $min_flag")
     ;;

@@ -19,8 +19,9 @@ fn main() {
                 println!("cargo:rustc-link-lib={lib}");
             }
         }
-        // VideoToolbox and AudioToolbox, the hardware codecs, and the
-        // frameworks they hand buffers through.
+        // VideoToolbox and AudioToolbox, the hardware codecs, the
+        // frameworks they hand buffers through, and Security for the TLS
+        // behind https.
         "ios" => {
             for lib in ["z", "m"] {
                 println!("cargo:rustc-link-lib={lib}");
@@ -32,6 +33,7 @@ fn main() {
                 "CoreVideo",
                 "CoreFoundation",
                 "Foundation",
+                "Security",
             ] {
                 println!("cargo:rustc-link-lib=framework={framework}");
             }
