@@ -16,6 +16,7 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
 | `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint, `concat-host`, `concat-speech` |
+| `concat-android` | The Android activity: the entry point that hosts the window on a phone. | `concat`, slint |
 
 The dependency arrows point one way:
 
@@ -73,6 +74,42 @@ The rest is native by nature: `concat-media` links FFmpeg, `concat-host`
 talks to the audio device and the file system, `concat-speech` compiles in
 whisper.cpp and sherpa-onnx, and `concat` is a window. `concat-export` goes
 with them for now because its render loop reads through `concat-media`.
+
+### Phones
+
+The whole engine and the window build for Android (arm64) and iOS
+(arm64). Two native libraries come from source for a phone, because no
+prebuilt covers them: FFmpeg, which `scripts/ffmpeg-mobile.sh` cross-builds
+as static archives with the platform's hardware codecs turned on -
+MediaCodec on Android, VideoToolbox on iOS - and whisper.cpp, which its
+crate builds with cmake for the target. sherpa-onnx ships as the shared
+library k2-fsa publishes, fetched by `scripts/sherpa-mobile.sh`; on Android
+the app carries it in `jniLibs`, on iOS as an embedded framework. Both
+scripts leave their output under `vendor/`, outside `target/`, and
+`scripts/mobile-env.sh` turns that into the build environment:
+
+```sh
+# Android: the NDK under the SDK, a JDK, and cargo-ndk or cargo-apk.
+scripts/ffmpeg-mobile.sh aarch64-linux-android
+scripts/sherpa-mobile.sh aarch64-linux-android
+eval "$(scripts/mobile-env.sh aarch64-linux-android)"
+cargo ndk -t arm64-v8a --platform 26 build -p concat-android   # the activity's .so
+cargo apk build --release -p concat-android                     # the APK
+
+# iOS: Xcode.
+scripts/ffmpeg-mobile.sh aarch64-apple-ios
+scripts/sherpa-mobile.sh aarch64-apple-ios
+eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
+cargo build --release -p concat --target aarch64-apple-ios
+scripts/ios-app.sh aarch64-apple-ios release                    # Concat.app
+```
+
+`.github/workflows/mobile.yml` runs exactly this on every push and keeps
+the FFmpeg builds cached. The window is one library: `concat` on the
+desktop and on iOS runs it from `main.rs`, `concat-android` from the
+activity's `android_main`, and `crates/concat/src/platform.rs` is where
+the three differ - how the backend is chosen, how files are picked, and
+whether there is a title strip to drag.
 
 ## Reading this codebase cold
 

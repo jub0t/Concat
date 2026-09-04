@@ -1,0 +1,156 @@
+name: Build for phones
+
+# Builds Concat for Android and iOS on every push to main and every pull
+# request, and uploads what each produces: an APK, and the iOS app bundle
+# ready for a signing identity. Phones are cross-compiled - the Android
+# job runs on Linux with the NDK, the iOS job on macOS with Xcode - and
+# the two native libraries that cannot be fetched prebuilt for a phone are
+# built from source here and cached: FFmpeg by engine/scripts/ffmpeg-mobile.sh,
+# with the platform's hardware codecs, and whisper.cpp by its crate.
+# sherpa-onnx comes prebuilt from k2-fsa through engine/scripts/sherpa-mobile.sh.
+#
+# engine/scripts/mobile-env.sh is the one description of the build
+# environment, here and on a developer's machine.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # ggml compiles to the portable baseline for the architecture, NEON on
+  # ARM, rather than to whatever the build machine has.
+  GGML_NATIVE: "OFF"
+
+jobs:
+  android:
+    name: Android arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: cargo-apk
+
+      # The runner image carries the SDK and an NDK; the script finds the
+      # newest NDK under the SDK on its own, and the build scripts of
+      # whisper.cpp, Skia and Slint's backend each read it by their own
+      # name from what mobile-env.sh exports.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+
+      - name: FFmpeg for Android (cached)
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: engine/vendor/ffmpeg/aarch64-linux-android
+          key: ffmpeg-aarch64-linux-android-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
+      - name: FFmpeg for Android
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: engine/scripts/ffmpeg-mobile.sh aarch64-linux-android
+
+      - name: sherpa-onnx for Android
+        run: engine/scripts/sherpa-mobile.sh aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: aarch64-linux-android
+
+      # The build environment first, then the build under it. The APK is
+      # signed with the debug key, which is what a build without a store
+      # listing installs with.
+      - name: Build the APK
+        working-directory: engine
+        run: |
+          set -o pipefail
+          eval "$(scripts/mobile-env.sh aarch64-linux-android)"
+          cargo apk build --release -p concat-android 2>&1 | tee build.log
+
+      - name: Build log to the summary (failure only)
+        if: failure()
+        run: |
+          if [ -f engine/build.log ]; then
+            {
+              echo "### Build failed: Android arm64"
+              echo '```'
+              tail -n 150 engine/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Concat-android-arm64
+          path: engine/target/release/apk/Concat.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS arm64
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - run: brew install cmake
+
+      - name: FFmpeg for iOS (cached)
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: engine/vendor/ffmpeg/aarch64-apple-ios
+          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
+      - name: FFmpeg for iOS
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: engine/scripts/ffmpeg-mobile.sh aarch64-apple-ios
+
+      - name: sherpa-onnx for iOS
+        run: engine/scripts/sherpa-mobile.sh aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: aarch64-apple-ios
+
+      - name: Build
+        working-directory: engine
+        run: |
+          set -o pipefail
+          eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
+          cargo build --release -p concat --target aarch64-apple-ios 2>&1 | tee build.log
+
+      - name: Build log to the summary (failure only)
+        if: failure()
+        run: |
+          if [ -f engine/build.log ]; then
+            {
+              echo "### Build failed: iOS arm64"
+              echo '```'
+              tail -n 150 engine/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The bundle: binary, Info.plist and the sherpa-onnx framework, ad-hoc
+      # signed. A developer's identity and provisioning profile go on with
+      # codesign before it can be installed on a phone.
+      - name: Bundle
+        run: engine/scripts/ios-app.sh aarch64-apple-ios release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Concat-ios-arm64
+          path: engine/target/aarch64-apple-ios/release/Concat.app
+          if-no-files-found: error

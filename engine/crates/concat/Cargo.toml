@@ -8,12 +8,16 @@ publish = false
 description = "Concat, the editor window: the Slint front end that drives the engine."
 
 # The product's name is the binary's name, unsuffixed: `concat` is what a
-# user launches, and the concat-* crates are what it is made of.
+# user launches, and the concat-* crates are what it is made of. The window
+# itself is the library, so that the binary here and the Android activity
+# in concat-android are each a few lines over the same code.
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "concat"
 path = "src/main.rs"
 
-[dependencies]
 # Slint is taken under its GPL-3.0-only option to sit beside the AGPL engine.
 # See ../../../THIRD_PARTY_NOTICES.md for why those two combine legally.
 #
@@ -25,6 +29,13 @@ path = "src/main.rs"
 # minus that one renderer.
 #
 # 1.17, not 1.14: renderer-femtovg-wgpu does not exist in 1.14.
+#
+# Three platforms, three feature sets. The desktop and iOS draw through the
+# winit backend, iOS without the system tray; Android draws through Slint's
+# android-activity backend, which owns the window and the renderer itself
+# (see platform.rs). The renderer and wgpu features are the same on all
+# three, chosen by the `skia`/`wgpu` features below.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 slint = { version = "1.17", default-features = false, features = [
     "std",
     "backend-default",
@@ -32,16 +43,42 @@ slint = { version = "1.17", default-features = false, features = [
     "accessibility",
     "compat-1-2",
     "system-tray",
-    # The custom title bar: main.rs needs the winit window to hide the native
-    # title bar (macOS traffic-light overlay) and to start window drags from
-    # the strip's drag region.
+    # The custom title bar: platform.rs needs the winit window to hide the
+    # native title bar (macOS traffic-light overlay) and to start window
+    # drags from the strip's drag region.
     "unstable-winit-030",
     # The renderer draws on a wgpu device the window creates and shares with
     # the engine's compositor, so a monitor frame is a texture Slint shows
     # as it is - see gpu.rs.
     "unstable-wgpu-29",
 ] }
+# Native file and folder dialogs, which Slint deliberately does not have.
+rfd = "0.17"
+# Reveal an exported file in the platform's file manager.
+opener = { version = "0.8", features = ["reveal"] }
 
+[target.'cfg(target_os = "ios")'.dependencies]
+slint = { version = "1.17", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "accessibility",
+    "compat-1-2",
+    "unstable-winit-030",
+    "unstable-wgpu-29",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+slint = { version = "1.17", default-features = false, features = [
+    "std",
+    "backend-android-activity-06",
+    "renderer-software",
+    "accessibility",
+    "compat-1-2",
+    "unstable-wgpu-29",
+] }
+
+[dependencies]
 # The one device: created in gpu.rs, handed to Slint and to the monitor.
 wgpu.workspace = true
 pollster.workspace = true
@@ -57,10 +94,6 @@ concat-speech.workspace = true
 # The effect catalogue: the inspector's shelves and each link's knobs.
 concat-effects.workspace = true
 
-# Native file and folder dialogs, which Slint deliberately does not have.
-rfd = "0.17"
-# Reveal an exported file in the platform's file manager.
-opener = { version = "0.8", features = ["reveal"] }
 # Remembered preferences, as a small JSON file in the config directory.
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

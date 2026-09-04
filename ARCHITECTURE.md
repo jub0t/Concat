@@ -284,7 +284,8 @@ The Rust side is small and split by what it owns:
 
 | File | Owns |
 |---|---|
-| `main.rs` | Startup (renderer selection, the services), and one binding per callback the `Editor` global exposes. Every handler is "mutate the state, then republish". |
+| `lib.rs` | Startup (the backend, the services), and one binding per callback the `Editor` global exposes. Every handler is "mutate the state, then republish". `main.rs` is the desktop's and iOS's call into it; `concat-android` is Android's. |
+| `platform.rs` | The three things a phone does differently from a desk: how the backend is chosen, how a file or folder is picked, whether the title strip is dragged. Everything else is shared. |
 | `studio.rs` | The window's state. Reads the engine's `Project` through the open `Session`; writes every edit as a `Command`. Holds what the document does not: selection, playhead, zoom, tool, which lanes are locked, the dock tree, what the sheets show. Publishes it all into Slint's models. |
 | `host.rs` | The engine's services (playback, monitor, exporter, transcriber, speech, app directories) and the bridge from worker threads back to the event loop. |
 | `dock.rs` | The workspace's arrangement as a tree, walked flat for Slint. |
@@ -370,14 +371,40 @@ else touches the audio path.
   green on all three platforms. Windows (libclang via chocolatey,
   `FFMPEG_DIR`, MSVC for whisper.cpp) is the one to watch.
 
-### 8.8 DTO shapes in the export path
+### 8.8 Phones
+
+The window builds and packages for Android and iOS (`mobile.yml`, the
+`scripts/*-mobile.sh` trio, `concat-android`), and what runs there is the
+desktop's tree on a phone's screen. The next work, in order:
+
+- A phone layout. The dock, the inspector and the timeline assume a wide
+  window and a pointer; a phone wants one seat at a time, touch-sized
+  targets, and the timeline under the monitor. The `.slint` tree can carry
+  a second arrangement chosen by the window's size.
+- Picking files. `platform.rs` returns nothing for a pick on a phone; the
+  system document picker (Storage Access Framework, `UIDocumentPicker`)
+  has to hand the window a readable path or a file descriptor, and
+  `concat-media` opens by path today.
+- Hardware codecs are linked, not yet asked for: `concat-media` opens the
+  software decoder by name. MediaCodec also needs `av_jni_set_java_vm`
+  from the activity before FFmpeg can reach it.
+- The monitor on Android composites on the CPU: Slint's android-activity
+  backend creates its own wgpu device and there is no way to hand it ours,
+  so the shared-texture path in `gpu.rs` is desktop and iOS only.
+- The iOS build is exercised only in CI, on a runner with Xcode.
+- Three build-script quirks are papered over in `scripts/mobile-env.sh`
+  rather than fixed upstream: whisper-rs-sys names `ggml-blas` whenever
+  the *host* is a Mac, Slint's Android backend reads the NDK API level as
+  the SDK platform, and cargo-apk does not pass bindgen the NDK sysroot.
+
+### 8.9 DTO shapes in the export path
 
 `ExportClip`, `ExportRequest` and `PreviewFrameRequest` are JSON-shaped
 DTOs. `concat-export` could take the engine's `Project` and settings
 directly and drop the flattening-through-a-DTO; the `serde` derives on the
 host's view types go with them.
 
-### 8.9 Panics in runtime paths
+### 8.10 Panics in runtime paths
 
 Engine `.expect()`s exist in `decode.rs`, `encode.rs`, `pool.rs` and
 `time.rs` ("rational overflowed i64"). Most are genuine invariants
@@ -385,7 +412,7 @@ Engine `.expect()`s exist in `decode.rs`, `encode.rs`, `pool.rs` and
 if wrong. The host's `templates.rs` and `media.rs` counts are dominated by
 tests, which is fine.
 
-### 8.10 Housekeeping
+### 8.11 Housekeeping
 
 - **Zero TODO/FIXME/HACK comments** in the tree. Invariants live in prose
   comments instead; keep it that way.

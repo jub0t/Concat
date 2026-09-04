@@ -1,0 +1,52 @@
+[package]
+name = "concat-android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Concat on Android: the activity that hosts the editor window."
+
+# An Android app is a shared object the activity loads, not a program.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The window, whole. Slint's android-activity backend is chosen by the
+# window's own manifest for this target; this crate only names the
+# activity's entry point.
+concat.workspace = true
+slint = { version = "1.17", default-features = false, features = [
+    "std",
+    "backend-android-activity-06",
+    "compat-1-2",
+] }
+
+# `cargo apk build -p concat-android` packages the shared object, the
+# sherpa-onnx runtime libraries and the manifest below into an APK. The
+# runtime libraries come from scripts/sherpa-mobile.sh.
+[package.metadata.android]
+package = "app.concat.editor"
+apk_name = "Concat"
+build_targets = ["aarch64-linux-android"]
+runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
+
+[package.metadata.android.sdk]
+# Android 8.0: AAudio, the audio path the engine plays through.
+min_sdk_version = 26
+target_sdk_version = 35
+
+# Speech models are downloaded on first use.
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.application]
+label = "Concat"
+# The editor keeps its own state across a rotation; the activity is not
+# recreated for one.
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|screenSize"
+launch_mode = "singleTop"
+
+[lints]
+workspace = true

@@ -9,6 +9,10 @@
 //! Created before the backend is selected, because Slint takes the device at
 //! selection time; `None` when the machine offers no adapter, and then the
 //! window renders the way it did without one.
+//!
+//! On Android the backend owns its device and none is shared, so the type
+//! is carried and never opened there; see platform.rs.
+#![cfg_attr(target_os = "android", allow(dead_code))]
 
 /// The shared device and what it was created from.
 #[derive(Clone)]
@@ -31,7 +35,7 @@ impl Gpu {
         // other backend is refused at selection time. PRIMARY let wgpu pick
         // Vulkan on Windows machines that offer it, and the window then
         // failed to open with "Unsupported WGPU backend for use with Skia".
-        let backends = if cfg!(target_os = "macos") {
+        let backends = if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
         } else if cfg!(windows) {
             wgpu::Backends::DX12
