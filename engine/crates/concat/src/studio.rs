@@ -40,7 +40,9 @@ use slint::{Model, SharedString, VecModel};
 use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
-use crate::format::{bytes, colour_of, eta, hex_of, hex_with_alpha, wave_path, when_phrase};
+use crate::format::{
+    bytes, colour_of, eta, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase,
+};
 use crate::host::{Host, MediaArt, image_at, image_of, media_art, on_ui, spawn};
 use crate::prefs::Preferences;
 use crate::ui::*;
@@ -131,6 +133,17 @@ pub const TRANSCRIBE_LANGUAGES: [&str; 3] = ["auto", "en", "zh"];
 
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
+
+/// The project sheet: the Details panel's Modify button, as a form.
+#[derive(Default)]
+pub struct ProjectSheet {
+    pub open: bool,
+    pub name: String,
+    /// Row in `OUTPUTS`, or -1 for a frame the list does not carry.
+    pub size: i32,
+    /// Row in `START_RATES`.
+    pub rate: usize,
+}
 
 /// The export sheet's state.
 pub struct ExportState {
@@ -558,6 +571,7 @@ pub struct Studio {
     /// text clip is drawn from; see `footprint`.
     pub title_blocks: HashMap<String, (u32, u32)>,
     pub drop: Option<DropPlan>,
+    pub project_sheet: ProjectSheet,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -918,6 +932,7 @@ impl Studio {
             last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
+            project_sheet: ProjectSheet::default(),
             host,
         };
         studio.settings.language = studio.prefs.language.unwrap_or(0);
@@ -4161,6 +4176,29 @@ impl Studio {
         );
         editor.set_quality_index(self.quality as i32);
 
+        // The Details panel, and the sheet its Modify button opens.
+        let folder: SharedString = self
+            .session
+            .as_ref()
+            .map(|session| session.path().to_owned())
+            .unwrap_or_else(|| "—".to_owned())
+            .into();
+        editor.set_project_name(self.project_name.as_str().into());
+        editor.set_project_folder(folder.clone());
+        editor.set_project_output(format!("{width} × {height}").into());
+        editor.set_project_rate(format!("{:.2} fps", self.frame_rate()).into());
+        editor.set_project_duration(frames_timecode(self.duration(), self.frame_rate()).into());
+        editor.set_count_media(self.project().media.len() as i32);
+        editor.set_count_tracks(self.timeline().tracks.len() as i32);
+        editor.set_count_clips(self.timeline().clips.len() as i32);
+        app.set_project_sheet(ProjectSheetData {
+            open: self.project_sheet.open,
+            name: self.project_sheet.name.as_str().into(),
+            folder,
+            size: self.project_sheet.size,
+            rate: self.project_sheet.rate as i32,
+        });
+
         let rows = self.menu();
         editor.set_menu_height(Self::menu_height(&rows));
         sync(&models.menu, rows);
@@ -4647,6 +4685,185 @@ impl Studio {
             self.schedule_autosave();
             self.request_preview();
         }
+    }
+
+    // ── the project sheet ──
+
+    /// Opens the sheet on the project as it stands.
+    pub fn project_sheet_open(&mut self) {
+        let (width, height) = self.output_size();
+        let (num, den) = self.session.as_ref().map_or((30, 1), |session| {
+            let settings = session.settings();
+            (settings.rate_num, settings.rate_den)
+        });
+        self.project_sheet = ProjectSheet {
+            open: true,
+            name: self.project_name.clone(),
+            size: OUTPUTS
+                .iter()
+                .position(|size| *size == (width as i32, height as i32))
+                .map_or(-1, |index| index as i32),
+            rate: START_RATES
+                .iter()
+                .position(|(_, n, d)| (*n, *d) == (num, den))
+                .unwrap_or(3),
+        };
+    }
+
+    /// Applies the sheet - the name, the frame and the rate together - and
+    /// closes it. The frame goes the way the monitor's picker sends it, so
+    /// the two cannot disagree about what a size means.
+    pub fn project_apply(&mut self) {
+        let sheet = std::mem::take(&mut self.project_sheet);
+        let name = sheet.name.trim().to_owned();
+        let size = usize::try_from(sheet.size)
+            .ok()
+            .and_then(|index| OUTPUTS.get(index).copied());
+        let (_, num, den) = START_RATES[sheet.rate.min(START_RATES.len() - 1)];
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        session.prepare_save(
+            (!name.is_empty()).then_some(name.as_str()),
+            size.map(|(width, _)| width as u32),
+            size.map(|(_, height)| height as u32),
+        );
+        session.set_rate(num, den);
+        if !name.is_empty() {
+            self.project_name = name;
+        }
+        self.dirty = true;
+        self.schedule_autosave();
+        self.request_preview();
+    }
+
+    // ── the keyboard, and the menu's verbs ──
+
+    /// A chord from the window's key table; see `Editor.shortcut`. The view
+    /// chords - zoom, the playhead's ends, the sheets - go through the app
+    /// menu's own handler in lib.rs, so a key and the row that advertises
+    /// it are one thing.
+    pub fn shortcut(&mut self, action: &str) {
+        match action {
+            "split" => {
+                let at = self.playhead;
+                self.split_at(at, false);
+            }
+            "split-selected" => {
+                let at = self.playhead;
+                self.split_at(at, true);
+            }
+            "select-all" => self.select_all(),
+            "copy" | "duplicate" | "mute" => {
+                if let Some(id) = self.sole_selection() {
+                    self.clip_action(&id, action);
+                }
+            }
+            "paste" => {
+                let Some(held) = self.clipboard.clone() else {
+                    return;
+                };
+                match self.sole_selection() {
+                    // After the selected clip, on its lane, as the menu does.
+                    Some(id) => self.clip_action(&id, "paste"),
+                    // Nothing selected: at the playhead, on the lane it was
+                    // copied from. `duplicate` lays a copy after its source,
+                    // so the source is placed one length before the playhead.
+                    None => {
+                        let mut source = held;
+                        source.start = f64::from(self.playhead) - source.duration;
+                        self.duplicate(&source);
+                    }
+                }
+            }
+            "tool-select" => self.tool = TimelineTool::Select,
+            // B toggles: pressing it with the razor up puts the pointer back.
+            "tool-razor" => {
+                self.tool = if self.tool == TimelineTool::Razor {
+                    TimelineTool::Select
+                } else {
+                    TimelineTool::Razor
+                };
+            }
+            _ => {}
+        }
+    }
+
+    /// One of the clip menu's verbs on clip `id`. The menu's rows and the
+    /// keyboard's chords both land here, so a shortcut and the row that
+    /// advertises it cannot disagree.
+    pub fn clip_action(&mut self, id: &str, action: &str) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        match action {
+            "copy" => self.clipboard = Some(clip),
+            "duplicate" => self.duplicate(&clip),
+            "paste" => {
+                if let Some(held) = self.clipboard.clone() {
+                    let mut source = held;
+                    // Pasted after the clip that was right-clicked, on its lane.
+                    source.track_id = clip.track_id.clone();
+                    source.start = clip.start + clip.duration - source.duration;
+                    self.duplicate(&source);
+                }
+            }
+            "split" => {
+                let at = self.playhead;
+                self.selection = vec![id.to_owned()];
+                self.split_at(at, true);
+            }
+            "mute" => {
+                let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
+                self.apply(Command::UpdateClip {
+                    clip_id: id.to_owned(),
+                    patch: ClipPatch {
+                        volume: Some(volume),
+                        ..Default::default()
+                    },
+                });
+            }
+            "lock" => self.toggle_lock(&clip.track_id),
+            "delete" => {
+                self.apply(Command::RemoveClips {
+                    clip_ids: vec![id.to_owned()],
+                });
+                self.menu_target = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Every clip on an unlocked lane.
+    pub fn select_all(&mut self) {
+        self.selection = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| !self.locked(&clip.track_id))
+            .map(|clip| clip.id.clone())
+            .collect();
+    }
+
+    /// Tab `from` dropped at `slot`, a position counted over the strip as
+    /// it stands; the command counts with the tab already removed.
+    pub fn move_timeline(&mut self, from: i32, slot: i32) {
+        let Some(from) = usize::try_from(from).ok() else {
+            return;
+        };
+        let Some(timeline) = self.project().timelines.get(from) else {
+            return;
+        };
+        let id = timeline.id.clone();
+        let slot = slot.max(0) as usize;
+        let index = if from < slot { slot - 1 } else { slot };
+        if index == from {
+            return;
+        }
+        self.apply(Command::MoveTimeline {
+            timeline_id: id,
+            index,
+        });
     }
 }
 

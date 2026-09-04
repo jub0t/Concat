@@ -120,6 +120,9 @@ export global Payload {
     /// including a drag from another application, whose payload this tree
     /// cannot read. Rust, for want of split(); see `parse-timecode`.
     pure callback pane-seat(text: string) -> int;
+
+    /// The tab index in a `tab:N:...` payload, or -1 for anything else.
+    pure callback tab-index(text: string) -> int;
 }
 
 export global Geom {

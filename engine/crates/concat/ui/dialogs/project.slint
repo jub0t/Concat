@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
+import { Select } from "../primitives/select.slint";
+
+// The project sheet: what the Details panel's Modify button opens.
+//
+// Three facts a project is made of - its name, its frame and its rate - on
+// one short form, applied together. The folder is stated and not editable:
+// a project is its folder, and moving one is a job for the file manager.
+
+export struct ProjectSheetData {
+    open: bool,
+    name: string,
+    folder: string,
+    /// Row in the frame list, or -1 for a size the list does not carry.
+    size: int,
+    /// Row in the rate list.
+    rate: int,
+}
+
+export component ProjectDialog inherits Modal {
+    in property <ProjectSheetData> data;
+
+    callback name-edited(name: string);
+    callback size-changed(index: int);
+    callback rate-changed(index: int);
+    callback apply();
+
+    open: root.data.open;
+    title: "Project";
+    glyph: Glyph.settings;
+    surface-width: 440px;
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: "Name";
+
+            DialogRow {
+                Field {
+                    value: root.data.name;
+                    placeholder: "Untitled project";
+                    edited(text) => { root.name-edited(text); }
+                }
+            }
+
+            // The folder under the field, whole: the one fact here that
+            // cannot be changed, and the one most worth being able to read.
+            Text {
+                text: root.data.folder;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+        }
+
+        DialogSection {
+            title: "Output";
+
+            // The same six frames the monitor's picker offers, in the same
+            // order, so the two controls can never disagree about what a
+            // row means.
+            DialogRow {
+                label: "Frame";
+                Select {
+                    current: root.data.size;
+                    placeholder: "Custom";
+                    options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
+                        "1080 × 1080", "1440 × 1080", "2560 × 1080"];
+                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+                    changed(index) => { root.size-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: "Frame rate";
+                Select {
+                    current: root.data.rate;
+                    options: ["24 fps", "25 fps", "29.97 fps", "30 fps", "60 fps"];
+                    changed(index) => { root.rate-changed(index); }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+
+        VerticalLayout {
+            padding: 14px;
+
+            Button {
+                block: true;
+                primary: true;
+                large: true;
+                glyph: Glyph.check;
+                label: "Apply";
+                enabled: root.data.name != "";
+                clicked => { root.apply(); }
+            }
+        }
+    }
+}

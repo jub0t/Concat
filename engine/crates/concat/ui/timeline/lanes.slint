@@ -393,6 +393,8 @@ export component Lanes inherits Rectangle {
     in property <length> ruler-height: 28px;
 
     callback scrubbed(seconds: float);
+    /// A press on an empty stretch of lane, before the band it may become.
+    callback floor-pressed();
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
@@ -557,6 +559,7 @@ export component Lanes inherits Rectangle {
 
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down) {
+                    root.floor-pressed();
                     self.additive = event.modifiers.shift;
                     self.from-x = self.mouse-x;
                     self.from-y = self.mouse-y;

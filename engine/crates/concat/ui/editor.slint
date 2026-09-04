@@ -233,4 +233,34 @@ export global Editor {
     callback track-sized(index: int, size: TrackSize);
     callback track-removed(index: int);
     callback track-renamed(index: int, name: string);
+    /// A tab dragged to a new place in the strip. `to` is counted with the
+    /// tab already out of its old slot, the way MoveTimeline counts.
+    callback tab-moved(from: int, to: int);
+
+    // ── the project's facts ──
+    //
+    // What the Details panel reads when nothing is selected. Strings rather
+    // than numbers where the panel would only format them: the panel is a
+    // readout, and Rust already knows how each fact is spelled.
+    in-out property <string> project-name;
+    in-out property <string> project-folder;
+    in-out property <string> project-output;
+    in-out property <string> project-rate;
+    in-out property <string> project-duration;
+    in-out property <int> count-media;
+    in-out property <int> count-tracks;
+    in-out property <int> count-clips;
+    /// The panel's Modify button: open the project sheet.
+    callback modify-project();
+
+    /// A press landed on a pane's floor - a lane, the stage, the bin's
+    /// gutter, a clip. Whatever field had focus gives it up, the way a
+    /// browser's does when you click beside it. Answered by the window,
+    /// which owns the scope the focus falls back to; see App.blur.
+    callback blur();
+
+    /// A keyboard chord that names an edit rather than a view change. One
+    /// callback with a verb rather than one per key, so the window's key
+    /// table and the state's answer to it stay in one place each.
+    callback shortcut(action: string);
 }

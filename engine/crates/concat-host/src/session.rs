@@ -211,6 +211,16 @@ impl Session {
         (self.path.clone(), self.editor.to_document(&self.settings))
     }
 
+    /// Changes the output frame rate. A zero or negative term is never a
+    /// real rate, only a caller bug, and is ignored for the reason a zero
+    /// dimension is in [`Session::prepare_save`].
+    pub fn set_rate(&mut self, num: i64, den: i64) {
+        if num > 0 && den > 0 {
+            self.settings.rate_num = num;
+            self.settings.rate_den = den;
+        }
+    }
+
     /// Writes the session's document to its project folder.
     pub fn save(
         &mut self,

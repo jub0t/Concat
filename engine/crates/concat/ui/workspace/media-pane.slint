@@ -546,6 +546,8 @@ component MediaGrid inherits Rectangle {
     callback clicked(id: int, additive: bool);
     callback activated(id: int);
     callback removed(id: int);
+    /// A press on the gutter between the cards, before any band.
+    callback pressed();
     /// A marquee closed over the grid, given as the block of cells it caught:
     /// the two corners inclusive, and the column count they were measured
     /// against. A block and not a list of ids, because the cards are placed by
@@ -623,6 +625,7 @@ component MediaGrid inherits Rectangle {
 
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
+                root.pressed();
                 self.additive = event.modifiers.shift;
                 self.from-x = self.mouse-x;
                 self.from-y = self.mouse-y;
@@ -995,6 +998,8 @@ export component MediaPane inherits Rectangle {
 
     callback import-media();
     callback filter-changed(filter: MediaFilter);
+    /// A press on the bin's floor; see Editor.blur.
+    callback floor-pressed();
     callback select(id: int, additive: bool);
     /// A marquee closed over the card grid — see MediaGrid.band-selected.
     callback band-selected(columns: int, from-col: int, to-col: int,
@@ -1548,6 +1553,7 @@ export component MediaPane inherits Rectangle {
                         page-floor: Math.max(0px, pages.height - 52px
                             - (root.selected-count > 1 ? 36px : 0px) - 8px);
 
+                        pressed => { root.floor-pressed(); }
                         clicked(id, additive) => { root.select(id, additive); }
                         activated(id) => { root.activate(id); }
                         removed(id) => { root.remove(id); }

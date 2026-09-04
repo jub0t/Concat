@@ -429,6 +429,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             });
         }
     }));
+    editor.on_tab_moved(on_window!(|state, from: i32, to: i32| {
+        state.move_timeline(from, to);
+    }));
     editor.on_tab_added(on_window!(|state| {
         if let Some(id) = state.apply(concat_project::Command::AddTimeline) {
             state.selection.clear();
@@ -686,46 +689,46 @@ pub fn run() -> Result<(), slint::PlatformError> {
         // The clip the menu was opened on; failing that, the one clip that
         // is selected, which is what the menu was showing anyway.
         let target = state.menu_target.clone().or_else(|| state.sole_selection());
-        let Some(id) = target else {
-            return;
-        };
-        let Some(clip) = state.clip(&id).cloned() else {
-            return;
-        };
-        match action.as_str() {
-            "copy" => state.clipboard = Some(clip),
-            "duplicate" => state.duplicate(&clip),
-            "paste" => {
-                if let Some(held) = state.clipboard.clone() {
-                    let mut source = held;
-                    // Pasted after the clip that was right-clicked, on its lane.
-                    source.track_id = clip.track_id.clone();
-                    source.start = clip.start + clip.duration - source.duration;
-                    state.duplicate(&source);
-                }
-            }
-            "split" => {
-                let at = state.playhead;
-                state.selection = vec![id];
-                state.split_at(at, true);
-            }
-            "mute" => {
-                let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
-                state.apply(concat_project::Command::UpdateClip {
-                    clip_id: id,
-                    patch: concat_project::commands::ClipPatch {
-                        volume: Some(volume),
-                        ..Default::default()
-                    },
-                });
-            }
-            "lock" => state.toggle_lock(&clip.track_id),
-            "delete" => {
-                state.apply(concat_project::Command::RemoveClips { clip_ids: vec![id] });
-                state.menu_target = None;
-            }
-            _ => {}
+        if let Some(id) = target {
+            state.clip_action(&id, action.as_str());
         }
+    }));
+
+    // ── the keyboard ──
+    //
+    // A press on any pane's floor takes focus back from the field that had
+    // it; see Editor.blur. The chords that are also menu rows go through the
+    // menu's handler, so the key and the row cannot come apart.
+    editor.on_blur(|| Shell::with(|_, app| app.invoke_blur()));
+    editor.on_shortcut(move |action: SharedString| match action.as_str() {
+        "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end" | "snap" => {
+            Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));
+        }
+        _ => Shell::with(|shell, app| {
+            shell.studio.borrow_mut().shortcut(action.as_str());
+            shell.studio.borrow_mut().refresh_art();
+            shell.studio.borrow().publish(&app, &shell.models);
+        }),
+    });
+
+    // ── the project sheet ──
+    editor.on_modify_project(on_window!(|state| {
+        state.project_sheet_open();
+    }));
+    app.on_project_closed(on_window!(|state| {
+        state.project_sheet.open = false;
+    }));
+    app.on_project_name_edited(on_window!(|state, name: SharedString| {
+        state.project_sheet.name = name.to_string();
+    }));
+    app.on_project_size_changed(on_window!(|state, index: i32| {
+        state.project_sheet.size = index;
+    }));
+    app.on_project_rate_changed(on_window!(|state, index: i32| {
+        state.project_sheet.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+    }));
+    app.on_project_apply(on_window!(|state| {
+        state.project_apply();
     }));
 
     // ── the dialogs ──
@@ -930,6 +933,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
             .and_then(|seat| seat.parse().ok())
             .unwrap_or(-1)
     });
+    app.global::<Payload>().on_tab_index(|text| {
+        text.strip_prefix("tab:")
+            .and_then(|rest| rest.split(':').next())
+            .and_then(|index| index.parse().ok())
+            .unwrap_or(-1)
+    });
 
     // The picture the cursor carries, resolved through the same `incoming`
     // the drop uses, memoised by theme and payload.
@@ -952,6 +961,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         chips::drag_chip_svg(
                             chips::pane_glyph(slug),
                             label,
+                            "",
+                            theme.get_accent(),
+                            theme.get_field(),
+                            theme.get_raised(),
+                            theme.get_fg(),
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap_or_default();
+                    chips.borrow_mut().insert(key, chip.clone());
+                    result = chip;
+                    return;
+                }
+                // A timeline tab in flight wears the timeline pane's mark.
+                if let Some(rest) = payload.strip_prefix("tab:") {
+                    let name = rest.splitn(2, ':').nth(1).unwrap_or_default();
+                    let chip = slint::Image::load_from_svg_data(
+                        chips::drag_chip_svg(
+                            chips::pane_glyph("timeline"),
+                            name,
                             "",
                             theme.get_accent(),
                             theme.get_field(),

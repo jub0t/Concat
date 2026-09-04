@@ -23,6 +23,7 @@ import { MediaFilter, MediaItemData, MediaKind } from "workspace/media-pane.slin
 import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slint";
 import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
+import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
@@ -50,7 +51,7 @@ export {
     ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
     StageGuideData, StageItemData, TextAlignment, TimelineTabData, TimelineTool,
     TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
-    RecentProjectData, StartData, SystemFactData, ToastData,
+    RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
 }
 
 export component App inherits Window {
@@ -154,6 +155,22 @@ export component App inherits Window {
     callback open-settings();
     callback export-clicked();
 
+    /// The project sheet, opened from the Details panel.
+    in property <ProjectSheetData> project-sheet;
+    callback project-closed();
+    callback project-name-edited(name: string);
+    callback project-size-changed(index: int);
+    callback project-rate-changed(index: int);
+    callback project-apply();
+
+    /// Takes focus back from whatever field holds it. The keyboard scope is
+    /// where focus rests when nothing is being typed into, so giving it the
+    /// focus is what "click beside the field" means; Rust calls this for
+    /// every press a pane reports through Editor.blur.
+    public function blur() {
+        keys.focus();
+    }
+
     /// The bottom-right notice: what just happened, said once. Set from Rust
     /// and watched by its token — see ToastLayer, which owns the timing.
     in property <ToastData> toast;
@@ -221,14 +238,67 @@ export component App inherits Window {
             activated => { root.app-menu-selected("redo"); }
         }
 
-        // Space plays and pauses, the way it does in every editor. It lands
-        // here only when nothing else took it: a field being typed into
-        // consumes its own spaces before the key can walk up to this scope.
+        // The rest of the keyboard, the way CapCut lays it out: the chord
+        // key with a letter for an edit, a bare letter for a tool, the
+        // arrows and Home/End for the playhead. Every one lands here only
+        // when nothing else took it - a field being typed into consumes
+        // its own letters and spaces before a key can walk up to this
+        // scope, which is what keeps typing a title from cutting a clip.
         key-pressed(event) => {
-            if event.text == Key.Space && !root.on-start {
-                Editor.play-toggled();
+            if (root.on-start) {
+                return reject;
+            }
+            // The command key arrives as meta on a Mac and as control
+            // everywhere else; either is the chord key.
+            if (event.modifiers.control || event.modifiers.meta) {
+                if (event.modifiers.shift || event.modifiers.alt) {
+                    return reject;
+                }
+                if (event.text == "b") { Editor.shortcut("split"); return accept; }
+                if (event.text == "a") { Editor.shortcut("select-all"); return accept; }
+                if (event.text == "c") { Editor.shortcut("copy"); return accept; }
+                if (event.text == "v") { Editor.shortcut("paste"); return accept; }
+                if (event.text == "d") { Editor.shortcut("duplicate"); return accept; }
+                if (event.text == "e") { Editor.shortcut("export"); return accept; }
+                if (event.text == "i") { Editor.shortcut("import"); return accept; }
+                if (event.text == ",") { Editor.shortcut("settings"); return accept; }
+                if (event.text == "=" || event.text == "+") {
+                    Editor.shortcut("zoom-in");
+                    return accept;
+                }
+                if (event.text == "-") { Editor.shortcut("zoom-out"); return accept; }
+                return reject;
+            }
+            if (event.modifiers.alt) {
+                return reject;
+            }
+            if (event.text == Key.Space) { Editor.play-toggled(); return accept; }
+            if (event.text == Key.Delete || event.text == Key.Backspace) {
+                Editor.delete-selected();
                 return accept;
             }
+            if (event.text == Key.Home) { Editor.shortcut("start"); return accept; }
+            if (event.text == Key.End) { Editor.shortcut("end"); return accept; }
+            // A frame, or ten with shift.
+            if (event.text == Key.LeftArrow) {
+                Editor.step-frames(event.modifiers.shift ? -10 : -1);
+                return accept;
+            }
+            if (event.text == Key.RightArrow) {
+                Editor.step-frames(event.modifiers.shift ? 10 : 1);
+                return accept;
+            }
+            if (event.modifiers.shift) {
+                return reject;
+            }
+            if (event.text == "a" || event.text == "v") {
+                Editor.shortcut("tool-select");
+                return accept;
+            }
+            if (event.text == "b") { Editor.shortcut("tool-razor"); return accept; }
+            if (event.text == "s") { Editor.shortcut("split-selected"); return accept; }
+            if (event.text == "n") { Editor.shortcut("snap"); return accept; }
+            if (event.text == "m") { Editor.shortcut("mute"); return accept; }
             return reject;
         }
 
@@ -331,6 +401,20 @@ export component App inherits Window {
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }
         model-remove(id) => { root.model-remove(id); }
+    }
+
+    ProjectDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.project-sheet;
+
+        closed => { root.project-closed(); }
+        name-edited(name) => { root.project-name-edited(name); }
+        size-changed(index) => { root.project-size-changed(index); }
+        rate-changed(index) => { root.project-rate-changed(index); }
+        apply => { root.project-apply(); }
     }
 
     // Over the workspace and both sheets, under the menus. A tooltip has to

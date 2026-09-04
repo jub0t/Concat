@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "../theme/theme.slint";
+import { Payload } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { TimelineTabData } from "model.slint";
 
@@ -16,9 +17,10 @@ import { TimelineTabData } from "model.slint";
 // the corners. The bar sits away from the content it opens onto, so it reads
 // as a label on the tab and not as an underline on the panel.
 //
-// Tabs do not drag to reorder. That wants a lifted tab riding the pointer
-// while its neighbours ease aside, which is a whole gesture rather than a
-// detail of this one.
+// Tabs drag to reorder. A lifted tab carries its index the way a bin card
+// carries its row, and the tab it is let go over says which side of itself
+// it landed on; the move itself is the engine's, so undo takes it back like
+// any other edit.
 
 component Tab inherits Rectangle {
     in property <string> name;
@@ -182,6 +184,10 @@ export component TimelineTabs inherits Rectangle {
     callback renamed(index: int, name: string);
     callback close-requested(index: int);
     callback added();
+    /// Tab `from` was dropped at `to`, a slot counted over the strip as it
+    /// stands - so `to` may be one past the end, and may sit either side
+    /// of `from` itself. Rust discounts the moving tab.
+    callback moved(from: int, to: int);
 
     height: 32px;
     background: Theme.well;
@@ -204,14 +210,63 @@ export component TimelineTabs inherits Rectangle {
 
         for tab[index] in root.tabs: VerticalLayout {
             alignment: end;
-            Tab {
-                name: tab.name;
-                current: index == root.current;
-                closable: root.tabs.length > 1;
 
-                selected => { root.selected(index); }
-                renamed(name) => { root.renamed(index, name); }
-                close-requested => { root.close-requested(index); }
+            // Source and target both. The DragArea only takes over once
+            // the press has travelled, so the tab keeps its click and its
+            // double-click; the DropArea ignores everything but a drag.
+            slot := Rectangle {
+                width: held.width;
+                height: held.height;
+
+                drag := DragArea {
+                    data: Payload.of("tab:\{index}:\{tab.name}");
+                    drag-image: Payload.preview("tab:\{index}:\{tab.name}");
+                    drag-image-offset-x: -8;
+                    drag-image-offset-y: -4;
+                    allow-copy: true;
+
+                    held := Tab {
+                        name: tab.name;
+                        current: index == root.current;
+                        closable: root.tabs.length > 1;
+                        // Faded while in the air, as a bin card is.
+                        opacity: drag.dragging ? 0.45 : 1.0;
+
+                        selected => { root.selected(index); }
+                        renamed(name) => { root.renamed(index, name); }
+                        close-requested => { root.close-requested(index); }
+                    }
+                }
+
+                landing := DropArea {
+                    /// The pointer is over the leading half: the tab lands
+                    /// before this one rather than after it.
+                    property <bool> before;
+
+                    can-drop(event) => {
+                        self.before = event.position.x < self.width / 2;
+                        return Payload.tab-index(Payload.text(event.data)) >= 0
+                            && Payload.tab-index(Payload.text(event.data)) != index
+                            ? DragAction.copy : DragAction.none;
+                    }
+
+                    dropped(event) => {
+                        root.moved(Payload.tab-index(Payload.text(event.data)),
+                            self.before ? index : index + 1);
+                        return DragAction.copy;
+                    }
+                }
+
+                // Where it will land: a bar on the side it is about to
+                // take, in the accent every other target in the window is
+                // drawn in.
+                if landing.has-drag: Rectangle {
+                    x: landing.before ? -2px : parent.width;
+                    y: 4px;
+                    width: 2px;
+                    height: parent.height - 8px;
+                    background: Theme.accent;
+                }
             }
         }
 

@@ -102,7 +102,11 @@ export component Seat inherits Rectangle {
 
             import-media => { Editor.import-media(); }
             filter-changed(filter) => { Editor.media-filter-changed(filter); }
-            select(id, additive) => { Editor.media-select(id, additive); }
+            floor-pressed => { Editor.blur(); }
+            select(id, additive) => {
+                Editor.blur();
+                Editor.media-select(id, additive);
+            }
             band-selected(columns, from-col, to-col, from-row, to-row, additive) => {
                 Editor.media-band-selected(columns, from-col, to-col,
                     from-row, to-row, additive);
@@ -149,8 +153,12 @@ export component Seat inherits Rectangle {
             step(frames) => { Editor.step-frames(frames); }
             ratio-changed(index) => { Editor.ratio-changed(index); }
             quality-changed(index) => { Editor.quality-changed(index); }
-            stage-pressed(x, y, additive) => { Editor.stage-pressed(x, y, additive); }
+            stage-pressed(x, y, additive) => {
+                Editor.blur();
+                Editor.stage-pressed(x, y, additive);
+            }
             stage-grip-pressed(id, grip, x, y) => {
+                Editor.blur();
                 Editor.stage-grip-pressed(id, grip, x, y);
             }
             stage-dragged(x, y, snap) => { Editor.stage-dragged(x, y, snap); }
@@ -197,6 +205,16 @@ export component Seat inherits Rectangle {
             chain-set-param(audio, index, key, value) => {
                 Editor.chain-set-param(audio, index, key, value);
             }
+
+            project-name: Editor.project-name;
+            project-folder: Editor.project-folder;
+            project-output: Editor.project-output;
+            project-rate: Editor.project-rate;
+            project-duration: Editor.project-duration;
+            count-media: Editor.count-media;
+            count-tracks: Editor.count-tracks;
+            count-clips: Editor.count-clips;
+            modify-project => { Editor.modify-project(); }
 
             selected: Editor.selected-clip;
             clip-set(field, value) => { Editor.clip-set(field, value); }
@@ -269,6 +287,7 @@ export component Seat inherits Rectangle {
             tab-renamed(index, name) => { Editor.tab-renamed(index, name); }
             tab-close-requested(index) => { Editor.tab-close-requested(index); }
             tab-added => { Editor.tab-added(); }
+            tab-moved(from, to) => { Editor.tab-moved(from, to); }
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
             split => { Editor.split(); }
@@ -282,8 +301,15 @@ export component Seat inherits Rectangle {
             add-track => { Editor.add-track(); }
             zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }
-            scrubbed(seconds) => { Editor.scrubbed(seconds); }
-            clip-pressed(id, additive, edge) => { Editor.clip-pressed(id, additive, edge); }
+            floor-pressed => { Editor.blur(); }
+            scrubbed(seconds) => {
+                Editor.blur();
+                Editor.scrubbed(seconds);
+            }
+            clip-pressed(id, additive, edge) => {
+                Editor.blur();
+                Editor.clip-pressed(id, additive, edge);
+            }
             clip-dragged(seconds, pixels) => { Editor.clip-dragged(seconds, pixels); }
             clip-released => { Editor.clip-released(); }
             razored(id, seconds) => { Editor.razored(id, seconds); }

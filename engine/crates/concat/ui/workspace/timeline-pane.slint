@@ -31,6 +31,7 @@ export component TimelinePane inherits Rectangle {
     callback tab-renamed(index: int, name: string);
     callback tab-close-requested(index: int);
     callback tab-added();
+    callback tab-moved(from: int, to: int);
 
     // ── the tray ─────────────────────────────────────────────────────────
     in property <TimelineTool> tool: TimelineTool.select;
@@ -76,6 +77,8 @@ export component TimelinePane inherits Rectangle {
     in-out property <length> track-scroll;
 
     callback scrubbed(seconds: float);
+    /// A press on an empty stretch of lane; see Editor.blur.
+    callback floor-pressed();
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
@@ -172,6 +175,7 @@ export component TimelinePane inherits Rectangle {
             renamed(index, name) => { root.tab-renamed(index, name); }
             close-requested(index) => { root.tab-close-requested(index); }
             added => { root.tab-added(); }
+            moved(from, to) => { root.tab-moved(from, to); }
 
             PaneSwitcher {
                 kind: PaneKind.timeline;
@@ -287,6 +291,7 @@ export component TimelinePane inherits Rectangle {
                 ruler-height: root.ruler-height;
 
                 scrubbed(seconds) => { root.scrubbed(seconds); }
+                floor-pressed => { root.floor-pressed(); }
                 clip-pressed(id, additive, edge) => { root.clip-pressed(id, additive, edge); }
                 clip-dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
                 clip-released => { root.clip-released(); }

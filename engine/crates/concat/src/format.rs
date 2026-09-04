@@ -54,6 +54,22 @@ pub fn bezier_y_at_x(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     bezier_axis(y1, y2, t)
 }
 
+/// hh:mm:ss:ff, non-drop-frame, the way the ruler and the tray spell a
+/// moment - see `Fmt.frames-timecode` in util.slint, which this mirrors so
+/// the Details panel's duration reads like the readout beside it.
+pub fn frames_timecode(seconds: f32, rate: f32) -> String {
+    let rate = rate.round().max(1.0) as i64;
+    let frames = (seconds.max(0.0) * rate as f32).floor() as i64;
+    let whole = frames / rate;
+    format!(
+        "{:02}:{:02}:{:02}:{:02}",
+        whole / 3600,
+        (whole / 60) % 60,
+        whole % 60,
+        frames % rate
+    )
+}
+
 /// "hh:mm:ss", "mm:ss" or "ss" -> seconds. Slint's string type has no split().
 pub fn parse_timecode(text: &str) -> f32 {
     text.split(':')
