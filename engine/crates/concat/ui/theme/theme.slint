@@ -44,16 +44,17 @@ export global Theme {
 
     // ── type ─────────────────────────────────────────────────────────────
     //
-    // Two roles, not one.
+    // Two roles, not one, even while one face plays both.
     //
-    // Synonym carries the interface. It is a text face, drawn for paragraph
-    // sizes, and it stays readable at the 10 and 11px this app is full of.
+    // `font` carries the interface: every label, title and sentence. `font-
+    // technical` is for timecode, the ruler, clip labels, paths, dimensions,
+    // counts — anything you read as a *value* rather than as language.
     //
-    // Inter is the technical face: timecode, the ruler, clip labels, paths,
-    // dimensions, counts — anything you read as a *value* rather than as
-    // language. Its even, mechanical figures suit numbers, and keeping it off
-    // the prose is what stops the whole interface reading like a spec sheet.
-    out property <string> font: "Synonym";
+    // Both are Inter for now. Synonym, a text face drawn for paragraph
+    // sizes, is bundled beside it (app.slint) and takes the interface back
+    // by changing the one name below; the split between the roles stays so
+    // that the two can differ again without touching a single element.
+    out property <string> font: "Inter";
     out property <string> font-technical: "Inter";
     /// The scale. `fs` is the body size everything inherits; the two either
     /// side of it are the dense readout and the panel title. `xl` is for the
