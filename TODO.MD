@@ -11,3 +11,5 @@
 - [ ] Recheck and fix Export system/modal. Things like 9:16 export output is broken and does not work.
 - [ ] in Settings>Appearance: remove the "Dark is the edit's own room" text-paragraph.
 - [ ] Change the Timeline>Timestamps-line tray background color from dark to the same as Tracks section background.
+- [ ] Inside Library>Media>Images(for images): replace the "still" label with the format/mimetype of the Image (eg png, jpg, etc).
+- [ ] For "Generate Auto-Captions" and "Text-to-Speech" feature, instead of directly generating the output, show a modal to let the user decide what configs they want.
