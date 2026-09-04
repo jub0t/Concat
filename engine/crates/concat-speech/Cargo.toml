@@ -26,16 +26,18 @@ bzip2 = "0.6"
 # time; on macOS with Metal so the encoder runs on the GPU.
 whisper-rs = "0.16"
 
-# Text to speech: the official k2-fsa bindings. Linked statically where that
-# works, so the binary carries no extra dylibs.
-[target.'cfg(not(windows))'.dependencies]
+# Text to speech: the official k2-fsa bindings. Linked statically on the
+# desktop Unixes, so the binary carries no extra dylibs.
+[target.'cfg(not(any(windows, target_os = "android", target_os = "ios")))'.dependencies]
 sherpa-onnx = "1.13"
 
-# On Windows it must be the shared library instead: the only static archives
-# k2-fsa publishes are /MT (static CRT), and MSVC refuses to link those into
-# a binary whose every other object - Rust's own runtime, Skia, whisper - is
-# /MD. LNK2038, on every object pair. The /MT code stays sealed inside the
-# DLLs, which ship beside the binary.
+# Elsewhere it is the shared library.
+#
+# On Windows it must be: the only static archives k2-fsa publishes are /MT
+# (static CRT), and MSVC refuses to link those into a binary whose every
+# other object - Rust's own runtime, Skia, whisper - is /MD. LNK2038, on
+# every object pair. The /MT code stays sealed inside the DLLs, which ship
+# beside the binary.
 #
 # Windows builds must also set SHERPA_ONNX_LIB_DIR to a directory holding
 # only the import .lib files (CI does; ~/.cargo/config.toml locally). Left
@@ -44,7 +46,12 @@ sherpa-onnx = "1.13"
 # locates by searching for an ancestor named after $PROFILE, a walk that
 # panics under the custom `app` profile. Keeping the DLLs out of the lib
 # directory skips that code path; packaging ships them explicitly.
-[target.'cfg(windows)'.dependencies]
+#
+# On the phones it is what k2-fsa publishes: one archive of .so files per
+# Android ABI, which the app's jniLibs carry, and an xcframework for iOS
+# with onnxruntime folded into the one dylib the app embeds. The sys crate
+# downloads the right one for the target on its own.
+[target.'cfg(any(windows, target_os = "android", target_os = "ios"))'.dependencies]
 sherpa-onnx = { version = "1.13", default-features = false, features = ["shared"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
