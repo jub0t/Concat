@@ -22,8 +22,11 @@ export struct MediaItemData {
     id: int,
     name: string,
     kind: MediaKind,
-    /// seconds; ignored for a still, which shows "still" where a time would go
+    /// seconds; ignored for a still, which shows its format where a time
+    /// would go
     duration: float,
+    /// The file's format, lower-case, as the stamp on a still: "png", "jpg".
+    format: string,
     /// The artwork, once something has produced it — the first frame of a
     /// filmstrip for footage, a drawn waveform for audio. Empty until then,
     /// which is what the tinted fallback below is for. Nothing decodes yet, so
@@ -421,9 +424,9 @@ component MediaCard inherits Rectangle {
                 // top of them — a badge over a waveform is the same fact twice,
                 // and the one that costs the tile its whole middle.
                 if root.item.wave != "": Path {
-                    x: 8px;
+                    x: 0;
                     y: 0;
-                    width: parent.width - 16px;
+                    width: parent.width;
                     height: parent.height;
                     commands: root.item.wave;
                     viewbox-width: 1;
@@ -446,8 +449,8 @@ component MediaCard inherits Rectangle {
 
                 // No corner kind badge, on purpose: the artwork already says
                 // what kind a card is — footage carries a duration stamp, audio
-                // is a waveform, a still says "still" — so a badge would repeat
-                // information the card gives away at a glance.
+                // is a waveform, a still says its format — so a badge would
+                // repeat information the card gives away at a glance.
 
                 // Duration, bottom right, on its own scrim because what is behind
                 // it is a video frame and cannot be relied on for contrast.
@@ -463,7 +466,7 @@ component MediaCard inherits Rectangle {
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
                         text: root.item.kind == MediaKind.image
-                            ? "still"
+                            ? (root.item.format == "" ? "still" : root.item.format)
                             : Fmt.short-duration(root.item.duration);
                         color: Theme.on-scrim;
                         font-family: Theme.font-technical;
@@ -507,6 +510,17 @@ component MediaCard inherits Rectangle {
                 font-size: Theme.fs-sm;
                 vertical-alignment: center;
                 overflow: elide;
+            }
+
+            // The chip the drag will carry, shown from the press itself.
+            // A DragArea only takes over once the pointer has travelled,
+            // so without this the first few pixels of every drag showed
+            // nothing in the hand; it sits where the drag image will, so
+            // the hand-over is a continuation rather than a jump.
+            if card.pressed && !drag.dragging: Image {
+                x: card.mouse-x + 8px;
+                y: card.mouse-y + 4px;
+                source: Payload.preview("media:\{root.item.id}");
             }
         }
     }
@@ -752,7 +766,6 @@ component CatalogueCard inherits Rectangle {
                     text: root.item.label;
                     color: root.item.enabled ? Theme.fg : Theme.fg-dim;
                     font-size: Theme.fs-sm;
-                    font-weight: Theme.weight-title;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                     wrap: word-wrap;

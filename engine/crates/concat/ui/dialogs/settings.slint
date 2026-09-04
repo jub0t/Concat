@@ -493,15 +493,6 @@ export component SettingsDialog inherits Modal {
                     current: Theme.dark ? 0 : 1;
                     changed(index) => { root.theme-changed(index == 0); }
                 }
-
-                Text {
-                    text: "Dark is the edit's own room — a bright window "
-                        + "beside the picture changes how the picture reads. "
-                        + "Light is here for the rooms that are already lit.";
-                    color: Theme.fg-muted;
-                    font-size: Theme.fs-sm;
-                    wrap: word-wrap;
-                }
             }
 
             if root.data.tab == 2: VerticalLayout {

@@ -51,8 +51,8 @@ export global MenuMetrics {
     out property <length> label: 24px;
     out property <length> separator: 9px;
     /// the surface's own padding, top and bottom together
-    out property <length> padding: 8px;
-    out property <length> width: 212px;
+    out property <length> padding: 12px;
+    out property <length> width: 220px;
 }
 
 export component ContextMenu inherits Rectangle {
@@ -105,11 +105,11 @@ export component ContextMenu inherits Rectangle {
             background: Theme.raised;
             border-width: 1px;
             border-color: Theme.line-strong;
-            border-radius: Theme.r;
+            border-radius: Theme.r-lg;
             clip: true;
 
             VerticalLayout {
-                padding: 4px;
+                padding: 6px;
                 alignment: start;
 
                 for item in root.items: Rectangle {
@@ -118,17 +118,17 @@ export component ContextMenu inherits Rectangle {
                         : MenuMetrics.action;
 
                     if item.kind == MenuRow.separator: Rectangle {
-                        x: 6px;
+                        x: 8px;
                         y: (parent.height - 1px) / 2;
-                        width: parent.width - 12px;
+                        width: parent.width - 16px;
                         height: 1px;
                         background: Theme.line;
                     }
 
                     if item.kind == MenuRow.label: Text {
-                        x: 8px;
+                        x: 10px;
                         y: 0;
-                        width: parent.width - 16px;
+                        width: parent.width - 20px;
                         height: parent.height;
                         text: item.label;
                         color: Theme.fg-dim;
@@ -149,8 +149,8 @@ export component ContextMenu inherits Rectangle {
                             : Theme.fg;
 
                         HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
+                            padding-left: 10px;
+                            padding-right: 10px;
                             spacing: 8px;
 
                             // A fixed slot even when a row has no mark, so

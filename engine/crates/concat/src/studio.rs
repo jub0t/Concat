@@ -1011,8 +1011,10 @@ impl Studio {
                     .filter(|clip| clip.track_id == lane.id)
                     .map(|clip| match clip.kind {
                         model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
-                        model::ClipKind::Audio | model::ClipKind::Text => LANE_MEDIUM,
-                        model::ClipKind::Layer => LANE_SMALL,
+                        model::ClipKind::Audio => LANE_MEDIUM,
+                        // A title is its name strip alone; a layer has no
+                        // picture at all. Neither needs a body's height.
+                        model::ClipKind::Text | model::ClipKind::Layer => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -4109,6 +4111,12 @@ impl Studio {
                     name: item.name.as_str().into(),
                     kind: media_kind_of(item.kind),
                     duration: item.duration.unwrap_or(0.0) as f32,
+                    format: std::path::Path::new(&item.path)
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .map(|extension| extension.to_ascii_lowercase())
+                        .unwrap_or_default()
+                        .into(),
                     thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
                     wave: match self.peaks.get(&item.id) {
                         Some(peaks) if item.kind == model::MediaKind::Audio => {
@@ -4317,18 +4325,12 @@ impl Studio {
             checkable: true,
             checked: on,
         };
-        let heading = |label: &str| MenuItemData {
-            label: label.into(),
-            kind: MenuRow::Label,
-            ..Default::default()
-        };
         let rule = || MenuItemData {
             kind: MenuRow::Separator,
             ..Default::default()
         };
 
         let mut rows = vec![
-            heading(&clip.name),
             action("copy", "Copy".into(), Glyph::Copy, "⌘C", true),
             action("duplicate", "Duplicate".into(), Glyph::Plus, "⌘D", !locked),
             action(
@@ -4378,7 +4380,7 @@ impl Studio {
             MenuRow::Label => 24.0,
             MenuRow::Separator => 9.0,
         };
-        rows.iter().map(|row| metrics(row.kind)).sum::<f32>() + 8.0
+        rows.iter().map(|row| metrics(row.kind)).sum::<f32>() + 12.0
     }
 
     /// The tray's A/V menu. What it offers depends on what is selected.

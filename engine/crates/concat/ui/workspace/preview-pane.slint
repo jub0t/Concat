@@ -682,19 +682,6 @@ export component PreviewPane inherits Rectangle {
                     source: root.frame;
                     image-fit: contain;
                 }
-
-                // The clip under the playhead, named in the corner. Without a
-                // decoded frame, the name is the only thing that says the
-                // monitor is live.
-                if root.has-picture: Text {
-                    x: 8px;
-                    y: parent.height - self.height - 8px;
-                    width: parent.width - 16px;
-                    text: root.clip-name;
-                    color: Theme.on-stage-dim;
-                    font-size: Theme.fs-sm;
-                    overflow: elide;
-                }
             }
 
             // The selection, over the stage and the same size as it. A

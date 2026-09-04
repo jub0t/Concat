@@ -73,8 +73,10 @@ component Clip inherits Rectangle {
     property <color> well: Paint.well(root.item.kind);
     property <Glyph> badge: Paint.badge(root.item.kind);
 
-    /// The coloured name strip; the rest of the clip is its body.
-    property <length> header-h: 17px;
+    /// The coloured name strip; the rest of the clip is its body. A title
+    /// is all strip: its name is its words, and a body under it would show
+    /// the same words a second time in a taller clip.
+    property <length> header-h: root.item.kind == ClipKind.text ? root.height : 17px;
     property <length> body-h: Math.max(0px, root.height - root.header-h);
     /// A fade on a picture clip is shaded in a band at the foot instead of
     /// over the whole body: the fade is an *audio* property, and shading the
@@ -132,20 +134,6 @@ component Clip inherits Rectangle {
             width: parent.width;
             height: 1px;
             background: Theme.wave-centre;
-        }
-
-        // A title has no media to draw, so the body shows the words — also the
-        // fastest way to tell two titles apart at a glance.
-        if root.item.kind == ClipKind.text && root.width > 24px: Text {
-            x: 7px;
-            y: 0;
-            width: parent.width - 14px;
-            height: parent.height;
-            text: root.item.text-body;
-            color: Theme.clip-body;
-            font-size: Theme.fs-sm;
-            vertical-alignment: center;
-            overflow: elide;
         }
 
         // The filmstrip. Tiles are the strip's frames at the body's height,
