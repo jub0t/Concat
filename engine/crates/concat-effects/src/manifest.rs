@@ -258,6 +258,15 @@ impl Manifest {
             if param.key == "index" {
                 return Err(self.invalid("`index` is reserved"));
             }
+            // The key every filter answers to without declaring it: how much
+            // of the look is applied, read by the catalogue as a percent. A
+            // parameter under that name would be read twice, once as itself
+            // and once as the mix, and the two would disagree.
+            if param.key == "intensity" {
+                return Err(
+                    self.invalid("`intensity` is reserved: it is the mix every filter takes")
+                );
+            }
             if !seen.insert(param.key.as_str()) {
                 return Err(self.invalid(format!("parameter `{}` is declared twice", param.key)));
             }
@@ -372,6 +381,12 @@ mod tests {
         );
         rejects(
             &GOOD.replace("key = \"radius\"", "key = \"index\""),
+            "reserved",
+        );
+        rejects(
+            &GOOD
+                .replace("key = \"radius\"", "key = \"intensity\"")
+                .replace("intensity = \"radius\"", "intensity = \"intensity\""),
             "reserved",
         );
         rejects(

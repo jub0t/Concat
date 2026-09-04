@@ -4,20 +4,23 @@ name = "Vibrance"
 kind = "filter"
 category = "Color"
 order = 32
-intensity = "intensity"
+# 2: the parameter is `amount`; a project that stored `intensity` for it
+# takes the default.
+version = 2
+intensity = "amount"
 aliases = ["vibrance"]
 description = "Richer colour where it is muted, without blowing out what is already strong."
 
 [[param]]
-key = "intensity"
-label = "Intensity"
+key = "amount"
+label = "Amount"
 min = 0.1
 max = 2
 default = 0.7
 step = 0.05
 
 [ffmpeg]
-chain = "vibrance=intensity={fixed(intensity, 2)}"
+chain = "vibrance=intensity={fixed(amount, 2)}"
 
 [wgsl]
 entry = "effect.wgsl"

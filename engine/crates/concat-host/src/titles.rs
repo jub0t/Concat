@@ -16,9 +16,7 @@
 //! changed is never painted twice, across sessions included. What a title
 //! does *not* key on is where it sits or when it plays: moving one is free.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -59,8 +57,10 @@ pub struct Titles {
 impl Titles {
     /// A painter that caches under the app's data directory.
     pub fn new(dirs: &AppDirs) -> Titles {
+        let dir = dirs.data.join("titles");
+        sweep(&dir, TITLES_KEPT);
         Titles {
-            dir: dirs.data.join("titles"),
+            dir,
             fonts: Mutex::new(None),
             loaded_files: Mutex::new(HashSet::new()),
             memo: Mutex::new(HashMap::new()),
@@ -201,23 +201,58 @@ impl Titles {
 
 /// Everything the pixels depend on, hashed. Placement and timing are left
 /// out on purpose; see the module docs.
+///
+/// FNV-1a over the bytes, as the other caches on disk are keyed, because a
+/// file's name has to mean the same thing after a toolchain upgrade and the
+/// standard hasher makes no such promise.
 fn key_of(project: &Project, style: &TextStyle, width: u32, height: u32) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut bytes = Vec::new();
     // The style as JSON: every field, in a stable order, with no need to
-    // keep a Hash impl in step with the struct.
-    serde_json::to_string(style)
-        .unwrap_or_default()
-        .hash(&mut hasher);
-    width.hash(&mut hasher);
-    height.hash(&mut hasher);
+    // keep a serialiser in step with the struct.
+    bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(&width.to_le_bytes());
+    bytes.extend_from_slice(&height.to_le_bytes());
     for font in &project.fonts {
-        font.family.hash(&mut hasher);
-        font.path.hash(&mut hasher);
+        bytes.extend_from_slice(font.family.as_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(font.path.as_bytes());
+        bytes.push(0);
     }
     // Bumped when the painter's output changes for the same input, so stale
     // files are not mistaken for current ones.
-    1u32.hash(&mut hasher);
-    hasher.finish()
+    bytes.extend_from_slice(&2u32.to_le_bytes());
+    crate::media::fnv1a(&bytes)
+}
+
+/// How many painted titles the directory keeps. Each is a frame-sized PNG,
+/// mostly transparent, so this is tens of megabytes at most; above it the
+/// oldest go, and a title that is still in use paints again.
+const TITLES_KEPT: usize = 400;
+
+/// Removes the oldest painted titles until `keep` remain. Sidecars go with
+/// their PNGs. Best effort throughout: a file that will not go is left.
+fn sweep(dir: &Path, keep: usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut pngs: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "png"))
+        .filter_map(|path| {
+            let modified = std::fs::metadata(&path).ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect();
+    if pngs.len() <= keep {
+        return;
+    }
+    pngs.sort();
+    for (_, png) in pngs.iter().take(pngs.len() - keep) {
+        let _ = std::fs::remove_file(png);
+        let _ = std::fs::remove_file(png.with_extension("json"));
+    }
 }
 
 fn read_block(side: &Path) -> Option<(u32, u32)> {

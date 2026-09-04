@@ -276,10 +276,21 @@ fn report(events: &dyn PlaybackEvents, message: String) {
     events.error(message);
 }
 
+/// A lock that outlives a panic on another thread. Every lock in this file
+/// guards a cache, a queue or a list, and a poisoned one still holds a valid
+/// value of that kind: recovering it costs at worst one stale entry, while
+/// refusing it would end audio for the rest of the session.
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl Playback {
     /// Starts the audio threads: the supervised output stream, the clock
-    /// publisher and the decode workers.
-    pub fn start(events: Arc<dyn PlaybackEvents>) -> Arc<Playback> {
+    /// publisher and the decode workers. An error is a thread that could not
+    /// be spawned, which is the machine's condition and not the caller's.
+    pub fn start(events: Arc<dyn PlaybackEvents>) -> Result<Arc<Playback>, String> {
         let (tx, rx) = mpsc::channel::<Msg>();
         let shared = Arc::new(Shared {
             position_micros: AtomicU64::new(0),
@@ -294,7 +305,7 @@ impl Playback {
             std::thread::Builder::new()
                 .name("audio-output".into())
                 .spawn(move || supervise_stream(rx, shared, events, last_active))
-                .expect("could not spawn the audio thread");
+                .map_err(|error| format!("could not spawn the audio thread: {error}"))?;
         }
 
         // Position events at ~30Hz while playing. The window interpolates
@@ -315,7 +326,7 @@ impl Playback {
                         }
                     }
                 })
-                .expect("could not spawn the transport event thread");
+                .map_err(|error| format!("could not spawn the transport event thread: {error}"))?;
         }
 
         let playback = Arc::new(Playback {
@@ -340,10 +351,10 @@ impl Playback {
             std::thread::Builder::new()
                 .name(format!("audio-decode-{index}"))
                 .spawn(move || decode_worker(&this))
-                .expect("could not spawn a decode worker");
+                .map_err(|error| format!("could not spawn a decode worker: {error}"))?;
         }
 
-        playback
+        Ok(playback)
     }
 
     /// Starts playing from `position` seconds.
@@ -389,18 +400,18 @@ impl Playback {
     /// decode queue and joins the mix when it lands. `project` is the
     /// project folder, whose cache holds the PCM files.
     pub fn set_clips(self: &Arc<Self>, project: PathBuf, specs: Vec<ClipSpec>) {
-        *self.specs.lock().unwrap() = specs.clone();
-        *self.project.lock().unwrap() = Some(project.clone());
+        *locked(&self.specs) = specs.clone();
+        *locked(&self.project) = Some(project.clone());
 
         for spec in specs {
             let key = decode_key(&spec);
-            if self.cache.lock().unwrap().contains_key(&key) {
+            if locked(&self.cache).contains_key(&key) {
                 continue;
             }
-            if !self.decoding.lock().unwrap().insert(key.clone()) {
+            if !locked(&self.decoding).insert(key.clone()) {
                 continue;
             }
-            let mut jobs = self.queue.jobs.lock().unwrap();
+            let mut jobs = locked(&self.queue.jobs);
             jobs.push_back(DecodeJob {
                 spec,
                 project: project.clone(),
@@ -417,9 +428,9 @@ impl Playback {
     /// Sends the mix callback everything currently wanted *and* decoded, and
     /// remembers the set so a rebuilt stream can be seeded with it.
     fn resync(&self) {
-        let specs = self.specs.lock().unwrap();
+        let specs = locked(&self.specs);
         let now = self.tick.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = locked(&self.cache);
         let active: Vec<ActiveClip> = specs
             .iter()
             .filter_map(|spec| {
@@ -436,7 +447,7 @@ impl Playback {
             })
             .collect();
         drop(cache);
-        *self.last_active.lock().unwrap() = active.clone();
+        *locked(&self.last_active) = active.clone();
         let _ = self.tx.send(Msg::SetClips(active));
     }
 
@@ -445,8 +456,8 @@ impl Playback {
     /// space and page cache, not copies - but a long session accumulates a
     /// mapping per edit of every trimmed span, and those add up.
     fn evict_memory(&self) {
-        let live: HashSet<String> = self.specs.lock().unwrap().iter().map(decode_key).collect();
-        let mut cache = self.cache.lock().unwrap();
+        let live: HashSet<String> = locked(&self.specs).iter().map(decode_key).collect();
+        let mut cache = locked(&self.cache);
         while cache.len() > MEMORY_CACHE_CAP {
             let doomed = cache
                 .iter()
@@ -471,11 +482,10 @@ impl Playback {
             return;
         }
         let this = Arc::clone(self);
-        std::thread::Builder::new()
+        let spawned = std::thread::Builder::new()
             .name("audio-cache-sweep".into())
             .spawn(move || {
-                let live: HashSet<String> =
-                    this.specs.lock().unwrap().iter().map(decode_key).collect();
+                let live: HashSet<String> = locked(&this.specs).iter().map(decode_key).collect();
                 let directory = project.join("cache").join("audio");
                 if let Some(doomed) = sweep_plan(&directory, &live, DISK_CACHE_BUDGET) {
                     for path in doomed {
@@ -483,8 +493,12 @@ impl Playback {
                     }
                 }
                 this.sweeping.store(false, Ordering::Relaxed);
-            })
-            .expect("could not spawn the cache sweep thread");
+            });
+        // A machine that cannot spare a thread keeps its cache a while
+        // longer; the next sweep asks again.
+        if spawned.is_err() {
+            self.sweeping.store(false, Ordering::Relaxed);
+        }
     }
 }
 
@@ -493,7 +507,7 @@ impl Playback {
 fn decode_worker(playback: &Arc<Playback>) {
     loop {
         let job = {
-            let mut jobs = playback.queue.jobs.lock().unwrap();
+            let mut jobs = locked(&playback.queue.jobs);
             loop {
                 // Newest first: pop from the back where set_clips pushes.
                 match jobs.pop_back() {
@@ -512,14 +526,14 @@ fn decode_worker(playback: &Arc<Playback>) {
             .iter()
             .any(|spec| decode_key(spec) == job.key);
         if !wanted {
-            playback.decoding.lock().unwrap().remove(&job.key);
+            locked(&playback.decoding).remove(&job.key);
             continue;
         }
 
         match decode(&job.spec, &job.project, &job.key) {
             Ok(pcm) => {
                 let now = playback.tick.fetch_add(1, Ordering::Relaxed) + 1;
-                playback.cache.lock().unwrap().insert(
+                locked(&playback.cache).insert(
                     job.key.clone(),
                     CacheEntry {
                         pcm: Arc::new(pcm),
@@ -532,7 +546,7 @@ fn decode_worker(playback: &Arc<Playback>) {
                 format!("audio decode failed for {}: {error}", job.spec.path),
             ),
         }
-        playback.decoding.lock().unwrap().remove(&job.key);
+        locked(&playback.decoding).remove(&job.key);
         playback.resync();
     }
 }
@@ -811,6 +825,28 @@ fn supervise_stream(
                     );
                     reported_missing = true;
                 }
+                // No stream means no callback to drain the channel, and
+                // every message left in it pins the PCM it names. Fold them
+                // into the seed a rebuilt stream starts from instead, so
+                // the next stream picks up where the window is and the
+                // channel stays empty.
+                if let Ok(receiver) = rx.try_lock() {
+                    while let Ok(message) = receiver.try_recv() {
+                        match message {
+                            Msg::SetClips(next) => *locked(&last_active) = next,
+                            Msg::Play(at) => {
+                                shared
+                                    .position_micros
+                                    .store((at * 1_000_000.0) as u64, Ordering::Relaxed);
+                                shared.playing.store(true, Ordering::Relaxed);
+                            }
+                            Msg::Pause => shared.playing.store(false, Ordering::Relaxed),
+                            Msg::Seek(at) => shared
+                                .position_micros
+                                .store((at * 1_000_000.0) as u64, Ordering::Relaxed),
+                        }
+                    }
+                }
                 std::thread::sleep(backoff);
                 backoff = (backoff * 2).min(std::time::Duration::from_secs(30));
             }
@@ -873,7 +909,7 @@ where
 
     // Seed from the world as it is, not from zero: a stream rebuilt mid-
     // playback resumes the same clips at the shared clock's position.
-    let mut clips: Vec<ActiveClip> = last_active.lock().unwrap().clone();
+    let mut clips: Vec<ActiveClip> = locked(last_active).clone();
     let mut playing = shared.playing.load(Ordering::Relaxed);
     let mut position = shared.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0;
 

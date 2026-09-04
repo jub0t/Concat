@@ -453,6 +453,10 @@ audio callback touches exactly one lock, and only with `try_lock`, because
 it must never block. Position is stored *and* messaged on play and seek,
 since a paused callback returns before storing.
 
+Every lock in playback and titles recovers from poisoning rather than
+propagating it: each guards a cache or a list that is still valid after a
+panic elsewhere, and refusing it would end audio or titles for the session.
+
 **Export, templates, jobs, directories.** `Exporter` adapts a progress
 closure into the engine's `Reporter` and runs under a `SingleFlight`,
 which refuses a second concurrent job and gives each run its own cancel
@@ -653,43 +657,7 @@ asked for by name (they are linked, and the software decoder is what is
 opened); and the monitor on Android, which composites on the CPU because
 Slint's Android backend creates its own device.
 
-### 15.3 The intensity key and a package that declares it
-
-A filter's intensity is an undeclared key the catalogue reads as a
-percentage. `concat.vibrance` is a filter that declares a parameter with
-that name, ranged 0.1..2, so one value feeds the chain and also blends the
-result back at that many percent. Reserve the key in manifest validation
-as `index` is reserved, and rename the package's parameter.
-
-### 15.4 The GPU compositor's dead path
-
-`read_back` is typed to return `None` so a failed readback marks the
-compositor dead and every later frame goes to the CPU. No branch returns
-`None`: a failed map would panic inside the mapped range instead. Make the
-map's result the branch, so the documented fallback is reachable.
-
-### 15.5 Lock discipline in `playback.rs`
-
-Every lock outside the audio callback unwraps. A panic in a decode worker
-poisons the cache, and the next resync from any thread panics with it,
-which ends audio for the session. `titles.rs` takes the other convention
-(recover the inner value). Pick one for the crate; the recovering one is
-right for caches. In the same file: the message channel to the callback is
-unbounded and drained only by the callback, so a machine with no output
-device accumulates every set-clips message and the PCM it pins; and the
-four thread spawns `expect`.
-
-### 15.6 Cache keys that survive a toolchain
-
-`media.rs` and `playback.rs` name cache files by FNV-1a because the
-standard hasher is free to change between Rust releases, and a test pins
-the constant. `titles.rs` names its PNGs with the standard hasher. A
-toolchain bump orphans every painted title, which is self-healing but
-unbounded: the titles directory, the titles memo and a project's peaks
-have no sweep, while playback's audio cache has both a memory cap and a
-disk budget.
-
-### 15.7 Two paths that build different chains
+### 15.3 Two paths that build different chains
 
 On the GPU, effects with a shader leave the FFmpeg chain and travel as
 passes; on the CPU they stay in the chain. A machine with an adapter and
@@ -700,7 +668,7 @@ render on one machine and not the other. Either require the chain for
 `effect` kinds in validation, or teach the CPU path to refuse the package
 loudly.
 
-### 15.8 Small things the code already knows about
+### 15.4 Small things the code already knows about
 
 - `MoveTimeline`'s documented index is counted with the timeline removed;
   the clamp is against the unremoved length.

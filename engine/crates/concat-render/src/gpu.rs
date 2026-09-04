@@ -850,13 +850,29 @@ impl WgpuCompositor {
     /// failure the constructor's never-panic policy cannot rule out up
     /// front. The caller falls back to the CPU compositor rather than
     /// panicking mid-export.
+    /// `None` when the device did not deliver the pixels - a lost device,
+    /// a failed map - and the caller then marks this compositor dead. The
+    /// map's own result is what decides, not the poll's: a poll can return
+    /// without the map having been served.
     fn read_back(&mut self) -> Option<Frame> {
-        let target = self.target.as_ref().expect("composite rendered first");
+        let target = self.target.as_ref()?;
         let (width, height, padded_row) = (target.width, target.height, target.padded_row);
 
         let slice = target.staging.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        let (mapped_tx, mapped_rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped_tx.send(result);
+        });
+        if self
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .is_err()
+        {
+            return None;
+        }
+        if !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
+            return None;
+        }
 
         let mut frame = Frame::transparent(width, height);
         {
