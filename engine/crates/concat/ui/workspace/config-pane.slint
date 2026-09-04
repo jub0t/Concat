@@ -471,8 +471,15 @@ export component ConfigPane inherits Rectangle {
             PaneScroll {
                 if root.showing == "Basic": VideoPanel {
                     selected: root.selected;
+                    applied: root.applied-visual;
+                    params: root.visual-params;
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
+                    chain-add(id) => { root.chain-add(false, id); }
+                    chain-remove(index) => { root.chain-remove(false, index); }
+                    chain-set-param(index, key, value) => {
+                        root.chain-set-param(false, index, key, value);
+                    }
                 }
 
                 if root.showing == "Animation": AnimationPanel {

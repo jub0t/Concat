@@ -319,13 +319,41 @@ export component PresetStack inherits VerticalLayout {
 // to `selected` would work exactly once and then go deaf to the model. They
 // are seeded instead, on init and whenever the selection changes under us.
 
-/// Video: how the picture sits in the frame, and how solid it is.
+/// Video: how the picture sits in the frame, how solid it is, and whether
+/// its background is keyed out.
 export component VideoPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
+    /// The picture's chain and its knobs, for the cutout section: keying is
+    /// a package on the chain like any effect, and this panel only gives
+    /// it a switch and a name.
+    in property <[AppliedEntryData]> applied;
+    in property <[AppliedParamData]> params;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
     callback commit();
+    callback chain-add(id: string);
+    callback chain-remove(index: int);
+    callback chain-set-param(index: int, key: string, value: float);
+
+    /// Which keyer is on the chain, and where: -1 for none. Scans the first
+    /// eight links, as PresetStack does, for want of a model lookup.
+    pure function keyer-at(id: string) -> int {
+        return root.applied.length > 0 && root.applied[0].id == id ? 0
+            : root.applied.length > 1 && root.applied[1].id == id ? 1
+            : root.applied.length > 2 && root.applied[2].id == id ? 2
+            : root.applied.length > 3 && root.applied[3].id == id ? 3
+            : root.applied.length > 4 && root.applied[4].id == id ? 4
+            : root.applied.length > 5 && root.applied[5].id == id ? 5
+            : root.applied.length > 6 && root.applied[6].id == id ? 6
+            : root.applied.length > 7 && root.applied[7].id == id ? 7
+            : -1;
+    }
+    property <int> green: root.keyer-at("concat.green-screen");
+    property <int> blue: root.keyer-at("concat.blue-screen");
+    /// 0 off, 1 green, 2 blue - the Select's rows.
+    property <int> keyer: root.green >= 0 ? 1 : root.blue >= 0 ? 2 : 0;
+    property <int> keyer-index: root.green >= 0 ? root.green : root.blue;
 
     property <float> scale;
     property <float> offset-x;
@@ -355,6 +383,7 @@ export component VideoPanel inherits VerticalLayout {
     changed selected => { root.seed(); }
 
     property <bool> transform-help;
+    property <bool> cutout-help;
 
     Section {
         first: true;
@@ -456,6 +485,75 @@ export component VideoPanel inherits VerticalLayout {
             checked: root.selected.flip-v;
             toggled(on) => { root.set(ClipField.flip-v, on ? 1 : 0); root.commit(); }
         }
+        }
+    }
+
+    // The background keyed out. A picture shot on green or blue drops it
+    // here; the keyer is the chroma package on the chain, which is why its
+    // two knobs read from the chain's own rows.
+    Section {
+        cutout := SectionHeader {
+            title: "Remove background";
+            collapsible: true;
+            summary: root.keyer == 0 ? "off" : root.keyer == 1 ? "Green screen" : "Blue screen";
+            HelpButton {
+                open: root.cutout-help;
+                toggled => { root.cutout-help = self.open; }
+            }
+        }
+        if cutout.open: VerticalLayout {
+
+        if root.cutout-help: Note {
+            text: "Keys one colour out of the picture so what is beneath"
+                + " shows through. Similarity is how far from the colour"
+                + " still counts; softness feathers the edge.";
+        }
+
+        Row {
+            label: "Mode";
+            Select {
+                options: ["Off", "Green screen", "Blue screen"];
+                current: root.keyer;
+                changed(index) => {
+                    // One keyer at a time: the old one comes off before the
+                    // new one goes on, and off is only the removal.
+                    if (root.keyer-index >= 0) {
+                        root.chain-remove(root.keyer-index);
+                    }
+                    if (index == 1) {
+                        root.chain-add("concat.green-screen");
+                    } else if (index == 2) {
+                        root.chain-add("concat.blue-screen");
+                    }
+                    root.commit();
+                }
+            }
+        }
+
+        // The keyer's own knobs, re-seeded from the chain the way the
+        // stack's rows are; see PresetStack.
+        for p in root.params: Rectangle {
+            property <AppliedParamData> data: p;
+            visible: root.keyer-index >= 0 && p.entry == root.keyer-index;
+            height: root.keyer-index >= 0 && p.entry == root.keyer-index
+                ? knob.preferred-height : 0;
+            changed data => { knob.value = self.data.value; }
+
+            knob := Param {
+                label: p.label;
+                value: p.value;
+                minimum: p.min;
+                maximum: p.max;
+                step: p.step;
+                default-value: p.default-value;
+                fmt: p.fmt;
+                changed(v) => {
+                    root.chain-set-param(root.keyer-index, p.key, v);
+                    root.commit();
+                }
+            }
+        }
+
         }
     }
 
