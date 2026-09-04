@@ -22,3 +22,8 @@ DO NOT DELETE ANY OF THE TODOs, JUST MARK THEM DONE.
 - [ ] fix: The details panel does not render correct data, fix it.
 - [ ] tweak: in Timelines the Text object should have Small height and instead of rendering the Text in a top header and then the body we can just still to header. This way we save more space and don't render the text preview twice on its timeline card.
 - [ ] ux qol: For Library>Media>{Videos,Images}: grabbing (mouse button down) any visual media should immediately show its "floating preview" and not wait for the first-drag, it makes the app look snappier and faster.
+- [ ] ux: remove the "Concat" label from the right-click context menu that shows on timelines.
+- [ ] fix: a lot of inputs have a bug where when they are focused and you click somewhere else to de-focus, it does not work. fix that.
+- [ ] feature: right now visual-media (images, videos) can only be scaled (resized on both dimensions propotionally). We need to add a feature to allow single-axis scale/stretch as well using the 2d bounding box in preview.
+- [ ] feature: add a "resize/scale" snapping too along with translate snapping.
+- [ ] we need to add a "Remove BG" toggle feature in Inspector for Images and Videos, enabling this removes the media's background like how CapCut does (CapCut has different options like Auto Removal, Custom Removal, Chroma key, etc.). Custom removal gives the user Smart Brush, Brush, Smart Eraser, Eraser to outline the target.
