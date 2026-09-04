@@ -165,6 +165,11 @@ pub struct WgpuCompositor {
 impl WgpuCompositor {
     /// Builds a compositor on the best available adapter, or `None` when the
     /// machine has nothing usable - callers fall back to the CPU path.
+    ///
+    /// Native only: it blocks on the adapter and device requests, and on the
+    /// web there is no thread to block. A web caller awaits those requests
+    /// itself and hands the result to [`WgpuCompositor::with_device`].
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

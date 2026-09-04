@@ -60,3 +60,26 @@ jobs:
       - run: cargo test --workspace
         working-directory: engine
 
+  # The engine crates that carry no native library build for the web. This
+  # job is what keeps that true: a std::thread or a blocking wait that
+  # creeps into concat-core or concat-project fails here, not when someone
+  # next tries the target. See engine/README.md for the list.
+  web:
+    name: Engine on wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: wasm32
+      - run: >
+          cargo clippy
+          -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text
+          --features concat-render/gpu --target wasm32-unknown-unknown
+          -- -D warnings
+        working-directory: engine

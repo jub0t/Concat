@@ -2,3 +2,6 @@
 [toolchain]
 channel = "1.93"
 components = ["rustfmt", "clippy"]
+# The engine crates that carry no native library build for the web too, and
+# CI checks that they keep doing so; see README.md.
+targets = ["wasm32-unknown-unknown"]
