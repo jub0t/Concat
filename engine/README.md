@@ -94,7 +94,8 @@ scripts/ffmpeg-mobile.sh aarch64-linux-android
 scripts/sherpa-mobile.sh aarch64-linux-android
 eval "$(scripts/mobile-env.sh aarch64-linux-android)"
 cargo ndk -t arm64-v8a --platform 26 build -p concat-android   # the activity's .so
-cargo apk build --release -p concat-android                     # the APK
+cargo apk build --release -p concat-android                     # the APK, signed with
+                                                                # CARGO_APK_RELEASE_KEYSTORE
 
 # iOS: Xcode.
 scripts/ffmpeg-mobile.sh aarch64-apple-ios

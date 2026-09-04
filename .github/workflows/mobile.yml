@@ -11,6 +11,10 @@ name: Build for phones
 #
 # engine/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
+#
+# The APK is signed with the repository's key when ANDROID_KEYSTORE (the
+# keystore, base64) and ANDROID_KEYSTORE_PASSWORD are set as secrets, and
+# with a key made for the run when they are not.
 on:
   push:
     branches: [main]
@@ -78,9 +82,30 @@ jobs:
           workspaces: engine
           key: aarch64-linux-android
 
-      # The build environment first, then the build under it. The APK is
-      # signed with the debug key, which is what a build without a store
-      # listing installs with.
+      # A release APK has to be signed. With the repository's key it is
+      # signed with that, and installs over the store's build; without one
+      # it is signed with a key made for the run, which installs on a phone
+      # as any sideloaded app does.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore=$RUNNER_TEMP/release.keystore
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 --decode > "$keystore"
+            password=$KEYSTORE_PASSWORD
+          else
+            password=concat
+            keytool -genkeypair -v -keystore "$keystore" -storepass "$password" -keypass "$password" \
+              -alias concat -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Concat, O=Concat" >/dev/null 2>&1
+          fi
+          echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      # The build environment first, then the build under it.
       - name: Build the APK
         working-directory: engine
         run: |
