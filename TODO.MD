@@ -1,5 +1,7 @@
 # ToDo
 
+DO NOT DELETE ANY OF THE TODOs, JUST MARK THEM DONE.
+
 ### QoL or UX features
 - [ ] The ability to move/reposition timelines on the timeline tray. For example if one has three different timelines they can drag and drop the first between, after, or before the other timelines thereby reordering the order.
 - [ ] in Library>Media panel: the audio waveform pattern has padding/margin on the x-axis which should be removed. we need the waveform pattern to start at the very begining of the audio preview card.
@@ -19,3 +21,4 @@
 - [ ] fix: on Inspector>Details>Modify Button: Create an actual modal for the Modify button and wire it in so users can actually modify project settings.
 - [ ] fix: The details panel does not render correct data, fix it.
 - [ ] tweak: in Timelines the Text object should have Small height and instead of rendering the Text in a top header and then the body we can just still to header. This way we save more space and don't render the text preview twice on its timeline card.
+- [ ] ux qol: For Library>Media>{Videos,Images}: grabbing (mouse button down) any visual media should immediately show its "floating preview" and not wait for the first-drag, it makes the app look snappier and faster.
