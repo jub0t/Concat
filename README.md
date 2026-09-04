@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-c6f432?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=000000" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
-<img src="assets/preview-dark.png" alt="Concat editor" width="100%" />
+<img src="assets/concat_logo_dark_512.png" alt="Concat editor" width="100%" />
 
 </div>
 

@@ -3,6 +3,7 @@
 DO NOT DELETE ANY OF THE TODOs, JUST MARK THEM DONE.
 
 ### QoL or UX features
+- [ ] Add a copy button to the red "error" modals and popups. So issues, bugs, errors can be easily reported and communicated.
 - [ ] add mobile (ios and android) artifacts to nightly builds too.
 - [ ] The ability to move/reposition timelines on the timeline tray. For example if one has three different timelines they can drag and drop the first between, after, or before the other timelines thereby reordering the order.
 - [ ] in Library>Media panel: the audio waveform pattern has padding/margin on the x-axis which should be removed. we need the waveform pattern to start at the very begining of the audio preview card.
