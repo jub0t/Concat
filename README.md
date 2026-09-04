@@ -20,17 +20,10 @@
 
 ---
 
-<a href="https://trendshift.io/repositories/191379?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-191379" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/191379/daily?language=Rust" alt="jub0t%2FConcat | Trendshift" width="250" height="55"/></a>
-
 Concat is everything you use CapCut for — without the watermarks, paywalls,
 or subscriptions. A native Rust engine does the heavy lifting, a native
 interface does the editing, and it all runs on your machine: install it and
 start cutting, no account, no extra downloads, no setup.
-
-> [!NOTE]
-> Concat is one native Rust binary: the engine and the Slint editor window
-> live together in [`engine/`](./engine). See
-> [`engine/README.md`](./engine/README.md) to build it from source.
 
 ## Highlights
 
@@ -46,7 +39,7 @@ start cutting, no account, no extra downloads, no setup.
 
 ## Get started
 
-Concat is currently in **Alpha (pre-release)**. Download the latest build from [Releases](https://github.com/jub0t/Concat/releases).
+Concat is currently in **Beta version (pre-release)**. **Download** the latest build from [Releases](https://github.com/jub0t/Concat/releases).
 
 **Platform support:**
 
@@ -71,11 +64,7 @@ Concat is currently in **Alpha (pre-release)**. Download the latest build from [
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/Concat/releases) page and test the application to see where it breaks or how it can be improved.
 
-Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, the checks to run, and how contributions are licensed. There is also [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3).
-
-## Roadmap
-
-Read [ROADMAP.MD](./ROADMAP.MD).
+Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, the checks to run, and how contributions are licensed. There is also [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3). Read [ROADMAP.MD](./ROADMAP.MD) for future goals.
 
 ## License
 
