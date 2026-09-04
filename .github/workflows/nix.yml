@@ -1,9 +1,10 @@
 name: Nix
 
 # Proves the flake: `nix build` on Linux whenever the flake, the lock, or
-# the workspace's dependencies change, and on demand. The first run on a
-# tree without a flake.lock writes one and commits it, so the lock is
-# always the one CI built with.
+# the workspace's dependencies change, and on demand. The lock is the
+# repository's and is refreshed by hand - `nix flake lock`, committed under
+# the author's own name - so the job builds exactly what is checked in and
+# fails, saying so, when the lock has fallen behind the flake.
 on:
   push:
     branches: [main]
@@ -36,8 +37,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Lock the flake
-        run: nix flake lock
+      # Refreshes nothing: a lock that would change here is a lock the
+      # commit should have carried.
+      - name: The lock matches the flake
+        run: |
+          nix flake lock
+          if ! git diff --quiet flake.lock; then
+            echo "flake.lock is behind flake.nix: run 'nix flake lock' and commit the result" >&2
+            git --no-pager diff flake.lock
+            exit 1
+          fi
 
       - name: Build
         run: nix build .#concat --print-build-logs
@@ -48,16 +57,3 @@ jobs:
         run: |
           file result/bin/.concat-wrapped || file result/bin/concat
           ldd result/bin/.concat-wrapped 2>/dev/null | grep -i 'not found' && exit 1 || true
-
-      # A lock CI wrote is a lock the repo should carry: the next run then
-      # builds exactly this, and so does everyone running `nix build`.
-      - name: Commit the lock
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          if git status --porcelain flake.lock | grep -q .; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add flake.lock
-            git commit -m "Lock the flake"
-            git push
-          fi
