@@ -90,7 +90,11 @@ pub struct Strip {
 const WAVE_STEPS: f32 = 30.0;
 
 /// The export dialog's ladders, matching its rows.
-pub const EXPORT_SIZES: [(u32, u32); 4] = [(3840, 2160), (2560, 1440), (1920, 1080), (1280, 720)];
+/// The export sheet's resolution ladder, as the short side of the frame:
+/// 4K, QHD, 1080p, 720p. The long side follows the project's own aspect,
+/// so a 9:16 edit exports as 1080 x 1920 and a 21:9 one as 2520 x 1080 -
+/// the picker chooses how fine, never which way round.
+pub const EXPORT_SHORT_SIDES: [u32; 4] = [2160, 1440, 1080, 720];
 pub const EXPORT_RATES: [(i64, i64); 3] = [(24, 1), (30, 1), (60, 1)];
 /// Megabits per second at 1080p30 for each quality tier, for the size
 /// estimate; and the CRF each tier renders at.
@@ -3242,8 +3246,23 @@ impl Studio {
 
     // ── export ──
 
+    /// The frame the export renders at: the sheet's short side, scaled
+    /// along the project's aspect and rounded to even dimensions, which is
+    /// what the encoder's chroma subsampling needs.
+    pub fn export_size(&self) -> (u32, u32) {
+        let short = EXPORT_SHORT_SIDES[self.export.resolution.min(EXPORT_SHORT_SIDES.len() - 1)];
+        let (project_w, project_h) = self.output_size();
+        let (project_w, project_h) = (project_w.max(1) as f64, project_h.max(1) as f64);
+        let even = |side: f64| ((side / 2.0).round() as u32 * 2).max(2);
+        if project_w >= project_h {
+            (even(short as f64 * project_w / project_h), short)
+        } else {
+            (short, even(short as f64 * project_h / project_w))
+        }
+    }
+
     pub fn export_size_bytes(&self, tier: usize) -> f32 {
-        let (width, height) = EXPORT_SIZES[self.export.resolution.min(3)];
+        let (width, height) = self.export_size();
         let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
         let rate = num as f32 / den as f32;
         let pixels = (width as f32 * height as f32) / (1920.0 * 1080.0);
@@ -3288,7 +3307,7 @@ impl Studio {
             .map(|title| title.clip)
             .collect();
         let mut request = export::request(session, &spec, titles);
-        let (width, height) = EXPORT_SIZES[self.export.resolution.min(3)];
+        let (width, height) = self.export_size();
         let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
         request.width = width;
         request.height = height;
@@ -4185,7 +4204,7 @@ impl Studio {
     }
 
     fn export_data(&self) -> ExportData {
-        let (width, height) = EXPORT_SIZES[self.export.resolution.min(3)];
+        let (width, height) = self.export_size();
         let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
         let rate = num as f32 / den as f32;
         let clips = self.timeline().clips.len();

@@ -3,6 +3,7 @@
 DO NOT DELETE ANY OF THE TODOs, JUST MARK THEM DONE.
 
 ### QoL or UX features
+- [ ] add mobile (ios and android) artifacts to nightly builds too.
 - [ ] The ability to move/reposition timelines on the timeline tray. For example if one has three different timelines they can drag and drop the first between, after, or before the other timelines thereby reordering the order.
 - [ ] in Library>Media panel: the audio waveform pattern has padding/margin on the x-axis which should be removed. we need the waveform pattern to start at the very begining of the audio preview card.
 - [ ] The timeline tools tray needs a revamp, a lot of people wont be able to find tools like Text to Speech if they are placed in tabs in File (macOS). We need to show more tools (or dropdowns) on the Timeline tools tray.
