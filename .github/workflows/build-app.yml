@@ -195,7 +195,9 @@ jobs:
       # CMake's defaults, and those defaults are where /EHsc came from;
       # clang-cl, unlike cl, rejects `try` outright without it (ggml's
       # gguf reader uses exceptions). CXXFLAGS travels through the cc
-      # crate into those flags.
+      # crate into those flags - spelt with a dash, because the build
+      # step runs under Git's bash, whose MSYS layer rewrites a value
+      # that starts with a slash into a Windows path.
       - name: FFmpeg development libraries (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -207,7 +209,7 @@ jobs:
             Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S"
             "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
-            "CXXFLAGS=/EHsc" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "CXXFLAGS=-EHsc" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
             choco install llvm -y --no-progress
