@@ -1,452 +1,749 @@
-# Concat Architecture
+# Concat: architecture
 
-A study map of the system as it stands in September 2026: what each layer
-owns, how they talk, where the sharp edges are, and what deserves attention
-next. File references are current as of this writing.
+Concat is a video editor. It is one native Rust binary: a headless engine
+that owns the edit, the pixels and the sound, and a Slint window that draws
+that engine and hands it commands. FFmpeg is linked, whisper.cpp and
+sherpa-onnx are compiled in, and nothing is spawned at run time.
+
+This document is the map. It says what each part is for, which rules hold
+across parts, and where the work goes next. Every crate's `lib.rs` opens
+with a `//!` block that says the same thing at closer range; read this
+first, then those.
 
 ---
 
-## 1. The shape of it, and the one rule
+## 1. The one rule
 
-```mermaid
-flowchart LR
-    subgraph WINDOW["engine/crates/concat — the window (Slint)"]
-        UI["ui/*.slint<br/>panes, dialogs, primitives"]
-        MAIN["src/main.rs · studio.rs<br/>bindings, view state"]
-    end
-    subgraph HOST["concat-host · concat-speech"]
-        SESSION[Session]
-        PLAY[Playback]
-        MON[Monitor]
-        EXP[Exporter]
-        PROJ["projects · templates · media caches"]
-        SPEECH["Transcriber · Speech"]
-    end
-    subgraph ENGINE["the engine"]
-        PROJECT[concat-project]
-        EFFECTS[concat-effects]
-        EXPORT[concat-export]
-        RENDER[concat-render]
-        MEDIA[concat-media]
-        CORE[concat-core]
-    end
-    MAIN --> HOST
-    HOST --> ENGINE
-    MEDIA -. links .-> FF["libavformat · libavcodec<br/>libavfilter · libswscale · libswresample"]
-    SPEECH -. compiles in .-> W["whisper.cpp · sherpa-onnx"]
-```
+**The engine owns the edit. The window is a view of it.**
 
-**The rule (engine doctrine):** everything important lives in the engine
-crates. The window renders state and issues commands; the host layer is
-plumbing between the two. The engine owns the project model, the undo
-history, the render path, the document format, and the codecs. When a
-feature is being designed, the first question is "which engine crate does
-this belong to".
+The project, its operations, its undo history, every pixel of every frame
+and every sample of the mix are decided in the engine crates, which have no
+window and no idea one exists. The window reads the engine's project to
+draw the bin and the lanes, and writes every edit as a command. It keeps
+what the document does not need: selection, playhead, zoom, tool, which
+lanes are locked, the arrangement of panes. None of that reaches the file.
 
-There is no wire, no JSON boundary, no second language: the window calls
-Rust functions in-process. The rule therefore has nothing to enforce it but
-discipline, and the risk is that editing logic leaks into the window without
-anyone noticing. The test for a change is whether it could be driven from
-`concat-cli` without a window; if not, it is in the wrong place.
+Two consequences of the rule shape everything below:
+
+- **One definition per meaning.** The speed range, the arithmetic that maps
+  a timeline instant to a source instant, the placement of a picture in the
+  frame, the mix's gain curve: each exists once, and the preview, the
+  export and the command layer all call it. Where two paths could disagree,
+  the code names the one they share and says why.
+- **Degrade, never abort.** A source that runs out contributes nothing; an
+  unknown transition renders as a cut; a filter chain the catalogue refuses
+  leaves the picture untouched; a GPU that dies mid-export hands the rest to
+  the CPU; a document with vanished media opens without those clips. An
+  export or a session never ends in a panic because a file was strange.
+
+---
+
+## 2. The map
+
+Everything lives in `engine/`, one Cargo workspace of twelve crates.
+
+| Crate | Owns | Lines |
+|---|---|---|
+| `concat-core` | Exact time, arenas and handles, the RGBA frame, the timeline model the renderer reads. No dependencies. | 2.2k |
+| `concat-project` | The document: model, every operation as a command, undo, the tolerant reader and compatible writer. | 4.7k |
+| `concat-effects` | Effect packages: manifests, the FFmpeg template language, WGSL shaders, the catalogue. 45 built-in packages. | 2.3k + packages |
+| `concat-media` | FFmpeg, linked. Decoding, seeking, the audio mix planner, encoding, waveforms, the reader pool. | 3.7k |
+| `concat-render` | A timeline plus an instant into one frame: the plan, the CPU compositor, the wgpu compositor. | 1.9k |
+| `concat-export` | Timeline to file. Transitions resolve here; the frame loop and the one-pass mix; the paused monitor's true frame. | 2.2k |
+| `concat-text` | Titles as pixels: font lookup, shaping, rasterising onto a frame-sized transparent canvas. | 0.6k |
+| `concat-host` | What a window needs that is not the edit: sessions, project folders, caches, the monitor, audio playback, the export driver, templates, job slots, app directories. | 3.8k |
+| `concat-speech` | Transcription with whisper.cpp and text to speech with Kokoro, both in-process, models downloaded on demand. | 1.2k |
+| `concat-cli` | A driver for the engine without a window: `probe` and `render`. | 0.2k |
+| `concat` | The editor window in Slint, and the Rust that binds it to the host. | 7.2k Rust, 15.9k Slint |
+| `concat-android` | The Android activity: `android_main` over the window. | 20 |
 
 The dependency arrows point one way:
 
 ```
-concat (window) → concat-speech → concat-host → {export, project, media} → core
-                                              → render → core
-                                                 export → effects → project
+concat ──► concat-speech ──► concat-host ──► concat-export ──► concat-render ──► concat-core
+   │                              │               │    │            ▲
+   │                              │               │    └──► concat-effects ──► concat-project ──► concat-core
+   │                              ├──► concat-media ◄──┘
+   │                              └──► concat-text
+   └──► concat-effects (the catalogue, for the inspector's shelves)
+
+concat-android ──► concat            concat-cli ──► concat-core, concat-media, concat-render
 ```
 
-`concat-core` depends on nothing. `concat-project` knows nothing about
-rendering. `concat-media` is the only crate that knows FFmpeg exists.
-`concat-effects` knows what an effect *is* (its manifest and its template)
-and nothing about running one; the decoder runs FFmpeg chains and the
-compositor will run shaders.
-
-| Crate | Lines | Tests | Owns |
-|---|---|---|---|
-| `concat-core` | 1.6k | 31 | Rational time, frame model, arena handles, timeline model. Zero dependencies. |
-| `concat-media` | 3.4k | 39 | Linked FFmpeg: probe, video decode with filter graphs and frame pacing, audio decode through a graph, H.264 encode, AAC mixing through libavfilter, muxing, waveform peaks, the reader pool with its byte-budgeted frame cache, JPEG stills. |
-| `concat-project` | 3.3k | 41 | The document: model, every edit command, undo `Editor`, `concat.json` round-trip. |
-| `concat-render` | 1.3k | 28 | Compositing. `CpuCompositor` is the reference; `WgpuCompositor` behind `gpu`. |
-| `concat-effects` | 1.1k | 22 | Effect packages: the manifest format, the chain-template expression language, the catalogue. Every built-in effect is a folder under `packages/`, compiled in; user packages load from a directory. |
-| `concat-export` | 2.3k | 6 | Timeline → file: flatten, the frame-by-frame render loop, the paused monitor's true frame. Chains come from `concat-effects`. |
-| `concat-host` | 3.4k | 22 | Sessions, project folders and recents, media caches beside the project, the monitor's reader pool, the export slot, audio playback, templates, one-at-a-time job slots, app directories. |
-| `concat-speech` | 1.2k | 6 | Transcription (whisper.cpp in-process) and text to speech (Kokoro via sherpa-onnx), with model downloads. |
-| `concat-cli` | 0.2k | 3 | Probe/render vertical slice for testing the engine without the app. |
-| `concat` | 4.5k Rust + 14.9k Slint | 3 | The window. Every pane, dialog and primitive, bound to the host layer: sessions, imports, gestures as commands, the monitor, playback, export, speech. |
+`concat-core` depends on nothing; `concat-project` is not folded into it
+because the document needs serde and core's zero-dependency rule is worth
+more than the adjacency. Five crates carry no native library and build for
+the web as well (`concat-core`, `concat-project`, `concat-effects`,
+`concat-render`, `concat-text`); CI keeps that true.
 
 ---
 
-## 2. The edit loop
+## 3. Vocabulary
 
-The engine owns the project; the window never keeps a model of its own. Every
-edit round-trips as a function call:
+The types every crate agrees on live in `concat-core`.
 
-```mermaid
-sequenceDiagram
-    participant W as window (main.rs)
-    participant S as concat_host::Session
-    participant E as Editor (concat-project)
+**Time is exact.** `time::Rational` is a reduced `i64/i64` in seconds.
+Arithmetic widens to `i128` and reduces back; a value that comes from a
+file goes through `checked_new`, which errors rather than panics, so a
+hostile container cannot crash the engine. `approximate` is the one seam
+through which an `f64` enters, at microsecond precision, and `as_f64` is
+one-way out. `FrameRate` is exact too, and `frame_at` floors, so frames are
+half-open intervals: 107,892 frames of 30000/1001 accumulate to exactly
+where they should. Nothing in the engine keeps a timestamp as a float.
 
-    W->>S: session.apply(Command::SplitClips { .. })
-    S->>E: editor.apply(command)
-    E-->>S: Outcome (minted ids) + new Project
-    S-->>W: EditorView { project, can_undo, can_redo, settings, created_id }
-    W->>W: republish the Slint models from the Project
-```
+**Graphs use handles.** `arena::Arena<T>` hands out generational
+`Id<T>` handles that are `Copy`, `Send` and `Sync` whatever `T` is. Removing
+a slot bumps its generation, so a stale handle reads as empty rather than
+as whatever now occupies the slot. The timeline's tracks and clips are two
+arenas plus an explicit bottom-first `order`.
 
-Key properties:
+**One pixel format.** `frame::Frame` is RGBA8, straight alpha, sRGB,
+tightly packed, with bounds-checked access that returns `None` and a
+`Debug` that never dumps pixels. A higher-precision frame arrives as a
+second type beside it, not as a `format` field.
 
-- **One session, one thread.** `Session` is a plain struct owned by the
-  window's event-loop thread. There is no mutex around the edit because there
-  is no second caller; long work (saves, probes, renders, decodes) takes what
-  it needs *out* of the session first and runs on its own thread.
-- **Gestures commit once.** A drag must not send a command per pixel. The
-  window previews a gesture on an echo (a clone of the project the pointer
-  mutates) and commits one command on release, so undo undoes the drag.
-  That is the `Gesture` state machine in `studio.rs`.
-- **Undo lives in the engine** - a bounded history of full `Project` clones
-  (depth 200), not command inversion.
-- **Saving is one code path.** `Session::prepare_save` hands back the folder
-  and the document; `projects::save` writes to a temporary file and renames,
-  so a crash mid-save cannot truncate the project.
-- **The document format is frozen by the documents that exist.** Projects
-  saved as `wolfcut.json` still open; new ones are written as `concat.json`,
-  with the version key the app's current name. The reader never looks at
-  that key.
+**The timeline the renderer reads.** `timeline::Clip` carries start,
+duration, source in-point, speed or a `SpeedCurve`, reverse, transform,
+opacity, blend, fades and an `Animation`. `Clip::source_time_at` is the
+one piece of arithmetic every trim, slip and retime has to agree with:
+affine when the speed is constant, the curve's area when it is not,
+mirrored when reversed. `is_paced` says whether a decoder can be pulled
+one frame per output frame or must seek. `Blend` documents its six
+premultiplied formulas so the CPU and GPU compositors agree by
+construction. `retime::SpeedCurve` clamps to 0.0625..16 and yields the
+constant-rate pieces a sound path that can only change tempo in steps
+needs. `animate::Animation` is relative: scale multiplies, offsets and
+rotation add, opacity multiplies.
 
----
-
-## 3. Media
-
-`concat-media` links the FFmpeg libraries and calls them directly. What that
-gives, and what it costs:
-
-- **Every frame carries its real presentation timestamp**, so variable
-  frame-rate material stays in sync with the timeline.
-- **Seeks are frame-accurate**: the container lands on the keyframe before
-  the target and the decoder discards up to it. The reader pool's "roll
-  forward or seek" policy is guided by timestamps rather than by counting
-  frames ordinally.
-- **Rotation is honoured**: portrait phone footage is turned the way every
-  player turns it, by reading the display matrix off the codec parameters
-  (where FFmpeg 7 keeps it) and inserting the same `transpose`/`hflip,vflip`
-  FFmpeg's own autorotate would.
-- **A build needs the FFmpeg development libraries.** `ffmpeg-the-third`
-  binds them at build time with bindgen, so a build machine needs headers,
-  import libraries and libclang. Homebrew serves on macOS; Windows and older
-  Linux distributions use a BtbN `shared` build via `FFMPEG_DIR`. The price
-  is paid in CI configuration, not in code.
-
-### 3.1 The video decoder
-
-`decode::Decoder` does everything in one place:
-
-```
-container seek (keyframe) → discard frames before `start`
-  → [pacer: pick the source frame on screen at the next output instant]
-  → libavfilter graph: [rotate] → scale → [effect chain → guard scale] → format=rgba
-  → copy rows out of the padded buffer into a Frame
-```
-
-The graph is built lazily from the first decoded frame's real format and
-size, and rebuilt if a later frame differs. The clip's effect chain is a
-plain FFmpeg filter string, exactly the string the export mix uses for
-audio, validated so it cannot escape its slot. Pacing (`at_rate`) duplicates
-and drops source frames so exactly one comes out per output instant; without
-it the decoder yields every source frame with its timestamp, which is what
-the reader pool wants. `looping` repeats the last frame forever, which is how
-a still image behaves like footage.
-
-### 3.2 The audio decoder
-
-`samples::AudioDecoder` is the one door for sound-as-numbers. Callers say
-what window of the file they want, which filters to run it through, and the
-rate, layout and format they want back; libavfilter's `atrim`, the filters,
-`aresample` and `aformat` do the rest in one graph. Three callers, three
-shapes:
-
-| Caller | Rate | Layout | Format | Filters |
-|---|---|---|---|---|
-| waveform peaks | 48 kHz | mono | s16 | none |
-| playback cache | 48 kHz | stereo | s16 | speed stages + the clip's chain |
-| transcription | 16 kHz | mono | f32 | none |
-
-Because the playback cache and the export mix run the clip's speed and chain
-through the same filter strings, what the preview mixes is what the export
-renders.
-
-### 3.3 Encode, mix, mux
-
-- `encode::Encoder` is libx264 through libavcodec, RGBA → yuv420p through
-  libswscale, into an MP4 with `+faststart`. `encode::jpeg` is the same
-  machinery with the MJPEG encoder, for posters.
-- `audio::mix_to_file` parses the `filter_complex` string the pure,
-  unit-tested `audio::mix_graph` planner produces into a libavfilter graph
-  with one `abuffer` per clip bound to the `[N:a]` labels, an `aformat`
-  landing on the AAC encoder's format, and an `abuffersink` sized to the
-  encoder's frame. Inputs are fed round-robin and the sink drained after
-  every push, so no input runs ahead by more than a frame.
-- `audio::mux` copies the encoded streams into the final container,
-  stopping at the shorter one.
-
-### 3.4 The reader pool
-
-One warm decoder per (file, size, chain), a byte-budgeted LRU of decoded
-frames in front, "roll forward if the target is close ahead, seek
-otherwise". Export does not use it: export decodes every frame exactly once
-in order, and a cache in that path is pure overhead.
+**Two models, one boundary.** The document model in `concat-project` is
+not the core timeline. It speaks the file's terms: `f64` seconds, `String`
+ids, camelCase serde, the audio side that core's clip lacks (volume, fades,
+pitch preservation, filter chains), text and layer clips that have no
+media. The conversion from the document to `concat_core::Timeline` happens
+in exactly one place, `concat-export`'s timeline builder, and the
+`f64`-to-`Rational` step happens there. Two small converters inside
+`concat-project` (`speed::curve_of`, `animation::animation_of`) are the
+only other crossings.
 
 ---
 
-## 4. Preview and playback: two clocks, one truth
+## 4. The edit: `concat-project`
 
-```mermaid
-flowchart TB
-    subgraph AUDIO["Audio — concat_host::playback"]
-        DEC["decode workers<br/>clip span → WAV in cache/audio"]
-        MMAP["mmap'd PCM"]
-        CPAL["one cpal callback mixes everything"]
-        CLK["device sample counter →<br/>position(), 30 Hz position events"]
-        DEC --> MMAP --> CPAL --> CLK
-    end
-    subgraph VIDEO["Video — concat_host::preview::Monitor"]
-        PULL["window pulls one frame per instant<br/>prefetch warms the next few"]
-        PF["preview_sources → decoded layers"]
-        TEX["WgpuCompositor on the shared device → texture"]
-        IMG["slint::Image::try_from(texture)"]
-        PULL --> PF --> TEX --> IMG
-    end
-    CLK -- "the window follows" --> PULL
-```
+Two rules are stated at the top of the crate and hold throughout:
 
-- **The audio device is the only clock.** `Playback::position()` reads the
-  mix callback's sample counter; `PlaybackEvents::position` pushes it at
-  30 Hz while playing. Video chases audio, never the other way around.
-- **The monitor shows the engine's real composited frame** - the same pixels
-  the exporter would produce - at a preview size the window chooses.
-- **One GPU device, shared.** The window creates a wgpu device (`gpu.rs`)
-  and hands it to Slint's renderer and to the monitor's compositor. A
-  preview frame is decoded, uploaded once per layer, composited on that
-  device into a presentable texture, and shown by Slint as that texture:
-  nothing is read back and nothing is copied. Without an adapter the
-  monitor composites on the CPU and the window uploads the pixels.
-- **Nothing here knows about a window.** `Playback` reports through a trait
-  object; `Monitor` returns bytes. The window decides which thread runs what,
-  and hands results back to the Slint event loop with
-  `slint::invoke_from_event_loop`. That seam is where the wiring in §7 goes.
+1. **The document format is frozen by the documents that exist.** Saved
+   projects load forever, tolerance rules included. `DOCUMENT_VERSION` is
+   bumped only when a change cannot be absorbed by defaulting.
+2. **`f64` seconds and `String` ids are the document's terms**, until a
+   version 2 decides otherwise on purpose.
 
----
+**Commands.** `commands::Command` is a serialisable enum of about thirty
+operations, tagged `op` in camelCase: add and remove media, place, move,
+trim, split, merge and slip clips, set speed and speed curves, transforms,
+animations, text, effects, track state, timelines, and `Batch`. The
+constants the window's gestures mirror are declared once here: the
+minimum clip duration (1/60 s), the speed range (the engine's, verbatim),
+the maximum offset, the join tolerance. `ClipPatch` distinguishes absent
+from null. Ids are minted by one counter across the `m`/`c`/`t`/`tl`
+prefixes, and a loaded document is walked so restored ids are never
+reissued. `Outcome::applied` is honest: a command that changes nothing
+reports so, and the undo history records no phantom edits. `Batch` applies
+to a staged clone and commits only when every step succeeds. `SplitClips`
+drops a speed curve because the map to the source is no longer affine;
+`MergeClips` defers to `why_not_merge`, which returns the exact sentence
+the user sees.
 
-## 5. Export
+**Undo.** `editor::Editor` keeps whole-project snapshots in a `VecDeque`
+capped at 200; `apply` pushes only when the outcome was applied and clears
+redo.
 
-Hybrid pipeline in `concat-export`:
+**Reading and writing.** `doc.rs` defaults every field, drops clips whose
+track or media vanished (text and layer clips survive), clamps hand-edited
+values into range, and loads a flat single-timeline document as one
+timeline. The writer emits both `timelines` and a flat mirror of the
+active one, so an older build still opens a new file.
 
-- **Picture:** flattened timeline → per-frame composition in-process (CPU or
-  wgpu) → the linked H.264 encoder.
-- **Audio:** one filtergraph mixes every audible clip in a single pass.
-- **Transitions are lowered before either path runs** - a cross-fade becomes
-  overlapping clips with opacity ramps and fade filters - so the compositor
-  never knows transitions exist.
-- The host's `export::request` flattens the open session and adds the
-  destination and quality; `export::run` reports progress through a callback
-  and stops on a flag; `Exporter` is the one-at-a-time slot.
+**Named shapes.** Speed presets and animation presets are stored by name
+and re-materialised per clip length; an animation slot longer than the
+clip is squeezed, an overlapping in/out pair is split in proportion.
 
 ---
 
-## 6. Speech
+## 5. Effects: `concat-effects`
 
-- **Transcription** loads a ggml Whisper model through `whisper-rs`, keeps it
-  loaded until another is asked for, feeds it 16 kHz mono floats straight
-  from `AudioDecoder`, and reads segments back in centiseconds. On macOS the
-  Metal build runs the encoder on the GPU. Cancellation is whisper's abort
-  callback reading the job's flag.
-- **Text to speech** is Kokoro through sherpa-onnx's official bindings,
-  statically linked from prebuilt libraries the sys crate downloads at build
-  time. Narration lands as a WAV in the project's `audio/` folder - not
-  `cache/`, because a clip on the timeline points at it.
-- Both download models on demand into the app's data directory
-  (`app.concat.editor` under the platform's application-support folder) and
-  refuse a second concurrent run through `SingleFlight`.
+An effect is a folder. `effect.toml` declares an id of the form
+`author.name`, its kind (audio, effect, filter, transition, generator), its
+parameters with ranges and defaults, and one or two backends;
+`fixtures.toml` pins what it renders at default, minimum and maximum. The
+45 built-in packages under `packages/` are compiled into the binary by
+`build.rs`, which scans the directory: adding an effect is adding a
+folder, and nothing in Rust names one. User packages load from a directory
+at run time.
 
----
+**Two backends.** `[ffmpeg]` is a filter-chain template with
+`{expression}` slots, run inside the decoder's filtergraph. The expression
+language is a deliberately tiny recursive-descent parser over numbers and
+eleven fixed functions; it is the security boundary as much as a
+convenience, since nothing an expression evaluates to can be anything but
+a number. `[wgsl]` is a shader that writes one `fn effect(uv) -> vec4<f32>`;
+`shader.rs` wraps it in a prelude (the layer texture, a `Frame` uniform of
+size, time and intensity, the package's `Params`) and a postlude (the
+full-screen triangle and an `fs_main` that mixes the effect by intensity),
+validates it through naga, and reads the `Params` struct's layout back from
+the compiled module so the parameter bytes are packed exactly as the GPU
+expects. A package may carry both: the shader renders wherever there is a
+GPU, and the chain is what a machine without one gets.
 
-## 7. The window
+**The catalogue.** `Catalogue::builtin()` loads once, panics on a bad
+built-in, and rejects duplicate ids or aliases. Loading a package renders
+its chain at default, minimum and maximum, so a type error in an expression
+is a load failure and never a silent gap in an export. `video_chain`,
+`video_chain_gpu` (which skips shader-backed packages), `shader_passes`
+and `audio_chain` all funnel through one `compose`, which numbers labels
+by emitted index so a bypassed entry consumes none. A *filter* (a colour
+look) answers to an undeclared `intensity` key: `mixed` rewrites the chain
+as a split-and-blend so intensity is the look's opacity.
 
-`engine/crates/concat` is 14.9k lines of `.slint` across the workspace
-(dockable seats holding four views), the timeline (lanes, tabs, track
-headers, tray), the inspector, the media bin, the launch screen, the export
-and settings sheets, menus, tooltips, toasts, and the primitives under them.
-Fonts and effect previews are embedded in the binary.
-
-The Rust side is small and split by what it owns:
-
-| File | Owns |
-|---|---|
-| `lib.rs` | Startup (the backend, the services), and one binding per callback the `Editor` global exposes. Every handler is "mutate the state, then republish". `main.rs` is the desktop's and iOS's call into it; `concat-android` is Android's. |
-| `platform.rs` | The three things a phone does differently from a desk: how the backend is chosen, how a file or folder is picked, whether the title strip is dragged. Everything else is shared. |
-| `studio.rs` | The window's state. Reads the engine's `Project` through the open `Session`; writes every edit as a `Command`. Holds what the document does not: selection, playhead, zoom, tool, which lanes are locked, the dock tree, what the sheets show. Publishes it all into Slint's models. |
-| `host.rs` | The engine's services (playback, monitor, exporter, transcriber, speech, app directories) and the bridge from worker threads back to the event loop. |
-| `dock.rs` | The workspace's arrangement as a tree, walked flat for Slint. |
-| `chips.rs` · `format.rs` · `prefs.rs` · `sysinfo.rs` | Drag chips, formatting and the waveform path, remembered preferences, the About block. |
-
-Two mechanisms carry the whole design:
-
-- **The echo.** A press clones the project; the pointer mutates the clone;
-  `publish` draws whichever exists; release turns the difference into one
-  `MoveClips` or `TrimClip`. The inspector's knobs do the same and commit
-  as one batch. Undo therefore undoes the gesture, never a pixel of it.
-- **`spawn` and `Shell::with`.** Anything slow runs on its own thread and
-  hands its result to `slint::invoke_from_event_loop`, where the state is
-  reached again through a thread-local. Nothing but the event-loop thread
-  ever touches the state, which is why it needs no lock.
+The document is untouched by any of this. A clip stores
+`{ id, params, enabled }`, and an id the catalogue does not know is skipped
+at render time.
 
 ---
 
-## 8. Sharp edges and the work plan
+## 6. Media: `concat-media`
 
-Ordered by how much each matters. Every item is a trap for a contributor who
-does not know the invariant, or a piece of work with a known shape.
+The only crate that knows FFmpeg exists. It links libavformat, libavcodec,
+libavfilter, libswscale and libswresample through `ffmpeg-the-third`;
+FFmpeg 7 is the floor because the display-rotation side data is read from
+where 7.0 moved it. The crate's one `unsafe` block walks that side data.
+`build.rs` names what the static archives on a phone need from the
+platform (MediaCodec and the JNI on Android, VideoToolbox and its
+frameworks on iOS); on the desktop the shared libraries bring their own.
 
-### 8.1 Put a real project through every flow in the window
+**Two traits.** `FrameSource` (width, height, `next_frame`, `position`)
+and `FrameSink` (`write_frame`, `finish`) fence everything codec-shaped. A
+GPU-decode backend would implement those two and nothing else in the
+workspace changes.
 
-Every flow in §7 needs a real project put through it, and the window has no
-tests of its own. Known items: the clip context menu's actions did not take
-effect in one report; timeline clips draw no filmstrip (audio clips draw
-their waveform, and `lanes.slint` has the slot); the monitor's failures log
-to stderr and toast once. The durable fix is a headless harness that drives
-`Studio` against a `Session` without a window and snapshots what it
-publishes, so this class of bug is caught by a test.
+**Decoding.** `decode::Decoder` owns one input, one video decoder and one
+filtergraph, no sharing and no interior mutability. The graph's order is
+load-bearing: rotation, then the crop (in source pixels, since a crop
+changes what the fit is *of*), then a bilinear scale to the requested
+size, then the effect chain, then a guard scale back to that size, then
+`format=rgba`. Every chain is validated before anything opens: a chain
+containing `;`, `[`, `]` or a newline is no longer a filter applied to this
+clip. Seeking is two-phase and frame-accurate: a container seek to the
+target, then frames are discarded until the one whose timestamp reaches it.
+`next_paced` keeps a frame around a target instant, duplicating and
+dropping to hold a rate; `looping` repeats a still forever.
 
-### 8.2 Title clips need a rasteriser in the engine
+**The audio planner.** `audio.rs` plans a whole mix as one FFmpeg
+filtergraph. Per clip: trim, speed (pitch-preserving `atempo` stages, or
+the tape path of `asetrate` between resamples), the user's chain, volume,
+fades, then `adelay` to its place on the timeline; then `amix` without
+normalisation, or `anull` for one clip; then a resample and pad that fix
+the timestamps `atempo` leaves undefined. A twenty-line comment explains
+why that last stage exists and ends with the instruction not to simplify
+it away. `mix_to_file` opens every input, feeds them round-robin and
+drains after every push so no input runs ahead of the others by more than
+a frame; `mux` stream-copies picture and sound together. The speed range
+is defined here, once, and preview and export both read it.
 
-`ExportRequest` takes rasterised titles as image clips, and nothing in the
-tree draws text into a `Frame`. The work is a text rasteriser (a
-`cosmic-text`/`fontdue`-shaped crate against the embedded Inter and Synonym
-faces) in the engine, so titles render identically in the monitor and the
-export.
+**Encoding.** `encode::Encoder` defaults to `libx264`, medium, CRF 18,
+`yuv420p` (4:4:4 will not play in browsers), writes with `+faststart`, and
+keeps both the encoder's and the muxer's time bases for the rescale. A
+frame of the wrong size is an error, not a resize. `jpeg` is the poster
+encoder.
 
-### 8.3 Fades count output frames
+**Waveforms.** `peaks.rs` streams a mono 48 kHz decode into buckets
+without accumulating samples, so an hour costs what a jingle costs, and
+encodes a frozen little-endian cache format.
 
-`Decoder` runs a clip's chain on each *paced* output frame, so a `fade` in a
-chain counts output frames - which is what `resolve_transitions` assumes when
-it computes `nb_frames` at the output rate. Compare an exported dissolve
-frame for frame against an `ffmpeg` command-line render of the same graph
-before trusting it.
+**The reader pool.** `pool::ReaderPool` is playback's infrastructure and
+explicitly not export's: export decodes every frame once in order, and a
+cache there is pure overhead. The pool is a byte-budgeted LRU of frames
+keyed by file, instant, size and chain (the same source frame through two
+chains is two pictures) over a bounded set of warm readers. Its ownership
+rule: a reader is *found* under the pool's lock and *used* under its own,
+so decodes on different files never queue behind each other. Asked for an
+instant, it rolls forward up to 60 frames before it seeks, clamps a request
+past the end to the last frame, and on failure retries seeks backwards by
+widening steps, so a file with any decodable picture cannot fail here.
 
-### 8.4 Lock discipline in `playback.rs`
-
-28 `unwrap`/`expect` sites across four kinds of threads (mix callback,
-transport, decode workers, cache sweep). One panic in a decode worker poisons
-a mutex and cascades. Pick one poison policy (probably: clear the poisoned
-state and carry on, since every cache here is rebuildable) and apply it once.
-
-### 8.5 Unbounded growth
-
-- `redo: Vec<Project>` in `concat-project`'s editor has **no cap** (undo is
-  capped at 200); each entry is a deep clone of the whole project.
-- The reader pool's cache is bounded; the window's image cache for filmstrips
-  needs a bound too, or a long session accumulates textures. Filmstrips are
-  raw RGBA `Frame`s with no disk cache; posters are cached as JPEG.
-
-### 8.6 The mix has no end-to-end test
-
-`mix_graph` is pinned by a dozen unit tests, and the export loop has tests
-that render synthetic video; `mix_to_file` and `mux` are exercised by no
-test with real audio. Write one against a generated tone before anything
-else touches the audio path.
-
-### 8.7 Build environment
-
-- FFmpeg 7 is the floor (the display matrix lives in `coded_side_data` from
-  7.0; the code reads it there). Ubuntu 24.04 ships 6.1, hence the BtbN
-  download in CI. A contributor with a distribution FFmpeg older than 7 gets
-  a compile error deep in the bindings, not a message.
-- `whisper-rs-sys` builds whisper.cpp with cmake at build time; `sherpa-onnx-
-  sys` downloads prebuilt static libraries at build time. A clean build needs
-  the network twice (three times counting `skia-bindings`) and several
-  minutes. The workspace lock resolves 746 crates.
-- The workflows (`ci.yml`, `build-app.yml`, `release.yml`) have to be run
-  green on all three platforms. Windows (libclang via chocolatey,
-  `FFMPEG_DIR`, MSVC for whisper.cpp) is the one to watch.
-
-### 8.8 Phones
-
-The window builds and packages for Android and iOS (`mobile.yml`, the
-`scripts/*-mobile.sh` trio, `concat-android`), and what runs there is the
-desktop's tree on a phone's screen. The next work, in order:
-
-- A phone layout. The dock, the inspector and the timeline assume a wide
-  window and a pointer; a phone wants one seat at a time, touch-sized
-  targets, and the timeline under the monitor. The `.slint` tree can carry
-  a second arrangement chosen by the window's size.
-- Picking files. `platform.rs` returns nothing for a pick on a phone; the
-  system document picker (Storage Access Framework, `UIDocumentPicker`)
-  has to hand the window a readable path or a file descriptor, and
-  `concat-media` opens by path today.
-- Hardware codecs are linked, not yet asked for: `concat-media` opens the
-  software decoder by name. MediaCodec also needs `av_jni_set_java_vm`
-  from the activity before FFmpeg can reach it.
-- The monitor on Android composites on the CPU: Slint's android-activity
-  backend creates its own wgpu device and there is no way to hand it ours,
-  so the shared-texture path in `gpu.rs` is desktop and iOS only.
-- The iOS build is exercised only in CI, on a runner with Xcode.
-- Three build-script quirks are papered over in `scripts/mobile-env.sh`
-  rather than fixed upstream: whisper-rs-sys names `ggml-blas` whenever
-  the *host* is a Mac, Slint's Android backend reads the NDK API level as
-  the SDK platform, and cargo-apk does not pass bindgen the NDK sysroot.
-
-### 8.9 DTO shapes in the export path
-
-`ExportClip`, `ExportRequest` and `PreviewFrameRequest` are JSON-shaped
-DTOs. `concat-export` could take the engine's `Project` and settings
-directly and drop the flattening-through-a-DTO; the `serde` derives on the
-host's view types go with them.
-
-### 8.10 Panics in runtime paths
-
-Engine `.expect()`s exist in `decode.rs`, `encode.rs`, `pool.rs` and
-`time.rs` ("rational overflowed i64"). Most are genuine invariants
-("the graph has an input" right after building it); each is a crash-not-error
-if wrong. The host's `templates.rs` and `media.rs` counts are dominated by
-tests, which is fine.
-
-### 8.11 Housekeeping
-
-- **Zero TODO/FIXME/HACK comments** in the tree. Invariants live in prose
-  comments instead; keep it that way.
-- `cargo fmt --check` runs in CI; keep it clean.
+`treat.rs` is the decoder's filtergraph without the decoder: RGBA in,
+chain, RGBA out, for a layer clip that has no pixels of its own.
 
 ---
 
-## 9. Test coverage map
+## 7. Rendering: `concat-render`
 
-| Area | Tests | Gaps |
-|---|---|---|
-| Engine crates | 170 (core 31, media 39, project 41, render 28, effects 22, export 6, cli 3) | `mix_to_file`/`mux` untested end to end (§8.6); `gpu` feature untested at defaults |
-| Host | 22 | `Playback` (threads, cpal) has unit tests only for the WAV walk and the sweep; no test drives the decode workers |
-| Speech | 6 | Model downloads and whisper itself are network- and model-bound; test with `tiny.en` behind an opt-in feature |
-| Window | 3 | Formatting helpers only. Drive `Studio` against a `Session` from a headless harness and snapshot what it publishes |
+Rendering splits in two, and the split is the crate.
 
-The real-media tests generate their own fixtures with the linked encoder
-(a 90-frame colour ramp, a 60-frame strip) so they run anywhere the engine
-builds. There is no corpus of real-world files; portrait phone footage,
-variable frame rate, and odd containers are the cases most likely to bite.
+1. **`plan`** answers what is on screen at this instant, from where, at
+   what opacity, under what transform. It touches no pixels and does no IO,
+   so it is fast, exactly testable, and identical for both backends. The
+   fade ramp multiplies into the opacity here, so a compositor only ever
+   sees a per-frame opacity and has no idea fades exist.
+2. **`compositor`** takes the plan plus decoded pixels and blends them.
+
+**The CPU compositor is the reference.** Placement is in pixels, converted
+exactly once by whoever builds the layers. Aligned layers blend by region;
+transformed layers are inverse-mapped with bilinear sampling over the
+rotated bounding box, which is what makes the result hole-free at any
+scale or angle. The blend table is the fixed-function set the GPU offers,
+over premultiplied colour, so the two paths agree. Output is forced opaque.
+
+**The GPU compositor exists to be fast and must match it.** `gpu.rs`
+renders on wgpu into `Rgba8Unorm`, not sRGB, so blending happens on
+gamma-encoded values exactly as on the CPU; when the day comes to blend in
+linear light, both backends change together. Six pipelines, one per blend
+mode, since blend state is baked into a pipeline. Layer textures are pooled
+by size and retired after 300 idle composites. Effect shaders arrive as
+`ShaderPass` data (a key, WGSL source, packed params, intensity); each is
+compiled once per key and run as its own submission over ping-ponged
+textures. Two outputs: `composite` reads back through a staging buffer,
+and `composite_texture` leaves the result in a presentable ring for a
+window that shares the device, which is how the monitor shows a frame
+without a copy anywhere. Construction returns `None` without an adapter,
+and a compositor that fails marks itself dead and hands every later frame
+to the CPU.
+
+**Parity is tested.** `assert_matches_cpu` composites the same layers on
+both and asserts per-channel tolerance, at interior pixels for rotation
+and scale where the two rasterisers legitimately differ on the half-pixel
+border. The shader test compiles a real package through the catalogue's
+stitching, so what the test runs is what a package runs. Every GPU test
+passes silently on a machine with no adapter.
 
 ---
 
-## 10. Where to improve first (opinionated)
+## 8. Export: `concat-export`
 
-1. **Put a real project through every flow in the window** (§8.1) and fix
-   what breaks; then filmstrips on the lanes.
-2. **A tone-based mix test** (§8.6) before touching the audio path again.
-3. **A text rasteriser in the engine** (§8.2) - the one feature the Rust
-   tree cannot express today.
-4. **One poison policy** in `playback.rs` (§8.4) - mechanical, removes the
-   cascade failure mode.
-5. **Cap the redo stack** (§8.5) - a small patch, a real leak.
-6. **Green CI on all three platforms** (§8.7), then package the window and
-   restore automatic alpha releases.
-7. **Frame-for-frame compare an exported dissolve** against an `ffmpeg`
-   command-line render (§8.3).
+The seam where the document's flattened clip list becomes the engine's
+timeline, and the engine decides everything after.
+
+**Flatten.** `flatten_timeline` walks a document timeline into
+`ExportClip`s: track index and media resolved, track state folded into
+per-clip flags, filter chains built through the catalogue. Text clips are
+left out here and rejoin as still images once painted (section 9). Layer
+clips flatten to a pixel-less entry carrying their effects. Missing media
+is a skip, not an error.
+
+**Transitions resolve first.** `resolve_transitions` runs before anything
+reads the clip list, so the picture and sound paths never know transitions
+exist. Every track index is doubled so a cross-fade's incoming clip gets an
+odd lane directly above the pair; the incoming clip is extended backwards
+by the transition's duration, clamped to the outgoing duration, the
+incoming duration and the available source handle, and given a video fade
+in with the sound riding the picture. Fade-to-black and fade-to-white
+become frame-based fade filters appended after the clip's own effects.
+Adjacency tolerance is half a frame at the output rate. An unknown kind is
+a cut.
+
+**The frame loop.** One `Decoder` per paced clip, opened at its in-point at
+`fps / speed`, so pulling exactly one frame per output frame keeps each in
+step with the plan's source times without seeking. Unpaced clips (a speed
+curve, reverse) go through a `ReaderPool`; stills repeat. Decoders retire
+the frame their clip leaves the plan. `place_layer` is the one definition
+the exporter and the preview share of where a picture goes in the frame.
+Layer clips composite the stack beneath them, run their shader passes or
+their FFmpeg treatment, and mix the result back by strength, ramped by
+their fades. Progress reports every fifteen frames and at each stage, and a
+cancel flag is checked at every frame. On the GPU, effects with a shader
+are omitted from the FFmpeg chain and carried as passes instead.
+
+**Sound is one pass.** Speed curves are cut into between 8 and 400
+constant-rate pieces of about a tenth of a second, each at the curve's
+local mean, with the clip's fades projected onto each piece; the pieces,
+the paced clips and the unmuted video clips' own audio go to
+`audio::mix_to_file` as a single filtergraph. Inputs with no audio stream
+are filtered out by a probe first, because FFmpeg refuses a graph that
+names a stream that is not there. Picture and sound are written to scratch
+siblings beside the output and muxed at the end; the scratch is removed
+whatever the outcome.
+
+**The true frame.** `preview_frame` and `preview_sources` build the same
+timeline the export builds, quantise the requested instant onto the frame
+grid, and pull from the pool. `quantise` is the seam where a value stops
+being approximate. Two invariants are pinned: fade-to-colour transitions
+are not baked for the preview, because their frame numbers assume a decode
+from the clip's start that pooled seeks break, and the window draws a
+matching veil instead; and a plan with layers but nothing decoded is an
+error rather than a black frame, because a caller would draw that "truth"
+over its own perfectly good approximation. `PreviewSources` exposes bare
+layers so a GPU caller can composite on the window's device.
+`preview_prefetch` warms the pool one frame apart, which is exactly what
+keeps its readers rolling forward instead of seeking.
+
+---
+
+## 9. Titles: `concat-text` and `host::titles`
+
+A text clip is a style and some words; the compositor wants a picture.
+`concat-text` finds the face (the system's fonts plus the project's own
+files, falling back rather than failing), shapes each line with rustybuzz,
+turns outlines into paths, and paints plate, shadow, outline and fill with
+tiny-skia onto a canvas the size of the output frame, transparent
+everywhere the words are not. Frame-sized on purpose: the compositor fits a
+picture into the frame and applies the clip's transform about its centre,
+so a canvas that *is* the frame fits at exactly one, decodes without
+resampling, and puts the block's centre where the clip's centre is. A
+title's offset and rotation then mean the same as footage's. Every size in
+the style is a fraction of the frame's height, converted to pixels once at
+the top, so a title looks the same at 720p and 4K.
+
+`concat-host`'s `titles` module is the cache and the rejoin: each text
+clip becomes an image `ExportClip` with the text clip's timing, transform,
+keyframes and opacity, pointing at a PNG under the app's data directory
+plus a JSON sidecar holding the block size the PNG cannot express. The file
+is keyed by the style, the frame size, the project's fonts and a version
+constant, so moving a title is free and only a change to the words or the
+look repaints.
+
+---
+
+## 10. The host layer: `concat-host`
+
+What the window needs that is not the edit. Nothing here knows about a
+window; long work reports through callbacks and cancels through flags, and
+the caller decides which thread it runs on. If a function here starts
+deciding what an edit means, it belongs in `concat-project`.
+
+**A project is a folder.** It holds `concat.json` (written at creation, so
+a project is a real thing from the start), `cache/` (waveform peaks, the
+poster, decoded audio for playback), `audio/` (narration the timeline
+points at) and `assets/` (media a template brought). Saving writes a
+sibling and renames it, so a truncated write loses nothing. Recents are a
+machine-scoped list of twelve, filtered on read so an unplugged drive's
+projects come back when it does.
+
+**Session.** `Session` is a path, settings and an `Editor`. `apply`,
+`undo` and `redo` return an `EditorView` (the project, undo and redo
+availability, settings, the id a command created), so the window keeps no
+model of its own. A document that fails to parse is refused unless the
+manifest is settings-only, because silently replacing an edit with
+emptiness is how projects get lost. The session flattens itself through
+`concat-export`.
+
+**Media.** Import probes a file into a `MediaItem` that stores enough
+metadata to open meaningfully when the file is missing. Waveforms are 200
+buckets a second, cached beside the project under an FNV-1a key that is
+pinned by a test, because a changed hash would orphan every project's
+caches. Filmstrips are up to 60 slices blitted into one wide frame, one
+texture upload instead of many. The poster is regenerated only when the
+manifest is newer than it.
+
+**The monitor.** `Monitor` holds the app's one `ReaderPool` and, when the
+window created one, the shared wgpu compositor. With a GPU, the paused
+frame's layers go straight to `composite_texture` and no pixel comes back
+down, unless a layer clip is live at that instant, in which case the CPU
+composites and one frame is uploaded. Prefetch is capped at eight frames so
+a confused caller cannot park the pool on a long decode.
+
+**Playback.** Four rules, stated in the module and kept: decode each
+audible span once to disk PCM under a key of path, in-point, duration,
+speed, pitch mode and chain (deliberately not volume, fades or position);
+one cpal stream mixes the memory-mapped clips with gain applied at mix
+time from the one `gain_at`; the device's sample counter is the only clock;
+the stream is supervised, rebuilt on failure or a device change with
+backoff. Threads: the output supervisor, a 33 ms transport publisher, two
+decode workers popping the newest job first and skipping jobs the timeline
+no longer wants, and a cache sweep guarded so sweeps never pile up. The
+audio callback touches exactly one lock, and only with `try_lock`, because
+it must never block. Position is stored *and* messaged on play and seek,
+since a paused callback returns before storing.
+
+**Export, templates, jobs, directories.** `Exporter` adapts a progress
+closure into the engine's `Reporter` and runs under a `SingleFlight`,
+which refuses a second concurrent job and gives each run its own cancel
+flag, so a cancel can only stop the job that is running. Templates are
+bundles under the config directory (a document with placeholder media, the
+assets it needs, a poster); instantiating one refuses missing fills before
+creating anything and fills every slot in one `Batch`, so a half-fillable
+set of media leaves no half-made project. Deleting a template
+canonicalises and checks the path is inside the library. `AppDirs` is the
+platform's config and data directories under `app.concat.editor`.
+
+---
+
+## 11. Speech: `concat-speech`
+
+Transcription runs whisper.cpp in-process on a clip's audio decoded to
+16 kHz mono, greedy sampling, threads capped at eight, with the job's
+cancel flag wired to whisper's abort callback. Six models are known,
+nothing above `small`. Text to speech runs Kokoro through sherpa-onnx's C
+API, 36 voices, English and Chinese (what the lexicons cover), and writes a
+WAV into the project's `audio/` folder because a clip will point at it.
+Both download their models on demand into the app's data directory, via a
+blocking HTTP client whose read timeout is what makes the cancel flag
+reachable, unpacking through a staging folder that refuses paths escaping
+it, and renaming into place only when complete. Both are one-at-a-time
+through `SingleFlight`. The crate is separate from `concat-host` so its
+native libraries stay out of everything that does not speak.
+
+---
+
+## 12. The window: `concat`
+
+**One library, three entry points.** `concat::run()` is the program.
+`main.rs` calls it on the desktop and on iOS; `concat-android`'s
+`android_main` installs Slint's Android backend and calls it.
+`platform.rs` holds the three things a phone does differently: how the
+backend is chosen, how a file or folder is picked, and whether there is a
+title strip to drag. Everything else is one tree, one state, one set of
+callbacks.
+
+**Startup, in order.** The GPU device (`gpu.rs`) is acquired first, on
+Metal, DX12 or Vulkan, because Slint takes it at backend selection; with a
+device, the renderer and the engine's compositor draw on one device and a
+monitor frame is a texture Slint shows as it is. Then `Host::start` brings
+up playback, the monitor, the exporter, the transcriber and speech. Then
+the `App`, the `Studio`, and the `Shell`: the weak window, the studio in a
+`RefCell`, and the models, installed in a thread-local. Every Slint model is
+handed over exactly once, since a fresh model is a reset that rebuilds
+every row hanging off it. Then about 120 callbacks are bound through three
+macros, each "mutate, then republish": the whole window, the lanes alone
+(for the handlers a pointer drives as a stream), or the dock alone.
+
+**`studio.rs` is the state.** Its fields group by the line in section 1:
+the edit (`session`, the echo, dirty, autosave), the bin (rows with stable
+ids, thumbnails, peaks, filmstrips), the view (lane locks and sizes,
+selection, playhead, scroll, seconds per pixel, tool, snap, quality,
+transport), the sheets (export, settings, menus, toasts), the launch screen
+(recents, posters) and the workspace (the dock tree, gestures, stage
+guides, drop plans). `project()` returns the echo when there is one, else
+the session's project, else an empty one. `apply` sends a command to the
+session, turns a refusal into a toast, and on success marks dirty, prunes
+the selection, arms a 1.5 s autosave, resyncs audio (flattened clips into
+playback's `ClipSpec`s through the same `audio_pieces` the export uses),
+requests art and requests a preview.
+
+**The echo.** A press clones the project; the pointer mutates the clone;
+`publish` draws whichever exists; release diffs the two and emits exactly
+one `MoveClips` or `TrimClip`. The inspector's knobs write the echo and
+`clip_commit` diffs it into a batch; a commit with the same key within
+900 ms undoes the previous step first, so a dragged knob is one undo. Stage
+gestures composite the echo too, snapping against frame lines and other
+pictures. Undo therefore undoes the gesture, never a pixel of it.
+
+**`host.rs` is the bridge.** `Shell::with` reaches the state through the
+thread-local, which is why it needs no lock: nothing but the event-loop
+thread touches it. `spawn(work, then)` runs work on a thread and hops back
+through `slint::invoke_from_event_loop`, then publishes, so a completion
+never has to remember to redraw. Frames cross threads as `Frame`s, never as
+Slint images. The preview is single-flight: one composite at a time, the
+latest request wins, the echo is what gets composited when there is one,
+and quality scales the frame by 1, ½ or ¼.
+
+**The Slint tree.** `App` is a focus scope (shortcuts, and a click on
+nothing blurs a field), the title bar, the start screen or the workspace,
+then the export and settings dialogs, tooltips, the app menu and toasts;
+declaration order is paint order. `Workspace` reports its own box up and
+draws one `Seat` per leaf of the dock tree and one splitter per divider.
+A seat is one of four panes (media, preview, inspector, timeline) with a
+drop area that previews a split. The timeline pane is tabs, the tool tray,
+then headers beside `Lanes`, which draws the bands, the tick grid, one
+`Clip` per row (filmstrip tiles, a waveform path, fades, transition
+wedges), the drop ghost, the razor guide, the ruler and, last, the
+playhead. The preview pane holds the fitted stage with the selection
+outlines, corner grips and rotation handle, the frame field, transport
+and quality. Positions in the models are seconds, never pixels; drag
+deltas are taken in window coordinates because a local delta measures
+against its own moving origin; and the ghost is Rust's answer to the
+hover, not the panel's guess.
+
+Globals carry what threading would tangle: `Editor` holds every property
+and callback the four views use, because two seats showing the same view
+must agree; `Theme` is one `dark` switch over two palettes plus the type
+roles, the size scale, radii and the content swatches no palette may
+decide. `Paint` maps a clip kind to its mark and well, and the bin card
+and the timeline clip wear the same two colours, so they read as one
+object moved. `dock.rs` is the workspace tree, addressed by path rather
+than index, with a default of library beside preview-over-inspector,
+above the timeline. `chips.rs` draws drag chips as SVG so Slint rasterises
+them with the window's fonts at the window's scale. `prefs.rs` is a small
+JSON file of remembered choices. `sysinfo.rs` gathers one list of facts
+that feeds both the About rows and the copyable block, so a fact cannot be
+on the page and missing from the report. Fonts, the logo and the effect
+previews are embedded by `build.rs`.
+
+---
+
+## 13. Build and delivery
+
+- **Toolchain.** Pinned in `engine/rust-toolchain.toml`. `cargo build`
+  needs the FFmpeg 7+ development libraries, cmake and a C++ toolchain
+  (whisper.cpp), and libclang (bindgen); sherpa-onnx's prebuilt libraries
+  are fetched by its crate. Skia needs fontconfig and freetype on Linux.
+- **Profiles.** `dev` compiles dependencies at `opt-level = 2` because
+  decoding and compositing are unusable unoptimised. `quick` is release
+  without LTO, incremental, for trying a change. `app` is the shipping
+  binary: fat LTO, `panic = "abort"`, stripped. The workspace `Cargo.toml`
+  says what each knob costs and what is deliberately not set.
+- **Renderer.** Skia by default; `--no-default-features --features wgpu`
+  swaps in FemtoVG over wgpu. The two are meant to be compared. Type
+  weights differ by one step between them because FemtoVG composites glyph
+  coverage without gamma correction.
+- **Workflows.** `ci.yml` runs `fmt`, `clippy -D warnings` (which makes a
+  public item without documentation a failure) and the tests, plus the
+  web check of the five portable crates. `build-app.yml` builds the window
+  on six native runners (macOS arm64 and x86_64, Linux x86_64 and aarch64,
+  Windows x86_64 and arm64), bundles, signs and notarises on macOS, and is
+  called by `nightly.yml` on every green push and by `release.yml` on
+  every `v*` tag. `mobile.yml` cross-builds for Android and iOS.
+  `nix.yml` proves the flake, which builds the window with every native
+  dependency pinned on Linux.
+- **Phones.** FFmpeg is cross-built from source by
+  `engine/scripts/ffmpeg-mobile.sh` as static archives with the platform's
+  hardware codecs (MediaCodec, VideoToolbox) and nothing else linked;
+  sherpa-onnx is fetched as k2-fsa's shared library by
+  `scripts/sherpa-mobile.sh`; `scripts/mobile-env.sh` turns what those
+  leave under `engine/vendor/` into the build environment and papers over
+  three build-script quirks it documents in place. `concat-android` is
+  packaged by cargo-apk; `scripts/ios-app.sh` lays out the iOS bundle.
+- **Licensing.** The engine is AGPL-3.0-or-later with a plugin exception
+  (`LICENSE-EXCEPTIONS.md`); Slint is taken under its GPL-3.0-only option
+  (`THIRD_PARTY_NOTICES.md` says why the two combine).
+
+---
+
+## 14. Testing
+
+240 unit tests, all in-file `#[cfg(test)]` modules; there are no `tests/`
+directories. The pure layers are where the coverage is dense: rational
+arithmetic and the NTSC drift proof, arenas and stale handles, the retime
+maths, every command's serde round trip and the tolerant reader's cases,
+the expression language, manifest validation and every FFmpeg package's
+fixtures (a package without fixtures fails the build), the audio graph's
+shape, seek policy and LRU eviction, filter strings, all seven
+transition-resolution behaviours, CPU/GPU parity, the speech model
+bookkeeping, and the host's cache keys, WAV parsing, sweep ordering and
+template packing. Tests that touch FFmpeg encode a small file into the
+temporary directory first.
+
+The window has unit tests for its formatting helpers and stage geometry.
+The seams that a window drives end to end (publish, the dock tree, the
+echo and commit path, playback against a device) are exercised by using
+the app, which is the work in 15.1.
+
+---
+
+## 15. Next work
+
+Ordered by how much each matters. Each is either an invariant a
+contributor could break without knowing it, or a piece of work with a
+known shape.
+
+### 15.1 Put a real project through every flow in the window
+
+Import, place, trim, split, transitions, a title, an effect, a speed
+curve, transcription, narration, a template, an export, on each renderer
+and each platform. The engine's seams are tested; the window's are used.
+What that pass turns up goes above everything below.
+
+### 15.2 A phone layout
+
+The window builds and packages for Android and iOS, and what runs there is
+the desktop's tree on a phone's screen. A phone wants one seat at a time,
+touch-sized targets and the timeline under the monitor; the `.slint` tree
+can carry a second arrangement chosen by the window's size. With it: the
+system document picker, since `platform.rs` returns nothing for a pick on
+a phone and `concat-media` opens by path; MediaCodec and VideoToolbox
+asked for by name (they are linked, and the software decoder is what is
+opened); and the monitor on Android, which composites on the CPU because
+Slint's Android backend creates its own device.
+
+### 15.3 The intensity key and a package that declares it
+
+A filter's intensity is an undeclared key the catalogue reads as a
+percentage. `concat.vibrance` is a filter that declares a parameter with
+that name, ranged 0.1..2, so one value feeds the chain and also blends the
+result back at that many percent. Reserve the key in manifest validation
+as `index` is reserved, and rename the package's parameter.
+
+### 15.4 The GPU compositor's dead path
+
+`read_back` is typed to return `None` so a failed readback marks the
+compositor dead and every later frame goes to the CPU. No branch returns
+`None`: a failed map would panic inside the mapped range instead. Make the
+map's result the branch, so the documented fallback is reachable.
+
+### 15.5 Lock discipline in `playback.rs`
+
+Every lock outside the audio callback unwraps. A panic in a decode worker
+poisons the cache, and the next resync from any thread panics with it,
+which ends audio for the session. `titles.rs` takes the other convention
+(recover the inner value). Pick one for the crate; the recovering one is
+right for caches. In the same file: the message channel to the callback is
+unbounded and drained only by the callback, so a machine with no output
+device accumulates every set-clips message and the PCM it pins; and the
+four thread spawns `expect`.
+
+### 15.6 Cache keys that survive a toolchain
+
+`media.rs` and `playback.rs` name cache files by FNV-1a because the
+standard hasher is free to change between Rust releases, and a test pins
+the constant. `titles.rs` names its PNGs with the standard hasher. A
+toolchain bump orphans every painted title, which is self-healing but
+unbounded: the titles directory, the titles memo and a project's peaks
+have no sweep, while playback's audio cache has both a memory cap and a
+disk budget.
+
+### 15.7 Two paths that build different chains
+
+On the GPU, effects with a shader leave the FFmpeg chain and travel as
+passes; on the CPU they stay in the chain. A machine with an adapter and
+one without therefore build different filtergraphs for the same clip, and
+the CPU compositor ignores passes by design. Correct today because every
+shader-backed package also carries a chain; a WGSL-only package would
+render on one machine and not the other. Either require the chain for
+`effect` kinds in validation, or teach the CPU path to refuse the package
+loudly.
+
+### 15.8 Small things the code already knows about
+
+- `MoveTimeline`'s documented index is counted with the timeline removed;
+  the clamp is against the unremoved length.
+- `doc.rs` normalises `muted: false` to absent, so an explicit false does
+  not round-trip byte for byte.
+- `Editor::apply` clones the project before every command, including ones
+  that fail or change nothing.
+- `Transcriber::download_model` returns early for a present file without
+  a final progress report, so a caller waiting on `done` waits.
+- FFmpeg-touching tests write fixed file names into the temporary
+  directory; two concurrent runs can collide.
+- The cross-fade adjacency scan is quadratic and takes the first match.
+- `Kind::Transition` and `Kind::Generator` are validated and unused; the
+  motion transitions in the inspector are present and disabled.
+- The programme level meter has no feed; playback's mix does not report
+  levels.
+- `ConfigPane` carries a demo-era property group and `ui/demo/` is still
+  imported for one type.
+- No clip culling beyond the visible flag; a windowing scheme is worth
+  writing the day a timeline needs one.
+
+---
+
+## 16. How to change things
+
+- **A new operation on the edit.** Add a `Command` variant in
+  `concat-project/src/commands.rs`, make its `apply` report `applied`
+  honestly, add it to the serde round-trip test's list, then bind a
+  callback in `concat/src/lib.rs` that builds it from the window's state.
+- **A new effect.** Add a folder under `concat-effects/packages/` with
+  `effect.toml` and `fixtures.toml` (and `effect.wgsl` if it has a
+  shader). The build fails until the fixtures cover default, minimum and
+  maximum. Nothing in Rust changes.
+- **A new pane.** A `PaneKind`, its entry in the `Panes` global, a branch
+  in `Seat`, and the `Editor` properties and callbacks it needs.
+- **A new decode or encode backend.** Implement `FrameSource` or
+  `FrameSink` in `concat-media`. Nothing else in the workspace changes.
+- **A new platform.** `platform.rs` for the window's three seams,
+  `concat-media/build.rs` for what FFmpeg needs linked, and a job in the
+  workflow that builds it.
+
+Reading order for a cold start: this file; then `concat-core/src/lib.rs`,
+`concat-project/src/lib.rs` and `concat-export/src/lib.rs`, which between
+them hold the vocabulary, the document and the render loop; then
+`concat/src/studio.rs` for the window's side of the line; then
+`cargo doc --open` for the rest.
