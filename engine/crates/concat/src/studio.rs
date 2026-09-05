@@ -217,9 +217,7 @@ impl Default for ExportState {
         Self {
             open: false,
             name: "Untitled".into(),
-            folder: std::env::var("HOME")
-                .map(|home| format!("{home}/Movies"))
-                .unwrap_or_default(),
+            folder: home_folder("Movies"),
             resolution: 2,
             rate: 1,
             quality: 1,
@@ -230,6 +228,14 @@ impl Default for ExportState {
             written: String::new(),
         }
     }
+}
+
+/// `name` under the home directory, as a path string; empty when there is
+/// no home to speak of, and the form then asks for a folder outright.
+fn home_folder(name: &str) -> String {
+    std::env::var("HOME")
+        .map(|home| format!("{home}/{name}"))
+        .unwrap_or_default()
 }
 
 /// The settings sheet's state.
@@ -279,9 +285,13 @@ impl Default for StartState {
     fn default() -> Self {
         Self {
             name: "Untitled project".into(),
-            location: std::env::var("HOME")
-                .map(|home| format!("{home}/Desktop/Concat"))
-                .unwrap_or_default(),
+            // A phone has no desk: its projects live at the top of the
+            // folder the file manager shows for the app.
+            location: home_folder(if cfg!(target_os = "android") {
+                "Concat"
+            } else {
+                "Desktop/Concat"
+            }),
             resolution: 0,
             rate: 3,
             busy: false,

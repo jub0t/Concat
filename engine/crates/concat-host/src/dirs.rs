@@ -45,15 +45,22 @@ impl AppDirs {
                 data: dir,
             })
         } else {
-            let home = home()?;
-            let config_base = std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .unwrap_or_else(|| home.join(".config"));
-            let data_base = std::env::var_os("XDG_DATA_HOME")
-                .map(PathBuf::from)
-                .filter(|path| path.is_absolute())
-                .unwrap_or_else(|| home.join(".local").join("share"));
+            // Linux follows the XDG split. Android arrives here too: the
+            // activity names both bases before the window starts, since an
+            // app process there has no home directory to derive them from.
+            let base = |variable: &str| {
+                std::env::var_os(variable)
+                    .map(PathBuf::from)
+                    .filter(|path| path.is_absolute())
+            };
+            let config_base = match base("XDG_CONFIG_HOME") {
+                Some(path) => path,
+                None => home()?.join(".config"),
+            };
+            let data_base = match base("XDG_DATA_HOME") {
+                Some(path) => path,
+                None => home()?.join(".local").join("share"),
+            };
             Ok(AppDirs {
                 config: config_base.join(IDENTIFIER),
                 data: data_base.join(IDENTIFIER),

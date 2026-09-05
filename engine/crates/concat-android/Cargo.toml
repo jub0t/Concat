@@ -21,6 +21,11 @@ slint = { version = "1.17", default-features = false, features = [
     "backend-android-activity-06",
     "compat-1-2",
 ] }
+# Words to logcat: the log facade, the logger that writes it there, and
+# libc for the pipe that carries stderr across.
+log = "0.4"
+android_logger = "0.15"
+libc = "0.2"
 
 # `cargo apk build -p concat-android` packages the shared object, the
 # sherpa-onnx runtime libraries and the manifest below into an APK. The
@@ -30,6 +35,9 @@ package = "app.concat.editor"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
+# The launcher icon, at every density Android asks for; made from the
+# repository's logo by scripts/generate-icons.sh.
+resources = "res"
 
 [package.metadata.android.sdk]
 # Android 8.0: AAudio, the audio path the engine plays through.
@@ -42,6 +50,7 @@ name = "android.permission.INTERNET"
 
 [package.metadata.android.application]
 label = "Concat"
+icon = "@mipmap/ic_launcher"
 # The editor keeps its own state across a rotation; the activity is not
 # recreated for one.
 [package.metadata.android.application.activity]
