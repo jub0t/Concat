@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogSection, Modal, Progress } from "../primitives/modal.slint";
@@ -152,7 +153,7 @@ component ModelRow inherits Rectangle {
                         badge := Text {
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
-                            text: "In use";
+                            text: I18n.t("In use");
                             color: Theme.on-accent;
                             font-size: Theme.fs-xs;
                             font-weight: Theme.weight-display;
@@ -187,21 +188,21 @@ component ModelRow inherits Rectangle {
                 alignment: center;
 
                 if root.model.downloading: Button {
-                    label: "Cancel";
+                    label: I18n.t("Cancel");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
                 }
 
                 if !root.model.downloading && root.model.installed: Button {
-                    label: "Remove";
+                    label: I18n.t("Remove");
                     glyph: Glyph.trash;
                     danger: true;
                     clicked => { root.remove(); }
                 }
 
                 if !root.model.downloading && !root.model.installed: Button {
-                    label: "Download";
+                    label: I18n.t("Download");
                     glyph: Glyph.import;
                     clicked => { root.download(); }
                 }
@@ -377,7 +378,7 @@ export component SettingsDialog inherits Modal {
     callback model-remove(id: string);
 
     open: root.data.open;
-    title: "Settings";
+    title: I18n.t("Settings");
     glyph: Glyph.settings;
     surface-width: 640px;
     // Fixed rather than fitted: the pages are different lengths and a sheet
@@ -429,31 +430,31 @@ export component SettingsDialog inherits Modal {
                 alignment: start;
 
                 PageTab {
-                    label: "General";
+                    label: I18n.t("General");
                     glyph: Glyph.settings;
                     current: root.data.tab == 0;
                     clicked => { root.page-changed(0); }
                 }
                 PageTab {
-                    label: "Appearance";
+                    label: I18n.t("Appearance");
                     glyph: Glyph.sun;
                     current: root.data.tab == 1;
                     clicked => { root.page-changed(1); }
                 }
                 PageTab {
-                    label: "Transcriber";
+                    label: I18n.t("Transcriber");
                     glyph: Glyph.waveform;
                     current: root.data.tab == 2;
                     clicked => { root.page-changed(2); }
                 }
                 PageTab {
-                    label: "Speech";
+                    label: I18n.t("Speech");
                     glyph: Glyph.music;
                     current: root.data.tab == 3;
                     clicked => { root.page-changed(3); }
                 }
                 PageTab {
-                    label: "About";
+                    label: I18n.t("About");
                     glyph: Glyph.sparkle;
                     current: root.data.tab == 4;
                     clicked => { root.page-changed(4); }
@@ -467,7 +468,7 @@ export component SettingsDialog inherits Modal {
 
             if root.data.tab == 0: DialogSection {
                 first: true;
-                title: "Language";
+                title: I18n.t("Language");
 
                 // Native names: whoever is stranded in a language they cannot
                 // read must still recognise their own in this list.
@@ -486,10 +487,10 @@ export component SettingsDialog inherits Modal {
             // stays the one place a remembered preference will be written.
             if root.data.tab == 1: DialogSection {
                 first: true;
-                title: "Theme";
+                title: I18n.t("Theme");
 
                 SegmentedControl {
-                    options: ["Dark", "Light"];
+                    options: [I18n.t("Dark"), I18n.t("Light")];
                     current: Theme.dark ? 0 : 1;
                     changed(index) => { root.theme-changed(index == 0); }
                 }
@@ -498,17 +499,17 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 2: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: "Language";
+                    title: I18n.t("Language");
 
                     SegmentedControl {
-                        options: ["Auto", "English", "Chinese"];
+                        options: [I18n.t("Auto"), I18n.t("English"), I18n.t("Chinese")];
                         current: root.data.transcribe-language;
                         changed(index) => { root.transcribe-language-changed(index); }
                     }
                 }
 
                 DialogSection {
-                    title: "Models";
+                    title: I18n.t("Models");
 
                     for model in root.transcribers: ModelRow {
                         model: model;
@@ -537,7 +538,7 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: "Runs locally";
+                            text: I18n.t("Runs locally");
                             color: Theme.green;
                             font-size: Theme.fs-sm;
                             vertical-alignment: center;
@@ -548,7 +549,7 @@ export component SettingsDialog inherits Modal {
 
             if root.data.tab == 3: DialogSection {
                 first: true;
-                title: "Voices";
+                title: I18n.t("Voices");
 
                 for model in root.voices: ModelRow {
                     model: model;
@@ -562,10 +563,10 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 4: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: "About";
+                    title: I18n.t("About");
 
                     Text {
-                        text: "Concat " + root.data.version;
+                        text: I18n.t1("Concat {0}", "\{root.data.version}");
                         color: Theme.fg;
                         font-size: Theme.fs-lg;
                         font-weight: Theme.weight-title;
@@ -579,9 +580,7 @@ export component SettingsDialog inherits Modal {
                     }
 
                     Text {
-                        text: "Everything on this machine. Transcription and speech "
-                            + "run against models you download here, and nothing "
-                            + "about a project leaves the device.";
+                        text: I18n.t("Everything on this machine. Transcription and speech run against models you download here, and nothing about a project leaves the device.");
                         color: Theme.fg-muted;
                         font-size: Theme.fs;
                         wrap: word-wrap;
@@ -596,14 +595,14 @@ export component SettingsDialog inherits Modal {
                 // block in one press, and the rows still selectable a line at
                 // a time for when only one of them is the answer.
                 DialogSection {
-                    title: "System information";
+                    title: I18n.t("System information");
 
                     HorizontalLayout {
                         alignment: end;
 
                         IconButton {
                             glyph: Glyph.copy;
-                            label: "Copy system information";
+                            label: I18n.t("Copy system information");
                             icon-size: 13px;
                             // Cleared again straight away: the selection is
                             // the mechanism, not something the reader asked

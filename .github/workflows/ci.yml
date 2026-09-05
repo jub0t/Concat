@@ -51,6 +51,10 @@ jobs:
 
       - run: cargo fmt --check
         working-directory: engine
+      # Every string the interface shows is a key in a locale file; this
+      # keeps en.json the inventory of them and every shipped language
+      # keyed off it. See TRANSLATING.md.
+      - run: python3 scripts/locales.py --check
       # -D warnings covers rustc lints too (missing_docs among them), so a
       # public item without documentation fails here, not in review. Lints
       # before tests: they finish in a fraction of the time and catch the

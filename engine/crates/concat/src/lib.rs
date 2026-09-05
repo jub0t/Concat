@@ -36,6 +36,7 @@ mod dock;
 mod format;
 mod gpu;
 mod host;
+mod i18n;
 mod platform;
 mod prefs;
 mod presets;
@@ -44,7 +45,7 @@ mod sysinfo;
 
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell};
-use studio::{LANGUAGES, Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
+use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
 /// Builds the window, binds it to the engine, and runs it until it closes.
@@ -147,11 +148,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
             .collect::<Vec<_>>(),
     ))));
     app.set_languages(ModelRc::from(Rc::new(VecModel::from(
-        LANGUAGES
+        shell
+            .studio
+            .borrow()
+            .languages
             .iter()
-            .map(|label| SharedString::from(*label))
+            .map(|language| SharedString::from(language.name.as_str()))
             .collect::<Vec<_>>(),
     ))));
+
+    // The interface's words. Every `I18n.t` in the tree asks here, with the
+    // English as the key; the answer is the active locale's line, or the
+    // key. See i18n.rs.
+    {
+        let words = app.global::<I18n>();
+        words.on_lookup(|_, key| i18n::t(&key).into());
+        words.on_lookup1(|_, key, a| i18n::tf(&key, &[&a]).into());
+        words.on_lookup2(|_, key, a, b| i18n::tf(&key, &[&a, &b]).into());
+        words.set_lang(i18n::current().into());
+    }
 
     // The strip's drag region and double-click. Only the platform's window
     // can do either; the scene graph forwards the gestures here.
@@ -218,9 +233,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.start.error.clear();
     }));
     app.on_start_browse(on_window!(|state| {
-        if let Some(folder) =
-            platform::pick_folder("Where should the project folder go?", &state.start.location)
-        {
+        if let Some(folder) = platform::pick_folder(
+            &i18n::t("Where should the project folder go?"),
+            &state.start.location,
+        ) {
             state.start.location = folder.to_string_lossy().into_owned();
         }
     }));
@@ -358,9 +374,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             return;
         }
         let picked = platform::pick_files(
-            "Import media",
+            &i18n::t("Import media"),
             Some((
-                "Media",
+                i18n::t("Media").as_str(),
                 &[
                     "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a", "flac",
                     "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
@@ -398,7 +414,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the inspector's effect stacks ──
     editor.on_add_effect(on_window!(|state, _audio: bool| {
-        state.notify("Pick an effect or filter from the library", false);
+        state.notify(&i18n::t("Pick an effect or filter from the library"), false);
     }));
     editor.on_remove_effect(on_window!(|state, id: i32| {
         state.remove_effect(id);
@@ -798,7 +814,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.export.progress = 0.0;
     }));
     app.on_export_browse(on_window!(|state| {
-        if let Some(folder) = platform::pick_folder("Export to", &state.export.folder) {
+        if let Some(folder) = platform::pick_folder(&i18n::t("Export to"), &state.export.folder) {
             state.export.folder = folder.to_string_lossy().into_owned();
         }
     }));
@@ -806,7 +822,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         if !state.export.written.is_empty()
             && let Err(error) = platform::reveal(&state.export.written)
         {
-            state.notify(&format!("Could not show the file: {error}"), true);
+            state.notify(&i18n::tf("Could not show the file: {0}", &[&error]), true);
         }
     }));
     app.on_export_cancel(on_window!(|state| {
@@ -821,8 +837,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.settings.tab = index;
     }));
     app.on_settings_language_changed(on_window!(|state, index: i32| {
-        state.settings.language = index.max(0) as usize;
-        state.prefs.language = Some(state.settings.language);
+        let index = index.max(0) as usize;
+        if let Some(language) = state.languages.get(index).cloned() {
+            state.settings.language = index;
+            state.prefs.locale = Some(language.code.clone());
+            // The words change on the publish that follows: Rust's on
+            // their way through `t`, the tree's through `I18n.lang`.
+            i18n::select(&language.code, &state.host.dirs);
+        }
         state.prefs.save(&state.host.dirs);
     }));
     app.on_settings_transcribe_language_changed(on_window!(|state, index: i32| {
@@ -921,7 +943,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     match action.as_str() {
                         "add-selected" => state.add_selected_media(),
                         "import" => {
-                            if let Some(paths) = platform::pick_files("Import media", None) {
+                            if let Some(paths) =
+                                platform::pick_files(&i18n::t("Import media"), None)
+                            {
                                 state.import(paths);
                             }
                         }

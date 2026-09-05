@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -651,15 +652,14 @@ export component PreviewPane inherits Rectangle {
 
     Pane {
         PaneHeader {
-            title: "Preview";
+            title: I18n.t("Preview");
 
             // The output, stated rather than implied. Tabular-ish and dim: it
             // is a fact about the project, not a control.
             VerticalLayout {
                 alignment: center;
                 Text {
-                    text: "\{root.output-width} × \{root.output-height} · "
-                        + "\{Math.round(root.frame-rate)} fps";
+                    text: "\{root.output-width} × \{root.output-height} · \{Math.round(root.frame-rate)} fps";
                     color: Theme.fg-dim;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs;
@@ -730,7 +730,7 @@ export component PreviewPane inherits Rectangle {
                     }
 
                     Text {
-                        text: "Nothing under the playhead";
+                        text: I18n.t("Nothing under the playhead");
                         color: Theme.fg-dim;
                         font-size: Theme.fs;
                         horizontal-alignment: center;
@@ -834,13 +834,13 @@ export component PreviewPane inherits Rectangle {
 
                     IconButton {
                         glyph: Glyph.skip-back;
-                        label: "Go to start";
+                        label: I18n.t("Go to start");
                         enabled: !root.at-start;
                         clicked => { root.seek(0); }
                     }
                     IconButton {
                         glyph: Glyph.step-back;
-                        label: "Previous frame";
+                        label: I18n.t("Previous frame");
                         enabled: !root.at-start;
                         clicked => { root.step(-1); }
                     }
@@ -849,7 +849,7 @@ export component PreviewPane inherits Rectangle {
                     // the one control that carries a colour.
                     IconButton {
                         glyph: root.playing ? Glyph.pause : Glyph.play;
-                        label: root.playing ? "Pause" : "Play";
+                        label: root.playing ? I18n.t("Pause") : I18n.t("Play");
                         icon-size: 16px;
                         accent: true;
                         clicked => { root.play-toggled(); }
@@ -857,13 +857,13 @@ export component PreviewPane inherits Rectangle {
 
                     IconButton {
                         glyph: Glyph.step-forward;
-                        label: "Next frame";
+                        label: I18n.t("Next frame");
                         enabled: !root.at-end;
                         clicked => { root.step(1); }
                     }
                     IconButton {
                         glyph: Glyph.skip-forward;
-                        label: "Go to end";
+                        label: I18n.t("Go to end");
                         enabled: !root.at-end;
                         clicked => { root.seek(root.duration); }
                     }
@@ -894,7 +894,7 @@ export component PreviewPane inherits Rectangle {
                         Select {
                             width: 104px;
                             current: root.quality-index;
-                            options: ["Full", "Half", "Quarter"];
+                            options: [I18n.t("Full"), I18n.t("Half"), I18n.t("Quarter")];
                             details: ["1:1", "1:2", "1:4"];
                             changed(index) => { root.quality-changed(index); }
                         }

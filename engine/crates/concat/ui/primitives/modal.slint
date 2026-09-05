@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 
@@ -268,7 +269,7 @@ export component CopyChip inherits Rectangle {
     Text {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        text: root.done ? "Copied" : "Copy";
+        text: root.done ? I18n.t("Copied") : I18n.t("Copy");
         color: root.done ? Theme.green : Theme.fg-muted;
         font-size: Theme.fs-xs;
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
@@ -52,7 +53,7 @@ export component SpeechDialog inherits Modal {
     callback cancel();
 
     open: root.data.open;
-    title: "Text to speech";
+    title: I18n.t("Text to speech");
     glyph: Glyph.volume;
     surface-width: 520px;
     dismissable: !root.data.running;
@@ -86,7 +87,7 @@ export component SpeechDialog inherits Modal {
     VerticalLayout {
         if !root.running: DialogSection {
             first: true;
-            title: "Script";
+            title: I18n.t("Script");
 
             Rectangle {
                 height: 104px;
@@ -115,7 +116,7 @@ export component SpeechDialog inherits Modal {
                 if root.draft == "" && !script.has-focus: Text {
                     x: 10px;
                     y: 8px;
-                    text: "Type the narration to read aloud…";
+                    text: I18n.t("Type the narration to read aloud…");
                     color: Theme.fg-dim;
                     font-size: Theme.fs-lg;
                 }
@@ -130,10 +131,10 @@ export component SpeechDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: "Voice";
+            title: I18n.t("Voice");
 
             DialogRow {
-                label: "Voice";
+                label: I18n.t("Voice");
                 Select {
                     options: root.voices;
                     details: root.voice-details;
@@ -143,27 +144,27 @@ export component SpeechDialog inherits Modal {
             }
 
             DialogRow {
-                label: "Model";
+                label: I18n.t("Model");
                 Select {
                     options: root.models;
                     current: root.data.model;
-                    placeholder: "None installed";
+                    placeholder: I18n.t("None installed");
                     enabled: root.models.length > 0;
                     changed(index) => { root.model-changed(index); }
                 }
             }
 
             DialogRow {
-                label: "Pace";
+                label: I18n.t("Pace");
                 SegmentedControl {
-                    options: ["Slower", "Natural", "Faster"];
+                    options: [I18n.t("Slower"), I18n.t("Natural"), I18n.t("Faster")];
                     current: root.data.pace;
                     changed(index) => { root.pace-changed(index); }
                 }
             }
 
             if !root.data.ready: Text {
-                text: "Download a voice model in Settings › Speech first.";
+                text: I18n.t("Download a voice model in Settings › Speech first.");
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -212,7 +213,7 @@ export component SpeechDialog inherits Modal {
 
                 Text {
                     horizontal-stretch: 1;
-                    text: "Generating voice";
+                    text: I18n.t("Generating voice");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     vertical-alignment: center;
@@ -242,7 +243,7 @@ export component SpeechDialog inherits Modal {
             if root.running: HorizontalLayout {
                 alignment: start;
                 Button {
-                    label: "Cancel";
+                    label: I18n.t("Cancel");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
@@ -254,7 +255,7 @@ export component SpeechDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.volume;
-                label: "Generate speech";
+                label: I18n.t("Generate speech");
                 enabled: root.data.ready && root.data.text != "";
                 clicked => { root.begin(); }
             }

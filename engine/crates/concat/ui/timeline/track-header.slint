@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
@@ -36,7 +37,7 @@ component SizeMenu inherits Rectangle {
     width: 26px;
     min-height: 26px;
 
-    property <[string]> labels: ["Auto", "Small", "Medium", "Large"];
+    property <[string]> labels: [I18n.t("Auto"), I18n.t("Small"), I18n.t("Medium"), I18n.t("Large")];
     property <length> row-h: 24px;
     /// The two directions between a TrackSize and its row. Slint has no map,
     /// and four values do not earn one.
@@ -55,7 +56,7 @@ component SizeMenu inherits Rectangle {
 
     IconButton {
         glyph: Glyph.rows;
-        label: "Row height for " + root.name;
+        label: I18n.t1("Row height for {0}", "\{root.name}");
         icon-size: 12px;
         // Lit only when the lane has been sized by hand: auto is the resting
         // state, and a button lit on every row would say nothing.
@@ -232,7 +233,7 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: Glyph.close;
-                    label: "Remove " + root.track.name;
+                    label: I18n.t1("Remove {0}", "\{root.track.name}");
                     icon-size: 11px;
                     danger: true;
                     clicked => { root.removed(); }
@@ -252,8 +253,8 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
-                    label: root.track.locked ? "Unlock " + root.track.name
-                        : "Lock " + root.track.name;
+                    label: root.track.locked ? I18n.t1("Unlock {0}", "\{root.track.name}")
+                        : I18n.t1("Lock {0}", "\{root.track.name}");
                     icon-size: 12px;
                     checked: root.track.locked;
                     clicked => {
@@ -270,8 +271,8 @@ component Header inherits Rectangle {
                     // something is being withheld, which is the state worth
                     // announcing.
                     glyph: root.track.visible ? Glyph.eye : Glyph.eye-off;
-                    label: root.track.visible ? "Hide " + root.track.name
-                        : "Show " + root.track.name;
+                    label: root.track.visible ? I18n.t1("Hide {0}", "\{root.track.name}")
+                        : I18n.t1("Show {0}", "\{root.track.name}");
                     icon-size: 12px;
                     checked: !root.track.visible;
                     clicked => {
@@ -285,8 +286,8 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
-                    label: root.track.muted ? "Unmute " + root.track.name
-                        : "Mute " + root.track.name;
+                    label: root.track.muted ? I18n.t1("Unmute {0}", "\{root.track.name}")
+                        : I18n.t1("Mute {0}", "\{root.track.name}");
                     icon-size: 12px;
                     checked: root.track.muted;
                     clicked => {

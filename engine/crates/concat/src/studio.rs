@@ -44,6 +44,7 @@ use crate::format::{
     bytes, colour_of, eta, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase,
 };
 use crate::host::{Host, MediaArt, image_at, image_of, media_art, on_ui, spawn};
+use crate::i18n::{self, t, tf};
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
@@ -123,10 +124,6 @@ pub const START_RATES: [(&str, i64, i64); 5] = [
     ("30", 30, 1),
     ("60", 60, 1),
 ];
-
-/// The interface's languages, as Settings > General lists them. One, until
-/// the `.slint` tree's strings are wrapped for translation.
-pub const LANGUAGES: [&str; 1] = ["English"];
 
 /// The transcriber's languages: the rows of the Auto / English / Chinese
 /// control in Settings > Transcriber, and the whisper code each means.
@@ -685,6 +682,9 @@ pub struct Studio {
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
 
+    /// The languages Settings › General offers, in its order; see `i18n`.
+    pub languages: Vec<i18n::Language>,
+
     // ── cutouts ──
     /// The brush a custom cutout paints with: a row of `BRUSHES`.
     pub brush: usize,
@@ -753,6 +753,8 @@ fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
         } else {
             meta.category.clone()
         };
+        // Shelf and package names come from the manifests in English and
+        // are looked up like any other string, so a locale can carry them.
         let group = match groups.iter().position(|held| *held == category) {
             Some(index) => index,
             None => {
@@ -762,14 +764,17 @@ fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
         };
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
-            name: meta.name.as_str().into(),
-            category: category.as_str().into(),
+            name: t(&meta.name).into(),
+            category: t(&category).into(),
             group: group as i32,
-            description: meta.description.as_str().into(),
+            description: t(&meta.description).into(),
         });
     }
     (
-        groups.into_iter().map(SharedString::from).collect(),
+        groups
+            .into_iter()
+            .map(|group| SharedString::from(t(&group)))
+            .collect(),
         entries,
     )
 }
@@ -891,7 +896,7 @@ fn adjust_rows(chain: &[AppliedFilter]) -> Vec<AppliedParamData> {
         .map(|param| AppliedParamData {
             entry: -1,
             key: param.key.as_str().into(),
-            label: param.label.as_str().into(),
+            label: t(&param.label).into(),
             min: param.min as f32,
             max: param.max as f32,
             step: if param.step > 0.0 {
@@ -941,7 +946,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             knobs.push(AppliedParamData {
                 entry: index as i32,
                 key: concat_effects::catalogue::INTENSITY.into(),
-                label: "Intensity".into(),
+                label: t("Intensity").into(),
                 min: 0.0,
                 max: 100.0,
                 step: 1.0,
@@ -963,7 +968,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             knobs.push(AppliedParamData {
                 entry: index as i32,
                 key: param.key.as_str().into(),
-                label: param.label.as_str().into(),
+                label: t(&param.label).into(),
                 min: param.min as f32,
                 max: param.max as f32,
                 step: step as f32,
@@ -998,6 +1003,10 @@ impl Studio {
     /// read off disk.
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
+        // The words first, so everything published from here on is in
+        // the remembered language.
+        i18n::select(prefs.locale.as_deref().unwrap_or(i18n::ENGLISH), &host.dirs);
+        let languages = i18n::languages(&host.dirs);
         let recents = projects::list(&host.dirs.config);
         let text_presets = presets::all(&host.dirs);
         let mut studio = Self {
@@ -1061,13 +1070,18 @@ impl Studio {
             speech: SpeechSheet::default(),
             speakers: Vec::new(),
             text_presets,
+            languages,
             brush: 0,
             brush_size: 0.06,
             painting: true,
             cutout_jobs: HashMap::new(),
             host,
         };
-        studio.settings.language = studio.prefs.language.unwrap_or(0);
+        studio.settings.language = studio
+            .languages
+            .iter()
+            .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
+            .unwrap_or(0);
         studio.settings.transcribe_language = studio.prefs.transcribe_language.unwrap_or(0);
         studio.refresh_models();
         studio
@@ -1318,11 +1332,11 @@ impl Studio {
         spawn(
             move || projects::save(&path, &document),
             move |studio, _, _, result| match result {
-                Ok(()) if announce => studio.notify("Project saved", false),
+                Ok(()) if announce => studio.notify(&t("Project saved"), false),
                 Ok(()) => {}
                 Err(error) => {
                     studio.dirty = true;
-                    studio.notify(&format!("Could not save: {error}"), true);
+                    studio.notify(&tf("Could not save: {0}", &[&error]), true);
                 }
             },
         );
@@ -1447,7 +1461,7 @@ impl Studio {
                         eprintln!("concat: preview: {error}");
                         if !studio.preview_failed {
                             studio.preview_failed = true;
-                            studio.notify(&format!("Preview failed: {error}"), true);
+                            studio.notify(&tf("Preview failed: {0}", &[&error]), true);
                         }
                     }
                 }
@@ -1646,7 +1660,11 @@ impl Studio {
                     studio.notify(&crate::host::probe_error(error), true);
                 } else if added > 0 {
                     studio.notify(
-                        &format!("Imported {added} file{}", if added == 1 { "" } else { "s" }),
+                        &if added == 1 {
+                            t("Imported 1 file")
+                        } else {
+                            tf("Imported {0} files", &[&added])
+                        },
                         false,
                     );
                 }
@@ -1951,14 +1969,17 @@ impl Studio {
     /// A catalogue filter or effect, applied to the selected clip's chain.
     pub fn apply_catalogue(&mut self, id: &str, video: bool) {
         let Some(clip_id) = self.sole_selection() else {
-            self.notify("Select a clip on the timeline first", true);
+            self.notify(&t("Select a clip on the timeline first"), true);
             return;
         };
         let Some(clip) = self.clip(&clip_id).cloned() else {
             return;
         };
         if video && !clip.kind.is_visual() {
-            self.notify("Select a video or image clip on the timeline first", true);
+            self.notify(
+                &t("Select a video or image clip on the timeline first"),
+                true,
+            );
             return;
         }
         if !video && clip.kind == model::ClipKind::Image {
@@ -2008,14 +2029,17 @@ impl Studio {
 
     pub fn apply_transition(&mut self, id: &str) {
         let Some(clip_id) = self.sole_selection() else {
-            self.notify("Select the clip the transition leads into", true);
+            self.notify(&t("Select the clip the transition leads into"), true);
             return;
         };
         if !self
             .clip(&clip_id)
             .is_some_and(|clip| clip.kind.is_visual())
         {
-            self.notify("Select a video or image clip on the timeline first", true);
+            self.notify(
+                &t("Select a video or image clip on the timeline first"),
+                true,
+            );
             return;
         }
         self.apply(Command::UpdateClip {
@@ -3422,7 +3446,7 @@ impl Studio {
                         studio.ensure_cutouts();
                     }
                     Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&format!("Remove background: {error}"), true),
+                    Err(error) => studio.notify(&tf("Remove background: {0}", &[&error]), true),
                 }
             },
         );
@@ -3628,7 +3652,7 @@ impl Studio {
 
     pub fn merge_blocked(&self) -> Option<String> {
         if self.selection.len() != 2 {
-            return Some("Select two clips to merge".to_owned());
+            return Some(t("Select two clips to merge"));
         }
         why_not_merge(self.timeline(), &self.selection)
     }
@@ -3779,7 +3803,7 @@ impl Studio {
         let (_, width, height) = RESOLUTIONS[self.start.resolution.min(RESOLUTIONS.len() - 1)];
         let (_, num, den) = START_RATES[self.start.rate.min(START_RATES.len() - 1)];
         if self.start.location.trim().is_empty() {
-            self.start.error = "Choose where the project folder should go".into();
+            self.start.error = t("Choose where the project folder should go");
             return;
         }
         match projects::create(&self.start.location, &name, width, height, num, den) {
@@ -3810,7 +3834,7 @@ impl Studio {
         if let Some(session) = self.session.as_mut() {
             let (path, document) = session.prepare_save(None, None, None);
             if let Err(error) = projects::save(&path, &document) {
-                self.notify(&format!("Could not save: {error}"), true);
+                self.notify(&tf("Could not save: {0}", &[&error]), true);
                 return;
             }
         }
@@ -3890,7 +3914,7 @@ impl Studio {
         };
         if self.timeline().clips.is_empty() {
             self.export.phase = ExportPhase::Failed;
-            self.export.message = "There is nothing on the timeline to export".into();
+            self.export.message = t("There is nothing on the timeline to export");
             return;
         }
         let job = match self.host.exporter.begin() {
@@ -3930,7 +3954,7 @@ impl Studio {
         self.pause();
         self.export.phase = ExportPhase::Running;
         self.export.progress = 0.0;
-        self.export.stage = "Rendering video".into();
+        self.export.stage = t("Rendering video");
         self.export.message.clear();
         self.export.written.clear();
 
@@ -3944,12 +3968,11 @@ impl Studio {
                         0.0
                     };
                     let stage = match progress.stage {
-                        "rendering" => "Rendering video",
-                        "mixing audio" => "Mixing audio",
-                        "muxing" => "Finalising file",
-                        other => other,
-                    }
-                    .to_owned();
+                        "rendering" => t("Rendering video"),
+                        "mixing audio" => t("Mixing audio"),
+                        "muxing" => t("Finalising file"),
+                        other => other.to_owned(),
+                    };
                     on_ui(move |studio, _, _| {
                         if studio.export.phase == ExportPhase::Running {
                             studio.export.progress = fraction.clamp(0.0, 1.0);
@@ -3963,7 +3986,7 @@ impl Studio {
                     studio.export.phase = ExportPhase::Done;
                     studio.export.progress = 1.0;
                     studio.export.written = written;
-                    studio.notify("Export finished", false);
+                    studio.notify(&t("Export finished"), false);
                 }
                 Err(error) => {
                     if studio.export.phase == ExportPhase::Idle {
@@ -3972,7 +3995,7 @@ impl Studio {
                     }
                     studio.export.phase = ExportPhase::Failed;
                     studio.export.message = error.clone();
-                    studio.notify(&format!("Export failed: {error}"), true);
+                    studio.notify(&tf("Export failed: {0}", &[&error]), true);
                 }
             },
         );
@@ -4123,7 +4146,7 @@ impl Studio {
                 }
                 match result {
                     Ok(()) => {
-                        studio.notify("Model ready", false);
+                        studio.notify(&t("Model ready"), false);
                         if studio.is_transcriber(&id) && studio.prefs.transcriber_model.is_none() {
                             studio.prefs.transcriber_model = Some(id.clone());
                         } else if !studio.is_transcriber(&id) && studio.prefs.tts_model.is_none() {
@@ -4194,11 +4217,11 @@ impl Studio {
             .and_then(|id| self.clip(id))
             .cloned()
         else {
-            self.captions.message = "The clip is no longer on the timeline".to_owned();
+            self.captions.message = t("The clip is no longer on the timeline");
             return;
         };
         let Some(media) = self.project().media_by_id(&clip.media_id).cloned() else {
-            self.captions.message = "This clip has no file to transcribe".to_owned();
+            self.captions.message = t("This clip has no file to transcribe");
             return;
         };
         let Some(model) = Self::installed(&self.transcribers)
@@ -4206,7 +4229,7 @@ impl Studio {
             .map(|model| model.id.clone())
         else {
             self.captions.message =
-                "Download a transcriber model in Settings › Transcriber first".to_owned();
+                t("Download a transcriber model in Settings › Transcriber first");
             return;
         };
         let language = TRANSCRIBE_LANGUAGES
@@ -4261,10 +4284,10 @@ impl Studio {
                         let count = commands.len();
                         studio.captions.open = false;
                         if count == 0 {
-                            studio.notify("Nothing was said in that clip", true);
+                            studio.notify(&t("Nothing was said in that clip"), true);
                         } else {
                             studio.apply(Command::Batch { commands });
-                            studio.notify(&format!("Added {count} captions"), false);
+                            studio.notify(&tf("Added {0} captions", &[&count]), false);
                         }
                     }
                     // Asked for: the sheet is already on its way down.
@@ -4316,14 +4339,14 @@ impl Studio {
     pub fn speech_run(&mut self) {
         let text = self.speech.text.trim().to_owned();
         if text.is_empty() {
-            self.speech.message = "Nothing to read yet".to_owned();
+            self.speech.message = t("Nothing to read yet");
             return;
         }
         let Some(model) = Self::installed(&self.voices)
             .get(self.speech.model)
             .map(|model| model.id.clone())
         else {
-            self.speech.message = "Download a voice model in Settings › Speech first".to_owned();
+            self.speech.message = t("Download a voice model in Settings › Speech first");
             return;
         };
         let Some(voice) = self
@@ -4331,7 +4354,7 @@ impl Studio {
             .get(self.speech.voice)
             .map(|speaker| speaker.id)
         else {
-            self.speech.message = "No voice to read with".to_owned();
+            self.speech.message = t("No voice to read with");
             return;
         };
         let Some(project) = self
@@ -4391,7 +4414,7 @@ impl Studio {
                         studio.speech.open = false;
                         if let Some(media_id) = media_id {
                             studio.apply(Command::AddClipAtFirstFree { media_id, start });
-                            studio.notify("Voice added to the timeline", false);
+                            studio.notify(&t("Voice added to the timeline"), false);
                         }
                     }
                     Err(error) if error.contains("cancel") => studio.speech.open = false,
@@ -4417,26 +4440,25 @@ impl Studio {
             None => String::new(),
         };
         let accent = match prefix.chars().next() {
-            Some('a') => "American",
-            Some('b') => "British",
-            Some('e') => "Spanish",
-            Some('f') => "French",
-            Some('h') => "Hindi",
-            Some('i') => "Italian",
-            Some('j') => "Japanese",
-            Some('p') => "Portuguese",
-            Some('z') => "Chinese",
-            _ => "",
+            Some('a') => t("American"),
+            Some('b') => t("British"),
+            Some('e') => t("Spanish"),
+            Some('f') => t("French"),
+            Some('h') => t("Hindi"),
+            Some('i') => t("Italian"),
+            Some('j') => t("Japanese"),
+            Some('p') => t("Portuguese"),
+            Some('z') => t("Chinese"),
+            _ => String::new(),
         };
         let gender = match prefix.chars().nth(1) {
-            Some('f') => "female",
-            Some('m') => "male",
-            _ => "",
+            Some('f') => t("female"),
+            Some('m') => t("male"),
+            _ => String::new(),
         };
         let detail = [accent, gender]
-            .iter()
+            .into_iter()
             .filter(|part| !part.is_empty())
-            .copied()
             .collect::<Vec<_>>()
             .join(" · ");
         (title, detail)
@@ -4446,7 +4468,7 @@ impl Studio {
     fn speech_estimate(&self) -> String {
         let chars = self.speech.text.trim().chars().count();
         if chars == 0 {
-            return "Nothing to read yet".to_owned();
+            return t("Nothing to read yet");
         }
         let seconds = chars as f32 / CHARS_PER_SECOND / PACES[self.speech.pace.min(2)];
         let whole = seconds.round() as i32;
@@ -4455,10 +4477,9 @@ impl Studio {
             .get(self.speech.voice)
             .map(|speaker| Self::voice_label(&speaker.name).0)
             .unwrap_or_default();
-        format!(
-            "About {}:{:02} in {voice} · {chars} characters",
-            whole / 60,
-            whole % 60
+        tf(
+            "About {0}:{1} in {2} · {3} characters",
+            &[&(whole / 60), &format!("{:02}", whole % 60), &voice, &chars],
         )
     }
 
@@ -4475,7 +4496,7 @@ impl Studio {
         spawn(
             move || templates::save(&config, &document, &settings, &path, &name),
             |studio, _, _, result| match result {
-                Ok(info) => studio.notify(&format!("Saved template {:?}", info.name), false),
+                Ok(info) => studio.notify(&tf("Saved template “{0}”", &[&info.name]), false),
                 Err(error) => studio.notify(&error, true),
             },
         );
@@ -4844,6 +4865,15 @@ impl Studio {
     pub fn publish_chrome(&self, app: &App, models: &Models) {
         let editor = app.global::<Editor>();
 
+        // The language, when it changed: one property the whole tree
+        // reads, written only when it differs so nothing re-evaluates
+        // for nothing.
+        let words = app.global::<I18n>();
+        let lang = SharedString::from(i18n::current());
+        if words.get_lang() != lang {
+            words.set_lang(lang);
+        }
+
         // The catalogue's shelves. Built in, so they never change after
         // start; `sync` makes republishing them a no-op.
         let (groups, entries) = shelves(PackageKind::Effect);
@@ -4912,7 +4942,7 @@ impl Studio {
                     let plate = colour_of(&preset.style.background);
                     TextPresetData {
                         id: preset.id.as_str().into(),
-                        name: preset.name.as_str().into(),
+                        name: t(&preset.name).into(),
                         family: preset.style.font_family.trim_matches('"').into(),
                         weight: preset.style.font_weight.round() as i32,
                         italic: preset.style.italic,
@@ -5033,7 +5063,11 @@ impl Studio {
                     .filter(|model| model.installed)
                     .collect();
                 let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
-                format!("{} installed · {on_disk:.0} MB on disk", installed.len()).into()
+                tf(
+                    "{0} installed · {1} MB on disk",
+                    &[&installed.len(), &format!("{on_disk:.0}")],
+                )
+                .into()
             },
             version: env!("CARGO_PKG_VERSION").into(),
             engine: format!("concat-engine · FFmpeg {}", concat_media::linked_version()).into(),
@@ -5199,9 +5233,13 @@ impl Studio {
                         0.0
                     },
                     transferred: if model.unpacking {
-                        "Unpacking…".into()
+                        t("Unpacking…").into()
                     } else {
-                        format!("{fetched:.0} MB of {total:.0} MB").into()
+                        tf(
+                            "{0} MB of {1} MB",
+                            &[&format!("{fetched:.0}"), &format!("{total:.0}")],
+                        )
+                        .into()
                     },
                     eta: SharedString::new(),
                 }
@@ -5247,11 +5285,11 @@ impl Studio {
         };
 
         let mut rows = vec![
-            action("copy", "Copy".into(), Glyph::Copy, "⌘C", true),
-            action("duplicate", "Duplicate".into(), Glyph::Plus, "⌘D", !locked),
+            action("copy", t("Copy"), Glyph::Copy, "⌘C", true),
+            action("duplicate", t("Duplicate"), Glyph::Plus, "⌘D", !locked),
             action(
                 "paste",
-                "Paste".into(),
+                t("Paste"),
                 Glyph::Plus,
                 "⌘V",
                 self.clipboard.is_some(),
@@ -5259,7 +5297,7 @@ impl Studio {
             rule(),
             action(
                 "split",
-                "Split at playhead".into(),
+                t("Split at playhead"),
                 Glyph::Split,
                 "S",
                 straddled && !locked,
@@ -5269,16 +5307,16 @@ impl Studio {
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
             "mute",
-            "Mute",
+            &t("Mute"),
             "M",
             clip.volume <= 0.0,
             !locked && audible,
         ));
-        rows.push(check("lock", "Lock track", "", locked, true));
+        rows.push(check("lock", &t("Lock track"), "", locked, true));
         rows.push(rule());
         rows.push(MenuItemData {
             id: "delete".into(),
-            label: "Delete".into(),
+            label: t("Delete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
             shortcut: "⌫".into(),
@@ -5331,41 +5369,29 @@ impl Studio {
             0 => vec![
                 row(
                     "add-selected",
-                    "Add selected to timeline".into(),
+                    t("Add selected to timeline"),
                     Glyph::Plus,
                     "",
                     has_selection_media,
                 ),
-                row("import", "Import media…".into(), Glyph::Import, "⌘I", true),
-                row("save", "Save".into(), Glyph::Import, "⌘S", true),
+                row("import", t("Import media…"), Glyph::Import, "⌘I", true),
+                row("save", t("Save"), Glyph::Import, "⌘S", true),
                 row(
                     "export",
-                    "Export…".into(),
+                    t("Export…"),
                     Glyph::Export,
                     "",
                     !self.timeline().clips.is_empty(),
                 ),
-                row(
-                    "template",
-                    "Save as template…".into(),
-                    Glyph::Slot,
-                    "",
-                    true,
-                ),
-                row("speech", "Text to speech…".into(), Glyph::Volume, "", true),
+                row("template", t("Save as template…"), Glyph::Slot, "", true),
+                row("speech", t("Text to speech…"), Glyph::Volume, "", true),
                 rule(),
-                row("settings", "Settings…".into(), Glyph::Settings, "⌘,", true),
+                row("settings", t("Settings…"), Glyph::Settings, "⌘,", true),
                 rule(),
-                row(
-                    "close-project",
-                    "Close project".into(),
-                    Glyph::Import,
-                    "",
-                    true,
-                ),
+                row("close-project", t("Close project"), Glyph::Import, "", true),
                 MenuItemData {
                     id: "close-window".into(),
-                    label: "Close window".into(),
+                    label: t("Close window").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Close,
                     shortcut: "⌘W".into(),
@@ -5376,12 +5402,12 @@ impl Studio {
                 },
             ],
             1 => vec![
-                row("undo", "Undo".into(), Glyph::ChevronUp, "⌘Z", can_undo),
-                row("redo", "Redo".into(), Glyph::ChevronDown, "⇧⌘Z", can_redo),
+                row("undo", t("Undo"), Glyph::ChevronUp, "⌘Z", can_undo),
+                row("redo", t("Redo"), Glyph::ChevronDown, "⇧⌘Z", can_redo),
                 rule(),
                 row(
                     "split",
-                    "Split at playhead".into(),
+                    t("Split at playhead"),
                     Glyph::Razor,
                     "⌘B",
                     straddled,
@@ -5389,9 +5415,9 @@ impl Studio {
                 MenuItemData {
                     id: "delete".into(),
                     label: if selected > 1 {
-                        format!("Delete {selected} clips")
+                        tf("Delete {0} clips", &[&selected])
                     } else {
-                        "Delete clip".into()
+                        t("Delete clip")
                     }
                     .into(),
                     kind: MenuRow::Action,
@@ -5405,7 +5431,7 @@ impl Studio {
                 rule(),
                 MenuItemData {
                     id: "snap".into(),
-                    label: "Snap to edges".into(),
+                    label: t("Snap to edges").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::None,
                     shortcut: "N".into(),
@@ -5416,11 +5442,11 @@ impl Studio {
                 },
             ],
             2 => vec![
-                row("zoom-in", "Zoom in".into(), Glyph::Plus, "+", true),
-                row("zoom-out", "Zoom out".into(), Glyph::Minus, "-", true),
+                row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
+                row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
                 rule(),
-                row("start", "Go to start".into(), Glyph::SkipBack, "Home", true),
-                row("end", "Go to end".into(), Glyph::SkipForward, "End", true),
+                row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
+                row("end", t("Go to end"), Glyph::SkipForward, "End", true),
             ],
             _ => Vec::new(),
         }

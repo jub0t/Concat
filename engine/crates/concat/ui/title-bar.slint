@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "i18n.slint";
 import { Theme } from "theme/theme.slint";
 import { Glyph, Icon } from "icons.slint";
 import { AddPaneButton, PaneKind } from "workspace/pane-switcher.slint";
@@ -68,9 +69,9 @@ component HeaderIconButton inherits Rectangle {
 }
 
 export component TitleBar inherits Rectangle {
-    in property <string> project-name: "Untitled project";
+    in property <string> project-name: I18n.t("Untitled project");
     /// "saved", "saving…" — the little truth beside the name. Empty hides it.
-    in property <string> status: "saved";
+    in property <string> status: I18n.t("saved");
     /// Leaves room for the traffic lights and drops nothing else; on other
     /// platforms the strip starts at the left edge.
     in property <bool> macos: true;
@@ -153,21 +154,21 @@ export component TitleBar inherits Rectangle {
         // are sized from their text, so where "View" starts depends on how
         // long "File" and "Edit" are.
         if !root.minimal: file := MenuLabel {
-            label: "File";
+            label: I18n.t("File");
             current: root.menu == 0;
             clicked => {
                 root.menu-opened(0, file.absolute-position.x - root.absolute-position.x);
             }
         }
         if !root.minimal: edit := MenuLabel {
-            label: "Edit";
+            label: I18n.t("Edit");
             current: root.menu == 1;
             clicked => {
                 root.menu-opened(1, edit.absolute-position.x - root.absolute-position.x);
             }
         }
         if !root.minimal: view := MenuLabel {
-            label: "View";
+            label: I18n.t("View");
             current: root.menu == 2;
             clicked => {
                 root.menu-opened(2, view.absolute-position.x - root.absolute-position.x);
@@ -226,7 +227,7 @@ export component TitleBar inherits Rectangle {
                 label := Text {
                     x: icon.x + icon.width + 5px;
                     y: (parent.height - self.height) / 2;
-                    text: "Export";
+                    text: I18n.t("Export");
                     color: Theme.on-accent;
                     font-size: Theme.fs;
                     font-weight: Theme.weight-title;

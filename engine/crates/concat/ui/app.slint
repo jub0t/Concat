@@ -4,6 +4,7 @@
 // Inter is bundled rather than assumed: a desktop binary should look the same
 // on a machine that has never installed it. One file per weight the design
 // uses — 400 body, 500 titles, 600 the page heading.
+import { I18n } from "i18n.slint";
 import "fonts/Inter-Regular.ttf";
 import "fonts/Inter-Medium.ttf";
 import "fonts/Inter-SemiBold.ttf";
@@ -46,7 +47,7 @@ import {
 
 // Re-exported so main.rs can reach the globals and the struct.
 export {
-    Curves, Fmt, Payload, Theme, Bezier, Editor,
+    Curves, Fmt, Payload, Theme, Bezier, Editor, I18n,
     AppliedEntryData, AppliedParamData, CatalogueEntryData, ParamFormat,
     DockDivider, DockSide, PaneKind, SeatBox,
     EffectData, MediaFilter, MediaItemData, MediaKind, TextPresetData,
@@ -105,8 +106,8 @@ export component App inherits Window {
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
     // cannot drag itself from inside the scene graph; the rest are seams like
     // the library callbacks above.
-    in property <string> project-name: "Untitled project";
-    in property <string> project-status: "saved";
+    in property <string> project-name: I18n.t("Untitled project");
+    in property <string> project-status: I18n.t("saved");
     in property <bool> macos;
 
     /// The File / Edit / View menus. Built in Rust like every other menu here,

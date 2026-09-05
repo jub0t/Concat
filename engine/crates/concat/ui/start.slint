@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "i18n.slint";
 import { Theme } from "theme/theme.slint";
 import { CopyChip } from "primitives/modal.slint";
 import { Glyph, Icon } from "icons.slint";
@@ -340,7 +341,7 @@ component RecentsColumn inherits VerticalLayout {
     }
 
     Text {
-        text: "Recent";
+        text: I18n.t("Recent");
         color: Theme.fg-muted;
         font-size: Theme.fs-lg;
         font-weight: Theme.weight-title;
@@ -420,7 +421,7 @@ export component StartScreen inherits Rectangle {
                     alignment: start;
 
                     Text {
-                        text: "New project";
+                        text: I18n.t("New project");
                         color: Theme.fg;
                         // The one display-sized line in the app. The tree
                         // bundles two faces and no display face, so the
@@ -434,7 +435,7 @@ export component StartScreen inherits Rectangle {
                     Rectangle { height: 6px; }
 
                     Text {
-                        text: "These settings apply to the whole edit and cannot be changed later.";
+                        text: I18n.t("These settings apply to the whole edit and cannot be changed later.");
                         color: Theme.fg-muted;
                         font-size: Theme.fs-xl;
                         wrap: word-wrap;
@@ -443,11 +444,11 @@ export component StartScreen inherits Rectangle {
                     Rectangle { height: 40px; }
 
                     Field {
-                        label: "Name";
+                        label: I18n.t("Name");
 
                         PlainInput {
                             text: root.data.name;
-                            placeholder: "Untitled project";
+                            placeholder: I18n.t("Untitled project");
                             autofocus: true;
                             enabled: !root.data.busy;
                             edited(text) => { root.name-edited(text); }
@@ -456,7 +457,7 @@ export component StartScreen inherits Rectangle {
                     }
 
                     Field {
-                        label: "Location";
+                        label: I18n.t("Location");
 
                         HorizontalLayout {
                             spacing: 12px;
@@ -464,7 +465,7 @@ export component StartScreen inherits Rectangle {
                             PlainInput {
                                 horizontal-stretch: 1;
                                 text: root.data.location;
-                                placeholder: "Choose a folder";
+                                placeholder: I18n.t("Choose a folder");
                                 size: Theme.fs;
                                 face: Theme.font-technical;
                                 enabled: !root.data.busy;
@@ -475,7 +476,7 @@ export component StartScreen inherits Rectangle {
                             VerticalLayout {
                                 alignment: center;
                                 LinkButton {
-                                    label: "Choose…";
+                                    label: I18n.t("Choose…");
                                     enabled: !root.data.busy;
                                     clicked => { root.browse(); }
                                 }
@@ -484,7 +485,7 @@ export component StartScreen inherits Rectangle {
                     }
 
                     Field {
-                        label: "Resolution";
+                        label: I18n.t("Resolution");
 
                         HorizontalLayout {
                             alignment: start;
@@ -506,7 +507,7 @@ export component StartScreen inherits Rectangle {
                     }
 
                     Field {
-                        label: "Frame rate";
+                        label: I18n.t("Frame rate");
                         last: true;
 
                         HorizontalLayout {
@@ -621,7 +622,7 @@ export component StartScreen inherits Rectangle {
                             label := Text {
                                 x: (parent.width - self.width) / 2;
                                 y: (parent.height - self.height) / 2;
-                                text: root.data.busy ? "Creating…" : "Create";
+                                text: root.data.busy ? I18n.t("Creating…") : I18n.t("Create");
                                 color: Theme.on-accent;
                                 font-size: Theme.fs-xl;
                                 font-weight: Theme.weight-title;
@@ -652,7 +653,7 @@ export component StartScreen inherits Rectangle {
 
                                 Text {
                                     horizontal-stretch: 1;
-                                    text: "The project folder is created now; the edit autosaves into it.";
+                                    text: I18n.t("The project folder is created now; the edit autosaves into it.");
                                     color: Theme.fg-dim;
                                     font-size: Theme.fs-sm;
                                     vertical-alignment: center;

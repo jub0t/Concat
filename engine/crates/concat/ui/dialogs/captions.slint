@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
@@ -49,7 +50,7 @@ export component CaptionsDialog inherits Modal {
     callback cancel();
 
     open: root.data.open;
-    title: "Auto captions";
+    title: I18n.t("Auto captions");
     glyph: Glyph.text-mark;
     surface-width: 460px;
     dismissable: !root.data.running;
@@ -58,30 +59,30 @@ export component CaptionsDialog inherits Modal {
     VerticalLayout {
         if !root.data.running: DialogSection {
             first: true;
-            title: "Transcriber";
+            title: I18n.t("Transcriber");
 
             DialogRow {
-                label: "Language";
+                label: I18n.t("Language");
                 SegmentedControl {
-                    options: ["Auto", "English", "Chinese"];
+                    options: [I18n.t("Auto"), I18n.t("English"), I18n.t("Chinese")];
                     current: root.data.language;
                     changed(index) => { root.language-changed(index); }
                 }
             }
 
             DialogRow {
-                label: "Model";
+                label: I18n.t("Model");
                 Select {
                     options: root.models;
                     current: root.data.model;
-                    placeholder: "None installed";
+                    placeholder: I18n.t("None installed");
                     enabled: root.models.length > 0;
                     changed(index) => { root.model-changed(index); }
                 }
             }
 
             if !root.data.ready: Text {
-                text: "Download a transcriber model in Settings › Transcriber first.";
+                text: I18n.t("Download a transcriber model in Settings › Transcriber first.");
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -89,29 +90,28 @@ export component CaptionsDialog inherits Modal {
         }
 
         if !root.data.running: DialogSection {
-            title: "Captions";
+            title: I18n.t("Captions");
 
             DialogRow {
-                label: "Placement";
+                label: I18n.t("Placement");
                 SegmentedControl {
-                    options: ["Bottom", "Centre", "Top"];
+                    options: [I18n.t("Bottom"), I18n.t("Centre"), I18n.t("Top")];
                     current: root.data.placement;
                     changed(index) => { root.placement-changed(index); }
                 }
             }
 
             DialogRow {
-                label: "Size";
+                label: I18n.t("Size");
                 SegmentedControl {
-                    options: ["Small", "Medium", "Large"];
+                    options: [I18n.t("Small"), I18n.t("Medium"), I18n.t("Large")];
                     current: root.data.size;
                     changed(index) => { root.size-changed(index); }
                 }
             }
 
             Text {
-                text: "One title per phrase spoken, cut to the words' own timing,"
-                    + " on the first lane with room.";
+                text: I18n.t("One title per phrase spoken, cut to the words' own timing, on the first lane with room.");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -160,7 +160,7 @@ export component CaptionsDialog inherits Modal {
 
                 Text {
                     horizontal-stretch: 1;
-                    text: root.data.progress < 0.02 ? "Loading the model" : "Transcribing";
+                    text: root.data.progress < 0.02 ? I18n.t("Loading the model") : I18n.t("Transcribing");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     vertical-alignment: center;
@@ -180,7 +180,7 @@ export component CaptionsDialog inherits Modal {
             if root.data.running: HorizontalLayout {
                 alignment: start;
                 Button {
-                    label: "Cancel";
+                    label: I18n.t("Cancel");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
@@ -192,7 +192,7 @@ export component CaptionsDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.text-mark;
-                label: "Generate captions";
+                label: I18n.t("Generate captions");
                 enabled: root.data.ready;
                 clicked => { root.begin(); }
             }

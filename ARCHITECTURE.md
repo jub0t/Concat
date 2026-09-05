@@ -631,6 +631,19 @@ that feeds both the About rows and the copyable block, so a fact cannot be
 on the page and missing from the report. Fonts, the logo and the effect
 previews are embedded by `build.rs`.
 
+**The words.** Every string a person reads is looked up by its English:
+`I18n.t("...")` in the tree, `t` and `tf` in Rust, and the names in effect
+manifests and text presets on their way to the shelves. `i18n.rs` holds
+the active locale - one JSON file of English key to translation, compiled
+in from `locales/` or dropped by the user into the config directory's
+`locales/` folder, where a file with a shipped code lays its lines over
+the shipped ones - and answers each lookup from a map behind a read lock,
+falling back to the key. The tree's `I18n` global reads one `lang`
+property on every lookup, so Settings › Language is a single property
+write and the window re-evaluates itself. `scripts/locales.py` regenerates
+`en.json`, the inventory, from the source and checks every locale against
+it; CI runs the check.
+
 ---
 
 ## 14. Build and delivery

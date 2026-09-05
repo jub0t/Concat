@@ -36,6 +36,7 @@ start cutting, no account, no extra downloads, no setup.
 - 📦 Templates — build an edit once, reuse it for the next video
 - 🚫 No watermarks, no account, nothing behind a paywall
 - 🖥️ Works the same on macOS, Windows and Linux
+- 🌍 Eleven languages, and a new one is a single JSON file — see [TRANSLATING.md](TRANSLATING.md)
 
 ## Get started
 

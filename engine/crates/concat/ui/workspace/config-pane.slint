@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme, SegmentedControl } from "../primitives/primitives.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneBody, PaneScroll } from "pane.slint";
@@ -99,7 +100,7 @@ export component ConfigPane inherits Rectangle {
     /// The selected clip, or `present: false` for the project details.
     in property <SelectedClipData> selected;
     property <bool> has-selection: root.selected.present;
-    in property <string> project-name: "Untitled project";
+    in property <string> project-name: I18n.t("Untitled project");
     in property <string> project-folder: "—";
     in property <string> project-output: "1080 x 1920";
     in property <string> project-rate: "30.00 fps";
@@ -190,6 +191,13 @@ export component ConfigPane inherits Rectangle {
         : root.is-image ? ["Video", "Effects"]
         : root.is-audio ? ["Audio"]
         : ["Video", "Audio", "Effects"];
+    /// The same tabs in the interface's language. `tabs` stays English,
+    /// because the panels are picked by comparing against it.
+    property <[string]> tabs-shown: root.is-text ? [I18n.t("Text")]
+        : root.is-layer ? [I18n.t("Filter")]
+        : root.is-image ? [I18n.t("Video"), I18n.t("Effects")]
+        : root.is-audio ? [I18n.t("Audio")]
+        : [I18n.t("Video"), I18n.t("Audio"), I18n.t("Effects")];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -224,6 +232,15 @@ export component ConfigPane inherits Rectangle {
         : root.heading == "Effects" ? ["Filters", "Effects"]
         : root.heading == "Text" ? ["Text", "Animation"]
         : ["Layer"];
+    /// The sections as the dropdown shows them; see `tabs-shown`.
+    property <[string]> sections-shown: root.heading == "Video"
+            ? (root.is-image ? [I18n.t("Basic"), I18n.t("Animation"), I18n.t("Adjust")]
+                : [I18n.t("Basic"), I18n.t("Speed"), I18n.t("Animation"), I18n.t("Adjust")])
+        : root.heading == "Audio"
+            ? (root.is-audio ? [I18n.t("Sound"), I18n.t("Speed")] : [I18n.t("Sound")])
+        : root.heading == "Effects" ? [I18n.t("Filters"), I18n.t("Effects")]
+        : root.heading == "Text" ? [I18n.t("Text"), I18n.t("Animation")]
+        : [I18n.t("Layer")];
 
     // Each tab remembers its own section, so flipping to Audio and back
     // lands on the colour panel you were adjusting. Assigned, never bound,
@@ -284,7 +301,7 @@ export component ConfigPane inherits Rectangle {
                 spacing: 8px;
 
                 Text {
-                    text: "DETAILS";
+                    text: I18n.t("DETAILS");
                     color: Theme.fg-muted;
                     // The small size, not the body one. Caps at 12px with a
                     // point and a half of tracking is nearly as wide as the
@@ -325,17 +342,17 @@ export component ConfigPane inherits Rectangle {
                     // top of it opens the table back up.
                     spacing: 0px;
 
-                    FactHeading { title: "PROJECT"; }
-                    FactRow { label: "Name"; value: root.project-name; }
-                    FactRow { label: "Folder"; value: root.project-folder; }
-                    FactRow { label: "Output"; value: root.project-output; }
-                    FactRow { label: "Rate"; value: root.project-rate; }
-                    FactRow { label: "Duration"; value: root.project-duration; }
+                    FactHeading { title: I18n.t("PROJECT"); }
+                    FactRow { label: I18n.t("Name"); value: root.project-name; }
+                    FactRow { label: I18n.t("Folder"); value: root.project-folder; }
+                    FactRow { label: I18n.t("Output"); value: root.project-output; }
+                    FactRow { label: I18n.t("Rate"); value: root.project-rate; }
+                    FactRow { label: I18n.t("Duration"); value: root.project-duration; }
 
-                    FactHeading { title: "CONTENTS"; }
-                    FactRow { label: "Media"; value: "\{root.count-media}"; }
-                    FactRow { label: "Tracks"; value: "\{root.count-tracks}"; }
-                    FactRow { label: "Clips"; value: "\{root.count-clips}"; }
+                    FactHeading { title: I18n.t("CONTENTS"); }
+                    FactRow { label: I18n.t("Media"); value: "\{root.count-media}"; }
+                    FactRow { label: I18n.t("Tracks"); value: "\{root.count-tracks}"; }
+                    FactRow { label: I18n.t("Clips"); value: "\{root.count-clips}"; }
                 }
             }
         }
@@ -369,7 +386,7 @@ export component ConfigPane inherits Rectangle {
                 modify-label := Text {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    text: "Modify";
+                    text: I18n.t("Modify");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     font-weight: Theme.weight-title;
@@ -402,7 +419,7 @@ export component ConfigPane inherits Rectangle {
                 spacing: 8px;
 
                 if root.single: Text {
-                    text: root.tabs[0];
+                    text: root.tabs-shown[0];
                     color: Theme.fg-muted;
                     font-size: Theme.fs-sm;
                     font-weight: Theme.weight-title;
@@ -426,7 +443,7 @@ export component ConfigPane inherits Rectangle {
                 if !root.single: VerticalLayout {
                     alignment: center;
                     SegmentedControl {
-                        options: root.tabs;
+                        options: root.tabs-shown;
                         current <=> root.tab;
                     }
                 }
@@ -465,7 +482,7 @@ export component ConfigPane inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     SegmentedControl {
-                        options: root.sections;
+                        options: root.sections-shown;
                         current: Math.max(0, Math.min(root.section, root.sections.length - 1));
                         changed(index) => { root.pick-section(index); }
                     }
@@ -541,8 +558,8 @@ export component ConfigPane inherits Rectangle {
                         commit => { root.clip-commit(); }
                     }
                     PresetStack {
-                        noun: "audio effect";
-                        library-title: "Audio effects";
+                        noun: I18n.t("audio effect");
+                        library-title: I18n.t("Audio effects");
                         group-labels: root.audio-groups;
                         catalogue: root.catalogue-audio;
                         applied: root.applied-audio;
@@ -563,8 +580,8 @@ export component ConfigPane inherits Rectangle {
                 // are links of the same picture chain, in one order — and
                 // differ only in which shelves they offer.
                 if root.showing == "Filters": PresetStack {
-                    noun: "filter";
-                    library-title: "Filter library";
+                    noun: I18n.t("filter");
+                    library-title: I18n.t("Filter library");
                     group-labels: root.filter-groups;
                     catalogue: root.catalogue-filters;
                     applied: root.applied-visual;
@@ -581,8 +598,8 @@ export component ConfigPane inherits Rectangle {
                 }
 
                 if root.showing == "Effects": PresetStack {
-                    noun: "effect";
-                    library-title: "Effect library";
+                    noun: I18n.t("effect");
+                    library-title: I18n.t("Effect library");
                     group-labels: root.effect-groups;
                     catalogue: root.catalogue-effects;
                     applied: root.applied-visual;

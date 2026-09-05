@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
@@ -159,7 +160,7 @@ export component ExportDialog inherits Modal {
     property <bool> running: root.data.phase == ExportPhase.running;
 
     open: root.data.open;
-    title: "Export";
+    title: I18n.t("Export");
     glyph: Glyph.export;
     surface-width: 470px;
     dismissable: !root.running;
@@ -170,7 +171,7 @@ export component ExportDialog inherits Modal {
     VerticalLayout {
         DialogSection {
             first: true;
-            title: "Summary";
+            title: I18n.t("Summary");
 
             Rectangle {
                 border-radius: Theme.r;
@@ -181,15 +182,15 @@ export component ExportDialog inherits Modal {
                 VerticalLayout {
                     spacing: 1px;
 
-                    Fact { label: "Format"; value: root.data.format + " · H.264"; }
-                    Fact { label: "Duration"; value: root.data.duration; }
-                    Fact { label: "Contents"; value: root.data.contents; }
+                    Fact { label: I18n.t("Format"); value: root.data.format + " · H.264"; }
+                    Fact { label: I18n.t("Duration"); value: root.data.duration; }
+                    Fact { label: I18n.t("Contents"); value: root.data.contents; }
                 }
             }
         }
 
         if !root.running: DialogSection {
-            title: "Destination";
+            title: I18n.t("Destination");
 
             DialogRow {
                 Field {
@@ -199,7 +200,7 @@ export component ExportDialog inherits Modal {
                 }
 
                 Button {
-                    label: "Browse";
+                    label: I18n.t("Browse");
                     glyph: Glyph.import;
                     clicked => { root.browse(); }
                 }
@@ -217,10 +218,10 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: "Output";
+            title: I18n.t("Output");
 
             DialogRow {
-                label: "Resolution";
+                label: I18n.t("Resolution");
                 Select {
                     current: root.data.resolution;
                     options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
@@ -230,7 +231,7 @@ export component ExportDialog inherits Modal {
             }
 
             DialogRow {
-                label: "Frame rate";
+                label: I18n.t("Frame rate");
                 Select {
                     current: root.data.rate;
                     options: ["24 fps", "30 fps", "60 fps"];
@@ -240,28 +241,28 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: "Quality";
+            title: I18n.t("Quality");
 
             HorizontalLayout {
                 spacing: 6px;
 
                 QualityCard {
-                    label: "High";
-                    note: "Master";
+                    label: I18n.t("High");
+                    note: I18n.t("Master");
                     size: root.data.size-high;
                     current: root.data.quality == 0;
                     clicked => { root.quality-changed(0); }
                 }
                 QualityCard {
-                    label: "Balanced";
-                    note: "Recommended";
+                    label: I18n.t("Balanced");
+                    note: I18n.t("Recommended");
                     size: root.data.size-balanced;
                     current: root.data.quality == 1;
                     clicked => { root.quality-changed(1); }
                 }
                 QualityCard {
-                    label: "Small";
-                    note: "Share";
+                    label: I18n.t("Small");
+                    note: I18n.t("Share");
                     size: root.data.size-small;
                     current: root.data.quality == 2;
                     clicked => { root.quality-changed(2); }
@@ -342,7 +343,7 @@ export component ExportDialog inherits Modal {
             if root.running: HorizontalLayout {
                 alignment: start;
                 Button {
-                    label: "Cancel export";
+                    label: I18n.t("Cancel export");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
@@ -359,7 +360,7 @@ export component ExportDialog inherits Modal {
                 }
 
                 Text {
-                    text: "Exported · " + root.data.done-size;
+                    text: I18n.t1("Exported · {0}", "\{root.data.done-size}");
                     color: Theme.green;
                     font-size: Theme.fs;
                     font-weight: Theme.weight-title;
@@ -372,12 +373,12 @@ export component ExportDialog inherits Modal {
                 alignment: start;
 
                 Button {
-                    label: "Show in folder";
+                    label: I18n.t("Show in folder");
                     glyph: Glyph.import;
                     clicked => { root.reveal(); }
                 }
                 Button {
-                    label: "Export again";
+                    label: I18n.t("Export again");
                     ghost: true;
                     clicked => { root.again(); }
                 }
@@ -390,8 +391,8 @@ export component ExportDialog inherits Modal {
                     primary: true;
                     large: true;
                     glyph: Glyph.export;
-                    label: root.data.empty ? "Nothing to export"
-                        : "Export · ~" + (root.data.quality == 0 ? root.data.size-high
+                    label: root.data.empty ? I18n.t("Nothing to export")
+                        : I18n.t("Export · ~") + (root.data.quality == 0 ? root.data.size-high
                             : root.data.quality == 1 ? root.data.size-balanced
                             : root.data.size-small);
                     enabled: !root.data.empty && root.data.name != "";

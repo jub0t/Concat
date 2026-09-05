@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Payload } from "../util.slint";
@@ -39,10 +40,10 @@ export enum PaneKind {
 
 export global Panes {
     public pure function label(kind: PaneKind) -> string {
-        return kind == PaneKind.media ? "Library"
-            : kind == PaneKind.preview ? "Preview"
-            : kind == PaneKind.inspector ? "Inspector"
-            : "Timeline";
+        return kind == PaneKind.media ? I18n.t("Library")
+            : kind == PaneKind.preview ? I18n.t("Preview")
+            : kind == PaneKind.inspector ? I18n.t("Inspector")
+            : I18n.t("Timeline");
     }
 
     /// The name a view goes by in a drag payload — stable, lower-case, and
@@ -183,7 +184,7 @@ component RemoveRow inherits Rectangle {
 
             Text {
                 horizontal-stretch: 1;
-                text: root.enabled ? "Remove panel" : "Only panel";
+                text: root.enabled ? I18n.t("Remove panel") : I18n.t("Only panel");
                 color: row.ink;
                 font-size: Theme.fs;
                 vertical-alignment: center;
@@ -305,7 +306,7 @@ export component PaneSwitcher inherits Rectangle {
             }
 
             Tip {
-                text: "Change what this panel shows, or drag it onto another";
+                text: I18n.t("Change what this panel shows, or drag it onto another");
                 active: touch.has-hover;
             }
         }
@@ -407,7 +408,7 @@ export component AddPaneButton inherits Rectangle {
     }
 
     Tip {
-        text: "Add a panel";
+        text: I18n.t("Add a panel");
         active: touch.has-hover;
     }
 

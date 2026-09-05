@@ -4,6 +4,7 @@
 //! Numbers into words and shapes: timecode, curves, sizes, and the drawn
 //! waveform.
 
+use crate::i18n::{t, tf};
 use crate::ui::Bezier;
 
 /// x of a cubic bezier with endpoints pinned at 0 and 1, at parameter `t`.
@@ -156,14 +157,16 @@ pub fn bytes(count: f32) -> String {
 /// second on an estimate that is not accurate to the second is theatre.
 pub fn eta(seconds: f32) -> String {
     if seconds <= 1.0 {
-        "almost done".into()
+        t("almost done")
     } else if seconds < 60.0 {
-        format!("{:.0}s left", seconds)
+        tf("{0}s left", &[&format!("{seconds:.0}")])
     } else {
-        format!(
-            "{:.0}m {:02.0}s left",
-            (seconds / 60.0).floor(),
-            seconds % 60.0
+        tf(
+            "{0}m {1}s left",
+            &[
+                &format!("{:.0}", (seconds / 60.0).floor()),
+                &format!("{:02.0}", seconds % 60.0),
+            ],
         )
     }
 }
@@ -247,17 +250,17 @@ pub fn when_phrase(opened_at_millis: u64) -> String {
     let hours = minutes / 60;
     let days = hours / 24;
     if minutes < 2 {
-        "just now".into()
+        t("just now")
     } else if hours < 1 {
-        format!("{minutes} minutes ago")
+        tf("{0} minutes ago", &[&minutes])
     } else if days < 1 {
-        "today".into()
+        t("today")
     } else if days == 1 {
-        "yesterday".into()
+        t("yesterday")
     } else if days < 30 {
-        format!("{days} days ago")
+        tf("{0} days ago", &[&days])
     } else {
-        format!("{} months ago", days / 30)
+        tf("{0} months ago", &[&(days / 30)])
     }
 }
 

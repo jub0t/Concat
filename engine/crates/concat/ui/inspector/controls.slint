@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -16,26 +17,26 @@ import { NumberField } from "../primitives/number-field.slint";
 // renders it.
 export enum ParamFormat {
     percent,     // "45%"
-    pitch,       // 0 is "auto", else "+3 st"
-    seconds,     // 0 is "off", else "1.4 s"
-    millis,      // 0 is "off", else "320 ms"
+    pitch,       // 0 is I18n.t("auto"), else "+3 st"
+    seconds,     // 0 is I18n.t("off"), else "1.4 s"
+    millis,      // 0 is I18n.t("off"), else "320 ms"
     hertz,       // "120 Hz", "6.5 kHz"
     decibels,    // "-18.0 dB", "+3.0 dB"
     ratio,       // "4.0 : 1"
     rate-hz,     // "1.2 Hz"
     steps,       // "12"
     rate,        // "1.00x"
-    fade,        // 0 is "none", else "1.5 s"
+    fade,        // 0 is I18n.t("none"), else "1.5 s"
 
     // The clip inspector's own. Several of these are fractions of something —
     // the frame's height, the frame's width — rather than absolute units,
     // because the frame can be any resolution and points would be a lie.
     fraction,    // 0..1 as a whole percent: "72%"
-    centred,     // a signed offset: "centred" at zero, else "-12.5%"
+    centred,     // a signed offset: I18n.t("centred") at zero, else "-12.5%"
     degrees,     // "45°"
-    gain,        // decibels, with the floor spelled "Silent"
+    gain,        // decibels, with the floor spelled I18n.t("Silent")
     height,      // "9.0% of height"
-    outline,     // 0 is "none", else "3.5%"
+    outline,     // 0 is I18n.t("none"), else "3.5%"
     seconds2,    // "1.25s" — two places, for a fade dialled against a duration
 
     // For a package parameter whose unit the manifest did not name, or
@@ -49,30 +50,28 @@ export global InspectorFmt {
     // "3.5", with the trailing zero a bare interpolation would drop.
     public pure function fixed1(v: float) -> string {
         return (v < 0 ? "-" : "")
-            + "\{Math.floor(Math.abs(Fmt.round-to(v, 1)))}"
-            + ".\{Math.mod(Math.round(Math.abs(v) * 10), 10)}";
+            + "\{Math.floor(Math.abs(Fmt.round-to(v, 1)))}.\{Math.mod(Math.round(Math.abs(v) * 10), 10)}";
     }
 
     public pure function fixed2(v: float) -> string {
         return (v < 0 ? "-" : "")
-            + "\{Math.floor(Math.abs(Fmt.round-to(v, 2)))}"
-            + "." + Fmt.pad2(Math.mod(Math.round(Math.abs(v) * 100), 100));
+            + "\{Math.floor(Math.abs(Fmt.round-to(v, 2)))}." + Fmt.pad2(Math.mod(Math.round(Math.abs(v) * 100), 100));
     }
 
     public pure function format(fmt: ParamFormat, v: float) -> string {
         if (fmt == ParamFormat.percent) { return "\{Math.round(v)}%"; }
         if (fmt == ParamFormat.pitch) {
-            return v == 0 ? "auto" : "+\{Math.round(v)} st";
+            return v == 0 ? I18n.t("auto") : "+\{Math.round(v)} st";
         }
         if (fmt == ParamFormat.seconds) {
-            return v == 0 ? "off" : InspectorFmt.fixed1(v) + " s";
+            return v == 0 ? I18n.t("off") : InspectorFmt.fixed1(v) + " s";
         }
         if (fmt == ParamFormat.millis) {
-            return v == 0 ? "off" : "\{Math.round(v)} ms";
+            return v == 0 ? I18n.t("off") : "\{Math.round(v)} ms";
         }
         if (fmt == ParamFormat.hertz) {
             return v >= 1000 ? InspectorFmt.fixed1(v / 1000) + " kHz"
-                : "\{Math.round(v)} Hz";
+                : I18n.t1("{0} Hz", "\{Math.round(v)}");
         }
         if (fmt == ParamFormat.decibels) {
             return (v > 0 ? "+" : "") + InspectorFmt.fixed1(v) + " dB";
@@ -85,13 +84,13 @@ export global InspectorFmt {
         if (fmt == ParamFormat.centred) {
             // A hair either side of zero still reads as centred: the step is
             // 0.005, so an exact zero is easy to miss by one press.
-            return Math.abs(v) < 0.0025 ? "centred" : InspectorFmt.fixed1(v * 100) + "%";
+            return Math.abs(v) < 0.0025 ? I18n.t("centred") : InspectorFmt.fixed1(v * 100) + "%";
         }
         if (fmt == ParamFormat.degrees) { return "\{Math.round(v)}°"; }
         if (fmt == ParamFormat.gain) {
             // The bottom of the fader is silence, not -60 dB: a fader that
             // cannot reach zero is a fader you cannot mute with.
-            return v <= -60 ? "Silent"
+            return v <= -60 ? I18n.t("Silent")
                 : Math.abs(v) < 0.05 ? "0.0 dB"
                 : (v > 0 ? "+" : "") + InspectorFmt.fixed1(v) + " dB";
         }
@@ -99,20 +98,20 @@ export global InspectorFmt {
             return InspectorFmt.fixed1(v * 100) + "% of height";
         }
         if (fmt == ParamFormat.outline) {
-            return v == 0 ? "none" : InspectorFmt.fixed1(v * 100) + "%";
+            return v == 0 ? I18n.t("none") : InspectorFmt.fixed1(v * 100) + "%";
         }
         if (fmt == ParamFormat.seconds2) {
-            return v == 0 ? "none" : InspectorFmt.fixed2(v) + "s";
+            return v == 0 ? I18n.t("none") : InspectorFmt.fixed2(v) + "s";
         }
         if (fmt == ParamFormat.plain) {
             return Math.abs(v - Math.round(v)) < 0.0005 ? "\{Math.round(v)}"
                 : InspectorFmt.fixed2(v);
         }
-        if (fmt == ParamFormat.kelvin) { return "\{Math.round(v)} K"; }
+        if (fmt == ParamFormat.kelvin) { return I18n.t1("{0} K", "\{Math.round(v)}"); }
         if (fmt == ParamFormat.stops) {
             return (v > 0 ? "+" : "") + InspectorFmt.fixed2(v) + " EV";
         }
-        return v == 0 ? "none" : InspectorFmt.fixed1(v) + " s";
+        return v == 0 ? I18n.t("none") : InspectorFmt.fixed1(v) + " s";
     }
 
     /// Linear gain to decibels. Zero maps to the bottom of the fader rather

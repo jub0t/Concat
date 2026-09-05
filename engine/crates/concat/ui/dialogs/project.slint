@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
@@ -31,19 +32,19 @@ export component ProjectDialog inherits Modal {
     callback apply();
 
     open: root.data.open;
-    title: "Project";
+    title: I18n.t("Project");
     glyph: Glyph.settings;
     surface-width: 440px;
 
     VerticalLayout {
         DialogSection {
             first: true;
-            title: "Name";
+            title: I18n.t("Name");
 
             DialogRow {
                 Field {
                     value: root.data.name;
-                    placeholder: "Untitled project";
+                    placeholder: I18n.t("Untitled project");
                     edited(text) => { root.name-edited(text); }
                 }
             }
@@ -60,16 +61,16 @@ export component ProjectDialog inherits Modal {
         }
 
         DialogSection {
-            title: "Output";
+            title: I18n.t("Output");
 
             // The same six frames the monitor's picker offers, in the same
             // order, so the two controls can never disagree about what a
             // row means.
             DialogRow {
-                label: "Frame";
+                label: I18n.t("Frame");
                 Select {
                     current: root.data.size;
-                    placeholder: "Custom";
+                    placeholder: I18n.t("Custom");
                     options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
                         "1080 × 1080", "1440 × 1080", "2560 × 1080"];
                     details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
@@ -78,7 +79,7 @@ export component ProjectDialog inherits Modal {
             }
 
             DialogRow {
-                label: "Frame rate";
+                label: I18n.t("Frame rate");
                 Select {
                     current: root.data.rate;
                     options: ["24 fps", "25 fps", "29.97 fps", "30 fps", "60 fps"];
@@ -100,7 +101,7 @@ export component ProjectDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.check;
-                label: "Apply";
+                label: I18n.t("Apply");
                 enabled: root.data.name != "";
                 clicked => { root.apply(); }
             }

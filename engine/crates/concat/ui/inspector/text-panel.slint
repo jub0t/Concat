@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
@@ -70,7 +71,7 @@ export component TextPanel inherits VerticalLayout {
     Section {
         first: true;
         content := SectionHeader {
-            title: "Content";
+            title: I18n.t("Content");
             collapsible: true;
             summary: root.selected.content == "" ? "Empty" : root.selected.content;
         }
@@ -119,7 +120,7 @@ export component TextPanel inherits VerticalLayout {
     // ── font ─────────────────────────────────────────────────────────────
     Section {
         font := SectionHeader {
-            title: "Font";
+            title: I18n.t("Font");
             collapsible: true;
             summary: root.selected.font-family + " · "
                 + InspectorFmt.format(ParamFormat.height, root.size);
@@ -139,7 +140,7 @@ export component TextPanel inherits VerticalLayout {
 
         Row {
             Select {
-                options: ["Regular", "Medium", "SemiBold", "Bold"];
+                options: [I18n.t("Regular"), I18n.t("Medium"), I18n.t("SemiBold"), I18n.t("Bold")];
                 current <=> root.weight-index;
                 changed(index) => {
                     root.set(ClipField.font-weight, root.weights[index]);
@@ -149,7 +150,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         Param {
-            label: "Size";
+            label: I18n.t("Size");
             value <=> root.size;
             minimum: 0.01;
             maximum: 0.5;
@@ -160,7 +161,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         SwitchRow {
-            label: "Italic";
+            label: I18n.t("Italic");
             checked: root.selected.italic;
             toggled(on) => { root.set(ClipField.italic, on ? 1 : 0); root.commit(); }
         }
@@ -170,7 +171,7 @@ export component TextPanel inherits VerticalLayout {
     // ── colour ───────────────────────────────────────────────────────────
     Section {
         colour := SectionHeader {
-            title: "Colour";
+            title: I18n.t("Colour");
             collapsible: true;
             summary: root.selected.fill-hex + " · "
                 + InspectorFmt.format(ParamFormat.fraction, root.alpha);
@@ -178,14 +179,14 @@ export component TextPanel inherits VerticalLayout {
 
         if colour.open: SectionBody {
         ColourField {
-            label: "Fill";
+            label: I18n.t("Fill");
             value: root.selected.fill;
             hex: root.selected.fill-hex;
             changed(colour) => { root.set-colour(ClipTextField.color, colour); root.commit(); }
         }
 
         Param {
-            label: "Opacity";
+            label: I18n.t("Opacity");
             value <=> root.alpha;
             minimum: 0;
             maximum: 1;
@@ -196,7 +197,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         SwitchRow {
-            label: "Drop shadow";
+            label: I18n.t("Drop shadow");
             checked: root.selected.shadow;
 
             HelpButton {
@@ -208,12 +209,11 @@ export component TextPanel inherits VerticalLayout {
         }
 
         if root.shadow-help: Note {
-            text: "A soft shadow under the words, for titles that have to sit"
-                + " over footage you do not control.";
+            text: I18n.t("A soft shadow under the words, for titles that have to sit over footage you do not control.");
         }
 
         SwitchRow {
-            label: "Plate";
+            label: I18n.t("Plate");
             checked: root.selected.plated;
 
             HelpButton {
@@ -231,14 +231,11 @@ export component TextPanel inherits VerticalLayout {
         }
 
         if root.plate-help: Note {
-            text: "A solid band behind the words. Where a shadow softens the"
-                + " background, a plate replaces it — use it when the footage"
-                + " underneath is busy enough that neither weight nor outline"
-                + " will hold.";
+            text: I18n.t("A solid band behind the words. Where a shadow softens the background, a plate replaces it — use it when the footage underneath is busy enough that neither weight nor outline will hold.");
         }
 
         if root.selected.plated: ColourField {
-            label: "Plate colour";
+            label: I18n.t("Plate colour");
             value: root.selected.plate;
             hex: root.selected.plate-hex;
             changed(shade) => {
@@ -252,7 +249,7 @@ export component TextPanel inherits VerticalLayout {
     // ── outline ──────────────────────────────────────────────────────────
     Section {
         outline := SectionHeader {
-            title: "Outline";
+            title: I18n.t("Outline");
             collapsible: true;
             open: false;
             summary: InspectorFmt.format(ParamFormat.outline, root.stroke-width);
@@ -260,7 +257,7 @@ export component TextPanel inherits VerticalLayout {
 
         if outline.open: SectionBody {
         Param {
-            label: "Width";
+            label: I18n.t("Width");
             value <=> root.stroke-width;
             minimum: 0;
             maximum: 0.15;
@@ -273,7 +270,7 @@ export component TextPanel inherits VerticalLayout {
         // Only once there is an outline to colour: a swatch for a stroke of
         // zero width sets something nobody can see.
         if root.selected.stroke-width > 0: ColourField {
-            label: "Colour";
+            label: I18n.t("Colour");
             value: root.selected.stroke;
             hex: root.selected.stroke-hex;
             changed(shade) => {
@@ -287,17 +284,17 @@ export component TextPanel inherits VerticalLayout {
     // ── layout ───────────────────────────────────────────────────────────
     Section {
         layout := SectionHeader {
-            title: "Layout";
+            title: I18n.t("Layout");
             collapsible: true;
-            summary: (root.selected.align == TextAlignment.right ? "Right"
-                : root.selected.align == TextAlignment.center ? "Center" : "Left")
+            summary: (root.selected.align == TextAlignment.right ? I18n.t("Right")
+                : root.selected.align == TextAlignment.center ? I18n.t("Center") : I18n.t("Left"))
                 + " · " + InspectorFmt.format(ParamFormat.rate, root.line-height);
         }
 
         if layout.open: SectionBody {
         Row {
             SegmentedControl {
-                options: ["Left", "Center", "Right"];
+                options: [I18n.t("Left"), I18n.t("Center"), I18n.t("Right")];
                 current: root.selected.align == TextAlignment.right ? 2
                     : root.selected.align == TextAlignment.center ? 1 : 0;
                 changed(index) => { root.set(ClipField.align, index); root.commit(); }
@@ -305,7 +302,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         Param {
-            label: "Line height";
+            label: I18n.t("Line height");
             value <=> root.line-height;
             minimum: 0.7;
             maximum: 2.5;
@@ -316,7 +313,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         Param {
-            label: "Tracking";
+            label: I18n.t("Tracking");
             value <=> root.tracking;
             minimum: -0.05;
             maximum: 0.3;
@@ -331,7 +328,7 @@ export component TextPanel inherits VerticalLayout {
     // ── position ─────────────────────────────────────────────────────────
     Section {
         position := SectionHeader {
-            title: "Position";
+            title: I18n.t("Position");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.centred, root.offset-x)
                 + " · " + InspectorFmt.format(ParamFormat.centred, root.offset-y);
@@ -339,7 +336,7 @@ export component TextPanel inherits VerticalLayout {
 
         if position.open: SectionBody {
         Param {
-            label: "Horizontal";
+            label: I18n.t("Horizontal");
             value <=> root.offset-x;
             minimum: -0.5;
             maximum: 0.5;
@@ -350,7 +347,7 @@ export component TextPanel inherits VerticalLayout {
         }
 
         Param {
-            label: "Vertical";
+            label: I18n.t("Vertical");
             value <=> root.offset-y;
             minimum: -0.5;
             maximum: 0.5;

@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The interface's words, in whichever language is chosen.
+//
+// Every string a person reads goes through `I18n.t("...")`, with the
+// English as the key. Rust answers `lookup` from the active locale - a JSON
+// file of English key to translation - and falls back to the key itself, so
+// a string nobody has translated yet reads in English rather than as a
+// code. `lang` is read on every lookup, which is what makes the whole tree
+// re-evaluate the moment it changes: Settings › Language is one property
+// write, and the window is in the new language before the next frame.
+//
+// Strings with something inside them use `t1` and `t2`, with `{0}` and
+// `{1}` where the values go, so a translator can put them where their
+// language wants them.
+export global I18n {
+    /// The active locale's code: "en", "de", "pt-BR", ...
+    in-out property <string> lang: "en";
+
+    /// The translation of `key` in `lang`, or `key`. Set by Rust.
+    pure callback lookup(lang: string, key: string) -> string;
+    lookup(lang, key) => { return key; }
+    /// The same, with `{0}` replaced by `a`.
+    pure callback lookup1(lang: string, key: string, a: string) -> string;
+    lookup1(lang, key, a) => { return key; }
+    /// The same, with `{0}` and `{1}` replaced.
+    pure callback lookup2(lang: string, key: string, a: string, b: string) -> string;
+    lookup2(lang, key, a, b) => { return key; }
+
+    /// `key` in the active language.
+    public pure function t(key: string) -> string {
+        return lookup(lang, key);
+    }
+
+    /// `key` in the active language, with `{0}` filled in.
+    public pure function t1(key: string, a: string) -> string {
+        return lookup1(lang, key, a);
+    }
+
+    /// `key` in the active language, with `{0}` and `{1}` filled in.
+    public pure function t2(key: string, a: string, b: string) -> string {
+        return lookup2(lang, key, a, b);
+    }
+}

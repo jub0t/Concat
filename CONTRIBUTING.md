@@ -53,6 +53,11 @@ Run these before opening a PR:
 cd engine && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
+If you added or changed text the interface shows, also run
+`python3 scripts/locales.py` so the string inventory follows; CI checks it.
+Translations live in one JSON file per language — see
+[`TRANSLATING.md`](TRANSLATING.md).
+
 New source files need a licence header — see below. Match the style of the code
 around you; the engine avoids cleverness on purpose.
 

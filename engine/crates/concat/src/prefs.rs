@@ -25,8 +25,8 @@ pub struct Preferences {
     pub tts_voice: Option<i32>,
     /// Row in the transcriber's language list.
     pub transcribe_language: Option<i32>,
-    /// Row in the interface language list.
-    pub language: Option<usize>,
+    /// The interface's locale code ("de", "pt-BR", ...); absent is English.
+    pub locale: Option<String>,
 }
 
 impl Preferences {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
@@ -152,14 +153,14 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.pointer;
-            label: "Select (A or V)";
+            label: I18n.t("Select (A or V)");
             icon-size: 16px;
             checked: root.tool == TimelineTool.select;
             clicked => { root.tool-changed(TimelineTool.select); }
         }
         IconButton {
             glyph: Glyph.razor;
-            label: "Razor (B)";
+            label: I18n.t("Razor (B)");
             icon-size: 16px;
             checked: root.tool == TimelineTool.razor;
             clicked => { root.tool-changed(TimelineTool.razor); }
@@ -169,7 +170,7 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.split;
-            label: "Split at playhead (S, or ⌘B for every clip)";
+            label: I18n.t("Split at playhead (S, or ⌘B for every clip)");
             icon-size: 16px;
             clicked => { root.split(); }
         }
@@ -188,7 +189,7 @@ export component TimelineTray inherits Rectangle {
         }
         IconButton {
             glyph: Glyph.trash;
-            label: "Delete selected";
+            label: I18n.t("Delete selected");
             danger: true;
             icon-size: 16px;
             enabled: root.selected-count > 0;
@@ -210,7 +211,7 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.magnet;
-            label: "Snap to edges";
+            label: I18n.t("Snap to edges");
             icon-size: 16px;
             checked: root.snap;
             clicked => { root.snap-changed(!root.snap); }
@@ -220,33 +221,33 @@ export component TimelineTray inherits Rectangle {
 
         TrayTool {
             glyph: Glyph.text-mark;
-            caption: "Captions";
-            label: root.can-caption ? "Auto captions from this clip's sound"
-                : "Select one clip with sound to caption it";
+            caption: I18n.t("Captions");
+            label: root.can-caption ? I18n.t("Auto captions from this clip's sound")
+                : I18n.t("Select one clip with sound to caption it");
             enabled: root.can-caption;
             clicked => { root.captions(); }
         }
         TrayTool {
             glyph: Glyph.volume;
-            caption: "Speak";
-            label: root.can-speak ? "Read this title aloud"
-                : "Select a title to read it aloud";
+            caption: I18n.t("Speak");
+            label: root.can-speak ? I18n.t("Read this title aloud")
+                : I18n.t("Select a title to read it aloud");
             enabled: root.can-speak;
             clicked => { root.speak(); }
         }
         // One slot, two verbs: the sound is either on its picture or off it.
         if !root.can-reattach: TrayTool {
             glyph: Glyph.waveform;
-            caption: "Detach audio";
-            label: root.can-detach ? "Put this clip's sound on its own lane"
-                : "Select one video clip to detach its sound";
+            caption: I18n.t("Detach audio");
+            label: root.can-detach ? I18n.t("Put this clip's sound on its own lane")
+                : I18n.t("Select one video clip to detach its sound");
             enabled: root.can-detach;
             clicked => { root.detach(); }
         }
         if root.can-reattach: TrayTool {
             glyph: Glyph.merge;
-            caption: "Reattach";
-            label: "Put the detached sound back on its picture";
+            caption: I18n.t("Reattach");
+            label: I18n.t("Put the detached sound back on its picture");
             clicked => { root.reattach(); }
         }
 
@@ -254,7 +255,7 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.plus;
-            label: "Add track";
+            label: I18n.t("Add track");
             icon-size: 14px;
             clicked => { root.add-track(); }
         }
@@ -277,13 +278,13 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.fit;
-            label: "Zoom to fit";
+            label: I18n.t("Zoom to fit");
             icon-size: 15px;
             clicked => { root.fit(); }
         }
         IconButton {
             glyph: Glyph.minus;
-            label: "Zoom out";
+            label: I18n.t("Zoom out");
             icon-size: 14px;
             // Above 1 is out: the factor multiplies seconds-per-pixel, so a
             // bigger number is more seconds in the same pixel.
@@ -291,7 +292,7 @@ export component TimelineTray inherits Rectangle {
         }
         IconButton {
             glyph: Glyph.plus;
-            label: "Zoom in";
+            label: I18n.t("Zoom in");
             icon-size: 14px;
             clicked => { root.zoom(1 / 1.4); }
         }

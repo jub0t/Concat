@@ -3,6 +3,8 @@
 
 //! What Settings > About reports about this machine and this build.
 
+use crate::i18n::t;
+
 pub fn os_description() -> String {
     #[cfg(target_os = "macos")]
     {
@@ -68,21 +70,21 @@ pub fn os_description() -> String {
 /// built from the same pairs, so a fact cannot be on the page and missing
 /// from the report. Gathered once — every line of it is fixed for the life of
 /// the process — and handed over as a model that is never replaced.
-pub fn system_facts() -> Vec<(&'static str, String)> {
+pub fn system_facts() -> Vec<(String, String)> {
     vec![
         (
-            "Application",
+            t("Application"),
             format!("Concat {}", env!("CARGO_PKG_VERSION")),
         ),
         (
-            "Build",
+            t("Build"),
             format!("{} · {}", env!("BUILD_PROFILE"), env!("BUILD_TARGET")),
         ),
         // Which of the two renderers in Cargo.toml this binary was built
         // with. The first question to ask about anything that looks wrong on
         // screen, and the one nobody can answer by looking at the window.
         (
-            "Renderer",
+            t("Renderer"),
             if cfg!(feature = "skia") {
                 "Skia"
             } else {
@@ -91,18 +93,18 @@ pub fn system_facts() -> Vec<(&'static str, String)> {
             .into(),
         ),
         (
-            "Engine",
+            t("Engine"),
             format!("concat-engine · FFmpeg {}", concat_media::linked_version()),
         ),
-        ("Operating system", os_description()),
+        (t("Operating system"), os_description()),
         (
-            "Processor",
+            t("Processor"),
             format!(
                 "{} · {} threads",
                 std::env::consts::ARCH,
                 std::thread::available_parallelism().map_or(0, |count| count.get())
             ),
         ),
-        ("Toolchain", env!("BUILD_RUSTC").into()),
+        (t("Toolchain"), env!("BUILD_RUSTC").into()),
     ]
 }
