@@ -19,3 +19,11 @@
 #     (Deliberately not FFMPEG_DLL_PATH: rusty_ffmpeg turns that into the
 #     linker's /LIBPATH, which hunts for import libraries in bin/ where only
 #     the DLLs live. The DLLs still have to be findable at run time.)
+
+# No incremental caches. They are a speed-up for the second build of one
+# crate and a tax on the disk for everything else: a session of edits across
+# the workspace leaves tens of gigabytes of them behind. The shipping builds
+# run on GitHub Actions; a machine here needs `cargo check` and the tests of
+# the crates it is changing, and those are quick without.
+[build]
+incremental = false

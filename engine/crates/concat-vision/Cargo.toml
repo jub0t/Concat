@@ -1,0 +1,27 @@
+[package]
+name = "concat-vision"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "What the engine sees in a picture: the person mask behind a cutout, the brush strokes that correct it, and the frame with its background taken away."
+
+# The renderer needs only the masks: reading them from the project's cache,
+# painting strokes over them and cutting a frame with the result. Finding
+# them is inference, and inference is a dependency tree the export path
+# should not carry, so it sits behind `infer` and the host turns it on.
+[features]
+infer = ["dep:tract-onnx"]
+
+[dependencies]
+concat-core.workspace = true
+concat-project.workspace = true
+# Masks on disk are eight-bit grey PNGs: a tenth the size of raw bytes, and
+# a file anyone can open to see what the model saw.
+png = "0.17"
+# ONNX inference in pure Rust. No runtime library to ship, the same
+# binary on every platform, and the model travels inside the crate.
+tract-onnx = { version = "0.23", optional = true }
+
+[lints]
+workspace = true

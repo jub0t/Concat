@@ -241,7 +241,11 @@ impl Session {
     /// preview consume: the engine flattens its own session, so the pixels
     /// rendered are the model's, never a copy of it.
     pub fn flattened_clips(&self) -> Vec<concat_export::ExportClip> {
-        concat_export::flatten::flatten_timeline(self.editor.project(), None)
+        concat_export::flatten::flatten_timeline_in(
+            self.editor.project(),
+            None,
+            Some(std::path::Path::new(&self.path)),
+        )
     }
 }
 

@@ -156,6 +156,7 @@ export enum ClipField {
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
     font-size, font-weight, italic, text-opacity, align,
     stroke-width, shadow, line-height, tracking,
+    cutout-feather,
 }
 
 /// The same again for the properties that are text rather than numbers.
@@ -217,6 +218,14 @@ export struct SelectedClipData {
     crop-bottom: float,
     fade-in: float,
     fade-out: float,
+
+    // the cutout: 0 none, 1 automatic, 2 custom; how soft its edge is; how
+    // many strokes it carries; and the analysis finding its masks, -1 when
+    // none is running, else how far along it is
+    cutout: int,
+    cutout-feather: float,
+    cutout-strokes: int,
+    cutout-progress: float,
 
     // the overlay, when this is a text clip
     content: string,

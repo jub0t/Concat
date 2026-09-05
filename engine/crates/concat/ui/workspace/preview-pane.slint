@@ -487,6 +487,11 @@ component Guide inherits Rectangle {
 component StageOverlay inherits Rectangle {
     in property <[StageItemData]> items;
     in property <[StageGuideData]> guides;
+    /// The brush stroke in flight, and whether a press paints; see Editor.
+    in property <string> stroke-path;
+    in property <float> stroke-width;
+    in property <bool> stroke-erase;
+    in property <bool> painting;
 
     callback pressed(x: float, y: float, additive: bool);
     callback grip-pressed(id: string, grip: int, x: float, y: float);
@@ -500,6 +505,7 @@ component StageOverlay inherits Rectangle {
     floor := TouchArea {
         property <bool> live;
         property <bool> snap;
+        mouse-cursor: root.painting ? MouseCursor.crosshair : MouseCursor.default;
 
         pointer-event(event) => {
             self.snap = event.modifiers.shift;
@@ -533,6 +539,22 @@ component StageOverlay inherits Rectangle {
         width: root.width;
         height: root.height;
         guide: guide;
+    }
+
+    // The stroke being painted, over everything else: the line the pointer
+    // is drawing, translucent so the picture shows through it, in the
+    // accent for a brush and in red for a tool that takes away.
+    if root.stroke-path != "": Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        commands: root.stroke-path;
+        stroke: root.stroke-erase ? #ff5a5a99 : Theme.accent.with-alpha(0.6);
+        stroke-width: Math.max(2px, root.stroke-width * root.width);
+        stroke-line-cap: round;
     }
 
     for entry in root.items: Rectangle {
@@ -575,6 +597,11 @@ export component PreviewPane inherits Rectangle {
     /// Every picture under the playhead, for the selection drawn over the
     /// frame. See StageOverlay.
     in property <[StageItemData]> stage-items;
+    /// The cutout brush's stroke in flight, and whether the stage paints.
+    in property <string> stroke-path;
+    in property <float> stroke-width;
+    in property <bool> stroke-erase;
+    in property <bool> painting;
     /// The snap lines while one of them is being moved.
     in property <[StageGuideData]> stage-guides;
 
@@ -733,6 +760,10 @@ export component PreviewPane inherits Rectangle {
                 height: stage.height;
                 items: root.stage-items;
                 guides: root.stage-guides;
+                stroke-path: root.stroke-path;
+                stroke-width: root.stroke-width;
+                stroke-erase: root.stroke-erase;
+                painting: root.painting;
                 pressed(x, y, additive) => { root.stage-pressed(x, y, additive); }
                 grip-pressed(id, grip, x, y) => { root.stage-grip-pressed(id, grip, x, y); }
                 dragged(x, y, snap) => { root.stage-dragged(x, y, snap); }

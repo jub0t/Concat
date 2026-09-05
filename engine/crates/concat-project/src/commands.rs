@@ -12,8 +12,9 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, MediaItem,
-    MediaKind, Project, SpeedPoint, TextStyle, Timeline, Track, Transition,
+    AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, Cutout,
+    CutoutMode, MediaItem, MediaKind, Project, SpeedPoint, Stroke, TextStyle, Timeline, Track,
+    Transition,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -302,6 +303,23 @@ pub enum Command {
         slot: AnimationSlot,
         /// The shape and its seconds, or None to take it off.
         animation: Option<ClipAnimation>,
+    },
+    /// Sets or clears a picture's cutout: the mask that takes its
+    /// background away. Tidied on the way in; see [`Cutout::tidy`].
+    SetClipCutout {
+        /// The clip. An unknown id is a no-op.
+        clip_id: String,
+        /// The cutout, or None to take it off.
+        cutout: Option<Cutout>,
+    },
+    /// Paints one stroke onto a clip's cutout. A clip with no cutout gets a
+    /// custom one; an automatic cutout becomes custom, since a stroke is a
+    /// correction to it. A stroke with no points is a no-op.
+    AddCutoutStroke {
+        /// The clip. An unknown id is a no-op.
+        clip_id: String,
+        /// The stroke, in source fractions.
+        stroke: Stroke,
     },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
@@ -613,6 +631,7 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         flip_v: false,
         blend: String::new(),
         crop: None,
+        cutout: None,
         filters: Vec::new(),
         video_effects: Vec::new(),
         muted: None,
@@ -956,6 +975,7 @@ pub fn apply(
                 flip_v: false,
                 blend: String::new(),
                 crop: None,
+                cutout: None,
                 filters: Vec::new(),
                 video_effects: Vec::new(),
                 muted: None,
@@ -1022,6 +1042,7 @@ pub fn apply(
                 flip_v: false,
                 blend: String::new(),
                 crop: None,
+                cutout: None,
                 filters: Vec::new(),
                 video_effects: vec![AppliedFilter {
                     id: effect_id,
@@ -1274,6 +1295,35 @@ pub fn apply(
             Ok(Outcome {
                 created_id: None,
                 applied,
+            })
+        }
+
+        Command::SetClipCutout { clip_id, cutout } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = assign(&mut clip.cutout, cutout.map(Cutout::tidy));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::AddCutoutStroke { clip_id, stroke } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let Some(stroke) = stroke.tidy() else {
+                return Ok(Outcome::default());
+            };
+            let cutout = clip.cutout.get_or_insert_with(Cutout::auto);
+            cutout.mode = CutoutMode::Custom;
+            cutout.strokes.push(stroke);
+            Ok(Outcome {
+                created_id: None,
+                applied: true,
             })
         }
 

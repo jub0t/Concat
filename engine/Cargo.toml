@@ -18,6 +18,7 @@ concat-host = { path = "crates/concat-host" }
 concat-speech = { path = "crates/concat-speech" }
 concat-effects = { path = "crates/concat-effects" }
 concat-text = { path = "crates/concat-text" }
+concat-vision = { path = "crates/concat-vision" }
 concat = { path = "crates/concat" }
 
 serde_json = "1"

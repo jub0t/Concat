@@ -75,7 +75,10 @@ mod activity {
         std::thread::Builder::new()
             .name("stderr-to-logcat".into())
             .spawn(move || {
-                for line in std::io::BufReader::new(reader).lines().map_while(Result::ok) {
+                for line in std::io::BufReader::new(reader)
+                    .lines()
+                    .map_while(Result::ok)
+                {
                     log::warn!("{line}");
                 }
             })

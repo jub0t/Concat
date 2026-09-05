@@ -4,6 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton, Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
+import { Button } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
@@ -328,6 +329,10 @@ export component VideoPanel inherits VerticalLayout {
     /// it a switch and a name.
     in property <[AppliedEntryData]> applied;
     in property <[AppliedParamData]> params;
+    /// The custom cutout's brush; see Editor.
+    in property <int> brush-tool;
+    in property <float> brush-size;
+    in property <bool> painting;
 
     callback set(field: ClipField, value: float);
     /// A control gesture finished: the accumulated change becomes one command.
@@ -335,6 +340,12 @@ export component VideoPanel inherits VerticalLayout {
     callback chain-add(id: string);
     callback chain-remove(index: int);
     callback chain-set-param(index: int, key: string, value: float);
+    /// The cutout: its mode (0 off, 1 automatic, 2 custom), and the brush.
+    callback cutout-mode(mode: int);
+    callback cutout-tool(index: int);
+    callback cutout-size(size: float);
+    callback cutout-painting(on: bool);
+    callback cutout-clear();
 
     /// Which keyer is on the chain, and where: -1 for none. Scans the first
     /// eight links, as PresetStack does, for want of a model lookup.
@@ -351,9 +362,14 @@ export component VideoPanel inherits VerticalLayout {
     }
     property <int> green: root.keyer-at("concat.green-screen");
     property <int> blue: root.keyer-at("concat.blue-screen");
-    /// 0 off, 1 green, 2 blue - the Select's rows.
+    /// 0 off, 1 green, 2 blue: which chroma package is on.
     property <int> keyer: root.green >= 0 ? 1 : root.blue >= 0 ? 2 : 0;
     property <int> keyer-index: root.green >= 0 ? root.green : root.blue;
+    /// The Mode row: 0 off, 1 automatic, 2 custom, 3 green screen, 4 blue
+    /// screen. A keyer on the chain wins, since a cutout under a key would
+    /// be two removals at once.
+    property <int> removal: root.keyer == 1 ? 3 : root.keyer == 2 ? 4 : root.selected.cutout;
+    property <bool> masked: root.removal == 1 || root.removal == 2;
 
     property <float> scale;
     property <float> offset-x;
@@ -366,8 +382,10 @@ export component VideoPanel inherits VerticalLayout {
     property <float> crop-top;
     property <float> crop-right;
     property <float> crop-bottom;
+    property <float> feather;
 
     function seed() {
+        root.feather = root.selected.cutout-feather;
         root.scale = root.selected.scale;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
@@ -514,14 +532,19 @@ export component VideoPanel inherits VerticalLayout {
         }
     }
 
-    // The background keyed out. A picture shot on green or blue drops it
-    // here; the keyer is the chroma package on the chain, which is why its
-    // two knobs read from the chain's own rows.
+    // The background taken away. Automatic and custom cut by the mask the
+    // cutout model finds for the person in the picture - custom with
+    // strokes painted on the monitor over it - and the two screens key a
+    // colour out. A screen is the chroma package on the chain, which is why
+    // its knobs read from the chain's own rows.
     Section {
         cutout := SectionHeader {
             title: "Remove background";
             collapsible: true;
-            summary: root.keyer == 0 ? "off" : root.keyer == 1 ? "Green screen" : "Blue screen";
+            summary: root.removal == 0 ? "off"
+                : root.removal == 1 ? "Automatic"
+                : root.removal == 2 ? "Custom"
+                : root.removal == 3 ? "Green screen" : "Blue screen";
             HelpButton {
                 open: root.cutout-help;
                 toggled => { root.cutout-help = self.open; }
@@ -530,29 +553,93 @@ export component VideoPanel inherits VerticalLayout {
         if cutout.open: SectionBody {
 
         if root.cutout-help: Note {
-            text: "Keys one colour out of the picture so what is beneath"
-                + " shows through. Similarity is how far from the colour"
-                + " still counts; softness feathers the edge.";
+            text: "Automatic keeps the person the cutout model finds and"
+                + " drops the rest. Custom starts from the same mask and"
+                + " takes corrections painted on the monitor: the smart"
+                + " brush and smart eraser follow the model's confidence,"
+                + " the plain ones do exactly what you paint. Green and"
+                + " blue screen key one colour out instead; similarity is"
+                + " how far from the colour still counts, softness feathers"
+                + " the edge.";
         }
 
         Row {
             label: "Mode";
             Select {
-                options: ["Off", "Green screen", "Blue screen"];
-                current: root.keyer;
+                options: ["Off", "Automatic", "Custom", "Green screen", "Blue screen"];
+                current: root.removal;
                 changed(index) => {
-                    // One keyer at a time: the old one comes off before the
-                    // new one goes on, and off is only the removal.
+                    // One removal at a time: the keyer comes off the chain
+                    // before anything else goes on, and the cutout is set
+                    // or cleared to match.
                     if (root.keyer-index >= 0) {
                         root.chain-remove(root.keyer-index);
                     }
-                    if (index == 1) {
+                    root.cutout-mode(index == 1 ? 1 : index == 2 ? 2 : 0);
+                    if (index == 3) {
                         root.chain-add("concat.green-screen");
-                    } else if (index == 2) {
+                    } else if (index == 4) {
                         root.chain-add("concat.blue-screen");
                     }
                     root.commit();
                 }
+            }
+        }
+
+        if root.masked: Param {
+            label: "Feather";
+            value <=> root.feather;
+            minimum: 0;
+            maximum: 0.1;
+            step: 0.002;
+            default-value: 0.01;
+            fmt: ParamFormat.percent;
+            changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
+        }
+
+        // The analysis, while it runs: the masks are found in the
+        // background and the picture is shown as shot until they are.
+        if root.masked && root.selected.cutout-progress >= 0: Row {
+            label: "Analysis";
+            Text {
+                text: "Finding the subject… \{Math.round(root.selected.cutout-progress * 100)}%";
+                color: Theme.fg-muted;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.removal == 2: Row {
+            label: "Tool";
+            Select {
+                options: ["Smart brush", "Brush", "Smart eraser", "Eraser"];
+                current: root.brush-tool;
+                changed(index) => { root.cutout-tool(index); }
+            }
+        }
+        if root.removal == 2: Param {
+            label: "Brush size";
+            value: root.brush-size;
+            minimum: 0.005;
+            maximum: 0.5;
+            step: 0.005;
+            default-value: 0.06;
+            fmt: ParamFormat.percent;
+            changed(v) => { root.cutout-size(v); }
+        }
+        if root.removal == 2: SwitchRow {
+            label: "Paint on the monitor";
+            checked: root.painting;
+            toggled(on) => { root.cutout-painting(on); }
+        }
+        if root.removal == 2: Row {
+            label: root.selected.cutout-strokes == 1 ? "1 stroke"
+                : "\{root.selected.cutout-strokes} strokes";
+            Button {
+                label: "Clear strokes";
+                ghost: true;
+                enabled: root.selected.cutout-strokes > 0;
+                clicked => { root.cutout-clear(); }
             }
         }
 

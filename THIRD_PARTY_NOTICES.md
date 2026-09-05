@@ -87,6 +87,16 @@ https://huggingface.co/hexgrad/Kokoro-82M) are downloaded on demand from the
 sherpa-onnx releases - including espeak-ng's data files - and are never
 bundled with the app.
 
+## The cutout model
+
+Remove background's automatic and custom modes run Google's MediaPipe
+Selfie Segmentation model (Apache-2.0), in the ONNX conversion published by
+the ONNX Community (https://huggingface.co/onnx-community/mediapipe_selfie_segmentation,
+Apache-2.0). The model file is compiled into the `concat-vision` crate; see
+`engine/crates/concat-vision/models/NOTICE.md`. It is run by tract
+(https://github.com/sonos/tract, MIT OR Apache-2.0), in pure Rust, so no
+inference runtime is linked or shipped for it.
+
 ## Effect preview photograph
 
 The effect catalogue thumbnails are rendered from a photograph by

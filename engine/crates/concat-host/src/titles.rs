@@ -134,6 +134,8 @@ impl Titles {
                     media_width: Some(width),
                     media_height: Some(height),
                     has_audio: Some(false),
+                    cutout: None,
+                    mask_dir: String::new(),
                 },
                 block,
             });

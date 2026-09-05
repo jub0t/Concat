@@ -159,6 +159,16 @@ export component ConfigPane inherits Rectangle {
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
 
+    /// The cutout's brush and controls; see Editor.
+    in property <int> brush-tool;
+    in property <float> brush-size;
+    in property <bool> painting;
+    callback cutout-mode(mode: int);
+    callback cutout-tool(index: int);
+    callback cutout-size(size: float);
+    callback cutout-painting(on: bool);
+    callback cutout-clear();
+
 
     // The tab strip follows the selection, and stays short: three tabs at
     // most, each with a dropdown of its sections, because seven tabs on a
@@ -473,6 +483,9 @@ export component ConfigPane inherits Rectangle {
                     selected: root.selected;
                     applied: root.applied-visual;
                     params: root.visual-params;
+                    brush-tool: root.brush-tool;
+                    brush-size: root.brush-size;
+                    painting: root.painting;
                     set(field, value) => { root.clip-set(field, value); }
                     commit => { root.clip-commit(); }
                     chain-add(id) => { root.chain-add(false, id); }
@@ -480,6 +493,11 @@ export component ConfigPane inherits Rectangle {
                     chain-set-param(index, key, value) => {
                         root.chain-set-param(false, index, key, value);
                     }
+                    cutout-mode(mode) => { root.cutout-mode(mode); }
+                    cutout-tool(index) => { root.cutout-tool(index); }
+                    cutout-size(size) => { root.cutout-size(size); }
+                    cutout-painting(on) => { root.cutout-painting(on); }
+                    cutout-clear => { root.cutout-clear(); }
                 }
 
                 if root.showing == "Animation": AnimationPanel {

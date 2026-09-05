@@ -148,6 +148,10 @@ export component Seat inherits Rectangle {
             frame: Editor.preview-frame;
             stage-items: Editor.stage-items;
             stage-guides: Editor.stage-guides;
+            stroke-path: Editor.stroke-path;
+            stroke-width: Editor.stroke-width;
+            stroke-erase: Editor.stroke-erase;
+            painting: Editor.painting && Editor.selected-clip.cutout == 2;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => { Editor.seek(seconds); }
@@ -206,6 +210,14 @@ export component Seat inherits Rectangle {
             chain-set-param(audio, index, key, value) => {
                 Editor.chain-set-param(audio, index, key, value);
             }
+            brush-tool: Editor.brush-tool;
+            brush-size: Editor.brush-size;
+            painting: Editor.painting;
+            cutout-mode(mode) => { Editor.cutout-mode(mode); }
+            cutout-tool(index) => { Editor.cutout-tool(index); }
+            cutout-size(size) => { Editor.cutout-size(size); }
+            cutout-painting(on) => { Editor.cutout-painting(on); }
+            cutout-clear => { Editor.cutout-clear(); }
 
             project-name: Editor.project-name;
             project-folder: Editor.project-folder;

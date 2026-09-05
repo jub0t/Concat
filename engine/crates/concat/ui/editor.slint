@@ -182,6 +182,27 @@ export global Editor {
     callback stage-dragged(x: float, y: float, snap: bool);
     callback stage-released();
 
+    /// A custom cutout's brush, as the inspector set it: which of the four
+    /// tools, how wide as a fraction of the picture, and whether a press on
+    /// the stage paints at all rather than moving the picture.
+    in-out property <int> brush-tool;
+    in-out property <float> brush-size;
+    in-out property <bool> painting;
+    /// The stroke under the pointer, as path commands over a 1000 × 1000
+    /// viewbox of the stage; empty between strokes. The width is a fraction
+    /// of the stage's width; `erase` colours the line for a tool that takes
+    /// away.
+    in-out property <string> stroke-path;
+    in-out property <float> stroke-width;
+    in-out property <bool> stroke-erase;
+    /// The Remove background section's controls; see VideoPanel. `mode` is
+    /// 0 off, 1 automatic, 2 custom - the two screens are chain links.
+    callback cutout-mode(mode: int);
+    callback cutout-tool(index: int);
+    callback cutout-size(size: float);
+    callback cutout-painting(on: bool);
+    callback cutout-clear();
+
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;
     in-out property <int> timeline-current-tab;

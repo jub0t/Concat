@@ -22,8 +22,8 @@ use serde_json::{Map, Value, json};
 
 use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
-    AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, MediaItem, MediaKind, Project,
-    SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
+    AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, Cutout, MediaItem, MediaKind,
+    Project, SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -248,6 +248,12 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                     }
                     .tidy()
                 }),
+                // Tolerated like everything else: a cutout the reader
+                // cannot make sense of is no cutout.
+                cutout: entry
+                    .get("cutout")
+                    .and_then(|value| serde_json::from_value::<Cutout>(value.clone()).ok())
+                    .map(Cutout::tidy),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),

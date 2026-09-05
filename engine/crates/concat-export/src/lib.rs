@@ -36,8 +36,9 @@ use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, 
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource};
-use concat_project::model::AppliedFilter;
+use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{Compositor, CpuCompositor, Layer, Placement, plan_frame};
+use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
@@ -185,6 +186,15 @@ pub struct ExportClip {
     /// older caller still exports correctly - just slower to start.
     #[serde(default)]
     pub has_audio: Option<bool>,
+    /// The background taken away by a mask, as the document holds it.
+    /// Rendered only with `mask_dir`: a cutout whose masks are nowhere yet
+    /// leaves the picture whole.
+    #[serde(default)]
+    pub cutout: Option<Cutout>,
+    /// Where this clip's media has its masks - see `concat_vision::mask_dir`
+    /// - or empty when the flattener had no project folder to name it by.
+    #[serde(default)]
+    pub mask_dir: String,
 }
 
 /// One animation key, as the flattener hands it over.
@@ -578,6 +588,56 @@ struct Source<F> {
     passes: Vec<ShaderPass>,
 }
 
+/// A cutout as the frame loop runs it: the masks, what to paint on them,
+/// and how a decoded pixel finds its place in the source.
+struct CutoutJob {
+    store: MaskStore,
+    cutout: Cutout,
+    mapping: Mapping,
+    /// The source's width over its height, for round brushes.
+    aspect: f32,
+}
+
+impl CutoutJob {
+    /// The job for a clip, or `None` when it has no cutout or no masks to
+    /// cut with.
+    fn of(clip: &ExportClip) -> Option<CutoutJob> {
+        let cutout = clip.cutout.clone()?;
+        if clip.mask_dir.is_empty() {
+            return None;
+        }
+        let aspect = match (clip.media_width, clip.media_height) {
+            (Some(width), Some(height)) if width > 0 && height > 0 => width as f32 / height as f32,
+            _ => 1.0,
+        };
+        Some(CutoutJob {
+            store: MaskStore::open(Path::new(&clip.mask_dir)),
+            cutout,
+            mapping: Mapping {
+                crop: clip
+                    .crop
+                    .map(|edges| edges.map(|edge| edge as f32))
+                    .unwrap_or([0.0; 4]),
+                flip_h: clip.flip_h,
+                flip_v: clip.flip_v,
+            },
+            aspect,
+        })
+    }
+
+    /// The frame with its background gone, when the instant has a mask.
+    /// `None` leaves the picture whole: an instant not analysed yet is
+    /// shown as shot rather than not at all.
+    fn cut(&self, frame: &Frame, source_time: Rational) -> Option<Frame> {
+        let mask = self
+            .store
+            .resolved(source_time.as_f64(), &self.cutout, self.aspect)?;
+        let mut out = frame.clone();
+        concat_vision::cut(&mut out, &mask, &self.mapping);
+        Some(out)
+    }
+}
+
 /// The fraction-to-pixel placement of one composited layer: fitted and
 /// centred is the base, the clip's transform moves it from there. The one
 /// definition the exporter and the preview share - these two paths must
@@ -640,6 +700,7 @@ fn render_picture(
         treatments,
         pre_chains,
         passes,
+        cutouts,
     } = build_timeline(request, rate, visible, gpu);
 
     let mut encoder = Encoder::create(
@@ -690,8 +751,12 @@ fn render_picture(
                     chain,
                     pre,
                 ) {
+                    let frame = cutouts
+                        .get(&layer.clip)
+                        .and_then(|job| job.cut(&frame, layer.source_time))
+                        .unwrap_or_else(|| frame.as_ref().clone());
                     sources.push(Source {
-                        frame: frame.as_ref().clone(),
+                        frame,
                         opacity: layer.opacity,
                         transform: layer.transform,
                         track: tracks.get(&layer.clip).copied().unwrap_or(0),
@@ -754,6 +819,15 @@ fn render_picture(
             // aborting the export - a clip trimmed past its media's end is a
             // mistake in the edit, not a failure of the renderer.
             if let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
+                // The cutout, on the decoded picture before it is placed:
+                // the same frame both compositors then draw.
+                let frame = match cutouts
+                    .get(&layer.clip)
+                    .and_then(|job| job.cut(&frame, layer.source_time))
+                {
+                    Some(cut) => cut,
+                    None => frame,
+                };
                 sources.push(Source {
                     frame,
                     opacity: layer.opacity,
@@ -828,6 +902,8 @@ struct BuiltTimeline {
     passes: HashMap<ClipId, Vec<ShaderPass>>,
     /// The layers: treatments over the stack, by span.
     treatments: Vec<Treatment>,
+    /// The clips whose background a mask takes away.
+    cutouts: HashMap<ClipId, CutoutJob>,
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
@@ -962,6 +1038,7 @@ fn build_timeline(
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut passes: HashMap<ClipId, Vec<ShaderPass>> = HashMap::new();
+    let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
     let tracks: Vec<_> = (0..lanes)
@@ -1045,6 +1122,9 @@ fn build_timeline(
                     passes.insert(id, clip_passes);
                 }
             }
+            if let Some(job) = CutoutJob::of(clip) {
+                cutouts.insert(id, job);
+            }
         }
     }
 
@@ -1057,6 +1137,7 @@ fn build_timeline(
         treatments,
         pre_chains,
         passes,
+        cutouts,
     }
 }
 
@@ -1320,6 +1401,7 @@ pub fn preview_sources(
         treatments,
         pre_chains,
         passes,
+        cutouts,
     } = preview_timeline(request, rate, gpu);
     let time = quantise(request.time, rate);
     let plan = plan_frame(&timeline, time);
@@ -1344,14 +1426,23 @@ pub fn preview_sources(
             chain,
             pre,
         ) {
-            Ok(frame) => sources.push(Source {
-                frame,
-                opacity: layer.opacity,
-                transform: layer.transform,
-                track: tracks.get(&layer.clip).copied().unwrap_or(0),
-                blend: layer.blend,
-                passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
-            }),
+            Ok(frame) => {
+                let frame = match cutouts
+                    .get(&layer.clip)
+                    .and_then(|job| job.cut(&frame, layer.source_time))
+                {
+                    Some(cut) => std::sync::Arc::new(cut),
+                    None => frame,
+                };
+                sources.push(Source {
+                    frame,
+                    opacity: layer.opacity,
+                    transform: layer.transform,
+                    track: tracks.get(&layer.clip).copied().unwrap_or(0),
+                    blend: layer.blend,
+                    passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                })
+            }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
         }
     }
@@ -1571,6 +1662,8 @@ mod tests {
             media_width: None,
             media_height: None,
             has_audio: None,
+            cutout: None,
+            mask_dir: String::new(),
         }
     }
 

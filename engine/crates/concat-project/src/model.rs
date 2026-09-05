@@ -147,6 +147,114 @@ fn yes() -> bool {
     true
 }
 
+/// How a picture's background is taken away when there is no key colour
+/// to remove: a person mask found by the cutout model, alone or corrected
+/// by hand.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cutout {
+    /// Automatic keeps what the model finds; custom adds the strokes.
+    pub mode: CutoutMode,
+    /// How far the edge is softened, as a fraction of the picture's width.
+    #[serde(default = "default_feather")]
+    pub feather: f64,
+    /// Corrections painted on the monitor, in the order they were made.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub strokes: Vec<Stroke>,
+}
+
+/// The two ways a cutout decides what stays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CutoutMode {
+    /// The model's mask as it is.
+    Auto,
+    /// The model's mask, then the strokes over it.
+    Custom,
+}
+
+/// One brush stroke over a cutout: which tool, how wide, and where it went.
+/// Points are fractions of the source picture, `(0, 0)` its top-left, so a
+/// stroke survives a change of output size, a crop or a flip.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stroke {
+    /// What the stroke does to the mask beneath it.
+    pub tool: BrushTool,
+    /// The brush's diameter as a fraction of the picture's width.
+    pub size: f64,
+    /// The path, as `[x, y]` fractions.
+    pub points: Vec<[f64; 2]>,
+}
+
+/// The four brushes of a custom cutout.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrushTool {
+    /// Keeps what the model thought might be the subject under the stroke.
+    SmartBrush,
+    /// Keeps everything under the stroke.
+    Brush,
+    /// Removes what the model was unsure of under the stroke.
+    SmartEraser,
+    /// Removes everything under the stroke.
+    Eraser,
+}
+
+/// The edge softness a cutout starts with.
+pub const DEFAULT_FEATHER: f64 = 0.01;
+/// The widest an edge may be softened.
+pub const MAX_FEATHER: f64 = 0.1;
+/// The brush's narrowest and widest, as fractions of the picture's width.
+pub const MIN_BRUSH: f64 = 0.005;
+/// See [`MIN_BRUSH`].
+pub const MAX_BRUSH: f64 = 0.5;
+
+fn default_feather() -> f64 {
+    DEFAULT_FEATHER
+}
+
+impl Cutout {
+    /// An automatic cutout with the default edge.
+    pub fn auto() -> Cutout {
+        Cutout {
+            mode: CutoutMode::Auto,
+            feather: DEFAULT_FEATHER,
+            strokes: Vec::new(),
+        }
+    }
+
+    /// The feather held to its range, every stroke to its own, and strokes
+    /// with nowhere to go dropped.
+    pub fn tidy(mut self) -> Cutout {
+        self.feather = if self.feather.is_finite() {
+            self.feather.clamp(0.0, MAX_FEATHER)
+        } else {
+            DEFAULT_FEATHER
+        };
+        self.strokes = self.strokes.into_iter().filter_map(Stroke::tidy).collect();
+        self
+    }
+}
+
+impl Stroke {
+    /// The size held to its range and the points to the picture; `None`
+    /// for a stroke with no points left.
+    pub fn tidy(mut self) -> Option<Stroke> {
+        self.size = if self.size.is_finite() {
+            self.size.clamp(MIN_BRUSH, MAX_BRUSH)
+        } else {
+            MIN_BRUSH
+        };
+        self.points.retain(|[x, y]| x.is_finite() && y.is_finite());
+        for point in &mut self.points {
+            point[0] = point[0].clamp(-0.5, 1.5);
+            point[1] = point[1].clamp(-0.5, 1.5);
+        }
+        (!self.points.is_empty()).then_some(self)
+    }
+}
+
 /// A crop: what is taken off each edge, as fractions of the source.
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -390,6 +498,10 @@ pub struct Clip {
     /// fractions of the source's width and height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<Crop>,
+    /// The background taken away by a mask rather than a key colour; see
+    /// [`Cutout`]. Keying by colour is a package on `video_effects`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cutout: Option<Cutout>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,

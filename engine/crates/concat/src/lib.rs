@@ -678,6 +678,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.stage_released();
     }));
 
+    // ── the cutout ──
+    editor.on_cutout_mode(on_window!(|state, mode: i32| {
+        state.cutout_mode(mode);
+    }));
+    editor.on_cutout_tool(on_window!(|state, index: i32| {
+        state.cutout_tool(index);
+    }));
+    editor.on_cutout_size(on_lanes!(|state, size: f32| {
+        state.cutout_size(size);
+    }));
+    editor.on_cutout_painting(on_window!(|state, on: bool| {
+        state.cutout_painting(on);
+    }));
+    editor.on_cutout_clear(on_window!(|state| {
+        state.cutout_clear();
+    }));
+
     // ── the context menu ──
     editor.on_clip_context(on_window!(|state, id: SharedString| {
         state.menu_token += 1;

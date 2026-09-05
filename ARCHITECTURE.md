@@ -40,7 +40,7 @@ Two consequences of the rule shape everything below:
 
 ## 2. The map
 
-Everything lives in `engine/`, one Cargo workspace of twelve crates.
+Everything lives in `engine/`, one Cargo workspace of thirteen crates.
 
 | Crate | Owns | Lines |
 |---|---|---|
@@ -51,6 +51,7 @@ Everything lives in `engine/`, one Cargo workspace of twelve crates.
 | `concat-render` | A timeline plus an instant into one frame: the plan, the CPU compositor, the wgpu compositor. | 1.9k |
 | `concat-export` | Timeline to file. Transitions resolve here; the frame loop and the one-pass mix; the paused monitor's true frame. | 2.2k |
 | `concat-text` | Titles as pixels: font lookup, shaping, rasterising onto a frame-sized transparent canvas. | 0.6k |
+| `concat-vision` | What the engine sees in a picture: the person mask behind a cutout, brush strokes over it, the frame cut by it; the model itself behind `infer`. | 0.9k |
 | `concat-host` | What a window needs that is not the edit: sessions, project folders, caches, the monitor, audio playback, the export driver, templates, job slots, app directories. | 3.8k |
 | `concat-speech` | Transcription with whisper.cpp and text to speech with Kokoro, both in-process, models downloaded on demand. | 1.2k |
 | `concat-cli` | A driver for the engine without a window: `probe` and `render`. | 0.2k |
@@ -62,10 +63,13 @@ The dependency arrows point one way:
 ```
 concat ──► concat-speech ──► concat-host ──► concat-export ──► concat-render ──► concat-core
    │                              │               │    │            ▲
-   │                              │               │    └──► concat-effects ──► concat-project ──► concat-core
+   │                              │               │    ├──► concat-effects ──► concat-project ──► concat-core
+   │                              │               │    └──► concat-vision ──► concat-project, concat-core
    │                              ├──► concat-media ◄──┘
-   │                              └──► concat-text
-   └──► concat-effects (the catalogue, for the inspector's shelves)
+   │                              ├──► concat-text
+   │                              └──► concat-vision (with `infer`: the model runs here)
+   ├──► concat-effects (the catalogue, for the inspector's shelves)
+   └──► concat-vision (a press on the stage, mapped into the source)
 
 concat-android ──► concat            concat-cli ──► concat-core, concat-media, concat-render
 ```
@@ -74,7 +78,9 @@ concat-android ──► concat            concat-cli ──► concat-core, con
 because the document needs serde and core's zero-dependency rule is worth
 more than the adjacency. Five crates carry no native library and build for
 the web as well (`concat-core`, `concat-project`, `concat-effects`,
-`concat-render`, `concat-text`); CI keeps that true.
+`concat-render`, `concat-text`); CI keeps that true. `concat-vision` is
+pure Rust too, inference included: tract runs the model, so a cutout needs
+no runtime library on any platform.
 
 ---
 
@@ -377,6 +383,15 @@ keeps its readers rolling forward instead of seeking.
 
 ---
 
+**Cutouts happen on the decoded frame.** A clip with a cutout names the
+directory its media's masks live in (the flattener fills it in when it
+knows the project folder), and the frame loop asks `concat-vision` for the
+mask nearest the layer's source instant, with the clip's strokes painted
+on and its feather applied, and multiplies the decoded frame's alpha by
+it through the clip's crop and flips. That happens before the frame
+becomes a layer, so both compositors draw the same cut pixels, and an
+instant with no mask yet draws the picture as shot.
+
 ## 9. Titles: `concat-text` and `host::titles`
 
 A text clip is a style and some words; the compositor wants a picture.
@@ -402,7 +417,41 @@ look repaints.
 
 ---
 
-## 10. The host layer: `concat-host`
+## 10. Cutouts: `concat-vision` and `host::cutout`
+
+A cutout takes a picture's background away without a key colour. The
+model is MediaPipe's selfie segmentation, compiled into `concat-vision`
+and run by tract: a 256 × 256 picture in, a probability per pixel out,
+about twenty-five milliseconds a frame on one core. Masks are square
+whatever the picture's shape, and every position in one is a fraction of
+the source picture, which is also how strokes are stored; a crop, a flip
+or a change of output size changes nothing about either, because
+`apply::Mapping` is the one place a decoded pixel is walked back to a
+source fraction.
+
+**The store is the project's.** Each media file's masks are PNGs in
+`cache/masks/<hash>-<model>/`, one per analysed source instant, named by
+that instant in milliseconds, ten a second of footage and one for a
+still. The file names are the index. The renderer reads them; the host's
+`cutout` module writes them, decoding the media at the model's size along
+each missing stretch and running the model on a batch of frames at once,
+one media at a time through a `SingleFlight`. The window notices which
+media want masks they lack after every change and starts the next
+analysis when the last reports back; the picture is shown as shot until
+its masks arrive, and the inspector says how far along they are.
+
+**Custom is automatic plus strokes.** A brush stroke is a tool, a
+diameter and a path, painted as discs onto the model's mask: the brush
+and eraser do exactly what was painted; the smart brush keeps only what
+the model gave some chance of being the subject, the smart eraser removes
+only what it was unsure of. Each stroke is one command and one undo step.
+The feather is three box blurs over the resolved mask, and the resolved
+mask is cached per instant and settings so a paused monitor never
+recomputes it.
+
+---
+
+## 11. The host layer: `concat-host`
 
 What the window needs that is not the edit. Nothing here knows about a
 window; long work reports through callbacks and cancels through flags, and
@@ -457,6 +506,11 @@ Every lock in playback and titles recovers from poisoning rather than
 propagating it: each guards a cache or a list that is still valid after a
 panic elsewhere, and refusing it would end audio or titles for the session.
 
+**Cutouts.** `Cutouts` holds the model, loaded on first use, and the
+one-analysis slot; see section 10. `outstanding` says how many instants a
+request still needs without doing anything, which is how the window
+decides whether to start it.
+
 **Export, templates, jobs, directories.** `Exporter` adapts a progress
 closure into the engine's `Reporter` and runs under a `SingleFlight`,
 which refuses a second concurrent job and gives each run its own cancel
@@ -470,7 +524,7 @@ platform's config and data directories under `app.concat.editor`.
 
 ---
 
-## 11. Speech: `concat-speech`
+## 12. Speech: `concat-speech`
 
 Transcription runs whisper.cpp in-process on a clip's audio decoded to
 16 kHz mono, greedy sampling, threads capped at eight, with the job's
@@ -487,7 +541,7 @@ native libraries stay out of everything that does not speak.
 
 ---
 
-## 12. The window: `concat`
+## 13. The window: `concat`
 
 **One library, three entry points.** `concat::run()` is the program.
 `main.rs` calls it on the desktop and on iOS; `concat-android`'s
@@ -579,7 +633,7 @@ previews are embedded by `build.rs`.
 
 ---
 
-## 13. Build and delivery
+## 14. Build and delivery
 
 - **Toolchain.** Pinned in `engine/rust-toolchain.toml`. `cargo build`
   needs the FFmpeg 7+ development libraries, cmake and a C++ toolchain
@@ -617,7 +671,7 @@ previews are embedded by `build.rs`.
 
 ---
 
-## 14. Testing
+## 15. Testing
 
 240 unit tests, all in-file `#[cfg(test)]` modules; there are no `tests/`
 directories. The pure layers are where the coverage is dense: rational
@@ -638,20 +692,20 @@ the app, which is the work in 15.1.
 
 ---
 
-## 15. Next work
+## 16. Next work
 
 Ordered by how much each matters. Each is either an invariant a
 contributor could break without knowing it, or a piece of work with a
 known shape.
 
-### 15.1 Put a real project through every flow in the window
+### 16.1 Put a real project through every flow in the window
 
 Import, place, trim, split, transitions, a title, an effect, a speed
 curve, transcription, narration, a template, an export, on each renderer
 and each platform. The engine's seams are tested; the window's are used.
 What that pass turns up goes above everything below.
 
-### 15.2 A phone layout
+### 16.2 A phone layout
 
 The window builds and packages for Android and iOS, and what runs there is
 the desktop's tree on a phone's screen. A phone wants one seat at a time,
@@ -663,7 +717,7 @@ asked for by name (they are linked, and the software decoder is what is
 opened); and the monitor on Android, which composites on the CPU because
 Slint's Android backend creates its own device.
 
-### 15.3 Two paths that build different chains
+### 16.3 Two paths that build different chains
 
 On the GPU, effects with a shader leave the FFmpeg chain and travel as
 passes; on the CPU they stay in the chain. A machine with an adapter and
@@ -674,7 +728,7 @@ render on one machine and not the other. Either require the chain for
 `effect` kinds in validation, or teach the CPU path to refuse the package
 loudly.
 
-### 15.4 Small things the code already knows about
+### 16.4 Small things the code already knows about
 
 - `MoveTimeline`'s documented index is counted with the timeline removed;
   the clamp is against the unremoved length.
@@ -695,10 +749,15 @@ loudly.
   imported for one type.
 - No clip culling beyond the visible flag; a windowing scheme is worth
   writing the day a timeline needs one.
+- The cutout model is one, sized for footage. A finer, salient-object
+  model for stills would slot in behind the same `Segmenter`, keyed by
+  its own `MODEL_ID` so the two never share a cache.
+- A custom cutout's strokes are painted at the mask's resolution, so a
+  very fine brush on a large picture is as fine as 256 pixels allow.
 
 ---
 
-## 16. How to change things
+## 17. How to change things
 
 - **A new operation on the edit.** Add a `Command` variant in
   `concat-project/src/commands.rs`, make its `apply` report `applied`

@@ -28,7 +28,7 @@ use concat_effects::manifest::Kind as PackageKind;
 use concat_host::export::{self, ExportSpec};
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
-use concat_host::{ProjectInfo, Session, media, projects, templates};
+use concat_host::{AnalyseRequest, Cutouts, ProjectInfo, Session, media, projects, templates};
 use concat_media::Peaks;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
@@ -396,7 +396,25 @@ pub enum Gesture {
         centre: (f64, f64),
         from: f64,
     },
+    /// A brush on the stage: the stroke so far, in source fractions for
+    /// the command it becomes and in stage fractions for the line drawn
+    /// under the pointer meanwhile.
+    Paint {
+        clip: String,
+        tool: model::BrushTool,
+        size: f64,
+        points: Vec<[f64; 2]>,
+        screen: Vec<(f32, f32)>,
+    },
 }
+
+/// The custom cutout's brushes, in the inspector's order.
+pub const BRUSHES: [model::BrushTool; 4] = [
+    model::BrushTool::SmartBrush,
+    model::BrushTool::Brush,
+    model::BrushTool::SmartEraser,
+    model::BrushTool::Eraser,
+];
 
 /// Where a picture was when a stage move began.
 pub struct StageOrigin {
@@ -666,6 +684,17 @@ pub struct Studio {
     pub speakers: Vec<concat_speech::tts::VoiceInfo>,
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
+
+    // ── cutouts ──
+    /// The brush a custom cutout paints with: a row of `BRUSHES`.
+    pub brush: usize,
+    /// The brush's diameter, as a fraction of the picture's width.
+    pub brush_size: f64,
+    /// Whether a press on the stage paints the selected custom cutout
+    /// rather than moving the picture.
+    pub painting: bool,
+    /// The mask analyses running, by media id, and how far each has got.
+    cutout_jobs: HashMap<String, f32>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -770,6 +799,7 @@ fn commit_key(commands: &[Command]) -> String {
         .iter()
         .map(|command| match command {
             Command::SetClipTransform { .. } => "transform".to_owned(),
+            Command::SetClipCutout { .. } => "cutout".to_owned(),
             Command::SetClipSpeed { .. } => "speed".to_owned(),
             Command::SetClipSpeedCurve { .. } => "curve".to_owned(),
             Command::SetClipAnimation { slot, .. } => format!("animation:{slot:?}"),
@@ -1031,6 +1061,10 @@ impl Studio {
             speech: SpeechSheet::default(),
             speakers: Vec::new(),
             text_presets,
+            brush: 0,
+            brush_size: 0.06,
+            painting: true,
+            cutout_jobs: HashMap::new(),
             host,
         };
         studio.settings.language = studio.prefs.language.unwrap_or(0);
@@ -1222,6 +1256,7 @@ impl Studio {
         self.sync_audio();
         self.request_media_art();
         self.request_preview();
+        self.ensure_cutouts();
     }
 
     pub fn undo(&mut self) {
@@ -2306,7 +2341,8 @@ impl Studio {
             | Gesture::StageMove { .. }
             | Gesture::StageScale { .. }
             | Gesture::StageRotate { .. }
-            | Gesture::StageStretch { .. } => {}
+            | Gesture::StageStretch { .. }
+            | Gesture::Paint { .. } => {}
         }
         self.gesture = gesture;
     }
@@ -2367,7 +2403,8 @@ impl Studio {
             other @ (Gesture::StageMove { .. }
             | Gesture::StageScale { .. }
             | Gesture::StageRotate { .. }
-            | Gesture::StageStretch { .. }) => {
+            | Gesture::StageStretch { .. }
+            | Gesture::Paint { .. }) => {
                 self.gesture = other;
             }
         }
@@ -2395,6 +2432,10 @@ impl Studio {
             ClipField::OffsetY => clip.offset_y = value.clamp(-1.0, 1.0),
             ClipField::Rotation => clip.rotation = value.clamp(-180.0, 180.0),
             ClipField::Opacity => clip.opacity = value.clamp(0.0, 1.0),
+            ClipField::CutoutFeather => {
+                clip.cutout.get_or_insert_with(model::Cutout::auto).feather =
+                    value.clamp(0.0, model::MAX_FEATHER);
+            }
             ClipField::Volume => clip.volume = value.max(0.0),
             ClipField::Speed => {
                 let speed = value.clamp(0.0625, 16.0);
@@ -2584,6 +2625,12 @@ impl Studio {
                 rotation: Some(after.rotation),
                 stretch_x: Some(after.stretch_x),
                 stretch_y: Some(after.stretch_y),
+            });
+        }
+        if after.cutout != before.cutout {
+            commands.push(Command::SetClipCutout {
+                clip_id: id.clone(),
+                cutout: after.cutout.clone(),
             });
         }
         if after.speed_curve != before.speed_curve {
@@ -2865,6 +2912,17 @@ impl Studio {
     /// of everything selected that is under the playhead. Empty stage
     /// clears the selection, as an empty lane does.
     pub fn stage_pressed(&mut self, x: f32, y: f32, additive: bool) {
+        if let Some(clip) = self.paint_target() {
+            let point = self.stage_to_source(&clip, f64::from(x), f64::from(y));
+            self.gesture = Gesture::Paint {
+                clip: clip.id.clone(),
+                tool: BRUSHES[self.brush.min(BRUSHES.len() - 1)],
+                size: self.brush_size,
+                points: vec![point],
+                screen: vec![(x, y)],
+            };
+            return;
+        }
         let (x, y) = (f64::from(x), f64::from(y));
         let Some(id) = self.stage_hit(x, y) else {
             if !additive {
@@ -2988,9 +3046,23 @@ impl Studio {
     /// The pointer moved with a stage gesture live: the echo follows, and
     /// the monitor composites it.
     pub fn stage_dragged(&mut self, x: f32, y: f32, snap: bool) {
+        let mut gesture = std::mem::replace(&mut self.gesture, Gesture::None);
+        if let Gesture::Paint {
+            clip,
+            points,
+            screen,
+            ..
+        } = &mut gesture
+        {
+            if let Some(clip) = self.clip(clip).cloned() {
+                points.push(self.stage_to_source(&clip, f64::from(x), f64::from(y)));
+                screen.push((x, y));
+            }
+            self.gesture = gesture;
+            return;
+        }
         let (x, y) = (f64::from(x), f64::from(y));
         let (width, height) = self.output_size();
-        let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         match &gesture {
             Gesture::StageMove {
                 primary,
@@ -3201,6 +3273,20 @@ impl Studio {
             Gesture::StageScale { clip, .. }
             | Gesture::StageRotate { clip, .. }
             | Gesture::StageStretch { clip, .. } => vec![clip],
+            Gesture::Paint {
+                clip,
+                tool,
+                size,
+                points,
+                ..
+            } => {
+                // The stroke becomes one command, and one undo step.
+                self.apply(Command::AddCutoutStroke {
+                    clip_id: clip,
+                    stroke: model::Stroke { tool, size, points },
+                });
+                return;
+            }
             other => {
                 // Not ours to end; a lane gesture is still live.
                 self.gesture = other;
@@ -3251,6 +3337,250 @@ impl Studio {
                 self.apply(Command::Batch { commands });
             }
         }
+    }
+
+    // ── cutouts ──
+    //
+    // A cutout is a mask per source instant, found by the host's model and
+    // cached in the project folder. The window's part is to notice which
+    // media need masks they do not have, run one analysis at a time, and
+    // turn a brush on the stage into strokes on the document.
+
+    /// Starts the analysis for the first media whose cutout wants masks
+    /// that are not there, unless one is running. Called after every
+    /// change; the finished job calls it again for whatever is next.
+    pub fn ensure_cutouts(&mut self) {
+        if !self.cutout_jobs.is_empty() || self.host.cutouts.is_busy() {
+            return;
+        }
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project = std::path::PathBuf::from(session.path());
+        let mut wanted: Vec<(String, AnalyseRequest)> = Vec::new();
+        for clip in &self.timeline().clips {
+            if clip.cutout.is_none() || !clip.kind.is_visual() {
+                continue;
+            }
+            let Some(media) = self.project().media_by_id(&clip.media_id) else {
+                continue;
+            };
+            // The source the clip shows: its in-point, for as long as it
+            // runs at its speed. A curve's mean is its speed, so this
+            // covers a curved clip too.
+            let range = (
+                clip.source_start,
+                clip.source_start + clip.duration * clip.speed.max(0.0625),
+            );
+            match wanted.iter_mut().find(|(id, _)| *id == media.id) {
+                Some((_, request)) => request.ranges.push(range),
+                None => wanted.push((
+                    media.id.clone(),
+                    AnalyseRequest {
+                        project: project.clone(),
+                        media_path: media.path.clone(),
+                        still: media.kind == model::MediaKind::Image,
+                        ranges: vec![range],
+                    },
+                )),
+            }
+        }
+        let Some((id, request)) = wanted
+            .into_iter()
+            .find(|(_, request)| Cutouts::outstanding(request) > 0)
+        else {
+            return;
+        };
+        self.cutout_jobs.insert(id.clone(), 0.0);
+        let cutouts = Arc::clone(&self.host.cutouts);
+        spawn(
+            move || {
+                let mut last = -1.0f32;
+                let reporting = id.clone();
+                let result = cutouts.analyse(&request, &mut |progress| {
+                    // Every percent, not every frame: the readout cannot
+                    // use more and the event loop has other work.
+                    if progress - last >= 0.01 {
+                        last = progress;
+                        let id = reporting.clone();
+                        on_ui(move |studio, _, _| {
+                            if let Some(held) = studio.cutout_jobs.get_mut(&id) {
+                                *held = progress;
+                            }
+                        });
+                    }
+                });
+                (id, result)
+            },
+            |studio, _, _, (id, result)| {
+                studio.cutout_jobs.remove(&id);
+                match result {
+                    Ok(_) => {
+                        // The monitor shows the cut, and whatever else is
+                        // waiting gets its turn.
+                        studio.request_preview();
+                        studio.ensure_cutouts();
+                    }
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&format!("Remove background: {error}"), true),
+                }
+            },
+        );
+    }
+
+    /// The Mode row: 0 off, 1 automatic, 2 custom. The chroma rows are the
+    /// inspector's own business, on the chain.
+    pub fn cutout_mode(&mut self, mode: i32) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(clip) = self.clip(&id).cloned() else {
+            return;
+        };
+        let held = clip.cutout.clone().unwrap_or_else(model::Cutout::auto);
+        let cutout = match mode {
+            1 => Some(model::Cutout {
+                mode: model::CutoutMode::Auto,
+                ..held
+            }),
+            2 => Some(model::Cutout {
+                mode: model::CutoutMode::Custom,
+                ..held
+            }),
+            _ => None,
+        };
+        if mode == 2 {
+            self.painting = true;
+        }
+        if cutout != clip.cutout {
+            self.apply(Command::SetClipCutout {
+                clip_id: id,
+                cutout,
+            });
+        }
+    }
+
+    /// Takes every stroke off the selected clip's cutout, keeping it custom.
+    pub fn cutout_clear(&mut self) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(cutout) = self.clip(&id).and_then(|clip| clip.cutout.clone()) else {
+            return;
+        };
+        if cutout.strokes.is_empty() {
+            return;
+        }
+        self.apply(Command::SetClipCutout {
+            clip_id: id,
+            cutout: Some(model::Cutout {
+                strokes: Vec::new(),
+                ..cutout
+            }),
+        });
+    }
+
+    pub fn cutout_tool(&mut self, index: i32) {
+        self.brush = index.clamp(0, BRUSHES.len() as i32 - 1) as usize;
+    }
+
+    pub fn cutout_size(&mut self, size: f32) {
+        self.brush_size = f64::from(size).clamp(model::MIN_BRUSH, model::MAX_BRUSH);
+    }
+
+    pub fn cutout_painting(&mut self, on: bool) {
+        self.painting = on;
+    }
+
+    /// The picture a press on the stage would paint: the one selected clip,
+    /// under the playhead, with a custom cutout, while painting is on.
+    fn paint_target(&self) -> Option<Clip> {
+        if !self.painting {
+            return None;
+        }
+        let id = self.sole_selection()?;
+        let clip = self.clip(&id)?;
+        let custom = clip
+            .cutout
+            .as_ref()
+            .is_some_and(|cutout| cutout.mode == model::CutoutMode::Custom);
+        if !custom || !clip.kind.is_visual() || self.locked(&clip.track_id) {
+            return None;
+        }
+        self.stage_clips()
+            .into_iter()
+            .any(|shown| shown.id == clip.id)
+            .then(|| clip.clone())
+    }
+
+    /// Where a stage point lands in the source picture, in the fractions a
+    /// stroke is stored in: the footprint's turn undone, then the crop and
+    /// the flips, the same way a decoded pixel finds its mask.
+    fn stage_to_source(&self, clip: &Clip, x: f64, y: f64) -> [f64; 2] {
+        let footprint = self.footprint(clip);
+        let (width, height) = self.output_size();
+        let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
+        let dx = (x - footprint.cx) * width;
+        let dy = (y - footprint.cy) * height;
+        let (sin, cos) = footprint.rotation.to_radians().sin_cos();
+        let along = dx * cos + dy * sin;
+        let down = -dx * sin + dy * cos;
+        let px = along / (footprint.w * width).max(1e-6) + 0.5;
+        let py = down / (footprint.h * height).max(1e-6) + 0.5;
+        let mapping = concat_vision::Mapping {
+            crop: clip
+                .crop
+                .map(|crop| {
+                    [
+                        crop.left as f32,
+                        crop.top as f32,
+                        crop.right as f32,
+                        crop.bottom as f32,
+                    ]
+                })
+                .unwrap_or([0.0; 4]),
+            flip_h: clip.flip_h,
+            flip_v: clip.flip_v,
+        };
+        let (u, v) = mapping.source_of(px as f32, py as f32);
+        [f64::from(u), f64::from(v)]
+    }
+
+    /// The stroke in flight as the stage draws it: path commands over a
+    /// 1000 × 1000 viewbox, the line's width as a fraction of the stage,
+    /// and whether it is taking away. Empty between strokes.
+    fn stroke_overlay(&self) -> (String, f32, bool) {
+        let Gesture::Paint {
+            clip,
+            tool,
+            size,
+            screen,
+            ..
+        } = &self.gesture
+        else {
+            return (String::new(), 0.0, false);
+        };
+        let Some((first, rest)) = screen.split_first() else {
+            return (String::new(), 0.0, false);
+        };
+        let mut path = format!("M {:.1} {:.1}", first.0 * 1000.0, first.1 * 1000.0);
+        // A single press still draws a dot: a line to where it already is,
+        // with round caps.
+        for (x, y) in rest.iter().chain(rest.is_empty().then_some(first)) {
+            path.push_str(&format!(" L {:.1} {:.1}", x * 1000.0, y * 1000.0));
+        }
+        // The brush is `size` of the picture's width; on the stage that is
+        // `size` of the picture's footprint.
+        let width = self
+            .clip(clip)
+            .map(|clip| self.footprint(clip).w)
+            .unwrap_or(1.0) as f32
+            * *size as f32;
+        let erase = matches!(
+            tool,
+            model::BrushTool::Eraser | model::BrushTool::SmartEraser
+        );
+        (path, width, erase)
     }
 
     // ── edits from menus and the tray ──
@@ -3430,6 +3760,7 @@ impl Studio {
                 self.sync_audio();
                 self.request_media_art();
                 self.request_preview();
+                self.ensure_cutouts();
             }
             Err(error) => {
                 self.start.busy = false;
@@ -3474,6 +3805,8 @@ impl Studio {
     /// Saves, then closes the session and returns to the launch screen.
     pub fn close_project(&mut self) {
         self.pause();
+        self.host.cutouts.cancel();
+        self.cutout_jobs.clear();
         if let Some(session) = self.session.as_mut() {
             let (path, document) = session.prepare_save(None, None, None);
             if let Err(error) = projects::save(&path, &document) {
@@ -4304,6 +4637,13 @@ impl Studio {
         editor.set_preview_frame(self.preview.clone());
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
+        let (path, width, erase) = self.stroke_overlay();
+        editor.set_stroke_path(path.into());
+        editor.set_stroke_width(width);
+        editor.set_stroke_erase(erase);
+        editor.set_brush_tool(self.brush as i32);
+        editor.set_brush_size(self.brush_size as f32);
+        editor.set_painting(self.painting);
 
         editor.set_drop(match &self.drop {
             Some(plan) => DropData {
@@ -4477,6 +4817,26 @@ impl Studio {
             plated: plate.alpha() > 0,
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
+            cutout: match &clip.cutout {
+                None => 0,
+                Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,
+                Some(_) => 2,
+            },
+            cutout_feather: clip
+                .cutout
+                .as_ref()
+                .map(|cutout| cutout.feather as f32)
+                .unwrap_or(model::DEFAULT_FEATHER as f32),
+            cutout_strokes: clip
+                .cutout
+                .as_ref()
+                .map(|cutout| cutout.strokes.len() as i32)
+                .unwrap_or(0),
+            cutout_progress: self
+                .cutout_jobs
+                .get(&clip.media_id)
+                .copied()
+                .unwrap_or(-1.0),
         }
     }
 
