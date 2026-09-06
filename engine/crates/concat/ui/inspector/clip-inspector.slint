@@ -9,7 +9,7 @@ import { Button } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
-    Fader, HelpButton, InspectorFmt, Note, Param, ParamFormat,
+    Check, Fader, HelpButton, InspectorFmt, Note, Param, ParamFormat,
     Rail, ResetButton, SearchField, Subhead, Switch, SwitchRow,
 } from "controls.slint";
 import { ClipField, ClipKind, Keyframes, SelectedClipData } from "../timeline/model.slint";
@@ -566,6 +566,110 @@ export component ProcessorRows inherits VerticalLayout {
 // to `selected` would work exactly once and then go deaf to the model. They
 // are seeded instead, on init and whenever the selection changes under us.
 
+// One way of removing the background, as a line: a tick, the name, and
+// whatever trails on the right - a reset, when the block has one.
+component RemovalBlock inherits HorizontalLayout {
+    in property <string> title;
+    in property <bool> on;
+
+    callback toggled(on: bool);
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    spacing: 8px;
+    min-height: Theme.h;
+
+    VerticalLayout {
+        alignment: center;
+        Check {
+            checked: root.on;
+            toggled(on) => { root.toggled(on); }
+        }
+    }
+    head := Rectangle {
+        horizontal-stretch: 1;
+        Text {
+            x: 0;
+            width: parent.width;
+            height: parent.height;
+            text: root.title;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggled(!root.on); }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            spacing: 2px;
+            @children
+        }
+    }
+}
+
+// A brush in the custom cutout's tray. The smart ones wear a spark, since
+// the glyph is the same brush either way and what differs is whether it
+// listens to the mask.
+component ToolButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <bool> smart;
+    in property <string> label;
+    in property <bool> checked;
+
+    callback clicked();
+
+    width: 30px;
+    height: 30px;
+
+    IconButton {
+        x: 0;
+        width: 30px;
+        glyph: root.glyph;
+        label: root.label;
+        checked: root.checked;
+        icon-size: 15px;
+        clicked => { root.clicked(); }
+    }
+    if root.smart: Icon {
+        x: parent.width - self.width - 2px;
+        y: 2px;
+        glyph: Glyph.sparkle;
+        size: 8px;
+        tint: root.checked ? Theme.accent : Theme.fg-muted;
+    }
+}
+
+// The cutout model at work, while it runs: the masks are found in the
+// background and the picture is shown as shot until they are.
+component AnalysisRow inherits Row {
+    in property <float> progress;
+
+    label: I18n.t("Analysis");
+    Text {
+        text: I18n.t1("Finding the subject… {0}%", "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+}
+
+// A rule between blocks inside one section, inset to the section's padding
+// where a Section's own hairline runs edge to edge.
+component Hairline inherits HorizontalLayout {
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+}
+
 /// Video: how the picture sits in the frame, how solid it is, and whether
 /// its background is keyed out.
 export component VideoPanel inherits VerticalLayout {
@@ -616,6 +720,22 @@ export component VideoPanel inherits VerticalLayout {
     /// be two removals at once.
     property <int> removal: root.keyer == 1 ? 3 : root.keyer == 2 ? 4 : root.selected.cutout;
     property <bool> masked: root.removal == 1 || root.removal == 2;
+
+    /// Puts one removal on and the others off: 0 none, 1 auto, 2 custom,
+    /// 3 green key, 4 blue key. The keyer comes off the chain before
+    /// anything else goes on, and the cutout is set or cleared to match.
+    function remove-by(index: int) {
+        if (root.keyer-index >= 0) {
+            root.chain-remove(root.keyer-index);
+        }
+        root.cutout-mode(index == 1 ? 1 : index == 2 ? 2 : 0);
+        if (index == 3) {
+            root.chain-add("concat.green-screen");
+        } else if (index == 4) {
+            root.chain-add("concat.blue-screen");
+        }
+        root.commit();
+    }
 
     property <float> scale;
     property <float> offset-x;
@@ -790,19 +910,19 @@ export component VideoPanel inherits VerticalLayout {
         }
     }
 
-    // The background taken away. Automatic and custom cut by the mask the
-    // cutout model finds for the person in the picture - custom with
-    // strokes painted on the monitor over it - and the two screens key a
-    // colour out. A screen is the chroma package on the chain, which is why
-    // its knobs read from the chain's own rows.
+    // The background taken away, one of three ways, each a block with a
+    // tick: automatic and custom cut by the mask the cutout model finds
+    // for the person in the picture - custom with strokes painted on the
+    // monitor over it - and chroma key drops a colour. A key is the chroma
+    // package on the chain, which is why its knobs read from the chain's
+    // own rows. One at a time: ticking a block unticks the others.
     Section {
         cutout := SectionHeader {
             title: I18n.t("Remove background");
             collapsible: true;
             summary: root.removal == 0 ? I18n.t("off")
-                : root.removal == 1 ? I18n.t("Automatic")
-                : root.removal == 2 ? I18n.t("Custom")
-                : root.removal == 3 ? I18n.t("Green screen") : I18n.t("Blue screen");
+                : root.removal == 1 ? I18n.t("Auto removal")
+                : root.removal == 2 ? I18n.t("Custom removal") : I18n.t("Chroma key");
             HelpButton {
                 open: root.cutout-help;
                 toggled => { root.cutout-help = self.open; }
@@ -811,33 +931,15 @@ export component VideoPanel inherits VerticalLayout {
         if cutout.open: SectionBody {
 
         if root.cutout-help: Note {
-            text: I18n.t("Automatic keeps the person the cutout model finds and drops the rest. Custom starts from the same mask and takes corrections painted on the monitor: the smart brush and smart eraser follow the model's confidence, the plain ones do exactly what you paint. Green and blue screen key one colour out instead; similarity is how far from the colour still counts, softness feathers the edge.");
+            text: I18n.t("Auto removal keeps the person the cutout model finds and drops the rest. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush and smart eraser follow the model's confidence, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge.");
         }
 
-        Row {
-            label: I18n.t("Mode");
-            Select {
-                options: [I18n.t("Off"), I18n.t("Automatic"), I18n.t("Custom"), I18n.t("Green screen"), I18n.t("Blue screen")];
-                current: root.removal;
-                changed(index) => {
-                    // One removal at a time: the keyer comes off the chain
-                    // before anything else goes on, and the cutout is set
-                    // or cleared to match.
-                    if (root.keyer-index >= 0) {
-                        root.chain-remove(root.keyer-index);
-                    }
-                    root.cutout-mode(index == 1 ? 1 : index == 2 ? 2 : 0);
-                    if (index == 3) {
-                        root.chain-add("concat.green-screen");
-                    } else if (index == 4) {
-                        root.chain-add("concat.blue-screen");
-                    }
-                    root.commit();
-                }
-            }
+        RemovalBlock {
+            title: I18n.t("Auto removal");
+            on: root.removal == 1;
+            toggled(on) => { root.remove-by(on ? 1 : 0); }
         }
-
-        if root.masked: Param {
+        if root.removal == 1: Param {
             label: I18n.t("Feather");
             value <=> root.feather;
             minimum: 0;
@@ -847,29 +949,59 @@ export component VideoPanel inherits VerticalLayout {
             fmt: ParamFormat.percent;
             changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
         }
-
-        // The analysis, while it runs: the masks are found in the
-        // background and the picture is shown as shot until they are.
-        if root.masked && root.selected.cutout-progress >= 0: Row {
-            label: I18n.t("Analysis");
-            Text {
-                text: I18n.t1("Finding the subject… {0}%", "\{Math.round(root.selected.cutout-progress * 100)}");
-                color: Theme.fg-muted;
-                font-size: Theme.fs;
-                vertical-alignment: center;
-            }
+        if root.removal == 1 && root.selected.cutout-progress >= 0: AnalysisRow {
+            progress: root.selected.cutout-progress;
         }
 
-        if root.removal == 2: Row {
-            label: I18n.t("Tool");
-            Select {
-                options: [I18n.t("Smart brush"), I18n.t("Brush"), I18n.t("Smart eraser"), I18n.t("Eraser")];
-                current: root.brush-tool;
-                changed(index) => { root.cutout-tool(index); }
+        Hairline { }
+
+        RemovalBlock {
+            title: I18n.t("Custom removal");
+            on: root.removal == 2;
+            toggled(on) => { root.remove-by(on ? 2 : 0); }
+            ResetButton {
+                dirty: root.removal == 2 && root.selected.cutout-strokes > 0;
+                reset => { root.cutout-clear(); }
             }
+        }
+        // The brushes, CapCut's way round: the two that follow the mask,
+        // then the two that do as they are told. Picking one starts the
+        // painting; Apply ends it.
+        if root.removal == 2: HorizontalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            spacing: 6px;
+            ToolButton {
+                glyph: Glyph.brush;
+                smart: true;
+                label: I18n.t("Smart brush");
+                checked: root.painting && root.brush-tool == 0;
+                clicked => { root.cutout-tool(0); root.cutout-painting(true); }
+            }
+            ToolButton {
+                glyph: Glyph.eraser;
+                smart: true;
+                label: I18n.t("Smart eraser");
+                checked: root.painting && root.brush-tool == 2;
+                clicked => { root.cutout-tool(2); root.cutout-painting(true); }
+            }
+            Rectangle { width: 1px; height: 18px; background: Theme.line; }
+            ToolButton {
+                glyph: Glyph.brush;
+                label: I18n.t("Brush");
+                checked: root.painting && root.brush-tool == 1;
+                clicked => { root.cutout-tool(1); root.cutout-painting(true); }
+            }
+            ToolButton {
+                glyph: Glyph.eraser;
+                label: I18n.t("Eraser");
+                checked: root.painting && root.brush-tool == 3;
+                clicked => { root.cutout-tool(3); root.cutout-painting(true); }
+            }
+            Rectangle { horizontal-stretch: 1; }
         }
         if root.removal == 2: Param {
-            label: I18n.t("Brush size");
+            label: I18n.t("Size");
             value: root.brush-size;
             minimum: 0.005;
             maximum: 0.5;
@@ -878,19 +1010,44 @@ export component VideoPanel inherits VerticalLayout {
             fmt: ParamFormat.percent;
             changed(v) => { root.cutout-size(v); }
         }
-        if root.removal == 2: SwitchRow {
-            label: I18n.t("Paint on the monitor");
-            checked: root.painting;
-            toggled(on) => { root.cutout-painting(on); }
+        if root.removal == 2: Param {
+            label: I18n.t("Feather");
+            value <=> root.feather;
+            minimum: 0;
+            maximum: 0.1;
+            step: 0.002;
+            default-value: 0.01;
+            fmt: ParamFormat.percent;
+            changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
+        }
+        if root.removal == 2 && root.selected.cutout-progress >= 0: AnalysisRow {
+            progress: root.selected.cutout-progress;
         }
         if root.removal == 2: Row {
-            label: root.selected.cutout-strokes == 1 ? "1 stroke"
-                : "\{root.selected.cutout-strokes} strokes";
+            label: root.selected.cutout-strokes == 1 ? I18n.t("1 stroke")
+                : I18n.t1("{0} strokes", "\{root.selected.cutout-strokes}");
+            Rectangle { horizontal-stretch: 1; }
             Button {
-                label: I18n.t("Clear strokes");
-                ghost: true;
-                enabled: root.selected.cutout-strokes > 0;
-                clicked => { root.cutout-clear(); }
+                label: I18n.t("Apply");
+                primary: true;
+                enabled: root.painting;
+                clicked => { root.cutout-painting(false); }
+            }
+        }
+
+        Hairline { }
+
+        RemovalBlock {
+            title: I18n.t("Chroma key");
+            on: root.keyer > 0;
+            toggled(on) => { root.remove-by(on ? 3 : 0); }
+        }
+        if root.keyer > 0: Row {
+            label: I18n.t("Color");
+            Select {
+                options: [I18n.t("Green"), I18n.t("Blue")];
+                current: root.keyer - 1;
+                changed(index) => { root.remove-by(index + 3); }
             }
         }
 

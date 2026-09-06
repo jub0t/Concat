@@ -542,6 +542,41 @@ export component Subhead inherits VerticalLayout {
     }
 }
 
+// A square tick box, for a block that is on or off among siblings that
+// exclude it - the three ways of removing a background. A Switch says a
+// setting is on; a box among boxes says which one.
+export component Check inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+
+    callback toggled(checked: bool);
+
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: root.checked ? Theme.accent : Theme.field-active;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    if root.checked: Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: Glyph.check;
+        size: 11px;
+        tint: Theme.on-accent;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
 export component Switch inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> enabled: true;

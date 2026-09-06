@@ -104,6 +104,9 @@ export enum Glyph {
     // the start screen
     info,
     folder,
+    // the cutout's brushes
+    brush,
+    eraser,
 }
 
 component Stroked inherits Path {
@@ -484,6 +487,22 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M13.971 4.285A2 2 0 0 1 17 6v12a2 2 0 0 1-3.029"
             + " 1.715l-9.997-5.998a2 2 0 0 1-.003-3.432z M21 20V4";
+    }
+
+    // lucide/brush
+    if root.glyph == Glyph.brush: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "m11 10 3 3 M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708"
+            + " 1.792A1 1 0 0 0 3 21z M9.969 17.031 21.378 5.624a1 1 0 0"
+            + " 0-3.002-3.002L6.967 14.031";
+    }
+
+    // lucide/eraser
+    if root.glyph == Glyph.eraser: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2"
+            + " 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"
+            + " M5.082 11.09l8.828 8.828";
     }
 
     // lucide/step-forward
