@@ -5296,12 +5296,19 @@ impl Studio {
             let Some(media) = self.project().media_by_id(&clip.media_id) else {
                 continue;
             };
+            // The source the clip shows, as the mask analysis reckons it.
+            let range = (
+                clip.source_start,
+                clip.source_start + clip.duration * clip.speed.max(0.0625),
+            );
             for stroke in &cutout.strokes {
                 let request = RegionRequest {
                     project: project.clone(),
                     media_path: media.path.clone(),
+                    media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
                     still: media.kind == model::MediaKind::Image,
                     subject: cutout.subject,
+                    ranges: vec![range],
                     stroke: stroke.clone(),
                 };
                 if request.outstanding() {

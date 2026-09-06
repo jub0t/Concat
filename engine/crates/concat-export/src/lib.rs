@@ -661,9 +661,9 @@ struct Source<F> {
     passes: Vec<ShaderPass>,
 }
 
-/// The tint a highlighted cutout wears: a teal that no footage is likely
-/// to be, and the colour the brushes themselves are drawn in.
-const HIGHLIGHT: [u8; 3] = [0, 196, 204];
+/// The tint a highlighted cutout wears: the interface's accent, the same
+/// lime the brushes and the selection are drawn in.
+const HIGHLIGHT: [u8; 3] = [0xcb, 0xf5, 0x3f];
 
 /// A cutout as the frame loop runs it: the masks, what to paint on them,
 /// and how a decoded pixel finds its place in the source.

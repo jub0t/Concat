@@ -51,11 +51,13 @@ fn model_file(dir: &Path) -> PathBuf {
     dir.join("model")
 }
 
-/// The file a smart stroke's region is kept in, under the masks' own
-/// directory: the thing the brush model read under that stroke.
-pub fn region_file(dir: &Path, stroke: &Stroke) -> PathBuf {
+/// The directory a smart stroke's regions are kept in, under the masks'
+/// own directory: the thing the brush model read under that stroke, one
+/// PNG per analysed instant like the masks themselves, since the thing
+/// moves and the region follows it.
+pub fn region_dir(dir: &Path, stroke: &Stroke) -> PathBuf {
     dir.join("strokes")
-        .join(format!("{:016x}.png", strokes::stroke_key(stroke)))
+        .join(format!("{:016x}", strokes::stroke_key(stroke)))
 }
 
 /// The file for the mask at `millis` of source.
@@ -183,9 +185,27 @@ impl MaskStore {
     pub fn resolved(&self, seconds: f64, cutout: &Cutout, aspect: f32) -> Option<Arc<Mask>> {
         let millis = self.nearest_millis(seconds)?;
         let file = mask_file(&self.dir, millis);
+        // The smart strokes' regions, opened once for the key and the
+        // painting both: what is there changes as the brush model works
+        // its way along the clip.
+        let region_stores: Vec<(u64, MaskStore)> = if cutout.mode == CutoutMode::Custom {
+            cutout
+                .strokes
+                .iter()
+                .filter(|stroke| stroke.is_smart())
+                .map(|stroke| {
+                    (
+                        strokes::stroke_key(stroke),
+                        MaskStore::open(&region_dir(&self.dir, stroke)),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let key = ResolvedKey {
             file: file.clone(),
-            settings: settings_key(&self.dir, cutout, aspect),
+            settings: settings_key(cutout, aspect, &region_stores, millis),
         };
         if let Some(hit) = resolved_cache()
             .lock()
@@ -201,8 +221,12 @@ impl MaskStore {
         }
         let painted = match cutout.mode {
             CutoutMode::Custom if !cutout.strokes.is_empty() => {
-                let dir = self.dir.clone();
-                let regions = move |stroke: &Stroke| load(&region_file(&dir, stroke));
+                let regions = move |stroke: &Stroke| {
+                    region_stores
+                        .iter()
+                        .find(|(key, _)| *key == strokes::stroke_key(stroke))
+                        .and_then(|(_, store)| store.mask_at(seconds))
+                };
                 strokes::paint(&auto, &cutout.strokes, aspect, &regions)
             }
             _ => (*auto).clone(),
@@ -276,8 +300,14 @@ impl MaskStore {
 
 /// What besides the file decides a resolved mask: the mode, the feather
 /// and every stroke, hashed, with the aspect the brushes were sized by,
-/// and for each smart stroke whether its region has been read yet.
-fn settings_key(dir: &Path, cutout: &Cutout, aspect: f32) -> u64 {
+/// and for each smart stroke which region, if any, answers for the
+/// instant.
+fn settings_key(
+    cutout: &Cutout,
+    aspect: f32,
+    region_stores: &[(u64, MaskStore)],
+    millis: u64,
+) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (cutout.mode == CutoutMode::Custom).hash(&mut hasher);
@@ -286,9 +316,10 @@ fn settings_key(dir: &Path, cutout: &Cutout, aspect: f32) -> u64 {
     if cutout.mode == CutoutMode::Custom {
         for stroke in &cutout.strokes {
             strokes::stroke_key(stroke).hash(&mut hasher);
-            if stroke.is_smart() {
-                region_file(dir, stroke).is_file().hash(&mut hasher);
-            }
+        }
+        for (key, store) in region_stores {
+            key.hash(&mut hasher);
+            store.nearest_millis(millis as f64 / 1000.0).hash(&mut hasher);
         }
     }
     hasher.finish()

@@ -438,15 +438,19 @@ either, because `apply::Mapping` is the one place a decoded pixel is
 walked back to a source fraction. A mask the model left blank shows the
 picture as shot rather than nothing.
 
-**The smart brushes name a thing.** A stroke records the source instant
-it was painted at; for a smart brush or smart eraser, `host::brush`
-decodes that frame, runs SlimSAM's encoder on it once (the embedding is
-kept for the next stroke on the same frame) and its decoder on sixteen
-points along the stroke, and writes the region it answers - the whole
-thing the stroke touched - beside the media's masks, named by a hash of
-the stroke. `strokes::paint` keeps or drops that region whole; until it
-has been read, or when the model is not to hand, the smart tools fall
-back to the mask's own confidence under a disc. The plain brush and
+**The smart brushes name a thing, and follow it.** A stroke records the
+source instant it was painted at; for a smart brush or smart eraser,
+`host::brush` decodes that frame, runs SlimSAM's encoder on it and its
+decoder on sixteen points along the stroke, and then walks the clip's
+analysed instants forward and backward from there, each frame prompted
+with points from inside the region the frame beside it had and keeping
+the candidate that overlaps it most, so the region moves with its thing.
+The regions go beside the media's masks, one per instant in a directory
+named by a hash of the stroke; where the thing is lost the rest of the
+run gets an empty region, so the grid is whole and nothing is asked
+twice. `strokes::paint` keeps or drops the instant's region whole; until
+one has been read, or when the model is not to hand, the smart tools
+fall back to the mask's own confidence under a disc. The plain brush and
 eraser are discs and nothing more.
 
 **The store is the project's.** Each media file's masks are PNGs in
