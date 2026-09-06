@@ -544,9 +544,11 @@ export component Subhead inherits VerticalLayout {
 
 // A square tick box, for a block that is on or off among siblings that
 // exclude it - the three ways of removing a background. A Switch says a
-// setting is on; a box among boxes says which one.
+// setting is on; a box among boxes says which one. The box never sets
+// itself: it asks, and shows whatever the owner then binds, so a tick
+// that the owner refuses does not stick.
 export component Check inherits Rectangle {
-    in-out property <bool> checked;
+    in property <bool> checked;
     in property <bool> enabled: true;
 
     callback toggled(checked: bool);
@@ -570,10 +572,7 @@ export component Check inherits Rectangle {
     touch := TouchArea {
         enabled: root.enabled;
         mouse-cursor: pointer;
-        clicked => {
-            root.checked = !root.checked;
-            root.toggled(root.checked);
-        }
+        clicked => { root.toggled(!root.checked); }
     }
 }
 

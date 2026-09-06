@@ -960,7 +960,7 @@ export component VideoPanel inherits VerticalLayout {
             maximum: 0.1;
             step: 0.002;
             default-value: 0.01;
-            fmt: ParamFormat.percent;
+            fmt: ParamFormat.fraction;
             changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
         }
         if root.removal == 1 && root.selected.cutout-progress >= 0: AnalysisRow {
@@ -1025,7 +1025,7 @@ export component VideoPanel inherits VerticalLayout {
             maximum: 0.5;
             step: 0.005;
             default-value: 0.06;
-            fmt: ParamFormat.percent;
+            fmt: ParamFormat.fraction;
             changed(v) => { root.cutout-size(v); }
         }
         if root.removal == 2: Param {
@@ -1035,7 +1035,7 @@ export component VideoPanel inherits VerticalLayout {
             maximum: 0.1;
             step: 0.002;
             default-value: 0.01;
-            fmt: ParamFormat.percent;
+            fmt: ParamFormat.fraction;
             changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
         }
         if root.removal == 2 && root.selected.cutout-progress >= 0: AnalysisRow {

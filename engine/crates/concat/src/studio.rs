@@ -1503,8 +1503,15 @@ impl Studio {
         };
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
-        // had it. Same flattening the session does for itself.
-        let mut clips = concat_export::flatten::flatten_timeline(self.project(), None);
+        // had it. Same flattening the session does for itself, project
+        // folder included: that is what names a cutout's masks, and
+        // without it the monitor would show every cutout as shot.
+        let project_dir = std::path::PathBuf::from(session.path());
+        let mut clips = concat_export::flatten::flatten_timeline_in(
+            self.project(),
+            None,
+            Some(&project_dir),
+        );
         let (width, height) = self.output_size();
         // Titles, painted to pictures and rejoined; see concat-host's titles.
         for title in self.host.titles.clips(self.project(), width, height) {
