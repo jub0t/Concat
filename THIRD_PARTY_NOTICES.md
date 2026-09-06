@@ -87,13 +87,31 @@ https://huggingface.co/hexgrad/Kokoro-82M) are downloaded on demand from the
 sherpa-onnx releases - including espeak-ng's data files - and are never
 bundled with the app.
 
-## The cutout model
+## The cutout models
 
-Remove background's automatic and custom modes run Google's MediaPipe
-Selfie Segmentation model (Apache-2.0), in the ONNX conversion published by
-the ONNX Community (https://huggingface.co/onnx-community/mediapipe_selfie_segmentation,
-Apache-2.0). The model file is compiled into the `concat-vision` crate; see
-`engine/crates/concat-vision/models/NOTICE.md`. It is run by ONNX Runtime
+Remove background runs three models, none of which ship inside the app
+except the first:
+
+- Google's MediaPipe Selfie Segmentation (Apache-2.0), in the ONNX
+  conversion published by the ONNX Community
+  (https://huggingface.co/onnx-community/mediapipe_selfie_segmentation,
+  Apache-2.0), compiled into the `concat-vision` crate; see
+  `engine/crates/concat-vision/models/NOTICE.md`. The answer when nothing
+  has been downloaded.
+- Robust Video Matting, the MobileNetV3 variant, by Peter Lin and others
+  (https://github.com/PeterL1n/RobustVideoMatting, GPL-3.0), downloaded on
+  first use from that repository's releases. The person model.
+- IS-Net from "Highly Accurate Dichotomous Image Segmentation" by Qin and
+  others (https://github.com/xuebinqin/DIS, Apache-2.0), in the ONNX
+  export the rembg project publishes
+  (https://github.com/danielgatis/rembg, MIT), downloaded on first use.
+  The object model.
+- SlimSAM (https://github.com/czg1225/SlimSAM, Apache-2.0), in the ONNX
+  export published at https://huggingface.co/Xenova/slimsam-77-uniform
+  (Apache-2.0), downloaded on first use. The brushes' model.
+
+Downloaded models live in the app's data directory under `cutout-models`
+and are never bundled. They are all run by ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate
 (https://github.com/pykeio/ort, MIT OR Apache-2.0), with the platform's
 own accelerator behind it: CoreML on macOS and iOS, DirectML on Windows,

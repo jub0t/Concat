@@ -172,6 +172,7 @@ export component ConfigPane inherits Rectangle {
     callback cutout-tool(index: int);
     callback cutout-size(size: float);
     callback cutout-painting(on: bool);
+    callback cutout-subject(index: int);
     callback cutout-clear();
 
 
@@ -524,6 +525,7 @@ export component ConfigPane inherits Rectangle {
                     cutout-tool(index) => { root.cutout-tool(index); }
                     cutout-size(size) => { root.cutout-size(size); }
                     cutout-painting(on) => { root.cutout-painting(on); }
+                    cutout-subject(index) => { root.cutout-subject(index); }
                     cutout-clear => { root.cutout-clear(); }
                 }
 

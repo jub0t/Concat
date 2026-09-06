@@ -155,6 +155,9 @@ fn yes() -> bool {
 pub struct Cutout {
     /// Automatic keeps what the model finds; custom adds the strokes.
     pub mode: CutoutMode,
+    /// What the model looks for.
+    #[serde(default, skip_serializing_if = "Subject::is_auto")]
+    pub subject: Subject,
     /// How far the edge is softened, as a fraction of the picture's width.
     #[serde(default = "default_feather")]
     pub feather: f64,
@@ -171,6 +174,37 @@ pub enum CutoutMode {
     Auto,
     /// The model's mask, then the strokes over it.
     Custom,
+}
+
+/// What a cutout keeps: the person the matting model finds, the one
+/// thing the picture is of whatever it is, or whichever of those the
+/// analysis decides fits the footage.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Subject {
+    /// A person when the person model finds one, the object otherwise.
+    #[default]
+    Auto,
+    /// The person model, always.
+    Person,
+    /// The object model, always.
+    Object,
+}
+
+impl Subject {
+    /// The default, left out of the document.
+    pub fn is_auto(&self) -> bool {
+        *self == Subject::Auto
+    }
+
+    /// The name the mask cache is keyed by.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Subject::Auto => "auto",
+            Subject::Person => "person",
+            Subject::Object => "object",
+        }
+    }
 }
 
 /// One brush stroke over a cutout: which tool, how wide, and where it went.
@@ -219,6 +253,7 @@ impl Cutout {
     pub fn auto() -> Cutout {
         Cutout {
             mode: CutoutMode::Auto,
+            subject: Subject::Auto,
             feather: DEFAULT_FEATHER,
             strokes: Vec::new(),
         }

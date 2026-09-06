@@ -281,13 +281,19 @@ export struct SelectedClipData {
     fade-in: float,
     fade-out: float,
 
-    // the cutout: 0 none, 1 automatic, 2 custom; how soft its edge is; how
-    // many strokes it carries; and the analysis finding its masks, -1 when
-    // none is running, else how far along it is
+    // the cutout: 0 none, 1 automatic, 2 custom; what it keeps, 0 auto,
+    // 1 person, 2 object; how soft its edge is; how many strokes it
+    // carries; the analysis finding its masks, -1 when none is running,
+    // else how far along it is, and whether that is a model downloading
+    // rather than frames being read; and whether the model found nothing
+    // at the playhead, so the picture is showing as shot
     cutout: int,
+    cutout-subject: int,
     cutout-feather: float,
     cutout-strokes: int,
     cutout-progress: float,
+    cutout-fetching: bool,
+    cutout-empty: bool,
 
     // the overlay, when this is a text clip
     content: string,

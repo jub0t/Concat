@@ -774,6 +774,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_cutout_painting(on_window!(|state, on: bool| {
         state.cutout_painting(on);
     }));
+    editor.on_cutout_subject(on_window!(|state, index: i32| {
+        state.cutout_subject(index);
+    }));
     editor.on_cutout_clear(on_window!(|state| {
         state.cutout_clear();
     }));

@@ -166,9 +166,11 @@ pub fn flatten_timeline_in(
                 has_audio: Some(media.has_audio),
                 cutout: clip.cutout.clone(),
                 mask_dir: match (&clip.cutout, project_dir) {
-                    (Some(_), Some(dir)) => concat_vision::mask_dir(dir, &media.path)
-                        .to_string_lossy()
-                        .into_owned(),
+                    (Some(cutout), Some(dir)) => {
+                        concat_vision::mask_dir(dir, &media.path, cutout.subject)
+                            .to_string_lossy()
+                            .into_owned()
+                    }
                     _ => String::new(),
                 },
             })

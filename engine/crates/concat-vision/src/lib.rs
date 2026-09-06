@@ -19,22 +19,26 @@
 //!   file and the source instant, and cached in the project folder like
 //!   its waveforms, so a cutout is found once and travels with the edit.
 //!
-//! Finding the mask is [`segment`], behind the `infer` feature: the model
-//! is compiled in and run by ONNX Runtime through [`runtime`], on the
-//! platform's accelerator where there is one, so a cutout needs no
-//! download, on a desk or a phone. The renderer reads masks and never
-//! infers; the host infers and writes them.
+//! Finding the mask is [`segment`], behind the `infer` feature: three
+//! models run by ONNX Runtime through [`runtime`], on the platform's
+//! accelerator where there is one. A person matting model and a general
+//! object model are downloaded on first use ([`models`] says where from);
+//! a small person model is compiled in so a cutout works with nothing
+//! downloaded at all. The renderer reads masks and never infers; the
+//! host infers and writes them.
 //!
-//! Masks are square at the model's resolution whatever the picture's
-//! shape, and every position in them is a fraction of the source picture:
-//! `(0, 0)` its top-left, `(1, 1)` its bottom-right. Strokes are stored in
-//! the same fractions. A crop, a flip or a change of output size therefore
-//! changes nothing about a mask - the mapping from a decoded pixel back to
-//! a source fraction is [`apply::Mapping`], and it is the one place those
+//! A mask is whatever shape its model answers in - square for the object
+//! model, the picture's own aspect for the person model - and every
+//! position in one is a fraction of the source picture: `(0, 0)` its
+//! top-left, `(1, 1)` its bottom-right. Strokes are stored in the same
+//! fractions. A crop, a flip or a change of output size therefore changes
+//! nothing about a mask - the mapping from a decoded pixel back to a
+//! source fraction is [`apply::Mapping`], and it is the one place those
 //! are undone.
 
 pub mod apply;
 pub mod mask;
+pub mod models;
 #[cfg(feature = "infer")]
 pub mod runtime;
 #[cfg(feature = "infer")]
@@ -44,6 +48,7 @@ pub mod strokes;
 
 pub use apply::{Mapping, cut};
 pub use mask::Mask;
+pub use models::ModelId;
 #[cfg(feature = "infer")]
 pub use segment::Segmenter;
 pub use store::{MaskStore, mask_dir};
@@ -53,9 +58,9 @@ pub use store::{MaskStore, mask_dir};
 /// minute of footage is six hundred inferences rather than eighteen hundred.
 pub const MASK_RATE: u32 = 10;
 
-/// The model's input and output edge, in pixels.
+/// The compiled-in person model's input and output edge, in pixels.
 pub const MODEL_SIZE: u32 = 256;
 
-/// Names the model a mask came from. Part of the cache directory's name,
-/// so a different model never serves another's masks.
+/// Names the compiled-in model. A mask store records which model made
+/// its masks, so a different model never serves another's.
 pub const MODEL_ID: &str = "selfie-256";

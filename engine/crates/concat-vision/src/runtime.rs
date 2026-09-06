@@ -102,13 +102,28 @@ impl Model {
 /// cannot supply is skipped, not an error, so the same build runs on a
 /// box without one.
 fn accelerators() -> Vec<ort::ep::ExecutionProviderDispatch> {
-    let mut providers = Vec::new();
-    #[cfg(target_vendor = "apple")]
-    providers.push(ort::ep::CoreML::default().build());
-    #[cfg(target_os = "windows")]
-    providers.push(ort::ep::DirectML::default().build());
-    #[cfg(target_os = "android")]
-    providers.push(ort::ep::NNAPI::default().build());
-    providers.push(ort::ep::CPU::default().build());
-    providers
+    platform_accelerator()
+        .into_iter()
+        .chain(std::iter::once(ort::ep::CPU::default().build()))
+        .collect()
+}
+
+#[cfg(target_vendor = "apple")]
+fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
+    Some(ort::ep::CoreML::default().build())
+}
+
+#[cfg(target_os = "windows")]
+fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
+    Some(ort::ep::DirectML::default().build())
+}
+
+#[cfg(target_os = "android")]
+fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
+    Some(ort::ep::NNAPI::default().build())
+}
+
+#[cfg(not(any(target_vendor = "apple", target_os = "windows", target_os = "android")))]
+fn platform_accelerator() -> Option<ort::ep::ExecutionProviderDispatch> {
+    None
 }

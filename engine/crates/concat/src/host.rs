@@ -55,6 +55,7 @@ impl Host {
         let _ = std::fs::create_dir_all(&dirs.config);
         Ok(Host {
             titles: concat_host::Titles::new(&dirs),
+            cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
             dirs,
             playback: Playback::start(Arc::new(Events))?,
             monitor: match gpu {
@@ -64,7 +65,6 @@ impl Host {
             exporter: Exporter::new(),
             transcriber: Arc::new(Transcriber::new()),
             speech: Arc::new(Speech::new()),
-            cutouts: Arc::new(concat_host::Cutouts::new()),
         })
     }
 }

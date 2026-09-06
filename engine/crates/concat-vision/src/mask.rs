@@ -5,6 +5,10 @@
 
 use std::io::Cursor;
 
+/// A mask with every value under this is nobody's: the model found
+/// nothing, and the picture should show as shot rather than vanish.
+const BLANK_BELOW: u8 = 10;
+
 /// An eight-bit picture of probabilities, `0` background and `255` subject,
 /// covering the whole source picture whatever its shape.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -53,6 +57,37 @@ impl Mask {
     /// The bytes, to write into.
     pub fn bytes_mut(&mut self) -> &mut [u8] {
         &mut self.data
+    }
+
+    /// True when the model found nothing: no pixel is more than a few
+    /// percent likely to be the subject.
+    pub fn is_blank(&self) -> bool {
+        self.data.iter().all(|&v| v < BLANK_BELOW)
+    }
+
+    /// The mask shrunk by `factor` in each direction, each new pixel the
+    /// mean of the block it replaces. A large model's answer stored at a
+    /// size the renderer can read quickly.
+    pub fn shrunk(&self, factor: u32) -> Mask {
+        let factor = factor.max(1);
+        if factor == 1 {
+            return self.clone();
+        }
+        let width = (self.width / factor).max(1);
+        let height = (self.height / factor).max(1);
+        let mut data = Vec::with_capacity((width * height) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let mut sum = 0u32;
+                for dy in 0..factor {
+                    for dx in 0..factor {
+                        sum += u32::from(self.at(i64::from(x * factor + dx), i64::from(y * factor + dy)));
+                    }
+                }
+                data.push((sum / (factor * factor)) as u8);
+            }
+        }
+        Mask { width, height, data }
     }
 
     /// The value at a pixel, clamped to the edge.

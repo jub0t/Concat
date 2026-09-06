@@ -719,7 +719,7 @@ pub struct Studio {
     /// rather than moving the picture.
     pub painting: bool,
     /// The mask analyses running, by media id, and how far each has got.
-    cutout_jobs: HashMap<String, f32>,
+    cutout_jobs: HashMap<String, (bool, f32)>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -3471,12 +3471,18 @@ impl Studio {
         let project = std::path::PathBuf::from(session.path());
         let mut wanted: Vec<(String, AnalyseRequest)> = Vec::new();
         for clip in &self.timeline().clips {
-            if clip.cutout.is_none() || !clip.kind.is_visual() {
+            let Some(cutout) = clip.cutout.as_ref() else {
+                continue;
+            };
+            if !clip.kind.is_visual() {
                 continue;
             }
             let Some(media) = self.project().media_by_id(&clip.media_id) else {
                 continue;
             };
+            // One analysis per media and subject: two clips of one file
+            // that keep different things need different masks.
+            let key = Self::analysis_key(&media.id, cutout.subject);
             // The source the clip shows: its in-point, for as long as it
             // runs at its speed. A curve's mean is its speed, so this
             // covers a curved clip too.
@@ -3484,14 +3490,16 @@ impl Studio {
                 clip.source_start,
                 clip.source_start + clip.duration * clip.speed.max(0.0625),
             );
-            match wanted.iter_mut().find(|(id, _)| *id == media.id) {
+            match wanted.iter_mut().find(|(id, _)| *id == key) {
                 Some((_, request)) => request.ranges.push(range),
                 None => wanted.push((
-                    media.id.clone(),
+                    key,
                     AnalyseRequest {
                         project: project.clone(),
                         media_path: media.path.clone(),
+                        media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
                         still: media.kind == model::MediaKind::Image,
+                        subject: cutout.subject,
                         ranges: vec![range],
                     },
                 )),
@@ -3503,21 +3511,27 @@ impl Studio {
         else {
             return;
         };
-        self.cutout_jobs.insert(id.clone(), 0.0);
+        self.cutout_jobs.insert(id.clone(), (false, 0.0));
         let cutouts = Arc::clone(&self.host.cutouts);
         spawn(
             move || {
-                let mut last = -1.0f32;
+                let mut last = (false, -1.0f32);
                 let reporting = id.clone();
                 let result = cutouts.analyse(&request, &mut |progress| {
                     // Every percent, not every frame: the readout cannot
                     // use more and the event loop has other work.
-                    if progress - last >= 0.01 {
-                        last = progress;
+                    let now = match progress {
+                        concat_host::cutout::Progress::Fetching { received, total } => {
+                            (true, received as f32 / total.max(1) as f32)
+                        }
+                        concat_host::cutout::Progress::Analysing(fraction) => (false, fraction),
+                    };
+                    if now.0 != last.0 || now.1 - last.1 >= 0.01 {
+                        last = now;
                         let id = reporting.clone();
                         on_ui(move |studio, _, _| {
                             if let Some(held) = studio.cutout_jobs.get_mut(&id) {
-                                *held = progress;
+                                *held = now;
                             }
                         });
                     }
@@ -3570,6 +3584,34 @@ impl Studio {
                 cutout,
             });
         }
+    }
+
+    /// The name an analysis runs under: the media and what it keeps.
+    fn analysis_key(media_id: &str, subject: model::Subject) -> String {
+        format!("{media_id}:{}", subject.key())
+    }
+
+    /// The Subject row: 0 automatic, 1 person, 2 object. A change means
+    /// other masks, which the analysis notices on its own.
+    pub fn cutout_subject(&mut self, index: i32) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(cutout) = self.clip(&id).and_then(|clip| clip.cutout.clone()) else {
+            return;
+        };
+        let subject = match index {
+            1 => model::Subject::Person,
+            2 => model::Subject::Object,
+            _ => model::Subject::Auto,
+        };
+        if cutout.subject == subject {
+            return;
+        }
+        self.apply(Command::SetClipCutout {
+            clip_id: id,
+            cutout: Some(model::Cutout { subject, ..cutout }),
+        });
     }
 
     /// Takes every stroke off the selected clip's cutout, keeping it custom.
@@ -5034,6 +5076,11 @@ impl Studio {
         let fill = colour_of(&text.color);
         let stroke = colour_of(&text.stroke_color);
         let plate = colour_of(&text.background);
+        let analysis = clip.cutout.as_ref().and_then(|cutout| {
+            self.cutout_jobs
+                .get(&Self::analysis_key(&clip.media_id, cutout.subject))
+                .copied()
+        });
         SelectedClipData {
             present: true,
             id: clip.id.as_str().into(),
@@ -5121,12 +5168,46 @@ impl Studio {
                 .as_ref()
                 .map(|cutout| cutout.strokes.len() as i32)
                 .unwrap_or(0),
-            cutout_progress: self
-                .cutout_jobs
-                .get(&clip.media_id)
-                .copied()
-                .unwrap_or(-1.0),
+            cutout_subject: clip
+                .cutout
+                .as_ref()
+                .map(|cutout| match cutout.subject {
+                    model::Subject::Auto => 0,
+                    model::Subject::Person => 1,
+                    model::Subject::Object => 2,
+                })
+                .unwrap_or(0),
+            cutout_progress: analysis.map(|(_, fraction)| fraction).unwrap_or(-1.0),
+            cutout_fetching: analysis.is_some_and(|(fetching, _)| fetching),
+            cutout_empty: self.cutout_empty(clip),
         }
+    }
+
+    /// Whether the cutout model found nothing at the playhead's frame of
+    /// `clip`, so the picture is showing as shot. Only an automatic cutout
+    /// says so: a custom one is whatever was painted.
+    fn cutout_empty(&self, clip: &Clip) -> bool {
+        let Some(cutout) = clip.cutout.as_ref() else {
+            return false;
+        };
+        if cutout.mode != model::CutoutMode::Auto {
+            return false;
+        }
+        let (Some(session), Some(media)) = (
+            self.session.as_ref(),
+            self.project().media_by_id(&clip.media_id),
+        ) else {
+            return false;
+        };
+        let project = std::path::Path::new(session.path());
+        let store = concat_vision::MaskStore::open(&concat_vision::mask_dir(
+            project,
+            &media.path,
+            cutout.subject,
+        ));
+        let along = (f64::from(self.playhead) - clip.start).clamp(0.0, clip.duration);
+        let source = clip.source_start + along * clip.speed;
+        store.mask_at(source).is_some_and(|mask| mask.is_blank())
     }
 
     /// The menus, the dialogs, the bin and the engine lists.

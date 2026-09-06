@@ -18,8 +18,10 @@ concat-project.workspace = true
 concat-export.workspace = true
 # Titles become pictures here; see titles.rs.
 concat-text.workspace = true
-# The cutout model and its masks; `infer` because the host is what runs it.
+# The cutout models and their masks; `infer` because the host is what
+# runs them, and ureq because the host is what fetches them.
 concat-vision = { workspace = true, features = ["infer"] }
+ureq = "2"
 concat-render = { workspace = true, optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

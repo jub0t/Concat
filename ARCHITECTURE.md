@@ -421,16 +421,22 @@ look repaints.
 
 ## 10. Cutouts: `concat-vision` and `host::cutout`
 
-A cutout takes a picture's background away without a key colour. The
-model is MediaPipe's selfie segmentation, compiled into `concat-vision`
-and run by ONNX Runtime: a 256 × 256 picture in, a probability per pixel
-out, five milliseconds a frame on an Apple GPU and about twenty on a
-laptop's cores. Masks are square
-whatever the picture's shape, and every position in one is a fraction of
-the source picture, which is also how strokes are stored; a crop, a flip
-or a change of output size changes nothing about either, because
-`apply::Mapping` is the one place a decoded pixel is walked back to a
-source fraction.
+A cutout takes a picture's background away without a key colour. Three
+models, all run by ONNX Runtime, all one interface in `segment`: a frame
+in, a probability per pixel out. Robust Video Matting is the person
+model, at the picture's own aspect on a 512 edge, carrying a recurrent
+state between frames so an outline holds still; IS-Net is the object
+model, 1024 square, for a car or a cartoon; MediaPipe's selfie
+segmentation is compiled in and answers when nothing has been
+downloaded. A clip's `Subject` picks between the first two, and on
+automatic the person model looks at the first frame and hands over to the
+object model when it finds no one; the choice is written into the mask
+store, so every run agrees. Every position in a mask is a fraction of the
+source picture whatever the mask's shape, which is also how strokes are
+stored; a crop, a flip or a change of output size changes nothing about
+either, because `apply::Mapping` is the one place a decoded pixel is
+walked back to a source fraction. A mask the model left blank shows the
+picture as shot rather than nothing.
 
 **The store is the project's.** Each media file's masks are PNGs in
 `cache/masks/<hash>-<model>/`, one per analysed source instant, named by

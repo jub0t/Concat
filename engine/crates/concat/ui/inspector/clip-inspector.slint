@@ -649,10 +649,14 @@ component ToolButton inherits Rectangle {
 // background and the picture is shown as shot until they are.
 component AnalysisRow inherits Row {
     in property <float> progress;
+    /// The model is still being downloaded; the frames come after.
+    in property <bool> fetching;
 
     label: I18n.t("Analysis");
     Text {
-        text: I18n.t1("Finding the subject… {0}%", "\{Math.round(root.progress * 100)}");
+        text: root.fetching
+            ? I18n.t1("Fetching the model… {0}%", "\{Math.round(root.progress * 100)}")
+            : I18n.t1("Finding the subject… {0}%", "\{Math.round(root.progress * 100)}");
         color: Theme.fg-muted;
         font-size: Theme.fs;
         vertical-alignment: center;
@@ -695,6 +699,8 @@ export component VideoPanel inherits VerticalLayout {
     callback cutout-tool(index: int);
     callback cutout-size(size: float);
     callback cutout-painting(on: bool);
+    /// What the automatic cutout keeps: 0 auto, 1 person, 2 object.
+    callback cutout-subject(index: int);
     callback cutout-clear();
 
     /// Which keyer is on the chain, and where: -1 for none. Scans the first
@@ -939,6 +945,14 @@ export component VideoPanel inherits VerticalLayout {
             on: root.removal == 1;
             toggled(on) => { root.remove-by(on ? 1 : 0); }
         }
+        if root.removal == 1: Row {
+            label: I18n.t("Subject");
+            Select {
+                options: [I18n.t("Auto"), I18n.t("Person"), I18n.t("Object")];
+                current: root.selected.cutout-subject;
+                changed(index) => { root.cutout-subject(index); }
+            }
+        }
         if root.removal == 1: Param {
             label: I18n.t("Feather");
             value <=> root.feather;
@@ -951,6 +965,10 @@ export component VideoPanel inherits VerticalLayout {
         }
         if root.removal == 1 && root.selected.cutout-progress >= 0: AnalysisRow {
             progress: root.selected.cutout-progress;
+            fetching: root.selected.cutout-fetching;
+        }
+        if root.removal == 1 && root.selected.cutout-progress < 0 && root.selected.cutout-empty: Note {
+            text: I18n.t("Nothing found to keep here, so the picture shows as shot. Try another subject, or custom removal.");
         }
 
         Hairline { }
@@ -1022,6 +1040,7 @@ export component VideoPanel inherits VerticalLayout {
         }
         if root.removal == 2 && root.selected.cutout-progress >= 0: AnalysisRow {
             progress: root.selected.cutout-progress;
+            fetching: root.selected.cutout-fetching;
         }
         if root.removal == 2: Row {
             label: root.selected.cutout-strokes == 1 ? I18n.t("1 stroke")
