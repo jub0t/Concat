@@ -28,6 +28,10 @@ export component NumberField inherits Rectangle {
     in property <Glyph> prefix-glyph: Glyph.none;
     /// appended to the displayed number, e.g. `%` or `s`
     in property <string> suffix;
+    /// The unit as a segment on the trailing edge, set apart and muted,
+    /// the way a search field wears its glass: `K`, `%`, `EV`. The number
+    /// stays a bare number, so typing never has to fight a suffix.
+    in property <string> unit;
     /// render the keyframe diamond on the trailing edge
     in property <bool> keyframe;
     in-out property <bool> keyframed;
@@ -55,6 +59,8 @@ export component NumberField inherits Rectangle {
     min-width: 44px;
     horizontal-stretch: 1;
     border-radius: Theme.r;
+    // The unit segment is square-cornered; the field's own radius cuts it.
+    clip: root.unit != "";
     opacity: root.enabled ? 1.0 : 0.45;
     background: (ti.has-focus || (scrub.has-hover && root.enabled)) ? Theme.field-hover : Theme.field;
 
@@ -80,7 +86,7 @@ export component NumberField inherits Rectangle {
 
     HorizontalLayout {
         padding-left: 8px;
-        padding-right: 4px;
+        padding-right: root.unit != "" ? 0px : 4px;
         spacing: 5px;
 
         if root.prefix != "": Text {
@@ -175,6 +181,29 @@ export component NumberField inherits Rectangle {
                         root.keyframe-toggled(root.keyframed);
                     }
                 }
+            }
+        }
+
+        // The unit, in its own quiet segment: a hairline, a slightly
+        // darker ground, dim text. It is not a control and does not look
+        // like one; the scrub still runs across it.
+        if root.unit != "": Rectangle {
+            width: unit-label.preferred-width + 14px;
+            background: Theme.well;
+            Rectangle {
+                x: 0;
+                width: 1px;
+                background: Theme.line;
+            }
+            unit-label := Text {
+                text: root.unit;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+                width: parent.width;
+                height: parent.height;
             }
         }
     }

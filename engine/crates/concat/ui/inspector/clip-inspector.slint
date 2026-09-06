@@ -97,6 +97,8 @@ export struct AppliedParamData {
     /// The subhead this knob sits under; empty for none. Rows that share
     /// one in a run share one subhead.
     group: string,
+    /// The unit the manifest gives the value: `%`, `K`, `EV`, or nothing.
+    unit: string,
     min: float,
     max: float,
     step: float,
@@ -1507,6 +1509,9 @@ export component AdjustPanel inherits VerticalLayout {
 
                     knob := Param {
                         slider: false;
+                        // The unit segment, on one row for now: the shape
+                        // is under review before the rest follow.
+                        unit: p.key == "temperature" ? p.unit : "";
                         label: p.label;
                         value: p.value;
                         minimum: p.min;

@@ -424,6 +424,9 @@ export component Param inherits VerticalLayout {
     /// Off drops the fader and folds the row into one line; the number
     /// field alone carries the value, and drags for it.
     in property <bool> slider: true;
+    /// The value's unit, worn by the number field's trailing segment in
+    /// place of the formatted readout: the number is then said once.
+    in property <string> unit;
     /// Show the keyframe cluster, and which field it keys. Opt-in rather
     /// than derived from `field`, because a Slint enum property with nothing
     /// assigned to it is its first variant and not "none" - every unkeyable
@@ -447,7 +450,7 @@ export component Param inherits VerticalLayout {
 
         Rectangle { horizontal-stretch: 1; }
 
-        Text {
+        if root.unit == "": Text {
             text: InspectorFmt.format(root.fmt, root.value);
             color: Theme.fg;
             font-family: Theme.font-technical;
@@ -457,13 +460,14 @@ export component Param inherits VerticalLayout {
 
         if !root.slider: Rectangle { width: 8px; }
         if !root.slider: NumberField {
-            width: 64px;
+            width: root.unit == "" ? 64px : 84px;
             value <=> root.value;
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
             precision: InspectorFmt.precision-of(root.step);
             enabled: root.enabled;
+            unit: root.unit;
             changed(v) => { root.changed(v); }
         }
 
