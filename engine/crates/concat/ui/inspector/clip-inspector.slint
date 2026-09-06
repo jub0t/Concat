@@ -308,6 +308,7 @@ export component PresetStack inherits VerticalLayout {
                             step: p.step;
                             default-value: p.default-value;
                             fmt: p.fmt;
+                            unit: p.unit;
                             enabled: item.on;
                             changed(v) => {
                                 root.set-param(index, p.key, v);
@@ -810,6 +811,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.scale, v); root.commit(); }
         }
         Param {
@@ -823,6 +826,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.centred;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
         }
         Param {
@@ -836,6 +841,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.centred;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
         }
         Param {
@@ -849,6 +856,7 @@ export component VideoPanel inherits VerticalLayout {
             step: 1;
             default-value: 0;
             fmt: ParamFormat.degrees;
+            unit: "°";
             changed(v) => { root.set(ClipField.rotation, v); root.commit(); }
         }
         Param {
@@ -860,6 +868,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.stretch-x, v); root.commit(); }
         }
         Param {
@@ -871,6 +881,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.stretch-y, v); root.commit(); }
         }
 
@@ -895,6 +907,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
         }
         Row {
@@ -963,6 +977,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.002;
             default-value: 0.01;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
         }
         if root.removal == 1 && root.selected.cutout-progress >= 0: AnalysisRow {
@@ -1028,6 +1044,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0.06;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.cutout-size(v); }
         }
         if root.removal == 2: Param {
@@ -1038,6 +1056,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.002;
             default-value: 0.01;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.cutout-feather, v); root.commit(); }
         }
         if root.removal == 2 && root.selected.cutout-progress >= 0: AnalysisRow {
@@ -1089,6 +1109,7 @@ export component VideoPanel inherits VerticalLayout {
                 step: p.step;
                 default-value: p.default-value;
                 fmt: p.fmt;
+                unit: p.unit;
                 changed(v) => {
                     root.chain-set-param(root.keyer-index, p.key, v);
                     root.commit();
@@ -1119,6 +1140,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.crop-left, v); root.commit(); }
         }
         Param {
@@ -1130,6 +1153,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.crop-top, v); root.commit(); }
         }
         Param {
@@ -1141,6 +1166,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.crop-right, v); root.commit(); }
         }
         Param {
@@ -1152,6 +1179,8 @@ export component VideoPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.crop-bottom, v); root.commit(); }
         }
         }
@@ -1252,6 +1281,7 @@ export component AudioPanel inherits VerticalLayout {
             maximum: root.fade-limit;
             step: 0.05;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
         }
         Param {
@@ -1262,6 +1292,7 @@ export component AudioPanel inherits VerticalLayout {
             maximum: root.fade-limit;
             step: 0.05;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
         }
         }
@@ -1337,6 +1368,7 @@ export component SpeedPanel inherits VerticalLayout {
             step: 0.05;
             default-value: 1;
             fmt: ParamFormat.rate;
+            unit: "x";
             changed(v) => { root.set(ClipField.speed, v); root.commit(); }
         }
 
@@ -1421,6 +1453,7 @@ export component AnimationPanel inherits VerticalLayout {
             step: 0.05;
             default-value: 0.5;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.anim-in-duration, v); root.commit(); }
         }
         }
@@ -1445,6 +1478,7 @@ export component AnimationPanel inherits VerticalLayout {
             step: 0.05;
             default-value: 0.5;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.anim-out-duration, v); root.commit(); }
         }
         }
@@ -1509,9 +1543,7 @@ export component AdjustPanel inherits VerticalLayout {
 
                     knob := Param {
                         slider: false;
-                        // The unit segment, on one row for now: the shape
-                        // is under review before the rest follow.
-                        unit: p.key == "temperature" ? p.unit : "";
+                        unit: p.unit;
                         label: p.label;
                         value: p.value;
                         minimum: p.min;
@@ -1590,6 +1622,8 @@ export component FilterPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.opacity, v); root.commit(); }
         }
 
@@ -1612,6 +1646,7 @@ export component FilterPanel inherits VerticalLayout {
             maximum: root.ramp-limit;
             step: 0.05;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.fade-in, v); root.commit(); }
         }
         Param {
@@ -1621,6 +1656,7 @@ export component FilterPanel inherits VerticalLayout {
             maximum: root.ramp-limit;
             step: 0.05;
             fmt: ParamFormat.seconds2;
+            unit: "s";
             changed(v) => { root.set(ClipField.fade-out, v); root.commit(); }
         }
         }

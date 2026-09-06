@@ -157,6 +157,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0.09;
             fmt: ParamFormat.height;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.font-size, v); root.commit(); }
         }
 
@@ -193,6 +195,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.01;
             default-value: 1;
             fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.text-opacity, v); root.commit(); }
         }
 
@@ -264,6 +268,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.outline;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.stroke-width, v); root.commit(); }
         }
 
@@ -309,6 +315,7 @@ export component TextPanel inherits VerticalLayout {
             step: 0.05;
             default-value: 1.2;
             fmt: ParamFormat.rate;
+            unit: "x";
             changed(v) => { root.set(ClipField.line-height, v); root.commit(); }
         }
 
@@ -320,6 +327,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.outline;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.tracking, v); root.commit(); }
         }
         }
@@ -343,6 +352,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.centred;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
         }
 
@@ -354,6 +365,8 @@ export component TextPanel inherits VerticalLayout {
             step: 0.005;
             default-value: 0;
             fmt: ParamFormat.centred;
+            unit: "%";
+            unit-scale: 100;
             changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
         }
         }

@@ -427,6 +427,9 @@ export component Param inherits VerticalLayout {
     /// The value's unit, worn by the number field's trailing segment in
     /// place of the formatted readout: the number is then said once.
     in property <string> unit;
+    /// What the field shows per unit of value: 100 for a fraction worn as
+    /// a percent. The value itself stays what the model holds.
+    in property <float> unit-scale: 1;
     /// Show the keyframe cluster, and which field it keys. Opt-in rather
     /// than derived from `field`, because a Slint enum property with nothing
     /// assigned to it is its first variant and not "none" - every unkeyable
@@ -465,9 +468,17 @@ export component Param inherits VerticalLayout {
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
-            precision: InspectorFmt.precision-of(root.step);
+            precision: InspectorFmt.precision-of(root.step * root.unit-scale);
             enabled: root.enabled;
             unit: root.unit;
+            // Shown scaled, typed scaled, held as is.
+            format(v) => {
+                return Fmt.round-to(v * root.unit-scale,
+                    InspectorFmt.precision-of(root.step * root.unit-scale));
+            }
+            parse(t) => {
+                return t.is-float() ? t.to-float() / root.unit-scale : root.value;
+            }
             changed(v) => { root.changed(v); }
         }
 
@@ -511,13 +522,21 @@ export component Param inherits VerticalLayout {
         }
 
         NumberField {
-            width: 64px;
+            width: root.unit == "" ? 64px : 84px;
             value <=> root.value;
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
-            precision: InspectorFmt.precision-of(root.step);
+            precision: InspectorFmt.precision-of(root.step * root.unit-scale);
             enabled: root.enabled;
+            unit: root.unit;
+            format(v) => {
+                return Fmt.round-to(v * root.unit-scale,
+                    InspectorFmt.precision-of(root.step * root.unit-scale));
+            }
+            parse(t) => {
+                return t.is-float() ? t.to-float() / root.unit-scale : root.value;
+            }
             changed(v) => { root.changed(v); }
         }
     }
