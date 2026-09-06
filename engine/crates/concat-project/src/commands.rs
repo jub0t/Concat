@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, Cutout,
     CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, Stroke, TextStyle,
-    Timeline, Track, Transition,
+    Timeline, Track, Transition, VideoSettings,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -485,6 +485,15 @@ pub enum Command {
     RemoveTimeline {
         /// The timeline to delete. An unknown id is a no-op.
         timeline_id: String,
+    },
+    /// Sets a timeline's output frame and rate. A term no frame could have,
+    /// such as a zero dimension or a zero rate, is refused as a no-op rather
+    /// than clamped: there is no nearest real size to a zero.
+    SetTimelineVideo {
+        /// The timeline. An unknown id is a no-op.
+        timeline_id: String,
+        /// The frame and the rate, together.
+        video: VideoSettings,
     },
     /// Renames a timeline tab, with the same trim-and-ignore-blank rule as
     /// [`Command::RenameTrack`].
@@ -1716,9 +1725,14 @@ pub fn apply(
                     muted: false,
                 })
                 .collect();
+            // Born at the frame of the timeline you were looking at: the
+            // likeliest second timeline is another cut of the same picture,
+            // and the one that is not is a sheet away from being told so.
+            let video = project.active().video;
             project.timelines.push(Timeline {
                 id: id.clone(),
                 name,
+                video,
                 tracks,
                 clips: Vec::new(),
             });
@@ -1726,6 +1740,21 @@ pub fn apply(
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,
+            })
+        }
+
+        Command::SetTimelineVideo { timeline_id, video } => {
+            if !video.is_sane() {
+                return Ok(Outcome::default());
+            }
+            let applied = project
+                .timelines
+                .iter_mut()
+                .find(|timeline| timeline.id == timeline_id)
+                .is_some_and(|timeline| assign(&mut timeline.video, video));
+            Ok(Outcome {
+                created_id: None,
+                applied,
             })
         }
 

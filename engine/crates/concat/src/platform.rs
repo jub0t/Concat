@@ -57,9 +57,19 @@ pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
         }
     };
 
-    // The custom title bar. On macOS the native bar is hidden and the traffic
-    // lights are overlaid on the strip the UI draws. Other platforms keep
-    // their decorations.
+    // The custom title bar. The window draws its own strip, so the
+    // platform's is not wanted - but each platform is asked in its own way.
+    //
+    // macOS keeps the real title bar and makes it invisible: transparent,
+    // untitled, with the content view under it. That is what keeps the
+    // traffic lights, which are the window's and not ours to draw, and the
+    // strip leaves 80px for them (title-bar.slint).
+    //
+    // Everywhere else the decorations go entirely and the strip carries its
+    // own minimise, maximise and close. On Windows winit keeps WS_SIZEBOX
+    // when the caption goes, so the edges still resize, and the undecorated
+    // shadow keeps the DWM drop shadow the caption would otherwise have
+    // taken with it.
     #[cfg(target_os = "macos")]
     {
         use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
@@ -70,8 +80,57 @@ pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
                 .with_fullsize_content_view(true)
         });
     }
+    #[cfg(target_os = "windows")]
+    {
+        use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+        selector = selector.with_winit_window_attributes_hook(|attributes| {
+            attributes
+                .with_decorations(false)
+                .with_undecorated_shadow(true)
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
+    {
+        selector = selector
+            .with_winit_window_attributes_hook(|attributes| attributes.with_decorations(false));
+    }
     selector.select()?;
     Ok(gpu)
+}
+
+/// Whether the strip should draw its own window buttons: everywhere the
+/// platform's decorations were taken off, which is everywhere but macOS,
+/// where the traffic lights stay the window's.
+pub const OWN_WINDOW_BUTTONS: bool = !MACOS;
+
+/// Minimises the window: the strip's first button.
+pub fn minimize(window: &slint::Window) {
+    #[cfg(not(target_os = "android"))]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        window.with_winit_window(|window| {
+            window.set_minimized(true);
+        });
+    }
+    #[cfg(target_os = "android")]
+    let _ = window;
+}
+
+/// Whether the window is currently maximised, for the strip to pick the
+/// maximise or the restore glyph. False where there is no such state.
+pub fn is_maximized(window: &slint::Window) -> bool {
+    #[cfg(not(target_os = "android"))]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        window
+            .with_winit_window(|window| window.is_maximized())
+            .unwrap_or(false)
+    }
+    #[cfg(target_os = "android")]
+    {
+        let _ = window;
+        false
+    }
 }
 
 /// On Android the activity installed the backend before calling in, and

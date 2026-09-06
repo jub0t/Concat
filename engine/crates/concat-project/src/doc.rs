@@ -24,7 +24,7 @@ use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
     AppliedFilter, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout, KeyEase,
     KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, TextAlign, TextStyle, Timeline, Track,
-    Transition,
+    Transition, VideoSettings,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -284,6 +284,11 @@ pub fn from_document(document: &Value) -> Option<Project> {
     }
     let media = read_media(document.get("media"));
 
+    // The document's frame, as every build has written it at the top level.
+    // The default for any timeline that does not carry its own - which is
+    // every timeline in a document from before they could.
+    let shared = read_video(document.get("video"), VideoSettings::default());
+
     // The timelines array is the source of truth when present and usable; a
     // file from before multiple timelines loads its flat fields as the one
     // timeline they always were.
@@ -304,6 +309,7 @@ pub fn from_document(document: &Value) -> Option<Project> {
             timelines.push(Timeline {
                 id: id.to_owned(),
                 name: text(entry.get("name"), "Timeline"),
+                video: read_video(entry.get("video"), shared),
                 tracks,
                 clips,
             });
@@ -318,6 +324,7 @@ pub fn from_document(document: &Value) -> Option<Project> {
         timelines.push(Timeline {
             id: "TL1".to_owned(),
             name: "Timeline 1".to_owned(),
+            video: shared,
             tracks,
             clips,
         });
@@ -355,6 +362,12 @@ pub fn from_document(document: &Value) -> Option<Project> {
 }
 
 /// Settings the host manages around the edit: the manifest's identity fields.
+///
+/// The frame and rate here are what a project *starts* as - the launch
+/// screen's pickers, handed to the first timeline of a project that has no
+/// document yet. Once there is a document, every timeline carries its own
+/// (`Timeline::video`), and the ones here are not consulted again: the
+/// document is the edit, and the manifest is the same file.
 #[derive(Clone, Debug)]
 pub struct DocumentSettings {
     /// The project's display name, written as the document's `name` field.
@@ -369,6 +382,19 @@ pub struct DocumentSettings {
     pub rate_den: i64,
 }
 
+impl DocumentSettings {
+    /// The frame and rate, as the first timeline of a fresh project gets
+    /// them.
+    pub fn video(&self) -> VideoSettings {
+        VideoSettings {
+            width: self.width,
+            height: self.height,
+            rate_num: self.rate_num,
+            rate_den: self.rate_den,
+        }
+    }
+}
+
 /// Builds the full `concat.json` document.
 pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
     let active = project.active();
@@ -376,13 +402,16 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
     document.insert("concat".into(), json!("0.1.0"));
     document.insert("version".into(), json!(DOCUMENT_VERSION));
     document.insert("name".into(), json!(settings.name));
+    // The active timeline's frame, at the top level where every build has
+    // read it - the same mirror `tracks` and `clips` are, and for the same
+    // reader.
     document.insert(
         "video".into(),
         json!({
-            "width": settings.width,
-            "height": settings.height,
-            "rateNum": settings.rate_num,
-            "rateDen": settings.rate_den,
+            "width": active.video.width,
+            "height": active.video.height,
+            "rateNum": active.video.rate_num,
+            "rateDen": active.video.rate_den,
         }),
     );
     document.insert(
@@ -441,6 +470,35 @@ fn read_keys(raw: Option<&Value>) -> Vec<ClipKey> {
             .then_with(|| a.at.total_cmp(&b.at))
     });
     keys
+}
+
+/// A `video` block - the top-level one, or a timeline's own - falling back
+/// to `fallback` a field at a time. A block naming a zero dimension or rate
+/// gets the fallback for that field rather than the zero: a document that
+/// has been hand-edited into nonsense should still open at a size that is a
+/// size.
+fn read_video(value: Option<&Value>, fallback: VideoSettings) -> VideoSettings {
+    let positive_u32 = |key: &str, fallback: u32| {
+        value
+            .and_then(|block| block.get(key))
+            .and_then(Value::as_u64)
+            .filter(|n| *n > 0)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(fallback)
+    };
+    let positive_i64 = |key: &str, fallback: i64| {
+        value
+            .and_then(|block| block.get(key))
+            .and_then(Value::as_i64)
+            .filter(|n| *n > 0)
+            .unwrap_or(fallback)
+    };
+    VideoSettings {
+        width: positive_u32("width", fallback.width),
+        height: positive_u32("height", fallback.height),
+        rate_num: positive_i64("rateNum", fallback.rate_num),
+        rate_den: positive_i64("rateDen", fallback.rate_den),
+    }
 }
 
 /// A key's easing, in either spelling.

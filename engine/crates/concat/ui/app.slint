@@ -121,6 +121,19 @@ export component App inherits Window {
 
     callback titlebar-begin-drag();
     callback titlebar-toggle-maximize();
+    /// The strip's own window buttons, where the platform's decorations were
+    /// taken off; see platform.rs.
+    callback titlebar-minimize();
+    callback titlebar-close();
+    /// Draw minimise / maximise / close on the strip. False on macOS, where
+    /// the traffic lights are the window's own.
+    in property <bool> own-window-buttons;
+    /// Read back from the platform on every resize, so the strip can show
+    /// restore rather than maximise - whichever route maximised it.
+    in-out property <bool> window-maximized;
+    callback window-resized();
+    changed width => { root.window-resized(); }
+    changed height => { root.window-resized(); }
     // The dialogs. Both are held at the root because Slint has no portal: a
     // modal has to be declared where it is drawn, and it is drawn over
     // everything.
@@ -349,8 +362,12 @@ export component App inherits Window {
                     root.menu-opened(index);
                 }
 
+                own-buttons: root.own-window-buttons;
+                maximized: root.window-maximized;
                 begin-drag => { root.titlebar-begin-drag(); }
                 toggle-maximize => { root.titlebar-toggle-maximize(); }
+                minimize => { root.titlebar-minimize(); }
+                close => { root.titlebar-close(); }
                 open-settings => { root.open-settings(); }
                 add-pane(kind) => { Editor.dock-add(kind); }
                 export-clicked => { root.export-clicked(); }

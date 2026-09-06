@@ -57,6 +57,8 @@ export enum Glyph {
     flip-v,
     keyframe,
     reset,
+    /// the title strip's maximise: one square; restore is `copy`, two
+    maximize,
     angle,
     align-left,
     align-center-x,
@@ -390,6 +392,12 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/diamond
+    // lucide's square, for the strip's maximise button.
+    if root.glyph == Glyph.maximize: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z";
+    }
+
     // lucide's rotate-ccw: the arrow every panel means by "put it back".
     if root.glyph == Glyph.reset: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;

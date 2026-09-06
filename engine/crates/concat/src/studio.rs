@@ -647,7 +647,7 @@ pub struct Studio {
     pub tool: TimelineTool,
     pub snap: bool,
     /// 0 Full, 1 Half, 2 Quarter of the output size, for the monitor.
-    pub quality: usize,
+    pub quality: HashMap<String, usize>,
     pub playing: bool,
     transport: slint::Timer,
     /// One clip, held for Paste.
@@ -1097,7 +1097,7 @@ impl Studio {
             seconds_per_pixel: 0.05,
             tool: TimelineTool::Select,
             snap: true,
-            quality: 1,
+            quality: HashMap::new(),
             playing: false,
             transport: slint::Timer::default(),
             clipboard: None,
@@ -1170,23 +1170,34 @@ impl Studio {
         self.timeline().clip(id)
     }
 
-    /// The window's frame rate, from the session's settings.
+    /// The active timeline's frame rate. With no project open, the empty
+    /// project's one timeline answers, at the default.
     pub fn frame_rate(&self) -> f32 {
-        self.session
-            .as_ref()
-            .map(|session| {
-                let settings = session.settings();
-                settings.rate_num as f32 / settings.rate_den.max(1) as f32
-            })
-            .unwrap_or(30.0)
+        self.project().active().video.rate() as f32
     }
 
-    /// The output size, from the session's settings.
+    /// The active timeline's output size.
     pub fn output_size(&self) -> (u32, u32) {
-        self.session
-            .as_ref()
-            .map(|session| (session.settings().width, session.settings().height))
-            .unwrap_or((1920, 1080))
+        let video = self.project().active().video;
+        (video.width, video.height)
+    }
+
+    /// The monitor's quality tier for the active timeline: 0 full, 1 half,
+    /// 2 quarter. Kept per timeline because the cost it trades against is
+    /// the timeline's frame - a 4K cut wants the quarter setting that a
+    /// 1080p cut beside it does not - and the trade is the window's, not
+    /// the document's, so it is remembered here and not saved.
+    pub fn quality_of(&self) -> usize {
+        self.quality
+            .get(&self.project().active_timeline_id)
+            .copied()
+            .unwrap_or(1)
+    }
+
+    /// Picks the monitor's quality tier for the active timeline.
+    pub fn set_quality(&mut self, index: usize) {
+        let id = self.project().active_timeline_id.clone();
+        self.quality.insert(id, index.min(2));
     }
 
     /// The track a row index names. Rows count from the top of the panel and
@@ -1391,7 +1402,7 @@ impl Studio {
             return;
         };
         self.autosave.stop();
-        let (path, document) = session.prepare_save(None, None, None);
+        let (path, document) = session.prepare_save(None);
         self.dirty = false;
         spawn(
             move || projects::save(&path, &document),
@@ -1484,7 +1495,7 @@ impl Studio {
             self.title_blocks.insert(title.clip_id, title.block);
             clips.push(title.clip);
         }
-        let scale = match self.quality {
+        let scale = match self.quality_of() {
             0 => 1.0,
             1 => 0.5,
             _ => 0.25,
@@ -1496,7 +1507,7 @@ impl Studio {
             width,
             height,
         };
-        let settings = session.settings().clone();
+        let settings = session.settings();
         let monitor = self.host.monitor.clone();
         self.preview_busy = true;
         self.preview_wanted = false;
@@ -3906,7 +3917,7 @@ impl Studio {
         self.host.cutouts.cancel();
         self.cutout_jobs.clear();
         if let Some(session) = self.session.as_mut() {
-            let (path, document) = session.prepare_save(None, None, None);
+            let (path, document) = session.prepare_save(None);
             if let Err(error) = projects::save(&path, &document) {
                 self.notify(&tf("Could not save: {0}", &[&error]), true);
                 return;
@@ -4563,7 +4574,7 @@ impl Studio {
             return;
         };
         let document = session.document();
-        let settings = session.settings().clone();
+        let settings = session.settings();
         let path = session.path().to_owned();
         let name = format!("{} template", self.project_name);
         let config = self.host.dirs.config.clone();
@@ -4969,8 +4980,7 @@ impl Studio {
             // the straight line.
             let ease = clip
                 .keys_on(property)
-                .filter(|key| key.at < at)
-                .next_back()
+                .rfind(|key| key.at < at)
                 .map_or(model::KeyEase::LINEAR, |key| key.ease);
             Command::SetClipKey {
                 clip_id,
@@ -5288,17 +5298,21 @@ impl Studio {
                 .position(|size| *size == (width as i32, height as i32))
                 .map_or(-1, |index| index as i32),
         );
-        editor.set_quality_index(self.quality as i32);
+        editor.set_quality_index(self.quality_of() as i32);
 
-        // The Details panel, and the sheet its Modify button opens.
+        // The Details panel, and the sheet its Modify button opens. The
+        // frame, rate and duration are the active timeline's, and the panel
+        // says so by name; the name and folder are the project's.
         let folder: SharedString = self
             .session
             .as_ref()
             .map(|session| session.path().to_owned())
             .unwrap_or_else(|| "—".to_owned())
             .into();
+        let timeline_name: SharedString = self.timeline().name.as_str().into();
         editor.set_project_name(self.project_name.as_str().into());
         editor.set_project_folder(folder.clone());
+        editor.set_timeline_name(timeline_name.clone());
         editor.set_project_output(format!("{width} × {height}").into());
         editor.set_project_rate(format!("{:.2} fps", self.frame_rate()).into());
         editor.set_project_duration(frames_timecode(self.duration(), self.frame_rate()).into());
@@ -5309,6 +5323,7 @@ impl Studio {
             open: self.project_sheet.open,
             name: self.project_sheet.name.as_str().into(),
             folder,
+            timeline: timeline_name,
             size: self.project_sheet.size,
             rate: self.project_sheet.rate as i32,
         });
@@ -5801,26 +5816,30 @@ impl Studio {
         }
     }
 
-    /// Changes the project's output size from the monitor's picker.
+    /// Changes the active timeline's output size from the monitor's picker.
+    /// An edit like any other - undoable, and this timeline's alone.
     pub fn set_output(&mut self, index: usize) {
         let (width, height) = OUTPUTS[index.min(OUTPUTS.len() - 1)];
-        if let Some(session) = self.session.as_mut() {
-            session.prepare_save(None, Some(width as u32), Some(height as u32));
-            self.dirty = true;
-            self.schedule_autosave();
-            self.request_preview();
-        }
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let video = model::VideoSettings {
+            width: width as u32,
+            height: height as u32,
+            ..session.video()
+        };
+        let timeline_id = self.project().active_timeline_id.clone();
+        self.apply(Command::SetTimelineVideo { timeline_id, video });
+        self.request_preview();
     }
 
     // ── the project sheet ──
 
-    /// Opens the sheet on the project as it stands.
+    /// Opens the sheet on the project and its active timeline as they stand.
     pub fn project_sheet_open(&mut self) {
         let (width, height) = self.output_size();
-        let (num, den) = self.session.as_ref().map_or((30, 1), |session| {
-            let settings = session.settings();
-            (settings.rate_num, settings.rate_den)
-        });
+        let video = self.project().active().video;
+        let (num, den) = (video.rate_num, video.rate_den);
         self.project_sheet = ProjectSheet {
             open: true,
             name: self.project_name.clone(),
@@ -5835,9 +5854,10 @@ impl Studio {
         };
     }
 
-    /// Applies the sheet - the name, the frame and the rate together - and
-    /// closes it. The frame goes the way the monitor's picker sends it, so
-    /// the two cannot disagree about what a size means.
+    /// Applies the sheet and closes it. The name is the project's; the frame
+    /// and the rate are the active timeline's, and go as one edit so an undo
+    /// takes both back together. The frame goes the way the monitor's picker
+    /// sends it, so the two cannot disagree about what a size means.
     pub fn project_apply(&mut self) {
         let sheet = std::mem::take(&mut self.project_sheet);
         let name = sheet.name.trim().to_owned();
@@ -5848,15 +5868,19 @@ impl Studio {
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        session.prepare_save(
-            (!name.is_empty()).then_some(name.as_str()),
-            size.map(|(width, _)| width as u32),
-            size.map(|(_, height)| height as u32),
-        );
-        session.set_rate(num, den);
+        let mut video = session.video();
+        if let Some((width, height)) = size {
+            video.width = width as u32;
+            video.height = height as u32;
+        }
+        video.rate_num = num;
+        video.rate_den = den;
+        session.prepare_save((!name.is_empty()).then_some(name.as_str()));
         if !name.is_empty() {
             self.project_name = name;
         }
+        let timeline_id = self.project().active_timeline_id.clone();
+        self.apply(Command::SetTimelineVideo { timeline_id, video });
         self.dirty = true;
         self.schedule_autosave();
         self.request_preview();

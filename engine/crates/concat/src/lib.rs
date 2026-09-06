@@ -183,9 +183,43 @@ pub fn run() -> Result<(), slint::PlatformError> {
         move || {
             if let Some(app) = weak.upgrade() {
                 platform::toggle_maximize(app.window());
+                app.set_window_maximized(platform::is_maximized(app.window()));
             }
         }
     });
+    // The strip's own window buttons, on the platforms whose decorations
+    // were taken off. Close goes the way the File menu's Close does - the
+    // project is shut first, so an autosave in flight is not orphaned.
+    app.on_titlebar_minimize({
+        let weak = app.as_weak();
+        move || {
+            if let Some(app) = weak.upgrade() {
+                platform::minimize(app.window());
+            }
+        }
+    });
+    app.on_titlebar_close(|| {
+        Shell::with(|shell, app| {
+            shell.studio.borrow_mut().close_project();
+            app.window().hide().ok();
+        });
+    });
+    // Maximised or not is read back on every resize rather than tracked:
+    // the platform can maximise the window without us - a drag to the top
+    // edge, Win+Up - and the size changing is the one signal every such
+    // route has in common.
+    app.on_window_resized({
+        let weak = app.as_weak();
+        move || {
+            if let Some(app) = weak.upgrade() {
+                let maximized = platform::is_maximized(app.window());
+                if app.get_window_maximized() != maximized {
+                    app.set_window_maximized(maximized);
+                }
+            }
+        }
+    });
+    app.set_own_window_buttons(platform::OWN_WINDOW_BUTTONS);
 
     // Mutate, then republish. Every handler is one of these three: the whole
     // window, the lanes alone (for the handlers a pointer drives directly,
@@ -704,7 +738,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.set_output((index.max(0) as usize).min(OUTPUTS.len() - 1));
     }));
     editor.on_quality_changed(on_window!(|state, index: i32| {
-        state.quality = (index.max(0) as usize).min(2);
+        state.set_quality(index.max(0) as usize);
         state.request_preview();
     }));
     editor.on_play_toggled(on_window!(|state| {

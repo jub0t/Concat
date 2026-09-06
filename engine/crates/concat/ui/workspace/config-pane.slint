@@ -102,6 +102,10 @@ export component ConfigPane inherits Rectangle {
     property <bool> has-selection: root.selected.present;
     in property <string> project-name: I18n.t("Untitled project");
     in property <string> project-folder: "—";
+    /// The active timeline, whose frame, rate and duration the rows below
+    /// report. Named in the panel so a project with three cuts at three
+    /// frames never leaves anyone wondering which one "1080 × 1920" is.
+    in property <string> timeline-name: I18n.t("Timeline 1");
     in property <string> project-output: "1080 x 1920";
     in property <string> project-rate: "30.00 fps";
     in property <string> project-duration: "00:00:00:00";
@@ -345,7 +349,13 @@ export component ConfigPane inherits Rectangle {
                     FactHeading { title: I18n.t("PROJECT"); }
                     FactRow { label: I18n.t("Name"); value: root.project-name; }
                     FactRow { label: I18n.t("Folder"); value: root.project-folder; }
-                    FactRow { label: I18n.t("Output"); value: root.project-output; }
+
+                    // The frame is a timeline's, not the project's: two cuts
+                    // of one edit can be two shapes, and these rows say which
+                    // one they are describing.
+                    FactHeading { title: I18n.t("TIMELINE"); }
+                    FactRow { label: I18n.t("Name"); value: root.timeline-name; }
+                    FactRow { label: I18n.t("Frame"); value: root.project-output; }
                     FactRow { label: I18n.t("Rate"); value: root.project-rate; }
                     FactRow { label: I18n.t("Duration"); value: root.project-duration; }
 

@@ -66,33 +66,3 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 > The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/Concat/releases) page and test the application to see where it breaks or how it can be improved.
 
 Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, the checks to run, and how contributions are licensed. There is also [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3). Read [ROADMAP.MD](./ROADMAP.MD) for future goals.
-
-## License
-
-Concat is free software under the [GNU Affero General Public License v3.0 or
-later](./LICENSE).
-
-**If you just want to edit videos, none of this affects you.** Download a build
-and use it for anything, including commercial work. There is nothing to accept,
-register or pay, and no obligation attaches to you as a user.
-
-**If you fork it, you are welcome here.** Modify it, ship it, sell it, host it.
-The one condition is reciprocity: those who receive your version get the source
-too, under the same license. That includes users who reach it over a network —
-that is the "Affero" part, and it is why a hosted Concat cannot be closed.
-
-Two things sit alongside the AGPL:
-
-- **Plugins keep their own license.** The [plugin
-  exception](./LICENSE-EXCEPTIONS.md) means anything built on the Concat API is
-  yours to license as you like. The copyleft covers Concat, not what talks to it.
-- **The name is not part of the grant.** The code is free; *Concat* and the logo
-  identify builds from this project. Forks are encouraged — please ship them
-  under your own name. See [TRADEMARK.md](./TRADEMARK.md).
-
-Contributions are made under the [CLA](./CLA.md); you keep copyright in your
-work. Distributed builds also include GPL-licensed FFmpeg and espeak-ng — see
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
-
-Need terms without the AGPL's obligations? A commercial license is available:
-**jub0trd@gmail.com**.

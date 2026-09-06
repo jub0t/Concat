@@ -34,8 +34,13 @@ pub struct Editor {
 impl Editor {
     /// A fresh, empty project.
     pub fn new() -> Self {
+        Self::with_video(crate::model::VideoSettings::default())
+    }
+
+    /// A fresh editor whose first timeline renders to `video`.
+    pub fn with_video(video: crate::model::VideoSettings) -> Self {
         Self {
-            project: Project::new(),
+            project: Project::with_video(video),
             mint: IdMint::default(),
             undo: VecDeque::new(),
             redo: Vec::new(),

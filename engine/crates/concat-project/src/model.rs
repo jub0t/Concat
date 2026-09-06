@@ -454,8 +454,8 @@ impl KeyEase {
 
 impl From<KeyEase> for concat_core::animate::Ease {
     /// The one conversion into what the engine plays. Sanitised on the way,
-    /// so a hand-edited document cannot hand the solver an x outside `0..=1`
-    /// - where a cubic bezier stops being a function of x and the Newton
+    /// so a hand-edited document cannot hand the solver an x outside `0..=1`,
+    /// where a cubic bezier stops being a function of x and the Newton
     /// iteration stops converging.
     fn from(ease: KeyEase) -> Self {
         let KeyEase([x1, y1, x2, y2]) = ease.sane();
@@ -851,12 +851,64 @@ pub struct Timeline {
     pub id: String,
     /// The tab label; "Timeline N" by default, renameable but never blank.
     pub name: String,
+    /// The frame this timeline renders to and the rate it runs at. Each
+    /// timeline's own: a vertical cut for one platform and a wide one for
+    /// another are different frames of the same media, and that is most of
+    /// what a second timeline is for.
+    #[serde(default)]
+    pub video: VideoSettings,
     /// The lanes, top to bottom. Never empty - `RemoveTrack` keeps a floor
     /// of one.
     pub tracks: Vec<Track>,
     /// Every clip on this timeline, in insertion order, not time order -
     /// readers must sort by `start` where order matters.
     pub clips: Vec<Clip>,
+}
+
+/// A timeline's output frame and rate.
+///
+/// The same four numbers the document's top-level `video` block has always
+/// carried, now one set per timeline. The top-level block is still written,
+/// as the active timeline's, so a build that predates this reads the
+/// document it always did, and a document from such a build gives every
+/// timeline that block on the way in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSettings {
+    /// Output frame width in pixels.
+    pub width: u32,
+    /// Output frame height in pixels.
+    pub height: u32,
+    /// Numerator of the frame rate, e.g. 30000 for 29.97 fps.
+    pub rate_num: i64,
+    /// Denominator of the frame rate, e.g. 1001 for 29.97 fps.
+    pub rate_den: i64,
+}
+
+impl Default for VideoSettings {
+    /// 1080p at 30, the frame a fresh project has always been born with.
+    fn default() -> Self {
+        VideoSettings {
+            width: 1920,
+            height: 1080,
+            rate_num: 30,
+            rate_den: 1,
+        }
+    }
+}
+
+impl VideoSettings {
+    /// The rate as a number, for anything that draws or counts frames.
+    pub fn rate(self) -> f64 {
+        self.rate_num as f64 / self.rate_den.max(1) as f64
+    }
+
+    /// Whether every term is one a frame could actually have. A zero
+    /// dimension or rate is never a real setting, only a caller bug, and
+    /// writing one would poison the document until the next open.
+    pub fn is_sane(self) -> bool {
+        self.width > 0 && self.height > 0 && self.rate_num > 0 && self.rate_den > 0
+    }
 }
 
 /// A font the user added from disk.
@@ -889,14 +941,21 @@ pub struct Project {
 }
 
 impl Project {
-    /// A new project: one timeline, four lanes.
+    /// A new project: one timeline, four lanes, at the default frame.
     pub fn new() -> Self {
+        Self::with_video(VideoSettings::default())
+    }
+
+    /// A new project whose one timeline renders to `video` - what a project
+    /// created from the launch screen's size and rate pickers starts as.
+    pub fn with_video(video: VideoSettings) -> Self {
         Self {
             media: Vec::new(),
             fonts: Vec::new(),
             timelines: vec![Timeline {
                 id: "TL1".to_owned(),
                 name: "Timeline 1".to_owned(),
+                video,
                 tracks: (1..=4)
                     .map(|number| Track {
                         id: format!("T{number}"),

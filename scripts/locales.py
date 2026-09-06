@@ -40,21 +40,21 @@ def keys() -> set[str]:
         if "demo" in path.parts:
             continue
         text = "\n".join(
-            line for line in path.read_text().split("\n") if not line.lstrip().startswith("//")
+            line for line in path.read_text(encoding="utf-8").split("\n") if not line.lstrip().startswith("//")
         )
         for match in SLINT_CALL.finditer(text):
             out.add(unescape(match.group(1)))
     for path in (CRATE / "src").rglob("*.rs"):
         # Code only: not the comments that describe the call, and not the
         # tests, whose keys are made up.
-        text = path.read_text().split("#[cfg(test)]")[0]
+        text = path.read_text(encoding="utf-8").split("#[cfg(test)]")[0]
         text = "\n".join(line for line in text.split("\n") if not line.lstrip().startswith("//"))
         for match in RUST_CALL.finditer(text):
             out.add(unescape(match.group(1)))
         for match in PRESET.finditer(text):
             out.add(unescape(match.group(1)))
     for manifest in PACKAGES.glob("*/effect.toml"):
-        for match in TOML_FIELD.finditer(manifest.read_text()):
+        for match in TOML_FIELD.finditer(manifest.read_text(encoding="utf-8")):
             value = unescape(match.group(2))
             if value:
                 out.add(value)
@@ -65,7 +65,7 @@ def keys() -> set[str]:
 
 
 def read(path: pathlib.Path) -> dict:
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def write_inventory(inventory: set[str]) -> None:

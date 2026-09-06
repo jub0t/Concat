@@ -8,12 +8,48 @@ import { AddPaneButton, PaneKind } from "workspace/pane-switcher.slint";
 
 // The custom title bar.
 //
-// On macOS the native traffic lights are overlaid: main.rs hides the real
+// On macOS the native traffic lights are overlaid: platform.rs hides the real
 // title bar (titlebar_transparent + title_hidden + fullsize_content_view) and
-// this strip leaves room for the lights on the left. Everything that is not a
-// control is a drag region — the TouchArea at the bottom of the tree starts a
-// native window drag on press, and controls declared after it take their own
+// this strip leaves room for the lights on the left. Everywhere else the
+// platform's decorations are gone altogether and the strip draws its own
+// minimise, maximise and close at the right, in that order, the way every
+// window on those platforms has them. Everything that is not a control is a
+// drag region — the TouchArea at the bottom of the tree starts a native
+// window drag on press, and controls declared after it take their own
 // presses.
+
+// One of the strip's window buttons. Caption-button proportions rather than
+// the 24px icon buttons beside Settings: wider than tall, flush with the top
+// and right edges of the window, no rounding - a target you can throw the
+// pointer at the corner to hit. Close hovers red, as it does everywhere.
+component WindowButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <bool> danger;
+
+    callback clicked();
+
+    width: 46px;
+    background: touch.has-hover
+        ? (root.danger ? Theme.danger : Theme.field)
+        : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: 12px;
+        weight: 1.6;
+        tint: touch.has-hover
+            ? (root.danger ? Theme.on-scrim : Theme.fg)
+            : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
 
 component MenuLabel inherits Rectangle {
     in property <string> label;
@@ -81,8 +117,17 @@ export component TitleBar inherits Rectangle {
     /// controls that all refuse is worse than a strip without them.
     in property <bool> minimal;
 
+    /// Draw the window buttons at the right: true wherever the platform's
+    /// decorations were taken off, which is everywhere but macOS.
+    in property <bool> own-buttons;
+    /// The window is maximised, so the middle button restores rather than
+    /// maximises and shows the two-squares glyph.
+    in property <bool> maximized;
+
     callback begin-drag();
     callback toggle-maximize();
+    callback minimize();
+    callback close();
     /// A menu was asked for: which one, and where its label sits in the strip,
     /// so the sheet can hang off it.
     callback menu-opened(index: int, at-x: length);
@@ -125,7 +170,9 @@ export component TitleBar inherits Rectangle {
         width: parent.width;
         height: parent.height;
         padding-left: root.macos ? 80px : 8px;
-        padding-right: 8px;
+        // No right padding when the strip ends in its own buttons: the close
+        // button belongs in the corner, not eight pixels shy of it.
+        padding-right: root.own-buttons ? 0px : 8px;
         spacing: 2px;
 
         // mark + wordmark
@@ -237,6 +284,27 @@ export component TitleBar inherits Rectangle {
                     mouse-cursor: pointer;
                     clicked => { root.export-clicked(); }
                 }
+            }
+        }
+
+        // The window's own buttons, last so they sit flush against the right
+        // edge. Full height of the strip, no vertical centring: a caption
+        // button's target is the whole strip height, corner included.
+        if root.own-buttons: Rectangle { width: 6px; }
+        if root.own-buttons: HorizontalLayout {
+            spacing: 0px;
+            WindowButton {
+                glyph: Glyph.minus;
+                clicked => { root.minimize(); }
+            }
+            WindowButton {
+                glyph: root.maximized ? Glyph.copy : Glyph.maximize;
+                clicked => { root.toggle-maximize(); }
+            }
+            WindowButton {
+                glyph: Glyph.close;
+                danger: true;
+                clicked => { root.close(); }
             }
         }
     }

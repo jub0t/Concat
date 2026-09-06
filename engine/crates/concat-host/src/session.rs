@@ -11,6 +11,7 @@
 //! Saving reuses `projects::save`'s temp-file-and-rename, so the document on
 //! disk is written by exactly one code path.
 
+use concat_project::model::VideoSettings;
 use concat_project::{Command, DocumentSettings, Editor, Project};
 use serde::Serialize;
 
@@ -65,35 +66,26 @@ impl Session {
     /// A folder whose document is missing or unreadable opens as an empty
     /// project rather than failing, but a *corrupt* document is an error,
     /// because silently replacing an edit with emptiness is how projects get
-    /// lost. `settings` come from the manifest; the document's own output
-    /// size wins over them, because that is where an edited size was saved.
-    pub fn open(path: &str, mut settings: DocumentSettings) -> Result<Session, String> {
+    /// lost. `settings` come from the manifest and seed the first timeline
+    /// of a project that has no document yet; a document that loads brings
+    /// every timeline's own frame with it, and those win, because that is
+    /// where an edited frame was saved.
+    pub fn open(path: &str, settings: DocumentSettings) -> Result<Session, String> {
         let editor = match projects::read_document(path) {
-            Ok(document) => {
-                if let Some(video) = document.get("video")
-                    && let (Some(width), Some(height)) = (
-                        video.get("width").and_then(|value| value.as_u64()),
-                        video.get("height").and_then(|value| value.as_u64()),
-                    )
-                    && width > 0
-                    && height > 0
-                {
-                    settings.width = width as u32;
-                    settings.height = height as u32;
+            Ok(document) => match Editor::from_document(&document) {
+                Some(editor) => editor,
+                // The settings-only manifest `create` writes: a project
+                // closed before its first edit reopens empty, it is not
+                // corrupt.
+                None if projects::is_settings_only(&document) => {
+                    Editor::with_video(settings.video())
                 }
-                match Editor::from_document(&document) {
-                    Some(editor) => editor,
-                    // The settings-only manifest `create` writes: a project
-                    // closed before its first edit reopens empty, it is not
-                    // corrupt.
-                    None if projects::is_settings_only(&document) => Editor::new(),
-                    None => {
-                        return Err(format!("{path} holds a document this build cannot read"));
-                    }
+                None => {
+                    return Err(format!("{path} holds a document this build cannot read"));
                 }
-            }
+            },
             // No document yet - a project created moments ago.
-            Err(_) => Editor::new(),
+            Err(_) => Editor::with_video(settings.video()),
         };
         Ok(Session {
             path: path.to_owned(),
@@ -121,9 +113,36 @@ impl Session {
         &self.path
     }
 
-    /// The session's settings.
-    pub fn settings(&self) -> &DocumentSettings {
-        &self.settings
+    /// The session's settings: the project's name, and the frame and rate of
+    /// the timeline being edited.
+    ///
+    /// Built rather than stored, because the frame is the active timeline's
+    /// and the active timeline changes under a tab click. Everything that
+    /// renders - the monitor, the export - asks here and gets the frame of
+    /// whatever it is about to draw.
+    pub fn settings(&self) -> DocumentSettings {
+        let video = self.editor.project().active().video;
+        DocumentSettings {
+            name: self.settings.name.clone(),
+            width: video.width,
+            height: video.height,
+            rate_num: video.rate_num,
+            rate_den: video.rate_den,
+        }
+    }
+
+    /// The active timeline's frame and rate.
+    pub fn video(&self) -> VideoSettings {
+        self.editor.project().active().video
+    }
+
+    /// Sets the active timeline's frame and rate, as an edit - undoable,
+    /// and this timeline's alone. Anything a frame could not be is ignored
+    /// by the command, for the reason a zero dimension is in
+    /// [`Session::prepare_save`].
+    pub fn set_video(&mut self, video: VideoSettings) -> Result<EditorView, String> {
+        let timeline_id = self.editor.project().active_timeline_id.clone();
+        self.apply(Command::SetTimelineVideo { timeline_id, video })
     }
 
     /// The edit as it stands.
@@ -147,16 +166,17 @@ impl Session {
     }
 
     fn view_with(&self, created_id: Option<String>) -> EditorView {
+        let settings = self.settings();
         EditorView {
             project: self.editor.project().clone(),
             can_undo: self.editor.can_undo(),
             can_redo: self.editor.can_redo(),
             settings: SettingsView {
-                name: self.settings.name.clone(),
-                width: self.settings.width,
-                height: self.settings.height,
-                rate_num: self.settings.rate_num,
-                rate_den: self.settings.rate_den,
+                name: settings.name,
+                width: settings.width,
+                height: settings.height,
+                rate_num: settings.rate_num,
+                rate_den: settings.rate_den,
             },
             created_id,
         }
@@ -183,52 +203,24 @@ impl Session {
         self.view()
     }
 
-    /// Takes new settings and hands back what a save must write: the folder
-    /// and the document. The output size can have been edited in the
-    /// preview footer and the name in the project details dialog, so both
-    /// ride along here. The disk write is the caller's, so it can happen off
-    /// the thread that owns the session; [`Session::save`] does both.
-    pub fn prepare_save(
-        &mut self,
-        name: Option<&str>,
-        width: Option<u32>,
-        height: Option<u32>,
-    ) -> (String, serde_json::Value) {
+    /// Takes a new name, if there is one, and hands back what a save must
+    /// write: the folder and the document. The frame is not a parameter any
+    /// more - it is the active timeline's, set through [`Session::set_video`]
+    /// as an edit. The disk write is the caller's, so it can happen off the
+    /// thread that owns the session; [`Session::save`] does both.
+    pub fn prepare_save(&mut self, name: Option<&str>) -> (String, serde_json::Value) {
         if let Some(name) = name {
             let trimmed = name.trim();
             if !trimmed.is_empty() {
                 self.settings.name = trimmed.to_owned();
             }
         }
-        // A zero dimension is never a real output size, only a caller bug -
-        // saving it would poison the document until the next open.
-        if let Some(width) = width.filter(|width| *width > 0) {
-            self.settings.width = width;
-        }
-        if let Some(height) = height.filter(|height| *height > 0) {
-            self.settings.height = height;
-        }
         (self.path.clone(), self.editor.to_document(&self.settings))
     }
 
-    /// Changes the output frame rate. A zero or negative term is never a
-    /// real rate, only a caller bug, and is ignored for the reason a zero
-    /// dimension is in [`Session::prepare_save`].
-    pub fn set_rate(&mut self, num: i64, den: i64) {
-        if num > 0 && den > 0 {
-            self.settings.rate_num = num;
-            self.settings.rate_den = den;
-        }
-    }
-
     /// Writes the session's document to its project folder.
-    pub fn save(
-        &mut self,
-        name: Option<&str>,
-        width: Option<u32>,
-        height: Option<u32>,
-    ) -> Result<(), String> {
-        let (path, document) = self.prepare_save(name, width, height);
+    pub fn save(&mut self, name: Option<&str>) -> Result<(), String> {
+        let (path, document) = self.prepare_save(name);
         projects::save(&path, &document)
     }
 
@@ -274,11 +266,22 @@ mod tests {
 
         let mut session = Session::open_info(&info).expect("opens the settings-only manifest");
         assert!(!session.can_undo());
+        assert_eq!(
+            (session.settings().width, session.settings().height),
+            (1920, 1080),
+            "the manifest's frame seeds the first timeline"
+        );
         let view = session.apply(Command::AddTrack).expect("adds a track");
         assert!(view.can_undo);
         session
-            .save(Some("Renamed"), Some(1280), Some(720))
-            .expect("saves");
+            .set_video(VideoSettings {
+                width: 1280,
+                height: 720,
+                rate_num: 25,
+                rate_den: 1,
+            })
+            .expect("sets the frame");
+        session.save(Some("Renamed")).expect("saves");
 
         let reopened = Session::open(&info.path, settings()).expect("reopens");
         assert_eq!(
@@ -288,8 +291,10 @@ mod tests {
         );
         assert_eq!(
             (reopened.settings().width, reopened.settings().height),
-            (1280, 720)
+            (1280, 720),
+            "the document's frame wins over the manifest's"
         );
+        assert_eq!(reopened.settings().rate_num, 25, "and so does its rate");
         assert_eq!(
             reopened.project().active().tracks.len(),
             session.project().active().tracks.len()
