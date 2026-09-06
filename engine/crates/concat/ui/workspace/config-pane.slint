@@ -575,13 +575,19 @@ export component ConfigPane inherits Rectangle {
                     // rather than a search.
                     ProcessorRows {
                         applied: root.applied-audio;
+                        params: root.audio-params;
                         add(id) => { root.chain-add(true, id); }
                         remove(index) => { root.chain-remove(true, index); }
+                        set-param(index, key, value) => {
+                            root.chain-set-param(true, index, key, value);
+                        }
+                        commit => { root.clip-commit(); }
                     }
                     PresetStack {
                         noun: I18n.t("audio effect");
                         library-title: I18n.t("Audio effects");
                         shelf: 2;
+                        hidden: ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
                         group-labels: root.audio-groups;
                         catalogue: root.catalogue-audio;
                         applied: root.applied-audio;
@@ -603,7 +609,9 @@ export component ConfigPane inherits Rectangle {
                 // differ only in which shelves they offer.
                 if root.showing == "Filters": PresetStack {
                     noun: I18n.t("filter");
-                    library-title: I18n.t("Filter library");
+                    library-title: I18n.t("Filters");
+                    library: false;
+                    empty-note: I18n.t("No filter on this clip yet. Pick one from the Library's Filters page.");
                     shelf: 0;
                     group-labels: root.filter-groups;
                     catalogue: root.catalogue-filters;
@@ -622,7 +630,9 @@ export component ConfigPane inherits Rectangle {
 
                 if root.showing == "Effects": PresetStack {
                     noun: I18n.t("effect");
-                    library-title: I18n.t("Effect library");
+                    library-title: I18n.t("Effects");
+                    library: false;
+                    empty-note: I18n.t("No effect on this clip yet. Pick one from the Library's Effects page.");
                     shelf: 1;
                     group-labels: root.effect-groups;
                     catalogue: root.catalogue-effects;
