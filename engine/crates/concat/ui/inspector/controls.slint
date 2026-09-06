@@ -455,14 +455,6 @@ export component Param inherits VerticalLayout {
             vertical-alignment: center;
         }
 
-        // On the readout's side rather than under the slider: the cluster is
-        // about the value, and the value is what it sits beside.
-        if root.keyable: Rectangle { width: 6px; }
-        if root.keyable: VerticalLayout {
-            alignment: center;
-            KeyCluster { field: root.field; }
-        }
-
         if !root.slider: Rectangle { width: 8px; }
         if !root.slider: NumberField {
             width: 64px;
@@ -473,6 +465,15 @@ export component Param inherits VerticalLayout {
             precision: InspectorFmt.precision-of(root.step);
             enabled: root.enabled;
             changed(v) => { root.changed(v); }
+        }
+
+        // On the readout's side rather than under the slider, and after the
+        // number field when that is on the line: the cluster is about the
+        // value, and it trails whatever last states the value.
+        if root.keyable: Rectangle { width: 6px; }
+        if root.keyable: VerticalLayout {
+            alignment: center;
+            KeyCluster { field: root.field; }
         }
     }
 
