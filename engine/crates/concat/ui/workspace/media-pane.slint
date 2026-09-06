@@ -7,6 +7,8 @@ import { Pane, PaneScroll } from "pane.slint";
 import { HairlineSplitter } from "splitter.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { TextAlignment } from "../timeline/model.slint";
+import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
+import { SearchField } from "../inspector/controls.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -1068,6 +1070,73 @@ component PresetCard inherits Rectangle {
     }
 }
 
+// A shelf of the effect catalogue, as Rust narrows it - searched, shelved
+// and starred by the same `Library` view the inspector reads - with the
+// same auto-fill arithmetic as CatalogueGrid. The artwork is looked up by
+// id through `art`, since the pictures live here in the pane and the
+// entries come from the manifests.
+component ShelfGrid inherits Rectangle {
+    in property <[CatalogueEntryData]> entries;
+    /// The mark for an entry with no artwork; see CatalogueItemData.
+    in property <Glyph> glyph: Glyph.sparkle;
+    /// See CatalogueGrid.
+    in property <string> payload-kind;
+
+    pure callback art(id: string) -> image;
+    callback applied(id: string, label: string);
+
+    property <length> gap: 8px;
+    property <length> min-card: 88px;
+    property <bool> compact: root.entries.length > 0 && root.art(root.entries[0].id).width == 0;
+
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.compact ? root.card-w / 2
+        : root.card-w * 9 / 16 + 4px + 14px;
+    property <int> rows: Math.ceil(root.entries.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.entries: CatalogueCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        item: {
+            id: entry.id,
+            label: entry.name,
+            enabled: true,
+            art: root.art(entry.id),
+            glyph: root.glyph,
+        };
+        compact: root.compact;
+        payload: root.payload-kind == "" ? ""
+            : "\{root.payload-kind}:\{entry.id}:\{entry.name}";
+
+        applied => { root.applied(entry.id, entry.name); }
+    }
+}
+
+// The search over a shelf. The field owns its own text once typed in - a
+// TextInput assigns to `text`, and an assignment replaces the binding
+// declared on it - so the box is put back by hand when Rust clears the
+// query, which picking a shelf does.
+component ShelfSearch inherits HorizontalLayout {
+    in property <int> shelf;
+    in property <string> placeholder;
+
+    padding-bottom: 8px;
+
+    SearchField {
+        text: Library.view(root.shelf).query;
+        placeholder: root.placeholder;
+        edited(text) => { Library.query-changed(root.shelf, text); }
+        property <string> held: Library.view(root.shelf).query;
+        changed held => { self.text = self.held; }
+    }
+}
+
 // The Presets shelf: the same auto-fill arithmetic as the other grids.
 component PresetGrid inherits Rectangle {
     in property <[TextPresetData]> items;
@@ -1154,6 +1223,14 @@ export component MediaPane inherits Rectangle {
 
     /// The looks the Text page's Presets shelf offers.
     in property <[TextPresetData]> presets;
+    /// The effect catalogue's shelves, as Rust narrows them by the
+    /// `Library` view: what the Effects and Filters pages show.
+    in property <[CatalogueEntryData]> catalogue-effects;
+    in property <[CatalogueEntryData]> catalogue-audio;
+    in property <[CatalogueEntryData]> catalogue-filters;
+    in property <[string]> effect-groups;
+    in property <[string]> audio-groups;
+    in property <[string]> filter-groups;
     /// Text page: add a title at the playhead, in the look `preset` names.
     callback add-text(preset: string);
     /// Catalogue pages: apply to the selected clip; Rust validates & explains.
@@ -1187,11 +1264,41 @@ export component MediaPane inherits Rectangle {
     property <bool> templates-open: true;
     /// 0 = Basic, 1 = Motion
     property <int> transition-category;
-    /// 0 = Basic, 1 = Blur, 2 = Color, 3 = Stylize, 4 = Distort
-    property <int> effect-category;
-    /// 0 = Voice, 1 = Tone, 2 = Space — the inspector's filter shelves
-    property <int> filter-category;
+    /// The Effects page shows the sound's shelves rather than the
+    /// picture's: whichever heading's row was picked last.
+    property <bool> audio-shelf;
     property <bool> audio-open: true;
+    /// The shelf the Effects page is reading from, in `Library`'s numbers.
+    property <int> effects-shelf: root.audio-shelf ? 2 : 1;
+    /// Nothing, for an entry with no artwork: a picture of a sound would be
+    /// a waveform, and every one of them would draw the same one.
+    property <image> no-art;
+
+    /// The rendered preview for an effect or a look: its real chain run
+    /// over one source still. Looked up by the package id, since the
+    /// entries come from the manifests and the pictures live here.
+    pure function art-of(id: string) -> image {
+        if (id == "concat.black-white") { return @image-url("../assets/effect-previews/black-white.jpg"); }
+        if (id == "concat.sepia") { return @image-url("../assets/effect-previews/sepia.jpg"); }
+        if (id == "concat.invert") { return @image-url("../assets/effect-previews/invert.jpg"); }
+        if (id == "concat.sharpen") { return @image-url("../assets/effect-previews/sharpen.jpg"); }
+        if (id == "concat.gaussian-blur") { return @image-url("../assets/effect-previews/gaussian-blur.jpg"); }
+        if (id == "concat.box-blur") { return @image-url("../assets/effect-previews/box-blur.jpg"); }
+        if (id == "concat.motion-blur") { return @image-url("../assets/effect-previews/motion-blur.jpg"); }
+        if (id == "concat.warm") { return @image-url("../assets/effect-previews/warm.jpg"); }
+        if (id == "concat.cool") { return @image-url("../assets/effect-previews/cool.jpg"); }
+        if (id == "concat.vibrance") { return @image-url("../assets/effect-previews/vibrance.jpg"); }
+        if (id == "concat.contrast-pop") { return @image-url("../assets/effect-previews/contrast-pop.jpg"); }
+        if (id == "concat.vignette") { return @image-url("../assets/effect-previews/vignette.jpg"); }
+        if (id == "concat.film-grain") { return @image-url("../assets/effect-previews/film-grain.jpg"); }
+        if (id == "concat.glow") { return @image-url("../assets/effect-previews/glow.jpg"); }
+        if (id == "concat.posterize") { return @image-url("../assets/effect-previews/posterize.jpg"); }
+        if (id == "concat.pixelate") { return @image-url("../assets/effect-previews/pixelate.jpg"); }
+        if (id == "concat.mirror") { return @image-url("../assets/effect-previews/mirror.jpg"); }
+        if (id == "concat.fisheye") { return @image-url("../assets/effect-previews/fisheye.jpg"); }
+        if (id == "concat.shake") { return @image-url("../assets/effect-previews/shake.jpg"); }
+        return root.no-art;
+    }
     /// The category column. In-out, because it is dragged.
     in-out property <length> sidebar-w: 104px;
     /// Narrow enough to be a real squeeze, wide enough that a category name
@@ -1222,78 +1329,6 @@ export component MediaPane inherits Rectangle {
         { id: "wipe-right", label: "Wipe Right", enabled: false, glyph: Glyph.transition },
         { id: "push", label: "Push", enabled: false, glyph: Glyph.transition },
         { id: "zoom", label: "Zoom", enabled: false, glyph: Glyph.transition },
-    ];
-
-    // The audio effects: the same ids and shelves as the inspector's Audio
-    // tab, which reads them from the catalogue. They have no artwork and
-    // never will: a picture of a sound is a waveform, and every one of these
-    // would draw the same one. The mark says "this is audio" and the name
-    // does the rest.
-    property <[CatalogueItemData]> audio-voice: [
-        { id: "sweet", label: "Sweet", enabled: true, glyph: Glyph.waveform },
-        { id: "deep", label: "Deep", enabled: true, glyph: Glyph.waveform },
-        { id: "chipmunk", label: "Chipmunk", enabled: true, glyph: Glyph.waveform },
-        { id: "robot", label: "Robot", enabled: true, glyph: Glyph.waveform },
-    ];
-    property <[CatalogueItemData]> audio-tone: [
-        { id: "warm", label: "Warm", enabled: true, glyph: Glyph.waveform },
-        { id: "bright", label: "Bright", enabled: true, glyph: Glyph.waveform },
-        { id: "telephone", label: "Telephone", enabled: true, glyph: Glyph.waveform },
-        { id: "radio", label: "Radio", enabled: true, glyph: Glyph.waveform },
-    ];
-    property <[CatalogueItemData]> audio-space: [
-        { id: "room", label: "Room", enabled: true, glyph: Glyph.waveform },
-        { id: "hall", label: "Hall", enabled: true, glyph: Glyph.waveform },
-        { id: "plate", label: "Plate", enabled: true, glyph: Glyph.waveform },
-        { id: "cathedral", label: "Cathedral", enabled: true, glyph: Glyph.waveform },
-    ];
-    property <[CatalogueItemData]> effects-basic: [
-        { id: "black-white", label: "Black & White", enabled: true,
-          art: @image-url("../assets/effect-previews/black-white.jpg") },
-        { id: "sepia", label: "Sepia", enabled: true,
-          art: @image-url("../assets/effect-previews/sepia.jpg") },
-        { id: "invert", label: "Invert", enabled: true,
-          art: @image-url("../assets/effect-previews/invert.jpg") },
-        { id: "sharpen", label: "Sharpen", enabled: true,
-          art: @image-url("../assets/effect-previews/sharpen.jpg") },
-    ];
-    property <[CatalogueItemData]> effects-blur: [
-        { id: "gaussian-blur", label: "Gaussian Blur", enabled: true,
-          art: @image-url("../assets/effect-previews/gaussian-blur.jpg") },
-        { id: "box-blur", label: "Box Blur", enabled: true,
-          art: @image-url("../assets/effect-previews/box-blur.jpg") },
-        { id: "motion-blur", label: "Motion Blur", enabled: true,
-          art: @image-url("../assets/effect-previews/motion-blur.jpg") },
-    ];
-    property <[CatalogueItemData]> filters-color: [
-        { id: "warm", label: "Warm", enabled: true,
-          art: @image-url("../assets/effect-previews/warm.jpg") },
-        { id: "cool", label: "Cool", enabled: true,
-          art: @image-url("../assets/effect-previews/cool.jpg") },
-        { id: "vibrance", label: "Vibrance", enabled: true,
-          art: @image-url("../assets/effect-previews/vibrance.jpg") },
-        { id: "contrast-pop", label: "Contrast Pop", enabled: true,
-          art: @image-url("../assets/effect-previews/contrast-pop.jpg") },
-    ];
-    property <[CatalogueItemData]> effects-stylize: [
-        { id: "vignette", label: "Vignette", enabled: true,
-          art: @image-url("../assets/effect-previews/vignette.jpg") },
-        { id: "film-grain", label: "Film Grain", enabled: true,
-          art: @image-url("../assets/effect-previews/film-grain.jpg") },
-        { id: "glow", label: "Glow", enabled: true,
-          art: @image-url("../assets/effect-previews/glow.jpg") },
-        { id: "posterize", label: "Posterize", enabled: true,
-          art: @image-url("../assets/effect-previews/posterize.jpg") },
-    ];
-    property <[CatalogueItemData]> effects-distort: [
-        { id: "pixelate", label: "Pixelate", enabled: true,
-          art: @image-url("../assets/effect-previews/pixelate.jpg") },
-        { id: "mirror", label: "Mirror", enabled: true,
-          art: @image-url("../assets/effect-previews/mirror.jpg") },
-        { id: "fisheye", label: "Fisheye", enabled: true,
-          art: @image-url("../assets/effect-previews/fisheye.jpg") },
-        { id: "shake", label: "Shake", enabled: true,
-          art: @image-url("../assets/effect-previews/shake.jpg") },
     ];
 
     function narrow(to: MediaFilter) {
@@ -1520,6 +1555,8 @@ export component MediaPane inherits Rectangle {
                         }
                     }
 
+                    // The picture's shelves and the sound's, from the
+                    // catalogue's own groups, on one page called Effects.
                     if root.tab == 3: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
@@ -1528,62 +1565,41 @@ export component MediaPane inherits Rectangle {
                             open: root.effects-open;
                             toggled => { root.effects-open = !root.effects-open; }
                         }
-                        if root.effects-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Basic");
-                            current: root.effect-category == 0;
-                            clicked => { root.effect-category = 0; }
+                        if root.effects-open: VerticalLayout {
+                            spacing: 1px;
+                            for label[index] in root.effect-groups: CategoryRow {
+                                height: 24px;
+                                label: label;
+                                current: !root.audio-shelf && Library.view(1).group == index;
+                                clicked => {
+                                    root.audio-shelf = false;
+                                    Library.group-changed(1, index);
+                                }
+                            }
                         }
-                        if root.effects-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Blur");
-                            current: root.effect-category == 1;
-                            clicked => { root.effect-category = 1; }
-                        }
-                        if root.effects-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Stylize");
-                            current: root.effect-category == 2;
-                            clicked => { root.effect-category = 2; }
-                        }
-                        if root.effects-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Distort");
-                            current: root.effect-category == 3;
-                            clicked => { root.effect-category = 3; }
-                        }
-
-                        // The sound's effects, on the same page as the
-                        // picture's: one place called Effects.
                         CategoryHeading {
                             height: 26px;
                             title: I18n.t("Audio Effects");
                             open: root.audio-open;
                             toggled => { root.audio-open = !root.audio-open; }
                         }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Voice");
-                            current: root.effect-category == 4;
-                            clicked => { root.effect-category = 4; }
-                        }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Tone");
-                            current: root.effect-category == 5;
-                            clicked => { root.effect-category = 5; }
-                        }
-                        if root.audio-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Space");
-                            current: root.effect-category == 6;
-                            clicked => { root.effect-category = 6; }
+                        if root.audio-open: VerticalLayout {
+                            spacing: 1px;
+                            for label[index] in root.audio-groups: CategoryRow {
+                                height: 24px;
+                                label: label;
+                                current: root.audio-shelf && Library.view(2).group == index;
+                                clicked => {
+                                    root.audio-shelf = true;
+                                    Library.group-changed(2, index);
+                                }
+                            }
                         }
                     }
 
                     // Filters are colour looks, the way every video editor's
                     // users understand the word. What a voice or a room does
-                    // to the sound is on the Audio page.
+                    // to the sound is on the Effects page.
                     if root.tab == 4: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
@@ -1592,11 +1608,14 @@ export component MediaPane inherits Rectangle {
                             open: root.filters-open;
                             toggled => { root.filters-open = !root.filters-open; }
                         }
-                        if root.filters-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Color");
-                            current: root.filter-category == 0;
-                            clicked => { root.filter-category = 0; }
+                        if root.filters-open: VerticalLayout {
+                            spacing: 1px;
+                            for label[index] in root.filter-groups: CategoryRow {
+                                height: 24px;
+                                label: label;
+                                current: Library.view(0).group == index;
+                                clicked => { Library.group-changed(0, index); }
+                            }
                         }
                     }
 
@@ -1752,20 +1771,21 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 3: HorizontalLayout {
+                if root.tab == 3: VerticalLayout {
                     padding: 8px;
 
-                    CatalogueGrid {
-                        horizontal-stretch: 1;
-                        items: root.effect-category == 0 ? root.effects-basic
-                            : root.effect-category == 1 ? root.effects-blur
-                            : root.effect-category == 2 ? root.effects-stylize
-                            : root.effect-category == 3 ? root.effects-distort
-                            : root.effect-category == 4 ? root.audio-voice
-                            : root.effect-category == 5 ? root.audio-tone
-                            : root.audio-space;
+                    ShelfSearch {
+                        shelf: root.effects-shelf;
+                        placeholder: root.audio-shelf
+                            ? I18n.t1("Search {0}s", I18n.t("audio effect"))
+                            : I18n.t1("Search {0}s", I18n.t("effect"));
+                    }
+                    ShelfGrid {
+                        entries: root.audio-shelf ? root.catalogue-audio : root.catalogue-effects;
+                        glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
+                        art(id) => { return root.art-of(id); }
                         applied(id, label) => {
-                            if (root.effect-category >= 4) {
+                            if (root.audio-shelf) {
                                 root.apply-audio(id);
                             } else {
                                 root.apply-effect(id);
@@ -1774,7 +1794,7 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 4: HorizontalLayout {
+                if root.tab == 4: VerticalLayout {
                     padding: 8px;
 
                     // A filter is meant to be a layer over a span of the
@@ -1782,10 +1802,14 @@ export component MediaPane inherits Rectangle {
                     // the payload says so, for the day the lanes accept it.
                     // Until then a click applies the look to the selected
                     // clip, which is the other way every editor offers.
-                    CatalogueGrid {
-                        horizontal-stretch: 1;
+                    ShelfSearch {
+                        shelf: 0;
+                        placeholder: I18n.t1("Search {0}s", I18n.t("filter"));
+                    }
+                    ShelfGrid {
+                        entries: root.catalogue-filters;
                         payload-kind: "filter";
-                        items: root.filters-color;
+                        art(id) => { return root.art-of(id); }
                         applied(id, label) => { root.apply-filter(id, label); }
                     }
                 }

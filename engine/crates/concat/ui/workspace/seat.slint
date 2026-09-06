@@ -116,6 +116,12 @@ export component Seat inherits Rectangle {
             activate(id) => { Editor.media-activate(id); }
 
             presets: Editor.text-presets;
+            catalogue-effects: Editor.catalogue-effects;
+            catalogue-audio: Editor.catalogue-audio;
+            catalogue-filters: Editor.catalogue-filters;
+            effect-groups: Editor.effect-groups;
+            audio-groups: Editor.audio-groups;
+            filter-groups: Editor.filter-groups;
             add-text(preset) => { Editor.library-add-text(preset); }
             apply-effect(id) => { Editor.library-apply-effect(id); }
             apply-transition(id) => { Editor.library-apply-transition(id); }
