@@ -33,6 +33,11 @@ clap = { version = "4", features = ["derive"] }
 wgpu = "29"
 pollster = "0.4"
 
+# ONNX Runtime, for the cutout models. The binaries come prebuilt for every
+# target the app ships on, with the platform's own accelerator behind them:
+# CoreML on macOS and iOS, DirectML on Windows, NNAPI on Android.
+ort = "=2.0.0-rc.13"
+
 [workspace.lints.rust]
 missing_docs = "warn"
 

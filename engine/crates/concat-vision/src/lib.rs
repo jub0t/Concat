@@ -20,9 +20,10 @@
 //!   its waveforms, so a cutout is found once and travels with the edit.
 //!
 //! Finding the mask is [`segment`], behind the `infer` feature: the model
-//! is compiled in and run by tract, in pure Rust, so a cutout needs no
-//! download and no runtime library, on a desk or a phone. The renderer
-//! reads masks and never infers; the host infers and writes them.
+//! is compiled in and run by ONNX Runtime through [`runtime`], on the
+//! platform's accelerator where there is one, so a cutout needs no
+//! download, on a desk or a phone. The renderer reads masks and never
+//! infers; the host infers and writes them.
 //!
 //! Masks are square at the model's resolution whatever the picture's
 //! shape, and every position in them is a fraction of the source picture:
@@ -34,6 +35,8 @@
 
 pub mod apply;
 pub mod mask;
+#[cfg(feature = "infer")]
+pub mod runtime;
 #[cfg(feature = "infer")]
 pub mod segment;
 pub mod store;

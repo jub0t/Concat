@@ -78,9 +78,11 @@ concat-android ──► concat            concat-cli ──► concat-core, con
 because the document needs serde and core's zero-dependency rule is worth
 more than the adjacency. Five crates carry no native library and build for
 the web as well (`concat-core`, `concat-project`, `concat-effects`,
-`concat-render`, `concat-text`); CI keeps that true. `concat-vision` is
-pure Rust too, inference included: tract runs the model, so a cutout needs
-no runtime library on any platform.
+`concat-render`, `concat-text`); CI keeps that true. `concat-vision`
+links ONNX Runtime behind its `infer` feature, prebuilt for every target
+the app ships on, with the platform's accelerator registered ahead of the
+CPU; without the feature it is pure Rust, and that is how the renderer
+takes it.
 
 ---
 
@@ -421,8 +423,9 @@ look repaints.
 
 A cutout takes a picture's background away without a key colour. The
 model is MediaPipe's selfie segmentation, compiled into `concat-vision`
-and run by tract: a 256 × 256 picture in, a probability per pixel out,
-about twenty-five milliseconds a frame on one core. Masks are square
+and run by ONNX Runtime: a 256 × 256 picture in, a probability per pixel
+out, five milliseconds a frame on an Apple GPU and about twenty on a
+laptop's cores. Masks are square
 whatever the picture's shape, and every position in one is a fraction of
 the source picture, which is also how strokes are stored; a crop, a flip
 or a change of output size changes nothing about either, because

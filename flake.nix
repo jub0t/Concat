@@ -19,6 +19,9 @@
   # - sherpa-onnx (text to speech) links prebuilt static libraries that its
   #   sys crate would download at build time. They are fetched here as fixed-
   #   output derivations instead and handed over with SHERPA_ONNX_ARCHIVE_DIR.
+  # - ONNX Runtime (the cutout models) is likewise downloaded by its sys
+  #   crate. nixpkgs' onnxruntime is linked instead, through ORT_LIB_LOCATION,
+  #   dynamically, so the wrapper's rpath finds it.
   #
   # The window is built with the FemtoVG-over-wgpu renderer (`--features
   # wgpu`) rather than Skia: skia-bindings also downloads its binaries at
@@ -91,6 +94,8 @@
           # 8, by name: the engine needs 7 or newer, and nixpkgs' unversioned
           # `ffmpeg` is whichever major the distribution defaults to.
           ffmpeg_8
+          # The cutout models' runtime; see ORT_LIB_LOCATION above.
+          onnxruntime
           alsa-lib
           fontconfig
           freetype
@@ -124,6 +129,8 @@
           doCheck = false;
 
           env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
+          env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
+          env.ORT_PREFER_DYNAMIC_LINK = "1";
 
           nativeBuildInputs = (nativeInputs pkgs) ++ [
             pkgs.wrapGAppsHook3
@@ -180,6 +187,8 @@
             ]);
 
           env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
+          env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
+          env.ORT_PREFER_DYNAMIC_LINK = "1";
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibs pkgs);
 
           shellHook = ''

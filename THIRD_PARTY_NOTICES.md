@@ -93,9 +93,12 @@ Remove background's automatic and custom modes run Google's MediaPipe
 Selfie Segmentation model (Apache-2.0), in the ONNX conversion published by
 the ONNX Community (https://huggingface.co/onnx-community/mediapipe_selfie_segmentation,
 Apache-2.0). The model file is compiled into the `concat-vision` crate; see
-`engine/crates/concat-vision/models/NOTICE.md`. It is run by tract
-(https://github.com/sonos/tract, MIT OR Apache-2.0), in pure Rust, so no
-inference runtime is linked or shipped for it.
+`engine/crates/concat-vision/models/NOTICE.md`. It is run by ONNX Runtime
+(https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate
+(https://github.com/pykeio/ort, MIT OR Apache-2.0), with the platform's
+own accelerator behind it: CoreML on macOS and iOS, DirectML on Windows,
+NNAPI on Android. The runtime is linked statically from the builds pyke
+publishes for each target.
 
 ## Effect preview photograph
 
