@@ -1300,7 +1300,7 @@ export component AdjustPanel inherits VerticalLayout {
     Section {
         first: true;
         SectionHeader {
-            title: I18n.t("Colour");
+            title: I18n.t("Color");
             HelpButton {
                 open: root.help;
                 toggled => { root.help = self.open; }
@@ -1319,6 +1319,7 @@ export component AdjustPanel inherits VerticalLayout {
                 changed data => { knob.value = self.data.value; }
 
                 knob := Param {
+                    slider: false;
                     label: p.label;
                     value: p.value;
                     minimum: p.min;
