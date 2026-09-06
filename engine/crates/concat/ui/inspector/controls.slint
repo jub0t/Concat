@@ -519,6 +519,29 @@ export component Param inherits VerticalLayout {
     }
 }
 
+// A label over a run of rows inside one section - Color, Lightness,
+// Effects on the Adjust tab. Lighter than a SectionHeader, since it groups
+// knobs rather than opening a drawer: muted text and a hairline under it.
+export component Subhead inherits VerticalLayout {
+    in property <string> title;
+
+    padding-left: Theme.pad;
+    padding-right: Theme.pad;
+    padding-top: 6px;
+    spacing: 6px;
+
+    Text {
+        text: root.title;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        font-weight: Theme.weight-title;
+    }
+    Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+}
+
 export component Switch inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> enabled: true;

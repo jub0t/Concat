@@ -103,6 +103,11 @@ pub struct Param {
     pub key: String,
     /// What the control is labelled.
     pub label: String,
+    /// The subhead the control sits under in a panel that groups its rows -
+    /// Color, Lightness, Effects on the Adjust tab. Consecutive params with
+    /// the same group share one; empty means none.
+    #[serde(default)]
+    pub group: String,
     /// What kind of control, and how the number is interpreted.
     #[serde(default, rename = "type")]
     pub kind: ParamType,

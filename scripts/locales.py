@@ -26,7 +26,7 @@ PACKAGES = ROOT / "engine" / "crates" / "concat-effects" / "packages"
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
 SLINT_CALL = re.compile(r"I18n\.t[12]?\(\s*" + LITERAL)
 RUST_CALL = re.compile(r"(?<![A-Za-z_])(?:i18n::)?tf?\(\s*" + LITERAL)
-TOML_FIELD = re.compile(r'^(name|description|category|label)\s*=\s*' + LITERAL, re.M)
+TOML_FIELD = re.compile(r'^(name|description|category|label|group)\s*=\s*' + LITERAL, re.M)
 PRESET = re.compile(r'look\(\s*"[^"]+",\s*' + LITERAL)
 
 
@@ -70,7 +70,9 @@ def read(path: pathlib.Path) -> dict:
 
 def write_inventory(inventory: set[str]) -> None:
     body = {"_": {"name": "English"}}
-    for key in sorted(inventory, key=str.casefold):
+    # Case-folded, with the exact key breaking ties, so the file is the
+    # same from one run to the next.
+    for key in sorted(inventory, key=lambda key: (key.casefold(), key)):
         body[key] = key
     LOCALES.mkdir(exist_ok=True)
     (LOCALES / "en.json").write_text(

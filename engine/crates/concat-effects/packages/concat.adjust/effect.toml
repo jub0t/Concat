@@ -7,49 +7,16 @@ order = 0
 intensity = "exposure"
 description = "The manual colour panel every picture clip carries: exposure, tone, balance, sharpness and edge."
 
-# Exposure in stops; brightness, contrast and saturation as a signed
-# percent of the untouched picture; temperature in kelvin with 6500 the
-# picture as shot; tint green to magenta; shadows and highlights lift or
-# crush their end of the curve; sharpen, vignette and fade add from zero.
-
-[[param]]
-key = "exposure"
-label = "Exposure"
-min = -3
-max = 3
-default = 0
-step = 0.05
-unit = "EV"
-
-[[param]]
-key = "brightness"
-label = "Brightness"
-min = -100
-max = 100
-default = 0
-step = 1
-unit = "%"
-
-[[param]]
-key = "contrast"
-label = "Contrast"
-min = -100
-max = 100
-default = 0
-step = 1
-unit = "%"
-
-[[param]]
-key = "saturation"
-label = "Saturation"
-min = -100
-max = 100
-default = 0
-step = 1
-unit = "%"
+# Three groups, in the order the panel lists them. Colour: temperature in
+# kelvin with 6500 the picture as shot, tint green to magenta, saturation
+# as a signed percent. Lightness: exposure in stops, then brightness,
+# contrast, highlights and shadows as signed percents, the last two lifting
+# or crushing their end of the curve. Effects: sharpen, fade and vignette
+# add from zero.
 
 [[param]]
 key = "temperature"
+group = "Color"
 label = "Temperature"
 min = 2000
 max = 11000
@@ -59,6 +26,7 @@ unit = "K"
 
 [[param]]
 key = "tint"
+group = "Color"
 label = "Tint"
 min = -100
 max = 100
@@ -67,8 +35,39 @@ step = 1
 unit = "%"
 
 [[param]]
-key = "shadows"
-label = "Shadows"
+key = "saturation"
+group = "Color"
+label = "Saturation"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "exposure"
+group = "Lightness"
+label = "Exposure"
+min = -3
+max = 3
+default = 0
+step = 0.05
+unit = "EV"
+
+[[param]]
+key = "brightness"
+group = "Lightness"
+label = "Brightness"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
+key = "contrast"
+group = "Lightness"
+label = "Contrast"
 min = -100
 max = 100
 default = 0
@@ -77,6 +76,7 @@ unit = "%"
 
 [[param]]
 key = "highlights"
+group = "Lightness"
 label = "Highlights"
 min = -100
 max = 100
@@ -85,7 +85,18 @@ step = 1
 unit = "%"
 
 [[param]]
+key = "shadows"
+group = "Lightness"
+label = "Shadows"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[[param]]
 key = "sharpen"
+group = "Effects"
 label = "Sharpen"
 min = 0
 max = 100
@@ -94,8 +105,9 @@ step = 1
 unit = "%"
 
 [[param]]
-key = "vignette"
-label = "Vignette"
+key = "fade"
+group = "Effects"
+label = "Fade"
 min = 0
 max = 100
 default = 0
@@ -103,8 +115,9 @@ step = 1
 unit = "%"
 
 [[param]]
-key = "fade"
-label = "Fade"
+key = "vignette"
+group = "Effects"
+label = "Vignette"
 min = 0
 max = 100
 default = 0

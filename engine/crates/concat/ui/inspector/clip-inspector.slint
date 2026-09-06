@@ -10,7 +10,7 @@ import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
     Fader, HelpButton, InspectorFmt, Note, Param, ParamFormat,
-    Rail, ResetButton, SearchField, Switch, SwitchRow,
+    Rail, ResetButton, SearchField, Subhead, Switch, SwitchRow,
 } from "controls.slint";
 import { ClipField, ClipKind, Keyframes, SelectedClipData } from "../timeline/model.slint";
 
@@ -94,6 +94,9 @@ export struct AppliedParamData {
     /// The manifest's key; what Rust is handed back with the new value.
     key: string,
     label: string,
+    /// The subhead this knob sits under; empty for none. Rows that share
+    /// one in a run share one subhead.
+    group: string,
     min: float,
     max: float,
     step: float,
@@ -1300,7 +1303,7 @@ export component AdjustPanel inherits VerticalLayout {
     Section {
         first: true;
         SectionHeader {
-            title: I18n.t("Color");
+            title: I18n.t("Adjust");
             HelpButton {
                 open: root.help;
                 toggled => { root.help = self.open; }
@@ -1311,23 +1314,32 @@ export component AdjustPanel inherits VerticalLayout {
             text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a knob to put it back.");
         }
 
-        // See PresetStack for why each row re-seeds its knob.
+        // See PresetStack for why each row re-seeds its knob. A subhead
+        // opens each run of rows that share a group.
         SectionBody {
-            for p in root.params: Rectangle {
-                property <AppliedParamData> data: p;
-                height: knob.preferred-height;
-                changed data => { knob.value = self.data.value; }
+            for p[i] in root.params: VerticalLayout {
+                spacing: Theme.gap;
 
-                knob := Param {
-                    slider: false;
-                    label: p.label;
-                    value: p.value;
-                    minimum: p.min;
-                    maximum: p.max;
-                    step: p.step;
-                    default-value: p.default-value;
-                    fmt: p.fmt;
-                    changed(v) => { root.set(p.key, v); root.commit(); }
+                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
+                    title: p.group;
+                }
+
+                Rectangle {
+                    property <AppliedParamData> data: p;
+                    height: knob.preferred-height;
+                    changed data => { knob.value = self.data.value; }
+
+                    knob := Param {
+                        slider: false;
+                        label: p.label;
+                        value: p.value;
+                        minimum: p.min;
+                        maximum: p.max;
+                        step: p.step;
+                        default-value: p.default-value;
+                        fmt: p.fmt;
+                        changed(v) => { root.set(p.key, v); root.commit(); }
+                    }
                 }
             }
         }
