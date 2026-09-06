@@ -930,6 +930,7 @@ export component VideoPanel inherits VerticalLayout {
         }
         if crop.open: SectionBody {
         Param {
+            slider: false;
             label: I18n.t("Left");
             value <=> root.crop-left;
             minimum: 0;
@@ -940,6 +941,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.crop-left, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Top");
             value <=> root.crop-top;
             minimum: 0;
@@ -950,6 +952,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.crop-top, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Right");
             value <=> root.crop-right;
             minimum: 0;
@@ -960,6 +963,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.crop-right, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Bottom");
             value <=> root.crop-bottom;
             minimum: 0;
