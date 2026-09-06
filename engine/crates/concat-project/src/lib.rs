@@ -433,6 +433,44 @@ mod tests {
         assert_eq!(project.active().clips[0].video_effects[0].id, "sepia");
     }
 
+    /// Keys were shipped with four named eases before the curve editor
+    /// replaced them with control points. Both spellings have to load, or a
+    /// project saved a week ago opens with its animation gone straight.
+    #[test]
+    fn a_key_reads_its_ease_named_or_numbered() {
+        let document = json!({
+            "name": "Keyed", "version": 1,
+            "media": [{ "id": "m1", "path": "/a.mp4", "name": "a.mp4",
+                        "kind": "video", "duration": 10.0 }],
+            "tracks": [{ "id": "T1", "name": "Track 1", "visible": true, "muted": false }],
+            "clips": [{ "id": "c1", "trackId": "T1", "mediaId": "m1", "name": "a.mp4",
+                        "kind": "video", "start": 0.0, "duration": 10.0, "sourceStart": 0.0,
+                        "volume": 1.0, "fadeIn": 0.0, "fadeOut": 0.0, "scale": 1.0,
+                        "offsetX": 0.0, "offsetY": 0.0, "rotation": 0.0, "opacity": 1.0,
+                        "speed": 1.0, "preservePitch": true, "filters": [],
+                        "keys": [
+                            { "property": "opacity", "at": 0.0, "value": 0.0, "ease": "inOut" },
+                            { "property": "opacity", "at": 0.5, "value": 1.0,
+                              "ease": [0.1, 0.2, 0.3, 0.4] },
+                            { "property": "opacity", "at": 1.0, "value": 0.5 },
+                            { "property": "opacity", "at": 9.0, "value": 1.0 },
+                            { "property": "nonesuch", "at": 0.2, "value": 1.0 }
+                        ] }]
+        });
+        let editor = Editor::from_document(&document).expect("loads");
+        let keys = &editor.project().active().clips[0].keys;
+
+        // The out-of-range key and the one naming an unknown property are
+        // dropped; the other three survive in order.
+        assert_eq!(keys.len(), 3);
+        assert!(keys.windows(2).all(|pair| pair[0].at <= pair[1].at));
+
+        assert_eq!(keys[0].ease, crate::model::KeyEase::IN_OUT);
+        assert_eq!(keys[1].ease, crate::model::KeyEase([0.1, 0.2, 0.3, 0.4]));
+        // Absent is a straight line, not a refusal to load.
+        assert_eq!(keys[2].ease, crate::model::KeyEase::LINEAR);
+    }
+
     #[test]
     fn a_legacy_flat_document_loads_as_one_timeline() {
         let document = json!({

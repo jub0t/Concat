@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
 
 // The clip inspector's controls: a horizontal fader, the Param row that
 // repeats down every tab, a switch, a help disclosure, a note, and a search
@@ -133,14 +134,6 @@ export global InspectorFmt {
     }
 }
 
-export global InspectorSearch {
-    // Slint's string type has no contains(), so the library search match is
-    // implemented in Rust and bound in main.rs — the same seam as
-    // Fmt.parse-timecode. Unbound it returns false, so main.rs must bind it
-    // or the library lists nothing while a query is typed.
-    pure callback matches(name: string, query: string) -> bool;
-}
-
 // Horizontal fader. Click to jump, drag to ride, double-click to reset.
 //
 // A sunken track the height of a field, filled from the left in the soft
@@ -227,6 +220,187 @@ export component Fader inherits Rectangle {
     }
 }
 
+// The other slider, and the other half of the pair: where the Fader is a
+// filled box the height of a field, the Rail is a hairline track with a
+// raised chip you push along it.
+//
+// Which one a row gets is a question of how loud the row is, not of taste.
+// The Fader is a *field*: it is the height of the number box beside it, it
+// carries its own ground, and a column of them reads as a form — which is
+// what an effect's six knobs should read as. The Rail is a *control*: it is
+// mostly air, the dragger is the only solid thing in it, and one of them in
+// a section says this is the setting the section is about. Volume is that.
+// A chorus's wet/dry is not.
+//
+// The dragger is a chip and not a bead for the reason the Fader's cap is a
+// bar: flat sides land on a value. It is light rather than accent-coloured
+// because the fill it slides over is already the accent, and a dragger in
+// the colour of the thing behind it stops being a dragger.
+export component Rail inherits Rectangle {
+    in-out property <float> value;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    /// restored on double-click
+    in property <float> default-value: root.minimum;
+    in property <bool> enabled: true;
+
+    callback changed(value: float);
+
+    height: Theme.h;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    property <float> span: Math.max(root.maximum - root.minimum, 0.000001);
+    /// Half the dragger, so it stays inside the track at both ends and the
+    /// value under the pointer is the value under the dragger's middle.
+    property <length> inset: 5.5px;
+    property <length> usable: Math.max(1px, root.width - 2 * root.inset);
+    property <float> percent: Fmt.clamp((root.value - root.minimum) / root.span, 0, 1);
+    property <bool> live: (touch.has-hover || touch.pressed) && root.enabled;
+
+    function settle(raw: float) {
+        root.value = Fmt.clamp(
+            root.minimum + Math.round((raw - root.minimum) / root.step) * root.step,
+            root.minimum, root.maximum);
+        root.changed(root.value);
+    }
+
+    function apply-at(at: length) {
+        root.settle(root.minimum
+            + Fmt.clamp((at - root.inset) / root.usable, 0, 1) * root.span);
+    }
+
+    // The track. Four pixels and a hairline: enough to read as a groove, not
+    // enough to compete with the dragger for the eye.
+    track := Rectangle {
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: 4px;
+        border-radius: 2px;
+        border-width: 1px;
+        border-color: Theme.line;
+        background: Theme.well;
+
+        // Runs to the dragger's middle rather than to its near edge, so the
+        // fill and the chip meet instead of leaving a gap that grows with
+        // the dragger's width.
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: root.inset + root.usable * root.percent;
+            height: parent.height;
+            border-radius: parent.border-radius;
+            background: Theme.accent;
+        }
+    }
+
+    grip := Rectangle {
+        x: root.inset + root.usable * root.percent - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        width: 11px;
+        // Grows under the pointer: the chip is small enough that the target
+        // wants confirming, and the growth is the confirmation.
+        height: touch.pressed ? 22px : (root.live ? 20px : 18px);
+        border-radius: Theme.r-xs;
+        border-width: 1px;
+        border-color: Theme.grip-edge;
+        background: touch.pressed ? Theme.grip-active : Theme.grip;
+        drop-shadow-blur: 3px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: Theme.grip-edge;
+
+        animate height, background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: ew-resize;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                root.apply-at(self.mouse-x);
+            }
+        }
+        moved => {
+            root.apply-at(self.mouse-x);
+        }
+        double-clicked => {
+            root.settle(root.default-value);
+        }
+    }
+}
+
+// One target of the cluster. Small, quiet, and greyed rather than hidden
+// when there is nowhere to go.
+component KeyButton inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <bool> filled;
+    in property <bool> enabled: true;
+    in property <color> tint: Theme.fg-dim;
+
+    callback clicked();
+
+    width: 17px;
+    height: 17px;
+    border-radius: Theme.r-xs;
+    background: touch.has-hover && root.enabled ? Theme.field : Colors.transparent;
+    opacity: root.enabled ? 1.0 : 0.35;
+
+    Icon {
+        glyph: root.glyph;
+        size: 11px;
+        filled: root.filled;
+        tint: touch.has-hover && root.enabled ? Theme.fg : root.tint;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The keyframe cluster: step back, put one on or take it off, step forward.
+//
+// Three targets in the width of one, which is what makes it a cluster rather
+// than three buttons - they are read as one control ("is this animated, and
+// where am I in it") and only pressed as three. The chevrons move the
+// playhead rather than the value: a key is set where the playhead is, so
+// arriving at one is how you edit it.
+export component KeyCluster inherits HorizontalLayout {
+    in property <ClipField> field;
+
+    property <ClipKeyData> state: Keyframes.row(root.field);
+    property <bool> live: Keyframes.available;
+
+    spacing: 1px;
+
+    prev := KeyButton {
+        glyph: Glyph.chevron-left;
+        enabled: root.live && root.state.prev;
+        clicked => { Keyframes.step(root.field, -1); }
+    }
+
+    diamond := KeyButton {
+        glyph: Glyph.keyframe;
+        // Filled on a key, outlined on a keyed property between keys, and
+        // plain grey on one that is still a constant. Three states because
+        // there are three answers, and the middle one - "animated, but not
+        // here" - is the one a two-state diamond loses.
+        filled: root.state.here;
+        enabled: root.live;
+        tint: root.state.here || root.state.keyed ? Theme.accent : Theme.fg-dim;
+        clicked => { Keyframes.toggle(root.field); }
+    }
+
+    next := KeyButton {
+        glyph: Glyph.chevron-right;
+        enabled: root.live && root.state.next;
+        clicked => { Keyframes.step(root.field, 1); }
+    }
+}
+
 // The inspector's repeating unit: a formatted readout above (the value in a
 // unit you reason about — "none", "auto", "1.00x"), the fader and a raw
 // number field below. Keeping both is what lets a fade of zero say "none"
@@ -240,6 +414,15 @@ export component Param inherits VerticalLayout {
     in property <float> default-value: root.minimum;
     in property <ParamFormat> fmt;
     in property <bool> enabled: true;
+    /// Ride the Rail instead of the Fader — for the one setting a section is
+    /// named after, not for a list of knobs.
+    in property <bool> rail: false;
+    /// Show the keyframe cluster, and which field it keys. Opt-in rather
+    /// than derived from `field`, because a Slint enum property with nothing
+    /// assigned to it is its first variant and not "none" - every unkeyable
+    /// row would otherwise claim to be keying scale.
+    in property <bool> keyable: false;
+    in property <ClipField> field;
 
     callback changed(value: float);
 
@@ -264,12 +447,35 @@ export component Param inherits VerticalLayout {
             font-size: Theme.fs;
             vertical-alignment: center;
         }
+
+        // On the readout's side rather than under the slider: the cluster is
+        // about the value, and the value is what it sits beside.
+        if root.keyable: Rectangle { width: 6px; }
+        if root.keyable: VerticalLayout {
+            alignment: center;
+            KeyCluster { field: root.field; }
+        }
     }
 
     HorizontalLayout {
         spacing: 8px;
 
-        Fader {
+        // One row, either slider. See Rail's header for which belongs where;
+        // the rest of the row - the readout above, the number field beside -
+        // is the same either way, which is the point of putting the choice
+        // here rather than in two near-identical Param components.
+        if !root.rail: Fader {
+            horizontal-stretch: 1;
+            value <=> root.value;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            default-value: root.default-value;
+            enabled: root.enabled;
+            changed(v) => { root.changed(v); }
+        }
+
+        if root.rail: Rail {
             horizontal-stretch: 1;
             value <=> root.value;
             minimum: root.minimum;
@@ -391,6 +597,38 @@ export component HelpButton inherits Rectangle {
             root.open = !root.open;
             root.toggled();
         }
+    }
+}
+
+// Put a section back the way it was found.
+//
+// Sits in a SectionHeader's action slot beside the help disclosure, and is
+// dimmed rather than hidden when there is nothing to undo: a control that
+// appears only once you have made a mess is one you cannot learn is there.
+export component ResetButton inherits Rectangle {
+    /// Something in the section is off its default. False greys it.
+    in property <bool> dirty: true;
+
+    callback reset();
+
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: touch.has-hover && root.dirty ? Theme.field-hover : Theme.field;
+    opacity: root.dirty ? 1.0 : 0.4;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Icon {
+        glyph: Glyph.reset;
+        size: 10px;
+        tint: touch.has-hover && root.dirty ? Theme.fg : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        enabled: root.dirty;
+        mouse-cursor: pointer;
+        clicked => { root.reset(); }
     }
 }
 

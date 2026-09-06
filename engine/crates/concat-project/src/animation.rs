@@ -37,53 +37,53 @@ const IN: &[Shape] = &[
     Shape {
         name: "Fade",
         keys: &[
-            (Opacity, 0.0, 0.0, Ease::Linear),
-            (Opacity, 1.0, 1.0, Ease::Out),
+            (Opacity, 0.0, 0.0, Ease::LINEAR),
+            (Opacity, 1.0, 1.0, Ease::OUT),
         ],
     },
     Shape {
         name: "Zoom In",
         keys: &[
-            (Scale, 0.0, 0.5, Ease::Linear),
-            (Scale, 1.0, 1.0, Ease::Out),
-            (Opacity, 0.0, 0.0, Ease::Linear),
-            (Opacity, 1.0, 1.0, Ease::Out),
+            (Scale, 0.0, 0.5, Ease::LINEAR),
+            (Scale, 1.0, 1.0, Ease::OUT),
+            (Opacity, 0.0, 0.0, Ease::LINEAR),
+            (Opacity, 1.0, 1.0, Ease::OUT),
         ],
     },
     Shape {
         name: "Zoom Out",
         keys: &[
-            (Scale, 0.0, 1.6, Ease::Linear),
-            (Scale, 1.0, 1.0, Ease::Out),
-            (Opacity, 0.0, 0.0, Ease::Linear),
-            (Opacity, 1.0, 1.0, Ease::Out),
+            (Scale, 0.0, 1.6, Ease::LINEAR),
+            (Scale, 1.0, 1.0, Ease::OUT),
+            (Opacity, 0.0, 0.0, Ease::LINEAR),
+            (Opacity, 1.0, 1.0, Ease::OUT),
         ],
     },
     Shape {
         name: "Slide Up",
-        keys: &[(Y, 0.0, 0.6, Ease::Linear), (Y, 1.0, 0.0, Ease::Out)],
+        keys: &[(Y, 0.0, 0.6, Ease::LINEAR), (Y, 1.0, 0.0, Ease::OUT)],
     },
     Shape {
         name: "Slide Down",
-        keys: &[(Y, 0.0, -0.6, Ease::Linear), (Y, 1.0, 0.0, Ease::Out)],
+        keys: &[(Y, 0.0, -0.6, Ease::LINEAR), (Y, 1.0, 0.0, Ease::OUT)],
     },
     Shape {
         name: "Slide Left",
-        keys: &[(X, 0.0, 0.6, Ease::Linear), (X, 1.0, 0.0, Ease::Out)],
+        keys: &[(X, 0.0, 0.6, Ease::LINEAR), (X, 1.0, 0.0, Ease::OUT)],
     },
     Shape {
         name: "Slide Right",
-        keys: &[(X, 0.0, -0.6, Ease::Linear), (X, 1.0, 0.0, Ease::Out)],
+        keys: &[(X, 0.0, -0.6, Ease::LINEAR), (X, 1.0, 0.0, Ease::OUT)],
     },
     Shape {
         name: "Spin",
         keys: &[
-            (Rotation, 0.0, -180.0, Ease::Linear),
-            (Rotation, 1.0, 0.0, Ease::Out),
-            (Scale, 0.0, 0.3, Ease::Linear),
-            (Scale, 1.0, 1.0, Ease::Out),
-            (Opacity, 0.0, 0.0, Ease::Linear),
-            (Opacity, 1.0, 1.0, Ease::Out),
+            (Rotation, 0.0, -180.0, Ease::LINEAR),
+            (Rotation, 1.0, 0.0, Ease::OUT),
+            (Scale, 0.0, 0.3, Ease::LINEAR),
+            (Scale, 1.0, 1.0, Ease::OUT),
+            (Opacity, 0.0, 0.0, Ease::LINEAR),
+            (Opacity, 1.0, 1.0, Ease::OUT),
         ],
     },
 ];
@@ -94,53 +94,53 @@ const OUT: &[Shape] = &[
     Shape {
         name: "Fade",
         keys: &[
-            (Opacity, 0.0, 1.0, Ease::Linear),
-            (Opacity, 1.0, 0.0, Ease::In),
+            (Opacity, 0.0, 1.0, Ease::LINEAR),
+            (Opacity, 1.0, 0.0, Ease::IN),
         ],
     },
     Shape {
         name: "Zoom In",
         keys: &[
-            (Scale, 0.0, 1.0, Ease::Linear),
-            (Scale, 1.0, 1.6, Ease::In),
-            (Opacity, 0.0, 1.0, Ease::Linear),
-            (Opacity, 1.0, 0.0, Ease::In),
+            (Scale, 0.0, 1.0, Ease::LINEAR),
+            (Scale, 1.0, 1.6, Ease::IN),
+            (Opacity, 0.0, 1.0, Ease::LINEAR),
+            (Opacity, 1.0, 0.0, Ease::IN),
         ],
     },
     Shape {
         name: "Zoom Out",
         keys: &[
-            (Scale, 0.0, 1.0, Ease::Linear),
-            (Scale, 1.0, 0.5, Ease::In),
-            (Opacity, 0.0, 1.0, Ease::Linear),
-            (Opacity, 1.0, 0.0, Ease::In),
+            (Scale, 0.0, 1.0, Ease::LINEAR),
+            (Scale, 1.0, 0.5, Ease::IN),
+            (Opacity, 0.0, 1.0, Ease::LINEAR),
+            (Opacity, 1.0, 0.0, Ease::IN),
         ],
     },
     Shape {
         name: "Slide Up",
-        keys: &[(Y, 0.0, 0.0, Ease::Linear), (Y, 1.0, -0.6, Ease::In)],
+        keys: &[(Y, 0.0, 0.0, Ease::LINEAR), (Y, 1.0, -0.6, Ease::IN)],
     },
     Shape {
         name: "Slide Down",
-        keys: &[(Y, 0.0, 0.0, Ease::Linear), (Y, 1.0, 0.6, Ease::In)],
+        keys: &[(Y, 0.0, 0.0, Ease::LINEAR), (Y, 1.0, 0.6, Ease::IN)],
     },
     Shape {
         name: "Slide Left",
-        keys: &[(X, 0.0, 0.0, Ease::Linear), (X, 1.0, -0.6, Ease::In)],
+        keys: &[(X, 0.0, 0.0, Ease::LINEAR), (X, 1.0, -0.6, Ease::IN)],
     },
     Shape {
         name: "Slide Right",
-        keys: &[(X, 0.0, 0.0, Ease::Linear), (X, 1.0, 0.6, Ease::In)],
+        keys: &[(X, 0.0, 0.0, Ease::LINEAR), (X, 1.0, 0.6, Ease::IN)],
     },
     Shape {
         name: "Spin",
         keys: &[
-            (Rotation, 0.0, 0.0, Ease::Linear),
-            (Rotation, 1.0, 180.0, Ease::In),
-            (Scale, 0.0, 1.0, Ease::Linear),
-            (Scale, 1.0, 0.3, Ease::In),
-            (Opacity, 0.0, 1.0, Ease::Linear),
-            (Opacity, 1.0, 0.0, Ease::In),
+            (Rotation, 0.0, 0.0, Ease::LINEAR),
+            (Rotation, 1.0, 180.0, Ease::IN),
+            (Scale, 0.0, 1.0, Ease::LINEAR),
+            (Scale, 1.0, 0.3, Ease::IN),
+            (Opacity, 0.0, 1.0, Ease::LINEAR),
+            (Opacity, 1.0, 0.0, Ease::IN),
         ],
     },
 ];
@@ -150,49 +150,49 @@ const COMBO: &[Shape] = &[
     Shape {
         name: "Pulse",
         keys: &[
-            (Scale, 0.0, 1.0, Ease::Linear),
-            (Scale, 0.5, 1.08, Ease::InOut),
-            (Scale, 1.0, 1.0, Ease::InOut),
+            (Scale, 0.0, 1.0, Ease::LINEAR),
+            (Scale, 0.5, 1.08, Ease::IN_OUT),
+            (Scale, 1.0, 1.0, Ease::IN_OUT),
         ],
     },
     Shape {
         name: "Shake",
         keys: &[
-            (X, 0.0, 0.0, Ease::Linear),
-            (X, 0.1, 0.02, Ease::Linear),
-            (X, 0.2, -0.02, Ease::Linear),
-            (X, 0.3, 0.02, Ease::Linear),
-            (X, 0.4, -0.02, Ease::Linear),
-            (X, 0.5, 0.02, Ease::Linear),
-            (X, 0.6, -0.02, Ease::Linear),
-            (X, 0.7, 0.02, Ease::Linear),
-            (X, 0.8, -0.02, Ease::Linear),
-            (X, 0.9, 0.02, Ease::Linear),
-            (X, 1.0, 0.0, Ease::Linear),
+            (X, 0.0, 0.0, Ease::LINEAR),
+            (X, 0.1, 0.02, Ease::LINEAR),
+            (X, 0.2, -0.02, Ease::LINEAR),
+            (X, 0.3, 0.02, Ease::LINEAR),
+            (X, 0.4, -0.02, Ease::LINEAR),
+            (X, 0.5, 0.02, Ease::LINEAR),
+            (X, 0.6, -0.02, Ease::LINEAR),
+            (X, 0.7, 0.02, Ease::LINEAR),
+            (X, 0.8, -0.02, Ease::LINEAR),
+            (X, 0.9, 0.02, Ease::LINEAR),
+            (X, 1.0, 0.0, Ease::LINEAR),
         ],
     },
     Shape {
         name: "Spin",
         keys: &[
-            (Rotation, 0.0, 0.0, Ease::Linear),
-            (Rotation, 1.0, 360.0, Ease::Linear),
+            (Rotation, 0.0, 0.0, Ease::LINEAR),
+            (Rotation, 1.0, 360.0, Ease::LINEAR),
         ],
     },
     Shape {
         name: "Bounce",
         keys: &[
-            (Y, 0.0, 0.0, Ease::Linear),
-            (Y, 0.25, -0.06, Ease::Out),
-            (Y, 0.5, 0.0, Ease::In),
-            (Y, 0.75, -0.03, Ease::Out),
-            (Y, 1.0, 0.0, Ease::In),
+            (Y, 0.0, 0.0, Ease::LINEAR),
+            (Y, 0.25, -0.06, Ease::OUT),
+            (Y, 0.5, 0.0, Ease::IN),
+            (Y, 0.75, -0.03, Ease::OUT),
+            (Y, 1.0, 0.0, Ease::IN),
         ],
     },
     Shape {
         name: "Drift",
         keys: &[
-            (Scale, 0.0, 1.0, Ease::Linear),
-            (Scale, 1.0, 1.12, Ease::Linear),
+            (Scale, 0.0, 1.0, Ease::LINEAR),
+            (Scale, 1.0, 1.12, Ease::LINEAR),
         ],
     },
 ];
@@ -275,6 +275,11 @@ pub fn animation_of(clip: &Clip) -> Option<Animation> {
         offset_y: Track::new(y),
         rotation: Track::new(rotation),
         opacity: Track::new(opacity),
+        // Presets are picture only: no shape in the catalogue touches gain,
+        // and a preset that silently rode the fader would be a surprise. A
+        // keyed volume comes from the clip's own keys instead - see
+        // `concat_export::flatten::export_keys`.
+        volume: Track::default(),
     })
 }
 

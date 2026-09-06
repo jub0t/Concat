@@ -318,6 +318,181 @@ pub struct ClipAnimation {
     pub duration: f64,
 }
 
+/// Which property a user-set key belongs to.
+///
+/// Five of the six are the picture's; the sixth is the mix's. They are one
+/// enum because a key is a key - the panel that sets them, the commands that
+/// carry them and the document that stores them do not care which side of
+/// the clip a value ends up on, and only the thing that finally reads them
+/// does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyProperty {
+    /// `Clip::scale`.
+    Scale,
+    /// `Clip::offset_x`.
+    OffsetX,
+    /// `Clip::offset_y`.
+    OffsetY,
+    /// `Clip::rotation`.
+    Rotation,
+    /// `Clip::opacity`.
+    Opacity,
+    /// `Clip::volume`.
+    Volume,
+}
+
+impl KeyProperty {
+    /// The name this property carries in a document and across the export
+    /// boundary. Matches the `ExportKey::property` vocabulary.
+    pub fn name(self) -> &'static str {
+        match self {
+            KeyProperty::Scale => "scale",
+            KeyProperty::OffsetX => "offsetX",
+            KeyProperty::OffsetY => "offsetY",
+            KeyProperty::Rotation => "rotation",
+            KeyProperty::Opacity => "opacity",
+            KeyProperty::Volume => "volume",
+        }
+    }
+
+    /// The property of that name, or None.
+    pub fn from_name(name: &str) -> Option<KeyProperty> {
+        Some(match name {
+            "scale" => KeyProperty::Scale,
+            "offsetX" => KeyProperty::OffsetX,
+            "offsetY" => KeyProperty::OffsetY,
+            "rotation" => KeyProperty::Rotation,
+            "opacity" => KeyProperty::Opacity,
+            "volume" => KeyProperty::Volume,
+            _ => return None,
+        })
+    }
+
+    /// Every property that can be keyed, in the order a panel lists them.
+    pub const ALL: [KeyProperty; 6] = [
+        KeyProperty::Scale,
+        KeyProperty::OffsetX,
+        KeyProperty::OffsetY,
+        KeyProperty::Rotation,
+        KeyProperty::Opacity,
+        KeyProperty::Volume,
+    ];
+}
+
+/// How a key is approached from the one before it: a CSS timing function's
+/// two control points, `[x1, y1, x2, y2]`.
+///
+/// The document's spelling of `concat_core::animate::Ease`, which is what it
+/// becomes. Four numbers rather than a named shape because the curve editor
+/// hands people a bezier to drag and the four named shapes are only its
+/// preset chips - see `KeyEase::LINEAR` and friends.
+///
+/// Serialised as a bare array: `"ease": [0.42, 0, 0.58, 1]`. Documents
+/// written before the curve editor spell it `"linear"` / `"in"` / `"out"` /
+/// `"inOut"` instead, and `from_value` still reads those.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct KeyEase(pub [f64; 4]);
+
+impl Default for KeyEase {
+    fn default() -> Self {
+        KeyEase::LINEAR
+    }
+}
+
+impl KeyEase {
+    /// A straight line.
+    pub const LINEAR: KeyEase = KeyEase([0.0, 0.0, 1.0, 1.0]);
+    /// Starts slow, arrives fast.
+    pub const IN: KeyEase = KeyEase([0.42, 0.0, 1.0, 1.0]);
+    /// Starts fast, arrives slow.
+    pub const OUT: KeyEase = KeyEase([0.0, 0.0, 0.58, 1.0]);
+    /// Slow at both ends.
+    pub const IN_OUT: KeyEase = KeyEase([0.42, 0.0, 0.58, 1.0]);
+
+    /// The four presets and what to call them, in the order the panel's
+    /// chips sit in.
+    pub const PRESETS: [(&'static str, KeyEase); 4] = [
+        ("Linear", KeyEase::LINEAR),
+        ("In", KeyEase::IN),
+        ("Out", KeyEase::OUT),
+        ("In · Out", KeyEase::IN_OUT),
+    ];
+
+    /// The ease named by a v1 document, or linear for a name this build has
+    /// never heard of - a document naming something unknown should still
+    /// open and still move.
+    pub fn from_name(name: &str) -> KeyEase {
+        match name {
+            "in" => KeyEase::IN,
+            "out" => KeyEase::OUT,
+            "inOut" => KeyEase::IN_OUT,
+            _ => KeyEase::LINEAR,
+        }
+    }
+
+    /// The four numbers, with the two x values clamped where a legal timing
+    /// function keeps them and anything unreadable falling back to linear.
+    pub fn sane(self) -> KeyEase {
+        let KeyEase([x1, y1, x2, y2]) = self;
+        if ![x1, y1, x2, y2].iter().all(|n| n.is_finite()) {
+            return KeyEase::LINEAR;
+        }
+        KeyEase([x1.clamp(0.0, 1.0), y1, x2.clamp(0.0, 1.0), y2])
+    }
+
+    /// Whether this is one of the presets, to within a hair. What lights a
+    /// chip in the panel.
+    pub fn is(self, other: KeyEase) -> bool {
+        self.0
+            .iter()
+            .zip(other.0.iter())
+            .all(|(a, b)| (a - b).abs() < 0.005)
+    }
+}
+
+impl From<KeyEase> for concat_core::animate::Ease {
+    /// The one conversion into what the engine plays. Sanitised on the way,
+    /// so a hand-edited document cannot hand the solver an x outside `0..=1`
+    /// - where a cubic bezier stops being a function of x and the Newton
+    /// iteration stops converging.
+    fn from(ease: KeyEase) -> Self {
+        let KeyEase([x1, y1, x2, y2]) = ease.sane();
+        concat_core::animate::Ease::new(x1, y1, x2, y2)
+    }
+}
+
+/// One user-set key: a property, a point in the clip, and the value there.
+///
+/// The value is *absolute* - the number the inspector shows, in the
+/// property's own units - and not the relative factor the engine's
+/// `animate::Key` carries. Storing what the user typed is what keeps a key
+/// meaning the same thing after the clip's own scale or gain is changed
+/// underneath it; the conversion to relative happens on the way out, in
+/// `concat_export::flatten::export_keys`.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipKey {
+    /// Which property.
+    pub property: KeyProperty,
+    /// Where in the clip, as a fraction of its timeline length, `0..=1`.
+    pub at: f64,
+    /// The value there, in the property's own units.
+    pub value: f64,
+    /// How this key is approached from the previous one.
+    #[serde(default)]
+    pub ease: KeyEase,
+}
+
+/// How near two keys on one property have to be to count as the same key.
+///
+/// A fraction and not a duration, because that is what `at` is. Two
+/// thousandths of a clip is under a frame for anything up to about twenty
+/// seconds, which is the length where "the playhead is on that key" stops
+/// being a question a user can answer by looking.
+pub const KEY_EPSILON: f64 = 0.002;
+
 /// One point of a speed curve.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -484,6 +659,15 @@ pub struct Clip {
     /// A shape over its whole length.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation_combo: Option<ClipAnimation>,
+    /// The user's own keys, sorted by property and then by `at`. Empty is a
+    /// clip whose properties are the constants above.
+    ///
+    /// These sit *under* the animation presets rather than beside them: a
+    /// keyed property's value replaces the constant the preset is relative
+    /// to, so a clip can carry both a hand-keyed scale and a Fade preset
+    /// without either having to know about the other.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<ClipKey>,
     /// Mirrored left to right.
     #[serde(default, skip_serializing_if = "is_false")]
     pub flip_h: bool,
@@ -523,6 +707,139 @@ pub struct Clip {
     /// The overlay, when this is a text clip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<TextStyle>,
+}
+
+impl Clip {
+    /// The clip's own constant for a keyable property - what the property is
+    /// worth everywhere its track is silent.
+    pub fn constant(&self, property: KeyProperty) -> f64 {
+        match property {
+            KeyProperty::Scale => self.scale,
+            KeyProperty::OffsetX => self.offset_x,
+            KeyProperty::OffsetY => self.offset_y,
+            KeyProperty::Rotation => self.rotation,
+            KeyProperty::Opacity => self.opacity,
+            KeyProperty::Volume => self.volume,
+        }
+    }
+
+    /// This property's keys, in order. Borrowed rather than collected: the
+    /// caller is usually asking a question about them, not keeping them.
+    pub fn keys_on(
+        &self,
+        property: KeyProperty,
+    ) -> impl DoubleEndedIterator<Item = &ClipKey> + Clone {
+        self.keys.iter().filter(move |key| key.property == property)
+    }
+
+    /// Whether this property is keyed at all. A property with keys is one
+    /// the panel shows as animated, however few there are.
+    pub fn is_keyed(&self, property: KeyProperty) -> bool {
+        self.keys_on(property).next().is_some()
+    }
+
+    /// The index into `keys` of this property's key at `at`, within
+    /// `KEY_EPSILON`, choosing the nearest when two are in reach.
+    pub fn key_at(&self, property: KeyProperty, at: f64) -> Option<usize> {
+        self.keys
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| key.property == property && (key.at - at).abs() <= KEY_EPSILON)
+            .min_by(|(_, a), (_, b)| (a.at - at).abs().total_cmp(&(b.at - at).abs()))
+            .map(|(index, _)| index)
+    }
+
+    /// This property's keys as the engine plays them.
+    pub fn track_on(&self, property: KeyProperty) -> concat_core::animate::Track {
+        concat_core::animate::Track::new(
+            self.keys_on(property)
+                .map(|key| concat_core::animate::Key {
+                    at: key.at,
+                    value: key.value,
+                    ease: key.ease.into(),
+                })
+                .collect(),
+        )
+    }
+
+    /// What a property is worth at `at`: its ride where it is keyed, and its
+    /// constant where it is not.
+    ///
+    /// The same arithmetic the engine does, which is what makes a key put on
+    /// where the ride already is change nothing on screen - and what lets a
+    /// panel show the live value under the playhead without asking the
+    /// renderer.
+    pub fn value_at(&self, property: KeyProperty, at: f64) -> f64 {
+        let constant = self.constant(property);
+        if !self.is_keyed(property) {
+            return constant;
+        }
+        self.track_on(property).value_at(at, constant)
+    }
+
+    /// The nearest key strictly before `at`, and the nearest strictly after.
+    /// What the panel's two chevrons move the playhead to; `None` on a side
+    /// is that chevron greyed out.
+    pub fn keys_around(&self, property: KeyProperty, at: f64) -> (Option<f64>, Option<f64>) {
+        let mut before: Option<f64> = None;
+        let mut after: Option<f64> = None;
+        for key in self.keys_on(property) {
+            if key.at < at - KEY_EPSILON {
+                before = Some(before.map_or(key.at, |seen: f64| seen.max(key.at)));
+            } else if key.at > at + KEY_EPSILON {
+                after = Some(after.map_or(key.at, |seen: f64| seen.min(key.at)));
+            }
+        }
+        (before, after)
+    }
+
+    /// Sets a key, replacing whichever key on that property was already
+    /// within `KEY_EPSILON` of `at`. Keeps `keys` sorted by property and
+    /// then by `at`, which is what lets everything else read them in order
+    /// without sorting first.
+    pub fn set_key(&mut self, property: KeyProperty, at: f64, value: f64, ease: KeyEase) {
+        if !at.is_finite() || !value.is_finite() {
+            return;
+        }
+        let at = at.clamp(0.0, 1.0);
+        match self.key_at(property, at) {
+            Some(index) => self.keys[index] = ClipKey { property, at, value, ease },
+            None => self.keys.push(ClipKey { property, at, value, ease }),
+        }
+        self.sort_keys();
+    }
+
+    /// Removes this property's key at `at`, if there is one. True when a key
+    /// actually went.
+    pub fn clear_key(&mut self, property: KeyProperty, at: f64) -> bool {
+        match self.key_at(property, at) {
+            Some(index) => {
+                self.keys.remove(index);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Takes every key off one property. True when there were any.
+    pub fn clear_keys(&mut self, property: KeyProperty) -> bool {
+        let before = self.keys.len();
+        self.keys.retain(|key| key.property != property);
+        self.keys.len() != before
+    }
+
+    /// Drops keys that are not finite or not in `0..=1`, then orders them.
+    /// Called by everything that can put a key in, including the document
+    /// reader, so a hand-edited file cannot produce an unsorted track.
+    pub fn sort_keys(&mut self) {
+        self.keys
+            .retain(|key| key.at.is_finite() && key.value.is_finite() && (0.0..=1.0).contains(&key.at));
+        self.keys.sort_by(|a, b| {
+            (a.property as u8)
+                .cmp(&(b.property as u8))
+                .then_with(|| a.at.total_cmp(&b.at))
+        });
+    }
 }
 
 /// One timeline: a name and its lanes and clips. Every operation takes the

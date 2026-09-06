@@ -14,6 +14,7 @@
 
 use std::path::Path;
 
+use concat_core::animate::Track;
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::encoder;
 use ffmpeg_the_third::filter;
@@ -52,14 +53,86 @@ pub struct AudioClip {
     pub speed: f64,
     /// True holds pitch while the rate changes; false is the tape effect.
     pub preserve_pitch: bool,
-    /// Linear gain, one being unity.
+    /// Linear gain, one being unity. The whole clip's, unless
+    /// `volume_curve` says otherwise.
     pub volume: f64,
+    /// Gain as it changes over the clip, in absolute linear gain against a
+    /// fraction of the clip's timeline length. Empty is the constant in
+    /// `volume`; a track supersedes it rather than multiplying it.
+    ///
+    /// The engine's own `Track` and not a list of pairs, so the ramp the
+    /// mixer writes into the filtergraph and the ramp the monitor plays are
+    /// read from one definition, easing included.
+    pub volume_curve: Track,
     /// Fade up over this many seconds from the clip's start.
     pub fade_in: f64,
     /// Fade out over this many seconds into the clip's end.
     pub fade_out: f64,
     /// Extra FFmpeg audio filters, or empty. Validated, not trusted.
     pub filter_chain: String,
+}
+
+/// An FFmpeg `volume` expression for a gain that changes over a clip, or
+/// Straight segments per eased one, when a gain ride is flattened for the
+/// filtergraph.
+///
+/// A chord's error against the curve it cuts falls as the square of the
+/// step count. Twelve puts the worst case on a full-span ease-in-out at a
+/// few thousandths of the ride's range - about 0.03 dB on a gain ramp, which
+/// is an order of magnitude under what anyone can hear - and keeps the
+/// expression to a few hundred characters per key. Doubling it would buy
+/// four times the accuracy nobody can hear, at twice the length.
+const EASE_STEPS: usize = 12;
+
+/// None when the track is empty and the scalar gain will do.
+///
+/// The shape is `Track::value_at` written out: hold the first key's value
+/// before it, hold the last key's after it, and run straight between
+/// neighbours. Nested `if`s rather than anything cleverer, because that is
+/// what the expression language has.
+///
+/// Straight, and never eased, because an ease is a cubic bezier and solving
+/// one for y at a given x takes a loop the expression language does not
+/// have. `Track::resample` turns each eased segment into `EASE_STEPS`
+/// straight ones through the same curve first, so the easing is applied in
+/// the one place that understands it and this only ever writes lines.
+///
+/// `t` inside the graph is seconds from the clip's own start - the same
+/// clock `afade`'s `st=` uses two filters later - so the fraction the track
+/// is indexed by is `t / duration`.
+fn volume_expr(track: &Track, duration: f64) -> Option<String> {
+    let flat = track.resample(EASE_STEPS);
+    let keys = flat.keys();
+    let first = keys.first()?;
+    if duration <= 0.0 {
+        return Some(format!("{:.6}", first.value.max(0.0)));
+    }
+    let gain = |value: f64| format!("{:.6}", value.max(0.0));
+    let x = format!("(t/{duration:.6})");
+
+    // From the tail back: each step wraps what it has in "before this key,
+    // ride this segment".
+    let mut expr = gain(keys[keys.len() - 1].value);
+    for pair in keys.windows(2).rev() {
+        let (a, b) = (pair[0], pair[1]);
+        let span = b.at - a.at;
+        let segment = if span <= 0.0 {
+            gain(b.value)
+        } else {
+            format!(
+                "({}+({})*clip(({x}-{:.6})/{span:.6},0,1))",
+                gain(a.value),
+                format_args!("{:.6}", b.value.max(0.0) - a.value.max(0.0)),
+                a.at
+            )
+        };
+        expr = format!("if(lte({x},{:.6}),{segment},{expr})", b.at);
+    }
+    Some(format!(
+        "if(lte({x},{:.6}),{},{expr})",
+        first.at,
+        gain(first.value)
+    ))
 }
 
 /// Refuses a filter chain that could break out of its slot in the graph.
@@ -164,8 +237,15 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
             stage.push_str(&clip.filter_chain);
         }
 
-        if (clip.volume - 1.0).abs() > f64::EPSILON {
-            stage.push_str(&format!(",volume={:.4}", clip.volume.max(0.0)));
+        match volume_expr(&clip.volume_curve, clip.duration) {
+            // `eval=frame` is what makes the expression a curve rather than
+            // a number: without it `volume` evaluates once, at init, and a
+            // ride would come out as whatever the gain was at t=0.
+            Some(expr) => stage.push_str(&format!(",volume=volume='{expr}':eval=frame")),
+            None if (clip.volume - 1.0).abs() > f64::EPSILON => {
+                stage.push_str(&format!(",volume={:.4}", clip.volume.max(0.0)));
+            }
+            None => {}
         }
         if clip.fade_in > 0.0 {
             stage.push_str(&format!(",afade=t=in:st=0:d={:.4}", clip.fade_in));
@@ -640,6 +720,7 @@ mod tests {
             speed: 1.0,
             preserve_pitch: true,
             volume: 1.0,
+            volume_curve: Track::default(),
             fade_in: 0.0,
             fade_out: 0.0,
             filter_chain: String::new(),

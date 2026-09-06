@@ -110,6 +110,15 @@ export global Dark {
     out property <color> on-accent: #15220a;
     out property <color> on-green: #06210f;
 
+    // The Rail's dragger — the raised chip you push along a hairline rail, as
+    // distinct from the Fader's flat bar. It is a light chip and not the
+    // accent because the rail's fill is already the accent: a dragger in the
+    // same colour would disappear into the value it is marking. The edge is
+    // what keeps it legible when it is sitting on that fill.
+    out property <color> grip: #dcdce4;
+    out property <color> grip-active: #ffffff;
+    out property <color> grip-edge: #0000008c;      // rgb(0 0 0 / 0.55)
+
     // meter ramp
     out property <color> meter-low: #34c759;
     out property <color> meter-mid: #ffd60a;

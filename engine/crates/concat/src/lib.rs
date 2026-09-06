@@ -64,7 +64,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.set_macos(platform::MACOS);
 
     let studio = Studio::new(host);
-    let dark = studio.prefs.dark.unwrap_or(false);
+    let dark = studio.prefs.dark.unwrap_or(true);
     app.global::<Theme>().set_dark(dark);
 
     let shell = Rc::new(Shell {
@@ -616,6 +616,39 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ));
 
     // ── the inspector ──
+    // The keyframe cluster. Its own global, so a row deep in a panel does
+    // not have to be threaded a callback to reach here.
+    {
+        let keys = app.global::<Keyframes>();
+        keys.on_toggle(on_lanes!(|state, field: ClipField| {
+            state.toggle_key(field);
+        }));
+        keys.on_step(on_lanes!(|state, field: ClipField, delta: i32| {
+            state.step_key(field, delta);
+        }));
+        keys.on_clear(on_lanes!(|state, field: ClipField| {
+            state.clear_keys_on(field);
+        }));
+    }
+
+    // The effect libraries' search, shelves and stars. Rust does the
+    // filtering, so the panel only reports what was pressed.
+    {
+        let library = app.global::<Library>();
+        library.on_query_changed(on_window!(|state, shelf: i32, text: SharedString| {
+            state.library_query(shelf, &text);
+        }));
+        library.on_group_changed(on_window!(|state, shelf: i32, index: i32| {
+            state.library_group(shelf, index);
+        }));
+        library.on_favourites_changed(on_window!(|state, shelf: i32, on: bool| {
+            state.library_favourites(shelf, on);
+        }));
+        library.on_favourite(on_window!(|state, id: SharedString, on: bool| {
+            state.library_favourite(&id, on);
+        }));
+    }
+
     editor.on_clip_set(on_lanes!(|state, field: ClipField, value: f32| {
         state.clip_set(field, value);
     }));

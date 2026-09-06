@@ -8,7 +8,7 @@ import { Pane, PaneBody, PaneScroll } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
-    AdjustPanel, AnimationPanel, AppliedEntryData, AppliedParamData, AudioPanel,
+    AdjustPanel, AnimationPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
     CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
@@ -557,9 +557,19 @@ export component ConfigPane inherits Rectangle {
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
                     }
+                    // The three treatments, between the mix and the library:
+                    // they are chain links like any other, but they are the
+                    // ones a sound clip usually needs, so they get a switch
+                    // rather than a search.
+                    ProcessorRows {
+                        applied: root.applied-audio;
+                        add(id) => { root.chain-add(true, id); }
+                        remove(index) => { root.chain-remove(true, index); }
+                    }
                     PresetStack {
                         noun: I18n.t("audio effect");
                         library-title: I18n.t("Audio effects");
+                        shelf: 2;
                         group-labels: root.audio-groups;
                         catalogue: root.catalogue-audio;
                         applied: root.applied-audio;
@@ -582,6 +592,7 @@ export component ConfigPane inherits Rectangle {
                 if root.showing == "Filters": PresetStack {
                     noun: I18n.t("filter");
                     library-title: I18n.t("Filter library");
+                    shelf: 0;
                     group-labels: root.filter-groups;
                     catalogue: root.catalogue-filters;
                     applied: root.applied-visual;
@@ -600,6 +611,7 @@ export component ConfigPane inherits Rectangle {
                 if root.showing == "Effects": PresetStack {
                     noun: I18n.t("effect");
                     library-title: I18n.t("Effect library");
+                    shelf: 1;
                     group-labels: root.effect-groups;
                     catalogue: root.catalogue-effects;
                     applied: root.applied-visual;

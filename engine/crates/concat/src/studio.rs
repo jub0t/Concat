@@ -125,6 +125,28 @@ pub const START_RATES: [(&str, i64, i64); 5] = [
     ("60", 60, 1),
 ];
 
+/// What one effect library is showing: the words typed into it, the shelf
+/// picked, and whether the star is down.
+///
+/// Held here rather than in the panel because the filtering is done here:
+/// the model a library renders arrives already narrowed, which is what lets
+/// it be laid out as a grid - a tile's place is its index, and an index only
+/// means a place when every entry in the model is one that shows.
+#[derive(Clone, Debug, Default)]
+pub struct LibraryView {
+    /// The search box's text.
+    pub query: String,
+    /// The chosen shelf, as an index into the kind's group list.
+    pub group: i32,
+    /// Only starred packages show, whatever shelf they are on.
+    pub favourites: bool,
+}
+
+/// Which library a shelf index names. The numbers are the panel's own -
+/// `PresetStack.shelf` - and the order the tabs sit in.
+pub const SHELF_KINDS: [PackageKind; 3] =
+    [PackageKind::Filter, PackageKind::Effect, PackageKind::Audio];
+
 /// The transcriber's languages: the rows of the Auto / English / Chinese
 /// control in Settings > Transcriber, and the whisper code each means.
 pub const TRANSCRIBE_LANGUAGES: [&str; 3] = ["auto", "en", "zh"];
@@ -581,6 +603,9 @@ pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
 pub struct Studio {
     pub host: Host,
     pub prefs: Preferences,
+    /// What each effect library is showing, indexed the way `SHELF_KINDS`
+    /// is: 0 filters, 1 effects, 2 audio.
+    pub library: [LibraryView; 3],
 
     // ── the edit ──
     pub session: Option<Session>,
@@ -738,9 +763,14 @@ fn new_title_style() -> TextStyle {
 /// A label for a catalogue id: "black-white" reads as "Black White".
 /// One kind's shelves for the inspector: the shelf labels, in catalogue
 /// order, and every package on them with the index of its shelf.
-fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
+fn shelves(
+    kind: PackageKind,
+    view: &LibraryView,
+    favourites: &[String],
+) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
     let mut groups: Vec<String> = Vec::new();
     let mut entries = Vec::new();
+    let query = view.query.trim().to_lowercase();
     for package in Catalogue::builtin().of_kind(kind) {
         let meta = &package.manifest.effect;
         // The colour panel's own package: every picture clip can carry it,
@@ -762,12 +792,32 @@ fn shelves(kind: PackageKind) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
                 groups.len() - 1
             }
         };
+        // The shelves are built from every package and only the entries are
+        // narrowed: a strip that lost a segment because a search matched
+        // nothing on it would move under the pointer as you typed.
+        let name = t(&meta.name);
+        let description = t(&meta.description);
+        let starred = favourites.iter().any(|held| held == &meta.id);
+        let shown = if view.favourites {
+            starred
+        } else if !query.is_empty() {
+            // Across every shelf while a query is live. Someone typing
+            // "echo" wants the echo, not the echo that happens to be filed
+            // where they were already looking.
+            name.to_lowercase().contains(&query) || description.to_lowercase().contains(&query)
+        } else {
+            group as i32 == view.group
+        };
+        if !shown {
+            continue;
+        }
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
-            name: t(&meta.name).into(),
+            name: name.into(),
             category: t(&category).into(),
             group: group as i32,
-            description: t(&meta.description).into(),
+            description: description.into(),
+            favourite: starred,
         });
     }
     (
@@ -843,6 +893,19 @@ fn commit_key(commands: &[Command]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// The field a keyable property is set through - the inverse of
+/// `Studio::key_property_of`, for handing a row back to the panel.
+fn key_field_of(property: model::KeyProperty) -> ClipField {
+    match property {
+        model::KeyProperty::Scale => ClipField::Scale,
+        model::KeyProperty::OffsetX => ClipField::OffsetX,
+        model::KeyProperty::OffsetY => ClipField::OffsetY,
+        model::KeyProperty::Rotation => ClipField::Rotation,
+        model::KeyProperty::Opacity => ClipField::Opacity,
+        model::KeyProperty::Volume => ClipField::Volume,
+    }
 }
 
 /// The menu row of a slot's animation: -1 for none.
@@ -1011,6 +1074,7 @@ impl Studio {
         let text_presets = presets::all(&host.dirs);
         let mut studio = Self {
             prefs,
+            library: Default::default(),
             session: None,
             echo: None,
             empty: Project::new(),
@@ -1365,6 +1429,16 @@ impl Studio {
                 duration: piece.duration,
                 source_start: piece.source_start,
                 volume: piece.volume as f32,
+                volume_curve: piece
+                    .volume_curve
+                    .keys()
+                    .iter()
+                    .map(|key| concat_host::playback::GainKey {
+                        at: key.at,
+                        gain: key.value,
+                        ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
+                    })
+                    .collect(),
                 fade_in: piece.fade_in,
                 fade_out: piece.fade_out,
                 speed: piece.speed,
@@ -4679,6 +4753,12 @@ impl Studio {
         });
 
         editor.set_selected_clip(self.selected());
+        // The keyframe cluster's state, on its own global: every keyable row
+        // in the inspector reads it, and none of them is threaded to.
+        let keys = app.global::<Keyframes>();
+        let rows = self.key_rows();
+        keys.set_available(!rows.is_empty());
+        keys.set_rows(slint::ModelRc::from(Rc::new(VecModel::from(rows))));
         editor.set_inspector_jump_token(self.inspector_jump.0);
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
         editor.set_inspector_jump_section(self.inspector_jump.2.into());
@@ -4755,6 +4835,181 @@ impl Studio {
             },
         );
     }
+
+    // ── the effect libraries ──
+
+    /// The view state of one library, or None for a shelf index the panel
+    /// should never have sent.
+    fn library_at(&mut self, shelf: i32) -> Option<&mut LibraryView> {
+        self.library.get_mut(usize::try_from(shelf).ok()?)
+    }
+
+    /// The search box was typed in. A live query searches every shelf, so
+    /// the strip is put away while one is running - see `shelves`.
+    pub fn library_query(&mut self, shelf: i32, text: &str) {
+        if let Some(view) = self.library_at(shelf) {
+            view.query = text.to_owned();
+        }
+    }
+
+    /// A shelf was picked. Typing and then picking a shelf means the shelf,
+    /// so the query goes.
+    pub fn library_group(&mut self, shelf: i32, index: i32) {
+        if let Some(view) = self.library_at(shelf) {
+            view.group = index.max(0);
+            view.query.clear();
+            view.favourites = false;
+        }
+    }
+
+    /// The star chip. Turning it on clears the query for the same reason
+    /// picking a shelf does: two filters at once is a list nobody can
+    /// predict the contents of.
+    pub fn library_favourites(&mut self, shelf: i32, on: bool) {
+        if let Some(view) = self.library_at(shelf) {
+            view.favourites = on;
+            view.query.clear();
+        }
+    }
+
+    /// Star or unstar a package, and remember it. Not per library: a star is
+    /// a fact about the package.
+    pub fn library_favourite(&mut self, id: &str, on: bool) {
+        let held = self.prefs.favourites.iter().any(|held| held == id);
+        if on && !held {
+            self.prefs.favourites.push(id.to_owned());
+        } else if !on && held {
+            self.prefs.favourites.retain(|held| held != id);
+        } else {
+            return;
+        }
+        self.prefs.save(&self.host.dirs);
+    }
+
+    // ── keyframes ──
+
+    /// The keyable property a field names, or None for a field that is a
+    /// constant and stays one.
+    pub fn key_property_of(field: ClipField) -> Option<model::KeyProperty> {
+        Some(match field {
+            ClipField::Scale => model::KeyProperty::Scale,
+            ClipField::OffsetX => model::KeyProperty::OffsetX,
+            ClipField::OffsetY => model::KeyProperty::OffsetY,
+            ClipField::Rotation => model::KeyProperty::Rotation,
+            ClipField::Opacity => model::KeyProperty::Opacity,
+            ClipField::Volume => model::KeyProperty::Volume,
+            _ => return None,
+        })
+    }
+
+    /// The selected clip and where the playhead is inside it, `0..=1`, or
+    /// None when there is no sole selection or the playhead is outside it.
+    ///
+    /// Outside is not clamped to an end: a key put on from outside the clip
+    /// would land on its first or last frame, which is never what the person
+    /// pressing the diamond meant.
+    pub fn key_point(&self) -> Option<(&Clip, f64)> {
+        let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
+        if clip.duration <= 0.0 {
+            return None;
+        }
+        let local = f64::from(self.playhead) - clip.start;
+        (0.0..=clip.duration)
+            .contains(&local)
+            .then(|| (clip, local / clip.duration))
+    }
+
+    /// The keyframe cluster's six rows, in the order the `Keyframes` global
+    /// indexes them. Empty when nothing can be keyed, which is what greys
+    /// every cluster in the inspector at once.
+    pub fn key_rows(&self) -> Vec<ClipKeyData> {
+        let Some((clip, at)) = self.key_point() else {
+            return Vec::new();
+        };
+        model::KeyProperty::ALL
+            .iter()
+            .map(|&property| {
+                let (prev, next) = clip.keys_around(property, at);
+                ClipKeyData {
+                    field: key_field_of(property),
+                    keyed: clip.is_keyed(property),
+                    here: clip.key_at(property, at).is_some(),
+                    prev: prev.is_some(),
+                    next: next.is_some(),
+                }
+            })
+            .collect()
+    }
+
+    /// Puts a key on the field at the playhead, or takes off the one there.
+    ///
+    /// The value a new key gets is whatever the property is worth at that
+    /// instant - the constant on a clip with no keys, and the ride's own
+    /// value on one that has them. That is what makes the diamond safe to
+    /// press: it never moves the picture, it only says "hold this here".
+    pub fn toggle_key(&mut self, field: ClipField) {
+        let Some(property) = Self::key_property_of(field) else {
+            return;
+        };
+        let Some((clip, at)) = self.key_point() else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let command = if clip.key_at(property, at).is_some() {
+            Command::ClearClipKey {
+                clip_id,
+                property,
+                at,
+            }
+        } else {
+            let value = clip.value_at(property, at);
+            // The ease of whichever key this one is joining behind, so
+            // laying a run of keys down does not alternate between shapes.
+            // The first key on a property has nothing to inherit and gets
+            // the straight line.
+            let ease = clip
+                .keys_on(property)
+                .filter(|key| key.at < at)
+                .next_back()
+                .map_or(model::KeyEase::LINEAR, |key| key.ease);
+            Command::SetClipKey {
+                clip_id,
+                property,
+                at,
+                value,
+                ease,
+            }
+        };
+        self.apply(command);
+    }
+
+    /// Takes every key off a field, leaving it its constant.
+    pub fn clear_keys_on(&mut self, field: ClipField) {
+        let Some(property) = Self::key_property_of(field) else {
+            return;
+        };
+        let Some(clip_id) = self.sole_selection() else {
+            return;
+        };
+        self.apply(Command::ClearClipKeys { clip_id, property });
+    }
+
+    /// Moves the playhead to this field's previous (-1) or next (+1) key.
+    pub fn step_key(&mut self, field: ClipField, delta: i32) {
+        let Some(property) = Self::key_property_of(field) else {
+            return;
+        };
+        let Some((clip, at)) = self.key_point() else {
+            return;
+        };
+        let (start, duration) = (clip.start, clip.duration);
+        let (prev, next) = clip.keys_around(property, at);
+        let Some(target) = (if delta < 0 { prev } else { next }) else {
+            return;
+        };
+        self.seek((start + target * duration) as f32);
+    }
+
 
     /// The selection, flattened for the inspector: exactly one clip or
     /// nothing.
@@ -4874,17 +5129,31 @@ impl Studio {
             words.set_lang(lang);
         }
 
-        // The catalogue's shelves. Built in, so they never change after
-        // start; `sync` makes republishing them a no-op.
-        let (groups, entries) = shelves(PackageKind::Effect);
-        sync(&models.effect_groups, groups);
-        sync(&models.catalogue_effects, entries);
-        let (groups, entries) = shelves(PackageKind::Filter);
+        // The catalogue's shelves. The groups are built in and never change;
+        // the entries are whatever each library's search, shelf and star let
+        // through, so they are rebuilt here and `sync` makes an unchanged
+        // one a no-op.
+        let starred = &self.prefs.favourites;
+        let (groups, entries) = shelves(SHELF_KINDS[0], &self.library[0], starred);
         sync(&models.filter_groups, groups);
         sync(&models.catalogue_filters, entries);
-        let (groups, entries) = shelves(PackageKind::Audio);
+        let (groups, entries) = shelves(SHELF_KINDS[1], &self.library[1], starred);
+        sync(&models.effect_groups, groups);
+        sync(&models.catalogue_effects, entries);
+        let (groups, entries) = shelves(SHELF_KINDS[2], &self.library[2], starred);
         sync(&models.audio_groups, groups);
         sync(&models.catalogue_audio, entries);
+        app.global::<Library>()
+            .set_views(slint::ModelRc::from(Rc::new(VecModel::from(
+                self.library
+                    .iter()
+                    .map(|view| LibraryViewData {
+                        query: view.query.as_str().into(),
+                        group: view.group,
+                        favourites: view.favourites,
+                    })
+                    .collect::<Vec<_>>(),
+            ))));
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());

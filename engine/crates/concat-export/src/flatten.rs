@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use concat_project::model::{ClipKind as ModelClipKind, Project, Timeline};
+use concat_project::model::{ClipKind as ModelClipKind, KeyProperty, Project, Timeline};
 
 use crate::chains::{audio_filter_chain, video_effect_chain};
 use crate::{ClipKind, ExportClip, ExportKey, TransitionSpec};
@@ -116,7 +116,7 @@ pub fn flatten_timeline_in(
                 track: index,
                 hidden: !track.visible,
                 muted: track.muted || clip.muted == Some(true),
-                volume: clip.volume,
+                volume: export_base(clip, KeyProperty::Volume),
                 fade_in: clip.fade_in,
                 fade_out: clip.fade_out,
                 filter_chain: audio_filter_chain(&clip.filters),
@@ -140,13 +140,13 @@ pub fn flatten_timeline_in(
                     .map(|crop| [crop.left, crop.top, crop.right, crop.bottom]),
                 effects: clip.video_effects.clone(),
                 transition_chain: String::new(),
-                scale: clip.scale,
-                offset_x: clip.offset_x,
-                offset_y: clip.offset_y,
-                rotation: clip.rotation,
+                scale: export_base(clip, KeyProperty::Scale),
+                offset_x: export_base(clip, KeyProperty::OffsetX),
+                offset_y: export_base(clip, KeyProperty::OffsetY),
+                rotation: export_base(clip, KeyProperty::Rotation),
                 stretch_x: clip.stretch_x,
                 stretch_y: clip.stretch_y,
-                opacity: clip.opacity,
+                opacity: export_base(clip, KeyProperty::Opacity),
                 video_filter_chain: video_effect_chain(&clip.video_effects),
                 // Passed through unconditionally: `resolve_transitions` is
                 // the one adjacency judge (frame/2 tolerance). A fixed
@@ -187,37 +187,77 @@ fn pick_timeline<'a>(project: &'a Project, timeline_id: Option<&str>) -> Option<
         .or_else(|| project.timelines.first())
 }
 
-/// The clip's animation presets, materialised for its current length as
-/// the keys the engine plays. See `concat_project::animation`.
+/// The constant the engine should receive for a keyable property.
+///
+/// The clip's own, until that property is keyed - and then the *neutral*
+/// value, because a keyed property's keys travel absolutely rather than as a
+/// factor on this base. Absolute is not a preference: `Animation` multiplies
+/// the base by the scale and opacity tracks, so a clip sitting at zero
+/// opacity could never be keyed back up if its keys were relative to it.
+///
+/// Presets stay relative, which is what lets a Fade preset ride on top of a
+/// hand-keyed opacity without either knowing about the other.
+pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) -> f64 {
+    if !clip.is_keyed(property) {
+        return clip.constant(property);
+    }
+    match property {
+        // A factor's neutral is one; an addition's is zero.
+        KeyProperty::Scale | KeyProperty::Opacity | KeyProperty::Volume => 1.0,
+        KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => 0.0,
+    }
+}
+
+/// The keys the engine plays: the clip's own where it has them, and its
+/// animation presets - materialised for its current length - everywhere it
+/// does not. See `concat_project::animation`.
+///
+/// A property the user has keyed does not also get its preset's track. Two
+/// sets of keys on one property is a question with no good answer, and the
+/// hand-set ones are the ones someone will be looking at when they wonder
+/// why the clip is not doing what they said.
 pub fn export_keys(clip: &concat_project::model::Clip) -> Vec<ExportKey> {
-    use concat_core::animate::Ease;
-    let Some(animation) = concat_project::animation::animation_of(clip) else {
-        return Vec::new();
-    };
+    let presets = concat_project::animation::animation_of(clip);
     let mut out = Vec::new();
-    for (property, track) in [
-        ("scale", &animation.scale),
-        ("offsetX", &animation.offset_x),
-        ("offsetY", &animation.offset_y),
-        ("rotation", &animation.rotation),
-        ("opacity", &animation.opacity),
-    ] {
-        for key in track.keys() {
-            out.push(ExportKey {
-                property: property.to_owned(),
+
+    for property in KeyProperty::ALL {
+        if clip.is_keyed(property) {
+            out.extend(clip.keys_on(property).map(|key| ExportKey {
+                property: property.name().to_owned(),
                 at: key.at,
                 value: key.value,
-                ease: match key.ease {
-                    Ease::Linear => "linear",
-                    Ease::In => "in",
-                    Ease::Out => "out",
-                    Ease::InOut => "inOut",
-                }
-                .to_owned(),
-            });
+                ease: key.ease.sane().0,
+            }));
+            continue;
         }
+        // Gain has no presets to fall back on; the catalogue is picture only.
+        let Some(animation) = presets.as_ref() else {
+            continue;
+        };
+        let track = match property {
+            KeyProperty::Scale => &animation.scale,
+            KeyProperty::OffsetX => &animation.offset_x,
+            KeyProperty::OffsetY => &animation.offset_y,
+            KeyProperty::Rotation => &animation.rotation,
+            KeyProperty::Opacity => &animation.opacity,
+            KeyProperty::Volume => continue,
+        };
+        out.extend(track.keys().iter().map(|key| ExportKey {
+            property: property.name().to_owned(),
+            at: key.at,
+            value: key.value,
+            ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
+        }));
     }
     out
+}
+
+/// The clip's gain over its length, as `(fraction, gain)` pairs, or empty
+/// for a clip whose gain is the one number in `ExportClip::volume`.
+pub fn volume_curve(clip: &concat_project::model::Clip) -> Vec<(f64, f64)> {
+    clip.keys_on(KeyProperty::Volume)
+        .map(|key| (key.at, key.value))
+        .collect()
 }
 
 #[cfg(test)]

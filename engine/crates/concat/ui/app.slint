@@ -33,27 +33,27 @@ import { PaneKind } from "workspace/pane-switcher.slint";
 import { RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
 import {
-    AppliedEntryData, AppliedParamData, CatalogueEntryData,
+    AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData,
 } from "inspector/clip-inspector.slint";
 import { ParamFormat } from "inspector/controls.slint";
 import { ToastData, ToastLayer } from "primitives/toast.slint";
 import { TooltipLayer } from "primitives/tooltip.slint";
 import { Workspace } from "workspace/workspace.slint";
 import {
-    ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
-    StageGuideData, StageItemData, TextAlignment, TimelineTabData, TimelineTool,
-    TrackData, TrackSize,
+    ClipData, ClipField, ClipKeyData, ClipKind, ClipTextField, DropData, Keyframes,
+    SelectedClipData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
+    TimelineTool, TrackData, TrackSize,
 } from "timeline/model.slint";
 
 // Re-exported so main.rs can reach the globals and the struct.
 export {
     Curves, Fmt, Payload, Theme, Bezier, Editor, I18n,
-    AppliedEntryData, AppliedParamData, CatalogueEntryData, ParamFormat,
+    AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData, ParamFormat,
     DockDivider, DockSide, PaneKind, SeatBox,
     EffectData, MediaFilter, MediaItemData, MediaKind, TextPresetData,
-    ClipData, ClipField, ClipKind, ClipTextField, DropData, SelectedClipData,
-    StageGuideData, StageItemData, TextAlignment, TimelineTabData, TimelineTool,
-    TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
+    ClipData, ClipField, ClipKeyData, ClipKind, ClipTextField, DropData, Keyframes,
+    SelectedClipData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
+    TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
     CaptionsSheetData, SpeechSheetData,
 }

@@ -9,10 +9,10 @@ import { Button } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
-    Fader, HelpButton, InspectorFmt, InspectorSearch, Note, Param, ParamFormat,
-    SearchField, Switch, SwitchRow,
+    Fader, HelpButton, InspectorFmt, Note, Param, ParamFormat,
+    Rail, ResetButton, SearchField, Switch, SwitchRow,
 } from "controls.slint";
-import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
+import { ClipField, ClipKind, Keyframes, SelectedClipData } from "../timeline/model.slint";
 
 // The editor's clip inspector: one panel, three tabs. Adjust is direct
 // controls; Filters and Effects differ only in their catalogue, so both are
@@ -27,10 +27,52 @@ import { ClipField, ClipKind, SelectedClipData } from "../timeline/model.slint";
 export struct CatalogueEntryData {
     id: string,
     name: string,
+    /// Starred, so it shows under the star chip whatever shelf it is on.
+    favourite: bool,
     /// The shelf's label, and its index into the kind's group list.
     category: string,
     group: int,
     description: string,
+}
+
+/// What one effect library is currently showing.
+export struct LibraryViewData {
+    /// The words in its search box.
+    query: string,
+    /// Which shelf is selected, as an index into the kind's group list.
+    group: int,
+    /// The star is down: only favourites show, whatever shelf they are on.
+    favourites: bool,
+}
+
+/// The three effect libraries' view state and the verbs that change it.
+///
+/// A global for the same reason `Keyframes` is one: the state belongs to
+/// Rust - which does the searching, shelving and starring before the model
+/// is published - and threading nine properties and four callbacks down
+/// through the workspace to reach three sibling panels would be a lot of
+/// plumbing for a fact that has one owner.
+export global Library {
+    /// One view per shelf, indexed by the numbers `PresetStack.shelf` uses:
+    /// 0 filters, 1 effects, 2 audio.
+    in property <[LibraryViewData]> views;
+
+    /// The search box was typed in.
+    callback query-changed(shelf: int, text: string);
+    /// A shelf was picked from the strip.
+    callback group-changed(shelf: int, index: int);
+    /// The star chip was pressed.
+    callback favourites-changed(shelf: int, on: bool);
+    /// A package was starred or unstarred. Not per shelf: a star is a fact
+    /// about the package, and it is remembered across sessions.
+    callback favourite(id: string, on: bool);
+
+    pure public function view(shelf: int) -> LibraryViewData {
+        if (Library.views.length < 3) {
+            return { query: "", group: 0, favourites: false };
+        }
+        return Library.views[shelf];
+    }
 }
 
 /// One link of the selected clip's chain, in chain order.
@@ -60,6 +102,36 @@ export struct AppliedParamData {
     fmt: ParamFormat,
 }
 
+/// The favourites chip: a star that filters the shelf down to what is on it.
+component StarChip inherits Rectangle {
+    in property <bool> on;
+
+    callback clicked();
+
+    width: 30px;
+    height: Theme.h;
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: root.on ? Theme.accent : Theme.line;
+    background: root.on ? Theme.accent-soft
+        : touch.has-hover ? Theme.field-hover
+        : Theme.field;
+
+    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Icon {
+        glyph: Glyph.sparkle;
+        size: 12px;
+        filled: root.on;
+        tint: root.on ? Theme.accent : Theme.fg-muted;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 /// A chain and its library: the links applied to the selected clip, each
 /// with a control per parameter its package declares, and under it the
 /// shelves of packages that can be added. One component serves effects,
@@ -75,6 +147,20 @@ export component PresetStack inherits VerticalLayout {
     in property <[AppliedEntryData]> applied;
     in property <[AppliedParamData]> params;
 
+    /// Which of the three libraries this is: 0 filters, 1 effects, 2 audio.
+    /// The index its view state and its callbacks are keyed by.
+    in property <int> shelf;
+
+    /// Which shelf is showing, which words are in the search box, and
+    /// whether the star is down. Owned by Rust, because the list below is:
+    /// the catalogue arrives already narrowed by all three, and a control
+    /// showing one thing while the list shows another is the bug that
+    /// arrangement is there to make impossible.
+    property <LibraryViewData> view: Library.view(root.shelf);
+    property <int> group: root.view.group;
+    property <string> query: root.view.query;
+    property <bool> favourites-only: root.view.favourites;
+
     callback add(id: string);
     callback toggle(index: int);
     callback move-by(index: int, delta: int);
@@ -83,14 +169,24 @@ export component PresetStack inherits VerticalLayout {
     callback set-param(index: int, key: string, value: float);
     callback commit();
 
-    property <int> group;
-    property <string> query;
     property <bool> help;
 
-    function shown(entry: CatalogueEntryData) -> bool {
-        return entry.group == root.group
-            && (root.query == "" || InspectorSearch.matches(entry.name, root.query));
-    }
+    // The grid. Three columns at the inspector's width, which puts a tile at
+    // about 70px - wide enough for "Voice Focus" on two lines and narrow
+    // enough that a shelf of twenty is four rows rather than seven.
+    property <int> columns: 3;
+    property <length> pad: Theme.pad;
+    property <length> cell-gap: 6px;
+    property <length> cell-w: (root.width - 2 * root.pad
+        - (root.columns - 1) * root.cell-gap) / root.columns;
+    property <length> cell-h: 44px;
+    property <int> rows: ceil(root.catalogue.length / root.columns);
+
+    // The field owns its own text once it has been typed in - a TextInput
+    // assigns to `text`, and an assignment replaces the binding declared on
+    // it - so the box has to be put back by hand when Rust clears the query,
+    // which picking a shelf and pressing the star both do.
+    changed query => { search.text = root.query; }
 
     function in-chain(id: string) -> bool {
         // A real member test wants a model lookup Slint cannot express, so
@@ -225,9 +321,10 @@ export component PresetStack inherits VerticalLayout {
         SectionHeader { title: root.library-title; }
 
         Row {
-            SearchField {
-                text <=> root.query;
+            search := SearchField {
+                text: root.query;
                 placeholder: I18n.t1("Search {0}s", "\{root.noun}");
+                edited(text) => { Library.query-changed(root.shelf, text); }
             }
         }
 
@@ -235,74 +332,221 @@ export component PresetStack inherits VerticalLayout {
         // together read as one control, and they are not.
         Rectangle { height: 8px; }
 
+        // The star and the shelves. Favourites is not one more shelf: it
+        // cuts across all of them, so it is a chip beside the strip rather
+        // than a segment inside it, and it takes the strip's place when it
+        // is on because a shelf inside a starred set is a filter of a filter
+        // nobody asked for.
         Row {
-            SegmentedControl {
+            StarChip {
+                on: root.favourites-only;
+                clicked => { Library.favourites-changed(root.shelf, !root.favourites-only); }
+            }
+
+            if !root.favourites-only: SegmentedControl {
                 options: root.group-labels;
-                current <=> root.group;
+                current: root.group;
+                changed(index) => { Library.group-changed(root.shelf, index); }
+            }
+
+            if root.favourites-only: Text {
+                vertical-alignment: center;
+                text: I18n.t("Favourites");
+                color: Theme.fg-muted;
+                font-size: Theme.fs;
             }
         }
 
-        Rectangle { height: 4px; }
+        Rectangle { height: 6px; }
 
-        VerticalLayout {
-            padding-left: Theme.pad;
-            padding-right: Theme.pad;
-            padding-top: 4px;
+        // The shelf itself, as tiles rather than rows.
+        //
+        // Rust hands this list over already searched, shelved and starred,
+        // which is the whole reason a grid is possible: a cell's place is
+        // its index, and an index only means a place when every entry in the
+        // model is one that shows. Filtering in Slint - the `visible: false`
+        // trick a vertical list can get away with - would leave holes in the
+        // grid where the hidden ones were.
+        Rectangle {
+            height: root.rows * (root.cell-h + root.cell-gap);
 
-            // `visible` toggles, not `if`: the filter changes with every
-            // keystroke and a hidden row costing zero height is the cheap,
-            // geometry-proof way to narrow the list (see media-pane's
-            // sidebar for the scar tissue behind this choice).
-            for entry[index] in root.catalogue: row := Rectangle {
-                // Named rather than reached through `parent`: a layout is not
-                // transparent to a parent chain, so a descendant inside the
-                // HorizontalLayout below cannot see the row's own properties
-                // any other way.
-                property <bool> shown: root.shown(entry);
+            for entry[index] in root.catalogue: tile := Rectangle {
                 property <bool> in-chain: root.in-chain(entry.id);
 
-                visible: row.shown;
-                height: row.shown ? 26px : 0;
+                x: root.pad + mod(index, root.columns) * (root.cell-w + root.cell-gap);
+                y: floor(index / root.columns) * (root.cell-h + root.cell-gap);
+                width: root.cell-w;
+                height: root.cell-h;
                 border-radius: Theme.r-sm;
-                background: row-touch.has-hover && !row.in-chain
-                    ? Theme.field : Colors.transparent;
+                border-width: 1px;
+                border-color: tile.in-chain ? Theme.accent
+                    : tile-touch.has-hover ? Theme.line-strong
+                    : Theme.line;
+                background: tile.in-chain ? Theme.accent-soft
+                    : tile-touch.has-hover ? Theme.field-hover
+                    : Theme.field;
 
-                HorizontalLayout {
-                    padding-left: 6px;
-                    padding-right: 8px;
-                    spacing: 6px;
+                animate background, border-color {
+                    duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
 
-                    VerticalLayout {
-                        alignment: center;
-                        Icon {
-                            glyph: row.in-chain ? Glyph.check : Glyph.plus;
-                            size: 11px;
-                            tint: row.in-chain ? Theme.green : Theme.fg-muted;
-                        }
+                // The name, centred and given the whole cell: at this size a
+                // glyph would be a guess about what an effect looks like, and
+                // the word is the thing being chosen.
+                Text {
+                    x: 4px;
+                    width: parent.width - 8px;
+                    height: parent.height;
+                    text: entry.name;
+                    color: tile.in-chain ? Theme.accent : Theme.fg;
+                    font-size: Theme.fs-sm;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
+
+                // The star rides the tile's corner and takes its own clicks,
+                // so starring is never a step on the way to applying.
+                star := Rectangle {
+                    x: parent.width - self.width - 2px;
+                    y: 2px;
+                    width: 15px;
+                    height: 15px;
+                    border-radius: Theme.r-xs;
+                    visible: entry.favourite || tile-touch.has-hover || star-touch.has-hover;
+                    background: star-touch.has-hover ? Theme.field-active : Colors.transparent;
+
+                    Icon {
+                        glyph: Glyph.sparkle;
+                        size: 10px;
+                        filled: entry.favourite;
+                        tint: entry.favourite ? Theme.accent : Theme.fg-dim;
                     }
 
-                    Text {
-                        horizontal-stretch: 1;
-                        text: entry.name;
-                        color: row.in-chain ? Theme.fg-dim : Theme.fg;
-                        font-size: Theme.fs;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-
-                    if row.in-chain: Text {
-                        text: I18n.t("in chain");
-                        color: Theme.fg-dim;
-                        font-size: Theme.fs-xs;
-                        vertical-alignment: center;
+                    star-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Library.favourite(entry.id, !entry.favourite); }
                     }
                 }
 
-                row-touch := TouchArea {
-                    enabled: !row.in-chain;
+                tile-touch := TouchArea {
+                    // Below the star in the tree, so the star's own area wins
+                    // the clicks that land on it.
+                    enabled: !tile.in-chain;
                     mouse-cursor: pointer;
                     clicked => { root.add(entry.id); }
                 }
+            }
+        }
+
+        if root.catalogue.length == 0: HorizontalLayout {
+            padding-left: Theme.pad;
+            padding-right: Theme.pad;
+            padding-top: 2px;
+
+            Text {
+                text: root.favourites-only
+                    ? I18n.t("Nothing starred yet — hover a tile and press its star.")
+                    : I18n.t1("No {0} matches that.", "\{root.noun}");
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
+
+/// One treatment: a switch, its name, and one line saying what it does.
+component Processor inherits VerticalLayout {
+    in property <string> label;
+    in property <string> note;
+    in property <bool> on;
+
+    callback toggled();
+
+    padding-bottom: 6px;
+
+    SwitchRow {
+        label: root.label;
+        checked: root.on;
+        toggled(value) => { root.toggled(); }
+    }
+
+    // Under the switch and inside its padding, so the sentence reads as this
+    // row's own rather than as a note about the section.
+    HorizontalLayout {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+
+        Text {
+            text: root.note;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+            wrap: word-wrap;
+        }
+    }
+}
+
+/// The three treatments a sound clip almost always wants, promoted out of
+/// the effect library and onto the tab itself.
+///
+/// They are ordinary links of the audio chain - the same packages the
+/// library lists, added and removed by the same callbacks - and nothing here
+/// knows what they do. What they get is a switch instead of a search: a
+/// person opening the Sound tab to fix a noisy lavalier should not have to
+/// know that "Reduce noise" is filed under a shelf.
+///
+/// Their knobs stay in the chain's Applied section rather than being
+/// duplicated here. One set of controls per link, in the order the link runs.
+export component ProcessorRows inherits VerticalLayout {
+    in property <[AppliedEntryData]> applied;
+
+    callback add(id: string);
+    callback remove(index: int);
+
+    /// Where a package sits on the chain, or -1. The same eight-deep scan
+    /// PresetStack does, and for the same reason: Slint has no lookup.
+    pure function at(id: string) -> int {
+        return root.applied.length > 0 && root.applied[0].id == id ? 0
+            : root.applied.length > 1 && root.applied[1].id == id ? 1
+            : root.applied.length > 2 && root.applied[2].id == id ? 2
+            : root.applied.length > 3 && root.applied[3].id == id ? 3
+            : root.applied.length > 4 && root.applied[4].id == id ? 4
+            : root.applied.length > 5 && root.applied[5].id == id ? 5
+            : root.applied.length > 6 && root.applied[6].id == id ? 6
+            : root.applied.length > 7 && root.applied[7].id == id ? 7
+            : -1;
+    }
+
+    function toggle(id: string) {
+        if (root.at(id) >= 0) {
+            root.remove(root.at(id));
+        } else {
+            root.add(id);
+        }
+    }
+
+    Section {
+        SectionHeader { title: I18n.t("Treatments"); }
+        SectionBody {
+            Processor {
+                label: I18n.t("Normalize loudness");
+                note: I18n.t("Brings the clip to a broadcast level without riding the fader.");
+                on: root.at("concat.loudness") >= 0;
+                toggled => { root.toggle("concat.loudness"); }
+            }
+            Processor {
+                label: I18n.t("Reduce noise");
+                note: I18n.t("Takes the room's hiss and hum out from under the voice.");
+                on: root.at("concat.denoise") >= 0;
+                toggled => { root.toggle("concat.denoise"); }
+            }
+            Processor {
+                label: I18n.t("Enhance voice");
+                note: I18n.t("Lifts speech out of the mix: a little presence, a little control.");
+                on: root.at("concat.enhance-voice") >= 0;
+                toggled => { root.toggle("concat.enhance-voice"); }
             }
         }
     }
@@ -426,6 +670,8 @@ export component VideoPanel inherits VerticalLayout {
 
         Param {
             label: I18n.t("Scale");
+            keyable: true;
+            field: ClipField.scale;
             value <=> root.scale;
             minimum: 0.05;
             maximum: 8;
@@ -436,6 +682,8 @@ export component VideoPanel inherits VerticalLayout {
         }
         Param {
             label: I18n.t("Position X");
+            keyable: true;
+            field: ClipField.offset-x;
             value <=> root.offset-x;
             minimum: -1;
             maximum: 1;
@@ -446,6 +694,8 @@ export component VideoPanel inherits VerticalLayout {
         }
         Param {
             label: I18n.t("Position Y");
+            keyable: true;
+            field: ClipField.offset-y;
             value <=> root.offset-y;
             minimum: -1;
             maximum: 1;
@@ -456,6 +706,8 @@ export component VideoPanel inherits VerticalLayout {
         }
         Param {
             label: I18n.t("Rotation");
+            keyable: true;
+            field: ClipField.rotation;
             value <=> root.rotation;
             minimum: -180;
             maximum: 180;
@@ -498,6 +750,8 @@ export component VideoPanel inherits VerticalLayout {
         if blend.open: SectionBody {
         Param {
             label: I18n.t("Opacity");
+            keyable: true;
+            field: ClipField.opacity;
             value <=> root.alpha;
             minimum: 0;
             maximum: 1;
@@ -747,10 +1001,22 @@ export component AudioPanel inherits VerticalLayout {
             title: I18n.t("Volume");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.gain, root.level);
+
+            ResetButton {
+                dirty: root.level != 0 || Keyframes.row(ClipField.volume).keyed;
+                reset => {
+                    Keyframes.clear(ClipField.volume);
+                    root.set(ClipField.volume, 1);
+                    root.commit();
+                }
+            }
         }
         if volume.open: SectionBody {
         Param {
             label: I18n.t("Level");
+            keyable: true;
+            field: ClipField.volume;
+            rail: true;
             value <=> root.level;
             // The bottom is silence, not -60. +24 at the top because quiet
             // material genuinely needs it — a distant lavalier is routinely
@@ -776,10 +1042,20 @@ export component AudioPanel inherits VerticalLayout {
             summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("none")
                 : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
                     + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
+
+            ResetButton {
+                dirty: root.fade-in != 0 || root.fade-out != 0;
+                reset => {
+                    root.set(ClipField.fade-in, 0);
+                    root.set(ClipField.fade-out, 0);
+                    root.commit();
+                }
+            }
         }
         if fades.open: SectionBody {
         Param {
             label: I18n.t("Fade in");
+            rail: true;
             value <=> root.fade-in;
             minimum: 0;
             maximum: root.fade-limit;
@@ -789,6 +1065,7 @@ export component AudioPanel inherits VerticalLayout {
         }
         Param {
             label: I18n.t("Fade out");
+            rail: true;
             value <=> root.fade-out;
             minimum: 0;
             maximum: root.fade-limit;

@@ -22,8 +22,9 @@ use serde_json::{Map, Value, json};
 
 use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
-    AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, Cutout, MediaItem, MediaKind,
-    Project, SpeedPoint, TextAlign, TextStyle, Timeline, Track, Transition,
+    AppliedFilter, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout, KeyEase,
+    KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, TextAlign, TextStyle, Timeline, Track,
+    Transition,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -236,6 +237,7 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 animation_in: read_animation(entry.get("animationIn")),
                 animation_out: read_animation(entry.get("animationOut")),
                 animation_combo: read_animation(entry.get("animationCombo")),
+                keys: read_keys(entry.get("keys")),
                 flip_h: flag(entry.get("flipH"), false),
                 flip_v: flag(entry.get("flipV"), false),
                 blend: text(entry.get("blend"), ""),
@@ -407,6 +409,58 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
     );
     document.insert("activeTimelineId".into(), json!(project.active_timeline_id));
     Value::Object(document)
+}
+
+/// The clip's own keys. Tolerant like everything else here: an entry naming
+/// a property this build does not have, or sitting outside the clip, is
+/// dropped rather than failing the load, and the survivors come back in the
+/// order the model promises.
+fn read_keys(raw: Option<&Value>) -> Vec<ClipKey> {
+    let Some(entries) = raw.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut keys: Vec<ClipKey> = entries
+        .iter()
+        .filter_map(|entry| {
+            let property = KeyProperty::from_name(entry.get("property")?.as_str()?)?;
+            let at = number(entry.get("at"), -1.0);
+            let value = number(entry.get("value"), f64::NAN);
+            (0.0..=1.0).contains(&at)
+                .then_some(ClipKey {
+                    property,
+                    at,
+                    value,
+                    ease: read_ease(entry.get("ease")),
+                })
+                .filter(|key| key.value.is_finite())
+        })
+        .collect();
+    keys.sort_by(|a, b| {
+        (a.property as u8)
+            .cmp(&(b.property as u8))
+            .then_with(|| a.at.total_cmp(&b.at))
+    });
+    keys
+}
+
+/// A key's easing, in either spelling.
+///
+/// Documents written before the curve editor name one of four shapes;
+/// documents written since carry the four control-point numbers. Both are
+/// read, and anything else is a straight line - the reader's standing rule
+/// is that a hand-edited file degrades to something openable.
+fn read_ease(value: Option<&Value>) -> KeyEase {
+    match value {
+        Some(Value::String(name)) => KeyEase::from_name(name),
+        Some(Value::Array(points)) if points.len() == 4 => KeyEase([
+            number(points.first(), 0.0),
+            number(points.get(1), 0.0),
+            number(points.get(2), 1.0),
+            number(points.get(3), 1.0),
+        ])
+        .sane(),
+        _ => KeyEase::LINEAR,
+    }
 }
 
 /// A named animation on a slot, or None when the entry says nothing usable.

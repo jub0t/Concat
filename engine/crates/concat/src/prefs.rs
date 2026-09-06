@@ -15,7 +15,7 @@ const FILE: &str = "settings.json";
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
-    /// The dark theme. `None` is the app's default, which is light.
+    /// The dark theme. `None` is the app's default, which is dark.
     pub dark: Option<bool>,
     /// The chosen transcriber model id, e.g. "base.en".
     pub transcriber_model: Option<String>,
@@ -27,6 +27,11 @@ pub struct Preferences {
     pub transcribe_language: Option<i32>,
     /// The interface's locale code ("de", "pt-BR", ...); absent is English.
     pub locale: Option<String>,
+    /// Package ids starred in the effect libraries, in no order. One list
+    /// across all three shelves: a star is a fact about a package, and which
+    /// library it happens to be filed in is not part of it.
+    #[serde(default)]
+    pub favourites: Vec<String>,
 }
 
 impl Preferences {

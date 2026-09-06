@@ -47,6 +47,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
+use concat_core::animate::{Ease, Key, Track};
 use serde::Deserialize;
 
 /// Every clip is decoded to this rate; the callback resamples to the device.
@@ -66,6 +67,28 @@ const DISK_CACHE_BUDGET: u64 = 2 * 1024 * 1024 * 1024;
 /// without letting a scrubbed trim fan out a dozen full-file decodes.
 const DECODE_WORKERS: usize = 2;
 
+/// One key of a clip's gain ride, as a spec carries it.
+///
+/// The engine's `animate::Key` in a shape serde can read: the same three
+/// facts, with the timing function as its four control-point numbers.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GainKey {
+    /// Where in the clip, `0..=1`.
+    pub at: f64,
+    /// Absolute linear gain there.
+    pub gain: f64,
+    /// The timing function into this key: a cubic bezier's two control
+    /// points, `[x1, y1, x2, y2]`. Absent is a straight line.
+    #[serde(default = "linear_ease")]
+    pub ease: [f64; 4],
+}
+
+/// A straight line, for a spec that names no easing.
+fn linear_ease() -> [f64; 4] {
+    [0.0, 0.0, 1.0, 1.0]
+}
+
 /// One audible clip, as the window describes it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,8 +101,13 @@ pub struct ClipSpec {
     pub duration: f64,
     /// Seconds into the source file.
     pub source_start: f64,
-    /// Linear gain.
+    /// Linear gain. The whole clip's, unless `volume_curve` says otherwise.
     pub volume: f32,
+    /// Gain as it changes over the clip, or empty for the constant above.
+    /// A curve supersedes `volume` rather than multiplying it, matching the
+    /// mixer - see `concat_media::audio::AudioClip`.
+    #[serde(default)]
+    pub volume_curve: Vec<GainKey>,
     /// Fade-in length in seconds.
     pub fade_in: f64,
     /// Fade-out length in seconds.
@@ -191,9 +219,27 @@ struct ActiveClip {
     start: f64,
     duration: f64,
     volume: f32,
+    /// The gain ride, or empty for the constant in `volume`.
+    volume_curve: Track,
     fade_in: f64,
     fade_out: f64,
     pcm: Arc<Pcm>,
+}
+
+/// A spec's gain keys as the engine's track.
+fn track_of(keys: &[GainKey]) -> Track {
+    Track::new(
+        keys.iter()
+            .map(|key| {
+                let [x1, y1, x2, y2] = key.ease;
+                Key {
+                    at: key.at,
+                    value: key.gain,
+                    ease: Ease::new(x1, y1, x2, y2),
+                }
+            })
+            .collect(),
+    )
 }
 
 /// The one definition of a clip's gain envelope.
@@ -201,7 +247,19 @@ fn gain_at(clip: &ActiveClip, local: f64) -> f32 {
     if local < 0.0 || local > clip.duration {
         return 0.0;
     }
-    let mut gain = f64::from(clip.volume);
+    // The ride, where there is one, replaces the constant - the same
+    // precedence the mixer's filtergraph gives it, so the window and the
+    // file agree about how loud the clip is at every instant.
+    let mut gain = if clip.volume_curve.is_empty() {
+        f64::from(clip.volume)
+    } else {
+        let x = if clip.duration > 0.0 {
+            (local / clip.duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        clip.volume_curve.value_at(x, f64::from(clip.volume))
+    };
     if clip.fade_in > 0.0 {
         gain *= (local / clip.fade_in).min(1.0);
     }
@@ -440,6 +498,7 @@ impl Playback {
                     start: spec.start,
                     duration: spec.duration,
                     volume: spec.volume,
+                    volume_curve: track_of(&spec.volume_curve),
                     fade_in: spec.fade_in,
                     fade_out: spec.fade_out,
                     pcm: Arc::clone(&entry.pcm),

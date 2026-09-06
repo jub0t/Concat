@@ -46,6 +46,7 @@ export enum Glyph {
     close,
     check,
     chevron-down,
+    chevron-left,
     chevron-right,
     sparkle,
     eye,
@@ -55,6 +56,7 @@ export enum Glyph {
     flip-h,
     flip-v,
     keyframe,
+    reset,
     angle,
     align-left,
     align-center-x,
@@ -206,6 +208,11 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/chevron-right
+    if root.glyph == Glyph.chevron-left: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 18l-6-6 6-6";
+    }
+
     if root.glyph == Glyph.chevron-right: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M9 18l6-6-6-6";
@@ -383,6 +390,12 @@ export component Icon inherits Rectangle {
     }
 
     // lucide/diamond
+    // lucide's rotate-ccw: the arrow every panel means by "put it back".
+    if root.glyph == Glyph.reset: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5";
+    }
+
     if root.glyph == Glyph.keyframe: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         fill: root.filled ? root.tint : Colors.transparent;

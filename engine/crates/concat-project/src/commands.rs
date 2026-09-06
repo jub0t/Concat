@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AnimationSlot, AppliedFilter, Clip, ClipAnimation, ClipKind, Crop, CustomFont, Cutout,
-    CutoutMode, MediaItem, MediaKind, Project, SpeedPoint, Stroke, TextStyle, Timeline, Track,
-    Transition,
+    CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, Stroke, TextStyle,
+    Timeline, Track, Transition,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -303,6 +303,41 @@ pub enum Command {
         slot: AnimationSlot,
         /// The shape and its seconds, or None to take it off.
         animation: Option<ClipAnimation>,
+    },
+    /// Puts a key on one property at one point of a clip, replacing
+    /// whichever key on that property was already within a hair of it.
+    ///
+    /// The value is the property's own - the number the inspector shows -
+    /// not the relative factor the engine plays; see `model::ClipKey`.
+    SetClipKey {
+        /// The clip.
+        clip_id: String,
+        /// Which property is being keyed.
+        property: KeyProperty,
+        /// Where in the clip, `0..=1`.
+        at: f64,
+        /// The value there.
+        value: f64,
+        /// How the key is approached from the one before it.
+        #[serde(default)]
+        ease: KeyEase,
+    },
+    /// Takes the key at `at` off one property, if there is one there. The
+    /// other half of the diamond: a filled diamond clicked is this.
+    ClearClipKey {
+        /// The clip.
+        clip_id: String,
+        /// Which property.
+        property: KeyProperty,
+        /// Where in the clip the key to remove sits, `0..=1`.
+        at: f64,
+    },
+    /// Takes every key off one property, returning it to its constant.
+    ClearClipKeys {
+        /// The clip.
+        clip_id: String,
+        /// Which property.
+        property: KeyProperty,
     },
     /// Sets or clears a picture's cutout: the mask that takes its
     /// background away. Tidied on the way in; see [`Cutout::tidy`].
@@ -627,6 +662,7 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         animation_in: None,
         animation_out: None,
         animation_combo: None,
+        keys: Vec::new(),
         flip_h: false,
         flip_v: false,
         blend: String::new(),
@@ -971,6 +1007,7 @@ pub fn apply(
                 animation_in: None,
                 animation_out: None,
                 animation_combo: None,
+                keys: Vec::new(),
                 flip_h: false,
                 flip_v: false,
                 blend: String::new(),
@@ -1038,6 +1075,7 @@ pub fn apply(
                 animation_in: None,
                 animation_out: None,
                 animation_combo: None,
+                keys: Vec::new(),
                 flip_h: false,
                 flip_v: false,
                 blend: String::new(),
@@ -1348,6 +1386,69 @@ pub fn apply(
                 AnimationSlot::Combo => &mut clip.animation_combo,
             };
             let applied = assign(field, animation);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipKey {
+            clip_id,
+            property,
+            at,
+            value,
+            ease,
+        } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            if !at.is_finite() || !value.is_finite() {
+                return Ok(Outcome::default());
+            }
+            // Clamped the way the field itself is, so a key can never hold a
+            // value the constant would have been refused. The clamps are the
+            // ones ClipPatch applies; keeping them here as well is what stops
+            // a key being the back door round them.
+            let value = match property {
+                KeyProperty::Scale => value.clamp(MIN_SCALE, MAX_SCALE),
+                KeyProperty::Opacity => value.clamp(0.0, 1.0),
+                // No ceiling, matching ClipPatch: the level fader goes to
+                // +24 dB because quiet material needs it, and a key is the
+                // same value at a different instant.
+                KeyProperty::Volume => value.max(0.0),
+                KeyProperty::OffsetX | KeyProperty::OffsetY | KeyProperty::Rotation => value,
+            };
+            let before = clip.keys.clone();
+            clip.set_key(property, at, value, ease);
+            Ok(Outcome {
+                created_id: None,
+                applied: clip.keys != before,
+            })
+        }
+
+        Command::ClearClipKey {
+            clip_id,
+            property,
+            at,
+        } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = clip.clear_key(property, at);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::ClearClipKeys { clip_id, property } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = clip.clear_keys(property);
             Ok(Outcome {
                 created_id: None,
                 applied,

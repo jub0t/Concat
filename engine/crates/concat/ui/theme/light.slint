@@ -94,6 +94,13 @@ export global Light {
     out property <color> on-accent: #ffffff;
     out property <color> on-green: #ffffff;
 
+    // The Rail's dragger. White rather than the dark palette's near-white,
+    // and with a heavier edge: on a light panel a pale chip has nothing but
+    // that hairline and its shadow to stand it off the rail.
+    out property <color> grip: #ffffff;
+    out property <color> grip-active: #ffffff;
+    out property <color> grip-edge: #00000061;      // rgb(0 0 0 / 0.38)
+
     // meter ramp — the same three readings, each deep enough to be told from
     // the light well it is drawn in. The yellow is the one that has to move
     // furthest: #ffd60a on near-white is a smear.

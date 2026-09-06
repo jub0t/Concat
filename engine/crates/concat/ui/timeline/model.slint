@@ -159,6 +159,68 @@ export enum ClipField {
     cutout-feather,
 }
 
+/// One keyable property's state at the playhead, as the inspector needs it.
+export struct ClipKeyData {
+    /// Which property this row is about.
+    field: ClipField,
+    /// It carries keys at all: the value is a ride and not a constant.
+    keyed: bool,
+    /// There is a key exactly here, so the diamond is filled and clicking it
+    /// takes that key off rather than putting another one on.
+    here: bool,
+    /// There is a key behind the playhead to step back to.
+    prev: bool,
+    /// There is a key ahead of it to step on to.
+    next: bool,
+}
+
+/// The keyframe cluster's state and its two verbs.
+///
+/// A global rather than five panels' worth of threaded properties: every row
+/// that can be keyed asks the same question about a different field, and the
+/// answer is built in one place in Rust either way. The panels only say
+/// which field a row is.
+export global Keyframes {
+    /// One row per keyable property, in the order `row` indexes them. Empty
+    /// when the selection cannot carry keys at all.
+    in property <[ClipKeyData]> rows;
+    /// The playhead is inside the selected clip, so a key put on now would
+    /// land somewhere. False greys the whole cluster rather than hiding it:
+    /// a control that comes and goes is harder to aim at than one that dims.
+    in property <bool> available;
+
+    /// Put a key on this field at the playhead, or take off the one there.
+    callback toggle(field: ClipField);
+    /// Move the playhead to this field's previous (-1) or next (+1) key.
+    callback step(field: ClipField, delta: int);
+    /// Take every key off this field, leaving it the constant it shows. What
+    /// a section's reset calls before it puts the value back: restoring a
+    /// number under a ride that is still running would change nothing a
+    /// person could see.
+    callback clear(field: ClipField);
+
+    /// A row for a field with no keys and nowhere to step.
+    pure public function blank(field: ClipField) -> ClipKeyData {
+        return { field: field, keyed: false, here: false, prev: false, next: false };
+    }
+
+    /// This field's row. Slint has no lookup and the list is six long, so
+    /// the order Rust publishes them in *is* the index; `blank` covers the
+    /// moment before the first publish.
+    pure public function row(field: ClipField) -> ClipKeyData {
+        if (Keyframes.rows.length < 6) {
+            return Keyframes.blank(field);
+        }
+        return field == ClipField.scale ? Keyframes.rows[0]
+            : field == ClipField.offset-x ? Keyframes.rows[1]
+            : field == ClipField.offset-y ? Keyframes.rows[2]
+            : field == ClipField.rotation ? Keyframes.rows[3]
+            : field == ClipField.opacity ? Keyframes.rows[4]
+            : field == ClipField.volume ? Keyframes.rows[5]
+            : Keyframes.blank(field);
+    }
+}
+
 /// The same again for the properties that are text rather than numbers.
 export enum ClipTextField {
     content, font-family, color, stroke-color, background,

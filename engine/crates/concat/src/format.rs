@@ -7,52 +7,21 @@
 use crate::i18n::{t, tf};
 use crate::ui::Bezier;
 
-/// x of a cubic bezier with endpoints pinned at 0 and 1, at parameter `t`.
-fn bezier_axis(p1: f32, p2: f32, t: f32) -> f32 {
-    let u = 1.0 - t;
-    3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t
-}
-
-fn bezier_axis_slope(p1: f32, p2: f32, t: f32) -> f32 {
-    let u = 1.0 - t;
-    3.0 * u * u * p1 + 6.0 * u * t * (p2 - p1) + 3.0 * t * t * (1.0 - p2)
-}
-
-/// Solve a CSS cubic-bezier for y at a given x: Newton first, bisection as the
-/// fallback where the curve is flat enough that Newton stalls. This is the
-/// computation Slint's expression language cannot express — it has no loops —
-/// so the timing function is evaluated here and read back through a global.
+/// Solve a CSS cubic-bezier for y at a given x. This is the computation
+/// Slint's expression language cannot express — it has no loops — so the
+/// timing function is evaluated here and read back through `Curves.ease`.
+///
+/// The solve itself lives in the engine, where a keyed property's easing is
+/// applied on every frame. Two implementations of one curve is how a preview
+/// comes to disagree with an export invisibly, so there is only the one.
 pub fn bezier_y_at_x(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
-    let x = x.clamp(0.0, 1.0);
-    let mut t = x;
-
-    for _ in 0..8 {
-        let error = bezier_axis(x1, x2, t) - x;
-        if error.abs() < 1e-5 {
-            return bezier_axis(y1, y2, t);
-        }
-        let slope = bezier_axis_slope(x1, x2, t);
-        if slope.abs() < 1e-6 {
-            break;
-        }
-        t -= error / slope;
-    }
-
-    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
-    t = x;
-    for _ in 0..24 {
-        let at = bezier_axis(x1, x2, t);
-        if (at - x).abs() < 1e-5 {
-            break;
-        }
-        if at > x {
-            hi = t;
-        } else {
-            lo = t;
-        }
-        t = (lo + hi) / 2.0;
-    }
-    bezier_axis(y1, y2, t)
+    concat_core::animate::bezier_y_at_x(
+        f64::from(x1),
+        f64::from(y1),
+        f64::from(x2),
+        f64::from(y2),
+        f64::from(x),
+    ) as f32
 }
 
 /// hh:mm:ss:ff, non-drop-frame, the way the ruler and the tray spell a
