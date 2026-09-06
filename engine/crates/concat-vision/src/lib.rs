@@ -11,7 +11,10 @@
 //! - [`mask`]: the answer itself, an eight-bit probability picture, with
 //!   the sampling, softening and PNG form everything else uses.
 //! - [`strokes`]: the corrections. A custom cutout paints brush strokes
-//!   over the model's mask; this is where a stroke becomes pixels.
+//!   over the model's mask; this is where a stroke becomes pixels. The
+//!   smart brushes name a thing rather than paint a disc: [`brush`] reads
+//!   the thing under a stroke with a small Segment Anything, and the
+//!   region it answers is kept beside the masks.
 //! - [`apply`]: the frame with its background gone. One function, called
 //!   by the exporter and the monitor alike, so the file and the screen
 //!   agree by construction.
@@ -37,6 +40,8 @@
 //! are undone.
 
 pub mod apply;
+#[cfg(feature = "infer")]
+pub mod brush;
 pub mod mask;
 pub mod models;
 #[cfg(feature = "infer")]
@@ -47,11 +52,13 @@ pub mod store;
 pub mod strokes;
 
 pub use apply::{Mapping, cut};
+#[cfg(feature = "infer")]
+pub use brush::{Brush, Embedding};
 pub use mask::Mask;
 pub use models::ModelId;
 #[cfg(feature = "infer")]
 pub use segment::Segmenter;
-pub use store::{MaskStore, mask_dir};
+pub use store::{MaskStore, mask_dir, region_file};
 
 /// Masks are found this many times a second of source. Ten is where a
 /// person's outline stops visibly lagging their movement, and where a

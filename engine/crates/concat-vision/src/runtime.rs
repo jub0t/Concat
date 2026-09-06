@@ -13,14 +13,35 @@
 use ort::session::Session;
 use ort::value::Tensor;
 
-/// An `f32` tensor by name: its dimensions and its values, row-major.
+/// A tensor by name: its dimensions and its values, row-major.
 pub struct Input<'a> {
     /// The graph's input name.
     pub name: &'a str,
     /// The tensor's shape.
     pub dims: Vec<usize>,
     /// The values, `dims` product of them.
-    pub data: Vec<f32>,
+    pub data: Data,
+}
+
+/// A tensor's values. Pictures and probabilities are `f32`; the brush
+/// model's point labels are `i64`.
+pub enum Data {
+    /// Floating point values.
+    F32(Vec<f32>),
+    /// Integer values.
+    I64(Vec<i64>),
+}
+
+impl From<Vec<f32>> for Data {
+    fn from(values: Vec<f32>) -> Data {
+        Data::F32(values)
+    }
+}
+
+impl From<Vec<i64>> for Data {
+    fn from(values: Vec<i64>) -> Data {
+        Data::I64(values)
+    }
 }
 
 /// An `f32` tensor a model answered with.
@@ -72,9 +93,15 @@ impl Model {
         let mut fed: Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)> =
             Vec::with_capacity(inputs.len());
         for input in inputs {
-            let tensor = Tensor::from_array((input.dims, input.data))
-                .map_err(|error| format!("cutout input {}: {error}", input.name))?;
-            fed.push((input.name.to_owned().into(), tensor.into()));
+            let value: ort::session::SessionInputValue<'_> = match input.data {
+                Data::F32(data) => Tensor::from_array((input.dims, data))
+                    .map_err(|error| format!("cutout input {}: {error}", input.name))?
+                    .into(),
+                Data::I64(data) => Tensor::from_array((input.dims, data))
+                    .map_err(|error| format!("cutout input {}: {error}", input.name))?
+                    .into(),
+            };
+            fed.push((input.name.to_owned().into(), value));
         }
         let answered = self
             .session

@@ -28,7 +28,9 @@ use concat_effects::manifest::Kind as PackageKind;
 use concat_host::export::{self, ExportSpec};
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
-use concat_host::{AnalyseRequest, Cutouts, ProjectInfo, Session, media, projects, templates};
+use concat_host::{
+    AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
+};
 use concat_media::Peaks;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
@@ -422,6 +424,8 @@ pub enum Gesture {
         clip: String,
         tool: model::BrushTool,
         size: f64,
+        /// The source instant under the playhead when the stroke began.
+        at: f64,
         points: Vec<[f64; 2]>,
         screen: Vec<(f32, f32)>,
     },
@@ -720,6 +724,8 @@ pub struct Studio {
     pub painting: bool,
     /// The mask analyses running, by media id, and how far each has got.
     cutout_jobs: HashMap<String, (bool, f32)>,
+    /// The smart stroke being read, by the same name, while one is.
+    region_job: Option<String>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -1142,6 +1148,7 @@ impl Studio {
             brush_size: 0.06,
             painting: true,
             cutout_jobs: HashMap::new(),
+            region_job: None,
             host,
         };
         studio.settings.language = studio
@@ -1349,6 +1356,7 @@ impl Studio {
         self.request_media_art();
         self.request_preview();
         self.ensure_cutouts();
+        self.ensure_regions();
     }
 
     pub fn undo(&mut self) {
@@ -3030,6 +3038,7 @@ impl Studio {
                 clip: clip.id.clone(),
                 tool: BRUSHES[self.brush.min(BRUSHES.len() - 1)],
                 size: self.brush_size,
+                at: self.source_at_playhead(&clip),
                 points: vec![point],
                 screen: vec![(x, y)],
             };
@@ -3389,14 +3398,22 @@ impl Studio {
                 clip,
                 tool,
                 size,
+                at,
                 points,
                 ..
             } => {
-                // The stroke becomes one command, and one undo step.
+                // The stroke becomes one command, and one undo step; a
+                // smart stroke then has its thing read from the frame.
                 self.apply(Command::AddCutoutStroke {
                     clip_id: clip,
-                    stroke: model::Stroke { tool, size, points },
+                    stroke: model::Stroke {
+                        tool,
+                        size,
+                        points,
+                        at: Some(at),
+                    },
                 });
+                self.ensure_regions();
                 return;
             }
             other => {
@@ -3915,6 +3932,7 @@ impl Studio {
                 self.request_media_art();
                 self.request_preview();
                 self.ensure_cutouts();
+                self.ensure_regions();
             }
             Err(error) => {
                 self.start.busy = false;
@@ -3961,6 +3979,7 @@ impl Studio {
         self.pause();
         self.host.cutouts.cancel();
         self.cutout_jobs.clear();
+        self.region_job = None;
         if let Some(session) = self.session.as_mut() {
             let (path, document) = session.prepare_save(None);
             if let Err(error) = projects::save(&path, &document) {
@@ -5183,6 +5202,12 @@ impl Studio {
         }
     }
 
+    /// The source instant of `clip` under the playhead, held to the clip.
+    fn source_at_playhead(&self, clip: &Clip) -> f64 {
+        let along = (f64::from(self.playhead) - clip.start).clamp(0.0, clip.duration);
+        clip.source_start + along * clip.speed
+    }
+
     /// Whether the cutout model found nothing at the playhead's frame of
     /// `clip`, so the picture is showing as shot. Only an automatic cutout
     /// says so: a custom one is whatever was painted.
@@ -5205,9 +5230,85 @@ impl Studio {
             &media.path,
             cutout.subject,
         ));
-        let along = (f64::from(self.playhead) - clip.start).clamp(0.0, clip.duration);
-        let source = clip.source_start + along * clip.speed;
-        store.mask_at(source).is_some_and(|mask| mask.is_blank())
+        store
+            .mask_at(self.source_at_playhead(clip))
+            .is_some_and(|mask| mask.is_blank())
+    }
+
+    /// Starts reading the first smart stroke whose region is not there
+    /// yet, unless one is being read. Called after every change, and by
+    /// the finished job for whatever is next.
+    pub fn ensure_regions(&mut self) {
+        if self.region_job.is_some() || self.host.brushes.is_busy() {
+            return;
+        }
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project = std::path::PathBuf::from(session.path());
+        let mut next: Option<(String, RegionRequest)> = None;
+        'clips: for clip in &self.timeline().clips {
+            let Some(cutout) = clip.cutout.as_ref() else {
+                continue;
+            };
+            if cutout.mode != model::CutoutMode::Custom || !clip.kind.is_visual() {
+                continue;
+            }
+            let Some(media) = self.project().media_by_id(&clip.media_id) else {
+                continue;
+            };
+            for stroke in &cutout.strokes {
+                let request = RegionRequest {
+                    project: project.clone(),
+                    media_path: media.path.clone(),
+                    still: media.kind == model::MediaKind::Image,
+                    subject: cutout.subject,
+                    stroke: stroke.clone(),
+                };
+                if request.outstanding() {
+                    next = Some((Self::analysis_key(&media.id, cutout.subject), request));
+                    break 'clips;
+                }
+            }
+        }
+        let Some((key, request)) = next else {
+            return;
+        };
+        self.region_job = Some(key.clone());
+        self.cutout_jobs.entry(key.clone()).or_insert((false, 0.0));
+        let brushes = Arc::clone(&self.host.brushes);
+        spawn(
+            move || {
+                let reporting = key.clone();
+                let result = brushes.read(&request, &mut |progress| {
+                    let now = match progress {
+                        concat_host::cutout::Progress::Fetching { received, total } => {
+                            (true, received as f32 / total.max(1) as f32)
+                        }
+                        concat_host::cutout::Progress::Analysing(fraction) => (false, fraction),
+                    };
+                    let key = reporting.clone();
+                    on_ui(move |studio, _, _| {
+                        if let Some(held) = studio.cutout_jobs.get_mut(&key) {
+                            *held = now;
+                        }
+                    });
+                });
+                (key, result)
+            },
+            |studio, _, _, (key, result)| {
+                studio.region_job = None;
+                studio.cutout_jobs.remove(&key);
+                match result {
+                    Ok(()) => {
+                        studio.request_preview();
+                        studio.ensure_regions();
+                    }
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&tf("Smart brush: {0}", &[&error]), true),
+                }
+            },
+        );
     }
 
     /// The menus, the dialogs, the bin and the engine lists.

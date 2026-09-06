@@ -163,7 +163,7 @@ impl Segmenter {
         let input = Input {
             name: "pixel_values",
             dims: vec![1, 3, height as usize, width as usize],
-            data: planes,
+            data: planes.into(),
         };
         let outputs = self.run(vec![input], &["alphas"])?;
         probabilities(&outputs[0].data, size, width, height)
@@ -180,7 +180,7 @@ impl Segmenter {
         let input = Input {
             name: "input_image",
             dims: vec![1, 3, height as usize, width as usize],
-            data: planes,
+            data: planes.into(),
         };
         let outputs = self.run(vec![input], &["output_image"])?;
         // The model answers in its own range; the span of the answer is
@@ -203,7 +203,7 @@ impl Segmenter {
         let mut inputs = vec![Input {
             name: "src",
             dims: vec![1, 3, height as usize, width as usize],
-            data: planes,
+            data: planes.into(),
         }];
         let carried = self
             .state
@@ -217,7 +217,7 @@ impl Segmenter {
                     inputs.push(Input {
                         name,
                         dims: output.dims,
-                        data: output.data,
+                        data: output.data.into(),
                     });
                 }
             }
@@ -226,7 +226,7 @@ impl Segmenter {
                     inputs.push(Input {
                         name,
                         dims: vec![1, 1, 1, 1],
-                        data: vec![0.0],
+                        data: vec![0.0f32].into(),
                     });
                 }
             }
@@ -236,7 +236,7 @@ impl Segmenter {
         inputs.push(Input {
             name: "downsample_ratio",
             dims: vec![1],
-            data: vec![1.0],
+            data: vec![1.0f32].into(),
         });
         let mut outputs = self.run(inputs, &["pha", "r1o", "r2o", "r3o", "r4o"])?;
         let alpha = outputs.remove(0);

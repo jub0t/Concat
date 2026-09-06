@@ -219,6 +219,11 @@ pub struct Stroke {
     pub size: f64,
     /// The path, as `[x, y]` fractions.
     pub points: Vec<[f64; 2]>,
+    /// The source instant, in seconds, the stroke was painted at: the
+    /// frame a smart brush reads the thing under it from. Absent on
+    /// strokes from before it was recorded, which paint as plain discs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<f64>,
 }
 
 /// The four brushes of a custom cutout.
@@ -273,6 +278,12 @@ impl Cutout {
 }
 
 impl Stroke {
+    /// Whether the stroke's tool reads the picture rather than painting
+    /// a disc: the smart brush and the smart eraser.
+    pub fn is_smart(&self) -> bool {
+        matches!(self.tool, BrushTool::SmartBrush | BrushTool::SmartEraser)
+    }
+
     /// The size held to its range and the points to the picture; `None`
     /// for a stroke with no points left.
     pub fn tidy(mut self) -> Option<Stroke> {
@@ -281,6 +292,7 @@ impl Stroke {
         } else {
             MIN_BRUSH
         };
+        self.at = self.at.filter(|at| at.is_finite()).map(|at| at.max(0.0));
         self.points.retain(|[x, y]| x.is_finite() && y.is_finite());
         for point in &mut self.points {
             point[0] = point[0].clamp(-0.5, 1.5);

@@ -9,18 +9,50 @@
 //! and each disc changes the pixels beneath it the way its tool says:
 //!
 //! - **Brush** keeps everything under it, **Eraser** removes everything.
-//! - **Smart brush** keeps only what the model gave some chance of being
-//!   the subject - a sleeve it was unsure of comes back, the wall behind
-//!   does not. **Smart eraser** removes only what the model was not sure
-//!   of - a bit of chair it half-kept goes, the shoulder beside it stays.
+//! - **Smart brush** keeps the thing under it, whole: the brush model
+//!   (see `brush`) reads what the stroke lies on and the region it answers
+//!   is kept. **Smart eraser** removes that thing. Until the region has
+//!   been read - or when it cannot be, with the model not to hand - the
+//!   smart tools fall back to the mask's own confidence: the brush keeps
+//!   only what the model gave some chance of being the subject, the
+//!   eraser removes only what it was not sure of.
 //!
-//! The mask is square whatever the picture's shape, so a round brush is an
-//! ellipse in mask pixels; `aspect` (width over height of the source) is
-//! what makes it round again on screen.
+//! A mask may be any shape, so a round brush is an ellipse in mask
+//! pixels; `aspect` (width over height of the source) is what makes it
+//! round again on screen.
+
+use std::sync::Arc;
 
 use concat_project::model::{BrushTool, Stroke};
 
 use crate::Mask;
+
+/// Where a smart stroke's region is found, by the stroke: `None` when it
+/// has not been read yet.
+pub type Regions<'a> = &'a dyn Fn(&Stroke) -> Option<Arc<Mask>>;
+
+/// A region pixel at least this likely is the thing.
+const REGION_IS: f32 = 0.5;
+
+/// Names a stroke for the file its region is kept in: everything about
+/// it, hashed.
+pub fn stroke_key(stroke: &Stroke) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for &byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    feed(&[stroke.tool as u8]);
+    feed(&stroke.size.to_bits().to_le_bytes());
+    feed(&stroke.at.unwrap_or(-1.0).to_bits().to_le_bytes());
+    for [x, y] in &stroke.points {
+        feed(&x.to_bits().to_le_bytes());
+        feed(&y.to_bits().to_le_bytes());
+    }
+    hash
+}
 
 /// Below this much confidence a smart brush leaves a pixel alone.
 const SMART_KEEP: u8 = 38;
@@ -28,13 +60,34 @@ const SMART_KEEP: u8 = 38;
 const SMART_DROP: u8 = 217;
 
 /// The model's mask with `strokes` painted over it, in order. `aspect` is
-/// the source's width over its height.
-pub fn paint(auto: &Mask, strokes: &[Stroke], aspect: f32) -> Mask {
+/// the source's width over its height; `regions` finds what the brush
+/// model read under each smart stroke.
+pub fn paint(auto: &Mask, strokes: &[Stroke], aspect: f32, regions: Regions<'_>) -> Mask {
     let mut out = auto.clone();
     for stroke in strokes {
-        paint_one(&mut out, auto, stroke, aspect);
+        match regions(stroke).filter(|_| stroke.is_smart()) {
+            Some(region) => paint_region(&mut out, stroke.tool, &region),
+            None => paint_one(&mut out, auto, stroke, aspect),
+        }
     }
     out
+}
+
+/// The thing a smart stroke named, kept or removed whole.
+fn paint_region(out: &mut Mask, tool: BrushTool, region: &Mask) {
+    let width = out.width();
+    let height = out.height();
+    let keep = tool == BrushTool::SmartBrush;
+    for y in 0..height {
+        let v = (y as f32 + 0.5) / height as f32;
+        for x in 0..width {
+            let u = (x as f32 + 0.5) / width as f32;
+            if region.sample(u, v) >= REGION_IS {
+                let index = (y * width + x) as usize;
+                out.bytes_mut()[index] = if keep { 255 } else { 0 };
+            }
+        }
+    }
 }
 
 fn paint_one(out: &mut Mask, auto: &Mask, stroke: &Stroke, aspect: f32) {
@@ -109,6 +162,7 @@ mod tests {
 
     fn stroke(tool: BrushTool, size: f64, points: &[[f64; 2]]) -> Stroke {
         Stroke {
+            at: None,
             tool,
             size,
             points: points.to_vec(),
@@ -122,6 +176,7 @@ mod tests {
             &auto,
             &[stroke(BrushTool::Brush, 0.25, &[[0.25, 0.5], [0.75, 0.5]])],
             1.0,
+            &|_| None,
         );
         assert_eq!(kept.at(16, 16), 255);
         assert_eq!(kept.at(16, 2), 0);
@@ -131,6 +186,7 @@ mod tests {
             &kept,
             &[stroke(BrushTool::Eraser, 0.25, &[[0.5, 0.5]])],
             1.0,
+            &|_| None,
         );
         assert_eq!(gone.at(16, 16), 0);
         assert_eq!(gone.at(8, 16), 255);
@@ -143,7 +199,7 @@ mod tests {
         auto.bytes_mut()[1] = 0; // background: left alone
         auto.bytes_mut()[2] = 250; // sure: kept by a smart eraser
         let whole = [stroke(BrushTool::SmartBrush, 2.0, &[[0.5, 0.5]])];
-        let brushed = paint(&auto, &whole, 1.0);
+        let brushed = paint(&auto, &whole, 1.0, &|_| None);
         assert_eq!(brushed.at(0, 0), 255);
         assert_eq!(brushed.at(1, 0), 0);
         let erased = paint(
@@ -153,6 +209,7 @@ mod tests {
                 stroke(BrushTool::SmartEraser, 2.0, &[[0.5, 0.5]]),
             ],
             1.0,
+            &|_| None,
         );
         // The eraser judges by the model's confidence, not by what an
         // earlier stroke did: the rescued pixel was unsure, so it goes; the
@@ -162,11 +219,44 @@ mod tests {
     }
 
     #[test]
+    fn a_smart_stroke_with_a_region_keeps_or_drops_the_whole_thing() {
+        let auto = Mask::filled(8, 8, 0);
+        // The thing is the left half of the picture.
+        let mut region = Mask::filled(4, 4, 0);
+        for y in 0..4 {
+            region.bytes_mut()[y * 4] = 255;
+            region.bytes_mut()[y * 4 + 1] = 255;
+        }
+        let region = Arc::new(region);
+        let lookup = move |_: &Stroke| Some(Arc::clone(&region));
+        let kept = paint(
+            &auto,
+            &[stroke(BrushTool::SmartBrush, 0.1, &[[0.9, 0.9]])],
+            1.0,
+            &lookup,
+        );
+        assert_eq!(kept.at(1, 4), 255);
+        assert_eq!(kept.at(6, 4), 0);
+        let gone = paint(
+            &kept,
+            &[stroke(BrushTool::SmartEraser, 0.1, &[[0.9, 0.9]])],
+            1.0,
+            &lookup,
+        );
+        assert_eq!(gone.at(1, 4), 0);
+    }
+
+    #[test]
     fn the_brush_is_round_on_a_wide_picture() {
         // A 2:1 source squashed into a square mask: a round brush must reach
         // twice as far down the mask as across it.
         let auto = Mask::filled(64, 64, 0);
-        let out = paint(&auto, &[stroke(BrushTool::Brush, 0.25, &[[0.5, 0.5]])], 2.0);
+        let out = paint(
+            &auto,
+            &[stroke(BrushTool::Brush, 0.25, &[[0.5, 0.5]])],
+            2.0,
+            &|_| None,
+        );
         assert_eq!(out.at(32 + 7, 32), 255);
         assert_eq!(out.at(32 + 9, 32), 0);
         assert_eq!(out.at(32, 32 + 15), 255);

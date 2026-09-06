@@ -19,7 +19,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use concat_project::model::{Cutout, CutoutMode, Subject};
+use concat_project::model::{Cutout, CutoutMode, Stroke, Subject};
 
 use crate::{MASK_RATE, Mask, strokes};
 
@@ -49,6 +49,13 @@ pub fn mask_dir(project: &Path, media_path: &str, subject: Subject) -> PathBuf {
 /// The file naming the model that made a directory's masks.
 fn model_file(dir: &Path) -> PathBuf {
     dir.join("model")
+}
+
+/// The file a smart stroke's region is kept in, under the masks' own
+/// directory: the thing the brush model read under that stroke.
+pub fn region_file(dir: &Path, stroke: &Stroke) -> PathBuf {
+    dir.join("strokes")
+        .join(format!("{:016x}.png", strokes::stroke_key(stroke)))
 }
 
 /// The file for the mask at `millis` of source.
@@ -178,7 +185,7 @@ impl MaskStore {
         let file = mask_file(&self.dir, millis);
         let key = ResolvedKey {
             file: file.clone(),
-            settings: settings_key(cutout, aspect),
+            settings: settings_key(&self.dir, cutout, aspect),
         };
         if let Some(hit) = resolved_cache()
             .lock()
@@ -194,7 +201,9 @@ impl MaskStore {
         }
         let painted = match cutout.mode {
             CutoutMode::Custom if !cutout.strokes.is_empty() => {
-                strokes::paint(&auto, &cutout.strokes, aspect)
+                let dir = self.dir.clone();
+                let regions = move |stroke: &Stroke| load(&region_file(&dir, stroke));
+                strokes::paint(&auto, &cutout.strokes, aspect, &regions)
             }
             _ => (*auto).clone(),
         };
@@ -258,13 +267,17 @@ impl MaskStore {
         self.times.clear();
         let _ = std::fs::remove_file(model_file(&self.dir));
         self.model = None;
+        // The regions the brushes read are the same footage's; they go
+        // with the masks, and any resolved mask that used one.
+        let _ = std::fs::remove_dir_all(self.dir.join("strokes"));
         let _ = std::fs::remove_dir(&self.dir);
     }
 }
 
 /// What besides the file decides a resolved mask: the mode, the feather
-/// and every stroke, hashed, with the aspect the brushes were sized by.
-fn settings_key(cutout: &Cutout, aspect: f32) -> u64 {
+/// and every stroke, hashed, with the aspect the brushes were sized by,
+/// and for each smart stroke whether its region has been read yet.
+fn settings_key(dir: &Path, cutout: &Cutout, aspect: f32) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (cutout.mode == CutoutMode::Custom).hash(&mut hasher);
@@ -272,11 +285,9 @@ fn settings_key(cutout: &Cutout, aspect: f32) -> u64 {
     aspect.to_bits().hash(&mut hasher);
     if cutout.mode == CutoutMode::Custom {
         for stroke in &cutout.strokes {
-            (stroke.tool as u8).hash(&mut hasher);
-            stroke.size.to_bits().hash(&mut hasher);
-            for [x, y] in &stroke.points {
-                x.to_bits().hash(&mut hasher);
-                y.to_bits().hash(&mut hasher);
+            strokes::stroke_key(stroke).hash(&mut hasher);
+            if stroke.is_smart() {
+                region_file(dir, stroke).is_file().hash(&mut hasher);
             }
         }
     }
@@ -432,6 +443,7 @@ mod tests {
             subject: Subject::Auto,
             feather: 0.0,
             strokes: vec![Stroke {
+                at: None,
                 tool: BrushTool::Brush,
                 size: 0.5,
                 points: vec![[0.5, 0.5]],
@@ -464,6 +476,7 @@ mod tests {
             subject: Subject::Auto,
             feather: 0.0,
             strokes: vec![Stroke {
+                at: None,
                 tool: BrushTool::Brush,
                 size: 0.5,
                 points: vec![[0.5, 0.5]],

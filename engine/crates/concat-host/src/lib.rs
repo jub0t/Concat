@@ -18,6 +18,7 @@
 //! Nothing here knows about a window. Long work reports through callbacks
 //! and cancels through flags, and the caller decides which thread it runs on.
 
+pub mod brush;
 pub mod cutout;
 pub mod dirs;
 pub mod export;
@@ -30,6 +31,7 @@ pub mod session;
 pub mod templates;
 pub mod titles;
 
+pub use brush::{Brushes, RegionRequest};
 pub use cutout::{AnalyseRequest, Cutouts};
 pub use dirs::AppDirs;
 pub use jobs::{Job, SingleFlight};

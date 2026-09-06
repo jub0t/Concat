@@ -937,7 +937,7 @@ export component VideoPanel inherits VerticalLayout {
         if cutout.open: SectionBody {
 
         if root.cutout-help: Note {
-            text: I18n.t("Auto removal keeps the person the cutout model finds and drops the rest. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush and smart eraser follow the model's confidence, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge.");
+            text: I18n.t("Auto removal keeps what the model finds and drops the rest: a person, or the one thing the picture is of. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush keeps the whole thing it touches and the smart eraser removes it, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge.");
         }
 
         RemovalBlock {

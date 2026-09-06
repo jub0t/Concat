@@ -322,7 +322,7 @@ impl Cutouts {
 
 /// Streams a model into `file`, by way of a `.part` beside it, reporting
 /// every couple of megabytes and stopping when `cancel` is set.
-fn fetch(
+pub(crate) fn fetch(
     id: ModelId,
     file: &Path,
     cancel: &AtomicBool,
