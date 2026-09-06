@@ -95,6 +95,7 @@ pub fn flatten_timeline_in(
                     has_audio: Some(false),
                     cutout: None,
                     mask_dir: String::new(),
+                    highlighted: false,
                 });
             }
 
@@ -173,6 +174,7 @@ pub fn flatten_timeline_in(
                     }
                     _ => String::new(),
                 },
+                highlighted: false,
             })
         })
         .collect()

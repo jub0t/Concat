@@ -51,7 +51,7 @@ pub mod segment;
 pub mod store;
 pub mod strokes;
 
-pub use apply::{Mapping, cut};
+pub use apply::{Mapping, cut, highlight};
 #[cfg(feature = "infer")]
 pub use brush::{Brush, Embedding};
 pub use mask::Mask;

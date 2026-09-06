@@ -109,9 +109,51 @@ pub fn cut(frame: &mut Frame, mask: &Mask, mapping: &Mapping) {
     });
 }
 
+/// The frame with what the mask keeps tinted `colour`, and the rest as
+/// shot: the view a person paints against, where the picture stays whole
+/// and the cutout is drawn over it rather than taken out of it. The same
+/// mapping as [`cut`], so the tint lies exactly where the cut would.
+pub fn highlight(frame: &mut Frame, mask: &Mask, mapping: &Mapping, colour: [u8; 3]) {
+    let width = frame.width() as usize;
+    let height = frame.height() as usize;
+    if width == 0 || height == 0 {
+        return;
+    }
+    let pixels = frame.pixels_mut();
+    let row_bytes = width * BYTES_PER_PIXEL;
+    for (y, row) in pixels.chunks_exact_mut(row_bytes).enumerate() {
+        let fy = (y as f32 + 0.5) / height as f32;
+        for (x, pixel) in row.chunks_exact_mut(BYTES_PER_PIXEL).enumerate() {
+            let fx = (x as f32 + 0.5) / width as f32;
+            let (u, v) = mapping.source_of(fx, fy);
+            // Half way to the colour where the mask is sure, less where
+            // it is not: the tint reads as the mask's own edge.
+            let mix = mask.sample(u, v) * 0.55;
+            for c in 0..3 {
+                pixel[c] = (f32::from(pixel[c]) * (1.0 - mix) + f32::from(colour[c]) * mix + 0.5)
+                    as u8;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_highlight_tints_the_kept_half_and_leaves_the_rest() {
+        let mut frame = Frame::black(4, 2);
+        frame.fill([200, 200, 200, 255]);
+        let mut mask = Mask::filled(2, 1, 0);
+        mask.bytes_mut()[1] = 255;
+        highlight(&mut frame, &mask, &Mapping::default(), [0, 200, 200]);
+        let left = frame.pixel(0, 0).unwrap();
+        let right = frame.pixel(3, 0).unwrap();
+        assert_eq!(left, [200, 200, 200, 255]);
+        assert!(right[0] < 120 && right[1] == 200, "{right:?}");
+        assert_eq!(right[3], 255);
+    }
 
     fn left_half_kept() -> Mask {
         let mut mask = Mask::filled(8, 8, 0);

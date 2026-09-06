@@ -191,6 +191,10 @@ pub struct ExportClip {
     /// leaves the picture whole.
     #[serde(default)]
     pub cutout: Option<Cutout>,
+    /// Draw the cutout tinted over the whole picture instead of cutting
+    /// it: the view while the clip's brushes are in use. Preview only.
+    #[serde(default)]
+    pub highlighted: bool,
     /// Where this clip's media has its masks - see `concat_vision::mask_dir`
     /// - or empty when the flattener had no project folder to name it by.
     #[serde(default)]
@@ -657,6 +661,10 @@ struct Source<F> {
     passes: Vec<ShaderPass>,
 }
 
+/// The tint a highlighted cutout wears: a teal that no footage is likely
+/// to be, and the colour the brushes themselves are drawn in.
+const HIGHLIGHT: [u8; 3] = [0, 196, 204];
+
 /// A cutout as the frame loop runs it: the masks, what to paint on them,
 /// and how a decoded pixel finds its place in the source.
 struct CutoutJob {
@@ -703,6 +711,17 @@ impl CutoutJob {
             .resolved(source_time.as_f64(), &self.cutout, self.aspect)?;
         let mut out = frame.clone();
         concat_vision::cut(&mut out, &mask, &self.mapping);
+        Some(out)
+    }
+
+    /// The frame whole, with what the cutout keeps tinted over it: the
+    /// painting view. `None` as for `cut`.
+    fn highlight(&self, frame: &Frame, source_time: Rational) -> Option<Frame> {
+        let mask = self
+            .store
+            .resolved(source_time.as_f64(), &self.cutout, self.aspect)?;
+        let mut out = frame.clone();
+        concat_vision::highlight(&mut out, &mask, &self.mapping, HIGHLIGHT);
         Some(out)
     }
 }
@@ -770,6 +789,7 @@ fn render_picture(
         pre_chains,
         passes,
         cutouts,
+        highlight: _,
     } = build_timeline(request, rate, visible, gpu);
 
     let mut encoder = Encoder::create(
@@ -969,6 +989,8 @@ struct BuiltTimeline {
     pre_chains: HashMap<ClipId, String>,
     /// The clip's shader passes, on a GPU renderer.
     passes: HashMap<ClipId, Vec<ShaderPass>>,
+    /// The clip whose cutout is drawn tinted rather than cut, if one is.
+    highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
     treatments: Vec<Treatment>,
     /// The clips whose background a mask takes away.
@@ -1108,6 +1130,7 @@ fn build_timeline(
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut passes: HashMap<ClipId, Vec<ShaderPass>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
+    let mut highlight: Option<ClipId> = None;
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
     let tracks: Vec<_> = (0..lanes)
@@ -1194,6 +1217,9 @@ fn build_timeline(
             if let Some(job) = CutoutJob::of(clip) {
                 cutouts.insert(id, job);
             }
+            if clip.highlighted {
+                highlight = Some(id);
+            }
         }
     }
 
@@ -1207,6 +1233,7 @@ fn build_timeline(
         pre_chains,
         passes,
         cutouts,
+        highlight,
     }
 }
 
@@ -1469,6 +1496,7 @@ pub fn preview_sources(
         pre_chains,
         passes,
         cutouts,
+        highlight,
     } = preview_timeline(request, rate, gpu);
     let time = quantise(request.time, rate);
     let plan = plan_frame(&timeline, time);
@@ -1494,11 +1522,15 @@ pub fn preview_sources(
             pre,
         ) {
             Ok(frame) => {
-                let frame = match cutouts
-                    .get(&layer.clip)
-                    .and_then(|job| job.cut(&frame, layer.source_time))
-                {
-                    Some(cut) => std::sync::Arc::new(cut),
+                let highlighted = highlight == Some(layer.clip);
+                let frame = match cutouts.get(&layer.clip).and_then(|job| {
+                    if highlighted {
+                        job.highlight(&frame, layer.source_time)
+                    } else {
+                        job.cut(&frame, layer.source_time)
+                    }
+                }) {
+                    Some(drawn) => std::sync::Arc::new(drawn),
                     None => frame,
                 };
                 sources.push(Source {
@@ -1731,6 +1763,7 @@ mod tests {
             has_audio: None,
             cutout: None,
             mask_dir: String::new(),
+            highlighted: false,
         }
     }
 

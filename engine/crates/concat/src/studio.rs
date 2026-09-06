@@ -726,6 +726,10 @@ pub struct Studio {
     cutout_jobs: HashMap<String, (bool, f32)>,
     /// The smart stroke being read, by the same name, while one is.
     region_job: Option<String>,
+    /// The last smart stroke as the stage drew it, kept on screen from the
+    /// release until the model has read what was under it, so the paint
+    /// does not vanish before its answer arrives.
+    pending_stroke: Option<(String, f32, bool)>,
 }
 
 // ── conversions between the document and the window ─────────────────────
@@ -1149,6 +1153,7 @@ impl Studio {
             painting: true,
             cutout_jobs: HashMap::new(),
             region_job: None,
+            pending_stroke: None,
             host,
         };
         studio.settings.language = studio
@@ -1513,6 +1518,18 @@ impl Studio {
         };
         let width = ((f64::from(width) * scale).round() as u32).max(2) & !1;
         let height = ((f64::from(height) * scale).round() as u32).max(2) & !1;
+        // While the brushes are out, the clip being painted is drawn with
+        // its cutout tinted over the whole picture rather than cut, so a
+        // stroke shows what it grabbed against what it left.
+        if self.painting
+            && let Some(target) = self.paint_target()
+            && let Some(media) = self.project().media_by_id(&target.media_id)
+            && let Some(flat) = clips.iter_mut().find(|flat| {
+                flat.path == media.path && (flat.start - target.start).abs() < 1e-6
+            })
+        {
+            flat.highlighted = true;
+        }
         let spec = FrameSpec {
             time: f64::from(self.playhead),
             width,
@@ -3386,6 +3403,9 @@ impl Studio {
     /// transform command per picture, batched when there are several.
     pub fn stage_released(&mut self) {
         self.stage_guides.clear();
+        let overlay = matches!(self.gesture, Gesture::Paint { .. })
+            .then(|| self.stroke_overlay())
+            .filter(|(path, _, _)| !path.is_empty());
         let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         let touched: Vec<String> = match gesture {
             Gesture::StageMove { origins, .. } => {
@@ -3403,15 +3423,18 @@ impl Studio {
                 ..
             } => {
                 // The stroke becomes one command, and one undo step; a
-                // smart stroke then has its thing read from the frame.
+                // smart stroke then has its thing read from the frame, and
+                // stays drawn until it has been.
+                let stroke = model::Stroke {
+                    tool,
+                    size,
+                    points: points.clone(),
+                    at: Some(at),
+                };
+                self.pending_stroke = stroke.is_smart().then_some(overlay).flatten();
                 self.apply(Command::AddCutoutStroke {
                     clip_id: clip,
-                    stroke: model::Stroke {
-                        tool,
-                        size,
-                        points,
-                        at: Some(at),
-                    },
+                    stroke,
                 });
                 self.ensure_regions();
                 return;
@@ -3661,6 +3684,12 @@ impl Studio {
 
     pub fn cutout_painting(&mut self, on: bool) {
         self.painting = on;
+        if !on {
+            self.pending_stroke = None;
+        }
+        // The monitor's view changes with the brushes: tinted while they
+        // are out, cut when they are put away.
+        self.request_preview();
     }
 
     /// The picture a press on the stage would paint: the one selected clip,
@@ -3729,7 +3758,10 @@ impl Studio {
             ..
         } = &self.gesture
         else {
-            return (String::new(), 0.0, false);
+            return self
+                .pending_stroke
+                .clone()
+                .unwrap_or((String::new(), 0.0, false));
         };
         let Some((first, rest)) = screen.split_first() else {
             return (String::new(), 0.0, false);
@@ -5299,6 +5331,7 @@ impl Studio {
             |studio, _, _, (key, result)| {
                 studio.region_job = None;
                 studio.cutout_jobs.remove(&key);
+                studio.pending_stroke = None;
                 match result {
                     Ok(()) => {
                         studio.request_preview();

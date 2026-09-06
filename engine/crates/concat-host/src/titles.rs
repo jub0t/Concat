@@ -136,6 +136,7 @@ impl Titles {
                     has_audio: Some(false),
                     cutout: None,
                     mask_dir: String::new(),
+                    highlighted: false,
                 },
                 block,
             });
