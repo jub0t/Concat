@@ -405,6 +405,10 @@ export component KeyCluster inherits HorizontalLayout {
 // unit you reason about — "none", "auto", "1.00x"), the fader and a raw
 // number field below. Keeping both is what lets a fade of zero say "none"
 // without making zero un-typeable.
+//
+// Without the slider the whole thing is one line: label, readout, keys and
+// the number field, which scrubs on a drag just as the fader would. That is
+// the shape for a stack of knobs that are typed or nudged more than ridden.
 export component Param inherits VerticalLayout {
     in property <string> label;
     in-out property <float> value;
@@ -417,6 +421,9 @@ export component Param inherits VerticalLayout {
     /// Ride the Rail instead of the Fader — for the one setting a section is
     /// named after, not for a list of knobs.
     in property <bool> rail: false;
+    /// Off drops the fader and folds the row into one line; the number
+    /// field alone carries the value, and drags for it.
+    in property <bool> slider: true;
     /// Show the keyframe cluster, and which field it keys. Opt-in rather
     /// than derived from `field`, because a Slint enum property with nothing
     /// assigned to it is its first variant and not "none" - every unkeyable
@@ -455,9 +462,21 @@ export component Param inherits VerticalLayout {
             alignment: center;
             KeyCluster { field: root.field; }
         }
+
+        if !root.slider: Rectangle { width: 8px; }
+        if !root.slider: NumberField {
+            width: 64px;
+            value <=> root.value;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            precision: InspectorFmt.precision-of(root.step);
+            enabled: root.enabled;
+            changed(v) => { root.changed(v); }
+        }
     }
 
-    HorizontalLayout {
+    if root.slider: HorizontalLayout {
         spacing: 8px;
 
         // One row, either slider. See Rail's header for which belongs where;
@@ -486,7 +505,7 @@ export component Param inherits VerticalLayout {
             changed(v) => { root.changed(v); }
         }
 
-        field := NumberField {
+        NumberField {
             width: 64px;
             value <=> root.value;
             minimum: root.minimum;

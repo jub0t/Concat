@@ -669,6 +669,7 @@ export component VideoPanel inherits VerticalLayout {
         }
 
         Param {
+            slider: false;
             label: I18n.t("Scale");
             keyable: true;
             field: ClipField.scale;
@@ -681,6 +682,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.scale, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Position X");
             keyable: true;
             field: ClipField.offset-x;
@@ -693,6 +695,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.offset-x, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Position Y");
             keyable: true;
             field: ClipField.offset-y;
@@ -705,6 +708,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.offset-y, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Rotation");
             keyable: true;
             field: ClipField.rotation;
@@ -717,6 +721,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.rotation, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Width");
             value <=> root.stretch-x;
             minimum: 0.1;
@@ -727,6 +732,7 @@ export component VideoPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.stretch-x, v); root.commit(); }
         }
         Param {
+            slider: false;
             label: I18n.t("Height");
             value <=> root.stretch-y;
             minimum: 0.1;
