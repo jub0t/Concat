@@ -211,7 +211,6 @@ export component PresetStack inherits VerticalLayout {
     callback set-param(index: int, key: string, value: float);
     callback commit();
 
-
     // The grid. Three columns at the inspector's width, which puts a tile at
     // about 70px - wide enough for "Voice Focus" on two lines and narrow
     // enough that a shelf of twenty is four rows rather than seven.
@@ -222,8 +221,6 @@ export component PresetStack inherits VerticalLayout {
         - (root.columns - 1) * root.cell-gap) / root.columns;
     property <length> cell-h: 44px;
     property <int> rows: ceil(root.catalogue.length / root.columns);
-
-
 
     /// Links that belong to another section's controls - the audio
     /// treatments, which have switches of their own - and so are not shown
@@ -263,9 +260,10 @@ export component PresetStack inherits VerticalLayout {
 
         SectionHeader {
             title: root.library-title;
-            HelpButton { text: I18n.t("The chain runs top to bottom — reorder it with the chevrons. The eye bypasses one link without losing the values you dialled into it."); }
+            HelpButton {
+                text: I18n.t("The chain runs top to bottom — reorder it with the chevrons. The eye bypasses one link without losing the values you dialled into it.");
+            }
         }
-
 
         if !root.library && root.applied.length == 0: Note {
             text: root.empty-note;
@@ -394,7 +392,9 @@ export component PresetStack inherits VerticalLayout {
 
         // Air between the field and the strip under it: two rows butted
         // together read as one control, and they are not.
-        if root.library: Rectangle { height: 8px; }
+        if root.library: Rectangle {
+            height: 8px;
+        }
 
         // The star and the shelves. Favourites is not one more shelf: it
         // cuts across all of them, so it is a chip beside the strip rather
@@ -421,7 +421,9 @@ export component PresetStack inherits VerticalLayout {
             }
         }
 
-        if root.library: Rectangle { height: 6px; }
+        if root.library: Rectangle {
+            height: 6px;
+        }
 
         // The shelf itself, as tiles rather than rows.
         //
@@ -900,18 +902,18 @@ export component VideoPanel inherits VerticalLayout {
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
-
     Section {
         first: true;
         transform := SectionHeader {
             title: I18n.t("Transform");
             collapsible: true;
             summary: "\{Math.round(root.scale * 100)}% · \{Math.round(root.rotation)}°";
-            HelpButton { text: I18n.t("Scale and position are fractions of the output frame, so a clip keeps its framing if the project is re-sized. The same numbers move with the box on the monitor. Width and height pull one axis beyond the scale; the edge grips on the monitor do the same."); }
+            HelpButton {
+                text: I18n.t("Scale and position are fractions of the output frame, so a clip keeps its framing if the project is re-sized. The same numbers move with the box on the monitor. Width and height pull one axis beyond the scale; the edge grips on the monitor do the same.");
+            }
         }
 
         if transform.open: SectionBody {
-
 
             Param {
                 label: I18n.t("Scale");
@@ -1060,11 +1062,12 @@ export component VideoPanel inherits VerticalLayout {
             summary: root.removal == 0 ? I18n.t("off")
                 : root.removal == 1 ? I18n.t("Auto removal")
                 : root.removal == 2 ? I18n.t("Custom removal") : I18n.t("Chroma key");
-            HelpButton { text: I18n.t("Auto removal keeps what the model finds and drops the rest: a person, or the one thing the picture is of. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush keeps the whole thing it touches and the smart eraser removes it, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge."); }
+            HelpButton {
+                text: I18n.t("Auto removal keeps what the model finds and drops the rest: a person, or the one thing the picture is of. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush keeps the whole thing it touches and the smart eraser removes it, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge.");
+            }
         }
 
         if cutout.open: SectionBody {
-
 
             RemovalBlock {
                 title: I18n.t("Auto removal");
@@ -1459,11 +1462,12 @@ export component SpeedPanel inherits VerticalLayout {
             title: I18n.t("Speed");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.rate, root.speed);
-            HelpButton { text: I18n.t("Rate re-times the clip in place, so the timeline length changes with it. Trim afterwards, not before. A curve varies the rate over the clip; the same footage plays, faster here and slower there."); }
+            HelpButton {
+                text: I18n.t("Rate re-times the clip in place, so the timeline length changes with it. Trim afterwards, not before. A curve varies the rate over the clip; the same footage plays, faster here and slower there.");
+            }
         }
 
         if speed.open: SectionBody {
-
 
             Row {
                 label: I18n.t("Curve");
@@ -1580,7 +1584,9 @@ export component AnimationPanel inherits VerticalLayout {
         first: true;
         SectionHeader {
             title: I18n.t("In");
-            HelpButton { text: I18n.t("In and Out play over the clip's first and last seconds; Combo runs its whole length. Each moves the clip from where you placed it, so position it first."); }
+            HelpButton {
+                text: I18n.t("In and Out play over the clip's first and last seconds; Combo runs its whole length. Each moves the clip from where you placed it, so position it first.");
+            }
         }
 
         SectionBody {
@@ -1665,14 +1671,14 @@ export component AdjustPanel inherits VerticalLayout {
     callback set(key: string, value: float);
     callback commit();
 
-
     Section {
         first: true;
         SectionHeader {
             title: I18n.t("Adjust");
-            HelpButton { text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead."); }
+            HelpButton {
+                text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead.");
+            }
         }
-
 
         // See PresetStack for why each row re-seeds its knob. A subhead
         // opens each run of rows that share a group.
@@ -1750,18 +1756,18 @@ export component FilterPanel inherits VerticalLayout {
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
-
     Section {
         first: true;
         layer := SectionHeader {
             title: I18n.t("Layer");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.fraction, root.strength);
-            HelpButton { text: I18n.t("A layer treats everything under it for as long as it runs. Trim it on the timeline to change what it covers."); }
+            HelpButton {
+                text: I18n.t("A layer treats everything under it for as long as it runs. Trim it on the timeline to change what it covers.");
+            }
         }
 
         if layer.open: SectionBody {
-
 
             Param {
                 label: I18n.t("Strength");

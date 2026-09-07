@@ -50,13 +50,12 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 - ✅ **Linux**
   - 🧪 ARM
   - 🧪 x86_64
-- 🚧 **Android**
+- 🧪 **Android**
   - Phones
   - Tablets
-- 🚧 **iOS / iPadOS**
+- 🧪 **iOS / iPadOS**
   - iPhone
   - iPad
-- 🧪 **Raspberry Pi 5**
 
 **Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
