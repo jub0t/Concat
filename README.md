@@ -42,20 +42,26 @@ start cutting, no account, no extra downloads, no setup.
 
 The short version: CapCut has the most features and the worst terms, OpenCut has the biggest community and the least finished editor, Concat has the best terms and a real native engine, but it is a beta with gaps it has not closed yet.
 
-| Question | Answer | The honest part |
-|---|---|---|
-| Which is faster? | **Concat and CapCut**, both native | Concat renders in one Rust process with GPU compositing and no browser in the way. OpenCut runs on WebAssembly FFmpeg and feels it on long timelines. Nobody has benchmarked Concat head to head against CapCut yet |
-| Which is cheapest? | **Concat and OpenCut**, free with no tiers | CapCut is free until you touch a Pro effect, 4K, or the AI tools. Then it is $9.99 to $19.99 a month |
-| Which respects your footage? | **Concat** | Nothing leaves the machine, no account. OpenCut is also local but lives in a browser. CapCut's terms grant ByteDance a perpetual licence to what you upload |
-| Which works fully offline? | **Concat** | Captions, speech, cutout and export all run on device. CapCut's best features are cloud. OpenCut's are split across services |
-| Which has more effects and templates? | **CapCut**, by a mile | Thousands against Concat's few dozen. If you edit from trending templates, CapCut still wins |
-| Which has better AI tools? | **CapCut** | Tracking, auto reframe, avatars, text to video. Concat has captions, speech and person cutout, all local. The rest is on the roadmap |
-| Which exports 4K for free? | **Concat** | CapCut caps free at 1080p. OpenCut depends on the browser |
-| Which is most stable? | **CapCut** | It is a shipped product with a ByteDance sized budget. Concat is a 0.2.x beta. OpenCut is mid rewrite |
-| Which is best on a phone? | **CapCut** | It started there. Concat's Android and iOS builds compile but are untested. OpenCut's mobile is in progress |
-| Which is easiest to build on? | **OpenCut** | MIT licence, Editor API, MCP server, plugins today. Concat's plugin API is planned and its code is AGPL |
-| Which has the bigger community? | **OpenCut** | Tens of thousands of GitHub stars. Concat has a Discord and a handful of contributors |
-| Which one is a CapCut replacement today? | **Concat**, with caveats | Same core workflow, free, offline, yours. Missing keyframes, more export formats and the long tail of content |
+🟢 strong · 🟡 partial or with strings attached · 🔴 weak or missing
+
+| | Concat | CapCut | OpenCut | Notes |
+|---|:---:|:---:|:---:|---|
+| Performance | 🟢 | 🟢 | 🟡 | Concat and CapCut are native. OpenCut runs on WebAssembly FFmpeg in a browser |
+| Price | 🟢 | 🟡 | 🟢 | CapCut is free until Pro effects, 4K or AI tools, then $9.99 to $19.99 a month |
+| Watermark | 🟢 | 🟡 | 🟢 | CapCut stamps exports that use Pro assets |
+| Privacy | 🟢 | 🔴 | 🟢 | Concat sends nothing anywhere. CapCut's terms grant ByteDance a perpetual licence to uploads |
+| Offline | 🟢 | 🟡 | 🟡 | Concat's captions, speech, cutout and export all run on device. CapCut's best features are cloud |
+| Open source | 🟢 | 🔴 | 🟢 | Concat AGPL, OpenCut MIT, CapCut closed |
+| 4K export | 🟢 | 🟡 | 🟡 | CapCut caps free at 1080p. OpenCut depends on the browser |
+| Effects and templates | 🟡 | 🟢 | 🔴 | CapCut has thousands. Concat has a few dozen. OpenCut has a basic set |
+| AI tools | 🟡 | 🟢 | 🟡 | CapCut has tracking, reframe, avatars. Concat has local captions, speech and person cutout |
+| Keyframes | 🔴 | 🟢 | 🟡 | Concat has none yet. On the roadmap |
+| Export formats | 🟡 | 🟢 | 🟡 | Concat writes H.264 MP4 only. OpenCut MP4 and WebM |
+| Stability | 🟡 | 🟢 | 🔴 | Concat is a 0.2.x beta. OpenCut is mid rewrite |
+| Mobile | 🟡 | 🟢 | 🔴 | Concat's Android and iOS builds compile but are untested. OpenCut's are in progress |
+| Extensibility | 🟡 | 🔴 | 🟢 | OpenCut ships an Editor API, MCP server and plugins. Concat's plugin API is planned |
+| Community | 🟡 | 🟢 | 🟢 | OpenCut has tens of thousands of stars. Concat has a Discord and a handful of contributors |
+| Multiple timelines per project | 🟢 | 🔴 | 🔴 | Concat only |
 
 <details>
 <summary><strong>Full breakdown</strong></summary>
@@ -86,14 +92,6 @@ The short version: CapCut has the most features and the worst terms, OpenCut has
 | Maturity | Beta, 0.2.1 | Production, hundreds of millions of users | Alpha-grade editor with a very large GitHub following |
 
 </details>
-
-### Where Concat wins
-
-- **The deal is clean.** No account, no telemetry, no upload, no watermark, no Pro tier, no licence over your footage. CapCut cannot offer that and OpenCut only matches it in a browser tab.
-- **It is a real engine, not a web page.** Decoding, mixing, compositing and encoding happen in one native Rust process with FFmpeg linked in. That is why 4K export, on-device captions, on-device speech and on-device cutouts all work offline on a laptop with nothing installed.
-- **Preview and export agree.** One code path draws the monitor and writes the file. What you see is what you get, which is not a given in editors that preview with one stack and export with another.
-- **Free 4K and free speech tools.** The two things CapCut charges for most are free here and run locally.
-- **Several timelines in one project.** Cut the long video and the three shorts from it in one file.
 
 ### Where Concat loses, honestly
 
