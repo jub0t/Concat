@@ -165,6 +165,7 @@ impl Reader {
         chain: Option<&str>,
         pre: Option<&str>,
         rate: FrameRate,
+        still: bool,
         index: i64,
     ) -> Result<Self> {
         // Unpaced, so every source frame comes out with its own timestamp
@@ -173,6 +174,13 @@ impl Reader {
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height);
+        if still {
+            // One frame, served for every time, and never sought: a seek
+            // on a single-image JPEG leaves FFmpeg's image demuxer with
+            // nothing left to read, so the picture would never come back.
+            // Repeating keeps the frame coming after the end instead.
+            options = options.repeating();
+        }
         if let Some(chain) = chain {
             options = options.filtered(chain);
         }
@@ -330,7 +338,7 @@ impl ReaderPool {
             return Ok(frame);
         }
 
-        let shared = self.reader(path, width, height, chain, pre, rate, target)?;
+        let shared = self.reader(path, width, height, chain, pre, rate, facts.still, target)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -340,7 +348,7 @@ impl ReaderPool {
             return Ok(frame);
         }
         let next = (reader.next_index != i64::MIN).then_some(reader.next_index);
-        if plan_access(next, target) == Access::Seek {
+        if !facts.still && plan_access(next, target) == Access::Seek {
             reader.seek(rate, target)?;
         }
 
@@ -375,7 +383,7 @@ impl ReaderPool {
         // seeking backwards until something decodes. Each retry doubles the
         // step, and the last one starts from zero, so a file with any
         // decodable picture at all cannot fail here.
-        if latest.is_none() {
+        if latest.is_none() && !facts.still {
             for step in [30i64, 240, i64::MAX] {
                 let from = target.saturating_sub(step).max(0);
                 reader.seek(rate, from)?;
@@ -472,6 +480,7 @@ impl ReaderPool {
         chain: Option<&str>,
         pre: Option<&str>,
         rate: FrameRate,
+        still: bool,
         target: i64,
     ) -> Result<Arc<Mutex<Reader>>> {
         let key = (
@@ -499,7 +508,7 @@ impl ReaderPool {
         // part, and nobody else needs to wait for it. A decode in flight on
         // an evicted reader finishes on its own handle.
         let opened = Arc::new(Mutex::new(Reader::open(
-            path, width, height, chain, pre, rate, target,
+            path, width, height, chain, pre, rate, still, target,
         )?));
         let mut readers = self
             .readers
@@ -667,6 +676,31 @@ mod tests {
             near(past_end, 89),
             "past the end read {past_end}, wanted the last frame"
         );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A JPEG still through a pool that cannot cache: every request has to
+    /// decode afresh from the same warm reader. FFmpeg's image demuxer
+    /// reads a single JPEG once and never again after a seek, so this
+    /// fails the moment a still is sought - which is every request, unless
+    /// stills are read repeating and never sought.
+    #[test]
+    fn a_jpeg_still_is_served_again_and_again_without_a_seek() {
+        let path = std::env::temp_dir().join("concat-pool-still.jpg");
+        let mut frame = Frame::black(64, 64);
+        frame.fill([200, 30, 30, 255]);
+        let bytes = crate::encode::jpeg(&frame, 2).expect("the linked FFmpeg encodes jpeg");
+        std::fs::write(&path, bytes).expect("writes the still");
+
+        let pool = ReaderPool::new(1, 4);
+        for attempt in 0..3 {
+            let got = pool
+                .frame_at(&path, FrameRate::THIRTY.time_of_frame(attempt), 64, 64, true, None, None)
+                .unwrap_or_else(|error| panic!("request {attempt} decodes: {error}"));
+            let red = got.pixel(32, 32).expect("in bounds")[0];
+            assert!(red > 150, "request {attempt} read red {red}, wanted the still");
+        }
 
         let _ = std::fs::remove_file(&path);
     }

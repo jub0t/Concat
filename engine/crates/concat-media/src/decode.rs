@@ -433,7 +433,15 @@ impl Decoder {
             return Ok(None);
         };
         self.position = source.pts;
-        let frame = self.convert(&source.frame)?;
+        // The buffer source takes the picture it is handed, and a repeating
+        // decoder needs that picture again after the end: it converts a
+        // reference and keeps the original, as the paced path does.
+        let frame = if self.options.looping {
+            let reference = source.frame.clone();
+            self.convert(&reference)?
+        } else {
+            self.convert(&source.frame)?
+        };
         self.current = Some(source);
         Ok(Some(frame))
     }
