@@ -977,9 +977,10 @@ component TextPage inherits Rectangle {
     }
 }
 
-// One preset, as a card: the name drawn in the look, on the stage's own
-// dark ground so a white title reads as it will on footage, with the plate
-// behind it when the look has one.
+// One preset, as a card: the same "Aa" drawn in every look, on a dark
+// ground so a white title reads as it will on footage, with the plate
+// behind it when the look has one. The same two letters on every card so
+// the looks compare, the names being underneath.
 component PresetCard inherits Rectangle {
     in property <TextPresetData> preset;
 
@@ -1007,7 +1008,7 @@ component PresetCard inherits Rectangle {
                 y: 0;
                 height: root.width * 9 / 16;
                 border-radius: Theme.r;
-                background: Theme.stage;
+                background: Theme.sample-ground;
                 border-width: 1px;
                 border-color: touch.has-hover ? Theme.line-strong : Theme.line;
                 clip: true;
@@ -1025,7 +1026,7 @@ component PresetCard inherits Rectangle {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     width: Math.min(parent.width - 12px, self.preferred-width);
-                    text: root.preset.name;
+                    text: "Aa";
                     color: root.preset.fill;
                     font-family: root.preset.family;
                     font-weight: root.preset.weight;

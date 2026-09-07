@@ -181,6 +181,9 @@ export global Light {
     // picture. This is the one place a light theme is asked to stay dark.
     out property <color> stage: #000000;
     out property <color> on-stage-dim: #ffffff6b;
+    // Dark here too, for the same reason as the stage, but lifted well off
+    // black so it sits in a light window as a card rather than a hole.
+    out property <color> sample-ground: #4a4a50;
 
     // The sheet that covers the window behind a dialog. Lighter than the dark
     // palette's — it only has to push a light window back far enough for a
