@@ -31,7 +31,7 @@ use concat_host::preview::FrameSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
-use concat_media::Peaks;
+use concat_media::{Peaks, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -4289,6 +4289,90 @@ impl Studio {
         };
     }
 
+    /// CapCut-style freeze at the playhead on a picture clip.
+    ///
+    /// Video extracts a JPEG still into the project cache; images reuse their
+    /// media. The engine command splits the clip, inserts the hold, and
+    /// ripples the rest of the lane.
+    pub fn freeze_at_playhead(&mut self) {
+        let at = f64::from(self.playhead);
+        let edge = f64::from(MIN_DURATION);
+        let target = self
+            .menu_target
+            .clone()
+            .or_else(|| self.sole_selection())
+            .and_then(|id| self.clip(&id).cloned())
+            .filter(|clip| {
+                (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image)
+                    && !self.locked(&clip.track_id)
+                    && at > clip.start + edge
+                    && at < clip.start + clip.duration - edge
+            });
+        let Some(clip) = target else {
+            self.notify("Park the playhead inside a picture clip to freeze", true);
+            return;
+        };
+
+        let still = if clip.kind == model::ClipKind::Video {
+            let Some(media) = self
+                .project()
+                .media
+                .iter()
+                .find(|item| item.id == clip.media_id)
+            else {
+                return;
+            };
+            let Some(session) = self.session.as_ref() else {
+                return;
+            };
+            let project_path = session.path().to_owned();
+            let source_time = clip.source_start + (at - clip.start) * clip.speed;
+            let frame = match media::still_at(&media.path, source_time, 1280) {
+                Ok(frame) => frame,
+                Err(error) => {
+                    self.notify(&error, true);
+                    return;
+                }
+            };
+            let bytes = match jpeg(&frame, 4) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    self.notify(&format!("{error}"), true);
+                    return;
+                }
+            };
+            let key = format!(
+                "freeze-{}-{}.jpg",
+                clip.id,
+                (source_time * 1000.0).round() as i64
+            );
+            if let Err(error) = media::write_artwork(&project_path, &key, &bytes) {
+                self.notify(&error, true);
+                return;
+            }
+            let path = format!("{project_path}/cache/{key}");
+            match media::probe(&path) {
+                Ok(summary) => Some(summary.to_new_media()),
+                Err(error) => {
+                    self.notify(&error, true);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+
+        let created = self.apply(Command::FreezeFrame {
+            clip_id: clip.id,
+            time: at,
+            duration: Some(1.0),
+            still,
+        });
+        if let Some(id) = created {
+            self.selection = vec![id];
+        }
+    }
+
     /// A copy of `source` laid after it. Three commands, because a clip's
     /// in-point and length are set by trims, not by placement.
     /// Duplicate every unlocked selected clip (right-to-left by start so
@@ -6345,6 +6429,15 @@ impl Studio {
                 "S",
                 straddled && !locked,
             ),
+            action(
+                "freeze",
+                "Freeze frame".into(),
+                Glyph::Frame,
+                "F",
+                straddled
+                    && !locked
+                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
+            ),
             rule(),
         ];
         let audible = clip.kind != model::ClipKind::Image;
@@ -6721,6 +6814,7 @@ impl Studio {
                 self.selection = vec![id.to_owned()];
                 self.split_at(at, true);
             }
+            "freeze" => self.freeze_at_playhead(),
             "mute" => {
                 let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
                 self.apply(Command::UpdateClip {
