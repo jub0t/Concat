@@ -339,6 +339,47 @@ pub enum Command {
         /// Which property.
         property: KeyProperty,
     },
+    /// Puts a key on one parameter of one link of a clip's picture chain,
+    /// replacing whichever key on it was already within a hair of `at`.
+    /// The value is the parameter's own; the package's range is the
+    /// caller's to keep, the model not knowing it.
+    SetEffectKey {
+        /// The clip.
+        clip_id: String,
+        /// Which link, as an index into `video_effects`. Out of range is a
+        /// no-op.
+        entry: usize,
+        /// The parameter's manifest key.
+        key: String,
+        /// Where in the clip, `0..=1`.
+        at: f64,
+        /// The value there.
+        value: f64,
+        /// How the key is approached from the one before it.
+        #[serde(default)]
+        ease: KeyEase,
+    },
+    /// Takes the key at `at` off one parameter of one link, if there is one.
+    ClearEffectKey {
+        /// The clip.
+        clip_id: String,
+        /// Which link, as an index into `video_effects`.
+        entry: usize,
+        /// The parameter's manifest key.
+        key: String,
+        /// Where in the clip the key to remove sits, `0..=1`.
+        at: f64,
+    },
+    /// Takes every key off one parameter of one link, returning it to the
+    /// value it holds.
+    ClearEffectKeys {
+        /// The clip.
+        clip_id: String,
+        /// Which link, as an index into `video_effects`.
+        entry: usize,
+        /// The parameter's manifest key.
+        key: String,
+    },
     /// Sets or clears a picture's cutout: the mask that takes its
     /// background away. Tidied on the way in; see [`Cutout::tidy`].
     SetClipCutout {
@@ -1091,11 +1132,7 @@ pub fn apply(
                 crop: None,
                 cutout: None,
                 filters: Vec::new(),
-                video_effects: vec![AppliedFilter {
-                    id: effect_id,
-                    params: Default::default(),
-                    enabled: true,
-                }],
+                video_effects: vec![AppliedFilter::new(effect_id)],
                 muted: None,
                 detached_from: None,
                 transition_in: None,
@@ -1458,6 +1495,71 @@ pub fn apply(
                 return Ok(Outcome::default());
             };
             let applied = clip.clear_keys(property);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetEffectKey {
+            clip_id,
+            entry,
+            key,
+            at,
+            value,
+            ease,
+        } => {
+            let timeline = project.active_mut();
+            let Some(link) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.video_effects.get_mut(entry))
+            else {
+                return Ok(Outcome::default());
+            };
+            if !at.is_finite() || !value.is_finite() {
+                return Ok(Outcome::default());
+            }
+            let before = link.keys.clone();
+            link.set_key(&key, at, value, ease);
+            Ok(Outcome {
+                created_id: None,
+                applied: link.keys != before,
+            })
+        }
+
+        Command::ClearEffectKey {
+            clip_id,
+            entry,
+            key,
+            at,
+        } => {
+            let timeline = project.active_mut();
+            let Some(link) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.video_effects.get_mut(entry))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = link.clear_key(&key, at);
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::ClearEffectKeys {
+            clip_id,
+            entry,
+            key,
+        } => {
+            let timeline = project.active_mut();
+            let Some(link) = timeline
+                .clip_mut(&clip_id)
+                .and_then(|clip| clip.video_effects.get_mut(entry))
+            else {
+                return Ok(Outcome::default());
+            };
+            let applied = link.clear_keys(&key);
             Ok(Outcome {
                 created_id: None,
                 applied,

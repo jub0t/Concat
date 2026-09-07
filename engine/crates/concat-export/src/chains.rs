@@ -30,11 +30,7 @@ mod tests {
     use super::*;
 
     fn applied(id: &str) -> AppliedFilter {
-        AppliedFilter {
-            id: id.to_owned(),
-            params: Default::default(),
-            enabled: true,
-        }
+        AppliedFilter::new(id)
     }
 
     #[test]

@@ -70,6 +70,7 @@ mod tests {
                 .map(|(key, value)| ((*key).to_owned(), *value))
                 .collect(),
             enabled: true,
+            keys: Default::default(),
         }
     }
 

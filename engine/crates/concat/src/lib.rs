@@ -667,6 +667,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
         keys.on_clear(on_lanes!(|state, field: ClipField| {
             state.clear_keys_on(field);
         }));
+        // The same three verbs for the Adjust panel's knobs, which are
+        // named rather than enumerated.
+        keys.on_toggle_param(on_lanes!(|state, key: SharedString| {
+            state.toggle_adjust_key(key.as_str());
+        }));
+        keys.on_step_param(on_lanes!(|state, key: SharedString, delta: i32| {
+            state.step_adjust_key(key.as_str(), delta);
+        }));
+        keys.on_clear_param(on_lanes!(|state, key: SharedString| {
+            state.clear_adjust_keys(key.as_str());
+        }));
     }
 
     // The effect libraries' search, shelves and stars. Rust does the

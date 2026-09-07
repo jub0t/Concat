@@ -199,6 +199,13 @@ export global Keyframes {
     /// person could see.
     callback clear(field: ClipField);
 
+    /// The same three verbs for a knob named rather than enumerated - the
+    /// Adjust panel's, whose rows come from the colour package's manifest
+    /// and carry their own key state; see AppliedParamData.
+    callback toggle-param(key: string);
+    callback step-param(key: string, delta: int);
+    callback clear-param(key: string);
+
     /// A row for a field with no keys and nowhere to step.
     pure public function blank(field: ClipField) -> ClipKeyData {
         return { field: field, keyed: false, here: false, prev: false, next: false };

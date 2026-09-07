@@ -788,6 +788,7 @@ fn render_picture(
         treatments,
         pre_chains,
         passes,
+        riding,
         cutouts,
         highlight: _,
     } = build_timeline(request, rate, visible, gpu);
@@ -820,6 +821,7 @@ fn render_picture(
         reporter.cancelled()?;
 
         let time = rate.time_of_frame(index);
+        let frame_seconds = time.as_f64();
         let plan = plan_frame(&timeline, time);
 
         let mut sources: Vec<Source<Frame>> = Vec::with_capacity(plan.layers.len());
@@ -850,7 +852,7 @@ fn render_picture(
                         transform: layer.transform,
                         track: tracks.get(&layer.clip).copied().unwrap_or(0),
                         blend: layer.blend,
-                        passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                        passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
                     });
                 }
                 continue;
@@ -923,7 +925,7 @@ fn render_picture(
                     transform: layer.transform,
                     track: tracks.get(&layer.clip).copied().unwrap_or(0),
                     blend: layer.blend,
-                    passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                    passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
                 });
             }
         }
@@ -989,12 +991,43 @@ struct BuiltTimeline {
     pre_chains: HashMap<ClipId, String>,
     /// The clip's shader passes, on a GPU renderer.
     passes: HashMap<ClipId, Vec<ShaderPass>>,
+    /// The clips whose chains ride: a knob with keys is worth something
+    /// different each frame, so their passes are built per frame from the
+    /// chain and the clip's span rather than read from `passes`.
+    riding: HashMap<ClipId, RidingChain>,
     /// The clip whose cutout is drawn tinted rather than cut, if one is.
     highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
     treatments: Vec<Treatment>,
     /// The clips whose background a mask takes away.
     cutouts: HashMap<ClipId, CutoutJob>,
+}
+
+/// A picture chain with keys on it, and where its clip sits, so a frame's
+/// passes can be built at the right point of the ride.
+struct RidingChain {
+    effects: Vec<AppliedFilter>,
+    start: f64,
+    duration: f64,
+}
+
+/// The shader passes for one clip at one frame: built for the instant when
+/// the chain rides, and the ones built once otherwise.
+fn passes_at(
+    passes: &HashMap<ClipId, Vec<ShaderPass>>,
+    riding: &HashMap<ClipId, RidingChain>,
+    clip: ClipId,
+    seconds: f64,
+) -> Vec<ShaderPass> {
+    if let Some(chain) = riding.get(&clip) {
+        let at = if chain.duration > 0.0 {
+            ((seconds - chain.start) / chain.duration).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        return Catalogue::builtin().shader_passes_at(&chain.effects, at);
+    }
+    passes.get(&clip).cloned().unwrap_or_default()
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
@@ -1129,6 +1162,7 @@ fn build_timeline(
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut passes: HashMap<ClipId, Vec<ShaderPass>> = HashMap::new();
+    let mut riding: HashMap<ClipId, RidingChain> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
 
@@ -1213,6 +1247,16 @@ fn build_timeline(
                 if !clip_passes.is_empty() {
                     passes.insert(id, clip_passes);
                 }
+                if clip.effects.iter().any(|link| link.enabled && !link.keys.is_empty()) {
+                    riding.insert(
+                        id,
+                        RidingChain {
+                            effects: clip.effects.clone(),
+                            start: clip.start,
+                            duration: clip.duration,
+                        },
+                    );
+                }
             }
             if let Some(job) = CutoutJob::of(clip) {
                 cutouts.insert(id, job);
@@ -1232,6 +1276,7 @@ fn build_timeline(
         treatments,
         pre_chains,
         passes,
+        riding,
         cutouts,
         highlight,
     }
@@ -1495,10 +1540,12 @@ pub fn preview_sources(
         treatments,
         pre_chains,
         passes,
+        riding,
         cutouts,
         highlight,
     } = preview_timeline(request, rate, gpu);
     let time = quantise(request.time, rate);
+    let frame_seconds = time.as_f64();
     let plan = plan_frame(&timeline, time);
 
     let mut sources: Vec<Source<std::sync::Arc<Frame>>> = Vec::with_capacity(plan.layers.len());
@@ -1539,7 +1586,7 @@ pub fn preview_sources(
                     transform: layer.transform,
                     track: tracks.get(&layer.clip).copied().unwrap_or(0),
                     blend: layer.blend,
-                    passes: passes.get(&layer.clip).cloned().unwrap_or_default(),
+                    passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
                 })
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),

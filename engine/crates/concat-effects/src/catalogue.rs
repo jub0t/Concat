@@ -504,19 +504,34 @@ impl Catalogue {
     /// entry whose package has a shader. A filter's intensity rides along;
     /// an effect is always whole.
     pub fn shader_passes(&self, effects: &[AppliedFilter]) -> Vec<ShaderPass> {
+        self.passes_with(effects, |applied| applied.params.clone())
+    }
+
+    /// The same passes at one instant of the clip, `at` in `0..=1`: a
+    /// parameter with keys is worth what its ride says there. What a
+    /// renderer asks for each frame of a clip whose chain rides.
+    pub fn shader_passes_at(&self, effects: &[AppliedFilter], at: f64) -> Vec<ShaderPass> {
+        self.passes_with(effects, |applied| applied.params_at(at))
+    }
+
+    fn passes_with(
+        &self,
+        effects: &[AppliedFilter],
+        params_of: impl Fn(&AppliedFilter) -> BTreeMap<String, f64>,
+    ) -> Vec<ShaderPass> {
         effects
             .iter()
             .filter(|applied| applied.enabled)
             .filter_map(|applied| {
                 let package = self.get(&applied.id)?;
                 let shader = package.shader()?;
+                let set = params_of(applied);
                 let intensity = if package.kind() == Kind::Filter {
-                    (applied.params.get(INTENSITY).copied().unwrap_or(100.0) / 100.0)
-                        .clamp(0.0, 1.0) as f32
+                    (set.get(INTENSITY).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0) as f32
                 } else {
                     1.0
                 };
-                let values = package.resolve(&applied.params);
+                let values = package.resolve(&set);
                 Some(shader.pass(&values, &package.manifest.params, intensity))
             })
             .collect()

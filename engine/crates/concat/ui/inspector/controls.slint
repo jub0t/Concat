@@ -280,16 +280,29 @@ component KeyButton inherits Rectangle {
 // arriving at one is how you edit it.
 export component KeyCluster inherits HorizontalLayout {
     in property <ClipField> field;
+    /// A knob named rather than enumerated - an Adjust row - keys by this
+    /// name instead of `field`, and is handed its state rather than looking
+    /// it up. Empty for a field.
+    in property <string> name;
+    in property <ClipKeyData> state: Keyframes.row(root.field);
 
-    property <ClipKeyData> state: Keyframes.row(root.field);
     property <bool> live: Keyframes.available;
+
+    function toggle() {
+        if (root.name == "") { Keyframes.toggle(root.field); }
+        else { Keyframes.toggle-param(root.name); }
+    }
+    function step(delta: int) {
+        if (root.name == "") { Keyframes.step(root.field, delta); }
+        else { Keyframes.step-param(root.name, delta); }
+    }
 
     spacing: 1px;
 
     prev := KeyButton {
         glyph: Glyph.chevron-left;
         enabled: root.live && root.state.prev;
-        clicked => { Keyframes.step(root.field, -1); }
+        clicked => { root.step(-1); }
     }
 
     diamond := KeyButton {
@@ -301,13 +314,13 @@ export component KeyCluster inherits HorizontalLayout {
         filled: root.state.here;
         enabled: root.live;
         tint: root.state.here || root.state.keyed ? Theme.accent : Theme.fg-dim;
-        clicked => { Keyframes.toggle(root.field); }
+        clicked => { root.toggle(); }
     }
 
     next := KeyButton {
         glyph: Glyph.chevron-right;
         enabled: root.live && root.state.next;
-        clicked => { Keyframes.step(root.field, 1); }
+        clicked => { root.step(1); }
     }
 }
 
@@ -343,6 +356,9 @@ export component Param inherits VerticalLayout {
     /// row would otherwise claim to be keying scale.
     in property <bool> keyable: false;
     in property <ClipField> field;
+    /// See KeyCluster: a row keyed by name is handed its key state.
+    in property <string> key-name;
+    in property <ClipKeyData> key-state: Keyframes.row(root.field);
 
     callback changed(value: float);
 
@@ -351,11 +367,21 @@ export component Param inherits VerticalLayout {
     spacing: 4px;
 
     HorizontalLayout {
+        // Double-click the label to put the value back. The label rather
+        // than the field, which a double-click would only start typing in.
         Text {
             text: root.label;
             color: Theme.fg-muted;
             font-size: Theme.fs;
             vertical-alignment: center;
+
+            TouchArea {
+                enabled: root.enabled;
+                double-clicked => {
+                    root.value = root.default-value;
+                    root.changed(root.default-value);
+                }
+            }
         }
 
         Rectangle { horizontal-stretch: 1; }
@@ -394,7 +420,11 @@ export component Param inherits VerticalLayout {
         if root.keyable: Rectangle { width: 6px; }
         if root.keyable: VerticalLayout {
             alignment: center;
-            KeyCluster { field: root.field; }
+            KeyCluster {
+                field: root.field;
+                name: root.key-name;
+                state: root.key-state;
+            }
         }
     }
 

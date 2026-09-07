@@ -171,7 +171,7 @@
   "Exported · {0}": "Exported · {0}",
   "Export…": "Export…",
   "Exposure": "Exposure",
-  "Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a knob to put it back.": "Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a knob to put it back.",
+  "Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead.": "Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead.",
   "Fade": "Fade",
   "Fade in": "Fade in",
   "Fade out": "Fade out",

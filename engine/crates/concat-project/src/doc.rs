@@ -18,13 +18,15 @@
 //! flat `tracks`/`clips` mirror of the active timeline that keeps documents
 //! openable in builds that predate multiple timelines.
 
+use std::collections::BTreeMap;
+
 use serde_json::{Map, Value, json};
 
 use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
     AppliedFilter, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout, KeyEase,
-    KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, TextAlign, TextStyle, Timeline, Track,
-    Transition, VideoSettings,
+    KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign, TextStyle,
+    Timeline, Track, Transition, VideoSettings,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -123,11 +125,40 @@ fn read_filters(raw: Option<&Value>) -> Vec<AppliedFilter> {
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(AppliedFilter {
+            let mut filter = AppliedFilter {
                 id,
                 params,
                 enabled: flag(entry.get("enabled"), true),
-            })
+                keys: read_param_keys(entry.get("keys")),
+            };
+            filter.sort_keys();
+            Some(filter)
+        })
+        .collect()
+}
+
+/// An effect's parameter keys: a run per parameter name, each key read
+/// with the same tolerance as a clip's own.
+fn read_param_keys(raw: Option<&Value>) -> BTreeMap<String, Vec<ParamKey>> {
+    let Some(runs) = raw.and_then(Value::as_object) else {
+        return BTreeMap::new();
+    };
+    runs.iter()
+        .filter_map(|(name, run)| {
+            let keys: Vec<ParamKey> = run
+                .as_array()?
+                .iter()
+                .filter_map(|entry| {
+                    let at = number(entry.get("at"), -1.0);
+                    let value = number(entry.get("value"), f64::NAN);
+                    ((0.0..=1.0).contains(&at) && value.is_finite()).then_some(ParamKey {
+                        at,
+                        value,
+                        ease: read_ease(entry.get("ease")),
+                    })
+                })
+                .collect();
+            (!keys.is_empty()).then(|| (name.clone(), keys))
         })
         .collect()
 }

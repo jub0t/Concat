@@ -961,9 +961,23 @@ fn set_slot(
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
 
+/// The ease a key put on at `at` inherits: that of whichever key it joins
+/// behind, so laying a run of keys down does not alternate between shapes.
+/// The first key on a parameter has nothing to inherit and gets the
+/// straight line.
+fn ease_before(keys: &[model::ParamKey], at: f64) -> model::KeyEase {
+    keys.iter()
+        .rev()
+        .find(|key| key.at < at)
+        .map_or(model::KeyEase::LINEAR, |key| key.ease)
+}
+
 /// The colour panel's rows: the adjust package's parameters, at the values
 /// the clip's chain holds or at the defaults when the clip carries none.
-fn adjust_rows(chain: &[AppliedFilter]) -> Vec<AppliedParamData> {
+/// Every one can be keyed; `at` is the playhead's place in the clip, `0..=1`,
+/// or None when it is outside - a keyed knob then shows its ride's value
+/// there, and its cluster says whether a key sits under the playhead.
+fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData> {
     let Some(package) = Catalogue::builtin().get(ADJUST_ID) else {
         return Vec::new();
     };
@@ -972,24 +986,50 @@ fn adjust_rows(chain: &[AppliedFilter]) -> Vec<AppliedParamData> {
         .manifest
         .params
         .iter()
-        .map(|param| AppliedParamData {
-            entry: -1,
-            key: param.key.as_str().into(),
-            label: t(&param.label).into(),
-            group: t(&param.group).into(),
-            unit: param.unit.as_str().into(),
-            min: param.min as f32,
-            max: param.max as f32,
-            step: if param.step > 0.0 {
-                param.step as f32
-            } else {
-                ((param.max - param.min) / 200.0) as f32
-            },
-            default_value: param.default as f32,
-            value: held
-                .and_then(|entry| entry.params.get(&param.key).copied())
-                .unwrap_or(param.default) as f32,
-            fmt: format_of(&param.unit),
+        .map(|param| {
+            let keyed = held.is_some_and(|entry| entry.is_keyed(&param.key));
+            let (here, prev, next) = match (held, at) {
+                (Some(entry), Some(at)) if keyed => {
+                    let (prev, next) = entry.keys_around(&param.key, at);
+                    (
+                        entry.key_at(&param.key, at).is_some(),
+                        prev.is_some(),
+                        next.is_some(),
+                    )
+                }
+                _ => (false, false, false),
+            };
+            let value = match (held, at) {
+                (Some(entry), Some(at)) => entry.value_at(&param.key, at, param.default),
+                (Some(entry), None) => entry
+                    .params
+                    .get(&param.key)
+                    .copied()
+                    .unwrap_or(param.default),
+                (None, _) => param.default,
+            };
+            AppliedParamData {
+                entry: -1,
+                key: param.key.as_str().into(),
+                label: t(&param.label).into(),
+                group: t(&param.group).into(),
+                unit: param.unit.as_str().into(),
+                min: param.min as f32,
+                max: param.max as f32,
+                step: if param.step > 0.0 {
+                    param.step as f32
+                } else {
+                    ((param.max - param.min) / 200.0) as f32
+                },
+                default_value: param.default as f32,
+                value: value as f32,
+                fmt: format_of(&param.unit),
+                keyable: true,
+                keyed,
+                here,
+                prev,
+                next,
+            }
         })
         .collect()
 }
@@ -1040,6 +1080,11 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                     .copied()
                     .unwrap_or(100.0) as f32,
                 fmt: ParamFormat::Percent,
+                keyable: false,
+                keyed: false,
+                here: false,
+                prev: false,
+                next: false,
             });
         }
         for param in &package.manifest.params {
@@ -1064,6 +1109,11 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                     .copied()
                     .unwrap_or(param.default) as f32,
                 fmt: format_of(&param.unit),
+                keyable: false,
+                keyed: false,
+                here: false,
+                prev: false,
+                next: false,
             });
         }
     }
@@ -1539,11 +1589,7 @@ impl Studio {
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
         if let Some(filter_id) = self.audition.clone() {
-            let effects = vec![AppliedFilter {
-                id: filter_id,
-                params: std::collections::BTreeMap::new(),
-                enabled: true,
-            }];
+            let effects = vec![AppliedFilter::new(filter_id)];
             let video_filter_chain = concat_export::chains::video_effect_chain(&effects);
             let track = clips.iter().map(|flat| flat.track).max().map_or(0, |top| top + 1);
             clips.push(concat_export::ExportClip {
@@ -2200,11 +2246,7 @@ impl Studio {
             self.notify("A still has no sound to filter", true);
             return;
         }
-        let entry = AppliedFilter {
-            id: id.to_owned(),
-            params: std::collections::BTreeMap::new(),
-            enabled: true,
-        };
+        let entry = AppliedFilter::new(id);
         let patch = if video {
             let mut effects = clip.video_effects.clone();
             effects.push(entry);
@@ -2400,6 +2442,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        let point = self.key_point().map(|(_, at)| at);
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
@@ -2407,27 +2450,129 @@ impl Studio {
         if !clip.kind.is_visual() {
             return;
         }
-        let at = match clip
+        let entry = match clip
             .video_effects
             .iter()
             .position(|entry| entry.id == ADJUST_ID)
         {
-            Some(at) => at,
+            Some(entry) => entry,
             None => {
-                clip.video_effects.insert(
-                    0,
-                    AppliedFilter {
-                        id: ADJUST_ID.to_owned(),
-                        params: std::collections::BTreeMap::new(),
-                        enabled: true,
-                    },
-                );
+                clip.video_effects.insert(0, AppliedFilter::new(ADJUST_ID));
                 0
             }
         };
-        clip.video_effects[at]
-            .params
-            .insert(key.to_owned(), f64::from(value));
+        let link = &mut clip.video_effects[entry];
+        match point {
+            // A knob that rides is edited where the playhead is: the value
+            // becomes the key there, put on if there was none. Setting the
+            // constant under a ride would change nothing on screen.
+            Some(at) if link.is_keyed(key) => {
+                let ease = ease_before(link.keys_on(key), at);
+                link.set_key(key, at, f64::from(value), ease);
+            }
+            _ => {
+                link.params.insert(key.to_owned(), f64::from(value));
+            }
+        }
+    }
+
+    /// The colour link of the selected clip - the one the Adjust panel's
+    /// keys go on - by index, with the clip and the playhead's place in it.
+    /// None when nothing is selected, it is not a picture, or the playhead
+    /// is outside it.
+    fn adjust_point(&self) -> Option<(Clip, f64, Option<usize>)> {
+        let (clip, at) = self.key_point()?;
+        if !clip.kind.is_visual() {
+            return None;
+        }
+        let entry = clip
+            .video_effects
+            .iter()
+            .position(|entry| entry.id == ADJUST_ID);
+        Some((clip.clone(), at, entry))
+    }
+
+    /// Puts a key on one Adjust knob at the playhead, or takes off the one
+    /// there. Like `toggle_key`, the new key holds what the knob is worth
+    /// at that instant, so pressing the diamond never moves the picture.
+    pub fn toggle_adjust_key(&mut self, key: &str) {
+        let Some((clip, at, entry)) = self.adjust_point() else {
+            return;
+        };
+        let default = Catalogue::builtin()
+            .get(ADJUST_ID)
+            .and_then(|package| package.manifest.params.iter().find(|p| p.key == key))
+            .map_or(0.0, |param| param.default);
+        let clip_id = clip.id.clone();
+        let Some(entry) = entry else {
+            // No colour link yet: one goes on, then the key on it, as one
+            // edit, so an undo takes both back.
+            let mut effects = clip.video_effects.clone();
+            effects.insert(0, AppliedFilter::new(ADJUST_ID));
+            self.apply(Command::Batch {
+                commands: vec![
+                    Command::UpdateClip {
+                        clip_id: clip_id.clone(),
+                        patch: ClipPatch {
+                            video_effects: Some(effects),
+                            ..ClipPatch::default()
+                        },
+                    },
+                    Command::SetEffectKey {
+                        clip_id,
+                        entry: 0,
+                        key: key.to_owned(),
+                        at,
+                        value: default,
+                        ease: model::KeyEase::LINEAR,
+                    },
+                ],
+            });
+            return;
+        };
+        let link = &clip.video_effects[entry];
+        let command = if link.key_at(key, at).is_some() {
+            Command::ClearEffectKey {
+                clip_id,
+                entry,
+                key: key.to_owned(),
+                at,
+            }
+        } else {
+            Command::SetEffectKey {
+                clip_id,
+                entry,
+                key: key.to_owned(),
+                at,
+                value: link.value_at(key, at, default),
+                ease: ease_before(link.keys_on(key), at),
+            }
+        };
+        self.apply(command);
+    }
+
+    /// Takes every key off one Adjust knob, leaving it the value it holds.
+    pub fn clear_adjust_keys(&mut self, key: &str) {
+        let Some((clip, _, Some(entry))) = self.adjust_point() else {
+            return;
+        };
+        self.apply(Command::ClearEffectKeys {
+            clip_id: clip.id,
+            entry,
+            key: key.to_owned(),
+        });
+    }
+
+    /// Moves the playhead to an Adjust knob's previous (-1) or next (+1) key.
+    pub fn step_adjust_key(&mut self, key: &str, delta: i32) {
+        let Some((clip, at, Some(entry))) = self.adjust_point() else {
+            return;
+        };
+        let (prev, next) = clip.video_effects[entry].keys_around(key, at);
+        let Some(target) = (if delta < 0 { prev } else { next }) else {
+            return;
+        };
+        self.seek((clip.start + target * clip.duration) as f32);
     }
 
     // ── gestures ──
@@ -5031,7 +5176,9 @@ impl Studio {
         sync(
             &models.adjust_params,
             match self.sole_selection().and_then(|id| self.clip(&id)) {
-                Some(clip) if clip.kind.is_visual() => adjust_rows(&clip.video_effects),
+                Some(clip) if clip.kind.is_visual() => {
+                    adjust_rows(&clip.video_effects, self.key_point().map(|(_, at)| at))
+                }
                 _ => Vec::new(),
             },
         );

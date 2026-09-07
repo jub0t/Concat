@@ -266,7 +266,6 @@ pub fn volume_curve(clip: &concat_project::model::Clip) -> Vec<(f64, f64)> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use concat_project::commands::{ClipPatch, NewMedia, TrackFlag};
     use concat_project::model::AppliedFilter;
@@ -359,11 +358,7 @@ mod tests {
             .apply(Command::UpdateClip {
                 clip_id,
                 patch: ClipPatch {
-                    video_effects: Some(vec![AppliedFilter {
-                        id: "sepia".into(),
-                        params: BTreeMap::new(),
-                        enabled: true,
-                    }]),
+                    video_effects: Some(vec![AppliedFilter::new("sepia")]),
                     ..Default::default()
                 },
             })

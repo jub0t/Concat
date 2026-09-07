@@ -1558,4 +1558,67 @@ mod tests {
         );
         assert_eq!(text.opacity, 1.0);
     }
+
+    #[test]
+    fn effect_keys_ride_a_knob_and_survive_the_document() {
+        use crate::model::{AppliedFilter, KeyEase};
+        let (mut editor, _, clip_id) = fixture();
+        let mut link = AppliedFilter::new("concat.adjust");
+        link.params.insert("exposure".to_owned(), 1.0);
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    video_effects: Some(vec![link]),
+                    ..ClipPatch::default()
+                },
+            })
+            .expect("applies");
+        for (at, value) in [(0.0, -1.0), (1.0, 1.0)] {
+            editor
+                .apply(Command::SetEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry: 0,
+                    key: "exposure".to_owned(),
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        let link = &editor.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        assert!(link.is_keyed("exposure"));
+        assert!(!link.is_keyed("contrast"));
+        // Halfway along a straight ride between -1 and 1 is 0; the constant
+        // is what the knob falls back to once the keys come off.
+        assert!((link.value_at("exposure", 0.5, 0.0)).abs() < 1e-9);
+        assert_eq!(link.params_at(0.25).get("exposure").copied(), Some(-0.5));
+        assert_eq!(link.keys_around("exposure", 0.5), (Some(0.0), Some(1.0)));
+        assert!(link.key_at("exposure", 1.0).is_some());
+
+        let document = editor.to_document(&settings());
+        let restored = Editor::from_document(&document).expect("loads");
+        let link = &restored.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        assert_eq!(link.keys_on("exposure").len(), 2);
+
+        let mut editor = restored;
+        editor
+            .apply(Command::ClearEffectKey {
+                clip_id: clip_id.clone(),
+                entry: 0,
+                key: "exposure".to_owned(),
+                at: 1.0,
+            })
+            .expect("clears one");
+        editor
+            .apply(Command::ClearEffectKeys {
+                clip_id: clip_id.clone(),
+                entry: 0,
+                key: "exposure".to_owned(),
+            })
+            .expect("clears the rest");
+        let link = &editor.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        assert!(!link.is_keyed("exposure"));
+        assert_eq!(link.value_at("exposure", 0.5, 0.0), 1.0);
+    }
 }

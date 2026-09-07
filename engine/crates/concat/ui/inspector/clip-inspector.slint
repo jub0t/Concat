@@ -126,6 +126,15 @@ export struct AppliedParamData {
     default-value: float,
     value: float,
     fmt: ParamFormat,
+    /// The knob can carry keys - the Adjust panel's can, a chain's cannot
+    /// yet - and, when it can, the same four facts a ClipKeyData holds:
+    /// it rides at all, a key sits under the playhead, and there is one
+    /// behind or ahead to step to.
+    keyable: bool,
+    keyed: bool,
+    here: bool,
+    prev: bool,
+    next: bool,
 }
 
 /// The favourites chip: a star that filters the shelf down to what is on it.
@@ -1700,7 +1709,7 @@ export component AdjustPanel inherits VerticalLayout {
         }
 
         if root.help: Note {
-            text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a knob to put it back.");
+            text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead.");
         }
 
         // See PresetStack for why each row re-seeds its knob. A subhead
@@ -1727,6 +1736,15 @@ export component AdjustPanel inherits VerticalLayout {
                         step: p.step;
                         default-value: p.default-value;
                         fmt: p.fmt;
+                        keyable: p.keyable;
+                        key-name: p.key;
+                        key-state: {
+                            field: ClipField.scale,
+                            keyed: p.keyed,
+                            here: p.here,
+                            prev: p.prev,
+                            next: p.next,
+                        };
                         changed(v) => { root.set(p.key, v); root.commit(); }
                     }
                 }

@@ -141,10 +141,164 @@ pub struct AppliedFilter {
     /// False bypasses without losing settings. Absent means enabled.
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// The knobs that ride rather than hold: a sorted run of keys per
+    /// parameter name, each `at` a fraction of the clip like a `ClipKey`'s.
+    /// A parameter with keys is played from them and its `params` entry is
+    /// only what it falls back to with the keys taken off.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub keys: BTreeMap<String, Vec<ParamKey>>,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// One key on one parameter of an applied effect; see `AppliedFilter::keys`.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParamKey {
+    /// Where in the clip, as a fraction of its timeline length, `0..=1`.
+    pub at: f64,
+    /// The value there, in the parameter's own units.
+    pub value: f64,
+    /// How this key is approached from the previous one.
+    #[serde(default)]
+    pub ease: KeyEase,
+}
+
+impl AppliedFilter {
+    /// A link with nothing set: the package's defaults, enabled.
+    pub fn new(id: impl Into<String>) -> AppliedFilter {
+        AppliedFilter {
+            id: id.into(),
+            params: BTreeMap::new(),
+            enabled: true,
+            keys: BTreeMap::new(),
+        }
+    }
+
+    /// This parameter's keys, in order; empty for one that holds still.
+    pub fn keys_on(&self, key: &str) -> &[ParamKey] {
+        self.keys.get(key).map_or(&[], Vec::as_slice)
+    }
+
+    /// Whether this parameter rides at all.
+    pub fn is_keyed(&self, key: &str) -> bool {
+        !self.keys_on(key).is_empty()
+    }
+
+    /// The index into this parameter's keys of the one at `at`, within
+    /// `KEY_EPSILON`, choosing the nearest when two are in reach.
+    pub fn key_at(&self, key: &str, at: f64) -> Option<usize> {
+        self.keys_on(key)
+            .iter()
+            .enumerate()
+            .filter(|(_, held)| (held.at - at).abs() <= KEY_EPSILON)
+            .min_by(|(_, a), (_, b)| (a.at - at).abs().total_cmp(&(b.at - at).abs()))
+            .map(|(index, _)| index)
+    }
+
+    /// This parameter's keys as the engine plays them.
+    pub fn track_on(&self, key: &str) -> concat_core::animate::Track {
+        concat_core::animate::Track::new(
+            self.keys_on(key)
+                .iter()
+                .map(|held| concat_core::animate::Key {
+                    at: held.at,
+                    value: held.value,
+                    ease: held.ease.into(),
+                })
+                .collect(),
+        )
+    }
+
+    /// What a parameter is worth at `at`: its ride where it is keyed, and
+    /// otherwise what `params` holds, or `fallback` - the package's default,
+    /// which the model does not know - when that holds nothing either.
+    pub fn value_at(&self, key: &str, at: f64, fallback: f64) -> f64 {
+        let constant = self.params.get(key).copied().unwrap_or(fallback);
+        if !self.is_keyed(key) {
+            return constant;
+        }
+        self.track_on(key).value_at(at, constant)
+    }
+
+    /// Every set parameter at `at`: `params` with each keyed one replaced
+    /// by its ride's value there. What a renderer resolves a frame from.
+    pub fn params_at(&self, at: f64) -> BTreeMap<String, f64> {
+        let mut set = self.params.clone();
+        for (key, held) in &self.keys {
+            if held.is_empty() {
+                continue;
+            }
+            let rest = self.params.get(key).copied().unwrap_or(0.0);
+            set.insert(key.clone(), self.track_on(key).value_at(at, rest));
+        }
+        set
+    }
+
+    /// The nearest key strictly before `at`, and the nearest strictly after;
+    /// see `Clip::keys_around`.
+    pub fn keys_around(&self, key: &str, at: f64) -> (Option<f64>, Option<f64>) {
+        let mut before: Option<f64> = None;
+        let mut after: Option<f64> = None;
+        for held in self.keys_on(key) {
+            if held.at < at - KEY_EPSILON {
+                before = Some(before.map_or(held.at, |seen: f64| seen.max(held.at)));
+            } else if held.at > at + KEY_EPSILON {
+                after = Some(after.map_or(held.at, |seen: f64| seen.min(held.at)));
+            }
+        }
+        (before, after)
+    }
+
+    /// Sets a key, replacing whichever key on that parameter was already
+    /// within `KEY_EPSILON` of `at`. Keeps the run sorted by `at`.
+    pub fn set_key(&mut self, key: &str, at: f64, value: f64, ease: KeyEase) {
+        if !at.is_finite() || !value.is_finite() {
+            return;
+        }
+        let at = at.clamp(0.0, 1.0);
+        let slot = self.key_at(key, at);
+        let run = self.keys.entry(key.to_owned()).or_default();
+        match slot {
+            Some(index) => run[index] = ParamKey { at, value, ease },
+            None => run.push(ParamKey { at, value, ease }),
+        }
+        run.sort_by(|a, b| a.at.total_cmp(&b.at));
+    }
+
+    /// Removes this parameter's key at `at`, if there is one. True when a
+    /// key actually went; the run goes with its last key.
+    pub fn clear_key(&mut self, key: &str, at: f64) -> bool {
+        let Some(index) = self.key_at(key, at) else {
+            return false;
+        };
+        if let Some(run) = self.keys.get_mut(key) {
+            run.remove(index);
+            if run.is_empty() {
+                self.keys.remove(key);
+            }
+        }
+        true
+    }
+
+    /// Takes every key off one parameter. True when there were any.
+    pub fn clear_keys(&mut self, key: &str) -> bool {
+        self.keys.remove(key).is_some_and(|run| !run.is_empty())
+    }
+
+    /// Drops keys that are not finite or not in `0..=1`, empty runs with
+    /// them, and orders what is left. For the document reader.
+    pub fn sort_keys(&mut self) {
+        for run in self.keys.values_mut() {
+            run.retain(|key| {
+                key.at.is_finite() && key.value.is_finite() && (0.0..=1.0).contains(&key.at)
+            });
+            run.sort_by(|a, b| a.at.total_cmp(&b.at));
+        }
+        self.keys.retain(|_, run| !run.is_empty());
+    }
 }
 
 /// How a picture's background is taken away when there is no key colour
