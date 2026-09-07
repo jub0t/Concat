@@ -6574,10 +6574,16 @@ impl Studio {
                 });
             }
             "lock" => self.toggle_lock(&clip.track_id),
+            // A clip that is part of the selection takes the selection with
+            // it: Delete on one of five selected clips means the five.
             "delete" => {
-                self.apply(Command::RemoveClips {
-                    clip_ids: vec![id.to_owned()],
-                });
+                if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
+                    self.delete_selected();
+                } else {
+                    self.apply(Command::RemoveClips {
+                        clip_ids: vec![id.to_owned()],
+                    });
+                }
                 self.menu_target = None;
             }
             _ => {}
