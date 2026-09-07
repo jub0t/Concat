@@ -37,8 +37,8 @@ import {
 } from "../timeline/model.slint";
 
 // The editor's clip inspector: one panel, three tabs. Adjust is direct
-// controls; Filters and Effects differ only in their catalogue, so both are
-// PresetStack with different data.
+// controls; Effects and Audio are each a PresetStack over their chain. A
+// filter is a layer on the lanes and gets FilterPanel, not a chain.
 
 /// One parameter a preset exposes. `value` doubles as the default in the
 /// catalogue: applying a preset copies the row, and double-click restores

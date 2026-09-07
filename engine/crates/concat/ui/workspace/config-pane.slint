@@ -20,8 +20,8 @@ import {
 //
 // - Nothing selected: the Details panel — the project's facts, read-only,
 //   with Modify pinned to the foot.
-// - Something selected: the clip inspector — Adjust, Filters and Effects,
-//   or Text alone for a title.
+// - Something selected: the clip inspector — Video, Audio and Effects, or
+//   Text alone for a title, or the layer panel for a filter on the lanes.
 
 // One fact: muted label left, value right. The value wraps rather than
 // elides — a folder path you cannot read is a path you have to go find.
@@ -129,14 +129,13 @@ export component ConfigPane inherits Rectangle {
     // ── the clip inspector's chains, owned by Rust ───────────────────────
     //
     // The library shelves come from the effect catalogue, the applied lists
-    // from the selected clip. Two chains: the picture's, which the Filters
-    // and Effects tabs both edit, and the sound's, which Audio edits. A
-    // `audio` flag on every callback says which.
+    // from the selected clip. Two chains: the picture's, which Effects
+    // edits, and the sound's, which Audio edits. A `audio` flag on every
+    // callback says which. A filter is neither: it is a layer on the lanes,
+    // with a panel of its own.
     in property <[CatalogueEntryData]> catalogue-effects;
-    in property <[CatalogueEntryData]> catalogue-filters;
     in property <[CatalogueEntryData]> catalogue-audio;
     in property <[string]> effect-groups;
-    in property <[string]> filter-groups;
     in property <[string]> audio-groups;
     in property <[AppliedEntryData]> applied-visual;
     in property <[AppliedEntryData]> applied-audio;
@@ -234,7 +233,7 @@ export component ConfigPane inherits Rectangle {
                 : ["Basic", "Speed", "Animation", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
-        : root.heading == "Effects" ? ["Filters", "Effects"]
+        : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text", "Animation"]
         : ["Layer"];
     /// The sections as the dropdown shows them; see `tabs-shown`.
@@ -243,7 +242,7 @@ export component ConfigPane inherits Rectangle {
                 : [I18n.t("Basic"), I18n.t("Speed"), I18n.t("Animation"), I18n.t("Adjust")])
         : root.heading == "Audio"
             ? (root.is-audio ? [I18n.t("Sound"), I18n.t("Speed")] : [I18n.t("Sound")])
-        : root.heading == "Effects" ? [I18n.t("Filters"), I18n.t("Effects")]
+        : root.heading == "Effects" ? [I18n.t("Effects")]
         : root.heading == "Text" ? [I18n.t("Text"), I18n.t("Animation")]
         : [I18n.t("Layer")];
 
@@ -279,9 +278,7 @@ export component ConfigPane inherits Rectangle {
         if (root.jump-tab == "Video") { root.tab = 0; }
         else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
         else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }
-        if (root.jump-section == "Effects") { root.pick-section(1); }
-        else if (root.jump-section == "Filters") { root.pick-section(0); }
-        else { root.pick-section(0); }
+        root.pick-section(0);
     }
     changed jump-token => { root.jump(); }
     init => { root.jump(); }
@@ -604,30 +601,8 @@ export component ConfigPane inherits Rectangle {
                     }
                 }
 
-                // Filters and Effects share one chain — a look and a blur
-                // are links of the same picture chain, in one order — and
-                // differ only in which shelves they offer.
-                if root.showing == "Filters": PresetStack {
-                    noun: I18n.t("filter");
-                    library-title: I18n.t("Filters");
-                    library: false;
-                    empty-note: I18n.t("No filter on this clip yet. Pick one from the Library's Filters page.");
-                    shelf: 0;
-                    group-labels: root.filter-groups;
-                    catalogue: root.catalogue-filters;
-                    applied: root.applied-visual;
-                    params: root.visual-params;
-
-                    add(id) => { root.chain-add(false, id); }
-                    toggle(index) => { root.chain-toggle(false, index); }
-                    move-by(index, delta) => { root.chain-move-by(false, index, delta); }
-                    remove(index) => { root.chain-remove(false, index); }
-                    set-param(index, key, value) => {
-                        root.chain-set-param(false, index, key, value);
-                    }
-                    commit => { root.clip-commit(); }
-                }
-
+                // The picture's chain. Filters are not in it: a filter is a
+                // layer on the lanes, edited in its own panel.
                 if root.showing == "Effects": PresetStack {
                     noun: I18n.t("effect");
                     library-title: I18n.t("Effects");

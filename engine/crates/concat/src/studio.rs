@@ -2224,20 +2224,10 @@ impl Studio {
         // Show it: the applied chain is where the knobs are, and a card
         // that did something with no visible result reads as a card that
         // did nothing.
-        let is_look = Catalogue::builtin()
-            .packages()
-            .find(|package| package.answers_to(id))
-            .is_some_and(|package| package.kind() == PackageKind::Filter);
         self.inspector_jump = (
             self.inspector_jump.0 + 1,
             if video { "Effects" } else { "Audio" },
-            if !video {
-                "Sound"
-            } else if is_look {
-                "Filters"
-            } else {
-                "Effects"
-            },
+            if video { "Effects" } else { "Sound" },
         );
     }
 
