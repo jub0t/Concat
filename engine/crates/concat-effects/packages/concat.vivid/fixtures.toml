@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "eq=contrast=1.250,vibrance=intensity=0.900,unsharp=5:5:0.300"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "eq=contrast=1.000,vibrance=intensity=0.000,unsharp=5:5:0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "eq=contrast=1.500,vibrance=intensity=1.500,unsharp=5:5:0.600"

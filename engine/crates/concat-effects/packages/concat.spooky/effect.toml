@@ -1,0 +1,23 @@
+[effect]
+id = "concat.spooky"
+name = "Spooky"
+kind = "filter"
+category = "Stylised"
+order = 41
+intensity = "dread"
+description = "Drained colour, a green-cyan cast, crushed blacks and a heavy vignette. For the season."
+
+[[param]]
+key = "dread"
+label = "Dread"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "eq=saturation={fixed(1 - dread / 100 * 0.6, 3)}:contrast={fixed(1 + dread / 100 * 0.4, 3)}:brightness={fixed(0 - dread / 100 * 0.08, 3)},colorbalance=rm={fixed(0 - dread / 100 * 0.08, 3)}:gm={fixed(dread / 100 * 0.1, 3)}:bm={fixed(dread / 100 * 0.06, 3)},vignette=a={fixed(dread / 100 * 1.1, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,32 @@
+[effect]
+id = "concat.fresh"
+name = "Fresh"
+kind = "filter"
+category = "Everyday"
+order = 10
+intensity = "pop"
+description = "Brighter and richer, with a breath of mint in the highlights: daylight footage made to pop."
+
+[[param]]
+key = "pop"
+label = "Pop"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "brightness"
+label = "Brightness"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "eq=brightness={fixed(brightness / 100 * 0.12, 3)}:saturation={fixed(1 + pop / 100 * 0.5, 3)},colorbalance=gh={fixed(pop / 100 * 0.08, 3)}:bh={fixed(pop / 100 * 0.04, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

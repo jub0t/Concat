@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "eq=contrast=1.080:saturation=1.060"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "eq=contrast=1.000:saturation=1.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "eq=contrast=1.160:saturation=1.120"

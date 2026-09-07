@@ -1,0 +1,32 @@
+[effect]
+id = "concat.golden-hour"
+name = "Golden Hour"
+kind = "filter"
+category = "Everyday"
+order = 14
+intensity = "glow"
+description = "Late-afternoon light: warm balance, orange in the highlights, a whisper of magenta in the shadows, blacks lifted."
+
+[[param]]
+key = "glow"
+label = "Glow"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 3500
+max = 6500
+default = 4600
+step = 50
+unit = "K"
+
+[ffmpeg]
+chain = "colortemperature=temperature={round(warmth)},colorbalance=rh={fixed(glow / 100 * 0.15, 3)}:gh={fixed(glow / 100 * 0.05, 3)}:rs={fixed(glow / 100 * 0.06, 3)}:bs={fixed(glow / 100 * 0.04, 3)},curves=all='0/{fixed(glow / 100 * 0.04, 3)} 1/1'"
+
+[wgsl]
+entry = "effect.wgsl"

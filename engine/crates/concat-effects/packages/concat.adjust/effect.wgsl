@@ -14,27 +14,6 @@ struct Params {
     fade: f32,
 }
 
-fn kelvin(k: f32) -> vec3<f32> {
-    let t = clamp(k, 1000.0, 40000.0) / 100.0;
-    var r: f32;
-    var g: f32;
-    var b: f32;
-    if (t <= 66.0) {
-        r = 1.0;
-        g = clamp((99.4708 * log(t) - 161.1196) / 255.0, 0.0, 1.0);
-        if (t <= 19.0) {
-            b = 0.0;
-        } else {
-            b = clamp((138.5177 * log(t - 10.0) - 305.0448) / 255.0, 0.0, 1.0);
-        }
-    } else {
-        r = clamp(329.6987 * pow(t - 60.0, -0.1332) / 255.0, 0.0, 1.0);
-        g = clamp(288.1222 * pow(t - 60.0, -0.0755) / 255.0, 0.0, 1.0);
-        b = 1.0;
-    }
-    return vec3<f32>(r, g, b);
-}
-
 // The manual colour panel, in the order a colourist works: exposure and
 // balance, then tone, then the edge and the frame.
 fn effect(uv: vec2<f32>) -> vec4<f32> {
@@ -46,7 +25,7 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     c = c * exp2(params.exposure) + vec3<f32>(params.brightness / 100.0 * 0.5);
 
     // White balance about daylight, and green to magenta.
-    c = c * (kelvin(params.temperature) / kelvin(6500.0));
+    c = white_balance(c, params.temperature);
     c.g = c.g - params.tint / 100.0 * 0.25;
 
     // Contrast about middle grey, saturation about luminance.

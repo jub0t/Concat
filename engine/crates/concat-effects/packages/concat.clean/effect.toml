@@ -1,0 +1,23 @@
+[effect]
+id = "concat.clean"
+name = "Clean"
+kind = "filter"
+category = "Everyday"
+order = 12
+intensity = "amount"
+description = "Barely there: neutral balance, a little contrast, colour left honest. What a talking head wants."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "eq=contrast={fixed(1 + amount / 100 * 0.16, 3)}:saturation={fixed(1 + amount / 100 * 0.12, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

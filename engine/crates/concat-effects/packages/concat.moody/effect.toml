@@ -1,0 +1,32 @@
+[effect]
+id = "concat.moody"
+name = "Moody"
+kind = "filter"
+category = "Cinematic"
+order = 20
+intensity = "depth"
+description = "Crushed shadows, bronze midtones, colour pulled back, the corners closing in."
+
+[[param]]
+key = "depth"
+label = "Depth"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "eq=contrast={fixed(1 + depth / 100 * 0.35, 3)}:saturation={fixed(1 - depth / 100 * 0.4, 3)}:brightness={fixed(0 - depth / 100 * 0.06, 3)},colorbalance=rm={fixed(warmth / 100 * 0.1, 3)}:gm={fixed(warmth / 100 * 0.03, 3)}:bm={fixed(0 - warmth / 100 * 0.08, 3)},vignette=a={fixed(depth / 100 * 0.9, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

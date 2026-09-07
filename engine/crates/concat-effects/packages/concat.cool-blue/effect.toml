@@ -1,0 +1,32 @@
+[effect]
+id = "concat.cool-blue"
+name = "Cool Blue"
+kind = "filter"
+category = "Cinematic"
+order = 21
+intensity = "chill"
+description = "Blue in the shadows and midtones, the highlights left neutral, contrast up. Cities at dusk."
+
+[[param]]
+key = "chill"
+label = "Chill"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "contrast"
+label = "Contrast"
+min = 0
+max = 100
+default = 30
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "colorbalance=bs={fixed(chill / 100 * 0.25, 3)}:rs={fixed(0 - chill / 100 * 0.08, 3)}:bm={fixed(chill / 100 * 0.12, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.4, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

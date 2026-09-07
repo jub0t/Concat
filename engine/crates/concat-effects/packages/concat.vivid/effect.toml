@@ -1,0 +1,32 @@
+[effect]
+id = "concat.vivid"
+name = "Vivid"
+kind = "filter"
+category = "Everyday"
+order = 11
+intensity = "colour"
+description = "Contrast that bites and colour that sings, sharpened a touch: the look that reads as a better camera."
+
+[[param]]
+key = "colour"
+label = "Colour"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "punch"
+label = "Punch"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "eq=contrast={fixed(1 + punch / 100 * 0.5, 3)},vibrance=intensity={fixed(colour / 100 * 1.5, 3)},unsharp=5:5:{fixed(punch / 100 * 0.6, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

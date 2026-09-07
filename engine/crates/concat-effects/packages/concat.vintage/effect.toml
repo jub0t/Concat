@@ -1,0 +1,32 @@
+[effect]
+id = "concat.vintage"
+name = "Vintage"
+kind = "filter"
+category = "Retro"
+order = 30
+intensity = "age"
+description = "Faded blacks, muted colour, a drift toward yellow-green, a soft vignette: a seventies print."
+
+[[param]]
+key = "age"
+label = "Age"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "tint"
+label = "Tint"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(age / 100 * 0.12, 3)} 1/{fixed(1 - age / 100 * 0.06, 3)}',eq=saturation={fixed(1 - age / 100 * 0.35, 3)}:contrast={fixed(1 - age / 100 * 0.12, 3)},colorbalance=rm={fixed(tint / 100 * 0.06, 3)}:gm={fixed(tint / 100 * 0.06, 3)}:bm={fixed(0 - tint / 100 * 0.1, 3)},vignette=a={fixed(age / 100 * 0.5, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

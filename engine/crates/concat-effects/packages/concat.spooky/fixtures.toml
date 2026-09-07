@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "eq=saturation=0.640:contrast=1.240:brightness=-0.048,colorbalance=rm=-0.048:gm=0.060:bm=0.036,vignette=a=0.660"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "eq=saturation=1.000:contrast=1.000:brightness=0.000,colorbalance=rm=0.000:gm=0.000:bm=0.000,vignette=a=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "eq=saturation=0.400:contrast=1.400:brightness=-0.080,colorbalance=rm=-0.080:gm=0.100:bm=0.060,vignette=a=1.100"

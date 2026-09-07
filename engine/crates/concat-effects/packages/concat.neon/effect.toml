@@ -1,0 +1,32 @@
+[effect]
+id = "concat.neon"
+name = "Neon"
+kind = "filter"
+category = "Stylised"
+order = 40
+intensity = "glow"
+description = "Magenta in the shadows, cyan in the highlights, hard contrast and colour turned up. Night streets and signage."
+
+[[param]]
+key = "glow"
+label = "Glow"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "punch"
+label = "Punch"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "colorbalance=rs={fixed(glow / 100 * 0.18, 3)}:gs={fixed(0 - glow / 100 * 0.1, 3)}:bs={fixed(glow / 100 * 0.18, 3)}:rh={fixed(0 - glow / 100 * 0.1, 3)}:gh={fixed(glow / 100 * 0.1, 3)}:bh={fixed(glow / 100 * 0.15, 3)},eq=contrast={fixed(1 + punch / 100 * 0.5, 3)}:saturation={fixed(1 + punch / 100 * 0.6, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "colorchannelmixer=rr=0.440:rg=0.470:rb=0.090:gr=0.440:gg=0.470:gb=0.090:br=0.440:bg=0.470:bb=0.090,eq=contrast=1.160"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "colorchannelmixer=rr=-0.050:rg=0.890:rb=0.160:gr=-0.050:gg=0.890:gb=0.160:br=-0.050:bg=0.890:bb=0.160,eq=contrast=1.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "colorchannelmixer=rr=0.650:rg=0.290:rb=0.060:gr=0.650:gg=0.290:gb=0.060:br=0.650:bg=0.290:bb=0.060,eq=contrast=1.400"

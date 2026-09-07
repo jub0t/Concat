@@ -62,6 +62,124 @@ fn hash(p: vec2<f32>, seed: f32) -> f32 {
     let q = vec3<f32>(p, seed);
     return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
 }
+
+// ── the grading library ──
+//
+// Every look is a few of these in different amounts, so they live here,
+// once, rather than in each package. Each has an FFmpeg twin a manifest's
+// chain can reach for: `saturation` is eq=saturation, `contrast` is
+// eq=contrast, `fade` and `s_curve` are curves, `split_tone` and
+// `tint_midtones` are colorbalance, `white_balance` is colortemperature,
+// `vignette` is vignette, `mono` is colorchannelmixer.
+
+/// Everything held to the displayable range.
+fn clamp01(rgb: vec3<f32>) -> vec3<f32> {
+    return clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+/// Saturation about luminance: 1 as shot, 0 grey, above 1 richer.
+fn saturation(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    return mix(vec3<f32>(luma(rgb)), rgb, amount);
+}
+
+/// Vibrance: the muted colours saturated more than the vivid ones, so a
+/// face does not go orange before a sky goes blue. 0 as shot.
+fn vibrance(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let mx = max(max(rgb.r, rgb.g), rgb.b);
+    let mn = min(min(rgb.r, rgb.g), rgb.b);
+    return saturation(rgb, 1.0 + amount * (1.0 - (mx - mn)));
+}
+
+/// Contrast about middle grey: 1 as shot.
+fn contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    return (rgb - vec3<f32>(0.5)) * amount + vec3<f32>(0.5);
+}
+
+/// An S-curve: shadows down, highlights up, the midtones held. 0 as shot,
+/// 1 the whole curve.
+fn s_curve(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let c = clamp01(rgb);
+    return mix(c, c * c * (vec3<f32>(3.0) - 2.0 * c), amount);
+}
+
+/// A fade: the blacks lifted to `lift` and the rest compressed to fit,
+/// which is what an old print and every faded look does.
+fn fade(rgb: vec3<f32>, lift: f32) -> vec3<f32> {
+    return rgb * (1.0 - lift) + vec3<f32>(lift);
+}
+
+/// Lift, gamma, gain: the three-way grade. Lift moves the shadows, gain
+/// scales the highlights, gamma bends the midtones; (0, 1, 1) in every
+/// channel is as shot.
+fn lift_gamma_gain(rgb: vec3<f32>, lift: vec3<f32>, gamma: vec3<f32>, gain: vec3<f32>) -> vec3<f32> {
+    let lifted = rgb * (vec3<f32>(1.0) - lift) + lift;
+    let gained = clamp01(lifted * gain);
+    return pow(gained, vec3<f32>(1.0) / max(gamma, vec3<f32>(0.01)));
+}
+
+/// How much of a pixel is shadow, highlight or midtone, by luminance:
+/// the weights a tint on one end of the picture and not the other needs.
+fn shadows(rgb: vec3<f32>) -> f32 {
+    return 1.0 - smoothstep(0.0, 0.6, luma(rgb));
+}
+fn highlights(rgb: vec3<f32>) -> f32 {
+    return smoothstep(0.4, 1.0, luma(rgb));
+}
+fn midtones(rgb: vec3<f32>) -> f32 {
+    return 1.0 - min(abs(luma(rgb) - 0.5) * 2.0, 1.0);
+}
+
+/// A split tone: one tint into the shadows and another into the
+/// highlights, each a signed offset per channel, so zero is as shot.
+fn split_tone(rgb: vec3<f32>, shadow: vec3<f32>, highlight: vec3<f32>, amount: f32) -> vec3<f32> {
+    return rgb + (shadow * shadows(rgb) + highlight * highlights(rgb)) * amount;
+}
+
+/// A tint over the midtones alone, the same signed offset.
+fn tint_midtones(rgb: vec3<f32>, tint: vec3<f32>, amount: f32) -> vec3<f32> {
+    return rgb + tint * midtones(rgb) * amount;
+}
+
+/// The colour of black-body light at `k` kelvin.
+fn kelvin(k: f32) -> vec3<f32> {
+    let t = clamp(k, 1000.0, 40000.0) / 100.0;
+    var r: f32;
+    var g: f32;
+    var b: f32;
+    if (t <= 66.0) {
+        r = 1.0;
+        g = clamp((99.4708 * log(t) - 161.1196) / 255.0, 0.0, 1.0);
+        if (t <= 19.0) {
+            b = 0.0;
+        } else {
+            b = clamp((138.5177 * log(t - 10.0) - 305.0448) / 255.0, 0.0, 1.0);
+        }
+    } else {
+        r = clamp(329.6987 * pow(t - 60.0, -0.1332) / 255.0, 0.0, 1.0);
+        g = clamp(288.1222 * pow(t - 60.0, -0.0755) / 255.0, 0.0, 1.0);
+        b = 1.0;
+    }
+    return vec3<f32>(r, g, b);
+}
+
+/// White balance: the picture as if lit at `k` kelvin while the camera
+/// was set for daylight. 6500 is as shot.
+fn white_balance(rgb: vec3<f32>, k: f32) -> vec3<f32> {
+    return rgb * (kelvin(k) / kelvin(6500.0));
+}
+
+/// A vignette: the corners darkened by `amount` from a clear middle.
+fn vignette(rgb: vec3<f32>, uv: vec2<f32>, amount: f32) -> vec3<f32> {
+    let d = distance(uv, vec2<f32>(0.5)) * 1.4142;
+    return rgb * (1.0 - smoothstep(0.35, 1.1, d) * amount);
+}
+
+/// Black and white through a coloured filter: the channel weights, made
+/// to sum to one. A red filter darkens skies and lightens skin.
+fn mono(rgb: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
+    let w = weights / max(weights.r + weights.g + weights.b, 0.001);
+    return vec3<f32>(dot(rgb, w));
+}
 "#;
 
 /// The stages the host draws with: a full-screen triangle, and a fragment

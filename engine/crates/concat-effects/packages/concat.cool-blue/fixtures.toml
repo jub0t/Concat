@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "colorbalance=bs=0.150:rs=-0.048:bm=0.072,eq=contrast=1.120"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "colorbalance=bs=0.000:rs=0.000:bm=0.000,eq=contrast=1.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "colorbalance=bs=0.250:rs=-0.080:bm=0.120,eq=contrast=1.400"

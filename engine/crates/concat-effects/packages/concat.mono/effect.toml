@@ -1,0 +1,37 @@
+[effect]
+id = "concat.mono"
+name = "Mono"
+kind = "filter"
+category = "Retro"
+order = 32
+intensity = "contrast"
+description = "Black and white through a coloured filter: red darkens skies and lightens skin, green does the reverse."
+
+[[param]]
+key = "colour"
+label = "Colour filter"
+min = -100
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[[param]]
+key = "contrast"
+label = "Contrast"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "r = 0.3 + 0.35 * colour / 100",
+  "b = 0.11 - 0.05 * colour / 100",
+  "g = 1 - r - b",
+]
+chain = "colorchannelmixer=rr={fixed(r, 3)}:rg={fixed(g, 3)}:rb={fixed(b, 3)}:gr={fixed(r, 3)}:gg={fixed(g, 3)}:gb={fixed(b, 3)}:br={fixed(r, 3)}:bg={fixed(g, 3)}:bb={fixed(b, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.4, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"
