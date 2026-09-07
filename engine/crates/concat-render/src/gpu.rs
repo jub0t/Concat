@@ -104,6 +104,10 @@ struct CompiledShader {
     bind_group: wgpu::BindGroup,
 }
 
+/// One draw of a composite: the pooled texture's size and index, and how
+/// it meets the ground.
+type Draw = (u32, u32, usize, Blend);
+
 /// A cached layer texture and its bind group, reusable for any layer of the
 /// same size.
 struct PooledTexture {
@@ -555,7 +559,7 @@ impl WgpuCompositor {
         time: f32,
         layers: &[(Layer<'_>, usize)],
         treatments: &[Treatment<'_>],
-    ) -> (Vec<(u32, u32, usize, Blend)>, Vec<Vertex>) {
+    ) -> (Vec<Draw>, Vec<Vertex>) {
         self.used.values_mut().for_each(|used| *used = 0);
         let mut ground: Option<usize> = None;
         let mut next = 0;
