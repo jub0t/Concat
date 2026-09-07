@@ -1,0 +1,32 @@
+[effect]
+id = "concat.film"
+name = "Film"
+kind = "filter"
+category = "Cinematic"
+order = 24
+intensity = "grain"
+description = "A film curve with a soft toe and shoulder, a little warmth, and grain that moves."
+
+[[param]]
+key = "grain"
+label = "Grain"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/0.03 0.25/0.22 0.75/0.8 1/0.97',colorbalance=rm={fixed(warmth / 100 * 0.06, 3)}:bm={fixed(0 - warmth / 100 * 0.06, 3)},noise=alls={round(grain / 100 * 30)}:allf=t"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,34 @@
+[effect]
+id = "concat.retro-cartoon"
+name = "Retro Cartoon"
+kind = "filter"
+category = "Stylised"
+order = 43
+intensity = "ink"
+description = "Flat bands of colour with inked edges, like a printed comic."
+
+[[param]]
+key = "levels"
+label = "Levels"
+min = 2
+max = 8
+default = 5
+step = 1
+
+[[param]]
+key = "ink"
+label = "Ink"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "size = round(256 / max(round(levels), 2))",
+]
+chain = "lutrgb=r=trunc(val/{size})*{size}:g=trunc(val/{size})*{size}:b=trunc(val/{size})*{size},split[inka{index}][inkb{index}];[inkb{index}]edgedetect=mode=colormix:low=0.08:high=0.25[inke{index}];[inka{index}][inke{index}]blend=all_mode=normal:all_opacity={fixed(ink / 100, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

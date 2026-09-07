@@ -1,0 +1,32 @@
+[effect]
+id = "concat.vhs"
+name = "VHS"
+kind = "filter"
+category = "Retro"
+order = 33
+intensity = "bleed"
+description = "Colour bleeding sideways, scan lines, softness, tape noise and too much saturation."
+
+[[param]]
+key = "bleed"
+label = "Bleed"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "lines"
+label = "Lines"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "chromashift=crh={round(0 - bleed / 100 * 6)}:cbh={round(bleed / 100 * 6)},gblur=sigma={fixed(0.2 + bleed / 100 * 0.8, 2)},eq=saturation=1.3,noise=alls={round(lines / 100 * 20)}:allf=t"
+
+[wgsl]
+entry = "effect.wgsl"

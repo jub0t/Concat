@@ -180,6 +180,84 @@ fn mono(rgb: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
     let w = weights / max(weights.r + weights.g + weights.b, 0.001);
     return vec3<f32>(dot(rgb, w));
 }
+
+// ── targeting and texture: the taps a look takes around a pixel, and the
+// bands of colour it singles out. FFmpeg twins: `hue_mask` is
+// selectivecolor, `soften` is gblur, `grain_at` is noise, `edge_at` is
+// edgedetect.
+
+/// Hue in degrees, 0..360; 0 for a grey.
+fn hue_of(rgb: vec3<f32>) -> f32 {
+    let mx = max(max(rgb.r, rgb.g), rgb.b);
+    let mn = min(min(rgb.r, rgb.g), rgb.b);
+    let d = mx - mn;
+    if (d < 0.0001) {
+        return 0.0;
+    }
+    var h: f32;
+    if (mx == rgb.r) {
+        h = (rgb.g - rgb.b) / d;
+    } else if (mx == rgb.g) {
+        h = 2.0 + (rgb.b - rgb.r) / d;
+    } else {
+        h = 4.0 + (rgb.r - rgb.g) / d;
+    }
+    return fract(h / 6.0) * 360.0;
+}
+
+/// Chroma, 0..1: how far from grey.
+fn chroma_of(rgb: vec3<f32>) -> f32 {
+    return max(max(rgb.r, rgb.g), rgb.b) - min(min(rgb.r, rgb.g), rgb.b);
+}
+
+/// How much a pixel belongs to the hues within `width` degrees of
+/// `centre`, weighted by chroma so a grey belongs to no band.
+fn hue_mask(rgb: vec3<f32>, centre: f32, width: f32) -> f32 {
+    let d = abs(fract((hue_of(rgb) - centre) / 360.0 + 0.5) * 360.0 - 180.0);
+    return (1.0 - smoothstep(width * 0.5, width, d)) * smoothstep(0.0, 0.25, chroma_of(rgb));
+}
+
+/// The weight of skin: the orange band, a warm tan to a pale cheek.
+fn skin_mask(rgb: vec3<f32>) -> f32 {
+    return hue_mask(rgb, 25.0, 40.0);
+}
+
+/// The layer averaged over a square of taps `radius` pixels across: a
+/// bloom, a soft denoise, the blur an unsharp mask subtracts.
+fn soften(uv: vec2<f32>, radius: f32) -> vec3<f32> {
+    let t = texel() * radius * 0.5;
+    var sum = vec3<f32>(0.0);
+    for (var y: i32 = -2; y <= 2; y++) {
+        for (var x: i32 = -2; x <= 2; x++) {
+            sum += sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
+        }
+    }
+    return sum / 25.0;
+}
+
+/// Grain: noise that changes every frame, centred on zero, `amount` as a
+/// fraction of the range. Seeded by the frame's time so the monitor and
+/// the export show the same grain on the same frame.
+fn grain_at(uv: vec2<f32>, amount: f32) -> vec3<f32> {
+    let n = hash(uv * frame.size, fract(frame.time * 7.31)) - 0.5;
+    return vec3<f32>(n * amount);
+}
+
+/// The strength of an edge at `uv`: Sobel on luminance, 0..1.
+fn edge_at(uv: vec2<f32>) -> f32 {
+    let t = texel();
+    let tl = luma(sample(uv + vec2<f32>(-t.x, -t.y)).rgb);
+    let tc = luma(sample(uv + vec2<f32>(0.0, -t.y)).rgb);
+    let tr = luma(sample(uv + vec2<f32>(t.x, -t.y)).rgb);
+    let ml = luma(sample(uv + vec2<f32>(-t.x, 0.0)).rgb);
+    let mr = luma(sample(uv + vec2<f32>(t.x, 0.0)).rgb);
+    let bl = luma(sample(uv + vec2<f32>(-t.x, t.y)).rgb);
+    let bc = luma(sample(uv + vec2<f32>(0.0, t.y)).rgb);
+    let br = luma(sample(uv + vec2<f32>(t.x, t.y)).rgb);
+    let gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+    let gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
+    return clamp(sqrt(gx * gx + gy * gy), 0.0, 1.0);
+}
 "#;
 
 /// The stages the host draws with: a full-screen triangle, and a fragment

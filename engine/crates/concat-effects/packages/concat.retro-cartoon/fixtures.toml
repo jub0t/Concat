@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "lutrgb=r=trunc(val/51)*51:g=trunc(val/51)*51:b=trunc(val/51)*51,split[inka0][inkb0];[inkb0]edgedetect=mode=colormix:low=0.08:high=0.25[inke0];[inka0][inke0]blend=all_mode=normal:all_opacity=0.600"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "lutrgb=r=trunc(val/128)*128:g=trunc(val/128)*128:b=trunc(val/128)*128,split[inka0][inkb0];[inkb0]edgedetect=mode=colormix:low=0.08:high=0.25[inke0];[inka0][inke0]blend=all_mode=normal:all_opacity=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "lutrgb=r=trunc(val/32)*32:g=trunc(val/32)*32:b=trunc(val/32)*32,split[inka0][inkb0];[inkb0]edgedetect=mode=colormix:low=0.08:high=0.25[inke0];[inka0][inke0]blend=all_mode=normal:all_opacity=1.000"

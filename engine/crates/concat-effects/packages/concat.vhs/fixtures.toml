@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "chromashift=crh=-4:cbh=4,gblur=sigma=0.68,eq=saturation=1.3,noise=alls=10:allf=t"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "chromashift=crh=0:cbh=0,gblur=sigma=0.20,eq=saturation=1.3,noise=alls=0:allf=t"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "chromashift=crh=-6:cbh=6,gblur=sigma=1.00,eq=saturation=1.3,noise=alls=20:allf=t"

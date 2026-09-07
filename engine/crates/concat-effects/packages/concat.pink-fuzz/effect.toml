@@ -1,0 +1,32 @@
+[effect]
+id = "concat.pink-fuzz"
+name = "Pink Fuzz"
+kind = "filter"
+category = "Stylised"
+order = 42
+intensity = "haze"
+description = "Low contrast, pink and lavender in the light, and a soft bloom over it all. The dreamy one."
+
+[[param]]
+key = "haze"
+label = "Haze"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "blush"
+label = "Blush"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(haze / 100 * 0.1, 3)} 1/1',eq=contrast={fixed(1 - haze / 100 * 0.2, 3)}:saturation={fixed(1 - haze / 100 * 0.15, 3)},colorbalance=rh={fixed(blush / 100 * 0.1, 3)}:gh={fixed(0 - blush / 100 * 0.04, 3)}:bh={fixed(blush / 100 * 0.08, 3)},split[fuzza{index}][fuzzb{index}];[fuzzb{index}]gblur=sigma=12[fuzzg{index}];[fuzza{index}][fuzzg{index}]blend=all_mode=screen:all_opacity={fixed(haze / 100 * 0.35, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"
