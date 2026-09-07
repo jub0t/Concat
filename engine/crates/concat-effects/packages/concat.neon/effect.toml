@@ -3,9 +3,9 @@ id = "concat.neon"
 name = "Neon"
 kind = "filter"
 category = "Stylised"
-order = 40
+order = 51
 intensity = "glow"
-description = "Magenta in the shadows, cyan in the highlights, hard contrast and colour turned up. Night streets and signage."
+description = "Magenta in the shadows, cyan in the highlights, hard contrast, colour turned up, and the lights themselves blooming. Night streets and signage."
 
 [[param]]
 key = "glow"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "colorbalance=rs={fixed(glow / 100 * 0.18, 3)}:gs={fixed(0 - glow / 100 * 0.1, 3)}:bs={fixed(glow / 100 * 0.18, 3)}:rh={fixed(0 - glow / 100 * 0.1, 3)}:gh={fixed(glow / 100 * 0.1, 3)}:bh={fixed(glow / 100 * 0.15, 3)},eq=contrast={fixed(1 + punch / 100 * 0.5, 3)}:saturation={fixed(1 + punch / 100 * 0.6, 3)}"
+chain = "colorbalance=rs={fixed(glow / 100 * 0.18, 3)}:gs={fixed(0 - glow / 100 * 0.1, 3)}:bs={fixed(glow / 100 * 0.18, 3)}:rh={fixed(0 - glow / 100 * 0.1, 3)}:gh={fixed(glow / 100 * 0.1, 3)}:bh={fixed(glow / 100 * 0.15, 3)},eq=contrast={fixed(1 + punch / 100 * 0.5, 3)}:saturation={fixed(1 + punch / 100 * 0.6, 3)},split[neona{index}][neonb{index}];[neonb{index}]gblur=sigma=10[neong{index}];[neona{index}][neong{index}]blend=all_mode=screen:all_opacity={fixed(glow / 100 * 0.25, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

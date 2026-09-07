@@ -20,13 +20,10 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let c = sample(uv);
     let leak = params.leak / 100.0;
     let dust = params.dust / 100.0;
-    // The warm fade, then the leak: a wash from the top-right corner,
-    // screened over, the colour of light through a gap in the camera.
-    var out = fade(c.rgb, 0.04) * 0.97;
+    var out = matte(c.rgb, 0.04, 0.97);
     out = split_tone(out, vec3<f32>(0.0), vec3<f32>(0.12, 0.03, -0.08), leak);
     let wash = (1.0 - smoothstep(0.0, 0.9, distance(uv, vec2<f32>(1.05, -0.1)))) * leak * 0.55;
     out = vec3<f32>(1.0) - (vec3<f32>(1.0) - out) * (vec3<f32>(1.0) - vec3<f32>(1.0, 0.72, 0.4) * wash);
-    // The motes, a couple of dozen of them, brightest where the leak is.
     var glow = 0.0;
     for (var k: i32 = 0; k < 28; k++) {
         glow += mote(uv, f32(k));

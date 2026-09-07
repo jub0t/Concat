@@ -1,13 +1,13 @@
 [[case]]
 name = "default"
-chain = "hue=s=0.280,colorbalance=rm=0.096:gm=0.032:bm=-0.096,eq=contrast=1.090"
+chain = "hue=s=0.280,colorbalance=rm=0.096:gm=0.032:bm=-0.096:rh=0.032:bh=-0.032,eq=contrast=1.090"
 
 [[case]]
 name = "minimum"
 at = "min"
-chain = "hue=s=1.000,colorbalance=rm=0.000:gm=0.000:bm=0.000,eq=contrast=1.000"
+chain = "hue=s=1.000,colorbalance=rm=0.000:gm=0.000:bm=0.000:rh=0.000:bh=0.000,eq=contrast=1.000"
 
 [[case]]
 name = "maximum"
 at = "max"
-chain = "hue=s=0.100,colorbalance=rm=0.120:gm=0.040:bm=-0.120,eq=contrast=1.300"
+chain = "hue=s=0.100,colorbalance=rm=0.120:gm=0.040:bm=-0.120:rh=0.040:bh=-0.040,eq=contrast=1.300"

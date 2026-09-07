@@ -1,0 +1,32 @@
+[effect]
+id = "concat.umber"
+name = "Umber"
+kind = "filter"
+category = "Everyday"
+order = 19
+intensity = "warmth"
+description = "The café look: warm brown through the middle, greens muted to olive, contrast eased. Cosy, and kind to wood and skin alike."
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "soften"
+label = "Soften"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "colorbalance=rm={fixed(warmth / 100 * 0.1, 3)}:gm={fixed(warmth / 100 * 0.03, 3)}:bm={fixed(0 - warmth / 100 * 0.1, 3)}:rs={fixed(warmth / 100 * 0.04, 3)}:bs={fixed(0 - warmth / 100 * 0.04, 3)},selectivecolor=greens='0 {fixed(warmth / 100 * 0.1, 3)} {fixed(warmth / 100 * 0.2, 3)} {fixed(warmth / 100 * 0.1, 3)}',eq=contrast={fixed(1 - soften / 100 * 0.12, 3)},curves=all='0/{fixed(soften / 100 * 0.05, 3)} 1/1'"
+
+[wgsl]
+entry = "effect.wgsl"

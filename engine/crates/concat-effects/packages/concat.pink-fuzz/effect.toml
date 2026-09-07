@@ -3,7 +3,7 @@ id = "concat.pink-fuzz"
 name = "Pink Fuzz"
 kind = "filter"
 category = "Stylised"
-order = 42
+order = 50
 intensity = "haze"
 description = "Low contrast, pink and lavender in the light, and a soft bloom over it all. The dreamy one."
 

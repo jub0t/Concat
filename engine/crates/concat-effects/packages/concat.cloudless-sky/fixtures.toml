@@ -1,13 +1,13 @@
 [[case]]
 name = "default"
-chain = "selectivecolor=blues='0.240 0 -0.180 0.090':greens='0.080 0 -0.080 0',eq=saturation=1.060"
+chain = "selectivecolor=blues='0.210 0 -0.150 0.072':cyans='0.120 0 -0.090 0':greens='0.100 0 -0.100 0'"
 
 [[case]]
 name = "minimum"
 at = "min"
-chain = "selectivecolor=blues='0.000 0 0.000 0.000':greens='0.000 0 0.000 0',eq=saturation=1.000"
+chain = "selectivecolor=blues='0.000 0 0.000 0.000':cyans='0.000 0 0.000 0':greens='0.000 0 0.000 0'"
 
 [[case]]
 name = "maximum"
 at = "max"
-chain = "selectivecolor=blues='0.400 0 -0.300 0.150':greens='0.200 0 -0.200 0',eq=saturation=1.100"
+chain = "selectivecolor=blues='0.350 0 -0.250 0.120':cyans='0.200 0 -0.150 0':greens='0.250 0 -0.250 0'"

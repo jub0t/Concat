@@ -1,13 +1,13 @@
 [[case]]
 name = "default"
-chain = "eq=contrast=1.080:saturation=1.060"
+chain = "eq=contrast=1.070:saturation=1.050,selectivecolor=reds='0 -0.030 0 0'"
 
 [[case]]
 name = "minimum"
 at = "min"
-chain = "eq=contrast=1.000:saturation=1.000"
+chain = "eq=contrast=1.000:saturation=1.000,selectivecolor=reds='0 0.000 0 0'"
 
 [[case]]
 name = "maximum"
 at = "max"
-chain = "eq=contrast=1.160:saturation=1.120"
+chain = "eq=contrast=1.140:saturation=1.100,selectivecolor=reds='0 -0.060 0 0'"

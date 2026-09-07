@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "selectivecolor=reds='0 -0.040 0.050 -0.050':yellows='0 0.025 0 -0.030',curves=all='0/0.030 1/1',eq=contrast=0.950,colorbalance=rh=0.025:gh=0.010,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.100"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "selectivecolor=reds='0 0.000 0.000 0.000':yellows='0 0.000 0 0.000',curves=all='0/0.000 1/1',eq=contrast=1.000,colorbalance=rh=0.000:gh=0.000,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "selectivecolor=reds='0 -0.080 0.100 -0.100':yellows='0 0.050 0 -0.060',curves=all='0/0.060 1/1',eq=contrast=0.900,colorbalance=rh=0.050:gh=0.020,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.250"

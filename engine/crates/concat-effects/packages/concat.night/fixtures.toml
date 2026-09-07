@@ -1,6 +1,6 @@
 [[case]]
 name = "default"
-chain = "curves=all='0/0.036 0.25/0.340 0.5/0.560 1/1',hqdn3d=2.40"
+chain = "curves=all='0/0.030 0.25/0.340 0.5/0.560 1/1',hqdn3d=2.40"
 
 [[case]]
 name = "minimum"
@@ -10,4 +10,4 @@ chain = "curves=all='0/0.000 0.25/0.250 0.5/0.500 1/1',hqdn3d=0.00"
 [[case]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0.060 0.25/0.400 0.5/0.600 1/1',hqdn3d=6.00"
+chain = "curves=all='0/0.050 0.25/0.400 0.5/0.600 1/1',hqdn3d=6.00"

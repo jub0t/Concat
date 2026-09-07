@@ -1,0 +1,32 @@
+[effect]
+id = "concat.digicam"
+name = "Digicam"
+kind = "filter"
+category = "Retro"
+order = 45
+intensity = "flash"
+description = "The 2000s point-and-shoot: hard flash, whites blown, colour up, a cool cyan cast, over-sharpened with the sensor's noise."
+
+[[param]]
+key = "flash"
+label = "Flash"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "noise"
+label = "Noise"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/0 0.6/{fixed(0.6 + flash / 100 * 0.15, 3)} 0.85/{fixed(0.85 + flash / 100 * 0.13, 3)} 1/1',eq=saturation={fixed(1 + flash / 100 * 0.3, 3)}:contrast={fixed(1 + flash / 100 * 0.15, 3)},colorbalance=bh={fixed(flash / 100 * 0.06, 3)}:gh={fixed(flash / 100 * 0.04, 3)},unsharp=5:5:{fixed(0.8 + flash / 100 * 0.8, 2)},noise=alls={round(noise / 100 * 22)}:allf=t"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,32 @@
+[effect]
+id = "concat.rain"
+name = "Rain"
+kind = "filter"
+category = "Cinematic"
+order = 38
+intensity = "haze"
+description = "Cool, hazy and drained, with the wet reflections lifted and blooming. Street-level walks at the end of the day."
+
+[[param]]
+key = "haze"
+label = "Haze"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "chill"
+label = "Chill"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(haze / 100 * 0.08, 3)} 1/{fixed(1 - haze / 100 * 0.02, 3)}',eq=saturation={fixed(1 - haze / 100 * 0.4, 3)}:contrast={fixed(1 - haze / 100 * 0.08, 3)},colorbalance=bs={fixed(chill / 100 * 0.1, 3)}:bm={fixed(chill / 100 * 0.06, 3)},split[raina{index}][rainb{index}];[rainb{index}]gblur=sigma=12[raing{index}];[raina{index}][raing{index}]blend=all_mode=screen:all_opacity={fixed(haze / 100 * 0.25, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

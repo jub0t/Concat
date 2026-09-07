@@ -3,9 +3,9 @@ id = "concat.film"
 name = "Film"
 kind = "filter"
 category = "Cinematic"
-order = 24
+order = 34
 intensity = "grain"
-description = "A film curve with a soft toe and shoulder, a little warmth, and grain that moves."
+description = "A film curve with a real toe and shoulder, warm halation around the lights, and grain that moves. Print stock, not a filter."
 
 [[param]]
 key = "grain"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "curves=all='0/0.03 0.25/0.22 0.75/0.8 1/0.97',colorbalance=rm={fixed(warmth / 100 * 0.06, 3)}:bm={fixed(0 - warmth / 100 * 0.06, 3)},noise=alls={round(grain / 100 * 30)}:allf=t"
+chain = "curves=all='0/0.03 0.25/0.22 0.75/0.8 1/0.97',colorbalance=rm={fixed(warmth / 100 * 0.06, 3)}:bm={fixed(0 - warmth / 100 * 0.06, 3)},split[filma{index}][filmb{index}];[filmb{index}]gblur=sigma=8[filmg{index}];[filma{index}][filmg{index}]blend=all_mode=screen:all_opacity={fixed(0.12 + warmth / 100 * 0.08, 3)},noise=alls={round(grain / 100 * 30)}:allf=t"
 
 [wgsl]
 entry = "effect.wgsl"

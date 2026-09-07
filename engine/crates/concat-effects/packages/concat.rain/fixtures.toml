@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "curves=all='0/0.048 1/0.988',eq=saturation=0.760:contrast=0.952,colorbalance=bs=0.050:bm=0.030,split[raina0][rainb0];[rainb0]gblur=sigma=12[raing0];[raina0][raing0]blend=all_mode=screen:all_opacity=0.150"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "curves=all='0/0.000 1/1.000',eq=saturation=1.000:contrast=1.000,colorbalance=bs=0.000:bm=0.000,split[raina0][rainb0];[rainb0]gblur=sigma=12[raing0];[raina0][raing0]blend=all_mode=screen:all_opacity=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "curves=all='0/0.080 1/0.980',eq=saturation=0.600:contrast=0.920,colorbalance=bs=0.100:bm=0.060,split[raina0][rainb0];[rainb0]gblur=sigma=12[raing0];[raina0][raing0]blend=all_mode=screen:all_opacity=0.250"

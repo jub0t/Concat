@@ -1,6 +1,6 @@
 [[case]]
 name = "default"
-chain = "eq=contrast=1.250,vibrance=intensity=0.900,unsharp=5:5:0.300"
+chain = "eq=contrast=1.175,vibrance=intensity=0.840,unsharp=5:5:0.350"
 
 [[case]]
 name = "minimum"
@@ -10,4 +10,4 @@ chain = "eq=contrast=1.000,vibrance=intensity=0.000,unsharp=5:5:0.000"
 [[case]]
 name = "maximum"
 at = "max"
-chain = "eq=contrast=1.500,vibrance=intensity=1.500,unsharp=5:5:0.600"
+chain = "eq=contrast=1.350,vibrance=intensity=1.400,unsharp=5:5:0.700"

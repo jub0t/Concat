@@ -3,7 +3,7 @@ id = "concat.falling-dust"
 name = "Falling Dust"
 kind = "filter"
 category = "Retro"
-order = 34
+order = 46
 intensity = "dust"
 description = "A warm fade with dust drifting down through it and a light leak in one corner. The CPU shows the fade and a whisper of noise."
 

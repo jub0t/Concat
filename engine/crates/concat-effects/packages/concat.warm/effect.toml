@@ -18,7 +18,7 @@ step = 50
 unit = "K"
 
 [ffmpeg]
-chain = "colortemperature=temperature={round(temperature)}"
+chain = "colortemperature=temperature={round(temperature)}:pl=1"
 
 [wgsl]
 entry = "effect.wgsl"

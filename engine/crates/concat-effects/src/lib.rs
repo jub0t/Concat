@@ -82,7 +82,7 @@ mod tests {
     fn a_filter_mixes_by_its_intensity_and_an_effect_does_not() {
         let catalogue = Catalogue::builtin();
         let full = catalogue.video_chain(&[applied("concat.warm", &[])]);
-        assert_eq!(full, "colortemperature=temperature=4600");
+        assert_eq!(full, "colortemperature=temperature=4600:pl=1");
         let half = catalogue.video_chain(&[
             applied("concat.sepia", &[]),
             applied("concat.warm", &[("intensity", 50.0)]),
@@ -90,7 +90,7 @@ mod tests {
         assert!(half.starts_with("colorchannelmixer"), "{half}");
         assert!(
             half.ends_with(
-                "split[m1a][m1b];[m1b]colortemperature=temperature=4600[m1c];\
+                "split[m1a][m1b];[m1b]colortemperature=temperature=4600:pl=1[m1c];\
                  [m1a][m1c]blend=all_mode=normal:all_opacity=0.500"
             ),
             "{half}"

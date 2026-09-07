@@ -79,9 +79,11 @@ fn hash(p: vec2<f32>, seed: f32) -> f32 {
 // Every look is a few of these in different amounts, so they live here,
 // once, rather than in each package. Each has an FFmpeg twin a manifest's
 // chain can reach for: `saturation` is eq=saturation, `contrast` is
-// eq=contrast, `fade` and `s_curve` are curves, `split_tone` and
-// `tint_midtones` are colorbalance, `white_balance` is colortemperature,
-// `vignette` is vignette, `mono` is colorchannelmixer.
+// eq=contrast, `fade`, `matte`, `s_curve` and `film_curve` are curves,
+// `split_tone` and `tint_midtones` are colorbalance, `white_balance` is
+// colortemperature, `vignette`
+// is vignette, `mono` is colorchannelmixer, `hsl_band` is selectivecolor,
+// `halation` is a split, gblur and screen blend.
 
 /// Everything held to the displayable range.
 fn clamp01(rgb: vec3<f32>) -> vec3<f32> {
@@ -176,7 +178,8 @@ fn kelvin(k: f32) -> vec3<f32> {
 /// White balance: the picture as if lit at `k` kelvin while the camera
 /// was set for daylight. 6500 is as shot.
 fn white_balance(rgb: vec3<f32>, k: f32) -> vec3<f32> {
-    return rgb * (kelvin(k) / kelvin(6500.0));
+    let tint = kelvin(k) / kelvin(6500.0);
+    return rgb * (tint / max(luma(tint), 0.001));
 }
 
 /// A vignette: the corners darkened by `amount` from a clear middle.
@@ -190,6 +193,72 @@ fn vignette(rgb: vec3<f32>, uv: vec2<f32>, amount: f32) -> vec3<f32> {
 fn mono(rgb: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
     let w = weights / max(weights.r + weights.g + weights.b, 0.001);
     return vec3<f32>(dot(rgb, w));
+}
+
+/// A matte: the blacks lifted to `black` and the whites pulled down to
+/// `white`, the range between them kept in proportion. The print look
+/// every faded, milky and instant-camera grade is built on; (0, 1) is as
+/// shot. FFmpeg: curves with those two end points.
+fn matte(rgb: vec3<f32>, black: f32, white: f32) -> vec3<f32> {
+    return rgb * (white - black) + vec3<f32>(black);
+}
+
+/// A film curve: a toe that rolls the shadows into black by `toe` and a
+/// shoulder that rolls the highlights into white by `shoulder`, both
+/// `0..1`, the midtones left on the line. Unlike a contrast, it never
+/// clips: it compresses the ends the way a negative does.
+fn film_curve(rgb: vec3<f32>, toe: f32, shoulder: f32) -> vec3<f32> {
+    let c = clamp01(rgb);
+    let t = mix(c, c * c, vec3<f32>(toe) * (vec3<f32>(1.0) - c));
+    return mix(t, vec3<f32>(1.0) - (vec3<f32>(1.0) - t) * (vec3<f32>(1.0) - t), vec3<f32>(shoulder) * t);
+}
+
+/// Every hue turned by `degrees`, brightness held: a rotation in the
+/// YIQ plane, the same for every pixel.
+fn hue_rotate(rgb: vec3<f32>, degrees: f32) -> vec3<f32> {
+    let a = radians(degrees);
+    let y = luma(rgb);
+    let i = dot(rgb, vec3<f32>(0.596, -0.274, -0.322));
+    let q = dot(rgb, vec3<f32>(0.211, -0.523, 0.312));
+    let i2 = i * cos(a) - q * sin(a);
+    let q2 = i * sin(a) + q * cos(a);
+    return vec3<f32>(
+        y + 0.956 * i2 + 0.621 * q2,
+        y - 0.272 * i2 - 0.647 * q2,
+        y - 1.106 * i2 + 1.703 * q2,
+    );
+}
+
+/// One band of hues adjusted and the rest untouched: the band `width`
+/// degrees around `centre` has its hue turned by `turn` degrees, its
+/// saturation scaled by `sat` and its brightness by `lum`, weighted by
+/// `hue_mask` so the edges of the band blend. What a grading panel's HSL
+/// sliders do, and what keeps a sky change off a face. FFmpeg:
+/// selectivecolor on the nearest of its six ranges.
+fn hsl_band(rgb: vec3<f32>, centre: f32, width: f32, turn: f32, sat: f32, lum: f32) -> vec3<f32> {
+    let w = hue_mask(rgb, centre, width);
+    var out = hue_rotate(rgb, turn);
+    out = saturation(out, sat);
+    out = out * lum;
+    return mix(rgb, out, w);
+}
+
+/// Halation: the brights above `threshold` gathered from `radius` pixels
+/// around, tinted, and screened back over the picture by `amount`. The
+/// glow around a lamp on film, and the bloom every soft look leans on.
+/// FFmpeg: a split, a gblur and a screen blend.
+fn halation(uv: vec2<f32>, rgb: vec3<f32>, threshold: f32, radius: f32, tint: vec3<f32>, amount: f32) -> vec3<f32> {
+    let t = texel() * radius * 0.5;
+    var sum = vec3<f32>(0.0);
+    for (var y: i32 = -2; y <= 2; y++) {
+        for (var x: i32 = -2; x <= 2; x++) {
+            let s = sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
+            let bright = smoothstep(threshold, 1.0, luma(s));
+            sum += s * bright;
+        }
+    }
+    let glow = clamp01(sum / 25.0 * tint * amount);
+    return vec3<f32>(1.0) - (vec3<f32>(1.0) - rgb) * (vec3<f32>(1.0) - glow);
 }
 
 // ── targeting and texture: the taps a look takes around a pixel, and the

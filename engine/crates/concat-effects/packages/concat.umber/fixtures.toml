@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "colorbalance=rm=0.060:gm=0.018:bm=-0.060:rs=0.024:bs=-0.024,selectivecolor=greens='0 0.060 0.120 0.060',eq=contrast=0.952,curves=all='0/0.020 1/1'"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "colorbalance=rm=0.000:gm=0.000:bm=0.000:rs=0.000:bs=0.000,selectivecolor=greens='0 0.000 0.000 0.000',eq=contrast=1.000,curves=all='0/0.000 1/1'"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "colorbalance=rm=0.100:gm=0.030:bm=-0.100:rs=0.040:bs=-0.040,selectivecolor=greens='0 0.100 0.200 0.100',eq=contrast=0.880,curves=all='0/0.050 1/1'"

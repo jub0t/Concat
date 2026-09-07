@@ -3,9 +3,9 @@ id = "concat.vhs"
 name = "VHS"
 kind = "filter"
 category = "Retro"
-order = 33
+order = 44
 intensity = "bleed"
-description = "Colour bleeding sideways, scan lines, softness, tape noise and too much saturation."
+description = "Colour bleeding sideways, scan lines, softness, tape noise and too much saturation, with the slight vertical smear of a worn head."
 
 [[param]]
 key = "bleed"

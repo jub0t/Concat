@@ -1,12 +1,10 @@
 struct Params { amount: f32 }
 
-// Saturates the dull colours more than the vivid ones.
+// Saturates the dull colours more than the vivid ones, and skin less
+// than either: a face should be the last thing a vibrance boost reaches.
 fn effect(uv: vec2<f32>) -> vec4<f32> {
     let c = sample(uv);
-    let l = luma(c.rgb);
-    let mx = max(max(c.r, c.g), c.b);
-    let mn = min(min(c.r, c.g), c.b);
-    let sat = mx - mn;
-    let boost = params.amount * (1.0 - sat);
-    return vec4<f32>(clamp(mix(vec3<f32>(l), c.rgb, 1.0 + boost), vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+    let boosted = vibrance(c.rgb, params.amount);
+    let out = mix(boosted, c.rgb, skin_mask(c.rgb) * 0.6);
+    return vec4<f32>(clamp01(out), c.a);
 }

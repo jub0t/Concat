@@ -3,9 +3,9 @@ id = "concat.teal-orange"
 name = "Teal & Orange"
 kind = "filter"
 category = "Cinematic"
-order = 22
+order = 30
 intensity = "amount"
-description = "Teal in the shadows, orange in the highlights, skin left as skin: the blockbuster grade."
+description = "Teal in the shadows, orange in the highlights, skin held as skin, a film curve over it. The blockbuster grade, and the most requested look there is."
 
 [[param]]
 key = "amount"
@@ -35,7 +35,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "colorbalance=rs={fixed(0 - amount / 100 * 0.12, 3)}:gs={fixed(amount / 100 * 0.04, 3)}:bs={fixed(amount / 100 * 0.16, 3)}:rh={fixed(amount / 100 * 0.16, 3)}:gh={fixed(amount / 100 * 0.04, 3)}:bh={fixed(0 - amount / 100 * 0.12, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.4, 3)}"
+chain = "colorbalance=rs={fixed(0 - amount / 100 * 0.12, 3)}:gs={fixed(amount / 100 * 0.04, 3)}:bs={fixed(amount / 100 * 0.16, 3)}:rh={fixed(amount / 100 * 0.16, 3)}:gh={fixed(amount / 100 * 0.04, 3)}:bh={fixed(0 - amount / 100 * 0.12, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.35, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

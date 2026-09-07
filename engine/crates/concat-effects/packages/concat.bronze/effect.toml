@@ -3,9 +3,9 @@ id = "concat.bronze"
 name = "Bronze"
 kind = "filter"
 category = "Retro"
-order = 31
+order = 42
 intensity = "tone"
-description = "Sepia that keeps its contrast, so it reads as old film rather than a brown wash."
+description = "Sepia that keeps its contrast and its highlights, so it reads as old film rather than a brown wash."
 
 [[param]]
 key = "tone"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "hue=s={fixed(1 - tone / 100 * 0.9, 3)},colorbalance=rm={fixed(tone / 100 * 0.12, 3)}:gm={fixed(tone / 100 * 0.04, 3)}:bm={fixed(0 - tone / 100 * 0.12, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.3, 3)}"
+chain = "hue=s={fixed(1 - tone / 100 * 0.9, 3)},colorbalance=rm={fixed(tone / 100 * 0.12, 3)}:gm={fixed(tone / 100 * 0.04, 3)}:bm={fixed(0 - tone / 100 * 0.12, 3)}:rh={fixed(tone / 100 * 0.04, 3)}:bh={fixed(0 - tone / 100 * 0.04, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.3, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

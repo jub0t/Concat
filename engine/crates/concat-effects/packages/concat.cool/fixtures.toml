@@ -1,13 +1,13 @@
 [[case]]
 name = "default"
-chain = "colortemperature=temperature=8500"
+chain = "colortemperature=temperature=8500:pl=1"
 
 [[case]]
 name = "minimum"
 at = "min"
-chain = "colortemperature=temperature=7000"
+chain = "colortemperature=temperature=7000:pl=1"
 
 [[case]]
 name = "maximum"
 at = "max"
-chain = "colortemperature=temperature=11000"
+chain = "colortemperature=temperature=11000:pl=1"

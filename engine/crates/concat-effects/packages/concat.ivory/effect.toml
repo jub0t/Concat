@@ -1,0 +1,32 @@
+[effect]
+id = "concat.ivory"
+name = "Ivory"
+kind = "filter"
+category = "Everyday"
+order = 18
+intensity = "matte"
+description = "Milk's warm twin: the same soft matte with cream in the whites and a little gold in the middle. Interiors and morning light."
+
+[[param]]
+key = "matte"
+label = "Matte"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(matte / 100 * 0.12, 3)} 0.5/{fixed(0.5 + matte / 100 * 0.06, 3)} 1/{fixed(1 - matte / 100 * 0.04, 3)}',eq=saturation={fixed(1 - matte / 100 * 0.18, 3)},colorbalance=rh={fixed(warmth / 100 * 0.08, 3)}:gh={fixed(warmth / 100 * 0.03, 3)}:bh={fixed(0 - warmth / 100 * 0.06, 3)}:rm={fixed(warmth / 100 * 0.04, 3)}:bm={fixed(0 - warmth / 100 * 0.04, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

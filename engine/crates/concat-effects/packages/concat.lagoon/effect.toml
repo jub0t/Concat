@@ -1,0 +1,32 @@
+[effect]
+id = "concat.lagoon"
+name = "Lagoon"
+kind = "filter"
+category = "Everyday"
+order = 16
+intensity = "water"
+description = "Water and sky turned aquamarine and brightened, sand and skin left warm and clean. The beach-day look creators reach for first."
+
+[[param]]
+key = "water"
+label = "Water"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "brightness"
+label = "Brightness"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "selectivecolor=blues='{fixed(water / 100 * 0.3, 3)} {fixed(0 - water / 100 * 0.2, 3)} 0 {fixed(0 - water / 100 * 0.15, 3)}':cyans='{fixed(water / 100 * 0.35, 3)} {fixed(0 - water / 100 * 0.1, 3)} 0 {fixed(0 - water / 100 * 0.1, 3)}',curves=all='0/0 0.5/{fixed(0.5 + brightness / 100 * 0.06, 3)} 1/1',eq=saturation={fixed(1 + water / 100 * 0.12, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

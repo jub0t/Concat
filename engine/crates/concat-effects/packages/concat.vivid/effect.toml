@@ -5,7 +5,7 @@ kind = "filter"
 category = "Everyday"
 order = 11
 intensity = "colour"
-description = "Contrast that bites and colour that sings, sharpened a touch: the look that reads as a better camera."
+description = "Colour that sings and contrast that bites, with a little edge: the look that reads as a better camera. Skin is held back from the boost."
 
 [[param]]
 key = "colour"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "eq=contrast={fixed(1 + punch / 100 * 0.5, 3)},vibrance=intensity={fixed(colour / 100 * 1.5, 3)},unsharp=5:5:{fixed(punch / 100 * 0.6, 3)}"
+chain = "eq=contrast={fixed(1 + punch / 100 * 0.35, 3)},vibrance=intensity={fixed(colour / 100 * 1.4, 3)},unsharp=5:5:{fixed(punch / 100 * 0.7, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

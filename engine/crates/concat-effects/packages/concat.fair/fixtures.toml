@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "selectivecolor=reds='0 -0.050 0 -0.075':yellows='0 0 -0.025 -0.050',curves=all='0/0 0.5/0.515 1/1'"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "selectivecolor=reds='0 0.000 0 0.000':yellows='0 0 0.000 0.000',curves=all='0/0 0.5/0.500 1/1'"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "selectivecolor=reds='0 -0.100 0 -0.150':yellows='0 0 -0.050 -0.100',curves=all='0/0 0.5/0.530 1/1'"

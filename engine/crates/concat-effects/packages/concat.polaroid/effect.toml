@@ -1,0 +1,32 @@
+[effect]
+id = "concat.polaroid"
+name = "Polaroid"
+kind = "filter"
+category = "Retro"
+order = 41
+intensity = "fade"
+description = "The instant print: a cream matte, warm highlights, cyan creeping into the shadows, a little softness in the corners."
+
+[[param]]
+key = "fade"
+label = "Fade"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(fade / 100 * 0.1, 3)} 1/{fixed(1 - fade / 100 * 0.05, 3)}',eq=contrast={fixed(1 - fade / 100 * 0.1, 3)}:saturation={fixed(1 - fade / 100 * 0.15, 3)},colorbalance=rh={fixed(warmth / 100 * 0.1, 3)}:gh={fixed(warmth / 100 * 0.05, 3)}:bh={fixed(0 - warmth / 100 * 0.06, 3)}:gs={fixed(fade / 100 * 0.05, 3)}:bs={fixed(fade / 100 * 0.08, 3)}:rs={fixed(0 - fade / 100 * 0.06, 3)},vignette=a={fixed(fade / 100 * 0.35, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"

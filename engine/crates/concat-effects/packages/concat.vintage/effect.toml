@@ -3,9 +3,9 @@ id = "concat.vintage"
 name = "Vintage"
 kind = "filter"
 category = "Retro"
-order = 30
+order = 40
 intensity = "age"
-description = "Faded blacks, muted colour, a drift toward yellow-green, a soft vignette: a seventies print."
+description = "A seventies print: matte blacks and whites, colour faded, greens gone to yellow, a soft vignette."
 
 [[param]]
 key = "age"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "curves=all='0/{fixed(age / 100 * 0.12, 3)} 1/{fixed(1 - age / 100 * 0.06, 3)}',eq=saturation={fixed(1 - age / 100 * 0.35, 3)}:contrast={fixed(1 - age / 100 * 0.12, 3)},colorbalance=rm={fixed(tint / 100 * 0.06, 3)}:gm={fixed(tint / 100 * 0.06, 3)}:bm={fixed(0 - tint / 100 * 0.1, 3)},vignette=a={fixed(age / 100 * 0.5, 3)}"
+chain = "curves=all='0/{fixed(age / 100 * 0.12, 3)} 1/{fixed(1 - age / 100 * 0.06, 3)}',eq=saturation={fixed(1 - age / 100 * 0.35, 3)}:contrast={fixed(1 - age / 100 * 0.1, 3)},selectivecolor=greens='0 0 {fixed(tint / 100 * 0.4, 3)} 0':cyans='0 0 {fixed(tint / 100 * 0.2, 3)} 0',colorbalance=rm={fixed(tint / 100 * 0.05, 3)}:bm={fixed(0 - tint / 100 * 0.08, 3)},vignette=a={fixed(age / 100 * 0.5, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

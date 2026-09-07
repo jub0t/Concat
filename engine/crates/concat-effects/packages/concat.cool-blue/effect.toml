@@ -3,9 +3,9 @@ id = "concat.cool-blue"
 name = "Cool Blue"
 kind = "filter"
 category = "Cinematic"
-order = 21
+order = 32
 intensity = "chill"
-description = "Blue in the shadows and midtones, the highlights left neutral, contrast up. Cities at dusk."
+description = "Blue in the shadows and midtones, highlights and skin left neutral, contrast up. Cities at dusk."
 
 [[param]]
 key = "chill"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "colorbalance=bs={fixed(chill / 100 * 0.25, 3)}:rs={fixed(0 - chill / 100 * 0.08, 3)}:bm={fixed(chill / 100 * 0.12, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.4, 3)}"
+chain = "colorbalance=bs={fixed(chill / 100 * 0.25, 3)}:rs={fixed(0 - chill / 100 * 0.08, 3)}:bm={fixed(chill / 100 * 0.1, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.35, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

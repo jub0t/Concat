@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "curves=all='0/0.036 1/0.982',eq=saturation=0.850,colorbalance=gm=0.048:rm=-0.018:gh=0.036:bh=-0.018"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "curves=all='0/0.000 1/1.000',eq=saturation=1.000,colorbalance=gm=0.000:rm=0.000:gh=0.000:bh=0.000"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "curves=all='0/0.060 1/0.970',eq=saturation=0.750,colorbalance=gm=0.080:rm=-0.030:gh=0.060:bh=-0.030"

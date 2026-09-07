@@ -1,13 +1,13 @@
 [[case]]
 name = "default"
-chain = "eq=brightness=0.048:saturation=1.250,colorbalance=gh=0.040:bh=0.020"
+chain = "curves=all='0/0 0.5/0.532 1/1',vibrance=intensity=0.450,colorbalance=gh=0.025:bh=0.015"
 
 [[case]]
 name = "minimum"
 at = "min"
-chain = "eq=brightness=0.000:saturation=1.000,colorbalance=gh=0.000:bh=0.000"
+chain = "curves=all='0/0 0.5/0.500 1/1',vibrance=intensity=0.000,colorbalance=gh=0.000:bh=0.000"
 
 [[case]]
 name = "maximum"
 at = "max"
-chain = "eq=brightness=0.120:saturation=1.500,colorbalance=gh=0.080:bh=0.040"
+chain = "curves=all='0/0 0.5/0.580 1/1',vibrance=intensity=0.900,colorbalance=gh=0.050:bh=0.030"

@@ -3,7 +3,7 @@ id = "concat.retro-cartoon"
 name = "Retro Cartoon"
 kind = "filter"
 category = "Stylised"
-order = 43
+order = 55
 intensity = "ink"
 description = "Flat bands of colour with inked edges, like a printed comic."
 

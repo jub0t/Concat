@@ -5,7 +5,7 @@ kind = "filter"
 category = "Everyday"
 order = 13
 intensity = "lift"
-description = "Lifted blacks, low contrast, cream in the highlights: airy and flattering."
+description = "A matte: blacks lifted, whites eased down, contrast low, and a soft bloom in the light with cream in it. Airy and flattering."
 
 [[param]]
 key = "lift"
@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "curves=all='0/{fixed(lift / 100 * 0.12, 3)} 1/1',eq=contrast={fixed(1 - lift / 100 * 0.2, 3)}:saturation={fixed(1 - lift / 100 * 0.15, 3)},colorbalance=rh={fixed(warmth / 100 * 0.08, 3)}:bh={fixed(0 - warmth / 100 * 0.06, 3)}"
+chain = "curves=all='0/{fixed(lift / 100 * 0.1, 3)} 1/{fixed(1 - lift / 100 * 0.04, 3)}',eq=contrast={fixed(1 - lift / 100 * 0.18, 3)}:saturation={fixed(1 - lift / 100 * 0.12, 3)},colorbalance=rh={fixed(warmth / 100 * 0.07, 3)}:bh={fixed(0 - warmth / 100 * 0.06, 3)},split[softa{index}][softb{index}];[softb{index}]gblur=sigma=10[softg{index}];[softa{index}][softg{index}]blend=all_mode=screen:all_opacity={fixed(lift / 100 * 0.2, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

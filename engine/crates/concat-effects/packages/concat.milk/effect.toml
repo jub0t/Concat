@@ -1,0 +1,32 @@
+[effect]
+id = "concat.milk"
+name = "Milk"
+kind = "filter"
+category = "Everyday"
+order = 17
+intensity = "matte"
+description = "Bright and matte: whites soft and cool, blacks lifted well off the floor, colour quiet. The clean minimal look of a white room."
+
+[[param]]
+key = "matte"
+label = "Matte"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "cool"
+label = "Cool"
+min = 0
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "curves=all='0/{fixed(matte / 100 * 0.14, 3)} 0.5/{fixed(0.5 + matte / 100 * 0.08, 3)} 1/{fixed(1 - matte / 100 * 0.05, 3)}',eq=saturation={fixed(1 - matte / 100 * 0.25, 3)},colorbalance=bh={fixed(cool / 100 * 0.06, 3)}:rh={fixed(0 - cool / 100 * 0.03, 3)}"
+
+[wgsl]
+entry = "effect.wgsl"
