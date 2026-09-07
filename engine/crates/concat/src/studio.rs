@@ -693,12 +693,12 @@ pub struct Studio {
     /// Where the inspector should go, and a count that changes every time
     /// something is applied from the library; see `Editor.inspector-jump-token`.
     pub inspector_jump: (i32, &'static str, &'static str),
-    /// A look being shown before it is added: the clip it is shown on and
-    /// the filter's id. It is drawn into the frames the monitor asks for
-    /// and nowhere else - the document does not have it until the card is
-    /// double-clicked or its plus pressed - and it is dropped when the
-    /// selection leaves the clip; see `settle_audition`.
-    audition: Option<(String, String)>,
+    /// A look being shown before it is laid down: the filter's id. It is
+    /// drawn into the frames the monitor asks for as a layer over the whole
+    /// picture, and nowhere else - the timeline does not have it until the
+    /// card is double-clicked or its plus pressed, which lays a filter
+    /// layer at the playhead.
+    audition: Option<String>,
     /// The last inspector commit: what it changed and when. A control that
     /// is dragged commits on every move, and each of those would be an undo
     /// step of its own; a commit that changes the same thing as the last
@@ -1535,22 +1535,58 @@ impl Studio {
         };
         let width = ((f64::from(width) * scale).round() as u32).max(2) & !1;
         let height = ((f64::from(height) * scale).round() as u32).max(2) & !1;
-        // The look being shown before it is added goes into this frame
-        // only: the clip in the document is as it was.
-        if let Some(filter_id) = self.audition_of().map(str::to_owned)
-            && let Some(clip_id) = self.sole_selection()
-            && let Some(clip) = self.clip(&clip_id)
-            && let Some(media) = self.project().media_by_id(&clip.media_id)
-            && let Some(flat) = clips.iter_mut().find(|flat| {
-                flat.path == media.path && (flat.start - clip.start).abs() < 1e-6
-            })
-        {
-            flat.effects.push(AppliedFilter {
+        // The look being shown before it is laid down goes into this
+        // frame only, as the layer it would be: over every track, the
+        // whole way along, at full strength. The timeline is as it was.
+        if let Some(filter_id) = self.audition.clone() {
+            let effects = vec![AppliedFilter {
                 id: filter_id,
                 params: std::collections::BTreeMap::new(),
                 enabled: true,
+            }];
+            let video_filter_chain = concat_export::chains::video_effect_chain(&effects);
+            let track = clips.iter().map(|flat| flat.track).max().map_or(0, |top| top + 1);
+            clips.push(concat_export::ExportClip {
+                path: String::new(),
+                kind: concat_export::ClipKind::Layer,
+                start: 0.0,
+                duration: f64::from(self.duration()).max(1.0),
+                source_start: 0.0,
+                track,
+                hidden: false,
+                muted: true,
+                volume: 0.0,
+                fade_in: 0.0,
+                fade_out: 0.0,
+                filter_chain: String::new(),
+                speed: 1.0,
+                preserve_pitch: true,
+                speed_curve: Vec::new(),
+                reverse: false,
+                animation: Vec::new(),
+                flip_h: false,
+                flip_v: false,
+                blend: String::new(),
+                crop: None,
+                effects,
+                transition_chain: String::new(),
+                scale: 1.0,
+                offset_x: 0.0,
+                offset_y: 0.0,
+                rotation: 0.0,
+                stretch_x: 1.0,
+                stretch_y: 1.0,
+                opacity: 1.0,
+                video_filter_chain,
+                transition: None,
+                video_fade_in: 0.0,
+                media_width: None,
+                media_height: None,
+                has_audio: Some(false),
+                cutout: None,
+                mask_dir: String::new(),
+                highlighted: false,
             });
-            flat.video_filter_chain = concat_export::chains::video_effect_chain(&flat.effects);
         }
         // While the brushes are out, the clip being painted is drawn with
         // its cutout tinted over the whole picture rather than cut, so a
@@ -2113,51 +2149,35 @@ impl Studio {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
 
-    /// The look being shown on the selected clip, by id, while the
-    /// selection is still the clip it was shown on.
+    /// The look being shown over the picture, by id, while one is.
     pub fn audition_of(&self) -> Option<&str> {
-        let (clip_id, filter_id) = self.audition.as_ref()?;
-        (self.sole_selection().as_deref() == Some(clip_id.as_str()))
-            .then_some(filter_id.as_str())
+        self.audition.as_deref()
     }
 
-    /// Shows a look on the selected clip without adding it: what a single
-    /// click on a Filters card does. The same card clicked again takes it
-    /// off; a double-click or the card's plus adds it for real.
+    /// Shows a look over the whole picture without laying it down: what a
+    /// single click on a Filters card does. The same card clicked again
+    /// takes it off; a double-click or the card's plus lays the layer.
     pub fn audition_catalogue(&mut self, id: &str) {
-        let Some(clip_id) = self.sole_selection() else {
-            self.notify(&t("Select a clip on the timeline first"), true);
-            return;
-        };
-        if !self.clip(&clip_id).is_some_and(|clip| clip.kind.is_visual()) {
-            self.notify(
-                &t("Select a video or image clip on the timeline first"),
-                true,
-            );
+        if self.session.is_none() {
             return;
         }
-        let same = self
-            .audition
-            .as_ref()
-            .is_some_and(|(clip, filter)| *clip == clip_id && filter == id);
+        let same = self.audition.as_deref() == Some(id);
         if !same && self.audition.is_none() {
             self.notify(
-                &t("Showing the look on the clip. Double-click the card, or its plus, to add it"),
+                &t("Showing the look over the picture. Double-click the card, or its plus, to lay it on the timeline"),
                 false,
             );
         }
-        self.audition = (!same).then(|| (clip_id, id.to_owned()));
+        self.audition = (!same).then(|| id.to_owned());
         self.request_preview();
     }
 
-    /// Drops the look being shown once the selection has left its clip,
-    /// and redraws the monitor without it. Run after every handler, since
-    /// the selection moves from a dozen places.
-    pub fn settle_audition(&mut self) {
-        if self.audition.is_some() && self.audition_of().is_none() {
-            self.audition = None;
-            self.request_preview();
-        }
+    /// Lays a filter down as a layer at the playhead - what the Filters
+    /// page's double-click and plus do - and ends the showing, the layer
+    /// now being on the timeline to see.
+    pub fn place_filter_layer(&mut self, id: &str, label: &str) {
+        self.audition = None;
+        self.place_at_playhead(&format!("filter:{id}:{label}"));
     }
 
     /// A catalogue filter or effect, applied to the selected clip's chain.
@@ -2180,8 +2200,6 @@ impl Studio {
             self.notify("A still has no sound to filter", true);
             return;
         }
-        // Added for real now, so the showing is over.
-        self.audition = None;
         let entry = AppliedFilter {
             id: id.to_owned(),
             params: std::collections::BTreeMap::new(),
@@ -4043,6 +4061,7 @@ impl Studio {
                 self.start.error.clear();
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
+        self.audition = None;
                 self.sync_audio();
                 self.request_media_art();
                 self.request_preview();
@@ -4110,6 +4129,7 @@ impl Studio {
         self.gesture = Gesture::None;
         self.preview = slint::Image::default();
         self.host.monitor.clear();
+        self.audition = None;
         self.host
             .playback
             .set_clips(std::path::PathBuf::new(), Vec::new());

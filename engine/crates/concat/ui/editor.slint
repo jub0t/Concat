@@ -93,10 +93,11 @@ export global Editor {
     callback library-add-text(preset: string);
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
+    /// Filters page: lay the look down as a layer at the playhead.
     callback library-apply-filter(filter-id: string, label: string);
-    /// Filters page: show the look on the selected clip without adding it,
-    /// which is what a single click on a card does. The same id again takes
-    /// it off.
+    /// Filters page: show the look over the whole picture without laying
+    /// it down, which is what a single click on a card does. The same id
+    /// again takes it off.
     callback library-audition-filter(filter-id: string);
     /// The look being shown that way, by id, or empty: its card draws
     /// itself picked while it is.

@@ -1270,9 +1270,10 @@ export component MediaPane inherits Rectangle {
     /// Catalogue pages: apply to the selected clip; Rust validates & explains.
     callback apply-effect(effect-id: string);
     callback apply-transition(transition-id: string);
+    /// Filters page: lay the look down as a layer at the playhead.
     callback apply-filter(filter-id: string, label: string);
-    /// Filters page: a single click shows the look on the selected clip
-    /// without adding it; `audition` is the id being shown, or empty.
+    /// Filters page: a single click shows the look over the whole picture
+    /// without laying it down; `audition` is the id being shown, or empty.
     callback audition-filter(filter-id: string);
     in property <string> audition;
     /// Audio page: add a voice or room to the selected clip's sound.
@@ -1835,12 +1836,11 @@ export component MediaPane inherits Rectangle {
                 if root.tab == 4: VerticalLayout {
                     padding: 8px;
 
-                    // A filter is meant to be a layer over a span of the
-                    // timeline, dragged onto the lanes like a piece of media;
-                    // the payload says so, for the day the lanes accept it.
-                    // Until then the cards work on the selected clip: a
-                    // click shows the look on the monitor, and a double-click
-                    // or the card's plus adds it.
+                    // A filter is a layer over a span of the timeline,
+                    // dragged onto the lanes like a piece of media - the
+                    // payload says so. Short of a drag, a click shows the
+                    // look over the monitor, and a double-click or the
+                    // card's plus lays it at the playhead.
                     ShelfSearch {
                         shelf: 0;
                         placeholder: I18n.t1("Search {0}s", I18n.t("filter"));

@@ -232,11 +232,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         let mut $state = shell.studio.borrow_mut();
                         $body
                     }
-                    {
-                        let mut studio = shell.studio.borrow_mut();
-                        studio.settle_audition();
-                        studio.refresh_art();
-                    }
+                    shell.studio.borrow_mut().refresh_art();
                     shell.studio.borrow().$publish(&app, &shell.models);
                 });
             }
@@ -431,10 +427,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_library_add_text(on_window!(|state, preset: SharedString| {
         state.place_at_playhead(&format!("text:{preset}:Title"));
     }));
-    // A filter is a colour look on the picture; audio is the sound's chain.
+    // A filter is a layer over a span of the timeline; an effect goes on
+    // the selected clip's chain, and audio on the sound's.
     editor.on_library_apply_filter(on_window!(
-        |state, id: SharedString, _label: SharedString| {
-            state.apply_catalogue(id.as_str(), true);
+        |state, id: SharedString, label: SharedString| {
+            state.place_filter_layer(id.as_str(), label.as_str());
         }
     ));
     editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
