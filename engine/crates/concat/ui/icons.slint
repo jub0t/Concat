@@ -89,6 +89,7 @@ export enum Glyph {
     trash,
     magnet,
     waveform,
+    filter,
     eye-off,
     volume,
     volume-off,
@@ -470,6 +471,12 @@ export component Icon inherits Rectangle {
             + " 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z M5 8l4 4";
     }
 
+    // lucide/blend: two circles overlapping, for a filter - a look laid
+    // over whatever plays under it.
+    if root.glyph == Glyph.filter: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M16 9a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M22 15a7 7 0 1 1-14 0a7 7 0 1 1 14 0";
+    }
     // lucide/audio-lines
     if root.glyph == Glyph.waveform: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;

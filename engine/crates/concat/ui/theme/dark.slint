@@ -53,12 +53,14 @@
 export global Dark {
     // surfaces
     //
-    // Panels are a grey that visibly floats on the near-black ground — never
-    // the ground colour itself, or the panes melt into the window and their
+    // Panels are a grey that visibly floats on the darker ground — never the
+    // ground colour itself, or the panes melt into the window and their
     // grab-able gutters vanish.
     //
     // A panel is judged as a ground, by whole panes painted in it rather than
-    // by narrow strips, and a near-black one is a stop too dark at that size.
+    // by narrow strips, and a near-black one is a stop too dark at that size:
+    // the whole ladder sits in the mid-dark greys a desktop editor's window
+    // is made of, with the page under it and the lanes under the panel.
     //
     // Holding the panel up leaves room underneath, so `well` is genuinely
     // sunken — darker than the surface it is cut into, which is how a sunken
@@ -75,12 +77,12 @@ export global Dark {
     // separating a pane from the ground; without one the value step has to do
     // all of it, and a darker ladder leaves the panes reading as holes in the
     // window rather than as surfaces on it.
-    out property <color> panel: #1c1c1c;
-    out property <color> raised: #262626;
-    out property <color> well: #131313;
-    out property <color> field: #2c2c2c;
-    out property <color> field-hover: #343434;
-    out property <color> field-active: #3f3f3f;
+    out property <color> panel: #212123;
+    out property <color> raised: #2b2b2e;
+    out property <color> well: #19191b;
+    out property <color> field: #323235;
+    out property <color> field-hover: #3b3b3e;
+    out property <color> field-active: #46464a;
 
     // hairlines — white-alpha, so they hold on panel, well, and ground alike.
     out property <color> line: #ffffff1a;         // rgb(255 255 255 / 0.1)
@@ -131,21 +133,26 @@ export global Dark {
     // the clip it becomes on a track are the same two colours, so they read as
     // one object moved rather than two things that happen to have the same
     // name.
-    out property <color> kind-video: #3d8bf8;
-    out property <color> kind-video-well: #19293f;
-    out property <color> kind-audio: #f4c21b;
-    out property <color> kind-audio-well: #3e3413;
-    out property <color> kind-image: #c07af8;
-    out property <color> kind-image-well: #33253f;
-    out property <color> kind-text: #f06ab4;
-    out property <color> kind-text-well: #3d2232;
+    //
+    // The marks are a step down from the brand's vivid five: they are the
+    // header strip of every clip and the ground of every card's badge, and
+    // at full chroma a stack of eight tracks shouts. Darker, they still say
+    // the kind and let the white ink on them read.
+    out property <color> kind-video: #3373d1;
+    out property <color> kind-video-well: #142238;
+    out property <color> kind-audio: #d3a616;
+    out property <color> kind-audio-well: #302810;
+    out property <color> kind-image: #9f63d6;
+    out property <color> kind-image-well: #2a1e34;
+    out property <color> kind-text: #cf5a99;
+    out property <color> kind-text-well: #321c29;
     // The marks are the five bright hues the brand's palette has beside its
     // lime accent: blue, yellow, violet, pink and teal. A filter layer is not
     // a medium — nothing was imported to make one — so it takes the one hue
     // the four media kinds leave free rather than borrowing whichever of
     // them it happens to sit over.
-    out property <color> kind-filter: #3bd39a;
-    out property <color> kind-filter-well: #19372c;
+    out property <color> kind-filter: #2fb384;
+    out property <color> kind-filter-well: #143025;
 
     // timeline
     //
@@ -166,14 +173,14 @@ export global Dark {
     // still reads as a well cut into the pane, and a clip's own dark ground
     // now sits *on* something rather than floating in a hole. Both stay well
     // under `panel`, or the empty stretches would read as content.
-    out property <color> lane: #101011;
-    out property <color> lane-alt: #171718;
+    out property <color> lane: #1a1a1c;
+    out property <color> lane-alt: #1e1e20;
     // The ruler is its own surface, not the first row of the stack: a step
     // under the darker lane, so the strip carrying the timestamps reads as
     // the floor of the pane and the banding starts below it. It followed
     // `raised` before, which put it above the panel and made it the brightest
     // thing in the pane — the opposite of what a ruler should be.
-    out property <color> ruler: #1c1c1c;
+    out property <color> ruler: #171719;
     /// The vertical rules. 6% white was set against a lane that was still a
     /// dark grey, and all but vanished when the lanes went black — a grid that
     /// costs elements and reads as nothing. 14% clears both of the tones the
@@ -221,7 +228,7 @@ export global Dark {
     // A sample of something meant for footage - a title look on a card -
     // sits on a dark ground so a white title reads, but a grey one rather
     // than the stage's black, so the card is a card and not a hole.
-    out property <color> sample-ground: #2c2c2e;
+    out property <color> sample-ground: #37373a;
 
     // The sheet that covers the window behind a dialog. Dark rather than
     // tinted: it has to work over the whole editor, and any hue in it would
@@ -246,6 +253,6 @@ export global Dark {
 
     // window ground the panes float on — a shade under the darkest panel so
     // the gutters read as gaps and not as seams
-    out property <color> page: #08080a;
+    out property <color> page: #151517;
     out property <color> page-fg-muted: #a1a1a6;
 }

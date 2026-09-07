@@ -45,8 +45,75 @@ global Paint {
         return kind == ClipKind.audio ? Glyph.music
             : kind == ClipKind.image ? Glyph.image
             : kind == ClipKind.text ? Glyph.sparkle
-            : kind == ClipKind.filter ? Glyph.waveform
+            : kind == ClipKind.filter ? Glyph.filter
             : Glyph.film;
+    }
+}
+
+// The fade ramps over one region of a clip. The shaded wedge is the part
+// being taken away and the bright line is the envelope itself - the shape
+// every editor draws, because it reads as "this much is being attenuated".
+// Drawn at the foot of a picture clip's body, over the whole of a sound's,
+// and over the whole bar of a filter layer, which is all bar.
+component Ramps inherits Rectangle {
+    in property <float> fade-in;
+    in property <float> fade-out;
+    in property <length> px-per-second;
+    /// The wedges' height; they sit at the foot of this element.
+    in property <length> ramp-h: root.height;
+
+    if root.fade-in > 0: Rectangle {
+        x: 0;
+        y: parent.height - root.ramp-h;
+        width: Math.min(parent.width, root.fade-in * root.px-per-second);
+        height: root.ramp-h;
+
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.fade-shade;
+            commands: "M 0 0 L 1 0 L 0 1 Z";
+        }
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            stroke: Theme.fade-edge;
+            stroke-width: 1px;
+            commands: "M 0 1 L 1 0";
+        }
+    }
+
+    if root.fade-out > 0: Rectangle {
+        x: parent.width - self.width;
+        y: parent.height - root.ramp-h;
+        width: Math.min(parent.width, root.fade-out * root.px-per-second);
+        height: root.ramp-h;
+
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.fade-shade;
+            commands: "M 0 0 L 1 0 L 1 1 Z";
+        }
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            stroke: Theme.fade-edge;
+            stroke-width: 1px;
+            commands: "M 0 0 L 1 1";
+        }
     }
 }
 
@@ -75,17 +142,23 @@ component Clip inherits Rectangle {
 
     /// The coloured name strip; the rest of the clip is its body. A title
     /// is all strip: its name is its words, and a body under it would show
-    /// the same words a second time in a taller clip.
-    property <length> header-h: root.item.kind == ClipKind.text ? root.height : 17px;
+    /// the same words a second time in a taller clip. A filter layer is all
+    /// strip too - one bar, the look's mark before its name - since it has
+    /// no picture and no sound to show under a header.
+    property <bool> all-strip: root.item.kind == ClipKind.text
+        || root.item.kind == ClipKind.filter;
+    property <length> header-h: root.all-strip ? root.height : 17px;
+    /// A filter layer wears its mark before its name, the way the look is
+    /// told from a title or a sound on the lanes at a glance.
+    property <bool> marked: root.item.kind == ClipKind.filter;
+    property <length> text-x: root.marked ? 22px : 7px;
     property <length> body-h: Math.max(0px, root.height - root.header-h);
     /// A fade on a picture clip is shaded in a band at the foot instead of
     /// over the whole body: the fade is an *audio* property, and shading the
-    /// picture would say it fades to black. A filter layer has no picture to
-    /// mislead about, and its ramp is the whole layer coming up, so it shades
-    /// like sound does.
-    property <bool> fade-whole: root.item.kind == ClipKind.audio
-        || root.item.kind == ClipKind.filter;
-    property <length> fade-h: root.fade-whole ? root.body-h : root.body-h * 0.45;
+    /// picture would say it fades to black. Sound shades its whole body; a
+    /// filter layer's ramp is the whole layer coming up, and it shades its
+    /// whole bar.
+    property <length> fade-h: root.item.kind == ClipKind.audio ? root.body-h : root.body-h * 0.45;
 
     /// -1 body, 0 leading edge, 1 trailing edge
     property <int> edge-at: touch.mouse-x < root.edge-grab ? 0
@@ -172,12 +245,9 @@ component Clip inherits Rectangle {
 
         // Before the frames arrive, a picture clip shows its kind's mark the
         // way a bin card does — faint and large, so it reads as a placeholder
-        // and not as a badge. A filter layer takes the same treatment for the
-        // opposite reason: there is no picture to draw, and there never will
-        // be one.
-        if (((root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
-            && root.item.strip.frames == 0) || root.item.kind == ClipKind.filter)
-            && root.width > 40px: Icon {
+        // and not as a badge.
+        if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
+            && root.item.strip.frames == 0 && root.width > 40px: Icon {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             glyph: root.badge;
@@ -185,61 +255,16 @@ component Clip inherits Rectangle {
             tint: root.mark.with-alpha(0.3);
         }
 
-        // The fade ramps. The shaded wedge is the part being taken away and
-        // the bright line is the envelope itself — the shape every editor
-        // draws, because it reads as "this much is being attenuated".
-        if root.item.fade-in > 0: Rectangle {
+        // The fade ramps, at the foot of the body.
+        Ramps {
             x: 0;
-            y: parent.height - root.fade-h;
-            width: Math.min(parent.width, root.item.fade-in * root.px-per-second);
-            height: root.fade-h;
-
-            Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                fill: Theme.fade-shade;
-                commands: "M 0 0 L 1 0 L 0 1 Z";
-            }
-            Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                stroke: Theme.fade-edge;
-                stroke-width: 1px;
-                commands: "M 0 1 L 1 0";
-            }
-        }
-
-        if root.item.fade-out > 0: Rectangle {
-            x: parent.width - self.width;
-            y: parent.height - root.fade-h;
-            width: Math.min(parent.width, root.item.fade-out * root.px-per-second);
-            height: root.fade-h;
-
-            Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                fill: Theme.fade-shade;
-                commands: "M 0 0 L 1 0 L 1 1 Z";
-            }
-            Path {
-                width: parent.width;
-                height: parent.height;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                stroke: Theme.fade-edge;
-                stroke-width: 1px;
-                commands: "M 0 0 L 1 1";
-            }
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            fade-in: root.item.fade-in;
+            fade-out: root.item.fade-out;
+            px-per-second: root.px-per-second;
+            ramp-h: root.fade-h;
         }
 
         // A transition on the cut into this clip: the wedge pair every editor
@@ -279,16 +304,36 @@ component Clip inherits Rectangle {
         height: root.header-h;
         background: root.mark;
 
+        if root.marked && root.width > 20px: Icon {
+            x: 6px;
+            y: (parent.height - self.height) / 2;
+            glyph: Glyph.filter;
+            size: 11px;
+            tint: Theme.clip-ink;
+        }
+
         if root.width > 30px: Text {
-            x: 7px;
+            x: root.text-x;
             y: 0;
-            width: parent.width - 14px - (root.item.fx && root.width > 60px ? 20px : 0px);
+            width: parent.width - root.text-x - 7px
+                - (root.item.fx && root.width > 60px ? 20px : 0px);
             height: parent.height;
             text: root.item.name;
             color: Theme.clip-ink;
             font-size: Theme.fs-sm;
             vertical-alignment: center;
             overflow: elide;
+        }
+
+        // A filter layer's ramps run over its whole bar; see Ramps.
+        if root.marked: Ramps {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            fade-in: root.item.fade-in;
+            fade-out: root.item.fade-out;
+            px-per-second: root.px-per-second;
         }
 
         // An `fx` chip when effects are live on the clip, so a styled clip is
