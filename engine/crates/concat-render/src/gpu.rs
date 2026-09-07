@@ -109,6 +109,10 @@ struct CompiledShader {
 struct PooledTexture {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
+    /// The identity of the frame uploaded into it, or zero for a texture
+    /// a pass drew: what lets a frame the device already holds - a still,
+    /// a title, a paused clip - skip its upload.
+    holds: u64,
 }
 
 /// The reusable output target and its readback buffer, for one output size.
@@ -745,10 +749,24 @@ impl WgpuCompositor {
         self.target.as_ref().expect("just ensured")
     }
 
-    /// Claims a pooled texture of the layer's size, uploading its pixels.
+    /// Claims a pooled texture of the layer's size holding the frame's
+    /// pixels: the one that already does, moved into this frame's claimed
+    /// run, or a fresh claim with the pixels uploaded into it.
     fn upload(&mut self, frame: &Frame) -> usize {
+        let key = (frame.width(), frame.height());
+        let identity = frame.id();
+        let used = self.used.get(&key).copied().unwrap_or(0);
+        if let Some(pool) = self.pool.get_mut(&key)
+            && let Some(found) = (used..pool.len()).find(|&slot| pool[slot].holds == identity)
+        {
+            pool.swap(used, found);
+            *self.used.entry(key).or_insert(0) = used + 1;
+            return used;
+        }
         let index = self.claim(frame.width(), frame.height());
-        let texture = &self.pool[&(frame.width(), frame.height())][index].texture;
+        let pooled = &mut self.pool.get_mut(&key).expect("just claimed")[index];
+        pooled.holds = identity;
+        let texture = &pooled.texture;
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture,
@@ -814,11 +832,14 @@ impl WgpuCompositor {
             pool.push(PooledTexture {
                 texture,
                 bind_group,
+                holds: 0,
             });
         }
 
         let index = *used;
         *used += 1;
+        // Whatever is drawn into it next is not the frame it held.
+        pool[index].holds = 0;
         index
     }
 

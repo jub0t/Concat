@@ -124,14 +124,53 @@ impl Shell {
     }
 }
 
-/// Runs `work` on its own thread, then `then` on the event-loop thread with
-/// the result, the state and the window - followed by a full publish, so a
+/// The workers every background job runs on: a few threads kept for the
+/// life of the process, fed from one queue. A thread per job was a thread
+/// per monitor frame, thirty a second during playback.
+fn workers() -> &'static std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>> {
+    static WORKERS: std::sync::OnceLock<std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>> =
+        std::sync::OnceLock::new();
+    WORKERS.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
+        // Three: the monitor's frame, its prefetch, and whatever thumbnail
+        // or analysis is running, without any of them queuing behind the
+        // others.
+        for index in 0..3 {
+            let receiver = std::sync::Arc::clone(&receiver);
+            std::thread::Builder::new()
+                .name(format!("concat-worker-{index}"))
+                .spawn(move || {
+                    loop {
+                        let job = receiver
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .recv();
+                        match job {
+                            Ok(job) => job(),
+                            Err(_) => return,
+                        }
+                    }
+                })
+                .expect("a worker thread");
+        }
+        sender
+    })
+}
+
+/// Runs `work` on a worker with nothing to report: a prefetch, a warm-up.
+pub fn spawn_detached(work: impl FnOnce() + Send + 'static) {
+    let _ = workers().send(Box::new(work));
+}
+
+/// Runs `work` on a worker, then `then` on the event-loop thread with the
+/// result, the state and the window - followed by a full publish, so a
 /// completion never has to remember to redraw.
 pub fn spawn<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    std::thread::spawn(move || {
+    spawn_detached(move || {
         let result = work();
         let _ = slint::invoke_from_event_loop(move || {
             Shell::with(|shell, app| {

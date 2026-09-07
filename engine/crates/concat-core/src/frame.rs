@@ -13,23 +13,62 @@
 //! that every call site has to branch on.
 
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Bytes per pixel in the one format Concat uses.
 pub const BYTES_PER_PIXEL: usize = 4;
+
+/// The next frame identity; see [`Frame::id`].
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn mint() -> u64 {
+    NEXT_ID.fetch_add(1, Ordering::Relaxed)
+}
 
 /// An RGBA8 image.
 ///
 /// Width and height are fixed at construction, and the buffer is always
 /// exactly `width * height * 4` bytes, so indexing arithmetic cannot go wrong
 /// after the fact.
-#[derive(Clone, PartialEq, Eq)]
 pub struct Frame {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
+    /// Which picture this is; see [`Frame::id`].
+    id: u64,
 }
 
+impl Clone for Frame {
+    /// A copy is a picture of its own: it may be changed next, and a
+    /// renderer holding the original must not take it for the copy.
+    fn clone(&self) -> Self {
+        Self {
+            width: self.width,
+            height: self.height,
+            pixels: self.pixels.clone(),
+            id: mint(),
+        }
+    }
+}
+
+impl PartialEq for Frame {
+    /// The same picture, whatever its identity.
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width && self.height == other.height && self.pixels == other.pixels
+    }
+}
+
+impl Eq for Frame {}
+
 impl Frame {
+    /// A number no other frame has had, and this one loses the moment its
+    /// pixels are touched: a renderer keys what it has uploaded by it, so a
+    /// picture it already holds - a still, a title, a paused clip's frame
+    /// - is not uploaded again. Never zero.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// How many bytes a frame of this size occupies.
     pub const fn byte_len(width: u32, height: u32) -> usize {
         width as usize * height as usize * BYTES_PER_PIXEL
@@ -45,6 +84,7 @@ impl Frame {
             width,
             height,
             pixels,
+            id: mint(),
         }
     }
 
@@ -54,6 +94,7 @@ impl Frame {
             width,
             height,
             pixels: vec![0u8; Self::byte_len(width, height)],
+            id: mint(),
         }
     }
 
@@ -66,6 +107,7 @@ impl Frame {
             width,
             height,
             pixels,
+            id: mint(),
         })
     }
 
@@ -89,8 +131,10 @@ impl Frame {
         &self.pixels
     }
 
-    /// The raw RGBA bytes, mutably.
+    /// The raw RGBA bytes, mutably. A new identity with them: whatever is
+    /// written makes this a different picture from the one uploaded.
     pub fn pixels_mut(&mut self) -> &mut [u8] {
+        self.id = mint();
         &mut self.pixels
     }
 
@@ -121,6 +165,7 @@ impl Frame {
 
     /// Writes one pixel. Out-of-bounds writes are ignored.
     pub fn set_pixel(&mut self, x: u32, y: u32, rgba: [u8; 4]) {
+        self.id = mint();
         if let Some(offset) = self.offset_of(x, y) {
             self.pixels[offset..offset + BYTES_PER_PIXEL].copy_from_slice(&rgba);
         }
@@ -130,6 +175,7 @@ impl Frame {
     /// clipping whatever falls outside. No blending: the source's pixels
     /// replace what was there.
     pub fn blit(&mut self, source: &Frame, x: u32, y: u32) {
+        self.id = mint();
         let width = self.width;
         let height = self.height;
         let columns = source.width.min(width.saturating_sub(x)) as usize;
@@ -149,6 +195,7 @@ impl Frame {
 
     /// Fills the whole frame with one colour.
     pub fn fill(&mut self, rgba: [u8; 4]) {
+        self.id = mint();
         for pixel in self.pixels.chunks_exact_mut(BYTES_PER_PIXEL) {
             pixel.copy_from_slice(&rgba);
         }

@@ -1831,8 +1831,14 @@ impl Studio {
                         .frame(std::sync::Arc::clone(&clips), &settings, spec)
                         .map(|bytes| Picture::Pixels(bytes, width, height))
                 };
-                // Decode-ahead for whatever comes next, while the pool is warm.
-                monitor.prefetch(clips, &settings, spec, 2);
+                // Decode-ahead for whatever comes next, on a worker of its
+                // own, so the frame goes to the window without waiting for
+                // it and the next frame can start meanwhile.
+                {
+                    let monitor = monitor.clone();
+                    let settings = settings.clone();
+                    crate::host::spawn_detached(move || monitor.prefetch(clips, &settings, spec, 2));
+                }
                 frame
             },
             |studio, _, _, result| {
