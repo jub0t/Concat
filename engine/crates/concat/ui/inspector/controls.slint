@@ -128,114 +128,24 @@ export global InspectorFmt {
         return decibels <= -60 ? 0 : Math.pow(10, decibels / 20);
     }
 
-    // What the raw NumberField beside a fader should show for a given step.
+    // What a NumberField should show for a given step.
     public pure function precision-of(step: float) -> int {
         return step < 0.01 ? 3 : step < 0.1 ? 2 : step < 1 ? 1 : 0;
     }
 }
 
-// Horizontal fader. Click to jump, drag to ride, double-click to reset.
+// The one slider: a hairline track with a raised chip you push along it.
+// Click to jump, drag to ride, double-click to reset.
 //
-// A sunken track the height of a field, filled from the left in the soft
-// accent up to a bar in the full one. The fill is what reads at a glance -
-// how much of the range is dialled in - and the bar, not a bead, is what
-// lands on a value: flat edges have a precision a circle never has, and at
-// zero the bar still sits inside the track rather than hanging off its end.
-export component Fader inherits Rectangle {
-    in-out property <float> value;
-    in property <float> minimum: 0;
-    in property <float> maximum: 1;
-    in property <float> step: 0.01;
-    /// restored on double-click
-    in property <float> default-value: root.minimum;
-    in property <bool> enabled: true;
-
-    callback changed(value: float);
-
-    height: Theme.h;
-    border-radius: Theme.r;
-    border-width: 1px;
-    border-color: (touch.has-hover && root.enabled) ? Theme.line-strong : Theme.line;
-    background: Theme.well;
-    opacity: root.enabled ? 1.0 : 0.45;
-
-    animate border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-    property <float> span: Math.max(root.maximum - root.minimum, 0.000001);
-    // The rail is inset by the border and two pixels, so the bar lands under
-    // the pointer at both ends instead of a few px short of them.
-    property <length> inset: 3px;
-    property <length> usable: Math.max(1px, root.width - 2 * root.inset);
-    property <float> percent: Fmt.clamp((root.value - root.minimum) / root.span, 0, 1);
-
-    function settle(raw: float) {
-        root.value = Fmt.clamp(
-            root.minimum + Math.round((raw - root.minimum) / root.step) * root.step,
-            root.minimum, root.maximum);
-        root.changed(root.value);
-    }
-
-    function apply-at(at: length) {
-        root.settle(root.minimum
-            + Fmt.clamp((at - root.inset) / root.usable, 0, 1) * root.span);
-    }
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: ew-resize;
-
-        pointer-event(event) => {
-            if (event.kind == PointerEventKind.down
-                && event.button == PointerEventButton.left) {
-                root.apply-at(self.mouse-x);
-            }
-        }
-        moved => {
-            root.apply-at(self.mouse-x);
-        }
-        double-clicked => {
-            root.settle(root.default-value);
-        }
-    }
-
-    fill := Rectangle {
-        x: root.inset;
-        y: root.inset;
-        width: root.usable * root.percent;
-        height: parent.height - 2 * root.inset;
-        border-radius: Theme.r-xs;
-        background: Theme.accent-soft;
-    }
-
-    cap := Rectangle {
-        x: root.inset + root.usable * root.percent - self.width * root.percent;
-        y: root.inset;
-        width: 3px;
-        height: parent.height - 2 * root.inset;
-        border-radius: 2px;
-        background: (touch.has-hover || touch.pressed) && root.enabled
-            ? Theme.accent-hover : Theme.accent;
-
-        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-    }
-}
-
-// The other slider, and the other half of the pair: where the Fader is a
-// filled box the height of a field, the Rail is a hairline track with a
-// raised chip you push along it.
+// It is a *control*, not a field: mostly air, the dragger the only solid
+// thing in it, and one of them in a section says this is the setting the
+// section is about. Volume is that. A chorus's wet/dry is not - a knob
+// like that is its number field alone, which scrubs on a drag.
 //
-// Which one a row gets is a question of how loud the row is, not of taste.
-// The Fader is a *field*: it is the height of the number box beside it, it
-// carries its own ground, and a column of them reads as a form — which is
-// what an effect's six knobs should read as. The Rail is a *control*: it is
-// mostly air, the dragger is the only solid thing in it, and one of them in
-// a section says this is the setting the section is about. Volume is that.
-// A chorus's wet/dry is not.
-//
-// The dragger is a chip and not a bead for the reason the Fader's cap is a
-// bar: flat sides land on a value. It is light rather than accent-coloured
-// because the fill it slides over is already the accent, and a dragger in
-// the colour of the thing behind it stops being a dragger.
+// The dragger is a chip and not a bead: flat sides land on a value. It is
+// light rather than accent-coloured because the fill it slides over is
+// already the accent, and a dragger in the colour of the thing behind it
+// stops being a dragger.
 export component Rail inherits Rectangle {
     in-out property <float> value;
     in property <float> minimum: 0;
@@ -401,14 +311,14 @@ export component KeyCluster inherits HorizontalLayout {
     }
 }
 
-// The inspector's repeating unit: a formatted readout above (the value in a
-// unit you reason about — "none", "auto", "1.00x"), the fader and a raw
-// number field below. Keeping both is what lets a fade of zero say "none"
-// without making zero un-typeable.
+// The inspector's repeating unit, on one line: label, a formatted readout
+// (the value in a unit you reason about — "none", "auto", "1.00x"), keys
+// and a raw number field, which scrubs on a drag. Keeping readout and field
+// both is what lets a fade of zero say "none" without making zero
+// un-typeable; when the field wears the unit itself the readout goes.
 //
-// Without the slider the whole thing is one line: label, readout, keys and
-// the number field, which scrubs on a drag just as the fader would. That is
-// the shape for a stack of knobs that are typed or nudged more than ridden.
+// A row that rides the Rail is two lines: the rail under the line above,
+// with the number field beside it.
 export component Param inherits VerticalLayout {
     in property <string> label;
     in-out property <float> value;
@@ -418,12 +328,9 @@ export component Param inherits VerticalLayout {
     in property <float> default-value: root.minimum;
     in property <ParamFormat> fmt;
     in property <bool> enabled: true;
-    /// Ride the Rail instead of the Fader — for the one setting a section is
-    /// named after, not for a list of knobs.
+    /// Ride the Rail — for the one setting a section is named after, not
+    /// for a list of knobs.
     in property <bool> rail: false;
-    /// Off drops the fader and folds the row into one line; the number
-    /// field alone carries the value, and drags for it.
-    in property <bool> slider: true;
     /// The value's unit, worn by the number field's trailing segment in
     /// place of the formatted readout: the number is then said once.
     in property <string> unit;
@@ -461,8 +368,8 @@ export component Param inherits VerticalLayout {
             vertical-alignment: center;
         }
 
-        if !root.slider: Rectangle { width: 8px; }
-        if !root.slider: NumberField {
+        if !root.rail: Rectangle { width: 8px; }
+        if !root.rail: NumberField {
             width: root.unit == "" ? 64px : 84px;
             value <=> root.value;
             minimum: root.minimum;
@@ -482,9 +389,8 @@ export component Param inherits VerticalLayout {
             changed(v) => { root.changed(v); }
         }
 
-        // On the readout's side rather than under the slider, and after the
-        // number field when that is on the line: the cluster is about the
-        // value, and it trails whatever last states the value.
+        // After the number field: the cluster is about the value, and it
+        // trails whatever last states the value.
         if root.keyable: Rectangle { width: 6px; }
         if root.keyable: VerticalLayout {
             alignment: center;
@@ -492,25 +398,10 @@ export component Param inherits VerticalLayout {
         }
     }
 
-    if root.slider: HorizontalLayout {
+    if root.rail: HorizontalLayout {
         spacing: 8px;
 
-        // One row, either slider. See Rail's header for which belongs where;
-        // the rest of the row - the readout above, the number field beside -
-        // is the same either way, which is the point of putting the choice
-        // here rather than in two near-identical Param components.
-        if !root.rail: Fader {
-            horizontal-stretch: 1;
-            value <=> root.value;
-            minimum: root.minimum;
-            maximum: root.maximum;
-            step: root.step;
-            default-value: root.default-value;
-            enabled: root.enabled;
-            changed(v) => { root.changed(v); }
-        }
-
-        if root.rail: Rail {
+        Rail {
             horizontal-stretch: 1;
             value <=> root.value;
             minimum: root.minimum;

@@ -16,7 +16,6 @@ import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
     Check,
-    Fader,
     HelpButton,
     InspectorFmt,
     Note,
@@ -917,7 +916,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Scale");
                 keyable: true;
                 field: ClipField.scale;
@@ -933,7 +931,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Position X");
                 keyable: true;
                 field: ClipField.offset-x;
@@ -949,7 +946,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Position Y");
                 keyable: true;
                 field: ClipField.offset-y;
@@ -965,7 +961,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Rotation");
                 keyable: true;
                 field: ClipField.rotation;
@@ -980,7 +975,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Width");
                 value <=> root.stretch-x;
                 minimum: 0.1;
@@ -994,7 +988,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Height");
                 value <=> root.stretch-y;
                 minimum: 0.1;
@@ -1019,7 +1012,6 @@ export component VideoPanel inherits VerticalLayout {
 
         if blend.open: SectionBody {
             Param {
-                slider: false;
                 label: I18n.t("Opacity");
                 keyable: true;
                 field: ClipField.opacity;
@@ -1274,7 +1266,6 @@ export component VideoPanel inherits VerticalLayout {
 
         if crop.open: SectionBody {
             Param {
-                slider: false;
                 label: I18n.t("Left");
                 value <=> root.crop-left;
                 minimum: 0;
@@ -1288,7 +1279,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Top");
                 value <=> root.crop-top;
                 minimum: 0;
@@ -1302,7 +1292,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Right");
                 value <=> root.crop-right;
                 minimum: 0;
@@ -1316,7 +1305,6 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                slider: false;
                 label: I18n.t("Bottom");
                 value <=> root.crop-bottom;
                 minimum: 0;
@@ -1731,7 +1719,6 @@ export component AdjustPanel inherits VerticalLayout {
                     changed data => { knob.value = self.data.value; }
 
                     knob := Param {
-                        slider: false;
                         unit: p.unit;
                         label: p.label;
                         value: p.value;
