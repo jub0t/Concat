@@ -56,7 +56,7 @@ change.
    are just as welcome as new ones.
 
 Concat ships English, Deutsch, Español, Français, Italiano, 日本語, 한국어,
-Português (Brasil), Русский, Türkçe and 简体中文.
+Português (Brasil), Русский, Türkçe, 简体中文 and 正體中文.
 
 ## For developers
 
