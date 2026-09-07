@@ -133,6 +133,19 @@ impl<'a> Layer<'a> {
     }
 }
 
+/// A layer clip at one instant, for a compositor that can apply it over
+/// the stack beneath its track without leaving the GPU: its passes, and how
+/// hard the result is blended back over the untreated stack.
+#[derive(Clone, Copy, Debug)]
+pub struct Treatment<'a> {
+    /// The track the layer sits on; every layer on a lower track is under it.
+    pub track: usize,
+    /// The passes to run over the stack beneath, in order.
+    pub passes: &'a [ShaderPass],
+    /// How much of the treated stack to keep over the untreated, `0..=1`.
+    pub strength: f32,
+}
+
 /// Blends layers into a single output frame.
 pub trait Compositor {
     /// Draws `layers` bottom-most first over an opaque black background.
@@ -141,6 +154,22 @@ pub trait Compositor {
     /// The result is always fully opaque - it is what goes to screen or to an
     /// encoder, and neither has anything to show through.
     fn composite(&mut self, width: u32, height: u32, layers: &[Layer<'_>]) -> Frame;
+
+    /// Draws `layers` - each with the track it came from, bottom-most first
+    /// - with every treatment applied over the stack beneath its track, the
+    /// treatments in ascending track order. `None` from a compositor that
+    /// cannot run passes, which the CPU reference cannot: the caller then
+    /// applies the treatments its own way.
+    fn composite_treated(
+        &mut self,
+        _width: u32,
+        _height: u32,
+        _time: f32,
+        _layers: &[(Layer<'_>, usize)],
+        _treatments: &[Treatment<'_>],
+    ) -> Option<Frame> {
+        None
+    }
 }
 
 /// A straightforward CPU compositor.

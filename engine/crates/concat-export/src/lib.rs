@@ -37,7 +37,7 @@ use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource};
 use concat_project::model::{AppliedFilter, Cutout};
-use concat_render::{Compositor, CpuCompositor, Layer, Placement, plan_frame};
+use concat_render::{Compositor, CpuCompositor, Layer, Placement, Treatment as GpuTreatment, plan_frame};
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
 
@@ -1101,6 +1101,25 @@ fn composite_treated(
     }
     live.sort_by_key(|treatment| treatment.track);
 
+    // A compositor that runs passes applies every treatment without a
+    // pixel leaving the GPU, so long as none of them needs FFmpeg for
+    // a package that has no shader.
+    if live.iter().all(|treatment| treatment.chain.is_empty()) {
+        let gpu: Vec<GpuTreatment<'_>> = live
+            .iter()
+            .map(|treatment| GpuTreatment {
+                track: treatment.track,
+                passes: &treatment.passes,
+                strength: treatment.strength_at(time),
+            })
+            .collect();
+        if let Some(frame) =
+            compositor.composite_treated(width, height, time.as_f64() as f32, sources, &gpu)
+        {
+            return frame;
+        }
+    }
+
     let mut ground: Option<Frame> = None;
     let mut next = 0;
     for treatment in live {
@@ -1480,10 +1499,11 @@ impl PreviewSources {
             .any(|treatment| treatment.covers(self.time))
     }
 
-    /// The frame, treatments included, drawn with `compositor`.
-    pub fn composite(&self, compositor: &mut dyn Compositor) -> Frame {
-        let placed: Vec<(Layer<'_>, usize)> = self
-            .sources
+    /// The layers as [`PreviewSources::layers`] gives them, each with the
+    /// track it came from, for a compositor applying treatments itself.
+    pub fn placed(&self) -> Vec<(Layer<'_>, usize)> {
+        let seconds = self.seconds();
+        self.sources
             .iter()
             .map(|source| {
                 (
@@ -1496,11 +1516,46 @@ impl PreviewSources {
                     )
                     .with_blend(source.blend)
                     .with_passes(&source.passes)
-                    .at_time(self.time.as_f64() as f32),
+                    .at_time(seconds),
                     source.track,
                 )
             })
+            .collect()
+    }
+
+    /// The treatments live at this instant, in ascending track order, as
+    /// a GPU compositor takes them - or None when one of them needs FFmpeg
+    /// for a package with no shader, and only [`PreviewSources::composite`]
+    /// can draw the frame.
+    pub fn live_treatments(&self) -> Option<Vec<GpuTreatment<'_>>> {
+        let mut live: Vec<&Treatment> = self
+            .treatments
+            .iter()
+            .filter(|treatment| treatment.covers(self.time))
             .collect();
+        if live.iter().any(|treatment| !treatment.chain.is_empty()) {
+            return None;
+        }
+        live.sort_by_key(|treatment| treatment.track);
+        Some(
+            live.iter()
+                .map(|treatment| GpuTreatment {
+                    track: treatment.track,
+                    passes: &treatment.passes,
+                    strength: treatment.strength_at(self.time),
+                })
+                .collect(),
+        )
+    }
+
+    /// The instant, in seconds, for passes that move.
+    pub fn seconds(&self) -> f32 {
+        self.time.as_f64() as f32
+    }
+
+    /// The frame, treatments included, drawn with `compositor`.
+    pub fn composite(&self, compositor: &mut dyn Compositor) -> Frame {
+        let placed = self.placed();
         composite_treated(
             compositor,
             self.width,

@@ -105,8 +105,21 @@ impl Monitor {
         let sources = concat_export::preview_sources(&self.pool, &request, true)?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         if sources.has_treatments() {
-            // A layer's chain runs on the CPU, so the frame is drawn there
-            // and uploaded whole; only instants under a layer pay for it.
+            // A layer whose look is a shader is applied where the stack is
+            // drawn, on the GPU; only a layer that needs FFmpeg for a
+            // package with no shader takes the frame through the CPU.
+            if let Some(treatments) = sources.live_treatments() {
+                let layers = sources.placed();
+                return gpu
+                    .composite_texture_treated(
+                        spec.width,
+                        spec.height,
+                        sources.seconds(),
+                        &layers,
+                        &treatments,
+                    )
+                    .ok_or_else(|| "the GPU device was lost".to_owned());
+            }
             let frame = sources.composite(&mut *gpu);
             let layers = [concat_render::Layer::new(&frame)];
             return gpu
