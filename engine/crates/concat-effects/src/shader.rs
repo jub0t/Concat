@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use concat_core::ShaderPass;
+use concat_core::{Lut, ShaderPass};
 
 use crate::manifest::{Manifest, Param, ParamType};
 
@@ -41,6 +41,8 @@ struct Frame {
 @group(0) @binding(1) var source_sampler: sampler;
 @group(1) @binding(0) var<uniform> frame: Frame;
 @group(1) @binding(1) var<uniform> params: Params;
+@group(2) @binding(0) var lut_texture: texture_3d<f32>;
+@group(2) @binding(1) var lut_sampler: sampler;
 
 /// The layer's colour at `uv`, straight alpha.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
@@ -55,6 +57,15 @@ fn texel() -> vec2<f32> {
 /// Luminance, Rec. 709.
 fn luma(rgb: vec3<f32>) -> f32 {
     return dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+/// The package's look-up table applied to a colour - the identity when
+/// the package ships none, so the call is always safe. Sampled at the
+/// texel centres, so the table's ends land on black and white exactly.
+fn lut(rgb: vec3<f32>) -> vec3<f32> {
+    let n = f32(textureDimensions(lut_texture).x);
+    let uvw = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * (n - 1.0) / n + vec3<f32>(0.5 / n);
+    return textureSampleLevel(lut_texture, lut_sampler, uvw, 0.0).rgb;
 }
 
 /// A hash in 0..1 from a point and a seed, for grain and dither.
@@ -468,12 +479,14 @@ impl Shader {
         values: &BTreeMap<String, f64>,
         params: &[Param],
         intensity: f32,
+        lut: Option<Arc<Lut>>,
     ) -> ShaderPass {
         ShaderPass {
             key: self.key.clone(),
             source: Arc::clone(&self.source),
             params: self.params_bytes(values, params),
             intensity,
+            lut,
         }
     }
 }

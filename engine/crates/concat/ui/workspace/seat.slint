@@ -130,6 +130,7 @@ export component Seat inherits Rectangle {
             audition-filter(id) => { Editor.library-audition-filter(id); }
             apply-audio(id) => { Editor.library-apply-audio(id); }
             save-template => { Editor.library-save-template(); }
+            import-lut => { Editor.library-import-lut(); }
         }
 
     if root.kind == PaneKind.preview: PreviewPane {

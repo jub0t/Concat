@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 
 use concat_core::frame::Frame;
-use concat_core::shader::ShaderPass;
+use concat_core::shader::{Lut, ShaderPass};
 use concat_core::timeline::Blend;
 
 use crate::compositor::{Compositor, CpuCompositor, Layer};
@@ -142,6 +142,10 @@ pub struct WgpuCompositor {
     bind_layout: wgpu::BindGroupLayout,
     /// Group 1 of a shader pass: the frame block and the package's params.
     uniform_layout: wgpu::BindGroupLayout,
+    /// Group 2 of a shader pass: the package's look-up table, a 3D texture.
+    lut_layout: wgpu::BindGroupLayout,
+    /// Uploaded tables by their id, the identity among them; see `lut_group`.
+    luts: HashMap<u64, wgpu::BindGroup>,
     /// Compiled passes by their key; see `ShaderPass::key`.
     shaders: HashMap<String, CompiledShader>,
     sampler: wgpu::Sampler,
@@ -227,6 +231,29 @@ impl WgpuCompositor {
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("concat pass uniforms"),
             entries: &[uniform_entry(0), uniform_entry(1)],
+        });
+        // Group 2: a look-up table. Every pass binds one - the identity when
+        // the package has none - so one pipeline layout serves them all.
+        let lut_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("concat pass lut"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("concat compositor"),
@@ -337,6 +364,8 @@ impl WgpuCompositor {
             pipelines,
             bind_layout,
             uniform_layout,
+            lut_layout,
+            luts: HashMap::new(),
             shaders: HashMap::new(),
             sampler,
             vertices,
@@ -670,7 +699,11 @@ impl WgpuCompositor {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&pass.key),
-                bind_group_layouts: &[Some(&self.bind_layout), Some(&self.uniform_layout)],
+                bind_group_layouts: &[
+                    Some(&self.bind_layout),
+                    Some(&self.uniform_layout),
+                    Some(&self.lut_layout),
+                ],
                 immediate_size: 0,
             });
         let pipeline = self
@@ -739,6 +772,74 @@ impl WgpuCompositor {
         );
     }
 
+    /// The bind group for a pass's table, uploaded the first time its id is
+    /// seen, and the identity's for a pass without one. Returns the id the
+    /// group is filed under.
+    fn lut_group(&mut self, lut: Option<&Lut>) -> u64 {
+        let identity;
+        let lut = match lut {
+            Some(lut) => lut,
+            None => {
+                identity = Lut::identity(2);
+                &identity
+            }
+        };
+        if self.luts.contains_key(&lut.id) {
+            return lut.id;
+        }
+        let size = lut.size;
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat lut"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: size,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &lut.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(size * 4),
+                rows_per_image: Some(size),
+            },
+            wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: size,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat lut"),
+            layout: &self.lut_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        self.luts.insert(lut.id, bind_group);
+        lut.id
+    }
+
     /// Runs `passes` over the pooled texture `source` of `width` × `height`,
     /// each drawing into a fresh pooled texture of the same size, and
     /// returns the index of the last one drawn. Each pass is its own
@@ -755,7 +856,9 @@ impl WgpuCompositor {
         for pass in passes {
             let target = self.claim(width, height);
             self.shader(pass);
+            let lut_id = self.lut_group(pass.lut.as_deref());
             let shader = &self.shaders[&pass.key];
+            let lut_group = &self.luts[&lut_id];
             let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.intensity];
             let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
             self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
@@ -792,6 +895,7 @@ impl WgpuCompositor {
                 render.set_pipeline(&shader.pipeline);
                 render.set_bind_group(0, &pool[current].bind_group, &[]);
                 render.set_bind_group(1, &shader.bind_group, &[]);
+                render.set_bind_group(2, lut_group, &[]);
                 render.draw(0..3, 0..1);
             }
             self.queue.submit([encoder.finish()]);
@@ -972,16 +1076,41 @@ mod tests {
             }
             frame
         };
-        let full = [shader.pass(&Default::default(), &[], 1.0)];
+        let full = [shader.pass(&Default::default(), &[], 1.0, None)];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&full)]);
         assert_eq!(&out.pixels()[..3], &[0, 255, 255]);
-        let half = [shader.pass(&Default::default(), &[], 0.5)];
+        let half = [shader.pass(&Default::default(), &[], 0.5, None)];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&half)]);
         let p = &out.pixels()[..3];
         assert!(
             p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
             "{p:?}"
         );
+    }
+
+    /// A pass reads its table through `lut()`: a table that answers green
+    /// to every colour turns a red frame green, and a pass without one is
+    /// handed the identity and changes nothing.
+    #[test]
+    fn a_pass_samples_its_table_and_the_identity_without_one() {
+        let Some(mut gpu) = gpu() else { return };
+        let manifest = concat_effects::Manifest::parse(
+            "[effect]\nid = \"test.table\"\nname = \"Table\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("a manifest");
+        let shader = concat_effects::Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(lut(c.rgb), c.a); }",
+        )
+        .expect("compiles");
+        let red = solid(4, 4, [255, 0, 0, 255]);
+        let green = Lut::from_rgb(2, &[0.0, 1.0, 0.0].repeat(8)).expect("a table");
+        let tabled = [shader.pass(&Default::default(), &[], 1.0, Some(std::sync::Arc::new(green)))];
+        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&tabled)]);
+        assert_eq!(&out.pixels()[..3], &[0, 255, 0]);
+        let plain = [shader.pass(&Default::default(), &[], 1.0, None)];
+        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&plain)]);
+        assert_eq!(&out.pixels()[..3], &[255, 0, 0]);
     }
 
     fn gpu() -> Option<WgpuCompositor> {

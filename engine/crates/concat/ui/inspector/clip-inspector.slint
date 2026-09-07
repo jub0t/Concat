@@ -54,6 +54,10 @@ export struct CatalogueEntryData {
     category: string,
     group: int,
     description: string,
+    /// The card's still, when the package brings its own - a user's
+    /// imported look does. Empty for a built-in, whose still the pane
+    /// looks up by id.
+    art: image,
 }
 
 /// What one effect library is currently showing.

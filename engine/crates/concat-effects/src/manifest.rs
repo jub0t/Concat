@@ -28,6 +28,18 @@ pub struct Manifest {
     /// The WGSL backend, when the package is a shader.
     #[serde(default)]
     pub wgsl: Option<Wgsl>,
+    /// A look-up table the package ships: the shader reads it through
+    /// `lut()`, and a chain names its file as `{lut}`.
+    #[serde(default)]
+    pub lut: Option<LutTable>,
+}
+
+/// The `[lut]` table: a `.cube` file beside the manifest.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct LutTable {
+    /// The file, beside the manifest. Only `.cube` is read.
+    pub file: String,
 }
 
 /// The `[effect]` table.
@@ -242,6 +254,12 @@ impl Manifest {
         }
         if self.effect.name.trim().is_empty() {
             return Err(self.invalid("name is empty"));
+        }
+        if let Some(lut) = &self.lut {
+            let plain = !lut.file.contains('/') && !lut.file.contains('\\');
+            if !plain || !lut.file.to_ascii_lowercase().ends_with(".cube") {
+                return Err(self.invalid("[lut] file must be a `.cube` beside the manifest"));
+            }
         }
         for alias in &self.effect.aliases {
             if !is_id_segment(alias)

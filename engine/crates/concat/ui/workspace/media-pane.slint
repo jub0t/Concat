@@ -1118,7 +1118,8 @@ component ShelfGrid inherits Rectangle {
 
     property <length> gap: 8px;
     property <length> min-card: 88px;
-    property <bool> compact: root.entries.length > 0 && root.art(root.entries[0].id).width == 0;
+    property <bool> compact: root.entries.length > 0
+        && root.art(root.entries[0].id).width == 0 && root.entries[0].art.width == 0;
 
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
@@ -1138,7 +1139,7 @@ component ShelfGrid inherits Rectangle {
             id: entry.id,
             label: entry.name,
             enabled: true,
-            art: root.art(entry.id),
+            art: entry.art.width > 0 ? entry.art : root.art(entry.id),
             glyph: root.glyph,
         };
         compact: root.compact;
@@ -1280,6 +1281,8 @@ export component MediaPane inherits Rectangle {
     callback apply-audio(effect-id: string);
     /// Templates page: open the save-as-template flow for this project.
     callback save-template();
+    /// Filters page: bring in `.cube` tables as looks of the user's own.
+    callback import-lut();
 
     /// The corner button: show something else in this pane's seat.
     callback pane-picked(kind: PaneKind);
@@ -1866,6 +1869,14 @@ export component MediaPane inherits Rectangle {
                         shelf: 0;
                         placeholder: I18n.t1("Search {0}s", I18n.t("filter"));
                     }
+                    // A table from any grading tool becomes a look here, the
+                    // way it does on every desktop editor's Filters page.
+                    ImportButton {
+                        label: I18n.t("Import a LUT (.cube)");
+                        glyph: Glyph.import;
+                        clicked => { root.import-lut(); }
+                    }
+                    Rectangle { height: 8px; }
                     ShelfGrid {
                         entries: root.catalogue-filters;
                         payload-kind: "filter";

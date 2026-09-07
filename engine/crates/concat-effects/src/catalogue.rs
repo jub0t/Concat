@@ -10,14 +10,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, RwLock};
 
 use concat_project::model::AppliedFilter;
 use serde::Deserialize;
 
 use crate::Error;
 use crate::expr::{Expr, Value};
-use concat_core::ShaderPass;
+use concat_core::{Lut, ShaderPass};
 
 use crate::manifest::{Kind, Manifest};
 use crate::shader::Shader;
@@ -75,6 +75,10 @@ pub struct Package {
     shader: Option<Shader>,
     /// The pinned outputs shipped with the package.
     pub fixtures: Vec<Fixture>,
+    /// The folder the package was loaded from; None for a built-in.
+    pub folder: Option<std::path::PathBuf>,
+    /// The table the manifest's `[lut]` names, read at load.
+    lut: Option<Arc<Lut>>,
 }
 
 /// Where a fixture's parameters start from.
@@ -126,7 +130,17 @@ impl Package {
         fixtures: Option<&str>,
         shader: Option<&str>,
     ) -> Result<Package, Error> {
-        let manifest = Manifest::parse(manifest)?;
+        Package::from_manifest(Manifest::parse(manifest)?, fixtures, shader, None)
+    }
+
+    /// `from_sources` with the manifest already parsed, and the table its
+    /// `[lut]` names read from `folder`, when it has one.
+    fn from_manifest(
+        manifest: Manifest,
+        fixtures: Option<&str>,
+        shader: Option<&str>,
+        table: Option<(std::path::PathBuf, Arc<Lut>)>,
+    ) -> Result<Package, Error> {
         let invalid = |message: String| Error::Invalid {
             id: manifest.effect.id.clone(),
             message,
@@ -164,6 +178,9 @@ impl Package {
                 let mut known: Vec<String> =
                     manifest.params.iter().map(|p| p.key.clone()).collect();
                 known.push("index".to_owned());
+                if manifest.lut.is_some() {
+                    known.push("lut".to_owned());
+                }
                 let mut lets = Vec::new();
                 for binding in &ffmpeg.lets {
                     let Some((name, source)) = binding.split_once('=') else {
@@ -207,11 +224,24 @@ impl Package {
             }
         };
 
+        if manifest.lut.is_some() && table.is_none() {
+            // The table is a file beside the manifest, and only a folder
+            // has one; see `from_folder`.
+            return Err(invalid(
+                "a package with a [lut] must be loaded from its folder".to_owned(),
+            ));
+        }
+        let (folder, lut) = match table {
+            Some((folder, lut)) => (Some(folder), Some(lut)),
+            None => (None, None),
+        };
         let package = Package {
             manifest,
             chain,
             shader,
             fixtures,
+            folder,
+            lut,
         };
         // Render at every bound now, so a type error in an expression is a
         // load failure and never a silent gap in an export.
@@ -294,6 +324,13 @@ impl Package {
             .map(|(key, value)| (key, Value::Float(value)))
             .collect();
         env.insert("index".to_owned(), Value::Int(index as i64));
+        if let (Some(table), Some(folder)) = (&self.manifest.lut, &self.folder) {
+            let path = folder.join(&table.file);
+            env.insert(
+                "lut".to_owned(),
+                Value::Text(escape_option(&path.to_string_lossy())),
+            );
+        }
         let invalid = |message: String| Error::Invalid {
             id: self.id().to_owned(),
             message,
@@ -312,6 +349,49 @@ impl Package {
     }
 
     /// Runs every fixture; returns one line per failure.
+    /// Loads a package from its folder: the manifest, and beside it the
+    /// fixtures, the shader and the table, whichever the manifest names.
+    pub fn from_folder(folder: &Path) -> Result<Package, Error> {
+        let read = |name: &str| {
+            std::fs::read_to_string(folder.join(name)).map_err(|error| Error::Io {
+                path: folder.join(name),
+                message: error.to_string(),
+            })
+        };
+        let manifest_text = read("effect.toml")?;
+        let fixtures = read("fixtures.toml").ok();
+        let shader = read("effect.wgsl").ok();
+        let manifest = Manifest::parse(&manifest_text)?;
+        let table = match &manifest.lut {
+            Some(table) => {
+                let text = read(&table.file)?;
+                let lut = crate::cube::parse(&text).map_err(|message| Error::Invalid {
+                    id: manifest.effect.id.clone(),
+                    message: format!("{}: {message}", table.file),
+                })?;
+                Some(Arc::new(lut))
+            }
+            None => None,
+        };
+        let mut package = Package::from_manifest(
+            manifest,
+            fixtures.as_deref(),
+            shader.as_deref(),
+            table.map(|lut| (folder.to_path_buf(), lut)),
+        )?;
+        if package.folder.is_none() {
+            package.folder = Some(folder.to_path_buf());
+        }
+        Ok(package)
+    }
+
+    /// The table the package ships, if it does.
+    pub fn lut(&self) -> Option<&Arc<Lut>> {
+        self.lut.as_ref()
+    }
+
+    /// Renders every fixture and reports the ones whose chain came out
+    /// different: the package's own regression suite.
     pub fn check_fixtures(&self) -> Vec<String> {
         let mut failures = Vec::new();
         for (n, case) in self.fixtures.iter().enumerate() {
@@ -339,6 +419,12 @@ impl Package {
     }
 }
 
+/// A path as one FFmpeg option value: single-quoted, with the quote
+/// itself the one character that has to be spelt out.
+fn escape_option(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
+
 fn check_names(expr: &Expr, known: &[String]) -> Result<(), String> {
     let mut names = Vec::new();
     expr.names(&mut names);
@@ -349,6 +435,9 @@ fn check_names(expr: &Expr, known: &[String]) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// The catalogue every caller reads; see `Catalogue::builtin`.
+static CURRENT: RwLock<Option<&'static Catalogue>> = RwLock::new(None);
 
 /// Every package the app knows.
 #[derive(Clone, Debug, Default)]
@@ -363,27 +452,57 @@ impl Catalogue {
         Self::default()
     }
 
-    /// The packages compiled into the binary. Loaded once; a built-in that
-    /// fails to load is a build defect, and the tests catch it.
+    /// Every package the process knows: the ones compiled into the binary
+    /// and, once [`Catalogue::install`] has run, the ones in the user's
+    /// folder. Built on first use; a built-in that fails to load is a
+    /// build defect, and the tests catch it.
     pub fn builtin() -> &'static Catalogue {
-        static BUILTIN: OnceLock<Catalogue> = OnceLock::new();
-        BUILTIN.get_or_init(|| {
-            let mut catalogue = Catalogue::new();
-            for (folder, manifest, fixtures, shader) in crate::builtins::BUILTIN_SOURCES {
-                let package = Package::from_sources(manifest, *fixtures, *shader)
-                    .unwrap_or_else(|error| panic!("built-in package {folder}: {error}"));
-                assert_eq!(
-                    package.id(),
-                    *folder,
-                    "package folder must be named after its id"
-                );
-                catalogue
-                    .add(package)
-                    .unwrap_or_else(|error| panic!("built-in package {folder}: {error}"));
-            }
-            catalogue.sort();
+        if let Some(current) = *CURRENT.read().expect("catalogue lock") {
+            return current;
+        }
+        let mut slot = CURRENT.write().expect("catalogue lock");
+        if let Some(current) = *slot {
+            return current;
+        }
+        let built: &'static Catalogue = Box::leak(Box::new(Catalogue::compiled_in()));
+        *slot = Some(built);
+        built
+    }
+
+    /// Makes the packages under `dir` part of the catalogue, beside the
+    /// built-ins, and reports the ones that would not load. Called at
+    /// start and again after an import; each call builds the catalogue
+    /// afresh and leaks the last one, which is a few kilobytes a time and
+    /// what keeps every caller's `&'static` honest.
+    pub fn install(dir: &Path) -> Vec<Error> {
+        let mut catalogue = Catalogue::compiled_in();
+        let errors = if dir.is_dir() {
+            catalogue.load_dir(dir)
+        } else {
+            Vec::new()
+        };
+        let built: &'static Catalogue = Box::leak(Box::new(catalogue));
+        *CURRENT.write().expect("catalogue lock") = Some(built);
+        errors
+    }
+
+    /// The packages compiled into the binary, and nothing else.
+    fn compiled_in() -> Catalogue {
+        let mut catalogue = Catalogue::new();
+        for (folder, manifest, fixtures, shader) in crate::builtins::BUILTIN_SOURCES {
+            let package = Package::from_sources(manifest, *fixtures, *shader)
+                .unwrap_or_else(|error| panic!("built-in package {folder}: {error}"));
+            assert_eq!(
+                package.id(),
+                *folder,
+                "package folder must be named after its id"
+            );
             catalogue
-        })
+                .add(package)
+                .unwrap_or_else(|error| panic!("built-in package {folder}: {error}"));
+        }
+        catalogue.sort();
+        catalogue
     }
 
     /// Adds a package. Its id and aliases must be new to the catalogue.
@@ -426,22 +545,7 @@ impl Catalogue {
             .collect();
         folders.sort();
         for folder in folders {
-            let read = |name: &str| std::fs::read_to_string(folder.join(name));
-            let manifest = match read("effect.toml") {
-                Ok(text) => text,
-                Err(error) => {
-                    errors.push(Error::Io {
-                        path: folder.join("effect.toml"),
-                        message: error.to_string(),
-                    });
-                    continue;
-                }
-            };
-            let fixtures = read("fixtures.toml").ok();
-            let shader = read("effect.wgsl").ok();
-            match Package::from_sources(&manifest, fixtures.as_deref(), shader.as_deref())
-                .and_then(|p| self.add(p))
-            {
+            match Package::from_folder(&folder).and_then(|p| self.add(p)) {
                 Ok(()) => {}
                 Err(error) => errors.push(error),
             }
@@ -532,7 +636,7 @@ impl Catalogue {
                     1.0
                 };
                 let values = package.resolve(&set);
-                Some(shader.pass(&values, &package.manifest.params, intensity))
+                Some(shader.pass(&values, &package.manifest.params, intensity, package.lut.clone()))
             })
             .collect()
     }

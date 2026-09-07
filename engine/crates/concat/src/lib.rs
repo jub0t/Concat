@@ -60,6 +60,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     };
 
+    // The user's own packages - imported looks - sit beside the built-ins
+    // from the first frame. One that will not load is reported and skipped.
+    for error in concat_effects::Catalogue::install(&Studio::looks_dir(&host.dirs)) {
+        eprintln!("concat: look: {error}");
+    }
+
     let app = App::new()?;
     app.set_macos(platform::MACOS);
 
@@ -448,6 +454,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     editor.on_library_save_template(on_window!(|state| {
         state.save_template();
+    }));
+    editor.on_library_import_lut(on_window!(|state| {
+        state.import_lut();
     }));
 
     // ── the inspector's effect stacks ──

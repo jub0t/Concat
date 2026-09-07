@@ -79,6 +79,9 @@ slint = { version = "1.17", default-features = false, features = [
 ] }
 
 [dependencies]
+# Writes the card still an imported look gets, rendered here from the
+# reference picture through the table.
+png = "0.17"
 # The one device: created in gpu.rs, handed to Slint and to the monitor.
 wgpu.workspace = true
 pollster.workspace = true

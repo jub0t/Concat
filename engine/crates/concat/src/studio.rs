@@ -699,6 +699,11 @@ pub struct Studio {
     /// card is double-clicked or its plus pressed, which lays a filter
     /// layer at the playhead.
     audition: Option<String>,
+    /// The card stills of the user's own looks, by package id, loaded once
+    /// from the package folder's `preview.png` and kept: the shelves are
+    /// rebuilt on every publish and a picture read from disk each time
+    /// would be the slowest thing in the window.
+    look_art: std::cell::RefCell<HashMap<String, slint::Image>>,
     /// The last inspector commit: what it changed and when. A control that
     /// is dragged commits on every move, and each of those would be an undo
     /// step of its own; a commit that changes the same thing as the last
@@ -783,6 +788,7 @@ fn shelves(
     kind: PackageKind,
     view: &LibraryView,
     favourites: &[String],
+    look_art: &std::cell::RefCell<HashMap<String, slint::Image>>,
 ) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
     let mut groups: Vec<String> = Vec::new();
     let mut entries = Vec::new();
@@ -827,6 +833,18 @@ fn shelves(
         if !shown {
             continue;
         }
+        // A user's look brings its own still, read once from its folder;
+        // a built-in's is compiled into the window and looked up by id there.
+        let art = match &package.folder {
+            Some(folder) => look_art
+                .borrow_mut()
+                .entry(meta.id.clone())
+                .or_insert_with(|| {
+                    slint::Image::load_from_path(&folder.join("preview.png")).unwrap_or_default()
+                })
+                .clone(),
+            None => slint::Image::default(),
+        };
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
             name: name.into(),
@@ -834,6 +852,7 @@ fn shelves(
             group: group as i32,
             description: description.into(),
             favourite: starred,
+            art,
         });
     }
     (
@@ -960,6 +979,81 @@ fn set_slot(
 
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
+
+/// The picture every look's card is rendered from.
+const REFERENCE_STILL: &[u8] = include_bytes!("../ui/assets/effect-previews/sharpen.jpg");
+
+/// Makes a package folder under `dir` from the table at `path`, and
+/// returns the package's id. The id is `user.` and the file's name slugged;
+/// a second import of the same name replaces the first.
+fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut slug: String = stem
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        slug = "look".to_owned();
+    }
+    let id = format!("user.{slug}");
+    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let lut = concat_effects::cube::parse(&text)?;
+    let folder = dir.join(&id);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let name = stem.trim().to_owned();
+    let manifest = format!(
+        "[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
+         description = \"A look imported from a .cube table.\"\n\n[lut]\nfile = \"look.cube\"\n\n\
+         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n"
+    );
+    std::fs::write(folder.join("effect.toml"), manifest).map_err(|error| error.to_string())?;
+    std::fs::write(
+        folder.join("effect.wgsl"),
+        "// The table, and nothing else; the host mixes it by intensity.\n\
+         fn effect(uv: vec2<f32>) -> vec4<f32> {\n    let c = sample(uv);\n    return vec4<f32>(lut(c.rgb), c.a);\n}\n",
+    )
+    .map_err(|error| error.to_string())?;
+    std::fs::write(folder.join("look.cube"), &text).map_err(|error| error.to_string())?;
+    // The card still: the reference picture through the table, the same
+    // arithmetic the GPU's sampler does. Read through Slint's decoder from
+    // a copy on disk, since the bytes live in the binary.
+    let reference = dir.join("reference.jpg");
+    if !reference.is_file() {
+        std::fs::write(&reference, REFERENCE_STILL).map_err(|error| error.to_string())?;
+    }
+    let image = slint::Image::load_from_path(&reference).map_err(|error| error.to_string())?;
+    let Some(pixels) = image.to_rgba8() else {
+        return Err("the reference picture would not decode".to_owned());
+    };
+    let (width, height) = (pixels.width(), pixels.height());
+    let mut out = Vec::with_capacity((width * height * 4) as usize);
+    for pixel in pixels.as_slice() {
+        let rgb = lut.sample([
+            f32::from(pixel.r) / 255.0,
+            f32::from(pixel.g) / 255.0,
+            f32::from(pixel.b) / 255.0,
+        ]);
+        for channel in rgb {
+            out.push((channel.clamp(0.0, 1.0) * 255.0).round() as u8);
+        }
+        out.push(255);
+    }
+    let file = std::fs::File::create(folder.join("preview.png")).map_err(|error| error.to_string())?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
+    writer.write_image_data(&out).map_err(|error| error.to_string())?;
+    Ok(id)
+}
 
 /// The ease a key put on at `at` inherits: that of whichever key it joins
 /// behind, so laying a run of keys down does not alternate between shapes.
@@ -1199,6 +1293,7 @@ impl Studio {
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),
             audition: None,
+            look_art: std::cell::RefCell::new(HashMap::new()),
             last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
@@ -4903,6 +4998,46 @@ impl Studio {
     }
 
     /// Packs the open project into the template library.
+    /// Where the user's own looks live: one package folder each.
+    pub fn looks_dir(dirs: &concat_host::dirs::AppDirs) -> std::path::PathBuf {
+        dirs.config.join("effects")
+    }
+
+    /// Imports one or more `.cube` tables as looks: each becomes a package
+    /// folder under `looks_dir` - a manifest that names the table and a
+    /// shader that reads it - with a card still rendered through the table
+    /// here, and the catalogue is rebuilt so the Filters page shows them.
+    pub fn import_lut(&mut self) {
+        let Some(paths) = crate::platform::pick_files(&t("Import LUT"), Some((t("LUT").as_str(), &["cube"])))
+        else {
+            return;
+        };
+        let dir = Self::looks_dir(&self.host.dirs);
+        let mut imported = 0;
+        for path in paths {
+            match import_cube(&dir, &path) {
+                Ok(id) => {
+                    self.look_art.borrow_mut().remove(&id);
+                    imported += 1;
+                }
+                Err(error) => {
+                    self.notify(&tf("Could not import {0}: {1}", &[&path.display(), &error]), true);
+                }
+            }
+        }
+        if imported == 0 {
+            return;
+        }
+        for error in Catalogue::install(&dir) {
+            eprintln!("concat: look: {error}");
+        }
+        self.library[0].query.clear();
+        self.notify(
+            &tf("Imported {0} look(s); find them under Imported", &[&imported]),
+            false,
+        );
+    }
+
     pub fn save_template(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
@@ -5610,13 +5745,13 @@ impl Studio {
         // through, so they are rebuilt here and `sync` makes an unchanged
         // one a no-op.
         let starred = &self.prefs.favourites;
-        let (groups, entries) = shelves(SHELF_KINDS[0], &self.library[0], starred);
+        let (groups, entries) = shelves(SHELF_KINDS[0], &self.library[0], starred, &self.look_art);
         sync(&models.filter_groups, groups);
         sync(&models.catalogue_filters, entries);
-        let (groups, entries) = shelves(SHELF_KINDS[1], &self.library[1], starred);
+        let (groups, entries) = shelves(SHELF_KINDS[1], &self.library[1], starred, &self.look_art);
         sync(&models.effect_groups, groups);
         sync(&models.catalogue_effects, entries);
-        let (groups, entries) = shelves(SHELF_KINDS[2], &self.library[2], starred);
+        let (groups, entries) = shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
         sync(&models.audio_groups, groups);
         sync(&models.catalogue_audio, entries);
         app.global::<Library>()

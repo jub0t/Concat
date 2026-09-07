@@ -104,6 +104,8 @@ export global Editor {
     in-out property <string> library-audition;
     callback library-apply-audio(effect-id: string);
     callback library-save-template();
+    /// Filters page: import `.cube` tables as looks of the user's own.
+    callback library-import-lut();
 
     // ── the inspector ──
     in-out property <SelectedClipData> selected-clip;

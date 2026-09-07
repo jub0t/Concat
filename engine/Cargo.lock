@@ -1154,6 +1154,7 @@ dependencies = [
  "concat-speech",
  "concat-vision",
  "opener",
+ "png 0.17.16",
  "pollster",
  "rfd",
  "serde",
