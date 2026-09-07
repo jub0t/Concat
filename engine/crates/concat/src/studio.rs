@@ -530,6 +530,11 @@ pub struct Models {
     pub audio_params: Rc<VecModel<AppliedParamData>>,
     /// The colour panel's knobs.
     pub adjust_params: Rc<VecModel<AppliedParamData>>,
+    /// The keyframe cluster's rows and the libraries' views: synced like
+    /// the rest, since a model handed over fresh is unequal to the last by
+    /// identity and re-evaluates every binding on it.
+    pub key_rows: Rc<VecModel<ClipKeyData>>,
+    pub library_views: Rc<VecModel<LibraryViewData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
     /// The sheets' option lists: what is installed, and who can speak.
@@ -568,6 +573,8 @@ impl Models {
             visual_params: Rc::new(VecModel::default()),
             audio_params: Rc::new(VecModel::default()),
             adjust_params: Rc::new(VecModel::default()),
+            key_rows: Rc::new(VecModel::default()),
+            library_views: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
             caption_models: Rc::new(VecModel::default()),
@@ -699,6 +706,23 @@ pub struct Studio {
     /// card is double-clicked or its plus pressed, which lays a filter
     /// layer at the playhead.
     audition: Option<String>,
+    /// Counts every change to the document. What the flattened clip list
+    /// below is keyed on, so a frame of an unchanged document reuses it.
+    revision: u64,
+    /// The last flattening of the document for the monitor - titles
+    /// included - and the revision and output size it was made at. Shared
+    /// with the monitor by pointer, so it can keep its plan for as long as
+    /// the list is the same one.
+    flat: Option<(u64, u32, u32, std::sync::Arc<Vec<concat_export::ExportClip>>)>,
+    /// An inspector commit waiting to land: a knob being dragged commits
+    /// on every move, and each commit was a command, an undo of the last,
+    /// a rebuild of the mix and a full publish. The commit is held until
+    /// the moves pause; the echo shows the value meanwhile.
+    commit_pending: bool,
+    commit_timer: slint::Timer,
+    /// What the catalogue shelves were last built from; while nothing in
+    /// it changes the shelves are not rebuilt.
+    shelf_stamp: std::cell::RefCell<Option<ShelfStamp>>,
     /// The card stills of the user's own looks, by package id, loaded once
     /// from the package folder's `preview.png` and kept: the shelves are
     /// rebuilt on every publish and a picture read from disk each time
@@ -975,6 +999,15 @@ fn set_slot(
         preset: (*name).to_owned(),
         duration,
     });
+}
+
+/// What the catalogue shelves are a function of; see `Studio::shelf_stamp`.
+#[derive(PartialEq)]
+struct ShelfStamp {
+    catalogue: usize,
+    lang: String,
+    views: Vec<(String, i32, bool)>,
+    favourites: Vec<String>,
 }
 
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
@@ -1293,6 +1326,11 @@ impl Studio {
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),
             audition: None,
+            revision: 0,
+            flat: None,
+            commit_pending: false,
+            commit_timer: slint::Timer::default(),
+            shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
             last_commit: None,
             title_blocks: HashMap::new(),
@@ -1482,6 +1520,7 @@ impl Studio {
     /// A refusal becomes a notice; the echo, if any, is dropped either way,
     /// because the session's project is the truth again.
     pub fn apply(&mut self, command: Command) -> Option<String> {
+        self.flush_commit();
         self.echo = None;
         // Anything but an inspector commit ends the coalescing window; the
         // commit path sets `last_commit` again right after calling here.
@@ -1503,6 +1542,7 @@ impl Studio {
     /// follow the document, the autosave, the monitor and the mix.
     fn after_change(&mut self) {
         self.dirty = true;
+        self.revision += 1;
         self.assign_media_rows();
         let survivors: HashSet<String> = self
             .timeline()
@@ -1520,6 +1560,7 @@ impl Studio {
     }
 
     pub fn undo(&mut self) {
+        self.flush_commit();
         self.echo = None;
         if let Some(session) = self.session.as_mut()
             && session.can_undo()
@@ -1530,6 +1571,7 @@ impl Studio {
     }
 
     pub fn redo(&mut self) {
+        self.flush_commit();
         self.echo = None;
         if let Some(session) = self.session.as_mut()
             && session.can_redo()
@@ -1662,17 +1704,38 @@ impl Studio {
         // folder included: that is what names a cutout's masks, and
         // without it the monitor would show every cutout as shot.
         let project_dir = std::path::PathBuf::from(session.path());
-        let mut clips = concat_export::flatten::flatten_timeline_in(
-            self.project(),
-            None,
-            Some(&project_dir),
-        );
         let (width, height) = self.output_size();
-        // Titles, painted to pictures and rejoined; see concat-host's titles.
-        for title in self.host.titles.clips(self.project(), width, height) {
-            self.title_blocks.insert(title.clip_id, title.block);
-            clips.push(title.clip);
-        }
+        // The flattening is the document's, not the frame's: kept between
+        // frames of an unchanged document and handed over by pointer, so
+        // playback and scrubbing neither flatten nor plan again. A gesture
+        // in flight - the echo - is not the document, and flattens fresh.
+        let cached = self.echo.is_none()
+            && self
+                .flat
+                .as_ref()
+                .is_some_and(|(at, w, h, _)| *at == self.revision && *w == width && *h == height);
+        let clips = if cached {
+            std::sync::Arc::clone(&self.flat.as_ref().expect("checked").3)
+        } else {
+            let mut clips = concat_export::flatten::flatten_timeline_in(
+                self.project(),
+                None,
+                Some(&project_dir),
+            );
+            // Titles, painted to pictures and rejoined; see concat-host's titles.
+            for title in self.host.titles.clips(self.project(), width, height) {
+                self.title_blocks.insert(title.clip_id, title.block);
+                clips.push(title.clip);
+            }
+            let clips = std::sync::Arc::new(clips);
+            if self.echo.is_none() {
+                self.flat = Some((self.revision, width, height, std::sync::Arc::clone(&clips)));
+            }
+            clips
+        };
+        // The frame's own additions - a look being shown, a cutout being
+        // painted - go on a copy, so the kept list stays the document's.
+        let mut own: Option<Vec<concat_export::ExportClip>> = None;
         let scale = match self.quality_of() {
             0 => 1.0,
             1 => 0.5,
@@ -1687,7 +1750,7 @@ impl Studio {
             let effects = vec![AppliedFilter::new(filter_id)];
             let video_filter_chain = concat_export::chains::video_effect_chain(&effects);
             let track = clips.iter().map(|flat| flat.track).max().map_or(0, |top| top + 1);
-            clips.push(concat_export::ExportClip {
+            own.get_or_insert_with(|| (*clips).clone()).push(concat_export::ExportClip {
                 path: String::new(),
                 kind: concat_export::ClipKind::Layer,
                 start: 0.0,
@@ -1735,12 +1798,17 @@ impl Studio {
         if self.painting
             && let Some(target) = self.paint_target()
             && let Some(media) = self.project().media_by_id(&target.media_id)
-            && let Some(flat) = clips.iter_mut().find(|flat| {
-                flat.path == media.path && (flat.start - target.start).abs() < 1e-6
-            })
         {
-            flat.highlighted = true;
+            let (path, start) = (media.path.clone(), target.start);
+            if let Some(flat) = own
+                .get_or_insert_with(|| (*clips).clone())
+                .iter_mut()
+                .find(|flat| flat.path == path && (flat.start - start).abs() < 1e-6)
+            {
+                flat.highlighted = true;
+            }
         }
+        let clips = own.map(std::sync::Arc::new).unwrap_or(clips);
         let spec = FrameSpec {
             time: f64::from(self.playhead),
             width,
@@ -1756,11 +1824,11 @@ impl Studio {
                 // one it comes back as pixels and is uploaded here.
                 let frame = if monitor.has_gpu() {
                     monitor
-                        .frame_texture(clips.clone(), &settings, spec)
+                        .frame_texture(std::sync::Arc::clone(&clips), &settings, spec)
                         .map(Picture::Texture)
                 } else {
                     monitor
-                        .frame(clips.clone(), &settings, spec)
+                        .frame(std::sync::Arc::clone(&clips), &settings, spec)
                         .map(|bytes| Picture::Pixels(bytes, width, height))
                 };
                 // Decode-ahead for whatever comes next, while the pool is warm.
@@ -2700,6 +2768,7 @@ impl Studio {
             vec![id.to_owned()]
         };
 
+        self.flush_commit();
         self.begin_echo();
         if edge >= 0 && self.selection.len() <= 1 {
             self.gesture = Gesture::Trim {
@@ -3059,7 +3128,38 @@ impl Studio {
 
     /// The inspector's gesture is over: what differs between the echo and
     /// the session becomes commands, as one batch.
+    /// An inspector control changed something on the echo and wants it
+    /// committed. Held, not applied: a knob commits on every move, and the
+    /// command, the mix and the publish happen once the moves pause. The
+    /// monitor follows the echo in the meantime.
     pub fn clip_commit(&mut self) {
+        self.commit_pending = true;
+        self.request_preview();
+        self.commit_timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(120),
+            || {
+                crate::host::Shell::with(|shell, app| {
+                    shell.studio.borrow_mut().flush_commit();
+                    shell.studio.borrow().publish(&app, &shell.models);
+                });
+            },
+        );
+    }
+
+    /// Lands the held commit now, if there is one. Called before anything
+    /// that would drop the echo it lives on - a command from elsewhere, an
+    /// undo, a gesture on the lanes or the stage.
+    pub fn flush_commit(&mut self) {
+        if !self.commit_pending {
+            return;
+        }
+        self.commit_pending = false;
+        self.commit_timer.stop();
+        self.commit_now();
+    }
+
+    fn commit_now(&mut self) {
         let Some(id) = self.sole_selection() else {
             self.echo = None;
             return;
@@ -3426,6 +3526,7 @@ impl Studio {
                 offset_y: clip.offset_y,
             })
             .collect();
+        self.flush_commit();
         self.begin_echo();
         self.stage_guides.clear();
         self.gesture = Gesture::StageMove {
@@ -3471,6 +3572,7 @@ impl Studio {
         let dx = f64::from(x) * f64::from(width) - centre.0;
         let dy = f64::from(y) * f64::from(height) - centre.1;
         let half = footprint.half_bounds((width, height));
+        self.flush_commit();
         self.begin_echo();
         self.gesture = if grip == 4 {
             Gesture::StageRotate {
@@ -4292,6 +4394,8 @@ impl Studio {
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
         self.audition = None;
+        self.revision += 1;
+        self.flat = None;
                 self.sync_audio();
                 self.request_media_art();
                 self.request_preview();
@@ -4360,6 +4464,8 @@ impl Studio {
         self.preview = slint::Image::default();
         self.host.monitor.clear();
         self.audition = None;
+        self.revision += 1;
+        self.flat = None;
         self.host
             .playback
             .set_clips(std::path::PathBuf::new(), Vec::new());
@@ -5238,7 +5344,7 @@ impl Studio {
         let keys = app.global::<Keyframes>();
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
-        keys.set_rows(slint::ModelRc::from(Rc::new(VecModel::from(rows))));
+        sync(&models.key_rows, rows);
         editor.set_inspector_jump_token(self.inspector_jump.0);
         editor.set_library_audition(self.audition_of().unwrap_or("").into());
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
@@ -5745,26 +5851,39 @@ impl Studio {
         // through, so they are rebuilt here and `sync` makes an unchanged
         // one a no-op.
         let starred = &self.prefs.favourites;
-        let (groups, entries) = shelves(SHELF_KINDS[0], &self.library[0], starred, &self.look_art);
-        sync(&models.filter_groups, groups);
-        sync(&models.catalogue_filters, entries);
-        let (groups, entries) = shelves(SHELF_KINDS[1], &self.library[1], starred, &self.look_art);
-        sync(&models.effect_groups, groups);
-        sync(&models.catalogue_effects, entries);
-        let (groups, entries) = shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
-        sync(&models.audio_groups, groups);
-        sync(&models.catalogue_audio, entries);
-        app.global::<Library>()
-            .set_views(slint::ModelRc::from(Rc::new(VecModel::from(
-                self.library
-                    .iter()
-                    .map(|view| LibraryViewData {
-                        query: view.query.as_str().into(),
-                        group: view.group,
-                        favourites: view.favourites,
-                    })
-                    .collect::<Vec<_>>(),
-            ))));
+        let stamp = ShelfStamp {
+            catalogue: std::ptr::from_ref(Catalogue::builtin()) as usize,
+            lang: i18n::current(),
+            views: self
+                .library
+                .iter()
+                .map(|view| (view.query.clone(), view.group, view.favourites))
+                .collect(),
+            favourites: starred.clone(),
+        };
+        if self.shelf_stamp.borrow().as_ref() != Some(&stamp) {
+            let (groups, entries) = shelves(SHELF_KINDS[0], &self.library[0], starred, &self.look_art);
+            sync(&models.filter_groups, groups);
+            sync(&models.catalogue_filters, entries);
+            let (groups, entries) = shelves(SHELF_KINDS[1], &self.library[1], starred, &self.look_art);
+            sync(&models.effect_groups, groups);
+            sync(&models.catalogue_effects, entries);
+            let (groups, entries) = shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
+            sync(&models.audio_groups, groups);
+            sync(&models.catalogue_audio, entries);
+            *self.shelf_stamp.borrow_mut() = Some(stamp);
+        }
+        sync(
+            &models.library_views,
+            self.library
+                .iter()
+                .map(|view| LibraryViewData {
+                    query: view.query.as_str().into(),
+                    group: view.group,
+                    favourites: view.favourites,
+                })
+                .collect(),
+        );
 
         app.set_on_start(self.on_start);
         app.set_project_name(self.project_name.as_str().into());

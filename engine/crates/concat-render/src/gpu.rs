@@ -541,8 +541,8 @@ impl WgpuCompositor {
     /// The draws of a treated frame, every treatment applied over the
     /// stack beneath its track without a pixel leaving the GPU: the stack
     /// below is drawn into a pooled texture, the passes run over that, and
-    /// the result - blended back over the untreated stack by the strength
-    /// - becomes the ground the rest is drawn on. What comes back are the
+    /// the result, blended back over the untreated stack by the strength,
+    /// becomes the ground the rest is drawn on. What comes back are the
     /// draws for the final render, into whichever target the caller wants.
     fn prepare_treated(
         &mut self,

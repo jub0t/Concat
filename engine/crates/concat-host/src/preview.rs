@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[cfg(feature = "gpu")]
 use std::sync::Mutex;
 
-use concat_export::{ExportClip, PreviewFrameRequest};
+use concat_export::ExportClip;
 use concat_project::DocumentSettings;
 
 /// A frame request: the instant and the size, with the clips coming from
@@ -37,8 +37,22 @@ pub struct FrameSpec {
 #[derive(Clone)]
 pub struct Monitor {
     pool: Arc<concat_media::ReaderPool>,
+    /// The last clip list's plan, kept until the list changes: playback
+    /// and scrubbing ask for many instants of one document, and the plan
+    /// is the half of a frame that does not depend on the instant.
+    plan: Arc<Mutex<Option<PlanEntry>>>,
     #[cfg(feature = "gpu")]
     gpu: Option<Arc<Mutex<concat_render::WgpuCompositor>>>,
+}
+
+/// One kept plan and what it was built for.
+struct PlanEntry {
+    clips: Arc<Vec<ExportClip>>,
+    width: u32,
+    height: u32,
+    rate: (i64, i64),
+    gpu: bool,
+    plan: Arc<concat_export::PreviewPlan>,
 }
 
 /// The wgpu the monitor's textures belong to.
@@ -56,6 +70,7 @@ impl Monitor {
     pub fn new() -> Self {
         Self {
             pool: Arc::new(concat_media::ReaderPool::with_defaults()),
+            plan: Arc::new(Mutex::new(None)),
             #[cfg(feature = "gpu")]
             gpu: None,
         }
@@ -68,6 +83,7 @@ impl Monitor {
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         Self {
             pool: Arc::new(concat_media::ReaderPool::with_defaults()),
+            plan: Arc::new(Mutex::new(None)),
             gpu: Some(Arc::new(Mutex::new(
                 concat_render::WgpuCompositor::with_device(device, queue),
             ))),
@@ -93,7 +109,7 @@ impl Monitor {
     #[cfg(feature = "gpu")]
     pub fn frame_texture(
         &self,
-        clips: Vec<ExportClip>,
+        clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<wgpu::Texture, String> {
@@ -101,8 +117,8 @@ impl Monitor {
             .gpu
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
-        let request = Self::request(clips, settings, spec);
-        let sources = concat_export::preview_sources(&self.pool, &request, true)?;
+        let plan = self.plan_for(clips, settings, spec, true);
+        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time)?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         if sources.has_treatments() {
             // A layer whose look is a shader is applied where the stack is
@@ -131,31 +147,59 @@ impl Monitor {
             .ok_or_else(|| "the GPU device was lost".to_owned())
     }
 
-    fn request(
-        clips: Vec<ExportClip>,
+    /// The plan for this clip list at this size and rate: the kept one
+    /// when it was built for the same list - the same allocation, or an
+    /// equal one - and a fresh one otherwise, kept in its place.
+    fn plan_for(
+        &self,
+        clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
-    ) -> PreviewFrameRequest {
-        PreviewFrameRequest {
-            time: spec.time,
+        gpu: bool,
+    ) -> Arc<concat_export::PreviewPlan> {
+        let rate = (settings.rate_num, settings.rate_den);
+        let mut slot = self.plan.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = slot.as_ref()
+            && entry.width == spec.width
+            && entry.height == spec.height
+            && entry.rate == rate
+            && entry.gpu == gpu
+            && (Arc::ptr_eq(&entry.clips, &clips) || *entry.clips == *clips)
+        {
+            return Arc::clone(&entry.plan);
+        }
+        let plan = Arc::new(concat_export::preview_plan(
+            &clips,
+            spec.width,
+            spec.height,
+            rate.0,
+            rate.1,
+            gpu,
+        ));
+        *slot = Some(PlanEntry {
+            clips,
             width: spec.width,
             height: spec.height,
-            rate_num: settings.rate_num,
-            rate_den: settings.rate_den,
-            clips,
-        }
+            rate,
+            gpu,
+            plan: Arc::clone(&plan),
+        });
+        plan
     }
 
     /// The engine-composited frame at one instant, as raw RGBA bytes:
     /// exactly `width * height * 4` of them.
     pub fn frame(
         &self,
-        clips: Vec<ExportClip>,
+        clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
-        let request = Self::request(clips, settings, spec);
-        concat_export::preview_frame(&self.pool, &request)
+        let plan = self.plan_for(clips, settings, spec, false);
+        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time)?;
+        Ok(sources
+            .composite(&mut concat_render::CpuCompositor)
+            .into_pixels())
     }
 
     /// Decode-ahead for the playback stream: warms the pool for the next
@@ -164,17 +208,19 @@ impl Monitor {
     /// caller cannot park the pool's mutex on a long decode march.
     pub fn prefetch(
         &self,
-        clips: Vec<ExportClip>,
+        clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
         frames: u32,
     ) {
-        let request = Self::request(clips, settings, spec);
-        concat_export::preview_prefetch(&self.pool, &request, frames.min(8), self.has_gpu());
+        let plan = self.plan_for(clips, settings, spec, self.has_gpu());
+        concat_export::preview_prefetch_of(&self.pool, &plan, spec.time, frames.min(8));
     }
 
-    /// Forgets every cached frame and reader, for when the project closes.
+    /// Forgets every cached frame, reader and plan, for when the project
+    /// closes.
     pub fn clear(&self) {
         self.pool.clear();
+        *self.plan.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }

@@ -66,7 +66,7 @@ impl ClipKind {
 }
 
 /// One clip, as the frontend's flattener describes it.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportClip {
     /// The media file this clip shows or plays.
@@ -226,7 +226,7 @@ fn linear_ease() -> [f64; 4] {
 }
 
 /// A transition on the cut into a clip.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionSpec {
     /// "cross-fade", "fade-black" or "fade-white". Anything else is ignored.
@@ -1585,7 +1585,16 @@ pub fn preview_sources(
     request: &PreviewFrameRequest,
     gpu: bool,
 ) -> Result<PreviewSources, String> {
-    let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
+    preview_sources_of(pool, &preview_timeline(request, gpu), request.time)
+}
+
+/// [`preview_sources`] for one instant of a plan already built.
+pub fn preview_sources_of(
+    pool: &concat_media::ReaderPool,
+    plan: &PreviewPlan,
+    seconds: f64,
+) -> Result<PreviewSources, String> {
+    let rate = plan.rate;
     let BuiltTimeline {
         timeline,
         stills,
@@ -1598,18 +1607,20 @@ pub fn preview_sources(
         riding,
         cutouts,
         highlight,
-    } = preview_timeline(request, rate, gpu);
-    let time = quantise(request.time, rate);
+    } = &plan.built;
+    let highlight = *highlight;
+    let time = quantise(seconds, rate);
     let frame_seconds = time.as_f64();
-    let plan = plan_frame(&timeline, time);
+    let plan_at = plan_frame(timeline, time);
 
-    let mut sources: Vec<Source<std::sync::Arc<Frame>>> = Vec::with_capacity(plan.layers.len());
+    let mut sources: Vec<Source<std::sync::Arc<Frame>>> =
+        Vec::with_capacity(plan_at.layers.len());
     let mut failures: Vec<String> = Vec::new();
-    for layer in &plan.layers {
+    for layer in &plan_at.layers {
         let (decode_width, decode_height) = decode_sizes
             .get(&layer.clip)
             .copied()
-            .unwrap_or((request.width, request.height));
+            .unwrap_or((plan.width, plan.height));
         let chain = filter_chains.get(&layer.clip).map(String::as_str);
         let pre = pre_chains.get(&layer.clip).map(String::as_str);
         // A source that fails to decode contributes nothing rather than
@@ -1641,7 +1652,7 @@ pub fn preview_sources(
                     transform: layer.transform,
                     track: tracks.get(&layer.clip).copied().unwrap_or(0),
                     blend: layer.blend,
-                    passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
+                    passes: passes_at(passes, riding, layer.clip, frame_seconds),
                 })
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -1652,7 +1663,7 @@ pub fn preview_sources(
     // frame: compositing zero sources yields opaque black, and the caller
     // would draw that "truth" over its own perfectly good approximation. An
     // *empty plan* still composites - a gap in the timeline really is black.
-    if sources.is_empty() && !plan.layers.is_empty() {
+    if sources.is_empty() && !plan_at.layers.is_empty() {
         return Err(format!(
             "no layer decoded for the paused preview: {}",
             failures.join(" / ")
@@ -1661,16 +1672,38 @@ pub fn preview_sources(
 
     Ok(PreviewSources {
         sources,
-        width: request.width,
-        height: request.height,
+        width: plan.width,
+        height: plan.height,
         time,
-        treatments,
+        treatments: treatments.clone(),
     })
 }
 
-/// The preview's timeline, built the exporter's way.
-fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate, gpu: bool) -> BuiltTimeline {
-    let mut resolved = request.clips.clone();
+/// The preview's timeline, built the exporter's way and kept: everything
+/// about a clip list that does not depend on the instant, so a caller
+/// showing many instants of one document builds it once. See
+/// [`preview_plan`].
+pub struct PreviewPlan {
+    built: BuiltTimeline,
+    rate: FrameRate,
+    width: u32,
+    height: u32,
+}
+
+/// Builds the plan for `clips` at one output size and rate. The costly
+/// half of a preview - transitions resolved, the engine timeline, every
+/// chain and pass, every cutout's masks found on disk - and the half that
+/// only changes when the document does.
+pub fn preview_plan(
+    clips: &[ExportClip],
+    width: u32,
+    height: u32,
+    rate_num: i64,
+    rate_den: i64,
+    gpu: bool,
+) -> PreviewPlan {
+    let rate = FrameRate::new(Rational::new(rate_num, rate_den));
+    let mut resolved = clips.to_vec();
     resolve_transitions(&mut resolved, rate, false);
     let visible: Vec<&ExportClip> = resolved
         .iter()
@@ -1681,15 +1714,32 @@ fn preview_timeline(request: &PreviewFrameRequest, rate: FrameRate, gpu: bool) -
     // keeps one conversion path rather than a preview-flavoured copy of it.
     let shim = ExportRequest {
         output: String::new(),
-        width: request.width,
-        height: request.height,
-        rate_num: request.rate_num,
-        rate_den: request.rate_den,
+        width,
+        height,
+        rate_num,
+        rate_den,
         crf: 18,
         preset: String::new(),
         clips: Vec::new(),
     };
-    build_timeline(&shim, rate, &visible, gpu)
+    PreviewPlan {
+        built: build_timeline(&shim, rate, &visible, gpu),
+        rate,
+        width,
+        height,
+    }
+}
+
+/// The plan a request describes; see [`preview_plan`].
+fn preview_timeline(request: &PreviewFrameRequest, gpu: bool) -> PreviewPlan {
+    preview_plan(
+        &request.clips,
+        request.width,
+        request.height,
+        request.rate_num,
+        request.rate_den,
+        gpu,
+    )
 }
 
 /// Warms the reader pool for the frames about to be presented.
@@ -1709,7 +1759,17 @@ pub fn preview_prefetch(
     frames: u32,
     gpu: bool,
 ) {
-    let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
+    preview_prefetch_of(pool, &preview_timeline(request, gpu), request.time, frames);
+}
+
+/// [`preview_prefetch`] from a plan already built.
+pub fn preview_prefetch_of(
+    pool: &concat_media::ReaderPool,
+    plan: &PreviewPlan,
+    seconds: f64,
+    frames: u32,
+) {
+    let rate = plan.rate;
     let BuiltTimeline {
         timeline,
         stills,
@@ -1717,17 +1777,17 @@ pub fn preview_prefetch(
         filter_chains,
         pre_chains,
         ..
-    } = preview_timeline(request, rate, gpu);
+    } = &plan.built;
     let fps = rate.fps().as_f64();
 
     for ahead in 0..frames {
-        let time = request.time + f64::from(ahead) / fps;
-        let plan = plan_frame(&timeline, quantise(time, rate));
-        for layer in &plan.layers {
+        let time = seconds + f64::from(ahead) / fps;
+        let plan_at = plan_frame(timeline, quantise(time, rate));
+        for layer in &plan_at.layers {
             let (decode_width, decode_height) = decode_sizes
                 .get(&layer.clip)
                 .copied()
-                .unwrap_or((request.width, request.height));
+                .unwrap_or((plan.width, plan.height));
             let chain = filter_chains.get(&layer.clip).map(String::as_str);
             let pre = pre_chains.get(&layer.clip).map(String::as_str);
             let _ = pool.frame_at(

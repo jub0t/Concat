@@ -104,6 +104,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
+        app.global::<Keyframes>().set_rows(ModelRc::from(models.key_rows.clone()));
+        app.global::<Library>().set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
@@ -720,7 +722,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.clip_set_colour(field, value);
         }
     ));
-    editor.on_clip_commit(on_window!(|state| {
+    // Lanes only: the commit is held and lands with a full publish of its
+    // own once the control's moves pause; see `Studio::clip_commit`.
+    editor.on_clip_commit(on_lanes!(|state| {
         state.clip_commit();
     }));
 

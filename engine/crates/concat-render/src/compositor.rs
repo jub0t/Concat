@@ -155,11 +155,11 @@ pub trait Compositor {
     /// encoder, and neither has anything to show through.
     fn composite(&mut self, width: u32, height: u32, layers: &[Layer<'_>]) -> Frame;
 
-    /// Draws `layers` - each with the track it came from, bottom-most first
-    /// - with every treatment applied over the stack beneath its track, the
-    /// treatments in ascending track order. `None` from a compositor that
-    /// cannot run passes, which the CPU reference cannot: the caller then
-    /// applies the treatments its own way.
+    /// Draws `layers`, each with the track it came from and bottom-most
+    /// first, with every treatment applied over the stack beneath its
+    /// track, the treatments in ascending track order. `None` from a
+    /// compositor that cannot run passes, which the CPU reference cannot:
+    /// the caller then applies the treatments its own way.
     fn composite_treated(
         &mut self,
         _width: u32,
