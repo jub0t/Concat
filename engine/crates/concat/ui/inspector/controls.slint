@@ -587,36 +587,58 @@ export component SwitchRow inherits HorizontalLayout {
     }
 }
 
-// A tooltip would hide the answer again the moment the pointer moves; this
-// toggles a line of prose the caller renders where it belongs.
+// A "?" that explains on hover. The prose is a popover beside the mark, so
+// it never rearranges the panel it sits in, and it goes when the pointer
+// does. The mark has no height of its own: it fills whatever row it is
+// given and sits in the middle of it, which is what keeps it level with a
+// title or a switch rather than floating at the top of the row.
 export component HelpButton inherits Rectangle {
-    in-out property <bool> open;
-
-    callback toggled();
+    /// The sentence or two the popover shows.
+    in property <string> text;
 
     width: 16px;
-    height: 16px;
-    border-radius: 8px;
-    background: root.open ? Theme.accent-soft
-        : touch.has-hover ? Theme.field-hover
-        : Theme.field;
 
-    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-    Text {
-        x: (parent.width - self.width) / 2;
+    mark := Rectangle {
+        x: 0;
         y: (parent.height - self.height) / 2;
-        text: "?";
-        color: root.open ? Theme.accent : Theme.fg-muted;
-        font-size: Theme.fs-xs;
-        font-weight: Theme.weight-title;
-    }
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: touch.has-hover ? Theme.accent-soft : Theme.field;
 
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.open = !root.open;
-            root.toggled();
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            text: "?";
+            color: touch.has-hover ? Theme.accent : Theme.fg-muted;
+            font-size: Theme.fs-xs;
+            font-weight: Theme.weight-title;
+        }
+
+        touch := TouchArea {
+            mouse-cursor: help;
+        }
+
+        Tooltip {
+            Rectangle {
+                width: 260px;
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                border-radius: Theme.r;
+
+                HorizontalLayout {
+                    padding: 10px;
+                    Text {
+                        text: root.text;
+                        color: Theme.fg;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+            }
         }
     }
 }
