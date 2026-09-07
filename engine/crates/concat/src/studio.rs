@@ -4291,6 +4291,39 @@ impl Studio {
 
     /// A copy of `source` laid after it. Three commands, because a clip's
     /// in-point and length are set by trims, not by placement.
+    /// Duplicate every unlocked selected clip (right-to-left by start so
+    /// neighbours do not stack). Falls back to the menu target when the
+    /// selection is empty.
+    pub fn duplicate_selected(&mut self) {
+        let mut sources: Vec<Clip> = self
+            .selection
+            .iter()
+            .filter_map(|id| self.clip(id).cloned())
+            .filter(|clip| !self.locked(&clip.track_id))
+            .collect();
+        if sources.is_empty() {
+            if let Some(id) = self.menu_target.clone() {
+                if let Some(clip) = self.clip(&id).cloned() {
+                    if !self.locked(&clip.track_id) {
+                        sources.push(clip);
+                    }
+                }
+            }
+        }
+        if sources.is_empty() {
+            return;
+        }
+        sources.sort_by(|left, right| right.start.total_cmp(&left.start));
+        let mut last = None;
+        for source in &sources {
+            self.duplicate(source);
+            last = self.selection.first().cloned();
+        }
+        if let Some(id) = last {
+            self.selection = vec![id];
+        }
+    }
+
     pub fn duplicate(&mut self, source: &Clip) {
         let end = source.start + source.duration;
         if source.kind == model::ClipKind::Text {
@@ -6673,7 +6706,7 @@ impl Studio {
         };
         match action {
             "copy" => self.clipboard = Some(clip),
-            "duplicate" => self.duplicate(&clip),
+            "duplicate" => self.duplicate_selected(),
             "paste" => {
                 if let Some(held) = self.clipboard.clone() {
                     let mut source = held;
