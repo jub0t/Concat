@@ -1,41 +1,35 @@
-# SOP: updating the README hero screenshot
+# SOP: updating the README hero image
 
-The image at the top of `README.md` is `assets/editor-preview.png` — a single
-frame that is the **dark theme on the left half** and the **light theme on the
-right half**, joined at the vertical center line. Because both screenshots show
-the identical window state, the seam falls invisibly through the middle of the
-preview pane.
+The image at the top of `README.md` is `assets/preview.png`: the dark-theme
+editor window floating on a soft gradient card, built by
+`scripts/make-preview.py` from the raw capture in `assets/screenshot-dark.png`.
 
 ## Steps
 
-1. **Run the app** — `cd engine && cargo run --release -p concat`. Stage something presentable:
-   a clip in the media bin, a couple of tracks on the timeline, the playhead
-   somewhere interesting. Avoid personal file names in the media panel.
+1. **Run the app** — `cd engine && cargo run --release -p concat`. Stage something
+   presentable: clips in the media bin, a few tracks on the timeline, the
+   playhead somewhere interesting. Avoid personal file names in the media
+   panel. Make the window wide (the composite assumes a landscape window).
 
-2. **Take the dark screenshot.** With the app in dark theme, press
-   `⌘⇧4`, then `Space`, then click the Concat window (captures just the
-   window). Don't move or resize the window after this.
+2. **Capture the window.** In dark theme, press `⌘⇧4`, then `Space`, then
+   click the Concat window. macOS saves the window with a transparent margin
+   and its drop shadow; the script trims that away itself.
 
-3. **Switch to light theme** (the sun/moon toggle in the title bar) and take
-   the second screenshot the same way. **Don't touch anything else** — same
-   window size, same panels, same playhead. Any drift shows at the seam.
-
-4. **Build the split:**
+3. **Build the composite:**
 
    ```sh
-   scripts/make-editor-preview.sh ~/Desktop/Screenshot*<time1>*.png ~/Desktop/Screenshot*<time2>*.png
+   cp ~/Desktop/Screenshot*<time>*.png assets/screenshot-dark.png
+   scripts/make-preview.py
    ```
 
-   First argument is the **dark** screenshot, second is the **light** one.
-   Tab-complete or glob the paths — macOS puts a narrow no-break space before
-   "AM"/"PM" in screenshot names, so a hand-typed regular space won't match.
+   Tab-complete or glob the screenshot path: macOS puts a narrow no-break
+   space before "AM"/"PM" in the file name. The script needs Pillow
+   (`pip install pillow`). Pass explicit paths to build from somewhere else:
+   `scripts/make-preview.py in.png out.png`.
 
-   The script verifies both images are the same size, copies them to
-   `assets/screenshot-dark.png` / `assets/screenshot-light.png`, and writes
-   `assets/editor-preview.png`.
+4. **Check the result** — open `assets/preview.png`. The window should sit
+   centred with the timeline running off the bottom edge. Backdrop colours,
+   corner radii, and the crop height are constants at the top of the script.
 
-5. **Check the result** — open `assets/editor-preview.png` and look at the
-   center seam. If panels are misaligned, retake both screenshots.
-
-6. **Commit** the three changed files in `assets/`. The README references
-   `assets/editor-preview.png` by path, so no README edit is needed.
+5. **Commit** `assets/screenshot-dark.png` and `assets/preview.png`. The
+   README references `assets/preview.png` by path, so no README edit is needed.
