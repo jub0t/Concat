@@ -232,7 +232,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         let mut $state = shell.studio.borrow_mut();
                         $body
                     }
-                    shell.studio.borrow_mut().refresh_art();
+                    {
+                        let mut studio = shell.studio.borrow_mut();
+                        studio.settle_audition();
+                        studio.refresh_art();
+                    }
                     shell.studio.borrow().$publish(&app, &shell.models);
                 });
             }
@@ -433,6 +437,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.apply_catalogue(id.as_str(), true);
         }
     ));
+    editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
+        state.audition_catalogue(id.as_str());
+    }));
     editor.on_library_apply_effect(on_window!(|state, id: SharedString| {
         state.apply_catalogue(id.as_str(), true);
     }));

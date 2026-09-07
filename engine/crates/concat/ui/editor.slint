@@ -94,6 +94,13 @@ export global Editor {
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
     callback library-apply-filter(filter-id: string, label: string);
+    /// Filters page: show the look on the selected clip without adding it,
+    /// which is what a single click on a card does. The same id again takes
+    /// it off.
+    callback library-audition-filter(filter-id: string);
+    /// The look being shown that way, by id, or empty: its card draws
+    /// itself picked while it is.
+    in-out property <string> library-audition;
     callback library-apply-audio(effect-id: string);
     callback library-save-template();
 

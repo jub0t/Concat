@@ -735,6 +735,11 @@ struct CatalogueItemData {
 // a plus on hover when it works, a "Soon" badge when it does not.
 component CatalogueCard inherits Rectangle {
     in property <CatalogueItemData> item;
+    /// A card that shows before it adds: a click is `auditioned`, and only
+    /// a double-click or the plus is `applied`. Otherwise a click applies.
+    in property <bool> auditions;
+    /// This card's look is the one being shown; it draws itself picked.
+    in property <bool> auditioning;
     /// What this card leaves on the timeline when it is dragged there, or
     /// empty for a page whose entries are applied to the selection rather than
     /// placed — a DragArea with no data never starts a drag, so one property
@@ -742,6 +747,7 @@ component CatalogueCard inherits Rectangle {
     in property <string> payload;
 
     callback applied();
+    callback auditioned();
 
     /// An entry with no artwork is a compact card: the name sits inside the
     /// tile, there is no mark and no caption, and the tile is half as tall.
@@ -764,7 +770,15 @@ component CatalogueCard inherits Rectangle {
         card := TouchArea {
             enabled: root.item.enabled;
             mouse-cursor: root.item.enabled ? pointer : default;
-            clicked => { root.applied(); }
+            // On a showing card the second click of a double-click lands
+            // here first and takes the showing off; the add that follows
+            // is what the gesture meant, and Rust drops the showing anyway.
+            clicked => {
+                if (root.auditions) { root.auditioned(); } else { root.applied(); }
+            }
+            double-clicked => {
+                if (root.auditions) { root.applied(); }
+            }
 
             tile := Rectangle {
                 y: 0;
@@ -772,8 +786,9 @@ component CatalogueCard inherits Rectangle {
                 border-radius: Theme.r;
                 background: root.compact && card.has-hover && root.item.enabled
                     ? Theme.field : Theme.well;
-                border-width: 1px;
-                border-color: (card.has-hover && root.item.enabled)
+                border-width: root.auditioning ? 2px : 1px;
+                border-color: root.auditioning ? Theme.accent
+                    : (card.has-hover && root.item.enabled)
                     ? Theme.line-strong : Theme.line;
                 clip: true;
 
@@ -825,20 +840,31 @@ component CatalogueCard inherits Rectangle {
                     }
                 }
 
-                if root.item.enabled && card.has-hover: Rectangle {
+                // The plus is its own touch area, so that on a showing
+                // card it adds where the tile around it only shows. Always
+                // there and shown on hover, rather than made on hover: it
+                // has to keep itself on screen while the pointer is over
+                // it, whether or not the tile still counts that as hovered.
+                Rectangle {
                     x: parent.width - self.width - 4px;
                     y: parent.height - self.height - 4px;
                     width: 20px;
                     height: 20px;
                     border-radius: Theme.r-xs;
-                    background: Theme.scrim;
+                    background: plus.has-hover ? Theme.accent : Theme.scrim;
+                    visible: root.item.enabled && (card.has-hover || plus.has-hover);
+
+                    plus := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.applied(); }
+                    }
 
                     Icon {
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
                         glyph: Glyph.plus;
                         size: 11px;
-                        tint: Theme.on-scrim;
+                        tint: plus.has-hover ? Theme.on-accent : Theme.on-scrim;
                     }
                 }
             }
@@ -1085,6 +1111,10 @@ component ShelfGrid inherits Rectangle {
 
     pure callback art(id: string) -> image;
     callback applied(id: string, label: string);
+    /// See CatalogueCard: a shelf whose cards show before they add.
+    in property <bool> auditions;
+    in property <string> auditioning;
+    callback auditioned(id: string);
 
     property <length> gap: 8px;
     property <length> min-card: 88px;
@@ -1114,7 +1144,10 @@ component ShelfGrid inherits Rectangle {
         compact: root.compact;
         payload: root.payload-kind == "" ? ""
             : "\{root.payload-kind}:\{entry.id}:\{entry.name}";
+        auditions: root.auditions;
+        auditioning: root.auditions && root.auditioning == entry.id;
 
+        auditioned => { root.auditioned(entry.id); }
         applied => { root.applied(entry.id, entry.name); }
     }
 }
@@ -1238,6 +1271,10 @@ export component MediaPane inherits Rectangle {
     callback apply-effect(effect-id: string);
     callback apply-transition(transition-id: string);
     callback apply-filter(filter-id: string, label: string);
+    /// Filters page: a single click shows the look on the selected clip
+    /// without adding it; `audition` is the id being shown, or empty.
+    callback audition-filter(filter-id: string);
+    in property <string> audition;
     /// Audio page: add a voice or room to the selected clip's sound.
     callback apply-audio(effect-id: string);
     /// Templates page: open the save-as-template flow for this project.
@@ -1801,8 +1838,9 @@ export component MediaPane inherits Rectangle {
                     // A filter is meant to be a layer over a span of the
                     // timeline, dragged onto the lanes like a piece of media;
                     // the payload says so, for the day the lanes accept it.
-                    // Until then a click applies the look to the selected
-                    // clip, which is the other way every editor offers.
+                    // Until then the cards work on the selected clip: a
+                    // click shows the look on the monitor, and a double-click
+                    // or the card's plus adds it.
                     ShelfSearch {
                         shelf: 0;
                         placeholder: I18n.t1("Search {0}s", I18n.t("filter"));
@@ -1810,7 +1848,10 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-filters;
                         payload-kind: "filter";
+                        auditions: true;
+                        auditioning: root.audition;
                         art(id) => { return root.art-of(id); }
+                        auditioned(id) => { root.audition-filter(id); }
                         applied(id, label) => { root.apply-filter(id, label); }
                     }
                 }

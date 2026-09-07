@@ -126,6 +126,8 @@ export component Seat inherits Rectangle {
             apply-effect(id) => { Editor.library-apply-effect(id); }
             apply-transition(id) => { Editor.library-apply-transition(id); }
             apply-filter(id, label) => { Editor.library-apply-filter(id, label); }
+            audition: Editor.library-audition;
+            audition-filter(id) => { Editor.library-audition-filter(id); }
             apply-audio(id) => { Editor.library-apply-audio(id); }
             save-template => { Editor.library-save-template(); }
         }
