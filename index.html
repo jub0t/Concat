@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concat — the free, open-source CapCut replacement</title>
+<meta name="description" content="Concat is a free, open-source video editor. Multi-track editing, auto-captions, voice filters and templates, all running natively on your machine.">
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0D0E11;
+    --panel: #16181C;
+    --panel-raised: #1D2024;
+    --line: #26292E;
+    --text: #EDEEF0;
+    --text-dim: #9195A0;
+    --text-faint: #5C606A;
+    --amber: #FFB020;
+    --amber-dim: rgba(255,176,32,0.14);
+    --amber-line: rgba(255,176,32,0.35);
+    --green: #3ECF8E;
+    --red: #FF6A5C;
+    --radius-clip: 10px;
+    --maxw: 1080px;
+  }
+
+  *{ box-sizing: border-box; }
+  html{ scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce){
+    html{ scroll-behavior: auto; }
+    *{ animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
+
+  body{
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+  }
+
+  code, .mono{ font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  a{ color: inherit; }
+  img{ display:block; max-width: 100%; }
+
+  .wrap{
+    max-width: var(--maxw);
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  :focus-visible{
+    outline: 2px solid var(--amber);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  /* ---------- Nav ---------- */
+  header{
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(13,14,17,0.86);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+  }
+  .brand{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 16px;
+    text-decoration: none;
+  }
+  .brand img{ width: 28px; height: 28px; border-radius: 7px; }
+  nav.links{
+    display: flex;
+    gap: 28px;
+    font-size: 14.5px;
+    color: var(--text-dim);
+  }
+  nav.links a{ text-decoration: none; }
+  nav.links a:hover{ color: var(--text); }
+  .nav-cta{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  @media (max-width: 760px){
+    nav.links{ display: none; }
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 20px;
+    border-radius: 8px;
+    font-size: 14.5px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn-primary{
+    background: var(--amber);
+    color: #1A1200;
+  }
+  .btn-primary:hover{ background: #ffbe45; }
+  .btn-ghost{
+    background: transparent;
+    color: var(--text);
+    border-color: var(--line);
+  }
+  .btn-ghost:hover{ border-color: #3a3e46; background: var(--panel); }
+  .btn-small{ padding: 8px 14px; font-size: 13.5px; }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    padding: 88px 0 40px;
+  }
+  .hero .wrap{ text-align: left; }
+  h1{
+    font-size: clamp(34px, 5.6vw, 58px);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    margin: 0 0 22px;
+    max-width: 16ch;
+    font-weight: 700;
+  }
+  .lede{
+    font-size: 18px;
+    color: var(--text-dim);
+    max-width: 56ch;
+    margin: 0 0 34px;
+  }
+  .hero-ctas{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 56px;
+  }
+
+  /* ---------- Timeline strip (hero visual) ---------- */
+  .timeline{
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 18px;
+    overflow-x: auto;
+  }
+  .timeline-ruler{
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-bottom: 10px;
+    font-family: "IBM Plex Mono", monospace;
+    white-space: nowrap;
+  }
+  .track{
+    display: flex;
+    gap: 6px;
+    min-width: 640px;
+  }
+  .clip{
+    flex: 1 0 auto;
+    border-radius: var(--radius-clip);
+    padding: 14px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #14100a;
+    position: relative;
+    min-width: 108px;
+  }
+  .clip span{
+    display: block;
+    font-weight: 400;
+    font-size: 11.5px;
+    margin-top: 3px;
+    opacity: 0.72;
+  }
+  .clip:nth-child(1){ background: #FFB020; flex-grow: 1.1; }
+  .clip:nth-child(2){ background: #FFCB6B; flex-grow: 1.6; }
+  .clip:nth-child(3){ background: #FFD98A; flex-grow: 0.9; }
+  .clip:nth-child(4){ background: #FFE3AA; flex-grow: 1.3; }
+  .clip:nth-child(5){ background: #FFEDC8; flex-grow: 1; }
+
+  /* ---------- Section shell ---------- */
+  section{ padding: 64px 0; border-top: 1px solid var(--line); }
+  .section-head{ margin-bottom: 36px; max-width: 62ch; }
+  h2{
+    font-size: clamp(24px, 3.4vw, 32px);
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    font-weight: 700;
+  }
+  .section-head p{
+    color: var(--text-dim);
+    font-size: 16px;
+    margin: 0;
+  }
+
+  /* ---------- Highlights (track rows) ---------- */
+  .rows{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border-top: 1px solid var(--line);
+  }
+  .row{
+    display: flex;
+    gap: 14px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rows .row:nth-child(odd){ padding-right: 28px; border-right: 1px solid var(--line); }
+  .rows .row:nth-child(even){ padding-left: 28px; }
+  .tick{
+    flex: none;
+    width: 4px;
+    border-radius: 2px;
+    background: var(--amber);
+    margin-top: 2px;
+  }
+  .row h3{
+    font-size: 15.5px;
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+  .row p{
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  @media (max-width: 720px){
+    .rows{ grid-template-columns: 1fr; }
+    .rows .row:nth-child(odd){ padding-right: 0; border-right: none; }
+    .rows .row:nth-child(even){ padding-left: 0; }
+  }
+
+  /* ---------- Comparison table ---------- */
+  .table-scroll{ overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table{ border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+  thead th{
+    text-align: left;
+    padding: 14px 18px;
+    background: var(--panel);
+    font-weight: 600;
+    color: var(--text-dim);
+    font-size: 13px;
+    border-bottom: 1px solid var(--line);
+  }
+  tbody td{
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  tbody tr:last-child td{ border-bottom: none; }
+  tbody tr:nth-child(odd){ background: rgba(255,255,255,0.012); }
+  td.notes{ color: var(--text-dim); max-width: 320px; }
+  td.feature{ font-weight: 500; white-space: nowrap; }
+  .dot{
+    display: inline-block;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    margin-right: 2px;
+  }
+  .dot-strong{ background: var(--green); }
+  .dot-partial{ background: var(--amber); }
+  .dot-weak{ background: var(--red); }
+  .legend{
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-top: 14px; font-size: 13px; color: var(--text-dim);
+  }
+  .legend span{ display: inline-flex; align-items: center; gap: 6px; }
+
+  /* ---------- Platform grid ---------- */
+  .platforms{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .platform{
+    background: var(--panel);
+    padding: 20px 22px;
+  }
+  .platform h3{
+    font-size: 15px;
+    margin: 0 0 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .platform ul{ list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .platform li{ font-size: 13.5px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  .status{ font-size: 14px; flex: none; }
+
+  /* ---------- Get started ---------- */
+  .steps{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+  }
+  .step{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px;
+  }
+  .step .num{
+    font-family: "IBM Plex Mono", monospace;
+    color: var(--amber);
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .step h3{ font-size: 15.5px; margin: 0 0 8px; font-weight: 600; }
+  .step p{ font-size: 13.5px; color: var(--text-dim); margin: 0 0 10px; }
+  .codeblock{
+    background: #0A0B0D;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 12.5px;
+    color: #C9E8D4;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  /* ---------- Downloads ---------- */
+  .downloads{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .dl-card{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .dl-card h4{
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .dl-links{ display: flex; flex-direction: column; gap: 8px; }
+  .dl-links a{
+    font-size: 13px;
+    text-decoration: none;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .dl-links a:hover{ color: var(--text); border-color: #3a3e46; background: var(--panel-raised); }
+  .dl-links a .arch{ font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--text-faint); }
+  .see-all{ font-size: 13.5px; color: var(--text-dim); text-decoration: none; }
+  .see-all:hover{ color: var(--text); }
+
+  .whats-new{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 22px 24px;
+    margin: 32px 0 40px;
+  }
+  .whats-new h3{ font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+  .whats-new .ver{ color: var(--amber); font-family: "IBM Plex Mono", monospace; font-size: 12.5px; }
+  .whats-new ul{ margin: 14px 0 0; padding-left: 18px; }
+  .whats-new li{ font-size: 13.5px; color: var(--text-dim); margin-bottom: 6px; }
+
+  /* ---------- Contribute ---------- */
+  .contribute-grid{
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .callout{
+    background: var(--amber-dim);
+    border: 1px solid var(--amber-line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 14px;
+  }
+  .link-list{ list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .link-list a{
+    text-decoration: none;
+    font-size: 14.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid transparent;
+  }
+  .link-list a:hover{ border-bottom-color: var(--text-dim); }
+  @media (max-width: 720px){
+    .contribute-grid{ grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Footer ---------- */
+  footer{
+    border-top: 1px solid var(--line);
+    padding: 40px 0 56px;
+  }
+  .foot-row{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .foot-brand{ display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 13.5px; }
+  .foot-brand img{ width: 22px; height: 22px; border-radius: 6px; }
+  .foot-links{ display: flex; gap: 22px; font-size: 13.5px; color: var(--text-dim); }
+  .foot-links a{ text-decoration: none; }
+  .topbar{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 9px 24px;
+    background: var(--amber);
+    color: #1A1200;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .topbar a{
+    color: #1A1200;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .topbar a:hover{ text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  Concat v0.2.1 is out — <a href="#get-started">download it here</a>
+</div>
+<header>
+  <div class="nav wrap">
+    <a class="brand" href="#top">
+      <img src="data:image/png;base64,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" alt="">
+      Concat
+    </a>
+    <nav class="links">
+      <a href="#highlights">Features</a>
+      <a href="#compare">Compare</a>
+      <a href="#platforms">Platforms</a>
+      <a href="#get-started">Get started</a>
+      <a href="#contribute">Contribute</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost btn-small" href="https://discord.com/invite/DVuPfpXfqP">Discord</a>
+      <a class="btn btn-primary btn-small" href="#get-started">Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero" style="border-top:none; padding-top:64px;">
+    <div class="wrap">
+      <h1>The free, open-source CapCut replacement.</h1>
+      <p class="lede">Concat does what you already use CapCut for — multi-track editing, captions, voice tools, templates — with no watermarks, no account, and nothing behind a subscription. A native Rust engine runs it all on your own machine.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="#get-started">Download the beta</a>
+        <a class="btn btn-ghost" href="https://github.com/jub0t/Concat">Read the source</a>
+        <span class="mono" style="align-self:center; color:var(--text-faint); font-size:12.5px;">v0.2.1</span>
+      </div>
+
+      <div class="timeline" role="img" aria-label="A mock editing timeline showing five clips labelled Trim, Captions, Voice, Titles, and Export">
+        <div class="timeline-ruler">
+          <span>00:00</span><span>00:05</span><span>00:10</span><span>00:15</span><span>00:20</span><span>00:25</span>
+        </div>
+        <div class="track">
+          <div class="clip">Trim<span>split, merge, speed</span></div>
+          <div class="clip">Captions<span>generated on-device</span></div>
+          <div class="clip">Voice<span>filters &amp; cleanup</span></div>
+          <div class="clip">Titles<span>styled text</span></div>
+          <div class="clip">Export<span>no watermark</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="highlights">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Everything you'd expect from an editor. Nothing you'd expect from a paywall.</h2>
+        <p>Every feature below runs locally. Nothing you record, cut, or caption is sent anywhere.</p>
+      </div>
+      <div class="rows">
+        <div class="row"><div class="tick"></div><div><h3>Free, local text-to-speech</h3><p>Generate voiceover without an internet connection or a subscription.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Multi-track editing</h3><p>Several timelines per project, for when one track isn't enough.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>A full cutting toolkit</h3><p>Split, trim, merge, transitions, and speed control — the basics done properly.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>On-device auto-captions</h3><p>Captions are generated on your machine. Your audio never leaves it.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Voice filters</h3><p>Clean up a rough recording or reshape your sound entirely.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Titles and styled text</h3><p>Add and style text directly on the timeline.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Reusable templates</h3><p>Build an edit once, then apply it to your next video.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Nothing paywalled</h3><p>No watermarks, no account, no feature behind a subscription.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>One app, three platforms</h3><p>The same experience on macOS, Windows, and Linux.</p></div></div>
+        <div class="row"><div class="tick"></div><div><h3>Twelve languages</h3><p>Adding another is a single JSON file — see <code>TRANSLATING.md</code>.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="compare">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>How it stacks up</h2>
+        <p>Against CapCut, the app it replaces, and OpenCut, the other open-source alternative.</p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Feature</th><th>Concat</th><th>CapCut</th><th>OpenCut</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="feature">Performance</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">Concat and CapCut are native. OpenCut runs on WebAssembly FFmpeg in a browser.</td></tr>
+            <tr><td class="feature">Price</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">CapCut is free until Pro effects, 4K, or AI tools, then $9.99–$19.99 a month.</td></tr>
+            <tr><td class="feature">Watermark</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">CapCut stamps exports that use Pro assets.</td></tr>
+            <tr><td class="feature">Privacy</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">Concat sends nothing anywhere. CapCut's terms grant a perpetual licence to your uploads.</td></tr>
+            <tr><td class="feature">Offline</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">Concat's captions, speech, cutout, and export all run on-device. CapCut's best features need the cloud.</td></tr>
+            <tr><td class="feature">Open source</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">Concat is AGPL, OpenCut is MIT, CapCut is closed source.</td></tr>
+            <tr><td class="feature">4K export</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">CapCut caps free exports at 1080p. OpenCut depends on the browser.</td></tr>
+            <tr><td class="feature">Effects &amp; templates</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td class="notes">CapCut has thousands. Concat has a few dozen. OpenCut has a basic set.</td></tr>
+            <tr><td class="feature">AI tools</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">CapCut has tracking, reframe, and avatars. Concat has local captions, speech, and person cutout.</td></tr>
+            <tr><td class="feature">Keyframes</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">Concat keys position, scale, rotation, and opacity with bezier easing — no curve editor yet, and effect parameters aren't keyable.</td></tr>
+            <tr><td class="feature">Export formats</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-partial"></span></td><td class="notes">Concat writes H.264 MP4 only. OpenCut supports MP4 and WebM.</td></tr>
+            <tr><td class="feature">Stability</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td class="notes">Concat is a 0.2.x beta. OpenCut is mid rewrite.</td></tr>
+            <tr><td class="feature">Mobile</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td class="notes">Concat's Android and iOS builds compile but are untested. OpenCut's are in progress.</td></tr>
+            <tr><td class="feature">Extensibility</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-weak"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">OpenCut ships an Editor API, MCP server, and plugins. Concat's plugin API is planned.</td></tr>
+            <tr><td class="feature">Community</td><td><span class="dot dot-partial"></span></td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-strong"></span></td><td class="notes">OpenCut has tens of thousands of stars. Concat has a Discord and a handful of contributors.</td></tr>
+            <tr><td class="feature">Multiple timelines per project</td><td><span class="dot dot-strong"></span></td><td><span class="dot dot-weak"></span></td><td><span class="dot dot-weak"></span></td><td class="notes">Concat only.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><span class="dot dot-strong"></span> Strong</span>
+        <span><span class="dot dot-partial"></span> Partial, or with strings attached</span>
+        <span><span class="dot dot-weak"></span> Weak or missing</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="platforms">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Platform support</h2>
+        <p>Concat is in beta. Desktop is solid; mobile builds exist and need testing.</p>
+      </div>
+      <div class="platforms">
+        <div class="platform">
+          <h3><span class="status">✅</span> Windows</h3>
+          <ul><li>Tested and supported — <a href="#get-started" style="color:var(--amber);">download ↓</a></li></ul>
+        </div>
+        <div class="platform">
+          <h3><span class="status">✅</span> macOS</h3>
+          <ul><li>Unsigned binaries — <a href="#get-started" style="color:var(--amber);">download ↓</a></li></ul>
+        </div>
+        <div class="platform">
+          <h3><span class="status">✅</span> Linux</h3>
+          <ul><li>Tested and supported — <a href="#get-started" style="color:var(--amber);">download ↓</a></li></ul>
+        </div>
+        <div class="platform">
+          <h3><span class="status">🧪</span> ARM / x86_64</h3>
+          <ul><li>Builds exist for every OS above, to be tested</li></ul>
+        </div>
+        <div class="platform">
+          <h3><span class="status">🧪</span> Android</h3>
+          <ul><li>Phones — <a href="#get-started" style="color:var(--amber);">download ↓</a></li><li>Tablets — to be tested</li></ul>
+        </div>
+        <div class="platform">
+          <h3><span class="status">🧪</span> iOS / iPadOS</h3>
+          <ul><li>iPhone — <a href="#get-started" style="color:var(--amber);">download ↓</a></li><li>iPad — to be tested</li></ul>
+        </div>
+      </div>
+      <p style="color:var(--text-dim); font-size:13.5px; margin-top:16px;">✅ Supported &nbsp;·&nbsp; 🚧 Work in progress &nbsp;·&nbsp; 🧪 To be tested</p>
+    </div>
+  </section>
+
+  <section id="get-started">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Get started</h2>
+        <p>Concat 0.2.1 is out — a pre-release beta build for every platform it ships on. No account required.</p>
+      </div>
+
+      <div class="downloads">
+        <div class="dl-card">
+          <h4>macOS</h4>
+          <div class="dl-links">
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-macos-arm64.dmg">Apple Silicon <span class="arch">arm64 · .dmg</span></a>
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-macos-x86_64.dmg">Intel <span class="arch">x86_64 · .dmg</span></a>
+          </div>
+        </div>
+        <div class="dl-card">
+          <h4>Windows</h4>
+          <div class="dl-links">
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-windows-x86_64.zip">64-bit <span class="arch">x86_64 · .zip</span></a>
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-windows-aarch64.zip">ARM <span class="arch">aarch64 · .zip</span></a>
+          </div>
+        </div>
+        <div class="dl-card">
+          <h4>Linux</h4>
+          <div class="dl-links">
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-linux-x86_64.tar.gz">64-bit <span class="arch">x86_64 · .tar.gz</span></a>
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-linux-aarch64.tar.gz">ARM <span class="arch">aarch64 · .tar.gz</span></a>
+          </div>
+        </div>
+        <div class="dl-card">
+          <h4>Mobile <span style="color:var(--text-faint); font-weight:400;">— untested</span></h4>
+          <div class="dl-links">
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-android-arm64.apk">Android <span class="arch">arm64 · .apk</span></a>
+            <a href="https://github.com/jub0t/Concat/releases/download/v0.2.1/Concat-0.2.1-ios-arm64.ipa">iOS <span class="arch">arm64 · .ipa</span></a>
+          </div>
+        </div>
+      </div>
+      <a class="see-all" href="https://github.com/jub0t/Concat/releases">See all releases and past versions →</a>
+
+      <div class="whats-new">
+        <span class="ver">v0.2.1</span>
+        <h3>What's new</h3>
+        <ul>
+          <li>Android and iOS builds are now part of every nightly and release, not a separate process.</li>
+          <li>Export now matches your project's own aspect ratio instead of a fixed default.</li>
+          <li>The release APK is signed.</li>
+          <li>Media types are colour-coded from the brand palette in the interface.</li>
+          <li>A pass through the codebase turned up and fixed a handful of bugs.</li>
+        </ul>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <div class="num">01</div>
+          <h3>On macOS, clear quarantine</h3>
+          <p>Builds are unsigned, so macOS blocks them by default. Run this once after installing:</p>
+          <div class="codeblock mono">xattr -dr com.apple.quarantine /Applications/Concat.app</div>
+        </div>
+        <div class="step">
+          <div class="num">02</div>
+          <h3>Start cutting</h3>
+          <p>No account, no extra downloads, no setup. Open Concat and import your first clip.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="contribute">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Contribute</h2>
+        <p>Concat is built in the open, and it's still finding its rough edges.</p>
+      </div>
+      <div class="contribute-grid">
+        <div>
+          <div class="callout">
+            <strong>The most useful contribution right now:</strong> grab a build from Releases and use it. Tell us where it breaks or what's missing.
+          </div>
+        </div>
+        <div>
+          <ul class="link-list">
+            <li><a href="https://github.com/jub0t/Concat/blob/main/CONTRIBUTING.md">→ CONTRIBUTING.md — setup, project layout, checks to run, and how contributions are licensed</a></li>
+            <li><a href="https://github.com/jub0t/Concat/discussions">→ Discussion announcement</a></li>
+            <li><a href="https://github.com/jub0t/Concat/blob/main/ROADMAP.md">→ ROADMAP.md — where the project is headed</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot-row">
+    <div class="foot-brand">
+      <img src="data:image/png;base64,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" alt="">
+      Concat — AGPL-licensed, built by its community.
+    </div>
+    <div class="foot-links">
+      <a href="https://github.com/jub0t/Concat">GitHub</a>
+      <a href="https://discord.com/invite/DVuPfpXfqP">Discord</a>
+      <a href="#get-started">Download</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
