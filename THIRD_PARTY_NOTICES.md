@@ -61,14 +61,14 @@ The window embeds its fonts into the binary
 distributed binary carries them and their licences travel with it. Full texts
 are in `engine/crates/concat/ui/fonts/`.
 
-- **Inter** — SIL Open Font License 1.1. Copyright (c) 2016 The Inter Project
-  Authors, https://github.com/rsms/inter. See `ui/fonts/LICENSE.txt`.
+- **Helvetica Neue** — Copyright (c) 1981, 1997 Linotype-Hell AG. Neue
+  Helvetica is a Monotype typeface, used under the licence held for it; the
+  Roman, Medium and Bold faces are embedded.
 - **Synonym** — ITF Free Font License 2.0, Indian Type Foundry, distributed
   via https://www.fontshare.com. See `ui/fonts/LICENSE-Synonym.txt`.
 
-Neither licence permits selling the fonts on their own, and the OFL requires
-that Inter's copyright notice and licence travel with any redistribution. Both
-are satisfied by shipping the `fonts/` directory as it stands.
+Neither licence permits selling the fonts on their own; shipping the `fonts/`
+directory as it stands satisfies both.
 
 ## sherpa-onnx and Kokoro voices
 

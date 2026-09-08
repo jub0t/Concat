@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// Inter is bundled rather than assumed: a desktop binary should look the same
-// on a machine that has never installed it. One file per weight the design
-// uses — 400 body, 500 titles, 600 the page heading.
+// Helvetica Neue is bundled rather than assumed: a desktop binary should look
+// the same on a machine that has never installed it. One file per weight the
+// design uses — Roman for body, Medium for titles, Bold for the page heading.
 import { I18n } from "i18n.slint";
-import "fonts/Inter-Regular.ttf";
-import "fonts/Inter-Medium.ttf";
-import "fonts/Inter-SemiBold.ttf";
+import "fonts/HelveticaNeue-Roman.otf";
+import "fonts/HelveticaNeue-Medium.otf";
+import "fonts/HelveticaNeue-Bold.otf";
 
 // Synonym, the interface's text face. It is published as one variable font,
 // which Slint cannot load, so these are static instances cut from it at the

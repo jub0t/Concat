@@ -799,7 +799,7 @@ fn align_of(align: TextAlign) -> TextAlignment {
 fn new_title_style() -> TextStyle {
     TextStyle {
         content: "New title".to_owned(),
-        font_family: "Inter".to_owned(),
+        font_family: "Helvetica Neue".to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
     }
@@ -4984,7 +4984,7 @@ impl Studio {
                                 start: clip.start + segment.start / clip.speed,
                                 style: Some(TextStyle {
                                     content: segment.text.trim().to_owned(),
-                                    font_family: "Inter".to_owned(),
+                                    font_family: "Helvetica Neue".to_owned(),
                                     font_size,
                                     font_weight: 600.0,
                                     ..TextStyle::default()

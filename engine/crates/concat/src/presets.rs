@@ -90,7 +90,7 @@ impl PresetStyle {
         let base = TextStyle::default();
         TextStyle {
             content: self.content.unwrap_or_else(|| name.to_owned()),
-            font_family: self.font_family.unwrap_or_else(|| "Inter".to_owned()),
+            font_family: self.font_family.unwrap_or_else(|| "Helvetica Neue".to_owned()),
             font_size: self.font_size.unwrap_or(base.font_size).clamp(0.005, 1.0),
             font_weight: self
                 .font_weight
@@ -128,21 +128,21 @@ pub fn builtin() -> Vec<TextPreset> {
         offset_y,
         font: None,
     };
-    let inter = |content: &str, weight: f64, size: f64| TextStyle {
+    let neue = |content: &str, weight: f64, size: f64| TextStyle {
         content: content.to_owned(),
-        font_family: "Inter".to_owned(),
+        font_family: "Helvetica Neue".to_owned(),
         font_weight: weight,
         font_size: size,
         ..TextStyle::default()
     };
     vec![
-        look("default", "Title", inter("New title", 600.0, 0.09), None),
+        look("default", "Title", neue("New title", 600.0, 0.09), None),
         look(
             "concat.headline",
             "Headline",
             TextStyle {
                 stroke_width: 0.008,
-                ..inter("Headline", 700.0, 0.12)
+                ..neue("Headline", 700.0, 0.12)
             },
             None,
         ),
@@ -152,7 +152,7 @@ pub fn builtin() -> Vec<TextPreset> {
             TextStyle {
                 background: "#000000b3".to_owned(),
                 shadow: false,
-                ..inter("Subtitle", 500.0, 0.045)
+                ..neue("Subtitle", 500.0, 0.045)
             },
             Some(0.36),
         ),
@@ -164,7 +164,7 @@ pub fn builtin() -> Vec<TextPreset> {
                 background: "#c6f432".to_owned(),
                 align: TextAlign::Left,
                 shadow: false,
-                ..inter("Name — Title", 600.0, 0.05)
+                ..neue("Name — Title", 600.0, 0.05)
             },
             Some(0.32),
         ),
@@ -174,7 +174,7 @@ pub fn builtin() -> Vec<TextPreset> {
             TextStyle {
                 color: "#ffe14a".to_owned(),
                 stroke_width: 0.006,
-                ..inter("Caption", 600.0, 0.05)
+                ..neue("Caption", 600.0, 0.05)
             },
             Some(0.35),
         ),
@@ -186,7 +186,7 @@ pub fn builtin() -> Vec<TextPreset> {
                 italic: true,
                 tracking: 0.01,
                 shadow: false,
-                ..inter("Elegant", 400.0, 0.08)
+                ..neue("Elegant", 400.0, 0.08)
             },
             None,
         ),
@@ -197,7 +197,7 @@ pub fn builtin() -> Vec<TextPreset> {
                 color: "#c6f432".to_owned(),
                 stroke_color: "#1c3b06".to_owned(),
                 stroke_width: 0.006,
-                ..inter("Neon", 700.0, 0.1)
+                ..neue("Neon", 700.0, 0.1)
             },
             None,
         ),
@@ -207,7 +207,7 @@ pub fn builtin() -> Vec<TextPreset> {
             TextStyle {
                 stroke_width: 0.012,
                 shadow: false,
-                ..inter("Outline", 700.0, 0.11)
+                ..neue("Outline", 700.0, 0.11)
             },
             None,
         ),
@@ -217,7 +217,7 @@ pub fn builtin() -> Vec<TextPreset> {
             TextStyle {
                 tracking: 0.03,
                 shadow: false,
-                ..inter("Minimal", 400.0, 0.06)
+                ..neue("Minimal", 400.0, 0.06)
             },
             None,
         ),

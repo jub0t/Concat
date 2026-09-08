@@ -50,12 +50,12 @@ export global Theme {
     // technical` is for timecode, the ruler, clip labels, paths, dimensions,
     // counts — anything you read as a *value* rather than as language.
     //
-    // Both are Inter for now. Synonym, a text face drawn for paragraph
+    // Both are Helvetica Neue. Synonym, a text face drawn for paragraph
     // sizes, is bundled beside it (app.slint) and takes the interface back
     // by changing the one name below; the split between the roles stays so
     // that the two can differ again without touching a single element.
-    out property <string> font: "Inter";
-    out property <string> font-technical: "Inter";
+    out property <string> font: "Helvetica Neue";
+    out property <string> font-technical: "Helvetica Neue";
     /// The scale. `fs` is the body size everything inherits; the two either
     /// side of it are the dense readout and the panel title. `xl` is for the
     /// few lines that are content rather than chrome — a project's name in a
@@ -82,8 +82,9 @@ export global Theme {
     out property <int> weight-body: 400;    // 500 under --features wgpu
     out property <int> weight-title: 500;   // 600 under --features wgpu
     /// The launch screen's heading, and the wordmark in the title bar. The one
-    /// weight above `title`, and the only place the type gets to be loud.
-    out property <int> weight-display: 600;
+    /// weight above `title`, and the only place the type gets to be loud. The
+    /// bundled face above Medium is Bold, so this names it exactly.
+    out property <int> weight-display: 700;
 
     // ── shape ────────────────────────────────────────────────────────────
     //

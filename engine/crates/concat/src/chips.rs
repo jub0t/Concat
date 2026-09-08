@@ -70,7 +70,7 @@ pub fn xml_escaped(text: &str) -> String {
 ///
 /// SVG rather than a pixel buffer, and for two reasons. Slint rasterises one
 /// through the window's own font collection — so the name on the chip is set
-/// in the same Inter the cards are, from the face this binary already
+/// in the same Helvetica Neue the cards are, from the face this binary already
 /// embeds — and the drag overlay draws it at the window's scale factor rather
 /// than at whatever resolution a buffer was baked at.
 ///
@@ -94,9 +94,10 @@ pub fn drag_chip_svg(
     /// The badge, and the glyph centred in it.
     const BADGE: f32 = 22.0;
     const MARK: f32 = 16.0;
-    /// Inter's average advance at 12px, rounded up. A chip a few points wider
-    /// than its text is a chip; one a few points narrower is a bug.
-    const ADVANCE: f32 = 6.4;
+    /// Helvetica Neue's average advance at 12px, rounded up. A chip a few
+    /// points wider than its text is a chip; one a few points narrower is a
+    /// bug.
+    const ADVANCE: f32 = 6.0;
     /// Long enough for a take name, short enough not to become a banner.
     const MAX_CHARS: usize = 26;
 
@@ -137,7 +138,7 @@ stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="{glyp
 <rect x="{cx}" y="{cy}" width="{cw}" height="{ch}" rx="8" fill="{ground}" stroke="{mark}" stroke-opacity="0.65" filter="url(#drop)"/>
 <rect x="{bx}" y="{by}" width="{BADGE}" height="{BADGE}" rx="6" fill="{well}"/>
 {badge_art}
-<text x="{tx}" y="{ty}" font-family="Inter" font-size="12" fill="{ink}">{label}</text>
+<text x="{tx}" y="{ty}" font-family="Helvetica Neue" font-size="12" fill="{ink}">{label}</text>
 </svg>"##,
         cx = PAD + 0.5,
         cy = PAD + 0.5,
