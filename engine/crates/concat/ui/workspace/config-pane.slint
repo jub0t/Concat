@@ -99,6 +99,8 @@ export component ConfigPane inherits Rectangle {
     // ── details ──────────────────────────────────────────────────────────
     /// The selected clip, or `present: false` for the project details.
     in property <SelectedClipData> selected;
+    /// The selected clip's media's audio tracks; see Editor.audio-tracks.
+    in property <[string]> audio-tracks;
     property <bool> has-selection: root.selected.present;
     in property <string> project-name: I18n.t("Untitled project");
     in property <string> project-folder: "—";
@@ -563,6 +565,7 @@ export component ConfigPane inherits Rectangle {
                 if root.showing == "Sound": VerticalLayout {
                     AudioPanel {
                         selected: root.selected;
+                        audio-tracks: root.audio-tracks;
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
                     }

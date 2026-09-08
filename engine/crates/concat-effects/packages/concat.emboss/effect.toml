@@ -1,0 +1,23 @@
+[effect]
+id = "concat.emboss"
+name = "Emboss"
+kind = "effect"
+category = "Stylize"
+order = 44
+intensity = "depth"
+aliases = ["emboss"]
+description = "The picture pressed into relief, lit from the top left."
+
+[[param]]
+key = "depth"
+label = "Depth"
+min = 0.5
+max = 3
+default = 1
+step = 0.1
+
+[ffmpeg]
+chain = "convolution=0m='-{fixed(2 * depth, 2)} -{fixed(depth, 2)} 0 -{fixed(depth, 2)} 1 {fixed(depth, 2)} 0 {fixed(depth, 2)} {fixed(2 * depth, 2)}':1m='-{fixed(2 * depth, 2)} -{fixed(depth, 2)} 0 -{fixed(depth, 2)} 1 {fixed(depth, 2)} 0 {fixed(depth, 2)} {fixed(2 * depth, 2)}':2m='-{fixed(2 * depth, 2)} -{fixed(depth, 2)} 0 -{fixed(depth, 2)} 1 {fixed(depth, 2)} 0 {fixed(depth, 2)} {fixed(2 * depth, 2)}'"
+
+[wgsl]
+entry = "effect.wgsl"

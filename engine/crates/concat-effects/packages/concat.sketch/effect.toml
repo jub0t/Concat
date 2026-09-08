@@ -1,0 +1,25 @@
+[effect]
+id = "concat.sketch"
+name = "Sketch"
+kind = "effect"
+category = "Stylize"
+order = 45
+intensity = "detail"
+aliases = ["sketch"]
+description = "The picture's edges drawn over it in its own colours."
+
+[[param]]
+key = "detail"
+label = "Detail"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+let = [
+  "high = 0.5 - detail / 100 * 0.4",
+  "low = high * 0.4",
+]
+chain = "edgedetect=mode=colormix:low={fixed(low, 3)}:high={fixed(high, 3)}"

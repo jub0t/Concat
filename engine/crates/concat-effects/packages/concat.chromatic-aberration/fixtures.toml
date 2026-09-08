@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "rgbashift=rh=-4:bh=4"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "rgbashift=rh=-1:bh=1"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "rgbashift=rh=-24:bh=24"

@@ -1323,6 +1323,12 @@ export component VideoPanel inherits VerticalLayout {
 /// ear works and how anyone mixing thinks.
 export component AudioPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
+    /// The media's audio tracks, one label each. A recording that kept the
+    /// desktop and the microphone apart has two, and gets a row to choose
+    /// which one this clip plays; a file with one has nothing to choose and
+    /// shows no row.
+    in property <[string]> audio-tracks;
+    property <bool> choosing: root.audio-tracks.length > 1;
 
     callback set(field: ClipField, value: float);
     callback commit();
@@ -1343,8 +1349,32 @@ export component AudioPanel inherits VerticalLayout {
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
-    Section {
+    if root.choosing: Section {
         first: true;
+        source := SectionHeader {
+            title: I18n.t("Source");
+            collapsible: true;
+            summary: (root.selected.audio-track >= 0
+                && root.selected.audio-track < root.audio-tracks.length)
+                ? root.audio-tracks[root.selected.audio-track] : "";
+        }
+        if source.open: SectionBody {
+        Row {
+            label: I18n.t("Audio track");
+            Select {
+                options: root.audio-tracks;
+                current: root.selected.audio-track;
+                changed(index) => {
+                    root.set(ClipField.audio-track, index);
+                    root.commit();
+                }
+            }
+        }
+        }
+    }
+
+    Section {
+        first: !root.choosing;
         volume := SectionHeader {
             title: I18n.t("Volume");
             collapsible: true;

@@ -104,8 +104,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
-        app.global::<Keyframes>().set_rows(ModelRc::from(models.key_rows.clone()));
-        app.global::<Library>().set_views(ModelRc::from(models.library_views.clone()));
+        app.global::<Keyframes>()
+            .set_rows(ModelRc::from(models.key_rows.clone()));
+        app.global::<Library>()
+            .set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
@@ -836,6 +838,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // it; see Editor.blur. The chords that are also menu rows go through the
     // menu's handler, so the key and the row cannot come apart.
     editor.on_blur(|| Shell::with(|_, app| app.invoke_blur()));
+    // A field that is done being typed into - Enter, Escape - releases the
+    // focus the same way, rather than clearing it: a cleared focus is a
+    // window where no key reaches anything. See Focus in util.slint.
+    app.global::<Focus>()
+        .on_release(|| Shell::with(|_, app| app.invoke_blur()));
     editor.on_shortcut(move |action: SharedString| match action.as_str() {
         "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end" | "snap" => {
             Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));

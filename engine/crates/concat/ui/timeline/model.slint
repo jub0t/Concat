@@ -157,6 +157,9 @@ export enum ClipField {
     font-size, font-weight, italic, text-opacity, align,
     stroke-width, shadow, line-height, tracking,
     cutout-feather,
+    /// which of the media's audio tracks the clip plays, as a row of
+    /// Editor.audio-tracks
+    audio-track,
 }
 
 /// One keyable property's state at the playhead, as the inspector needs it.
@@ -261,6 +264,10 @@ export struct SelectedClipData {
     // sound — everything but a still
     /// linear gain; the fader works in decibels and converts
     volume: float,
+    /// which of the media's audio tracks plays, as a row of
+    /// Editor.audio-tracks; 0 is the file's first, and the only row a file
+    /// with one track has
+    audio-track: int,
     speed: float,
     preserve-pitch: bool,
     /// Which preset shape the speed curve is: -1 for a constant rate, the

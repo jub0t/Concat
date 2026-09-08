@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "../theme/theme.slint";
-import { Fmt } from "../util.slint";
+import { Fmt, Focus } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
 
@@ -130,14 +130,14 @@ export component NumberField inherits Rectangle {
             }
 
             accepted => {
-                self.clear-focus();
+                Focus.release();
             }
 
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
                     // put the untouched display back, so the blur commits a no-op
                     self.text = root.display;
-                    self.clear-focus();
+                    Focus.release();
                     return EventResult.accept;
                 }
                 if (event.text == Key.UpArrow || event.text == Key.DownArrow) {

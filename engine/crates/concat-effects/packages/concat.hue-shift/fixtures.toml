@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "hue=h=60"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "hue=h=-180"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "hue=h=180"

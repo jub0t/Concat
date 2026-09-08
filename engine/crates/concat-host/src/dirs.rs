@@ -7,6 +7,12 @@
 //! Two directories, named by the app identifier and following each
 //! platform's convention for configuration and data. On macOS and Windows
 //! they are the same folder; on Linux they follow the XDG split.
+//!
+//! Or one directory, chosen by the person running the app: a folder named
+//! `portable` beside the executable holds both, and nothing is written
+//! anywhere else on the machine. That is what makes the zip a portable
+//! build - unpack it on a stick, make the folder, and the settings, recents
+//! and models travel with it and leave with it.
 
 use std::path::{Path, PathBuf};
 
@@ -24,8 +30,12 @@ pub struct AppDirs {
 
 impl AppDirs {
     /// The platform's directories for this app, created lazily by whoever
-    /// writes into them.
+    /// writes into them - or the `portable` folder beside the executable,
+    /// when there is one.
     pub fn locate() -> Result<AppDirs, String> {
+        if let Some(portable) = portable_root() {
+            return Ok(AppDirs::under(&portable));
+        }
         if cfg!(target_os = "macos") {
             let dir = home()?
                 .join("Library")
@@ -76,6 +86,17 @@ impl AppDirs {
             data: root.to_path_buf(),
         }
     }
+}
+
+/// The `portable` folder beside the executable, when someone has made one.
+/// A folder rather than a marker file, because it *is* where everything
+/// then goes, and its presence is the whole of the switch: no flag, no
+/// setting, nothing to remember. A phone's executable has no such
+/// neighbour, and the desktop's never has one unless a person put it there.
+fn portable_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let folder = exe.parent()?.join("portable");
+    folder.is_dir().then_some(folder)
 }
 
 fn home() -> Result<PathBuf, String> {

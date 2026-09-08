@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import {
-    Theme, Bezier, Curves, Fmt, BezierEditor, NumberField, Row,
+    Theme, Bezier, Curves, Fmt, Focus, BezierEditor, NumberField, Row,
     Section, SectionBody, SectionHeader, SegmentedControl, Select, Stepper, FocusRing,
 } from "../primitives/primitives.slint";
 import { AlignToolbar, EditorHeader } from "editor-chrome.slint";
@@ -104,11 +104,11 @@ component BezierField inherits Rectangle {
                     self.text = root.value;
                 }
             }
-            accepted => { self.clear-focus(); }
+            accepted => { Focus.release(); }
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
                     self.text = root.value;
-                    self.clear-focus();
+                    Focus.release();
                     return EventResult.accept;
                 }
                 return EventResult.reject;

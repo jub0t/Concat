@@ -566,6 +566,7 @@ mod tests {
             video_codec: None,
             audio_codec: None,
             has_audio: false,
+            audio_tracks: Vec::new(),
         }
     }
 

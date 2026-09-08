@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// Small numeric and string helpers shared by the primitives, plus the two
+// Small numeric and string helpers shared by the primitives, plus the
 // globals whose bodies live in Rust.
 
 export struct Bezier {
@@ -135,4 +135,18 @@ export global Geom {
     public pure function polar-y(cy: float, radius: float, degrees: float) -> float {
         return cy + radius * Math.sin(degrees * 1deg);
     }
+}
+
+/// Where focus goes when a field is done with it.
+///
+/// Slint delivers a key to the focused item and its ancestors, and to
+/// nothing at all when there is no focused item: `clear-focus()` leaves the
+/// window in exactly that state, and so does tearing down whatever had the
+/// focus. Every shortcut in the window then stops working until a press
+/// lands somewhere that takes focus - which reads as "the keybindings are
+/// broken". A field that is finished being typed into calls `release`
+/// instead, and the window answers by focusing the scope its shortcuts live
+/// on (App.blur), so the next keystroke has somewhere to go.
+export global Focus {
+    callback release();
 }

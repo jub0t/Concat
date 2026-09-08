@@ -40,7 +40,7 @@ mod tests {
     use crate::commands::{ClipMove, ClipPatch, Command, NewMedia, TrackFlag, TrimEdge};
     use crate::doc::DocumentSettings;
     use crate::editor::Editor;
-    use crate::model::{ClipKind, MediaKind, TextStyle};
+    use crate::model::{AudioTrack, ClipKind, MediaKind, TextStyle};
 
     fn media(path: &str, duration: f64, has_audio: bool) -> Command {
         Command::AddMedia {
@@ -56,8 +56,36 @@ mod tests {
                 video_codec: Some("h264".to_owned()),
                 audio_codec: has_audio.then(|| "aac".to_owned()),
                 has_audio,
+                audio_tracks: Vec::new(),
             },
         }
+    }
+
+    /// A recording that kept its desktop sound and microphone apart: two
+    /// audio streams, the second named.
+    fn two_track_media(path: &str) -> Command {
+        let Command::AddMedia { mut item } = media(path, 10.0, true) else {
+            unreachable!()
+        };
+        item.audio_tracks = vec![
+            AudioTrack {
+                index: 1,
+                codec: "aac".to_owned(),
+                channels: 2,
+                sample_rate: 48_000,
+                title: String::new(),
+                language: String::new(),
+            },
+            AudioTrack {
+                index: 2,
+                codec: "aac".to_owned(),
+                channels: 1,
+                sample_rate: 48_000,
+                title: "Mic/Aux".to_owned(),
+                language: String::new(),
+            },
+        ];
+        Command::AddMedia { item }
     }
 
     fn settings() -> DocumentSettings {
@@ -121,6 +149,7 @@ mod tests {
             video_codec: None,
             audio_codec: None,
             has_audio: false,
+            audio_tracks: Vec::new(),
         };
         let freeze_id = editor
             .apply(Command::FreezeFrame {
@@ -135,7 +164,10 @@ mod tests {
 
         let clips = &editor.project().active().clips;
         assert_eq!(clips.len(), 3, "head + freeze + tail");
-        let freeze = clips.iter().find(|clip| clip.id == freeze_id).expect("freeze");
+        let freeze = clips
+            .iter()
+            .find(|clip| clip.id == freeze_id)
+            .expect("freeze");
         assert_eq!(freeze.kind, ClipKind::Image);
         assert_eq!(freeze.start, 4.0);
         assert_eq!(freeze.duration, 1.0);
@@ -290,6 +322,122 @@ mod tests {
         let timeline = editor.project().active();
         assert_eq!(timeline.clips.len(), 1);
         assert_eq!(timeline.clip(&clip_id).expect("exists").muted, None);
+    }
+
+    /// A file with two audio tracks detaches as two sound clips, one per
+    /// track, each on its own lane and named for its track; reattaching
+    /// takes both back. A clip's chosen track survives the document.
+    #[test]
+    fn detaching_a_two_track_recording_gives_one_sound_clip_per_track() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(two_track_media("/rec.mkv"))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        assert_eq!(editor.project().media[0].audio_tracks.len(), 2);
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let clip_id = editor
+            .apply(Command::AddClip {
+                media_id: media_id.clone(),
+                track_id,
+                start: 0.0,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+
+        editor
+            .apply(Command::DetachAudio {
+                clip_id: clip_id.clone(),
+            })
+            .expect("detaches");
+        let timeline = editor.project().active();
+        let sounds: Vec<&crate::model::Clip> = timeline
+            .clips
+            .iter()
+            .filter(|clip| clip.kind == ClipKind::Audio)
+            .collect();
+        assert_eq!(sounds.len(), 2);
+        assert_eq!(sounds[0].audio_stream, Some(1));
+        assert_eq!(sounds[1].audio_stream, Some(2));
+        assert!(sounds[0].name.ends_with("Track 1"), "{}", sounds[0].name);
+        assert!(sounds[1].name.ends_with("Mic/Aux"), "{}", sounds[1].name);
+        assert_ne!(
+            sounds[0].track_id, sounds[1].track_id,
+            "each on its own lane"
+        );
+        assert!(
+            sounds
+                .iter()
+                .all(|sound| sound.detached_from.as_deref() == Some(clip_id.as_str()))
+        );
+
+        // The document keeps the choice and the list.
+        let saved = crate::doc::to_document(&settings(), editor.project());
+        let loaded = crate::doc::from_document(&saved).expect("loads");
+        assert_eq!(
+            loaded.media[0].audio_tracks,
+            editor.project().media[0].audio_tracks
+        );
+        let back: Vec<Option<u32>> = loaded
+            .active()
+            .clips
+            .iter()
+            .filter(|clip| clip.kind == ClipKind::Audio)
+            .map(|clip| clip.audio_stream)
+            .collect();
+        assert_eq!(back, vec![Some(1), Some(2)]);
+        assert_eq!(loaded.media[0].audio_track_position(Some(2)), 1);
+        assert_eq!(loaded.media[0].audio_track_position(None), 0);
+        assert_eq!(loaded.media[0].audio_track_position(Some(9)), 0);
+
+        editor
+            .apply(Command::ReattachAudio {
+                clip_id: sounds[1].id.clone(),
+            })
+            .expect("reattaches");
+        let timeline = editor.project().active();
+        assert_eq!(timeline.clips.len(), 1);
+        assert_eq!(timeline.clip(&clip_id).expect("exists").muted, None);
+
+        // A video clip can be told which track to play, and told to forget.
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    audio_stream: Some(Some(2)),
+                    ..Default::default()
+                },
+            })
+            .expect("picks");
+        assert_eq!(
+            editor
+                .project()
+                .active()
+                .clip(&clip_id)
+                .unwrap()
+                .audio_stream,
+            Some(2)
+        );
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    audio_stream: Some(None),
+                    ..Default::default()
+                },
+            })
+            .expect("forgets");
+        assert_eq!(
+            editor
+                .project()
+                .active()
+                .clip(&clip_id)
+                .unwrap()
+                .audio_stream,
+            None
+        );
     }
 
     #[test]
@@ -647,6 +795,7 @@ mod tests {
                     video_codec: None,
                     audio_codec: None,
                     has_audio: false,
+                    audio_tracks: Vec::new(),
                 },
             })
             .expect("fills");
@@ -685,6 +834,7 @@ mod tests {
                 video_codec: None,
                 audio_codec: None,
                 has_audio: false,
+                audio_tracks: Vec::new(),
             },
         });
         assert!(
@@ -1635,7 +1785,12 @@ mod tests {
                 })
                 .expect("keys");
         }
-        let link = &editor.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        let link = &editor
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("clip")
+            .video_effects[0];
         assert!(link.is_keyed("exposure"));
         assert!(!link.is_keyed("contrast"));
         // Halfway along a straight ride between -1 and 1 is 0; the constant
@@ -1647,7 +1802,12 @@ mod tests {
 
         let document = editor.to_document(&settings());
         let restored = Editor::from_document(&document).expect("loads");
-        let link = &restored.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        let link = &restored
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("clip")
+            .video_effects[0];
         assert_eq!(link.keys_on("exposure").len(), 2);
 
         let mut editor = restored;
@@ -1666,7 +1826,12 @@ mod tests {
                 key: "exposure".to_owned(),
             })
             .expect("clears the rest");
-        let link = &editor.project().active().clip(&clip_id).expect("clip").video_effects[0];
+        let link = &editor
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("clip")
+            .video_effects[0];
         assert!(!link.is_keyed("exposure"));
         assert_eq!(link.value_at("exposure", 0.5, 0.0), 1.0);
     }

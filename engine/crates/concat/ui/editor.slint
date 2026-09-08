@@ -109,6 +109,12 @@ export global Editor {
 
     // ── the inspector ──
     in-out property <SelectedClipData> selected-clip;
+    /// The selected clip's media's audio tracks, one label each, in file
+    /// order - "Track 1 · stereo", "Mic/Aux · mono". Empty unless the file
+    /// has more than one, which is when the Audio panel offers the choice.
+    /// Beside `selected-clip` rather than inside it: a list in a struct is a
+    /// fresh model on every publish, and every panel would re-seed for it.
+    in-out property <[string]> audio-tracks;
     callback clip-set(field: ClipField, value: float);
     callback clip-set-text(field: ClipTextField, value: string);
     callback clip-set-colour(field: ClipTextField, value: color);

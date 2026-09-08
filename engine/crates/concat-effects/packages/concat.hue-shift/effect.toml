@@ -1,0 +1,24 @@
+[effect]
+id = "concat.hue-shift"
+name = "Hue Shift"
+kind = "effect"
+category = "Basic"
+order = 14
+intensity = "angle"
+aliases = ["hue-shift"]
+description = "Every colour turned around the wheel by the same angle."
+
+[[param]]
+key = "angle"
+label = "Angle"
+min = -180
+max = 180
+default = 60
+step = 1
+unit = "°"
+
+[ffmpeg]
+chain = "hue=h={round(angle)}"
+
+[wgsl]
+entry = "effect.wgsl"

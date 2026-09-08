@@ -1197,7 +1197,9 @@ dependencies = [
  "clap",
  "concat-api",
  "concat-core",
+ "concat-effects",
  "concat-media",
+ "concat-project",
  "concat-render",
  "serde_json",
 ]

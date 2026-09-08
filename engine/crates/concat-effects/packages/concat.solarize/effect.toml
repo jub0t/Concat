@@ -1,0 +1,24 @@
+[effect]
+id = "concat.solarize"
+name = "Solarize"
+kind = "effect"
+category = "Stylize"
+order = 46
+intensity = "threshold"
+aliases = ["solarize"]
+description = "Everything brighter than the threshold turns negative, as an over-exposed print does."
+
+[[param]]
+key = "threshold"
+label = "Threshold"
+min = 10
+max = 90
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "lutrgb=r='if(gt(val,{round(threshold * 255 / 100)}),255-val,val)':g='if(gt(val,{round(threshold * 255 / 100)}),255-val,val)':b='if(gt(val,{round(threshold * 255 / 100)}),255-val,val)'"
+
+[wgsl]
+entry = "effect.wgsl"

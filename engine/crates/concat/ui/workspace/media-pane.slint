@@ -719,8 +719,8 @@ struct CatalogueItemData {
     id: string,
     label: string,
     /// False keeps the card browsable with a "Soon" badge, the honest version
-    /// of a disabled control, used by the motion transitions the engine does
-    /// not animate.
+    /// of a disabled control, for anything listed before the engine can do
+    /// it.
     enabled: bool,
     /// The rendered preview, for effects; empty for transitions and filters,
     /// whose tiles carry a mark on a sunken ground instead.
@@ -1374,6 +1374,13 @@ export component MediaPane inherits Rectangle {
         if (id == "concat.digicam") { return @image-url("../assets/effect-previews/digicam.jpg"); }
         if (id == "concat.marquee") { return @image-url("../assets/effect-previews/marquee.jpg"); }
         if (id == "concat.matcha") { return @image-url("../assets/effect-previews/matcha.jpg"); }
+        if (id == "concat.hue-shift") { return @image-url("../assets/effect-previews/hue-shift.jpg"); }
+        if (id == "concat.threshold") { return @image-url("../assets/effect-previews/threshold.jpg"); }
+        if (id == "concat.chromatic-aberration") { return @image-url("../assets/effect-previews/chromatic-aberration.jpg"); }
+        if (id == "concat.emboss") { return @image-url("../assets/effect-previews/emboss.jpg"); }
+        if (id == "concat.sketch") { return @image-url("../assets/effect-previews/sketch.jpg"); }
+        if (id == "concat.solarize") { return @image-url("../assets/effect-previews/solarize.jpg"); }
+        if (id == "concat.scanlines") { return @image-url("../assets/effect-previews/scanlines.jpg"); }
         return root.no-art;
     }
     /// The category column. In-out, because it is dragged.
@@ -1401,11 +1408,14 @@ export component MediaPane inherits Rectangle {
         { id: "fade-black", label: "Fade to Black", enabled: true, glyph: Glyph.transition },
         { id: "fade-white", label: "Fade to White", enabled: true, glyph: Glyph.transition },
     ];
+    // The engine resolves these in concat-export's `resolve_transitions`:
+    // the slides and the zoom as animation keys the monitor plays too, the
+    // wipes as a mask the export bakes and the monitor shows as a dissolve.
     property <[CatalogueItemData]> transitions-motion: [
-        { id: "wipe-left", label: "Wipe Left", enabled: false, glyph: Glyph.transition },
-        { id: "wipe-right", label: "Wipe Right", enabled: false, glyph: Glyph.transition },
-        { id: "push", label: "Push", enabled: false, glyph: Glyph.transition },
-        { id: "zoom", label: "Zoom", enabled: false, glyph: Glyph.transition },
+        { id: "wipe-left", label: "Wipe Left", enabled: true, glyph: Glyph.transition },
+        { id: "wipe-right", label: "Wipe Right", enabled: true, glyph: Glyph.transition },
+        { id: "push", label: "Push", enabled: true, glyph: Glyph.transition },
+        { id: "zoom", label: "Zoom", enabled: true, glyph: Glyph.transition },
     ];
 
     function narrow(to: MediaFilter) {

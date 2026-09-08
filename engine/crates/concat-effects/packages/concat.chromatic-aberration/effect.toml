@@ -1,0 +1,25 @@
+[effect]
+id = "concat.chromatic-aberration"
+name = "Chromatic Aberration"
+kind = "effect"
+category = "Distort"
+order = 54
+intensity = "shift"
+aliases = ["chromatic-aberration"]
+description = "Red and blue pulled apart, the colour fringing of a cheap lens."
+
+[[param]]
+key = "shift"
+label = "Shift"
+type = "int"
+min = 1
+max = 24
+default = 4
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "rgbashift=rh=-{round(shift)}:bh={round(shift)}"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -12,8 +12,18 @@
 //! Frame-sized on purpose. The compositor places a picture by fitting it into
 //! the frame and then applying the clip's transform about its centre, so a
 //! canvas that *is* the frame fits at exactly one, decodes without resampling,
-//! and puts the block's centre where the clip's centre is. The clip's offset
+//! and puts the canvas's centre where the clip's centre is. The clip's offset
 //! and rotation then mean the same thing for a title as for footage.
+//!
+//! Where the block sits on that canvas is the alignment's to say. A centred
+//! title has its block centred, so the clip's position is the block's middle.
+//! A left-aligned one has its block's left edge on the canvas's centre, a
+//! right-aligned one its right edge: the position is the edge the words are
+//! aligned to, and typing more grows the block *away* from that edge rather
+//! than out from the middle - which is what left and right mean everywhere
+//! else, and what a title that keeps its left margin while its words change
+//! needs. [`Rendered`] reports where the block landed so a monitor can draw
+//! its outline there.
 //!
 //! Sizes in the style are fractions of the frame's height, as the document
 //! stores them, so a title looks the same at 720p and 4K. Everything here
@@ -26,15 +36,17 @@ use tiny_skia::{
     Stroke, Transform,
 };
 
-/// How a title's lines sit within their block.
+/// How a title's lines sit within their block, and which point of the block
+/// the clip's position holds still: its left edge, its centre or its right
+/// edge. See the module docs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Align {
-    /// Lines share a left edge.
+    /// Lines share a left edge, and the block's left edge is the anchor.
     Left,
-    /// Lines are centred on each other.
+    /// Lines are centred on each other, and the block's centre is the anchor.
     #[default]
     Center,
-    /// Lines share a right edge.
+    /// Lines share a right edge, and the block's right edge is the anchor.
     Right,
 }
 
@@ -85,6 +97,14 @@ pub struct Rendered {
     pub block_width: u32,
     /// The painted block's height, on the same terms.
     pub block_height: u32,
+    /// Where the block's centre is, as an offset from the canvas's centre in
+    /// pixels, x to the right. Zero for a centred title; half the block's
+    /// width for a left-aligned one, whose block starts at the centre; minus
+    /// that for a right-aligned one. An outline goes here, not on the clip.
+    pub block_dx: i32,
+    /// The vertical half of `block_dx`, y down. Always zero for now: the
+    /// block is centred vertically whatever the alignment.
+    pub block_dy: i32,
 }
 
 /// What can go wrong. Fonts fall back rather than fail, so this is short.
@@ -336,7 +356,8 @@ fn blur(pixmap: &mut Pixmap, radius: usize) {
 }
 
 /// Paints `style` onto a `width` × `height` transparent canvas, the block
-/// centred, and returns it PNG-encoded with the block's size.
+/// anchored on the canvas's centre by its alignment (see [`Align`]), and
+/// returns it PNG-encoded with the block's size and where it landed.
 pub fn render(
     fonts: &Fonts,
     style: &TitleStyle,
@@ -383,6 +404,8 @@ pub fn render(
             height,
             block_width: 0,
             block_height: 0,
+            block_dx: 0,
+            block_dy: 0,
         });
     }
 
@@ -396,8 +419,19 @@ pub fn render(
     };
     let outer_w = block_w + 2.0 * pad_x;
     let outer_h = block_h + 2.0 * pad_y;
-    let left = (width as f32 - outer_w) / 2.0 + pad_x;
+    // The anchor is the canvas's centre - where the clip's position lands -
+    // and the alignment says which edge of the block sits on it, plate and
+    // all. Growing words then push the far edge and leave the anchored one
+    // where it is.
+    let anchor_x = width as f32 / 2.0;
+    let outer_left = match style.align {
+        Align::Left => anchor_x,
+        Align::Center => anchor_x - outer_w / 2.0,
+        Align::Right => anchor_x - outer_w,
+    };
+    let left = outer_left + pad_x;
     let top = (frame_h - outer_h) / 2.0 + pad_y;
+    let block_dx = (outer_left + outer_w / 2.0 - anchor_x).round() as i32;
 
     // One path for all the words, placed. Each line is aligned within the
     // block's width and sits on its own baseline.
@@ -426,6 +460,8 @@ pub fn render(
             height,
             block_width: outer_w.round() as u32,
             block_height: outer_h.round() as u32,
+            block_dx,
+            block_dy: 0,
         });
     };
 
@@ -511,6 +547,8 @@ pub fn render(
         height,
         block_width: outer_w.round() as u32,
         block_height: outer_h.round() as u32,
+        block_dx,
+        block_dy: 0,
     })
 }
 
@@ -562,6 +600,22 @@ mod tests {
         pixmap.pixels().iter().filter(|p| p.alpha() > 0).count()
     }
 
+    /// The leftmost and rightmost columns holding any paint.
+    fn painted_span(png: &[u8]) -> (u32, u32) {
+        let pixmap = Pixmap::decode_png(png).expect("our own PNG decodes");
+        let width = pixmap.width();
+        let mut left = width;
+        let mut right = 0;
+        for (index, pixel) in pixmap.pixels().iter().enumerate() {
+            if pixel.alpha() > 0 {
+                let x = index as u32 % width;
+                left = left.min(x);
+                right = right.max(x);
+            }
+        }
+        (left, right)
+    }
+
     #[test]
     fn colours_parse_both_lengths() {
         assert_eq!(colour("#ff0000"), Some(Color::from_rgba8(255, 0, 0, 255)));
@@ -579,6 +633,57 @@ mod tests {
         assert!(out.block_width > 0 && out.block_height > 0);
         assert!(out.block_width < 640);
         assert!(opaque_pixels(&out.png) > 100);
+    }
+
+    /// Left-aligned words start at the anchor and run right; right-aligned
+    /// ones end there; centred ones straddle it. Growing the words moves
+    /// only the far edge.
+    #[test]
+    fn alignment_anchors_the_block_on_its_edge() {
+        let fonts = Fonts::new();
+        let (width, height) = (640, 360);
+        let centre = width / 2;
+        // The shadow reaches a hair past the words to the right and below;
+        // this is that hair, generously.
+        let slack = 4;
+
+        let mut left = style("Hello");
+        left.align = Align::Left;
+        left.shadow = false;
+        let out = render(&fonts, &left, width, height).expect("renders");
+        let (first, _) = painted_span(&out.png);
+        assert!(
+            first + slack >= centre,
+            "left-aligned words start at {first}, left of the anchor"
+        );
+        assert!(out.block_dx > 0);
+        assert!((out.block_dx as u32).abs_diff(out.block_width / 2) <= 1);
+        // More words: the left edge stays, the block grows rightwards.
+        let mut longer = left.clone();
+        longer.content = "Hello there".to_owned();
+        let more = render(&fonts, &longer, width, height).expect("renders");
+        let (again, _) = painted_span(&more.png);
+        assert!(
+            again.abs_diff(first) <= 1,
+            "the left edge moved from {first} to {again}"
+        );
+        assert!(more.block_width > out.block_width);
+
+        let mut right = style("Hello");
+        right.align = Align::Right;
+        right.shadow = false;
+        let out = render(&fonts, &right, width, height).expect("renders");
+        let (_, last) = painted_span(&out.png);
+        assert!(
+            last <= centre + slack,
+            "right-aligned words end at {last}, right of the anchor"
+        );
+        assert!(out.block_dx < 0);
+
+        let out = render(&fonts, &style("Hello"), width, height).expect("renders");
+        let (first, last) = painted_span(&out.png);
+        assert!(first < centre && last > centre);
+        assert_eq!(out.block_dx, 0);
     }
 
     /// The canvas is the frame; the block is not.

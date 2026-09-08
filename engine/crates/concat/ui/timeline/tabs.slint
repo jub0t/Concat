@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "../theme/theme.slint";
-import { Payload } from "../util.slint";
+import { Focus, Payload } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { TimelineTabData } from "model.slint";
 
@@ -161,13 +161,13 @@ component Tab inherits Rectangle {
             }
 
             accepted => {
-                self.clear-focus();
+                Focus.release();
             }
 
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
                     self.text = root.name;
-                    self.clear-focus();
+                    Focus.release();
                     return EventResult.accept;
                 }
                 return EventResult.reject;

@@ -24,9 +24,9 @@ use serde_json::{Map, Value, json};
 
 use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
-    AppliedFilter, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout, KeyEase,
-    KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign, TextStyle,
-    Timeline, Track, Transition, VideoSettings,
+    AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout,
+    KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
+    TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 /// Bumped only when a change cannot be absorbed by defaulting.
@@ -82,6 +82,13 @@ fn read_media(raw: Option<&Value>) -> Vec<MediaItem> {
                 video_codec: opt_string(entry.get("videoCodec")),
                 audio_codec: opt_string(entry.get("audioCodec")),
                 has_audio: flag(entry.get("hasAudio"), false),
+                // Tolerated like everything else: a list the reader cannot
+                // make sense of is no list, and clips fall back to the
+                // file's first stream.
+                audio_tracks: entry
+                    .get("audioTracks")
+                    .and_then(|value| serde_json::from_value::<Vec<AudioTrack>>(value.clone()).ok())
+                    .unwrap_or_default(),
                 placeholder: flag(entry.get("placeholder"), false),
                 id,
                 path,
@@ -290,6 +297,7 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),
+                audio_stream: opt_u32(entry.get("audioStream")),
                 muted: flag(entry.get("muted"), false).then_some(true),
                 detached_from: opt_string(entry.get("detachedFrom")),
                 transition_in: entry.get("transitionIn").and_then(|transition| {
@@ -485,7 +493,8 @@ fn read_keys(raw: Option<&Value>) -> Vec<ClipKey> {
             let property = KeyProperty::from_name(entry.get("property")?.as_str()?)?;
             let at = number(entry.get("at"), -1.0);
             let value = number(entry.get("value"), f64::NAN);
-            (0.0..=1.0).contains(&at)
+            (0.0..=1.0)
+                .contains(&at)
                 .then_some(ClipKey {
                     property,
                     at,

@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "lutrgb=r='if(gt(val,128),255-val,val)':g='if(gt(val,128),255-val,val)':b='if(gt(val,128),255-val,val)'"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "lutrgb=r='if(gt(val,26),255-val,val)':g='if(gt(val,26),255-val,val)':b='if(gt(val,26),255-val,val)'"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "lutrgb=r='if(gt(val,230),255-val,val)':g='if(gt(val,230),255-val,val)':b='if(gt(val,230),255-val,val)'"

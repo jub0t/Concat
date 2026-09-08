@@ -3,6 +3,7 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
+import { Focus } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { ThinScrollbar } from "../primitives/scrollbar.slint";
@@ -213,12 +214,12 @@ component Header inherits Rectangle {
                                 }
                             }
 
-                            accepted => { self.clear-focus(); }
+                            accepted => { Focus.release(); }
 
                             key-pressed(event) => {
                                 if (event.text == Key.Escape) {
                                     self.text = root.track.name;
-                                    self.clear-focus();
+                                    Focus.release();
                                     return EventResult.accept;
                                 }
                                 return EventResult.reject;

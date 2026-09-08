@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "drawgrid=x=-1:w=iw+2:h=3:t=1:c=black@0.40"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "drawgrid=x=-1:w=iw+2:h=2:t=1:c=black@0.10"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "drawgrid=x=-1:w=iw+2:h=8:t=1:c=black@1.00"

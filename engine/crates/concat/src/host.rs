@@ -12,8 +12,9 @@
 //! which is why it can live in a plain `RefCell` with no lock.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use concat_host::export::Exporter;
 use concat_host::playback::{Playback, PlaybackEvents};
@@ -170,18 +171,88 @@ pub fn spawn<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    spawn_detached(move || {
-        let result = work();
-        let _ = slint::invoke_from_event_loop(move || {
-            Shell::with(|shell, app| {
-                {
-                    let mut studio = shell.studio.borrow_mut();
-                    then(&mut studio, &app, &shell.models, result);
-                }
-                shell.studio.borrow().publish(&app, &shell.models);
-            });
+    spawn_detached(move || deliver(work(), then));
+}
+
+/// Hands a worker's result to the event-loop thread: `then` with the state
+/// and the window, and a full publish after it.
+fn deliver<T: Send + 'static>(
+    result: T,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let _ = slint::invoke_from_event_loop(move || {
+        Shell::with(|shell, app| {
+            {
+                let mut studio = shell.studio.borrow_mut();
+                then(&mut studio, &app, &shell.models, result);
+            }
+            shell.studio.borrow().publish(&app, &shell.models);
         });
     });
+}
+
+/// The bin's artwork lane: its own few threads, taking jobs off one queue.
+///
+/// Not the shared workers. Those are the monitor's: a frame, its prefetch,
+/// and one more, and an import of twenty files asks for twenty thumbnails,
+/// twenty filmstrips and twenty waveforms at once - on the shared workers
+/// the monitor would wait behind all of it, and as one thread per job it
+/// was every core at a hundred percent until the bin had its pictures, the
+/// machine unusable for a minute (#52). The artwork is decoration; it can
+/// arrive a few files at a time. So it queues here, on threads the monitor
+/// never needs, and only [`art_workers`] decoders ever run together,
+/// whatever the size of the import.
+struct ArtLane {
+    queue: Mutex<VecDeque<Box<dyn FnOnce() + Send>>>,
+    ready: Condvar,
+}
+
+/// How many artwork decoders run at once: a quarter of the machine's
+/// threads, one at least and three at most. A decoder is single-threaded,
+/// so this is roughly the share of the machine the bin's pictures may take
+/// while the window, playback and the monitor keep the rest.
+fn art_workers() -> usize {
+    std::thread::available_parallelism().map_or(1, |threads| (threads.get() / 4).clamp(1, 3))
+}
+
+/// Like [`spawn`], on the artwork lane: `work` waits its turn behind the
+/// other artwork rather than starting a thread of its own.
+pub fn spawn_art<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    static LANE: OnceLock<Arc<ArtLane>> = OnceLock::new();
+    let lane = LANE.get_or_init(|| {
+        let lane = Arc::new(ArtLane {
+            queue: Mutex::new(VecDeque::new()),
+            ready: Condvar::new(),
+        });
+        for index in 0..art_workers() {
+            let lane = Arc::clone(&lane);
+            let _ = std::thread::Builder::new()
+                .name(format!("media-art-{index}"))
+                .spawn(move || {
+                    loop {
+                        let job = {
+                            let mut queue = lane.queue.lock().unwrap_or_else(|e| e.into_inner());
+                            loop {
+                                if let Some(job) = queue.pop_front() {
+                                    break job;
+                                }
+                                queue = lane.ready.wait(queue).unwrap_or_else(|e| e.into_inner());
+                            }
+                        };
+                        job();
+                    }
+                });
+        }
+        lane
+    });
+    lane.queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push_back(Box::new(move || deliver(work(), then)));
+    lane.ready.notify_one();
 }
 
 /// Runs `body` on the event-loop thread from anywhere, with a full publish
@@ -222,6 +293,10 @@ pub fn probe_error(error: &str) -> String {
 pub struct MediaArt {
     /// The media id the art belongs to.
     pub id: String,
+    /// Which audio stream the peaks are of: `None` for the file's first,
+    /// which is the media's own art, or a named one a clip plays. Named
+    /// streams get peaks only, never a picture.
+    pub stream: Option<u32>,
     /// A small first frame, for footage and stills. A frame rather than an
     /// image: a Slint image cannot cross a thread, and this is made on one.
     pub thumbnail: Option<concat_core::frame::Frame>,
@@ -241,7 +316,8 @@ const STRIP_FRAMES: u32 = 24;
 const STRIP_HEIGHT: u32 = 64;
 
 /// Decodes the art for one media item. `project` is where the peaks cache
-/// lives.
+/// lives. With a `stream` named, only that stream's peaks: the pictures are
+/// the media's, made once with the default stream's peaks.
 pub fn media_art(
     id: String,
     path: String,
@@ -249,17 +325,31 @@ pub fn media_art(
     has_audio: bool,
     duration: Option<f64>,
     project: String,
+    stream: Option<u32>,
 ) -> MediaArt {
     use concat_project::model::MediaKind;
+    if stream.is_some() {
+        return MediaArt {
+            id,
+            stream,
+            thumbnail: None,
+            peaks: media::peaks(&path, stream, Some(&project))
+                .ok()
+                .map(Arc::new),
+            strip: None,
+        };
+    }
     let thumbnail = match kind {
         MediaKind::Video | MediaKind::Image => {
+            // Within the first two seconds, so the walk from the keyframe
+            // before it is at most those two seconds of frames.
             let at = duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0));
             media::still_at(&path, if kind == MediaKind::Image { 0.0 } else { at }, 160).ok()
         }
         MediaKind::Audio => None,
     };
     let peaks = (kind == MediaKind::Audio || has_audio)
-        .then(|| media::peaks(&path, Some(&project)).ok().map(Arc::new))
+        .then(|| media::peaks(&path, None, Some(&project)).ok().map(Arc::new))
         .flatten();
     let strip = match kind {
         MediaKind::Video => media::filmstrip(&path, STRIP_FRAMES, STRIP_HEIGHT)
@@ -270,6 +360,7 @@ pub fn media_art(
     };
     MediaArt {
         id,
+        stream: None,
         thumbnail,
         peaks,
         strip,

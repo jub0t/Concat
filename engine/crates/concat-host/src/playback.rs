@@ -95,6 +95,9 @@ fn linear_ease() -> [f64; 4] {
 pub struct ClipSpec {
     /// The media file.
     pub path: String,
+    /// Which of the file's audio streams, by index; absent is the first.
+    #[serde(default)]
+    pub audio_stream: Option<u32>,
     /// Timeline seconds.
     pub start: f64,
     /// Timeline seconds the clip occupies.
@@ -687,6 +690,12 @@ fn decode_key(spec: &ClipSpec) -> String {
     eat(&spec.speed.to_bits().to_le_bytes());
     eat(&[u8::from(spec.preserve_pitch)]);
     eat(spec.chain.as_bytes());
+    // Only when a stream is named, so every key from before streams were
+    // named still finds its file.
+    if let Some(stream) = spec.audio_stream {
+        eat(b"stream");
+        eat(&stream.to_le_bytes());
+    }
     format!("{hash:016x}")
 }
 
@@ -731,6 +740,7 @@ fn decode(spec: &ClipSpec, project: &Path, key: &str) -> Result<Pcm, String> {
             rate: PCM_RATE,
             channels: 2,
             format: SampleFormat::I16,
+            stream: spec.audio_stream.map(|index| index as usize),
         },
     )
     .map_err(|error| error.to_string())?;

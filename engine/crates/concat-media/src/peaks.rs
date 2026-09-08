@@ -82,15 +82,17 @@ impl Peaks {
 
 /// Decodes one file's audio and reduces it to peaks.
 ///
-/// The decode is mono 16-bit at [`PEAK_RATE`]. A file with no audio stream
-/// is an error that says so.
-pub fn extract(path: &Path, buckets_per_second: u32) -> Result<Peaks> {
+/// The decode is mono 16-bit at [`PEAK_RATE`], of the audio stream `stream`
+/// names or the file's first. A file with no audio stream is an error that
+/// says so.
+pub fn extract(path: &Path, buckets_per_second: u32, stream: Option<usize>) -> Result<Peaks> {
     let mut decoder = AudioDecoder::open(
         path,
         &AudioOptions {
             rate: PEAK_RATE,
             channels: 1,
             format: SampleFormat::I16,
+            stream,
             ..AudioOptions::default()
         },
     )?;
@@ -196,7 +198,7 @@ mod tests {
 
     #[test]
     fn a_file_with_no_audio_is_an_error() {
-        assert!(extract(Path::new("does-not-exist.mp3"), 200).is_err());
+        assert!(extract(Path::new("does-not-exist.mp3"), 200, None).is_err());
     }
 
     #[test]

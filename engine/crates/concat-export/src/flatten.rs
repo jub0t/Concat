@@ -58,6 +58,7 @@ pub fn flatten_timeline_in(
             if clip.kind == ModelClipKind::Layer {
                 return Some(ExportClip {
                     path: String::new(),
+                    audio_stream: None,
                     kind: ClipKind::Layer,
                     start: clip.start,
                     duration: clip.duration,
@@ -103,6 +104,7 @@ pub fn flatten_timeline_in(
 
             Some(ExportClip {
                 path: media.path.clone(),
+                audio_stream: clip.audio_stream,
                 kind: match clip.kind {
                     ModelClipKind::Video => ClipKind::Video,
                     ModelClipKind::Audio => ClipKind::Audio,
@@ -291,6 +293,7 @@ mod tests {
                     video_codec: None,
                     audio_codec: None,
                     has_audio: true,
+                    audio_tracks: Vec::new(),
                 },
             })
             .expect("adds media")

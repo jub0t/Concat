@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "edgedetect=mode=colormix:low=0.120:high=0.300"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "edgedetect=mode=colormix:low=0.200:high=0.500"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "edgedetect=mode=colormix:low=0.040:high=0.100"

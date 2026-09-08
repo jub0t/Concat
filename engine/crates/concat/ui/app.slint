@@ -18,7 +18,7 @@ import "fonts/Synonym-Medium.ttf";
 import "fonts/Synonym-SemiBold.ttf";
 
 import { Theme } from "theme/theme.slint";
-import { Bezier, Curves, Fmt, Payload } from "util.slint";
+import { Bezier, Curves, Fmt, Focus, Payload } from "util.slint";
 import { EffectData } from "demo/effects-panel.slint";
 import { MediaFilter, MediaItemData, MediaKind, TextPresetData } from "workspace/media-pane.slint";
 import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slint";
@@ -47,7 +47,7 @@ import {
 
 // Re-exported so main.rs can reach the globals and the struct.
 export {
-    Curves, Fmt, Payload, Theme, Bezier, Editor, I18n,
+    Curves, Fmt, Focus, Payload, Theme, Bezier, Editor, I18n,
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData, ParamFormat,
     DockDivider, DockSide, PaneKind, SeatBox,
     EffectData, MediaFilter, MediaItemData, MediaKind, TextPresetData,
@@ -76,6 +76,27 @@ export component App inherits Window {
     // window opens with nothing focused, and a key would have nowhere to be
     // delivered from until the first press landed somewhere.
     forward-focus: keys;
+
+    // The same hole opens again later, and `forward-focus` does not close
+    // it: it is read once, when the window first focuses. Slint delivers a
+    // key to the focused item and its ancestors, and when that item has
+    // been torn down - the launch screen's name field once a project opens,
+    // a sheet's field once the sheet closes - there is no item and the key
+    // is dropped. Nothing walks up to `keys`, so every shortcut is dead
+    // until a press lands on a pane's floor. Each of those teardowns hands
+    // the focus back here on the way out.
+    changed on-start => {
+        if (!root.on-start) {
+            keys.focus();
+        }
+    }
+    property <bool> sheet-open: root.export.open || root.settings.open
+        || root.project-sheet.open || root.captions.open || root.speech.open;
+    changed sheet-open => {
+        if (!root.sheet-open) {
+            keys.focus();
+        }
+    }
 
     // The editor's own state and actions live on the Editor global rather
     // than here — see editor.slint. What is left on the window is the window:

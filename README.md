@@ -42,6 +42,8 @@ start cutting, no account, no extra downloads, no setup.
 
 Concat is currently in **Beta version (pre-release)**. **Download** the latest build from [Releases](https://github.com/jub0t/Concat/releases).
 
+**Portable:** the Windows and Linux builds are plain archives. To keep everything on the stick or in the folder you unpacked into, make a folder named `portable` beside the `concat` executable: settings, recents and downloaded models then live there and nothing is written to the user profile.
+
 **Platform support:**
 
 - ✅ **Windows** — tested

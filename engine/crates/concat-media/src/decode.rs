@@ -89,6 +89,18 @@ pub struct DecodeOptions {
     /// A filter chain applied *before* the fit scale, in the source's own
     /// pixels: where a crop lives, since a crop changes what the fit is of.
     pub pre_chain: Option<String>,
+    /// Decode keyframes only, and let a seek land on the keyframe at or
+    /// before its target rather than walking forward to the exact frame.
+    ///
+    /// For a thumbnail or a filmstrip tile, the exact frame is not worth
+    /// what it costs: reaching it means decoding every frame from the
+    /// keyframe before it at full resolution, up to a whole group of
+    /// pictures - hundreds of frames on a screen recording - to keep one.
+    /// With this set the codec skips everything that is not a keyframe and a
+    /// seek returns the first picture it lands on, so a tile costs one
+    /// decoded frame. Never for anything a person will watch or export: the
+    /// frame is near the instant, not at it.
+    pub keyframes_only: bool,
 }
 
 impl DecodeOptions {
@@ -133,6 +145,12 @@ impl DecodeOptions {
     pub fn filtered(mut self, chain: impl Into<String>) -> Self {
         let chain = chain.into();
         self.filter_chain = (!chain.is_empty()).then_some(chain);
+        self
+    }
+
+    /// Decodes keyframes only. See [`DecodeOptions::keyframes_only`].
+    pub fn nearest_keyframes(mut self) -> Self {
+        self.keyframes_only = true;
         self
     }
 }
@@ -221,10 +239,13 @@ impl Decoder {
 
         let context = ffmpeg::codec::Context::from_parameters(parameters)
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
-        let decoder = context
+        let mut decoder = context
             .decoder()
             .video()
             .map_err(|error| ffi::fail("open decoder", path, error))?;
+        if options.keyframes_only {
+            decoder.skip_frame(ffmpeg::Discard::NonKey);
+        }
 
         let (width, height) = match options.size {
             Some(size) => size,
@@ -277,7 +298,10 @@ impl Decoder {
             .seek(target, ..=target)
             .map_err(|error| ffi::fail("seek", &self.path, error))?;
         self.decoder.flush();
-        self.discard_before = Some(to);
+        // Keyframes only: the picture the container landed on is the one
+        // wanted, and discarding up to the target would throw it away and
+        // wait for the *next* keyframe, a whole group of pictures late.
+        self.discard_before = (!self.options.keyframes_only).then_some(to);
         self.origin = to;
         self.tick = 0;
         self.current = None;

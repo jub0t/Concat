@@ -63,6 +63,10 @@ pub struct AudioOptions {
     pub channels: u16,
     /// The sample format to come back in.
     pub format: SampleFormat,
+    /// Which audio stream of the file, by its index in the file. `None` is
+    /// the first audio stream in file order, which is also what a file with
+    /// one stream has; see `probe::audio_stream_index`.
+    pub stream: Option<usize>,
 }
 
 impl Default for AudioOptions {
@@ -74,6 +78,7 @@ impl Default for AudioOptions {
             rate: 48_000,
             channels: 2,
             format: SampleFormat::I16,
+            stream: None,
         }
     }
 }
@@ -132,7 +137,7 @@ pub struct AudioDecoder {
 }
 
 impl AudioDecoder {
-    /// Opens `path`'s first audio stream.
+    /// Opens the audio stream `options.stream` names, or `path`'s first.
     pub fn open(path: impl AsRef<Path>, options: &AudioOptions) -> Result<Self> {
         ffi::init();
         for chain in &options.filters {
@@ -151,13 +156,13 @@ impl AudioDecoder {
         let path = path.as_ref();
         let mut input =
             ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
-        let stream = input
-            .streams()
-            .best(ffmpeg::media::Type::Audio)
-            .ok_or_else(|| Error::NoAudioStream {
-                path: path.to_path_buf(),
+        let stream_index =
+            crate::probe::audio_stream_index(&input, options.stream).ok_or_else(|| {
+                Error::NoAudioStream {
+                    path: path.to_path_buf(),
+                }
             })?;
-        let stream_index = stream.index();
+        let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
         let context = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
@@ -391,6 +396,7 @@ mod tests {
             rate: 16_000,
             channels: 1,
             format: SampleFormat::F32,
+            stream: None,
         };
         assert_eq!(
             audio_filter(&options),

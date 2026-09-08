@@ -36,12 +36,18 @@ pub struct TitleClip {
     pub clip: ExportClip,
     /// The painted block's size in frame pixels, for an outline on a monitor.
     pub block: (u32, u32),
+    /// Where that block's centre is, as an offset in frame pixels from the
+    /// clip's own centre: zero for a centred title, half a block to the
+    /// right for a left-aligned one, whose block starts at the clip's
+    /// position. See `concat_text::Align`.
+    pub offset: (i32, i32),
 }
 
 /// What one render left behind.
 #[derive(Clone, Copy, Debug)]
 struct Art {
     block: (u32, u32),
+    offset: (i32, i32),
 }
 
 /// The title painter and its cache.
@@ -86,7 +92,7 @@ impl Titles {
             };
             let track = &timeline.tracks[index];
             let text = clip.text.clone().unwrap_or_default();
-            let (path, block) = match self.painted(project, &text, width, height) {
+            let (path, art) = match self.painted(project, &text, width, height) {
                 Ok(art) => art,
                 Err(error) => {
                     eprintln!("concat: title {}: {error}", clip.id);
@@ -97,6 +103,7 @@ impl Titles {
                 clip_id: clip.id.clone(),
                 clip: ExportClip {
                     path: path.to_string_lossy().into_owned(),
+                    audio_stream: None,
                     kind: ClipKind::Image,
                     start: clip.start,
                     duration: clip.duration,
@@ -138,7 +145,8 @@ impl Titles {
                     mask_dir: String::new(),
                     highlighted: false,
                 },
-                block,
+                block: art.block,
+                offset: art.offset,
             });
         }
         out
@@ -152,7 +160,7 @@ impl Titles {
         style: &TextStyle,
         width: u32,
         height: u32,
-    ) -> Result<(PathBuf, (u32, u32)), String> {
+    ) -> Result<(PathBuf, Art), String> {
         let key = key_of(project, style, width, height);
         let png = self.dir.join(format!("{key:016x}.png"));
         let side = self.dir.join(format!("{key:016x}.json"));
@@ -164,15 +172,15 @@ impl Titles {
             .get(&key)
             && png.is_file()
         {
-            return Ok((png, art.block));
+            return Ok((png, *art));
         }
         // On disk from an earlier session: the sidecar says how big the
-        // block was, which the PNG alone cannot.
+        // block was and where, which the PNG alone cannot.
         if png.is_file()
-            && let Some(block) = read_block(&side)
+            && let Some(art) = read_block(&side)
         {
-            self.remember(key, block);
-            return Ok((png, block));
+            self.remember(key, art);
+            return Ok((png, art));
         }
 
         let title = title_style(style);
@@ -190,17 +198,26 @@ impl Titles {
         };
         std::fs::create_dir_all(&self.dir).map_err(|error| error.to_string())?;
         std::fs::write(&png, &rendered.png).map_err(|error| error.to_string())?;
-        let block = (rendered.block_width, rendered.block_height);
-        let _ = std::fs::write(&side, format!("{{\"w\":{},\"h\":{}}}", block.0, block.1));
-        self.remember(key, block);
-        Ok((png, block))
+        let art = Art {
+            block: (rendered.block_width, rendered.block_height),
+            offset: (rendered.block_dx, rendered.block_dy),
+        };
+        let _ = std::fs::write(
+            &side,
+            format!(
+                "{{\"w\":{},\"h\":{},\"x\":{},\"y\":{}}}",
+                art.block.0, art.block.1, art.offset.0, art.offset.1
+            ),
+        );
+        self.remember(key, art);
+        Ok((png, art))
     }
 
-    fn remember(&self, key: u64, block: (u32, u32)) {
+    fn remember(&self, key: u64, art: Art) {
         self.memo
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(key, Art { block });
+            .insert(key, art);
     }
 }
 
@@ -225,8 +242,9 @@ fn key_of(project: &Project, style: &TextStyle, width: u32, height: u32) -> u64 
         bytes.push(0);
     }
     // Bumped when the painter's output changes for the same input, so stale
-    // files are not mistaken for current ones.
-    bytes.extend_from_slice(&2u32.to_le_bytes());
+    // files are not mistaken for current ones. 3: left- and right-aligned
+    // blocks moved to their anchors.
+    bytes.extend_from_slice(&3u32.to_le_bytes());
     crate::media::fnv1a(&bytes)
 }
 
@@ -260,13 +278,17 @@ fn sweep(dir: &Path, keep: usize) {
     }
 }
 
-fn read_block(side: &Path) -> Option<(u32, u32)> {
+fn read_block(side: &Path) -> Option<Art> {
     let text = std::fs::read_to_string(side).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    Some((
-        value.get("w")?.as_u64()? as u32,
-        value.get("h")?.as_u64()? as u32,
-    ))
+    let offset = |name: &str| value.get(name).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    Some(Art {
+        block: (
+            value.get("w")?.as_u64()? as u32,
+            value.get("h")?.as_u64()? as u32,
+        ),
+        offset: (offset("x"), offset("y")),
+    })
 }
 
 /// The document's style, field for field, in the painter's terms.
@@ -335,6 +357,11 @@ mod tests {
         assert_eq!(title.clip.offset_y, 0.3);
         assert_eq!(title.clip.media_width, Some(640));
         assert!(title.block.0 > 0 && title.block.1 > 0);
+        assert_eq!(
+            title.offset,
+            (0, 0),
+            "a centred title's block is on the clip"
+        );
         let painted = Path::new(&title.clip.path);
         assert!(painted.is_file(), "the PNG is on disk");
         let stamp = std::fs::metadata(painted).and_then(|m| m.modified()).ok();
@@ -350,6 +377,29 @@ mod tests {
         // A different frame is a different picture.
         let wide = titles.clips(editor.project(), 1280, 720);
         assert_ne!(wide[0].clip.path, title.clip.path);
+
+        // Aligned left, the block starts at the clip's position and its
+        // centre is reported half a block to the right - and a second
+        // painter, reading the sidecar cold, says the same.
+        let style = concat_project::model::TextStyle {
+            align: concat_project::model::TextAlign::Left,
+            ..Default::default()
+        };
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: id.clone(),
+                patch: concat_project::commands::ClipPatch {
+                    text: Some(Some(style)),
+                    ..Default::default()
+                },
+            })
+            .expect("aligns");
+        let left = titles.clips(editor.project(), 640, 360);
+        assert!(left[0].offset.0 > 0);
+        assert!((left[0].offset.0 as u32).abs_diff(left[0].block.0 / 2) <= 1);
+        let cold = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        assert_eq!(cold[0].offset, left[0].offset);
+        assert_eq!(cold[0].block, left[0].block);
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
     }
 }

@@ -30,7 +30,7 @@ pub struct VideoStream {
 /// What an audio stream looks like.
 #[derive(Clone, Debug)]
 pub struct AudioStream {
-    /// Stream index within the file.
+    /// Stream index within the file - what a clip names to play this one.
     pub index: u32,
     /// Codec short name, for example `aac`.
     pub codec: String,
@@ -38,13 +38,22 @@ pub struct AudioStream {
     pub sample_rate: u32,
     /// Channel count.
     pub channels: u32,
+    /// What the file calls the stream, when it says: the `title` a recorder
+    /// writes per track ("Desktop Audio", "Mic/Aux"). Empty when it does not.
+    pub title: String,
+    /// The stream's language tag, for example `eng`; empty when unstated.
+    pub language: String,
 }
 
 /// A summary of one media file.
 ///
-/// Concat only cares about the first video and first audio stream. Multi-stream
-/// files exist, but nothing in the editor addresses them yet, and inventing an
-/// API for a case we do not handle would be worse than not having one.
+/// One video stream is all the editor addresses. Audio streams are listed in
+/// full: a screen recording often carries the desktop's sound and the
+/// microphone as two streams, and which one a clip plays is the clip's to
+/// say. `audio` is the first of them in file order - the one a clip plays
+/// unless it names another - and not libavformat's "best", which weighs
+/// bitrate and frame counts and on such a recording tends to land on the
+/// second track, so the microphone played and the desktop was never heard.
 #[derive(Clone, Debug)]
 pub struct MediaInfo {
     /// The file this describes.
@@ -53,8 +62,10 @@ pub struct MediaInfo {
     pub duration: Option<Rational>,
     /// First video stream, if any.
     pub video: Option<VideoStream>,
-    /// First audio stream, if any.
+    /// The first audio stream in file order, if any: the default.
     pub audio: Option<AudioStream>,
+    /// Every audio stream, in file order. Empty for a file without sound.
+    pub audio_streams: Vec<AudioStream>,
 }
 
 impl MediaInfo {
@@ -80,25 +91,64 @@ pub fn probe(path: impl AsRef<Path>) -> Result<MediaInfo> {
         Some(stream) => Some(video_stream(&stream, path)?),
         None => None,
     };
-    let audio = input
+    let audio_streams: Vec<AudioStream> = input
         .streams()
-        .best(ffmpeg::media::Type::Audio)
+        .filter(is_audio)
         .map(|stream| {
             let parameters = stream.parameters();
+            let tag = |name: &str| {
+                stream
+                    .metadata()
+                    .get(name)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .unwrap_or_default()
+            };
             AudioStream {
                 index: stream.index() as u32,
                 codec: parameters.id().name().to_owned(),
                 sample_rate: parameters.sample_rate(),
                 channels: parameters.ch_layout().channels(),
+                title: tag("title"),
+                language: tag("language"),
             }
-        });
+        })
+        .collect();
+    let audio = audio_streams.first().cloned();
 
     Ok(MediaInfo {
         path: path.to_path_buf(),
         duration,
         video,
         audio,
+        audio_streams,
     })
+}
+
+fn is_audio(stream: &ffmpeg::format::stream::Stream<'_>) -> bool {
+    stream.parameters().medium() == ffmpeg::media::Type::Audio
+}
+
+/// The audio stream a caller means: `wanted`, when it names an audio stream
+/// the file has, else the first audio stream in file order. `None` for a
+/// file with no sound at all.
+///
+/// Every reader of samples picks its stream here - the waveform, playback,
+/// the mix, the transcriber - so a clip that names a track hears the same
+/// one everywhere, and a clip that names none hears the same default the
+/// probe reported as `audio`. A named stream the file no longer has (the
+/// file was replaced) degrades to that default rather than to silence.
+pub(crate) fn audio_stream_index(
+    input: &ffmpeg::format::context::Input,
+    wanted: Option<usize>,
+) -> Option<usize> {
+    if let Some(index) = wanted
+        && input.stream(index).as_ref().is_some_and(is_audio)
+    {
+        return Some(index);
+    }
+    input.streams().find(is_audio).map(|stream| stream.index())
 }
 
 fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Result<VideoStream> {

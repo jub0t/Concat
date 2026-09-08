@@ -76,7 +76,7 @@ def write_inventory(inventory: set[str]) -> None:
         body[key] = key
     LOCALES.mkdir(exist_ok=True)
     (LOCALES / "en.json").write_text(
-        json.dumps(body, ensure_ascii=False, indent=2) + "\n"
+        json.dumps(body, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
 

@@ -44,6 +44,34 @@ pub struct AudioStreamInfo {
     pub sample_rate: u32,
     /// Channel count.
     pub channels: u32,
+    /// The name the file gives the stream, or empty.
+    pub title: String,
+    /// The stream's language tag, or empty.
+    pub language: String,
+}
+
+impl AudioStreamInfo {
+    fn from_stream(audio: concat_media::AudioStream) -> Self {
+        Self {
+            index: audio.index,
+            codec: audio.codec,
+            sample_rate: audio.sample_rate,
+            channels: audio.channels,
+            title: audio.title,
+            language: audio.language,
+        }
+    }
+
+    fn to_track(&self) -> concat_project::model::AudioTrack {
+        concat_project::model::AudioTrack {
+            index: self.index,
+            codec: self.codec.clone(),
+            channels: self.channels,
+            sample_rate: self.sample_rate,
+            title: self.title.clone(),
+            language: self.language.clone(),
+        }
+    }
 }
 
 /// What [`probe`] hands back.
@@ -58,8 +86,11 @@ pub struct MediaSummary {
     pub kind: concat_project::model::MediaKind,
     /// First video stream, if any.
     pub video: Option<VideoStreamInfo>,
-    /// First audio stream, if any.
+    /// The first audio stream in file order, if any: what a clip plays
+    /// unless it names another.
     pub audio: Option<AudioStreamInfo>,
+    /// Every audio stream, in file order.
+    pub audio_tracks: Vec<AudioStreamInfo>,
 }
 
 impl MediaSummary {
@@ -83,6 +114,11 @@ impl MediaSummary {
             video_codec: self.video.as_ref().map(|video| video.codec.clone()),
             audio_codec: self.audio.as_ref().map(|audio| audio.codec.clone()),
             has_audio: self.audio.is_some(),
+            audio_tracks: self
+                .audio_tracks
+                .iter()
+                .map(AudioStreamInfo::to_track)
+                .collect(),
         }
     }
 }
@@ -142,12 +178,12 @@ impl From<concat_media::MediaInfo> for MediaSummary {
                     video.frame_rate.fps().denominator()
                 ),
             }),
-            audio: info.audio.map(|audio| AudioStreamInfo {
-                index: audio.index,
-                codec: audio.codec,
-                sample_rate: audio.sample_rate,
-                channels: audio.channels,
-            }),
+            audio: info.audio.map(AudioStreamInfo::from_stream),
+            audio_tracks: info
+                .audio_streams
+                .into_iter()
+                .map(AudioStreamInfo::from_stream)
+                .collect(),
         }
     }
 }
@@ -190,15 +226,20 @@ pub const PEAKS_BUCKETS_PER_SECOND: u32 = 200;
 
 /// Waveform peaks for one media file: engine-decoded, project-cached.
 ///
-/// The engine streams the decode into min/max buckets, so neither the file
-/// nor its samples are ever resident. The result is cached in the project's
-/// `cache/` folder under a key derived from the path, and served from there
-/// on every later call; `project: None` (an unsaved session) just skips the
-/// cache.
-pub fn peaks(path: &str, project: Option<&str>) -> Result<concat_media::peaks::Peaks, String> {
+/// `stream` is which of the file's audio streams, by index, or `None` for
+/// the first - the same choice a clip makes. The engine streams the decode
+/// into min/max buckets, so neither the file nor its samples are ever
+/// resident. The result is cached in the project's `cache/` folder under a
+/// key derived from the path and the stream, and served from there on every
+/// later call; `project: None` (an unsaved session) just skips the cache.
+pub fn peaks(
+    path: &str,
+    stream: Option<u32>,
+    project: Option<&str>,
+) -> Result<concat_media::peaks::Peaks, String> {
     use concat_media::peaks::Peaks;
 
-    let cached = project.and_then(|project| artwork_file(project, &peaks_key(path)).ok());
+    let cached = project.and_then(|project| artwork_file(project, &peaks_key(path, stream)).ok());
     if let Some(file) = &cached
         && let Ok(bytes) = std::fs::read(file)
         && let Some(peaks) = Peaks::decode(&bytes)
@@ -208,8 +249,12 @@ pub fn peaks(path: &str, project: Option<&str>) -> Result<concat_media::peaks::P
         return Ok(peaks);
     }
 
-    let peaks = concat_media::peaks::extract(Path::new(path), PEAKS_BUCKETS_PER_SECOND)
-        .map_err(describe)?;
+    let peaks = concat_media::peaks::extract(
+        Path::new(path),
+        PEAKS_BUCKETS_PER_SECOND,
+        stream.map(|index| index as usize),
+    )
+    .map_err(describe)?;
 
     // Best-effort, like every artwork write: a failed cache write only
     // means decoding again next launch.
@@ -228,10 +273,13 @@ pub fn peaks(path: &str, project: Option<&str>) -> Result<concat_media::peaks::P
 /// same reason: these keys name files that outlive the process, and
 /// `DefaultHasher` is free to change between Rust releases. The bucket rate
 /// rides in the name so a resolution change regenerates instead of serving
-/// yesterday's shape.
-fn peaks_key(path: &str) -> String {
+/// yesterday's shape. A named stream rides in it too; the default stream's
+/// name is unchanged from before streams were named, so every cache written
+/// until then is still served.
+fn peaks_key(path: &str, stream: Option<u32>) -> String {
+    let stream = stream.map(|index| format!("-s{index}")).unwrap_or_default();
     format!(
-        "{:016x}-b{PEAKS_BUCKETS_PER_SECOND}.peaks",
+        "{:016x}{stream}-b{PEAKS_BUCKETS_PER_SECOND}.peaks",
         fnv1a(path.as_bytes())
     )
 }
@@ -287,13 +335,29 @@ pub fn write_artwork(project: &str, key: &str, bytes: &[u8]) -> Result<(), Strin
     std::fs::write(&file, bytes).map_err(|error| format!("could not write {key}: {error}"))
 }
 
+/// A file with this many frames or fewer gets its filmstrip from one pass
+/// through it rather than from seeks.
+///
+/// Seeking lands on a keyframe and, for the exact frame, walks from there;
+/// on long-GOP footage that walk is hundreds of full-size decodes per tile,
+/// and twenty-four tiles of it per file is what pinned every core when a
+/// folder of clips came in at once (#52). Under this many frames a straight
+/// read is cheaper than the seeks would be, and exact. Over it the tiles are
+/// too far apart for the walk to be worth it, and each is the keyframe at
+/// or before its instant - one decode per tile, near enough for a
+/// thumbnail. Three thousand is a hundred seconds at thirty a second: a
+/// few seconds of one core for 1080p, and the last length at which a
+/// single keyframe could plausibly cover several tiles.
+const STRIP_SEQUENTIAL_FRAMES: f64 = 3000.0;
+
 /// Renders a strip of evenly spaced frames from a video as one picture.
 ///
 /// One image rather than N, because the timeline draws the frames as slices
 /// of a single texture - that is one texture upload instead of twenty-four.
-/// Each frame is sought directly, so the cost is `count` seeks, not a decode
-/// of the whole file. If the container reports no duration there is nothing
-/// to space frames across, so this refuses rather than guessing.
+/// A short file is read once through; a long one is sought tile by tile,
+/// to its keyframes - see [`STRIP_SEQUENTIAL_FRAMES`]. If the container
+/// reports no duration there is nothing to space frames across, so this
+/// refuses rather than guessing.
 pub fn filmstrip(path: &str, count: u32, height: u32) -> Result<Frame, String> {
     let count = count.clamp(1, 60);
     let height = height.clamp(16, 240);
@@ -305,21 +369,63 @@ pub fn filmstrip(path: &str, count: u32, height: u32) -> Result<Frame, String> {
         .map(|duration| duration.as_f64())
         .filter(|seconds| *seconds > 0.0)
         .ok_or_else(|| format!("{path} reports no duration"))?;
+    let fps = video.frame_rate.fps().as_f64();
     // Aspect-correct and even, which is what the scaler is happiest with.
     let width = ((f64::from(height) * f64::from(video.width) / f64::from(video.height)).round()
         as u32)
         .max(2)
         & !1;
 
-    let mut decoder = Decoder::open(path, &DecodeOptions::default().scaled_to(width, height))
-        .map_err(describe)?;
+    // Sample the middle of each slice, so the first frame is not always the
+    // file's own first (often black) frame.
+    let instant = |index: u32| duration * (f64::from(index) + 0.5) / f64::from(count);
     let mut strip = Frame::black(width * count, height);
     let mut last: Option<Frame> = None;
+
+    if duration * fps <= STRIP_SEQUENTIAL_FRAMES {
+        let mut decoder = Decoder::open(path, &DecodeOptions::default().scaled_to(width, height))
+            .map_err(describe)?;
+        let mut index = 0;
+        let mut produced = 0u64;
+        while index < count {
+            let Ok(Some(frame)) = decoder.next_frame() else {
+                break;
+            };
+            // Where this frame is: its own stamp, or its count when the
+            // container stamps nothing.
+            let at = decoder
+                .position()
+                .map(|position| position.as_f64())
+                .unwrap_or(produced as f64 / fps.max(1.0));
+            produced += 1;
+            // Every tile whose instant this frame has reached takes it; a
+            // file with fewer frames than tiles hands one frame to several.
+            while index < count && at >= instant(index) {
+                strip.blit(&frame, index * width, 0);
+                index += 1;
+            }
+            last = Some(frame);
+        }
+        // Past the last frame - a duration the container overstated - the
+        // last picture fills what is left rather than leaving holes.
+        if let Some(frame) = &last {
+            while index < count {
+                strip.blit(frame, index * width, 0);
+                index += 1;
+            }
+        }
+        return Ok(strip);
+    }
+
+    let mut decoder = Decoder::open(
+        path,
+        &DecodeOptions::default()
+            .scaled_to(width, height)
+            .nearest_keyframes(),
+    )
+    .map_err(describe)?;
     for index in 0..count {
-        // Sample the middle of each slice, so the first frame is not always
-        // the file's own first (often black) frame.
-        let at = duration * (f64::from(index) + 0.5) / f64::from(count);
-        let time = Rational::approximate(at).unwrap_or(Rational::ZERO);
+        let time = Rational::approximate(instant(index)).unwrap_or(Rational::ZERO);
         let frame = match decoder.seek(time).and_then(|()| decoder.next_frame()) {
             Ok(Some(frame)) => Some(frame),
             // Past the last frame, or a stretch that will not decode: repeat
@@ -501,8 +607,12 @@ mod tests {
         // Pinned: a changed hash would orphan every project's caches.
         assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(
-            peaks_key("/a.mp4"),
+            peaks_key("/a.mp4", None),
             format!("{:016x}-b200.peaks", fnv1a(b"/a.mp4"))
+        );
+        assert_eq!(
+            peaks_key("/a.mp4", Some(2)),
+            format!("{:016x}-s2-b200.peaks", fnv1a(b"/a.mp4"))
         );
     }
 
@@ -525,12 +635,15 @@ mod tests {
 
         let strip = filmstrip(&path.to_string_lossy(), 4, 32).expect("strips");
         assert_eq!((strip.width(), strip.height()), (4 * 64, 32));
-        // Later slices come from later in the file: the red ramps up.
-        let first = strip.pixel(32, 16).expect("in bounds")[0];
-        let last = strip.pixel(3 * 64 + 32, 16).expect("in bounds")[0];
+        // Later slices come from later in the file: the red ramps up, tile
+        // by tile - a two-second file is read straight through, so every
+        // tile is its own frame even though the file has one keyframe.
+        let reds: Vec<u8> = (0..4)
+            .map(|tile| strip.pixel(tile * 64 + 32, 16).expect("in bounds")[0])
+            .collect();
         assert!(
-            last > first,
-            "strip is not in time order: {first} then {last}"
+            reds.windows(2).all(|pair| pair[1] > pair[0]),
+            "strip is not in time order: {reds:?}"
         );
 
         let poster = still_at(&path.to_string_lossy(), 1.0, 32).expect("still");

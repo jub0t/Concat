@@ -1,0 +1,34 @@
+[effect]
+id = "concat.scanlines"
+name = "Scanlines"
+kind = "effect"
+category = "Stylize"
+order = 47
+intensity = "strength"
+aliases = ["scanlines"]
+description = "Dark lines across the picture every few pixels, the way a tube television drew it."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 10
+max = 100
+default = 40
+step = 1
+unit = "%"
+
+[[param]]
+key = "pitch"
+label = "Pitch"
+type = "int"
+min = 2
+max = 8
+default = 3
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "drawgrid=x=-1:w=iw+2:h={round(pitch)}:t=1:c=black@{fixed(strength / 100, 2)}"
+
+[wgsl]
+entry = "effect.wgsl"

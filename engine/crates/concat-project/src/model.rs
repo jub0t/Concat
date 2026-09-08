@@ -55,6 +55,32 @@ impl ClipKind {
     }
 }
 
+/// One audio stream of a media file, as the probe reported it. A screen
+/// recording keeps the desktop's sound and the microphone as two of these;
+/// a clip names the one it plays by `index`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrack {
+    /// The stream's index within the file - what [`Clip::audio_stream`] holds.
+    pub index: u32,
+    /// Codec short name, e.g. "aac". Informational.
+    #[serde(default)]
+    pub codec: String,
+    /// Channel count: 1 mono, 2 stereo.
+    #[serde(default)]
+    pub channels: u32,
+    /// Samples per second.
+    #[serde(default)]
+    pub sample_rate: u32,
+    /// The name the file gives the track, when it gives one ("Desktop
+    /// Audio", "Mic/Aux"); empty otherwise, and the UI numbers it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// The track's language tag, e.g. "eng"; empty when unstated.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub language: String,
+}
+
 /// One entry in the media bin: a file the user imported, plus what the host's
 /// probe learned about it. The probe metadata is stored, not re-derived, so a
 /// document opens meaningfully even when the file itself is missing.
@@ -88,6 +114,14 @@ pub struct MediaItem {
     pub audio_codec: Option<String>,
     /// Whether the file carries an audio stream; gates `DetachAudio`.
     pub has_audio: bool,
+    /// Every audio stream the file carries, in file order, when the probe
+    /// listed them. Empty for a file without sound and for a document from
+    /// before the list was kept - `has_audio` still says whether there is
+    /// sound at all. More than one is a recording with its tracks apart, and
+    /// what lets a clip choose between them. Skipped when empty, so
+    /// documents without such media stay byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_tracks: Vec<AudioTrack>,
     /// True when this item is a template slot: a stand-in whose metadata says
     /// what kind of media belongs here, waiting to be replaced by the user's
     /// own file (`Command::FillSlot`). In a creator's own project the path is
@@ -714,17 +748,20 @@ pub struct Transition {
     pub duration: f64,
 }
 
-/// How a title's lines sit within their block. The block itself is placed by
-/// the clip's transform, so this only matters for multi-line text.
+/// How a title's lines sit within their block, and which point of the block
+/// the clip's position pins: a centred title is placed by its middle, a
+/// left-aligned one by its block's left edge and a right-aligned one by its
+/// right edge. Typing more into a left-aligned title grows it to the right
+/// and leaves its left edge where it was, as alignment means everywhere.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TextAlign {
-    /// Lines share a left edge.
+    /// Lines share a left edge, which is where the clip's position is.
     Left,
-    /// Lines are centred on each other - the default, and what the reader
-    /// falls back to for an unrecognised value.
+    /// Lines are centred on each other and on the clip's position - the
+    /// default, and what the reader falls back to for an unrecognised value.
     Center,
-    /// Lines share a right edge.
+    /// Lines share a right edge, which is where the clip's position is.
     Right,
 }
 
@@ -899,6 +936,12 @@ pub struct Clip {
     /// Video effects, in order - the visual sibling of `filters`.
     #[serde(default)]
     pub video_effects: Vec<AppliedFilter>,
+    /// Which of the media's audio streams this clip plays, by the stream's
+    /// index in the file - see [`MediaItem::audio_tracks`]. None is the first
+    /// in file order, which is every clip from before files with several
+    /// were told apart and every clip of a file with one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_stream: Option<u32>,
     /// True when a video clip's embedded audio is detached out of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub muted: Option<bool>,
@@ -1007,8 +1050,20 @@ impl Clip {
         }
         let at = at.clamp(0.0, 1.0);
         match self.key_at(property, at) {
-            Some(index) => self.keys[index] = ClipKey { property, at, value, ease },
-            None => self.keys.push(ClipKey { property, at, value, ease }),
+            Some(index) => {
+                self.keys[index] = ClipKey {
+                    property,
+                    at,
+                    value,
+                    ease,
+                }
+            }
+            None => self.keys.push(ClipKey {
+                property,
+                at,
+                value,
+                ease,
+            }),
         }
         self.sort_keys();
     }
@@ -1036,8 +1091,9 @@ impl Clip {
     /// Called by everything that can put a key in, including the document
     /// reader, so a hand-edited file cannot produce an unsorted track.
     pub fn sort_keys(&mut self) {
-        self.keys
-            .retain(|key| key.at.is_finite() && key.value.is_finite() && (0.0..=1.0).contains(&key.at));
+        self.keys.retain(|key| {
+            key.at.is_finite() && key.value.is_finite() && (0.0..=1.0).contains(&key.at)
+        });
         self.keys.sort_by(|a, b| {
             (a.property as u8)
                 .cmp(&(b.property as u8))
@@ -1198,6 +1254,22 @@ impl Project {
     /// The bin entry with this id, or None if it was removed.
     pub fn media_by_id(&self, media_id: &str) -> Option<&MediaItem> {
         self.media.iter().find(|item| item.id == media_id)
+    }
+}
+
+impl MediaItem {
+    /// Which row of `audio_tracks` a clip's `audio_stream` is: the named
+    /// stream's position, or the first row for a clip that names none or
+    /// names a stream this file does not have - the same fallback the
+    /// engine's readers make.
+    pub fn audio_track_position(&self, stream: Option<u32>) -> usize {
+        stream
+            .and_then(|index| {
+                self.audio_tracks
+                    .iter()
+                    .position(|track| track.index == index)
+            })
+            .unwrap_or(0)
     }
 }
 

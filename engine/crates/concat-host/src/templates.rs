@@ -443,6 +443,7 @@ mod tests {
                 video_codec: Some("h264".to_owned()),
                 audio_codec: None,
                 has_audio: false,
+                audio_tracks: Vec::new(),
             },
         }
     }

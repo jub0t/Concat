@@ -1,0 +1,24 @@
+[effect]
+id = "concat.threshold"
+name = "Threshold"
+kind = "effect"
+category = "Basic"
+order = 15
+intensity = "level"
+aliases = ["threshold"]
+description = "Pure black and pure white, cut at one level of brightness."
+
+[[param]]
+key = "level"
+label = "Level"
+min = 5
+max = 95
+default = 50
+step = 1
+unit = "%"
+
+[ffmpeg]
+chain = "hue=s=0,lutrgb=r='if(gt(val,{round(level * 255 / 100)}),255,0)':g='if(gt(val,{round(level * 255 / 100)}),255,0)':b='if(gt(val,{round(level * 255 / 100)}),255,0)'"
+
+[wgsl]
+entry = "effect.wgsl"

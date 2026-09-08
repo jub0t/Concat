@@ -90,7 +90,9 @@ impl PresetStyle {
         let base = TextStyle::default();
         TextStyle {
             content: self.content.unwrap_or_else(|| name.to_owned()),
-            font_family: self.font_family.unwrap_or_else(|| "Helvetica Neue".to_owned()),
+            font_family: self
+                .font_family
+                .unwrap_or_else(|| "Helvetica Neue".to_owned()),
             font_size: self.font_size.unwrap_or(base.font_size).clamp(0.005, 1.0),
             font_weight: self
                 .font_weight

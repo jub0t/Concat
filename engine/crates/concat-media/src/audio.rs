@@ -43,6 +43,9 @@ pub fn clamp_speed(speed: f64) -> f64 {
 pub struct AudioClip {
     /// The media file.
     pub path: std::path::PathBuf,
+    /// Which of the file's audio streams, by stream index; `None` is the
+    /// first in file order. See `probe::audio_stream_index`.
+    pub stream: Option<usize>,
     /// Where the clip sits on the timeline, in seconds.
     pub start: f64,
     /// How long it runs on the timeline, in seconds.
@@ -376,13 +379,13 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         let path = clip.path.as_path();
         let mut input =
             ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
-        let stream = input
-            .streams()
-            .best(ffmpeg::media::Type::Audio)
-            .ok_or_else(|| Error::NoAudioStream {
-                path: path.to_path_buf(),
+        let stream_index =
+            crate::probe::audio_stream_index(&input, clip.stream).ok_or_else(|| {
+                Error::NoAudioStream {
+                    path: path.to_path_buf(),
+                }
             })?;
-        let stream_index = stream.index();
+        let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
@@ -714,6 +717,7 @@ mod tests {
     fn clip(path: &str) -> AudioClip {
         AudioClip {
             path: path.into(),
+            stream: None,
             start: 0.0,
             duration: 2.0,
             source_start: 0.0,
