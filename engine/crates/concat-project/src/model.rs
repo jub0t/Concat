@@ -729,9 +729,12 @@ pub enum TextAlign {
 }
 
 /// A title's styling. Sizes are fractions of the frame, so a title composed
-/// against 1080p lands correctly exported at 4K.
+/// against 1080p lands correctly exported at 4K. A style arriving in a
+/// command needs only the fields it changes; the rest are the default's, so
+/// a caller can say `{ "content": "Hello" }` and get a title that looks like
+/// one the window would place.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct TextStyle {
     /// The words themselves, newlines included. The clip's display name is
     /// snapshotted from the first non-empty line.

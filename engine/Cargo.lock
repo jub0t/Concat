@@ -1177,13 +1177,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-api"
+version = "0.2.1"
+dependencies = [
+ "concat-effects",
+ "concat-export",
+ "concat-host",
+ "concat-project",
+ "png 0.17.16",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "concat-cli"
 version = "0.2.1"
 dependencies = [
  "clap",
+ "concat-api",
  "concat-core",
  "concat-media",
  "concat-render",
+ "serde_json",
 ]
 
 [[package]]

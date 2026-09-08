@@ -12,7 +12,8 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | `concat-render` | Turning a timeline plus a timestamp into one finished frame. | `concat-core`, wgpu (optional) |
 | `concat-effects` | Effect packages: manifests, chain templates, the catalogue. Each built-in effect is a folder under `packages/`. | `concat-project`, serde, toml |
 | `concat-export` | Timeline to file: flatten, the frame-by-frame render loop, the paused monitor's true frame. | `concat-core`, `concat-media`, `concat-render`, `concat-project`, `concat-effects` |
-| `concat-cli` | A binary to drive the above. The vertical slice. | the engine crates |
+| `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-project` |
+| `concat-cli` | A binary to drive the above: `probe`, `render`, and `api`, the API over stdin and stdout. | `concat-api`, the engine crates |
 | `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
 | `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint, `concat-host`, `concat-speech` |
@@ -24,6 +25,7 @@ The dependency arrows point one way:
 concat -> concat-speech -> concat-host -> {export, project, media} -> core
                                        -> render -> core
                                           export -> effects -> project
+concat-cli -> concat-api -> concat-host
 ```
 
 If you ever find yourself wanting `core` to depend on `media`, something has
@@ -40,6 +42,8 @@ cargo build
 cargo test
 cargo run -p concat-cli -- probe some-video.mp4
 cargo run -p concat-cli -- render some-video.mp4 out.mp4 --frames 120
+cargo run -p concat-cli -- api '{"method":"catalogue.list","kind":"filter"}'
+cargo run -p concat-cli -- api < edits.jsonl   # one request per line; see concat-api
 cargo run -p concat                    # the editor window, debug
 cargo run --profile quick -p concat    # optimised, rebuilds in seconds: for trying changes
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped

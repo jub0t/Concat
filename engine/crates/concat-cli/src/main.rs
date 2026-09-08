@@ -5,9 +5,12 @@
 //!
 //! This exists so the engine can be exercised end to end without a UI. The
 //! `render` command is the vertical slice: probe, build a timeline, plan every
-//! frame, decode, composite, encode.
+//! frame, decode, composite, encode. The `api` command is the Concat API's
+//! first transport: JSON requests in, JSON responses and events out, one per
+//! line, so a script in any language edits and exports a project.
 
 use std::error::Error;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
@@ -44,6 +47,13 @@ enum Command {
         #[arg(long, default_value_t = 15)]
         fade: u64,
     },
+
+    /// Speak the Concat API: a JSON request per line on stdin, a response per
+    /// line on stdout, with events in between as they happen.
+    Api {
+        /// One request to run instead of reading stdin.
+        request: Option<String>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -55,6 +65,48 @@ fn main() -> Result<(), Box<dyn Error>> {
             frames,
             fade,
         } => render(&input, &output, frames, fade),
+        Command::Api { request } => api(request),
+    }
+}
+
+/// The stdin transport. Every line in is one request; every line out is
+/// one JSON object, either an event or the response, flushed as written so
+/// a caller reading a pipe sees progress as it happens. A line that is not
+/// a request gets an error response and the loop goes on.
+fn api(single: Option<String>) -> Result<(), Box<dyn Error>> {
+    let mut api = concat_api::Api::new()?;
+    let stdout = std::io::stdout();
+
+    let mut serve = |line: &str| -> Result<(), Box<dyn Error>> {
+        let mut out = stdout.lock();
+        let response = match serde_json::from_str::<concat_api::Request>(line) {
+            Ok(request) => api.dispatch(request, &mut |event| {
+                // An event that cannot be written is a caller that went
+                // away; the response's write will say so.
+                let _ = serde_json::to_writer(&mut out, &event)
+                    .and_then(|()| writeln!(out).map_err(serde_json::Error::io));
+                let _ = out.flush();
+            }),
+            Err(error) => concat_api::Response::Error(format!("not a request: {error}")),
+        };
+        serde_json::to_writer(&mut out, &response)?;
+        writeln!(out)?;
+        out.flush()?;
+        Ok(())
+    };
+
+    match single {
+        Some(line) => serve(&line),
+        None => {
+            for line in std::io::stdin().lock().lines() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                serve(&line)?;
+            }
+            Ok(())
+        }
     }
 }
 

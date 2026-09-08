@@ -3948,42 +3948,13 @@ impl Studio {
             return;
         };
         let project = std::path::PathBuf::from(session.path());
-        let mut wanted: Vec<(String, AnalyseRequest)> = Vec::new();
-        for clip in &self.timeline().clips {
-            let Some(cutout) = clip.cutout.as_ref() else {
-                continue;
-            };
-            if !clip.kind.is_visual() {
-                continue;
-            }
-            let Some(media) = self.project().media_by_id(&clip.media_id) else {
-                continue;
-            };
-            // One analysis per media and subject: two clips of one file
-            // that keep different things need different masks.
-            let key = Self::analysis_key(&media.id, cutout.subject);
-            // The source the clip shows: its in-point, for as long as it
-            // runs at its speed. A curve's mean is its speed, so this
-            // covers a curved clip too.
-            let range = (
-                clip.source_start,
-                clip.source_start + clip.duration * clip.speed.max(0.0625),
-            );
-            match wanted.iter_mut().find(|(id, _)| *id == key) {
-                Some((_, request)) => request.ranges.push(range),
-                None => wanted.push((
-                    key,
-                    AnalyseRequest {
-                        project: project.clone(),
-                        media_path: media.path.clone(),
-                        media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
-                        still: media.kind == model::MediaKind::Image,
-                        subject: cutout.subject,
-                        ranges: vec![range],
-                    },
-                )),
-            }
-        }
+        // One analysis per media and subject, keyed the way the job map is.
+        let wanted: Vec<(String, AnalyseRequest)> = Cutouts::requests(self.project(), &project)
+            .into_iter()
+            .map(|(media_id, request)| {
+                (Self::analysis_key(&media_id, request.subject), request)
+            })
+            .collect();
         let Some((id, request)) = wanted
             .into_iter()
             .find(|(_, request)| Cutouts::outstanding(request) > 0)

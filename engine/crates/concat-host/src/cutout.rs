@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
-use concat_project::model::Subject;
+use concat_project::model::{MediaKind, Project, Subject};
 use concat_vision::segment::Kind;
 use concat_vision::{MASK_RATE, MaskStore, ModelId, Segmenter, mask_dir, models};
 
@@ -150,6 +150,52 @@ impl Cutouts {
             Err(error) if error.contains("cancelled") => Err(error),
             Err(_) => self.selfie(),
         }
+    }
+
+    /// What the active timeline's cutouts need analysed: one request per
+    /// media and subject, since two clips of one file that keep different
+    /// things need different masks, each covering the stretches of source
+    /// its clips show. Paired with the media's id, for a caller that keys
+    /// its bookkeeping by it. The window asks after every change and the
+    /// API asks before an export; both get the same list.
+    pub fn requests(project: &Project, project_dir: &Path) -> Vec<(String, AnalyseRequest)> {
+        let mut wanted: Vec<(String, AnalyseRequest)> = Vec::new();
+        for clip in &project.active().clips {
+            let Some(cutout) = clip.cutout.as_ref() else {
+                continue;
+            };
+            if !clip.kind.is_visual() {
+                continue;
+            }
+            let Some(media) = project.media_by_id(&clip.media_id) else {
+                continue;
+            };
+            // The source the clip shows: its in-point, for as long as it
+            // runs at its speed. A curve's mean is its speed, so this
+            // covers a curved clip too.
+            let range = (
+                clip.source_start,
+                clip.source_start + clip.duration * clip.speed.max(0.0625),
+            );
+            match wanted
+                .iter_mut()
+                .find(|(id, request)| *id == media.id && request.subject == cutout.subject)
+            {
+                Some((_, request)) => request.ranges.push(range),
+                None => wanted.push((
+                    media.id.clone(),
+                    AnalyseRequest {
+                        project: project_dir.to_path_buf(),
+                        media_path: media.path.clone(),
+                        media_size: (media.width.unwrap_or(0), media.height.unwrap_or(0)),
+                        still: media.kind == MediaKind::Image,
+                        subject: cutout.subject,
+                        ranges: vec![range],
+                    },
+                )),
+            }
+        }
+        wanted
     }
 
     /// How many instants `request` still needs, without doing anything.

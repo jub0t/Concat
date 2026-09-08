@@ -40,7 +40,7 @@ Two consequences of the rule shape everything below:
 
 ## 2. The map
 
-Everything lives in `engine/`, one Cargo workspace of thirteen crates.
+Everything lives in `engine/`, one Cargo workspace of fourteen crates.
 
 | Crate | Owns | Lines |
 |---|---|---|
@@ -54,7 +54,8 @@ Everything lives in `engine/`, one Cargo workspace of thirteen crates.
 | `concat-vision` | What the engine sees in a picture: the person mask behind a cutout, brush strokes over it, the frame cut by it; the model itself behind `infer`. | 0.9k |
 | `concat-host` | What a window needs that is not the edit: sessions, project folders, caches, the monitor, audio playback, the export driver, templates, job slots, app directories. | 3.8k |
 | `concat-speech` | Transcription with whisper.cpp and text to speech with Kokoro, both in-process, models downloaded on demand. | 1.2k |
-| `concat-cli` | A driver for the engine without a window: `probe` and `render`. | 0.2k |
+| `concat-api` | The Concat API: one dispatcher of JSON requests over the host - projects, edits, media, the catalogue, templates, exports, frames - that every transport calls. | 0.9k |
+| `concat-cli` | A driver for the engine without a window: `probe`, `render`, and `api`, the API over stdin and stdout. | 0.3k |
 | `concat` | The editor window in Slint, and the Rust that binds it to the host. | 7.2k Rust, 15.9k Slint |
 | `concat-android` | The Android activity: `android_main` over the window. | 20 |
 
@@ -71,7 +72,8 @@ concat ──► concat-speech ──► concat-host ──► concat-export ─
    ├──► concat-effects (the catalogue, for the inspector's shelves)
    └──► concat-vision (a press on the stage, mapped into the source)
 
-concat-android ──► concat            concat-cli ──► concat-core, concat-media, concat-render
+concat-android ──► concat            concat-api ──► concat-host, concat-export, concat-effects, concat-project
+                                     concat-cli ──► concat-api, concat-core, concat-media, concat-render
 ```
 
 `concat-core` depends on nothing; `concat-project` is not folded into it
@@ -565,7 +567,63 @@ native libraries stay out of everything that does not speak.
 
 ---
 
-## 13. The window: `concat`
+## 13. The API: `concat-api`
+
+The editor driven without its window. Every way of doing that - the
+command line today, a daemon on a socket, an MCP server, a plugin - is a
+transport, and a transport is a loop: read a `Request`, hand it to
+`Api::dispatch`, write the `Response` and whatever `Event`s fired on the
+way. What a request means lives in this one crate, so two transports
+cannot disagree and a method added here reaches all of them.
+
+**The shape.** `Request` is a serde enum tagged by `method`, named
+`area.verb`: `project.create`, `project.open`, `project.close`,
+`project.list`, `project.get`, `project.document`, `project.save`,
+`project.setVideo`, `edit.apply`, `edit.undo`, `edit.redo`,
+`media.probe`, `media.import`, `catalogue.list`, `template.list`,
+`template.instantiate`, `template.save`, `export.run`, `export.cancel`,
+`preview.frame`, `version`. A response is `{"result": ...}` or
+`{"error": "..."}`, the error being the sentence the window would show.
+Events are tagged by `event`: export progress, and cutout analysis ahead
+of an export. Fields are camelCase, the document's and the command
+layer's spelling, so a caller learns one. `API_VERSION` names the
+contract and moves only when a caller written against the previous one
+would misread a reply.
+
+**The edit is not redefined.** `edit.apply` carries a `concat-project`
+`Command` exactly as the window sends one, clamps and refusals included,
+so every operation the window can perform is one a script can perform
+and a new command needs nothing added here. A `Batch` is one request and
+one undo step. A text style in a command needs only the fields it sets.
+
+**What the crate owns is the choreography** the window performs by hand.
+`media.import` is the probe and the add. `template.instantiate` probes
+every fill before anything is made, so a bad path refuses the request
+rather than leaving a folder behind. `export.run` finds every mask the
+timeline's cutouts still need (`Cutouts::requests`, the same list the
+window asks for after each change), paints the titles, then renders, so
+the file the API writes is the file the window would have written.
+`preview.frame` is the paused monitor's true frame, titles included, as
+a PNG.
+
+**One `Api`, one session per project folder**, keyed by the folder's
+canonical path, so `.` and its absolute spelling are one project.
+A method on a folder that is not open is an error, never a silent open.
+The `Api` is not thread-safe on purpose: a transport serving several
+callers owns the one `Api` and serialises through it, as the window's
+event loop does, and a long method blocks its caller. `Api::exporter` is
+the one handle that crosses threads, so a cancel can reach a running
+export.
+
+**The first transport** is `concat-cli api`: one request per line on
+stdin, one JSON object per line on stdout, events interleaved and
+flushed as they happen, so a pipe from any language edits and exports a
+project. A line that is not a request gets an error and the loop goes
+on.
+
+---
+
+## 14. The window: `concat`
 
 **One library, three entry points.** `concat::run()` is the program.
 `main.rs` calls it on the desktop and on iOS; `concat-android`'s
@@ -670,7 +728,7 @@ it; CI runs the check.
 
 ---
 
-## 14. Build and delivery
+## 15. Build and delivery
 
 - **Toolchain.** Pinned in `engine/rust-toolchain.toml`. `cargo build`
   needs the FFmpeg 7+ development libraries, cmake and a C++ toolchain
@@ -708,7 +766,7 @@ it; CI runs the check.
 
 ---
 
-## 15. Testing
+## 16. Testing
 
 240 unit tests, all in-file `#[cfg(test)]` modules; there are no `tests/`
 directories. The pure layers are where the coverage is dense: rational
@@ -719,30 +777,46 @@ fixtures (a package without fixtures fails the build), the audio graph's
 shape, seek policy and LRU eviction, filter strings, all seven
 transition-resolution behaviours, CPU/GPU parity, the speech model
 bookkeeping, and the host's cache keys, WAV parsing, sweep ordering and
-template packing. Tests that touch FFmpeg encode a small file into the
+template packing, and the API's request shapes and project life cycle
+in a scratch folder. Tests that touch FFmpeg encode a small file into the
 temporary directory first.
 
 The window has unit tests for its formatting helpers and stage geometry.
 The seams that a window drives end to end (publish, the dock tree, the
 echo and commit path, playback against a device) are exercised by using
-the app, which is the work in 15.1.
+the app, which is the work in 17.1.
 
 ---
 
-## 16. Next work
+## 17. Next work
 
 Ordered by how much each matters. Each is either an invariant a
 contributor could break without knowing it, or a piece of work with a
 known shape.
 
-### 16.1 Put a real project through every flow in the window
+### 17.1 Put a real project through every flow in the window
 
 Import, place, trim, split, transitions, a title, an effect, a speed
 curve, transcription, narration, a template, an export, on each renderer
 and each platform. The engine's seams are tested; the window's are used.
 What that pass turns up goes above everything below.
 
-### 16.2 A phone layout
+### 17.2 The API's other transports
+
+The dispatcher is in place and the command line speaks it. The daemon is
+next: `concat serve`, JSON-RPC over stdio or a local socket, the same
+`Request` and `Response` with an id on each, and `export.cancel` finally
+meaningful because a second message can arrive while a first blocks.
+MCP is that daemon with tool schemas derived from the request enum. Then
+the window itself listening on the same socket, so a script drives the
+live edit and the lanes redraw, which is `Shell::with` through
+`invoke_from_event_loop` and nothing new. Two decisions come with them: a
+lock file in the project folder, or a window that reloads on an external
+change, since the window autosaves and last writer wins today; and
+whether speech joins the dispatcher behind a feature, so a headless
+export never links whisper.
+
+### 17.3 A phone layout
 
 The window builds and packages for Android and iOS, and what runs there is
 the desktop's tree on a phone's screen. A phone wants one seat at a time,
@@ -754,7 +828,7 @@ asked for by name (they are linked, and the software decoder is what is
 opened); and the monitor on Android, which composites on the CPU because
 Slint's Android backend creates its own device.
 
-### 16.3 Two paths that build different chains
+### 17.4 Two paths that build different chains
 
 On the GPU, effects with a shader leave the FFmpeg chain and travel as
 passes; on the CPU they stay in the chain. A machine with an adapter and
@@ -765,7 +839,7 @@ render on one machine and not the other. Either require the chain for
 `effect` kinds in validation, or teach the CPU path to refuse the package
 loudly.
 
-### 16.4 Small things the code already knows about
+### 17.5 Small things the code already knows about
 
 - `MoveTimeline`'s documented index is counted with the timeline removed;
   the clamp is against the unremoved length.
@@ -794,12 +868,16 @@ loudly.
 
 ---
 
-## 17. How to change things
+## 18. How to change things
 
 - **A new operation on the edit.** Add a `Command` variant in
   `concat-project/src/commands.rs`, make its `apply` report `applied`
   honestly, add it to the serde round-trip test's list, then bind a
   callback in `concat/src/lib.rs` that builds it from the window's state.
+- **A new API method.** A `Request` variant in
+  `concat-api/src/message.rs` with its `method` name, a `Reply` for what
+  it returns if none fits, and its arm in `Api::run`. Every transport
+  carries it from then on; none of them changes.
 - **A new effect.** Add a folder under `concat-effects/packages/` with
   `effect.toml` and `fixtures.toml` (and `effect.wgsl` if it has a
   shader). The build fails until the fixtures cover default, minimum and

@@ -14,9 +14,7 @@
 //! pictures go up once, the composite happens where it is shown, and no
 //! pixel comes back down.
 
-use std::sync::Arc;
-#[cfg(feature = "gpu")]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use concat_export::ExportClip;
 use concat_project::DocumentSettings;
