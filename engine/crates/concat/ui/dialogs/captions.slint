@@ -10,24 +10,24 @@ import { Select } from "../primitives/select.slint";
 
 // Captions: what the tray's Captions tool opens.
 //
-// Two places the words can come from. The sound: the selected clip's, or
-// every clip with sound on the timeline when nothing is selected, run
-// through the transcriber and cut to the words' own timing. A script: the
-// words typed here, one title per sentence at reading pace, laid down one
-// after another. Then where the lines sit and how big they are, and one
-// button. While it runs the sheet is the progress report: a transcription
-// knows how far through the sound it is, so it gets a real bar and not a
-// sweep. The language is the transcriber's to work out.
+// Two sheets in one, and which is decided before it opens rather than
+// asked. With a clip that has sound selected, the words are that clip's:
+// through the transcriber, cut to the words' own timing. Otherwise they
+// are a script typed here, one title per sentence at reading pace, laid
+// down from the playhead. Asking would only invite the wrong answer - a
+// silent video sent to the transcriber - so the selection decides. Then
+// where the lines sit and how big they are, and one button. While it runs
+// the sheet is the progress report: a transcription knows how far through
+// the sound it is, so it gets a real bar and not a sweep. The language is
+// the transcriber's to work out.
 
 export struct CaptionsSheetData {
     open: bool,
-    /// 0 Sound, 1 Script
-    source: int,
-    /// The sound to transcribe: the selected clip's name, or "4 clips with
-    /// sound"; empty when the timeline has none.
+    /// The selected clip has sound, and the sheet transcribes it.
+    from-sound: bool,
+    /// For the header's note: the clip being transcribed, or where a
+    /// script's captions land.
     subject: string,
-    /// Where a script's captions land, for the header's note.
-    landing: string,
     text: string,
     /// Row in the installed transcriber list.
     model: int,
@@ -49,7 +49,6 @@ export component CaptionsDialog inherits Modal {
     /// The installed transcriber models, by name.
     in property <[string]> models;
 
-    callback source-changed(index: int);
     callback text-edited(text: string);
     callback model-changed(index: int);
     callback placement-changed(index: int);
@@ -57,14 +56,14 @@ export component CaptionsDialog inherits Modal {
     callback begin();
     callback cancel();
 
-    property <bool> from-sound: root.data.source == 0;
+    property <bool> from-sound: root.data.from-sound;
 
     open: root.data.open;
     title: I18n.t("Captions");
     glyph: Glyph.text-mark;
     surface-width: 480px;
     dismissable: !root.data.running;
-    note: root.from-sound ? root.data.subject : root.data.landing;
+    note: root.data.subject;
 
     // The script being typed, held apart from `data.text` the way the Field
     // primitive holds its draft: a TextInput's binding is dropped on the
@@ -82,18 +81,8 @@ export component CaptionsDialog inherits Modal {
     init => { root.draft = root.data.text; }
 
     VerticalLayout {
-        if !root.data.running: DialogSection {
-            first: true;
-            title: I18n.t("Source");
-
-            SegmentedControl {
-                options: [I18n.t("Sound"), I18n.t("Script")];
-                current: root.data.source;
-                changed(index) => { root.source-changed(index); }
-            }
-        }
-
         if !root.data.running && root.from-sound: DialogSection {
+            first: true;
             title: I18n.t("Transcriber");
 
             DialogRow {
@@ -113,16 +102,10 @@ export component CaptionsDialog inherits Modal {
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
             }
-
-            if root.data.subject == "": Text {
-                text: I18n.t("Nothing on the timeline has sound to transcribe. Select a clip with sound, or type a script instead.");
-                color: Theme.fg-muted;
-                font-size: Theme.fs-sm;
-                wrap: word-wrap;
-            }
         }
 
         if !root.data.running && !root.from-sound: DialogSection {
+            first: true;
             title: I18n.t("Script");
 
             Rectangle {
@@ -265,9 +248,7 @@ export component CaptionsDialog inherits Modal {
                 large: true;
                 glyph: Glyph.text-mark;
                 label: root.from-sound ? I18n.t("Generate captions") : I18n.t("Add captions");
-                enabled: root.from-sound
-                    ? root.data.ready && root.data.subject != ""
-                    : root.draft != "";
+                enabled: root.from-sound ? root.data.ready : root.draft != "";
                 clicked => { root.begin(); }
             }
         }

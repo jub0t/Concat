@@ -208,7 +208,6 @@ export component App inherits Window {
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
     callback captions-closed();
-    callback captions-source-changed(index: int);
     callback captions-text-edited(text: string);
     callback captions-model-changed(index: int);
     callback captions-placement-changed(index: int);
@@ -494,7 +493,6 @@ export component App inherits Window {
         models: root.caption-models;
 
         closed => { root.captions-closed(); }
-        source-changed(index) => { root.captions-source-changed(index); }
         text-edited(text) => { root.captions-text-edited(text); }
         model-changed(index) => { root.captions-model-changed(index); }
         placement-changed(index) => { root.captions-placement-changed(index); }

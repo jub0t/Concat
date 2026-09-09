@@ -235,7 +235,7 @@ export component TimelineTray inherits Rectangle {
             glyph: Glyph.text-mark;
             caption: I18n.t("Captions");
             label: root.sound-selected ? I18n.t("Auto captions from this clip's sound")
-                : I18n.t("Captions from the timeline's sound, or from a script");
+                : I18n.t("Captions from a script, at the playhead");
             clicked => { root.captions(); }
         }
         TrayTool {

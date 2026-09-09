@@ -1001,9 +1001,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_captions_closed(on_window!(|state| {
         state.captions.open = false;
     }));
-    app.on_captions_source_changed(on_window!(|state, index: i32| {
-        state.captions.source = (index.max(0) as usize).min(1);
-    }));
     app.on_captions_text_edited(on_window!(|state, text: SharedString| {
         state.captions.text = text.to_string();
     }));
