@@ -72,11 +72,7 @@ Concat runs everything on your machine, so the hardware sets the ceiling. The mi
 
 | | Minimum | Recommended |
 |---|---|---|
-| **Windows** | Windows 10 64-bit (x64) or Windows 11 (Arm64) | Windows 11 |
-| **macOS** | macOS 12 Monterey (Intel) | macOS 14 or newer on Apple silicon |
-| **Linux** | glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and their successors), x86_64 or aarch64 | A current distribution with a Vulkan driver installed |
-| **Android / iOS** 🧪 | Android 8.0 (arm64) · iOS/iPadOS 15 | A phone or tablet from the last three years |
-| **CPU** | x86_64 with AVX2, FMA and F16C (Intel from 2013, AMD Ryzen) · any 64-bit Arm (NEON) | 6 or more cores. Export, captions and cutout are CPU-bound |
+| **CPU** | Any 64-bit processor from 2013 or later | 6 cores or more |
 | **GPU** | None. Without a usable GPU the window and monitor fall back to the CPU | Any GPU with Metal (macOS), DirectX 12 (Windows) or Vulkan (Linux) |
 | **RAM** | 4 GB | 16 GB for 4K timelines and the larger caption models |
 | **Storage** | 500 MB for the app and the smallest caption model | 2 GB for every optional model, plus room for projects and exports |
