@@ -1,10 +1,15 @@
 <div align="center">
-
-<img src="assets/concat_logo_dark_512.png" alt="Concat" width="140" />
-
-# Concat
-
-**The free, open-source CapCut replacement.**
+<table width="100%">
+  <tr>
+    <td align="left" width="120">
+      <img src="assets/concat_logo_dark_512.png" alt="OpenCut Logo" width="100" />
+    </td>
+    <td align="right">
+      <h1>Concat</h1>
+      <h3 style="margin-top: -10px;">The free, open-source CapCut replacement.</h3>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000&color=c6f432" alt="Build Status" /></a>
