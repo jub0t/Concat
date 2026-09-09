@@ -4,7 +4,7 @@
 Usage:
     scripts/make-preview.py [screenshot.png] [out.png]
 
-Defaults to assets/screenshot-dark.png -> assets/preview.png.
+Defaults to assets/editor-dark.png -> assets/editor.png.
 
 Takes a macOS window capture (Cmd-Shift-4, Space, click the window: the PNG
 has a transparent margin with the window's drop shadow in it), trims it to
@@ -18,8 +18,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "assets" / "screenshot-dark.png"
-OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "assets" / "preview.png"
+SRC = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "assets" / "editor-dark.png"
+OUT = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "assets" / "editor.png"
 
 CANVAS_W = 3200
 CANVAS_H = 1780

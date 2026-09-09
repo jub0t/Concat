@@ -1,8 +1,8 @@
 # SOP: updating the README hero image
 
-The image at the top of `README.md` is `assets/preview.png`: the dark-theme
+The image at the top of `README.md` is `assets/editor.png`: the dark-theme
 editor window floating on a soft gradient card, built by
-`scripts/make-preview.py` from the raw capture in `assets/screenshot-dark.png`.
+`scripts/make-preview.py` from the raw capture in `assets/editor-dark.png`.
 
 ## Steps
 
@@ -18,7 +18,7 @@ editor window floating on a soft gradient card, built by
 3. **Build the composite:**
 
    ```sh
-   cp ~/Desktop/Screenshot*<time>*.png assets/screenshot-dark.png
+   cp ~/Desktop/Screenshot*<time>*.png assets/editor-dark.png
    scripts/make-preview.py
    ```
 
@@ -27,9 +27,9 @@ editor window floating on a soft gradient card, built by
    (`pip install pillow`). Pass explicit paths to build from somewhere else:
    `scripts/make-preview.py in.png out.png`.
 
-4. **Check the result** — open `assets/preview.png`. The window should sit
+4. **Check the result** — open `assets/editor.png`. The window should sit
    centred with the timeline running off the bottom edge. Backdrop colours,
    corner radii, and the crop height are constants at the top of the script.
 
-5. **Commit** `assets/screenshot-dark.png` and `assets/preview.png`. The
-   README references `assets/preview.png` by path, so no README edit is needed.
+5. **Commit** `assets/editor-dark.png` and `assets/editor.png`. The
+   README references `assets/editor.png` by path, so no README edit is needed.
