@@ -530,8 +530,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             .add(&first)
             .map_err(|error| ffi::fail("filter", &inputs[index].path, error))?;
     }
-    let mut live = inputs.len();
-    loop {
+    'mix: loop {
         // Pull everything the sink has.
         loop {
             let mut mixed = Audio::empty();
@@ -548,16 +547,17 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                         .map_err(|error| ffi::fail("encode", destination, error))?;
                     drain(&mut encoder, &mut output)?;
                 }
-                Err(ffmpeg::Error::Eof) => {
-                    live = 0;
-                    break;
-                }
+                // The graph's atrim=duration filter ended the mix at the
+                // exact timeline duration. All inputs may have finished
+                // earlier (trimmed clips, shorter audio), but the graph
+                // padded silence via apad until duration was reached.
+                // Break, do not return: the finalisation below this loop
+                // flushes the encoder and writes the trailer, and an m4a
+                // without its trailer cannot be opened by the muxer.
+                Err(ffmpeg::Error::Eof) => break 'mix,
                 Err(error) if ffi::is_again(&error) => break,
                 Err(error) => return Err(ffi::fail("filter output", destination, error)),
             }
-        }
-        if live == 0 {
-            break;
         }
         // Push one frame from every input that still has one.
         for input in inputs.iter_mut() {
@@ -566,44 +566,31 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             }
             match input.next()? {
                 Some(frame) => {
+                    // Scope the add call so its borrow ends before the flush.
+                    let added = {
+                        let mut context = graph.get(&input.label).expect("source exists");
+                        context.source().add(&frame)
+                    };
                     let mut context = graph.get(&input.label).expect("source exists");
-                    context
-                        .source()
-                        .add(&frame)
-                        .map_err(|error| ffi::fail("filter", &input.path, error))?;
+                    match added {
+                        Ok(()) => {}
+                        // The graph closed this input's slot - its trim ran
+                        // out or the mix ended while a frame was in flight.
+                        // Take what it got and end the input gracefully
+                        // instead of failing the whole mix on a trimmed clip.
+                        Err(ffmpeg::Error::Eof) => {
+                            let _ = context.source().flush();
+                            input.done = true;
+                        }
+                        Err(error) => return Err(ffi::fail("filter", &input.path, error)),
+                    }
                 }
                 None => {
                     let mut context = graph.get(&input.label).expect("source exists");
                     let _ = context.source().flush();
-                    live -= 1;
+                    input.done = true;
                 }
             }
-        }
-        // `live` counting down to zero means every source was flushed; the
-        // sink then drains to EOF on the next pass, which is what ends the
-        // outer loop.
-        if live == 0 {
-            loop {
-                let mut mixed = Audio::empty();
-                let pulled = {
-                    let mut context = graph.get("sink").expect("the graph has a sink");
-                    context.sink().frame(&mut mixed)
-                };
-                match pulled {
-                    Ok(()) => {
-                        mixed.set_pts(Some(written_samples));
-                        written_samples += mixed.samples() as i64;
-                        encoder
-                            .send_frame(&mixed)
-                            .map_err(|error| ffi::fail("encode", destination, error))?;
-                        drain(&mut encoder, &mut output)?;
-                    }
-                    Err(ffmpeg::Error::Eof) => break,
-                    Err(error) if ffi::is_again(&error) => break,
-                    Err(error) => return Err(ffi::fail("filter output", destination, error)),
-                }
-            }
-            break;
         }
     }
 
