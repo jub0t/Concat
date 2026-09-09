@@ -2,7 +2,7 @@
 <table width="100%">
   <tr>
     <td align="left" width="120">
-      <img src="assets/concat_logo_dark_512.png" alt="OpenCut Logo" width="100" />
+      <img src="assets/concat_logo_dark_512.png" alt="Concat" width="100" />
     </td>
     <td align="right">
       <h1>Concat</h1>
