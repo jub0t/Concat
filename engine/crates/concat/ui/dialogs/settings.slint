@@ -7,6 +7,7 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 
 // Settings: a fixed-height sheet with a column of pages down the side. The
@@ -48,6 +49,11 @@ export struct SettingsData {
     language: int,
     /// the transcriber's working language
     transcribe-language: int,
+    /// what a clip of a file with several audio tracks plays when placed:
+    /// 0 the first track, 1 the last, 2 every track as its own clip
+    audio-tracks: int,
+    /// the playhead stops at the end of the content
+    playhead-stops: bool,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -372,6 +378,8 @@ export component SettingsDialog inherits Modal {
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
     callback transcribe-language-changed(index: int);
+    callback audio-tracks-changed(index: int);
+    callback playhead-stops-changed(on: bool);
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -466,16 +474,74 @@ export component SettingsDialog inherits Modal {
         PaneScroll {
             horizontal-stretch: 1;
 
-            if root.data.tab == 0: DialogSection {
-                first: true;
-                title: I18n.t("Language");
+            if root.data.tab == 0: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("Language");
 
-                // Native names: whoever is stranded in a language they cannot
-                // read must still recognise their own in this list.
-                for name[index] in root.languages: Choice {
-                    label: name;
-                    current: index == root.data.language;
-                    clicked => { root.language-changed(index); }
+                    // Native names: whoever is stranded in a language they
+                    // cannot read must still recognise their own in this list.
+                    for name[index] in root.languages: Choice {
+                        label: name;
+                        current: index == root.data.language;
+                        clicked => { root.language-changed(index); }
+                    }
+                }
+
+                // Off, the playhead goes wherever the ruler is clicked, past
+                // the last clip included, so a clip can be placed out there.
+                // On, it stops where the content does.
+                DialogSection {
+                    title: I18n.t("Playhead");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Stop at the end of the content");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.playhead-stops;
+                                toggled(on) => { root.playhead-stops-changed(on); }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: I18n.t("Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs;
+                        wrap: word-wrap;
+                    }
+                }
+
+                // A file with one audio track has nothing to choose, so this
+                // only ever matters for a recording that kept the desktop and
+                // the microphone apart. It sets what a placed clip starts on;
+                // the Audio panel changes any one clip afterwards.
+                DialogSection {
+                    title: I18n.t("Audio tracks");
+
+                    SegmentedControl {
+                        options: [I18n.t("First track"), I18n.t("Last track"), I18n.t("Every track")];
+                        current: root.data.audio-tracks;
+                        changed(index) => { root.audio-tracks-changed(index); }
+                    }
+
+                    Text {
+                        text: I18n.t("What a clip plays when its file has more than one audio track, as a screen recording with the desktop and the microphone apart does. Every track puts each one on a sound lane of its own, the way Detach audio does. The Audio panel can change any clip afterwards.");
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs;
+                        wrap: word-wrap;
+                    }
                 }
             }
 

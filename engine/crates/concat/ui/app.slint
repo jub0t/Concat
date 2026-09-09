@@ -185,6 +185,8 @@ export component App inherits Window {
     callback settings-language-changed(index: int);
     callback settings-theme-changed(dark: bool);
     callback settings-transcribe-language-changed(index: int);
+    callback settings-audio-tracks-changed(index: int);
+    callback settings-playhead-stops-changed(on: bool);
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -464,6 +466,8 @@ export component App inherits Window {
         transcribe-language-changed(index) => {
             root.settings-transcribe-language-changed(index);
         }
+        audio-tracks-changed(index) => { root.settings-audio-tracks-changed(index); }
+        playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         model-activated(id) => { root.model-activated(id); }
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }

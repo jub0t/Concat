@@ -32,6 +32,52 @@ pub struct Preferences {
     /// library it happens to be filed in is not part of it.
     #[serde(default)]
     pub favourites: Vec<String>,
+    /// What a clip plays when its file has several audio tracks.
+    pub audio_tracks: AudioTracks,
+    /// The playhead stops at the end of the content instead of going where
+    /// it is put. Off by default: a click past the last clip lands there, so
+    /// a clip can be dropped at the playhead beyond everything else.
+    pub playhead_stops_at_end: bool,
+}
+
+/// What a clip of a file with several audio tracks plays when it is placed
+/// from the bin - a screen recording that kept the desktop and the
+/// microphone apart, say. A file with one track has nothing to choose and
+/// is left alone whatever this says. The Audio panel changes a placed clip
+/// afterwards, per clip; this only sets what a fresh one starts on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AudioTracks {
+    /// The first track in file order: what the engine plays unless told
+    /// otherwise, and what every clip did before the choice existed.
+    #[default]
+    First,
+    /// The last track in file order.
+    Last,
+    /// Every track, each as a sound clip of its own on its own lane, and
+    /// the video muted - the same as detaching the audio by hand.
+    Every,
+}
+
+impl AudioTracks {
+    /// The choices, in the order the settings sheet lists them.
+    pub const ALL: [AudioTracks; 3] = [AudioTracks::First, AudioTracks::Last, AudioTracks::Every];
+
+    /// The row in the settings sheet.
+    pub fn row(self) -> i32 {
+        Self::ALL
+            .iter()
+            .position(|choice| *choice == self)
+            .unwrap_or(0) as i32
+    }
+
+    /// The choice a row names; a row off the list is the default.
+    pub fn from_row(row: i32) -> Self {
+        usize::try_from(row)
+            .ok()
+            .and_then(|row| Self::ALL.get(row).copied())
+            .unwrap_or_default()
+    }
 }
 
 impl Preferences {

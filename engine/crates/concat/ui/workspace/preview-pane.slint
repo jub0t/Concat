@@ -587,6 +587,9 @@ export component PreviewPane inherits Rectangle {
     // ── where the playhead is ────────────────────────────────────────────
     in property <float> playhead;
     in property <float> duration;
+    /// The playhead may go past `duration`: the step and end buttons stay
+    /// live out there and the timecode field takes any frame.
+    in property <bool> playhead-free;
     in property <bool> playing;
     /// Whether anything is under the playhead, and what. "Nothing under the
     /// playhead" is a real state a monitor has to render, not a placeholder
@@ -640,7 +643,7 @@ export component PreviewPane inherits Rectangle {
     property <float> total-frames: Math.round(root.duration * root.frame-rate);
     property <float> frames: Math.round(root.playhead * root.frame-rate);
     property <bool> at-start: root.frames <= 0;
-    property <bool> at-end: root.frames >= root.total-frames;
+    property <bool> at-end: !root.playhead-free && root.frames >= root.total-frames;
 
     // The NumberField writes to its own `value`, and an assignment in Slint
     // replaces whatever binding the parent declared — so this is seeded, not
@@ -801,7 +804,7 @@ export component PreviewPane inherits Rectangle {
                             width: 116px;
                             value <=> root.shown-frames;
                             minimum: 0;
-                            maximum: root.total-frames;
+                            maximum: root.playhead-free ? 1000000000 : root.total-frames;
                             step: 1;
                             // Scrubbing a timecode should walk frames at the
                             // speed a hand expects, not fly a hundred at once.

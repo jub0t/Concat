@@ -168,6 +168,8 @@ export global Editor {
     in-out property <bool> has-picture;
     in-out property <string> preview-clip-name;
     in-out property <float> preview-duration;
+    /// The playhead may sit past the end of the content; see Settings.
+    in-out property <bool> playhead-free;
     /// The engine's composited frame at the playhead, or an empty image
     /// while one is on its way. Set from Rust; see `Studio::request_preview`.
     in-out property <image> preview-frame;

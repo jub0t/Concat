@@ -959,6 +959,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.prefs.transcribe_language = Some(state.settings.transcribe_language);
         state.prefs.save(&state.host.dirs);
     }));
+    app.on_settings_audio_tracks_changed(on_window!(|state, index: i32| {
+        let choice = prefs::AudioTracks::from_row(index);
+        state.settings.audio_tracks = choice.row();
+        state.prefs.audio_tracks = choice;
+        state.prefs.save(&state.host.dirs);
+    }));
+    app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
+        state.settings.playhead_stops = on;
+        state.prefs.playhead_stops_at_end = on;
+        state.prefs.save(&state.host.dirs);
+        // A playhead already out past the end comes back in when the
+        // switch goes on; seek does the clamp.
+        let at = state.playhead;
+        state.seek(at);
+    }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
         state.model_activate(id.as_str());
     }));

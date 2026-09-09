@@ -47,7 +47,7 @@ use crate::format::{
 };
 use crate::host::{Host, MediaArt, image_at, image_of, media_art, on_ui, spawn, spawn_art};
 use crate::i18n::{self, t, tf};
-use crate::prefs::Preferences;
+use crate::prefs::{AudioTracks, Preferences};
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
 
@@ -266,6 +266,10 @@ pub struct SettingsState {
     pub tab: i32,
     pub language: usize,
     pub transcribe_language: i32,
+    /// Row of [`AudioTracks`] in the General page.
+    pub audio_tracks: i32,
+    /// The switch that keeps the playhead inside the content.
+    pub playhead_stops: bool,
 }
 
 /// The bottom-right notice: one at a time. The token is what the panel
@@ -1391,6 +1395,8 @@ impl Studio {
             .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
             .unwrap_or(0);
         studio.settings.transcribe_language = studio.prefs.transcribe_language.unwrap_or(0);
+        studio.settings.audio_tracks = studio.prefs.audio_tracks.row();
+        studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
         studio.refresh_models();
         studio
     }
@@ -1964,8 +1970,14 @@ impl Studio {
     }
 
     /// Moves the playhead, the transport with it, and asks for the frame.
+    /// Never before zero; past the end of the content only when Settings
+    /// lets it, which is the default, so the ruler can be clicked beyond the
+    /// last clip and something placed at the playhead there.
     pub fn seek(&mut self, seconds: f32) {
-        self.playhead = seconds.clamp(0.0, self.duration().max(0.0));
+        self.playhead = seconds.max(0.0);
+        if self.prefs.playhead_stops_at_end {
+            self.playhead = self.playhead.min(self.duration().max(0.0));
+        }
         self.host.playback.seek(f64::from(self.playhead));
         self.request_preview();
     }
@@ -2399,7 +2411,8 @@ impl Studio {
             })
         };
         if let Some(id) = created {
-            self.selection = vec![id];
+            self.selection = vec![id.clone()];
+            self.settle_audio_tracks(&id);
         }
     }
 
@@ -2427,7 +2440,51 @@ impl Studio {
             })
         };
         if let Some(id) = created {
-            self.selection = vec![id];
+            self.selection = vec![id.clone()];
+            self.settle_audio_tracks(&id);
+        }
+    }
+
+    /// The Settings choice for a file with several audio tracks, applied to
+    /// a clip just placed from the bin. Nothing for the first track: that
+    /// is what a fresh clip plays. The last track is named on the clip; every
+    /// track is the sound pulled out, one clip per track, as Detach audio
+    /// does. A file with one track has nothing to choose, whatever the
+    /// setting says. A second edit after the placement, so an undo takes the
+    /// choice back and leaves the clip, the way a freeze frame's trim does.
+    fn settle_audio_tracks(&mut self, clip_id: &str) {
+        let choice = self.prefs.audio_tracks;
+        if choice == AudioTracks::First {
+            return;
+        }
+        let Some(media_id) = self.clip(clip_id).map(|clip| clip.media_id.clone()) else {
+            return;
+        };
+        let tracks = self
+            .project()
+            .media
+            .iter()
+            .find(|item| item.id == media_id)
+            .map(|item| item.audio_tracks.clone())
+            .unwrap_or_default();
+        if tracks.len() < 2 {
+            return;
+        }
+        let clip_id = clip_id.to_owned();
+        match choice {
+            AudioTracks::First => {}
+            AudioTracks::Last => {
+                self.apply(Command::UpdateClip {
+                    clip_id,
+                    patch: ClipPatch {
+                        audio_stream: Some(tracks.last().map(|track| track.index)),
+                        ..ClipPatch::default()
+                    },
+                });
+            }
+            AudioTracks::Every => {
+                self.apply(Command::DetachAudio { clip_id });
+            }
         }
     }
 
@@ -5557,6 +5614,7 @@ impl Studio {
                 .into(),
         );
         editor.set_preview_duration(self.duration());
+        editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
         editor.set_preview_frame(self.preview.clone());
         sync(&models.stage, self.stage_items());
@@ -6342,6 +6400,8 @@ impl Studio {
             tab: self.settings.tab,
             language: self.settings.language as i32,
             transcribe_language: self.settings.transcribe_language,
+            audio_tracks: self.settings.audio_tracks,
+            playhead_stops: self.settings.playhead_stops,
             disk: {
                 let installed: Vec<&ModelState> = self
                     .transcribers
@@ -6759,7 +6819,9 @@ impl Studio {
             .collect();
         let start = f64::from(self.playhead.max(0.0));
         for media_id in ids {
-            self.apply(Command::AddClipAtFirstFree { media_id, start });
+            if let Some(id) = self.apply(Command::AddClipAtFirstFree { media_id, start }) {
+                self.settle_audio_tracks(&id);
+            }
         }
     }
 
