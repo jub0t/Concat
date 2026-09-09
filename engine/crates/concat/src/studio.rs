@@ -6361,11 +6361,28 @@ impl Studio {
         // The bin.
         let filter = self.media_filter;
         let items = &self.project().media;
+
+        // Grupiši po tipu (Video -> Audio -> Slike), pa abecedno po imenu
+        let mut visible: Vec<_> = items
+            .iter()
+            .filter(|item| Self::shows(filter, item.kind))
+            .collect();
+
+        visible.sort_by(|a, b| {
+            let rank = |kind: model::MediaKind| match kind {
+                model::MediaKind::Video => 0,
+                model::MediaKind::Audio => 1,
+                model::MediaKind::Image => 2,
+            };
+            rank(a.kind)
+                .cmp(&rank(b.kind))
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+
         sync(
             &models.media,
-            items
-                .iter()
-                .filter(|item| Self::shows(filter, item.kind))
+            visible
+                .into_iter()
                 .map(|item| MediaItemData {
                     id: *self.media_rows.get(&item.id).unwrap_or(&0),
                     name: item.name.as_str().into(),
