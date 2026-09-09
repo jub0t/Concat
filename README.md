@@ -32,16 +32,17 @@ start cutting, no account, no extra downloads, no setup.
 
 ## Highlights
 
-- Free and local Text-to-Speech features.
-- 🎬 Multi-track editing, with several timelines per project when one isn't enough
-- ✂️ The cutting toolkit you'd expect: split, trim, merge, transitions, speed control
-- 💬 Auto-captions that run entirely on your machine — your audio never leaves it
-- 🎙️ Voice filters for cleaning up or playing with your sound
-- 📝 Titles and styled text
-- 📦 Templates — build an edit once, reuse it for the next video
-- 🚫 No watermarks, no account, nothing behind a paywall
-- 🖥️ Works the same on macOS, Windows and Linux
-- 🌍 Twelve languages, and a new one is a single JSON file — see [TRANSLATING.md](TRANSLATING.md)
+- 🚫 **No watermarks.** No account. No paywall.
+- 🔒 **100% local.** Nothing leaves your machine.
+- 🎬 **Multi-track editing.** Several timelines per project.
+- ✂️ **Cut fast.** Split, trim, merge, transitions, speed control.
+- 💬 **Auto-captions.** Runs on your machine, offline.
+- 🗣️ **Text-to-Speech.** Free, local voices.
+- 🎙️ **Voice filters.** Clean up or play with your sound.
+- 📝 **Titles and styled text.**
+- 📦 **Templates.** Build an edit once, reuse it.
+- 🖥️ **macOS, Windows and Linux.** Same app everywhere.
+- 🌍 **Twelve languages.** Add one with a single JSON file, see [TRANSLATING.md](TRANSLATING.md).
 
 ## Get started
 
