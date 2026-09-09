@@ -7,6 +7,7 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 
@@ -323,42 +324,6 @@ component FactRow inherits HorizontalLayout {
     }
 }
 
-component Choice inherits Rectangle {
-    in property <string> label;
-    in property <bool> current;
-
-    callback clicked();
-
-    height: 30px;
-    border-radius: Theme.r-sm;
-    border-width: 1px;
-    border-color: root.current ? Theme.accent : Theme.line;
-    background: root.current ? Theme.accent-soft
-        : touch.has-hover ? Theme.field
-        : Theme.raised;
-
-    animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 10px;
-
-        Text {
-            horizontal-stretch: 1;
-            text: root.label;
-            color: root.current ? Theme.fg : Theme.fg-muted;
-            font-size: Theme.fs;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-    }
-
-    touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { root.clicked(); }
-    }
-}
-
 export component SettingsDialog inherits Modal {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
@@ -481,10 +446,10 @@ export component SettingsDialog inherits Modal {
 
                     // Native names: whoever is stranded in a language they
                     // cannot read must still recognise their own in this list.
-                    for name[index] in root.languages: Choice {
-                        label: name;
-                        current: index == root.data.language;
-                        clicked => { root.language-changed(index); }
+                    Select {
+                        options: root.languages;
+                        current: root.data.language;
+                        changed(index) => { root.language-changed(index); }
                     }
                 }
 
