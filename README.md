@@ -66,6 +66,26 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 
 **Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
+**System requirements:**
+
+Concat runs everything on your machine, so the hardware sets the ceiling. The minimum column is what a build will run on at all; the recommended column is what makes 1080p editing feel smooth and keeps 4K exports and captions from being a wait.
+
+| | Minimum | Recommended |
+|---|---|---|
+| **Windows** | Windows 10 64-bit (x64) or Windows 11 (Arm64) | Windows 11 |
+| **macOS** | macOS 12 Monterey (Intel) | macOS 14 or newer on Apple silicon |
+| **Linux** | glibc 2.35 or newer (Ubuntu 22.04, Debian 12, Fedora 36 and their successors), x86_64 or aarch64 | A current distribution with a Vulkan driver installed |
+| **Android / iOS** 🧪 | Android 8.0 (arm64) · iOS/iPadOS 15 | A phone or tablet from the last three years |
+| **CPU** | x86_64 with AVX2, FMA and F16C (Intel from 2013, AMD Ryzen) · any 64-bit Arm (NEON) | 6 or more cores. Export, captions and cutout are CPU-bound |
+| **GPU** | None. Without a usable GPU the window and monitor fall back to the CPU | Any GPU with Metal (macOS), DirectX 12 (Windows) or Vulkan (Linux) |
+| **RAM** | 4 GB | 16 GB for 4K timelines and the larger caption models |
+| **Storage** | 500 MB for the app and the smallest caption model | 2 GB for every optional model, plus room for projects and exports |
+| **Display** | 1280 × 720 | 1920 × 1080 or larger |
+| **Audio** | Optional. Playback wants an output device, everything else works without one | |
+| **Internet** | Not required. Only used when you download an optional model, once | |
+
+Optional models download from the settings panel on first use and then never need the network again: auto-captions 78 MB to 488 MB depending on the whisper size you pick, text-to-speech 132 MB or 349 MB, person cutout 15 MB, object cutout 179 MB, and the cutout brush 40 MB.
+
 ## Contribution
 
 > [!IMPORTANT]
