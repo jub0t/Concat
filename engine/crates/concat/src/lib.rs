@@ -952,13 +952,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
         state.prefs.save(&state.host.dirs);
     }));
-    app.on_settings_transcribe_language_changed(on_window!(|state, index: i32| {
-        state.settings.transcribe_language = index
-            .max(0)
-            .min(studio::TRANSCRIBE_LANGUAGES.len() as i32 - 1);
-        state.prefs.transcribe_language = Some(state.settings.transcribe_language);
-        state.prefs.save(&state.host.dirs);
-    }));
     app.on_settings_audio_tracks_changed(on_window!(|state, index: i32| {
         let choice = prefs::AudioTracks::from_row(index);
         state.settings.audio_tracks = choice.row();
@@ -1008,8 +1001,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_captions_closed(on_window!(|state| {
         state.captions.open = false;
     }));
-    app.on_captions_language_changed(on_window!(|state, index: i32| {
-        state.captions.language = index.clamp(0, studio::TRANSCRIBE_LANGUAGES.len() as i32 - 1);
+    app.on_captions_source_changed(on_window!(|state, index: i32| {
+        state.captions.source = (index.max(0) as usize).min(1);
+    }));
+    app.on_captions_text_edited(on_window!(|state, text: SharedString| {
+        state.captions.text = text.to_string();
     }));
     app.on_captions_model_changed(on_window!(|state, index: i32| {
         state.captions.model = index.max(0) as usize;

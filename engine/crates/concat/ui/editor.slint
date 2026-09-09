@@ -231,11 +231,13 @@ export global Editor {
     in-out property <bool> snap;
     in-out property <int> selected-count;
     in-out property <string> merge-blocked-because;
-    /// What the tray's sound and word tools may do to the selection: one
-    /// clip with sound to caption, one title to speak, one video clip whose
-    /// sound is on it to detach, or whose sound is off it to put back.
-    in-out property <bool> can-caption;
-    in-out property <bool> can-speak;
+    /// What the selection offers the tray's sound and word tools: one clip
+    /// with sound for Captions to start on, one title for Speak to read,
+    /// one video clip whose sound is on it to detach, or whose sound is off
+    /// it to put back. The first two are hints - both sheets open without
+    /// them - and the last two are gates.
+    in-out property <bool> sound-selected;
+    in-out property <bool> title-selected;
     in-out property <bool> can-detach;
     in-out property <bool> can-reattach;
     in-out property <float> playhead;

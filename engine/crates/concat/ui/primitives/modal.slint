@@ -4,6 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
+import { Tip } from "tooltip.slint";
 
 // The dialog layer this tree did not have.
 //
@@ -333,6 +334,10 @@ export component DialogSection inherits VerticalLayout {
     in-out property <bool> open: true;
     /// suppress the leading hairline, for the first group in a sheet
     in property <bool> first;
+    /// The paragraph that would otherwise sit under the controls, moved to
+    /// a question mark beside the title: read on hover, out of the way
+    /// otherwise.
+    in property <string> hint;
 
     if !root.first: Rectangle {
         height: 1px;
@@ -376,6 +381,25 @@ export component DialogSection inherits VerticalLayout {
                 font-size: Theme.fs-lg;
                 font-weight: Theme.weight-title;
                 vertical-alignment: center;
+            }
+
+            if root.hint != "": Rectangle {
+                width: 18px;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.help;
+                    size: 14px;
+                    tint: mark.has-hover ? Theme.fg : Theme.fg-dim;
+                }
+
+                mark := TouchArea { mouse-cursor: help; }
+
+                Tip {
+                    text: root.hint;
+                    active: mark.has-hover;
+                }
             }
 
             Rectangle { horizontal-stretch: 1; }

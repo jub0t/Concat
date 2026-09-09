@@ -8,20 +8,27 @@ import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 
-// Auto captions: what the tray's Captions tool opens.
+// Captions: what the tray's Captions tool opens.
 //
-// The choices a caption pass turns on - which language the speech is in,
-// which model listens, where the lines sit and how big they are - then one
+// Two places the words can come from. The sound: the selected clip's, or
+// every clip with sound on the timeline when nothing is selected, run
+// through the transcriber and cut to the words' own timing. A script: the
+// words typed here, one title per sentence at reading pace, laid down one
+// after another. Then where the lines sit and how big they are, and one
 // button. While it runs the sheet is the progress report: a transcription
 // knows how far through the sound it is, so it gets a real bar and not a
-// sweep.
+// sweep. The language is the transcriber's to work out.
 
 export struct CaptionsSheetData {
     open: bool,
-    /// The clip being transcribed, for the header's note.
-    clip: string,
-    /// 0 Auto, 1 English, 2 Chinese - the transcriber's own list.
-    language: int,
+    /// 0 Sound, 1 Script
+    source: int,
+    /// The sound to transcribe: the selected clip's name, or "4 clips with
+    /// sound"; empty when the timeline has none.
+    subject: string,
+    /// Where a script's captions land, for the header's note.
+    landing: string,
+    text: string,
     /// Row in the installed transcriber list.
     model: int,
     /// 0 Bottom, 1 Centre, 2 Top
@@ -42,33 +49,52 @@ export component CaptionsDialog inherits Modal {
     /// The installed transcriber models, by name.
     in property <[string]> models;
 
-    callback language-changed(index: int);
+    callback source-changed(index: int);
+    callback text-edited(text: string);
     callback model-changed(index: int);
     callback placement-changed(index: int);
     callback size-changed(index: int);
     callback begin();
     callback cancel();
 
+    property <bool> from-sound: root.data.source == 0;
+
     open: root.data.open;
-    title: I18n.t("Auto captions");
+    title: I18n.t("Captions");
     glyph: Glyph.text-mark;
-    surface-width: 460px;
+    surface-width: 480px;
     dismissable: !root.data.running;
-    note: root.data.clip;
+    note: root.from-sound ? root.data.subject : root.data.landing;
+
+    // The script being typed, held apart from `data.text` the way the Field
+    // primitive holds its draft: a TextInput's binding is dropped on the
+    // first keystroke, so the sheet re-seeds it when it opens and never
+    // while it is being typed into.
+    property <string> draft;
+    /// The script has the caret. Kept up here because the box lives under
+    /// an `if`, and nothing outside one can reach into it.
+    property <bool> typing;
+    changed data => {
+        if (!root.typing) {
+            root.draft = root.data.text;
+        }
+    }
+    init => { root.draft = root.data.text; }
 
     VerticalLayout {
         if !root.data.running: DialogSection {
             first: true;
-            title: I18n.t("Transcriber");
+            title: I18n.t("Source");
 
-            DialogRow {
-                label: I18n.t("Language");
-                SegmentedControl {
-                    options: [I18n.t("Auto"), I18n.t("English"), I18n.t("Chinese")];
-                    current: root.data.language;
-                    changed(index) => { root.language-changed(index); }
-                }
+            SegmentedControl {
+                options: [I18n.t("Sound"), I18n.t("Script")];
+                current: root.data.source;
+                changed(index) => { root.source-changed(index); }
             }
+        }
+
+        if !root.data.running && root.from-sound: DialogSection {
+            title: I18n.t("Transcriber");
 
             DialogRow {
                 label: I18n.t("Model");
@@ -86,6 +112,50 @@ export component CaptionsDialog inherits Modal {
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
+            }
+
+            if root.data.subject == "": Text {
+                text: I18n.t("Nothing on the timeline has sound to transcribe. Select a clip with sound, or type a script instead.");
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        if !root.data.running && !root.from-sound: DialogSection {
+            title: I18n.t("Script");
+
+            Rectangle {
+                height: 104px;
+                border-radius: Theme.r;
+                background: Theme.well;
+                border-width: 1px;
+                border-color: script.has-focus ? Theme.accent : Theme.line;
+                clip: true;
+
+                script := TextInput {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: parent.height - 16px;
+                    text <=> root.draft;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    single-line: false;
+                    wrap: word-wrap;
+                    selection-background-color: Theme.accent;
+                    selection-foreground-color: Theme.on-accent;
+                    changed has-focus => { root.typing = self.has-focus; }
+                    edited => { root.text-edited(self.text); }
+                }
+
+                if root.draft == "" && !script.has-focus: Text {
+                    x: 10px;
+                    y: 8px;
+                    text: I18n.t("Type the words to put on screen…");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-lg;
+                }
             }
         }
 
@@ -111,7 +181,9 @@ export component CaptionsDialog inherits Modal {
             }
 
             Text {
-                text: I18n.t("One title per phrase spoken, cut to the words' own timing, on the first lane with room.");
+                text: root.from-sound
+                    ? I18n.t("One title per phrase spoken, cut to the words' own timing, on the first lane with room.")
+                    : I18n.t("One title per sentence, held for as long as it takes to read, one after another on the first lane with room.");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -192,8 +264,10 @@ export component CaptionsDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.text-mark;
-                label: I18n.t("Generate captions");
-                enabled: root.data.ready;
+                label: root.from-sound ? I18n.t("Generate captions") : I18n.t("Add captions");
+                enabled: root.from-sound
+                    ? root.data.ready && root.data.subject != ""
+                    : root.draft != "";
                 clicked => { root.begin(); }
             }
         }

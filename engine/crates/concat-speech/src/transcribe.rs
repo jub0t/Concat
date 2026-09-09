@@ -167,8 +167,6 @@ pub struct TranscribeRequest {
     pub source_start: f64,
     /// How much source the clip covers, in seconds (`duration * speed`).
     pub window: f64,
-    /// Whisper language code, or "auto".
-    pub language: String,
     /// Which model to use, e.g. "base.en".
     pub model_id: String,
 }
@@ -354,11 +352,9 @@ impl Transcriber {
             .unwrap_or(4);
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(threads as i32);
-        params.set_language(Some(if request.language.is_empty() {
-            "auto"
-        } else {
-            &request.language
-        }));
+        // The language is whisper's to hear: it detects it from the first
+        // window, and an English-only model ignores the setting anyway.
+        params.set_language(Some("auto"));
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);

@@ -104,6 +104,7 @@ export enum Glyph {
     text-mark,
     // the start screen
     info,
+    help,
     folder,
     // the cutout's brushes
     brush,
@@ -174,6 +175,12 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.info: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M12 16v-4 M12 8h.01";
+    }
+
+    // lucide/circle-help
+    if root.glyph == Glyph.help: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3 M12 17h.01";
     }
 
     // lucide/folder

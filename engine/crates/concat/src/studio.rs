@@ -149,10 +149,6 @@ pub struct LibraryView {
 pub const SHELF_KINDS: [PackageKind; 3] =
     [PackageKind::Filter, PackageKind::Effect, PackageKind::Audio];
 
-/// The transcriber's languages: the rows of the Auto / English / Chinese
-/// control in Settings > Transcriber, and the whisper code each means.
-pub const TRANSCRIBE_LANGUAGES: [&str; 3] = ["auto", "en", "zh"];
-
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
 
@@ -172,10 +168,13 @@ pub struct ProjectSheet {
 #[derive(Default)]
 pub struct CaptionsSheet {
     pub open: bool,
-    /// The clip being transcribed.
-    pub clip: Option<String>,
-    /// Row in `TRANSCRIBE_LANGUAGES`.
-    pub language: i32,
+    /// 0 the sound, 1 a script.
+    pub source: usize,
+    /// The clips the sound source transcribes: the selected clip with
+    /// sound, or every clip with sound on the timeline.
+    pub clips: Vec<String>,
+    /// The script source's words.
+    pub text: String,
     /// Row in the installed transcriber list.
     pub model: usize,
     /// 0 bottom, 1 centre, 2 top.
@@ -265,7 +264,6 @@ pub struct SettingsState {
     pub open: bool,
     pub tab: i32,
     pub language: usize,
-    pub transcribe_language: i32,
     /// Row of [`AudioTracks`] in the General page.
     pub audio_tracks: i32,
     /// The switch that keeps the playhead inside the content.
@@ -1394,7 +1392,6 @@ impl Studio {
             .iter()
             .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
             .unwrap_or(0);
-        studio.settings.transcribe_language = studio.prefs.transcribe_language.unwrap_or(0);
         studio.settings.audio_tracks = studio.prefs.audio_tracks.row();
         studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
         studio.refresh_models();
@@ -4638,8 +4635,10 @@ impl Studio {
     }
 
     /// What the tray's sound and word tools may do to the selection: one
-    /// clip with sound to caption, one title to speak, one video clip whose
-    /// sound is on it to detach, or whose sound is off it to put back.
+    /// clip with sound for Captions to start on, one title for Speak to
+    /// read, one video clip whose sound is on it to detach, or whose sound
+    /// is off it to put back. The first two are hints - both sheets open
+    /// without them - and the last two are gates.
     fn sound_tools(&self) -> (bool, bool, bool, bool) {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return (false, false, false, false);
@@ -5099,18 +5098,33 @@ impl Studio {
         models.iter().filter(|model| model.installed).collect()
     }
 
-    /// Opens the captions sheet on the selected clip, with the settings'
-    /// language and the chosen model already picked.
+    /// Opens the captions sheet with the chosen model already picked. The
+    /// sound source is the selected clip when it has sound, else every clip
+    /// with sound on the timeline; with neither, the sheet opens on the
+    /// script instead.
     pub fn captions_open(&mut self) {
-        let Some(id) = self.sole_selection() else {
-            return;
-        };
         let installed = Self::installed(&self.transcribers);
         let model = installed.iter().position(|model| model.active).unwrap_or(0);
+        let has_sound =
+            |clip: &Clip| matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio);
+        let selected = self
+            .sole_selection()
+            .and_then(|id| self.clip(&id))
+            .filter(|clip| has_sound(clip))
+            .map(|clip| clip.id.clone());
+        let clips: Vec<String> = match selected {
+            Some(id) => vec![id],
+            None => {
+                let mut clips: Vec<&Clip> =
+                    self.timeline().clips.iter().filter(|clip| has_sound(clip)).collect();
+                clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+                clips.into_iter().map(|clip| clip.id.clone()).collect()
+            }
+        };
         self.captions = CaptionsSheet {
             open: true,
-            clip: Some(id),
-            language: self.settings.transcribe_language,
+            source: usize::from(clips.is_empty()),
+            clips,
             model,
             placement: 0,
             size: 1,
@@ -5118,24 +5132,88 @@ impl Studio {
         };
     }
 
-    /// Runs the pass the sheet describes. The transcription runs on a
-    /// worker, reports into the sheet as it goes, and lands as one batch of
-    /// title clips - one undo step - when it is done.
+    /// Runs the pass the sheet describes: the sound through the
+    /// transcriber, or the script cut into lines. Either lands as one batch
+    /// of title clips - one undo step.
     pub fn captions_run(&mut self) {
-        let Some(clip) = self
+        if self.captions.source == 1 {
+            self.captions_from_script();
+        } else {
+            self.captions_from_sound();
+        }
+    }
+
+    /// A caption's look, by the sheet's rows: where it sits and its size.
+    fn caption_look(&self) -> (f64, f64) {
+        (
+            CAPTION_OFFSETS[self.captions.placement.min(2)],
+            CAPTION_SIZES[self.captions.size.min(2)],
+        )
+    }
+
+    fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Command {
+        let (offset_y, font_size) = look;
+        Command::AddTextClip {
+            track_id: None,
+            start,
+            style: Some(TextStyle {
+                content: text,
+                font_family: "Helvetica Neue".to_owned(),
+                font_size,
+                font_weight: 600.0,
+                ..TextStyle::default()
+            }),
+            duration: Some(duration),
+            offset_y: Some(offset_y),
+        }
+    }
+
+    /// The script as titles, one after another from the selected clip's
+    /// start or the playhead.
+    fn captions_from_script(&mut self) {
+        let lines = script_captions(&self.captions.text);
+        if lines.is_empty() {
+            self.captions.message = t("Nothing to caption yet");
+            return;
+        }
+        let look = self.caption_look();
+        let mut at = self.script_landing();
+        let commands: Vec<Command> = lines
+            .into_iter()
+            .map(|(text, seconds)| {
+                let command = Self::caption_clip(text, at, seconds, look);
+                at += seconds;
+                command
+            })
+            .collect();
+        let count = commands.len();
+        self.captions.open = false;
+        self.apply(Command::Batch { commands });
+        self.notify(&tf("Added {0} captions", &[&count]), false);
+    }
+
+    /// Where a script's first caption goes: the selected clip's start, or
+    /// the playhead.
+    fn script_landing(&self) -> f64 {
+        self.sole_selection()
+            .and_then(|id| self.clip(&id))
+            .map(|clip| clip.start)
+            .unwrap_or(f64::from(self.playhead))
+    }
+
+    /// The sheet's clips through the transcriber, one after another on a
+    /// worker, reporting into the sheet as they go.
+    fn captions_from_sound(&mut self) {
+        let clips: Vec<Clip> = self
             .captions
-            .clip
-            .as_ref()
-            .and_then(|id| self.clip(id))
-            .cloned()
-        else {
-            self.captions.message = t("The clip is no longer on the timeline");
+            .clips
+            .iter()
+            .filter_map(|id| self.clip(id).cloned())
+            .collect();
+        if clips.is_empty() {
+            self.captions.message = t("Nothing on the timeline has sound to transcribe");
             return;
-        };
-        let Some(media) = self.project().media_by_id(&clip.media_id).cloned() else {
-            self.captions.message = t("This clip has no file to transcribe");
-            return;
-        };
+        }
         let Some(model) = Self::installed(&self.transcribers)
             .get(self.captions.model)
             .map(|model| model.id.clone())
@@ -5144,20 +5222,24 @@ impl Studio {
                 t("Download a transcriber model in Settings › Transcriber first");
             return;
         };
-        let language = TRANSCRIBE_LANGUAGES
-            .get(self.captions.language.max(0) as usize)
-            .copied()
-            .unwrap_or("auto");
-        let offset_y = CAPTION_OFFSETS[self.captions.placement.min(2)];
-        let font_size = CAPTION_SIZES[self.captions.size.min(2)];
-        let request = concat_speech::transcribe::TranscribeRequest {
-            path: media.path.clone(),
-            audio_stream: clip.audio_stream,
-            source_start: clip.source_start,
-            window: clip.duration * clip.speed,
-            language: language.to_owned(),
-            model_id: model,
-        };
+        let requests: Vec<_> = clips
+            .iter()
+            .filter_map(|clip| {
+                let media = self.project().media_by_id(&clip.media_id)?;
+                Some(concat_speech::transcribe::TranscribeRequest {
+                    path: media.path.clone(),
+                    audio_stream: clip.audio_stream,
+                    source_start: clip.source_start,
+                    window: clip.duration * clip.speed,
+                    model_id: model.clone(),
+                })
+            })
+            .collect();
+        if requests.len() != clips.len() {
+            self.captions.message = t("This clip has no file to transcribe");
+            return;
+        }
+        let look = self.caption_look();
         let dirs = self.host.dirs.clone();
         let transcriber = Arc::clone(&self.host.transcriber);
         self.captions.running = true;
@@ -5165,39 +5247,50 @@ impl Studio {
         self.captions.message.clear();
         spawn(
             move || {
-                transcriber.transcribe(&dirs, &request, |percent| {
-                    on_ui(move |studio, _, _| {
-                        studio.captions.progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
-                    });
-                })
+                let total = requests.len();
+                let mut heard = Vec::with_capacity(total);
+                for (index, request) in requests.iter().enumerate() {
+                    let segments = transcriber.transcribe(&dirs, request, move |percent| {
+                        // One bar across every clip: this clip's share of it,
+                        // as far as whisper has got through the clip.
+                        let fraction = (index as f32 + (percent as f32 / 100.0).clamp(0.0, 1.0))
+                            / total as f32;
+                        on_ui(move |studio, _, _| studio.captions.progress = fraction);
+                    })?;
+                    heard.push(segments);
+                }
+                Ok::<_, String>(heard)
             },
             move |studio, _, _, result| {
                 studio.captions.running = false;
                 match result {
-                    Ok(segments) => {
-                        let commands: Vec<Command> = segments
+                    Ok(heard) => {
+                        let commands: Vec<Command> = clips
                             .iter()
-                            .filter(|segment| !segment.text.trim().is_empty())
-                            .map(|segment| Command::AddTextClip {
-                                track_id: None,
-                                start: clip.start + segment.start / clip.speed,
-                                style: Some(TextStyle {
-                                    content: segment.text.trim().to_owned(),
-                                    font_family: "Helvetica Neue".to_owned(),
-                                    font_size,
-                                    font_weight: 600.0,
-                                    ..TextStyle::default()
-                                }),
-                                duration: Some(
-                                    ((segment.end - segment.start) / clip.speed).max(0.2),
-                                ),
-                                offset_y: Some(offset_y),
+                            .zip(heard)
+                            .flat_map(|(clip, segments)| {
+                                segments.into_iter().filter_map(move |segment| {
+                                    let text = segment.text.trim().to_owned();
+                                    (!text.is_empty()).then(|| {
+                                        Self::caption_clip(
+                                            text,
+                                            clip.start + segment.start / clip.speed,
+                                            ((segment.end - segment.start) / clip.speed).max(0.2),
+                                            look,
+                                        )
+                                    })
+                                })
                             })
                             .collect();
                         let count = commands.len();
                         studio.captions.open = false;
                         if count == 0 {
-                            studio.notify(&t("Nothing was said in that clip"), true);
+                            let quiet = if clips.len() == 1 {
+                                t("Nothing was said in that clip")
+                            } else {
+                                t("Nothing was said in those clips")
+                            };
+                            studio.notify(&quiet, true);
                         } else {
                             studio.apply(Command::Batch { commands });
                             studio.notify(&tf("Added {0} captions", &[&count]), false);
@@ -5675,9 +5768,9 @@ impl Studio {
         editor.set_tool(self.tool);
         editor.set_snap(self.snap);
         editor.set_selected_count(self.selection.len() as i32);
-        let (can_caption, can_speak, can_detach, can_reattach) = self.sound_tools();
-        editor.set_can_caption(can_caption);
-        editor.set_can_speak(can_speak);
+        let (sound_selected, title_selected, can_detach, can_reattach) = self.sound_tools();
+        editor.set_sound_selected(sound_selected);
+        editor.set_title_selected(title_selected);
         editor.set_can_detach(can_detach);
         editor.set_can_reattach(can_reattach);
         editor.set_merge_blocked_because(match self.merge_blocked() {
@@ -6399,7 +6492,6 @@ impl Studio {
             open: self.settings.open,
             tab: self.settings.tab,
             language: self.settings.language as i32,
-            transcribe_language: self.settings.transcribe_language,
             audio_tracks: self.settings.audio_tracks,
             playhead_stops: self.settings.playhead_stops,
             disk: {
@@ -6433,14 +6525,20 @@ impl Studio {
         );
         app.set_captions(CaptionsSheetData {
             open: self.captions.open,
-            clip: self
-                .captions
-                .clip
-                .as_ref()
-                .and_then(|id| self.clip(id))
-                .map(|clip| SharedString::from(clip.name.as_str()))
-                .unwrap_or_default(),
-            language: self.captions.language,
+            source: self.captions.source as i32,
+            subject: match self.captions.clips.as_slice() {
+                [] => String::new(),
+                [id] => self.clip(id).map(|clip| clip.name.clone()).unwrap_or_default(),
+                many => tf("{0} clips with sound", &[&many.len()]),
+            }
+            .into(),
+            landing: if self.sole_selection().is_some() {
+                t("at the selected clip")
+            } else {
+                t("at the playhead")
+            }
+            .into(),
+            text: self.captions.text.as_str().into(),
             model: self.captions.model as i32,
             placement: self.captions.placement as i32,
             size: self.captions.size as i32,
@@ -7097,9 +7195,125 @@ impl Studio {
     }
 }
 
+/// Longest a caption line gets before it is wrapped: about what two lines
+/// of broadcast subtitle hold, and what a reader takes in at a glance.
+const CAPTION_CHARS: usize = 42;
+
+/// A script as caption lines, each with how long it stays up: a line's
+/// reading time at [`CHARS_PER_SECOND`], held to one second at least so
+/// a short word is not a flicker, and seven at most so a long line does
+/// not hang. A line break in the script is a break the author asked for;
+/// within a paragraph a sentence is a caption, and a long sentence wraps
+/// at its words.
+fn script_captions(text: &str) -> Vec<(String, f64)> {
+    text.lines()
+        .flat_map(sentences)
+        .flat_map(|sentence| wrap_caption(&sentence))
+        .map(|line| {
+            let seconds = (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
+            (line, seconds)
+        })
+        .collect()
+}
+
+/// A paragraph's sentences. A full stop, question or exclamation mark ends
+/// one when it is followed by space or by the end - so "3.5" and "e.g." hold
+/// together - and the CJK marks end one on their own.
+fn sentences(paragraph: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut chars = paragraph.chars().peekable();
+    while let Some(ch) = chars.next() {
+        current.push(ch);
+        let ends = match ch {
+            '。' | '！' | '？' => true,
+            '.' | '!' | '?' => chars.peek().is_none_or(|next| next.is_whitespace()),
+            _ => false,
+        };
+        if ends {
+            let sentence = current.trim();
+            if !sentence.is_empty() {
+                out.push(sentence.to_owned());
+            }
+            current.clear();
+        }
+    }
+    let rest = current.trim();
+    if !rest.is_empty() {
+        out.push(rest.to_owned());
+    }
+    out
+}
+
+/// A sentence in lines of at most [`CAPTION_CHARS`], broken between words;
+/// a word longer than a line, or a run of CJK with no spaces, is broken
+/// where it must be.
+fn wrap_caption(sentence: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    let mut line_chars = 0;
+    for word in sentence.split_whitespace() {
+        let word_chars = word.chars().count();
+        if line_chars > 0 && line_chars + 1 + word_chars > CAPTION_CHARS {
+            lines.push(std::mem::take(&mut line));
+            line_chars = 0;
+        }
+        if word_chars > CAPTION_CHARS {
+            let mut piece = String::new();
+            for ch in word.chars() {
+                piece.push(ch);
+                if piece.chars().count() == CAPTION_CHARS {
+                    lines.push(std::mem::take(&mut piece));
+                }
+            }
+            line = piece;
+            line_chars = line.chars().count();
+            continue;
+        }
+        if line_chars > 0 {
+            line.push(' ');
+            line_chars += 1;
+        }
+        line.push_str(word);
+        line_chars += word_chars;
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Footprint, Studio};
+    use super::{Footprint, Studio, script_captions};
+
+    /// A script becomes one caption per sentence, a hand line break is
+    /// kept, a long sentence wraps at its words, and each line is held for
+    /// its reading time within one to seven seconds.
+    #[test]
+    fn a_script_is_cut_into_readable_lines() {
+        let lines = script_captions(
+            "Hello there. This is version 3.5, mind!\n\nA sentence that runs on for far \
+             longer than a caption line has any business running on for. Ok?",
+        );
+        let text: Vec<&str> = lines.iter().map(|(line, _)| line.as_str()).collect();
+        assert_eq!(
+            text,
+            [
+                "Hello there.",
+                "This is version 3.5, mind!",
+                "A sentence that runs on for far longer",
+                "than a caption line has any business",
+                "running on for.",
+                "Ok?",
+            ]
+        );
+        assert!(lines.iter().all(|(_, seconds)| (1.0..=7.0).contains(seconds)));
+        assert_eq!(lines[0].1, 1.0);
+        assert!(lines[2].1 > lines[0].1);
+        assert!(script_captions("  \n ").is_empty());
+        assert_eq!(script_captions("你好。再见！").len(), 2);
+    }
 
     const FRAME: (u32, u32) = (1920, 1080);
 

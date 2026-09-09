@@ -184,7 +184,6 @@ export component App inherits Window {
     callback settings-page-changed(index: int);
     callback settings-language-changed(index: int);
     callback settings-theme-changed(dark: bool);
-    callback settings-transcribe-language-changed(index: int);
     callback settings-audio-tracks-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback model-activated(id: string);
@@ -209,7 +208,8 @@ export component App inherits Window {
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
     callback captions-closed();
-    callback captions-language-changed(index: int);
+    callback captions-source-changed(index: int);
+    callback captions-text-edited(text: string);
     callback captions-model-changed(index: int);
     callback captions-placement-changed(index: int);
     callback captions-size-changed(index: int);
@@ -463,9 +463,6 @@ export component App inherits Window {
         page-changed(index) => { root.settings-page-changed(index); }
         language-changed(index) => { root.settings-language-changed(index); }
         theme-changed(dark) => { root.settings-theme-changed(dark); }
-        transcribe-language-changed(index) => {
-            root.settings-transcribe-language-changed(index);
-        }
         audio-tracks-changed(index) => { root.settings-audio-tracks-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         model-activated(id) => { root.model-activated(id); }
@@ -497,7 +494,8 @@ export component App inherits Window {
         models: root.caption-models;
 
         closed => { root.captions-closed(); }
-        language-changed(index) => { root.captions-language-changed(index); }
+        source-changed(index) => { root.captions-source-changed(index); }
+        text-edited(text) => { root.captions-text-edited(text); }
         model-changed(index) => { root.captions-model-changed(index); }
         placement-changed(index) => { root.captions-placement-changed(index); }
         size-changed(index) => { root.captions-size-changed(index); }

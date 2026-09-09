@@ -38,8 +38,8 @@ export component TimelinePane inherits Rectangle {
     in property <bool> snap: true;
     in property <int> selected-count;
     in property <string> merge-blocked-because;
-    in property <bool> can-caption;
-    in property <bool> can-speak;
+    in property <bool> sound-selected;
+    in property <bool> title-selected;
     in property <bool> can-detach;
     in property <bool> can-reattach;
 
@@ -180,8 +180,8 @@ export component TimelinePane inherits Rectangle {
             snap: root.snap;
             selected-count: root.selected-count;
             merge-blocked-because: root.merge-blocked-because;
-            can-caption: root.can-caption;
-            can-speak: root.can-speak;
+            sound-selected: root.sound-selected;
+            title-selected: root.title-selected;
             can-detach: root.can-detach;
             can-reattach: root.can-reattach;
             readout: Fmt.frames-timecode(root.playhead, root.frame-rate);

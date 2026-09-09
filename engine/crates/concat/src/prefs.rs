@@ -23,8 +23,6 @@ pub struct Preferences {
     pub tts_model: Option<String>,
     /// The chosen Kokoro speaker id.
     pub tts_voice: Option<i32>,
-    /// Row in the transcriber's language list.
-    pub transcribe_language: Option<i32>,
     /// The interface's locale code ("de", "pt-BR", ...); absent is English.
     pub locale: Option<String>,
     /// Package ids starred in the effect libraries, in no order. One list

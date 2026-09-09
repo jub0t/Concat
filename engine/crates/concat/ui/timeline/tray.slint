@@ -19,9 +19,12 @@ import { TimelineTool } from "model.slint";
 //
 // The sound and word tools carry their names on the bar. They used to hang
 // off one menu button, and a menu is where a tool goes to not be found:
-// nobody looking for captions opens a waveform icon. Greyed rather than
-// absent when the selection cannot use them, because a greyed button with
-// a tip answers "why not" and an absent one only asks it.
+// nobody looking for captions opens a waveform icon. Captions and Speak
+// open their sheets whatever is selected - each has a source of its own
+// to fall back on - and the tip says what the sheet will start on. Detach
+// is greyed rather than absent when the selection cannot use it, because
+// a greyed button with a tip answers "why not" and an absent one only
+// asks it.
 //
 // A disabled Merge carries the reason it is blocked, because a button that
 // greys out without saying why leaves you guessing at the rule:
@@ -111,10 +114,10 @@ export component TimelineTray inherits Rectangle {
     in property <int> selected-count;
     /// Empty when the selection can be merged; otherwise why it cannot.
     in property <string> merge-blocked-because;
-    /// What the selection can have done to its sound and its words. Each
-    /// is one clip's worth of truth, decided by Rust; see the Editor global.
-    in property <bool> can-caption;
-    in property <bool> can-speak;
+    /// What the selection offers the sound and word tools. Each is one
+    /// clip's worth of truth, decided by Rust; see the Editor global.
+    in property <bool> sound-selected;
+    in property <bool> title-selected;
     in property <bool> can-detach;
     in property <bool> can-reattach;
     /// hh:mm:ss:ff at the playhead, formatted by the caller
@@ -231,17 +234,15 @@ export component TimelineTray inherits Rectangle {
         TrayTool {
             glyph: Glyph.text-mark;
             caption: I18n.t("Captions");
-            label: root.can-caption ? I18n.t("Auto captions from this clip's sound")
-                : I18n.t("Select one clip with sound to caption it");
-            enabled: root.can-caption;
+            label: root.sound-selected ? I18n.t("Auto captions from this clip's sound")
+                : I18n.t("Captions from the timeline's sound, or from a script");
             clicked => { root.captions(); }
         }
         TrayTool {
             glyph: Glyph.volume;
             caption: I18n.t("Speak");
-            label: root.can-speak ? I18n.t("Read this title aloud")
-                : I18n.t("Select a title to read it aloud");
-            enabled: root.can-speak;
+            label: root.title-selected ? I18n.t("Read this title aloud")
+                : I18n.t("Read a script aloud at the playhead");
             clicked => { root.speak(); }
         }
         // One slot, two verbs: the sound is either on its picture or off it.
