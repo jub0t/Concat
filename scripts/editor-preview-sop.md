@@ -32,4 +32,11 @@ editor window floating on a soft gradient card, built by
    corner radii, and the crop height are constants at the top of the script.
 
 5. **Commit** `assets/editor-dark.png` and `assets/editor.png`. The
-   README references `assets/editor.png` by path, so no README edit is needed.
+   README loads `assets/editor.png` through jsDelivr rather than GitHub's
+   raw host, which drops requests from some regions. No README edit is
+   needed, but jsDelivr caches `@main` for up to a day, so purge it after
+   pushing:
+
+   ```sh
+   curl https://purge.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png
+   ```

@@ -2,7 +2,7 @@
 <table width="100%">
   <tr>
     <td align="left" width="120">
-      <img src="assets/logo-dark.png" alt="Concat" width="100" />
+      <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/logo-dark.png" alt="Concat" width="100" />
     </td>
     <td align="right">
       <h1>Concat</h1>
@@ -19,7 +19,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-c6f432?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=000000" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
-<img src="assets/editor.png" alt="Concat editor" width="100%" />
+<img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
 </div>
 
