@@ -6,7 +6,7 @@
     </td>
     <td align="right">
       <h1>Concat</h1>
-      <h3 style="margin-top: -10px;">The free, open-source CapCut replacement.</h3>
+      <h3 style="margin-top: -10px;">The truly free, and open-source cross-platform CapCut replacement.</h3>
     </td>
   </tr>
 </table>
