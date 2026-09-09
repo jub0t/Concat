@@ -49,7 +49,17 @@ fn main() {
         let name = id.rsplit('.').next().unwrap_or(id);
         let target = out.join(format!("{name}.jpg"));
         let status = Command::new("ffmpeg")
-            .args(["-y", "-loglevel", "error", "-i", &still, "-vf", &chain, "-q:v", "3"])
+            .args([
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                &still,
+                "-vf",
+                &chain,
+                "-q:v",
+                "3",
+            ])
             .arg(&target)
             .status();
         match status {

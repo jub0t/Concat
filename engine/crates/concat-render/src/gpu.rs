@@ -1297,7 +1297,12 @@ mod tests {
         .expect("compiles");
         let red = solid(4, 4, [255, 0, 0, 255]);
         let green = Lut::from_rgb(2, &[0.0, 1.0, 0.0].repeat(8)).expect("a table");
-        let tabled = [shader.pass(&Default::default(), &[], 1.0, Some(std::sync::Arc::new(green)))];
+        let tabled = [shader.pass(
+            &Default::default(),
+            &[],
+            1.0,
+            Some(std::sync::Arc::new(green)),
+        )];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&tabled)]);
         assert_eq!(&out.pixels()[..3], &[0, 255, 0]);
         let plain = [shader.pass(&Default::default(), &[], 1.0, None)];
@@ -1325,7 +1330,11 @@ mod tests {
         let red = solid(8, 8, [255, 0, 0, 255]);
         let blue = solid(4, 4, [0, 0, 255, 255]);
         let layers = [(Layer::new(&red), 0), (Layer::new(&blue), 2)];
-        let full = [Treatment { track: 1, passes: &passes, strength: 1.0 }];
+        let full = [Treatment {
+            track: 1,
+            passes: &passes,
+            strength: 1.0,
+        }];
         let out = gpu
             .composite_treated(8, 8, 0.0, &layers, &full)
             .expect("drawn");
@@ -1333,12 +1342,19 @@ mod tests {
         assert_eq!(&out.pixels()[..3], &[0, 0, 255]);
         let last = out.pixels().len() - 4;
         assert_eq!(&out.pixels()[last..last + 3], &[0, 255, 255]);
-        let half = [Treatment { track: 1, passes: &passes, strength: 0.5 }];
+        let half = [Treatment {
+            track: 1,
+            passes: &passes,
+            strength: 0.5,
+        }];
         let out = gpu
             .composite_treated(8, 8, 0.0, &layers, &half)
             .expect("drawn");
         let p = &out.pixels()[last..last + 3];
-        assert!(p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136, "{p:?}");
+        assert!(
+            p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
+            "{p:?}"
+        );
     }
 
     fn gpu() -> Option<WgpuCompositor> {

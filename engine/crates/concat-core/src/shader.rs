@@ -150,7 +150,12 @@ mod tests {
     #[test]
     fn the_identity_table_returns_what_it_is_given() {
         let lut = Lut::identity(17);
-        for rgb in [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [0.25, 0.5, 0.75], [0.9, 0.1, 0.3]] {
+        for rgb in [
+            [0.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [0.25, 0.5, 0.75],
+            [0.9, 0.1, 0.3],
+        ] {
             let out = lut.sample(rgb);
             for (a, b) in out.iter().zip(rgb.iter()) {
                 assert!((a - b).abs() < 0.01, "{rgb:?} -> {out:?}");

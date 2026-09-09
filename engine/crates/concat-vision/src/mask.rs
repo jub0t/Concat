@@ -81,13 +81,19 @@ impl Mask {
                 let mut sum = 0u32;
                 for dy in 0..factor {
                     for dx in 0..factor {
-                        sum += u32::from(self.at(i64::from(x * factor + dx), i64::from(y * factor + dy)));
+                        sum += u32::from(
+                            self.at(i64::from(x * factor + dx), i64::from(y * factor + dy)),
+                        );
                     }
                 }
                 data.push((sum / (factor * factor)) as u8);
             }
         }
-        Mask { width, height, data }
+        Mask {
+            width,
+            height,
+            data,
+        }
     }
 
     /// The value at a pixel, clamped to the edge.

@@ -284,6 +284,159 @@ pub fn image_at(path: &std::path::Path) -> Option<slint::Image> {
     slint::Image::load_from_path(path).ok()
 }
 
+/// A filmstrip restored from the project's artwork cache.
+pub struct CachedStrip {
+    /// The strip image.
+    pub image: slint::Image,
+    /// How many frames the picture holds.
+    pub frames: u32,
+    /// One frame's width in the picture's pixels.
+    pub frame_width: u32,
+    /// The picture's height in pixels.
+    pub height: u32,
+}
+
+/// Artwork restored from the project's cache.
+pub struct CachedMediaArt {
+    /// Cached thumbnail, when present.
+    pub thumbnail: Option<slint::Image>,
+    /// Cached filmstrip, when present.
+    pub strip: Option<CachedStrip>,
+}
+
+/// Loads a media item's thumbnail and filmstrip from the project's JPEG cache.
+///
+/// The cache key includes the media id plus the source file's size and mtime,
+/// so replacing a file with the same project media id naturally misses and
+/// regenerates fresh artwork.
+pub fn cached_media_art(
+    project: &str,
+    id: &str,
+    path: &str,
+    kind: concat_project::model::MediaKind,
+) -> CachedMediaArt {
+    use concat_project::model::MediaKind;
+
+    if kind == MediaKind::Audio {
+        return CachedMediaArt {
+            thumbnail: None,
+            strip: None,
+        };
+    }
+
+    let dir = art_cache_dir(project);
+    let stem = art_cache_stem(id, path);
+
+    let thumbnail = image_at(&dir.join(format!("{stem}.thumb.jpg")));
+
+    let strip = std::fs::read_dir(&dir).ok().and_then(|entries| {
+        let prefix = format!("{stem}.strip.");
+        entries.filter_map(Result::ok).find_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            let rest = name.strip_prefix(&prefix)?.strip_suffix(".jpg")?;
+            let mut parts = rest.split('.');
+            let frames: u32 = parts.next()?.parse().ok()?;
+            let frame_width: u32 = parts.next()?.parse().ok()?;
+            let height: u32 = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None;
+            }
+            let image = image_at(&entry.path())?;
+            Some(CachedStrip {
+                image,
+                frames,
+                frame_width,
+                height,
+            })
+        })
+    });
+
+    CachedMediaArt { thumbnail, strip }
+}
+
+fn art_cache_dir(project: &str) -> std::path::PathBuf {
+    std::path::Path::new(project).join("cache").join("art")
+}
+
+fn art_cache_stem(id: &str, path: &str) -> String {
+    format!("{}-{}", clean_cache_part(id), source_stamp(path))
+}
+
+fn clean_cache_part(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn source_stamp(path: &str) -> String {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return "missing".to_owned();
+    };
+    let len = meta.len();
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    format!("{len:x}-{modified:x}")
+}
+
+fn save_media_art_cache(
+    project: &str,
+    id: &str,
+    path: &str,
+    thumbnail: Option<&concat_core::frame::Frame>,
+    strip: Option<(&concat_core::frame::Frame, u32)>,
+) {
+    let dir = art_cache_dir(project);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+
+    let stem = art_cache_stem(id, path);
+
+    if let Some(frame) = thumbnail {
+        let _ = save_frame_jpeg(&dir.join(format!("{stem}.thumb.jpg")), frame, 82);
+    }
+
+    if let Some((frame, frames)) = strip {
+        let frames = frames.max(1);
+        let frame_width = frame.width() / frames;
+        let name = format!("{stem}.strip.{frames}.{frame_width}.{}.jpg", frame.height());
+        let _ = save_frame_jpeg(&dir.join(name), frame, 78);
+    }
+}
+
+fn save_frame_jpeg(
+    path: &std::path::Path,
+    frame: &concat_core::frame::Frame,
+    quality: u8,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut rgb = Vec::with_capacity(frame.width() as usize * frame.height() as usize * 3);
+    for pixel in frame.pixels().chunks_exact(4) {
+        rgb.extend_from_slice(&pixel[..3]);
+    }
+
+    let file = std::fs::File::create(path)?;
+    let mut writer = std::io::BufWriter::new(file);
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, quality);
+    encoder.encode(
+        &rgb,
+        frame.width(),
+        frame.height(),
+        image::ColorType::Rgb8.into(),
+    )?;
+    Ok(())
+}
+
 /// A probe's error, in the words a toast can use.
 pub fn probe_error(error: &str) -> String {
     format!("Could not import: {error}")
@@ -326,6 +479,7 @@ pub fn media_art(
     duration: Option<f64>,
     project: String,
     stream: Option<u32>,
+    pictures: bool,
 ) -> MediaArt {
     use concat_project::model::MediaKind;
     if stream.is_some() {
@@ -339,25 +493,44 @@ pub fn media_art(
             strip: None,
         };
     }
-    let thumbnail = match kind {
-        MediaKind::Video | MediaKind::Image => {
-            // Within the first two seconds, so the walk from the keyframe
-            // before it is at most those two seconds of frames.
-            let at = duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0));
-            media::still_at(&path, if kind == MediaKind::Image { 0.0 } else { at }, 160).ok()
+    let thumbnail = if pictures {
+        match kind {
+            MediaKind::Video | MediaKind::Image => {
+                // Within the first two seconds, so the walk from the keyframe
+                // before it is at most those two seconds of frames.
+                let at = duration.map_or(0.0, |seconds| (seconds * 0.25).min(2.0));
+                media::still_at(&path, if kind == MediaKind::Image { 0.0 } else { at }, 160).ok()
+            }
+            MediaKind::Audio => None,
         }
-        MediaKind::Audio => None,
+    } else {
+        None
     };
     let peaks = (kind == MediaKind::Audio || has_audio)
         .then(|| media::peaks(&path, None, Some(&project)).ok().map(Arc::new))
         .flatten();
-    let strip = match kind {
-        MediaKind::Video => media::filmstrip(&path, STRIP_FRAMES, STRIP_HEIGHT)
-            .ok()
-            .map(|frame| (frame, STRIP_FRAMES)),
-        MediaKind::Image => thumbnail.clone().map(|frame| (frame, 1)),
-        MediaKind::Audio => None,
+    let strip = if pictures {
+        match kind {
+            MediaKind::Video => media::filmstrip(&path, STRIP_FRAMES, STRIP_HEIGHT)
+                .ok()
+                .map(|frame| (frame, STRIP_FRAMES)),
+            MediaKind::Image => thumbnail.clone().map(|frame| (frame, 1)),
+            MediaKind::Audio => None,
+        }
+    } else {
+        None
     };
+
+    if pictures {
+        save_media_art_cache(
+            &project,
+            &id,
+            &path,
+            thumbnail.as_ref(),
+            strip.as_ref().map(|(frame, frames)| (frame, *frames)),
+        );
+    }
+
     MediaArt {
         id,
         stream: None,

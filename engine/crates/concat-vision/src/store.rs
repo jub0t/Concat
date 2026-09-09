@@ -40,10 +40,11 @@ const CACHED: usize = 300;
 /// folder. The subject is in it too, so a clip asked to keep the person
 /// and one asked to keep the object never read each other's answer.
 pub fn mask_dir(project: &Path, media_path: &str, subject: Subject) -> PathBuf {
-    project
-        .join("cache")
-        .join("masks")
-        .join(format!("{:016x}-{}", fnv1a(media_path.as_bytes()), subject.key()))
+    project.join("cache").join("masks").join(format!(
+        "{:016x}-{}",
+        fnv1a(media_path.as_bytes()),
+        subject.key()
+    ))
 }
 
 /// The file naming the model that made a directory's masks.
@@ -319,7 +320,9 @@ fn settings_key(
         }
         for (key, store) in region_stores {
             key.hash(&mut hasher);
-            store.nearest_millis(millis as f64 / 1000.0).hash(&mut hasher);
+            store
+                .nearest_millis(millis as f64 / 1000.0)
+                .hash(&mut hasher);
         }
     }
     hasher.finish()

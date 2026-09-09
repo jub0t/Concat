@@ -156,7 +156,10 @@ impl Monitor {
         gpu: bool,
     ) -> Arc<concat_export::PreviewPlan> {
         let rate = (settings.rate_num, settings.rate_den);
-        let mut slot = self.plan.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut slot = self
+            .plan
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(entry) = slot.as_ref()
             && entry.width == spec.width
             && entry.height == spec.height
@@ -219,6 +222,9 @@ impl Monitor {
     /// closes.
     pub fn clear(&self) {
         self.pool.clear();
-        *self.plan.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        *self
+            .plan
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }

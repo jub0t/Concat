@@ -29,7 +29,9 @@ use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
 use concat_project::model::{Stroke, Subject};
-use concat_vision::{Brush, Embedding, MASK_RATE, Mask, MaskStore, ModelId, mask_dir, models, region_dir};
+use concat_vision::{
+    Brush, Embedding, MASK_RATE, Mask, MaskStore, ModelId, mask_dir, models, region_dir,
+};
 
 use crate::cutout::Progress;
 use crate::jobs::SingleFlight;
@@ -122,7 +124,12 @@ impl Brushes {
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(Progress),
     ) -> Result<Arc<Brush>, String> {
-        if let Some(loaded) = self.brush.lock().map_err(|_| "brush slot poisoned")?.as_ref() {
+        if let Some(loaded) = self
+            .brush
+            .lock()
+            .map_err(|_| "brush slot poisoned")?
+            .as_ref()
+        {
             return Ok(Arc::clone(loaded));
         }
         let encoder = models::model_file(&self.data, ModelId::BrushEncoder);

@@ -696,10 +696,21 @@ mod tests {
         let pool = ReaderPool::new(1, 4);
         for attempt in 0..3 {
             let got = pool
-                .frame_at(&path, FrameRate::THIRTY.time_of_frame(attempt), 64, 64, true, None, None)
+                .frame_at(
+                    &path,
+                    FrameRate::THIRTY.time_of_frame(attempt),
+                    64,
+                    64,
+                    true,
+                    None,
+                    None,
+                )
                 .unwrap_or_else(|error| panic!("request {attempt} decodes: {error}"));
             let red = got.pixel(32, 32).expect("in bounds")[0];
-            assert!(red > 150, "request {attempt} read red {red}, wanted the still");
+            assert!(
+                red > 150,
+                "request {attempt} read red {red}, wanted the still"
+            );
         }
 
         let _ = std::fs::remove_file(&path);
