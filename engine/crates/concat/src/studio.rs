@@ -638,6 +638,8 @@ pub struct Studio {
     next_media_row: i32,
     media_selected: HashSet<String>,
     media_filter: MediaFilter,
+    /// 0 = Added, 1 = Name, 2 = Kind
+    media_sort: usize,
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Peaks>>,
     pub thumbs: HashMap<String, slint::Image>,
@@ -1319,6 +1321,7 @@ impl Studio {
             next_media_row: 1,
             media_selected: HashSet::new(),
             media_filter: MediaFilter::All,
+            media_sort: 0,
             peaks: HashMap::new(),
             thumbs: HashMap::new(),
             strips: HashMap::new(),
@@ -2012,6 +2015,10 @@ impl Studio {
 
     pub fn set_media_filter(&mut self, filter: MediaFilter) {
         self.media_filter = filter;
+    }
+
+    pub fn set_media_sort(&mut self, sort: usize) {
+        self.media_sort = sort.min(2);
     }
 
     pub fn media_select(&mut self, row: i32, additive: bool) {
@@ -6368,16 +6375,21 @@ impl Studio {
             .filter(|item| Self::shows(filter, item.kind))
             .collect();
 
-        visible.sort_by(|a, b| {
-            let rank = |kind: model::MediaKind| match kind {
-                model::MediaKind::Video => 0,
-                model::MediaKind::Audio => 1,
-                model::MediaKind::Image => 2,
-            };
-            rank(a.kind)
-                .cmp(&rank(b.kind))
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-        });
+        match self.media_sort {
+            0 => { /* Added - no sorting, keep import order */ }
+            1 => visible.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            2 => visible.sort_by(|a, b| {
+                let rank = |kind: model::MediaKind| match kind {
+                    model::MediaKind::Video => 0,
+                    model::MediaKind::Audio => 1,
+                    model::MediaKind::Image => 2,
+                };
+                rank(a.kind)
+                    .cmp(&rank(b.kind))
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            }),
+            _ => {}
+        }
 
         sync(
             &models.media,
@@ -6877,6 +6889,10 @@ impl Studio {
             2 => vec![
                 row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
                 row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
+                rule(),
+                check("sort-added", "Sort by: Added", self.media_sort == 0),
+                check("sort-name", "Sort by: Name", self.media_sort == 1),
+                check("sort-kind", "Sort by: Type", self.media_sort == 2),
                 rule(),
                 row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
                 row("end", t("Go to end"), Glyph::SkipForward, "End", true),

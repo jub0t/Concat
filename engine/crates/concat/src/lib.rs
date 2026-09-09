@@ -1077,6 +1077,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.snap = !state.snap,
+                        "sort-added" => state.set_media_sort(0),
+                        "sort-name" => state.set_media_sort(1),
+                        "sort-kind" => state.set_media_sort(2),
                         "zoom-in" => {
                             state.seconds_per_pixel = (state.seconds_per_pixel / 1.4).max(0.000_5)
                         }
