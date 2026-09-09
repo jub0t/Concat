@@ -6799,6 +6799,17 @@ impl Studio {
             kind: MenuRow::Separator,
             ..Default::default()
         };
+        let check = |id: &str, label: &str, on: bool| MenuItemData {
+            id: id.into(),
+            label: label.into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::None,
+            shortcut: "".into(),
+            enabled: true,
+            danger: false,
+            checkable: true,
+            checked: on,
+        };
         let selected = self.selection.len();
         let playhead = f64::from(self.playhead);
         let straddled = self.timeline().clips.iter().any(|clip| {
