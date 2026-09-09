@@ -228,6 +228,8 @@ pub struct ExportState {
     pub message: String,
     /// Where the finished file is, for Reveal.
     pub written: String,
+    /// When the render started, for a real ETA.
+    started_at: Option<std::time::Instant>,
 }
 
 impl Default for ExportState {
@@ -244,6 +246,7 @@ impl Default for ExportState {
             stage: String::new(),
             message: String::new(),
             written: String::new(),
+            started_at: None,
         }
     }
 }
@@ -4856,7 +4859,7 @@ impl Studio {
         let spec = ExportSpec {
             output: output.clone(),
             crf: EXPORT_CRF[self.export.quality.min(2)],
-            preset: "medium".into(),
+            preset: "veryfast".into(),
         };
         let (frame_w, frame_h) = self.output_size();
         let titles = self
@@ -4880,6 +4883,7 @@ impl Studio {
         self.export.stage = t("Rendering video");
         self.export.message.clear();
         self.export.written.clear();
+        self.export.started_at = Some(std::time::Instant::now());
 
         spawn(
             move || {
@@ -6609,7 +6613,13 @@ impl Studio {
             progress: self.export.progress,
             stage: self.export.stage.as_str().into(),
             eta: if self.export.phase == ExportPhase::Running && self.export.progress > 0.02 {
-                eta((1.0 - self.export.progress) * self.duration().max(1.0) * 2.0).into()
+                self.export
+                    .started_at
+                    .map(|started| {
+                        let elapsed = started.elapsed().as_secs_f32();
+                        eta(elapsed / self.export.progress * (1.0 - self.export.progress)).into()
+                    })
+                    .unwrap_or_default()
             } else {
                 SharedString::new()
             },
