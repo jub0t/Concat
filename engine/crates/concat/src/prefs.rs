@@ -36,6 +36,10 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
+    /// Whether the MCP-over-HTTP service listens while the window runs.
+    /// Off unless asked: a listening port is a fact worth opting into.
+    #[serde(default)]
+    pub mcp_enabled: bool,
 }
 
 /// What a clip of a file with several audio tracks plays when it is placed

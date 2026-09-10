@@ -28,6 +28,7 @@ use concat_effects::manifest::Kind as PackageKind;
 use concat_host::export::{self, ExportSpec};
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
+use concat_host::session::EditorView;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
@@ -610,6 +611,11 @@ pub fn sync<T: Clone + PartialEq + 'static>(model: &VecModel<T>, next: Vec<T>) {
     }
 }
 
+/// Each title's painted block in frame pixels, by clip id: the painted
+/// block's size, and its centre's offset from the clip's centre - see
+/// `TitleClip::offset`.
+type TitleBlocks = HashMap<String, ((u32, u32), (i32, i32))>;
+
 /// The window's state. See the module docs for what is whose.
 pub struct Studio {
     pub host: Host,
@@ -620,6 +626,9 @@ pub struct Studio {
 
     // ── the edit ──
     pub session: Option<Session>,
+    /// The open project's folder, as remote-control callers name it. Empty
+    /// when nothing is open; `prepare_save` remains the save-time truth.
+    pub(crate) project_path: String,
     /// A clone of the project a gesture is mutating. `project()` reads it
     /// while it exists; a command replaces it.
     pub echo: Option<Project>,
@@ -743,7 +752,7 @@ pub struct Studio {
     /// text clip is drawn from; see `footprint`.
     /// Per text clip: the painted block's size in frame pixels, and its
     /// centre's offset from the clip's centre - see `TitleClip::offset`.
-    pub title_blocks: HashMap<String, ((u32, u32), (i32, i32))>,
+    pub title_blocks: TitleBlocks,
     pub drop: Option<DropPlan>,
     pub project_sheet: ProjectSheet,
     pub captions: CaptionsSheet,
@@ -1311,6 +1320,7 @@ impl Studio {
             prefs,
             library: Default::default(),
             session: None,
+            project_path: String::new(),
             echo: None,
             empty: Project::new(),
             dirty: false,
@@ -1557,22 +1567,33 @@ impl Studio {
     /// A refusal becomes a notice; the echo, if any, is dropped either way,
     /// because the session's project is the truth again.
     pub fn apply(&mut self, command: Command) -> Option<String> {
-        self.flush_commit();
-        self.echo = None;
-        // Anything but an inspector commit ends the coalescing window; the
-        // commit path sets `last_commit` again right after calling here.
-        self.last_commit = None;
-        let session = self.session.as_mut()?;
-        match session.apply(command) {
-            Ok(view) => {
-                self.after_change();
-                view.created_id
-            }
+        match self.apply_checked(command) {
+            Ok(view) => view.created_id,
             Err(error) => {
                 self.notify(&error, true);
                 None
             }
         }
+    }
+
+    /// The same seam as [`Self::apply`], handing back the whole view -
+    /// created id included - instead of turning a refusal into a notice:
+    /// the remote-control route sends the sentence back to its caller.
+    /// Everything else behaves identically, so an AI edit refreshes the
+    /// window exactly like a user's.
+    pub fn apply_checked(&mut self, command: Command) -> Result<EditorView, String> {
+        self.flush_commit();
+        self.echo = None;
+        // Anything but an inspector commit ends the coalescing window; the
+        // commit path sets `last_commit` again right after calling here.
+        self.last_commit = None;
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| "No project is open in the window".to_owned())?;
+        let view = session.apply(command)?;
+        self.after_change();
+        Ok(view)
     }
 
     /// The bookkeeping every change to the edit needs: the caches that
@@ -4549,14 +4570,12 @@ impl Studio {
             .filter_map(|id| self.clip(id).cloned())
             .filter(|clip| !self.locked(&clip.track_id))
             .collect();
-        if sources.is_empty() {
-            if let Some(id) = self.menu_target.clone() {
-                if let Some(clip) = self.clip(&id).cloned() {
-                    if !self.locked(&clip.track_id) {
-                        sources.push(clip);
-                    }
-                }
-            }
+        if sources.is_empty()
+            && let Some(id) = self.menu_target.clone()
+            && let Some(clip) = self.clip(&id).cloned()
+            && !self.locked(&clip.track_id)
+        {
+            sources.push(clip);
         }
         if sources.is_empty() {
             return;
@@ -4681,6 +4700,8 @@ impl Studio {
                 }
                 self.pause();
                 self.session = Some(session);
+                self.project_path = info.path.clone();
+                self.export = ExportState::default();
                 self.echo = None;
                 self.dirty = false;
                 self.project_name = info.name.clone();
@@ -4760,6 +4781,7 @@ impl Studio {
         }
         self.autosave.stop();
         self.session = None;
+        self.project_path.clear();
         self.echo = None;
         self.dirty = false;
         self.selection.clear();
@@ -4830,35 +4852,51 @@ impl Studio {
         (video + AUDIO_BPS) * self.duration().max(1.0) / 8.0
     }
 
-    /// Starts the render on a worker, reporting into the sheet.
+    /// Starts the render from the sheet's picks: the output path, quality
+    /// and frame come from what the user chose, then the shared core runs.
     pub fn export_start(&mut self) {
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
-        if self.timeline().clips.is_empty() {
-            self.export.phase = ExportPhase::Failed;
-            self.export.message = t("There is nothing on the timeline to export");
-            return;
-        }
-        let job = match self.host.exporter.begin() {
-            Ok(job) => job,
-            Err(error) => {
-                self.export.phase = ExportPhase::Failed;
-                self.export.message = error;
-                return;
-            }
-        };
         let output = format!(
             "{}/{}.mp4",
             self.export.folder.trim_end_matches('/'),
             self.export.name.trim()
         );
+        let crf = EXPORT_CRF[self.export.quality.min(2)];
+        let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
+        if let Err(error) = self.export_to(output, crf, "medium".into(), None, Some((num, den)))
+            && self.export.phase != ExportPhase::Running
+        {
+            self.export.phase = ExportPhase::Failed;
+            self.export.message = error;
+        }
+    }
+
+    /// The render itself, shared by the sheet's button and the
+    /// remote-control route: validates, takes the one export slot, starts
+    /// the worker and reports into the sheet. `frame` and `rate` come from
+    /// the sheet's picks; a remote caller passes its own values or `None`
+    /// for the project's settings. Returns the frame the export renders
+    /// at, so the caller can name it in its completion message.
+    pub fn export_to(
+        &mut self,
+        output: String,
+        crf: u8,
+        preset: String,
+        frame: Option<(u32, u32)>,
+        rate: Option<(i64, i64)>,
+    ) -> Result<(u32, u32), String> {
+        let Some(session) = self.session.as_ref() else {
+            return Err("No project is open in the window".to_owned());
+        };
+        if self.timeline().clips.is_empty() {
+            return Err(t("There is nothing on the timeline to export").to_owned());
+        }
+        let job = self.host.exporter.begin()?;
         let spec = ExportSpec {
             output: output.clone(),
-            crf: EXPORT_CRF[self.export.quality.min(2)],
-            preset: "medium".into(),
+            crf,
+            preset,
         };
-        let (frame_w, frame_h) = self.output_size();
+        let (frame_w, frame_h) = frame.unwrap_or_else(|| self.output_size());
         let titles = self
             .host
             .titles
@@ -4867,14 +4905,16 @@ impl Studio {
             .map(|title| title.clip)
             .collect();
         let mut request = export::request(session, &spec, titles);
-        let (width, height) = self.export_size();
-        let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
+        let (width, height) = frame.unwrap_or_else(|| self.export_size());
+        let (num, den) = rate.unwrap_or(EXPORT_RATES[self.export.rate.min(2)]);
         request.width = width;
         request.height = height;
         request.rate_num = num;
         request.rate_den = den;
 
         self.pause();
+        let rendered = (request.width, request.height);
+        self.export.open = true;
         self.export.phase = ExportPhase::Running;
         self.export.progress = 0.0;
         self.export.stage = t("Rendering video");
@@ -4908,10 +4948,12 @@ impl Studio {
                 Ok(written) => {
                     studio.export.phase = ExportPhase::Done;
                     studio.export.progress = 1.0;
+                    crate::remote::export_finished(Ok(written.clone()));
                     studio.export.written = written;
                     studio.notify(&t("Export finished"), false);
                 }
                 Err(error) => {
+                    crate::remote::export_finished(Err(error.clone()));
                     if studio.export.phase == ExportPhase::Idle {
                         // Cancelled: the sheet already went back to idle.
                         return;
@@ -4922,6 +4964,7 @@ impl Studio {
                 }
             },
         );
+        Ok(rendered)
     }
 
     pub fn export_cancel(&mut self) {
@@ -6461,6 +6504,8 @@ impl Studio {
             language: self.settings.language as i32,
             audio_tracks: self.settings.audio_tracks,
             playhead_stops: self.settings.playhead_stops,
+            mcp_enabled: crate::mcp::is_running(),
+            mcp_url: crate::mcp::endpoint().unwrap_or_default().into(),
             disk: {
                 let installed: Vec<&ModelState> = self
                     .transcribers
@@ -7172,7 +7217,8 @@ fn script_captions(text: &str) -> Vec<(String, f64)> {
         .flat_map(sentences)
         .flat_map(|sentence| wrap_caption(&sentence))
         .map(|line| {
-            let seconds = (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
+            let seconds =
+                (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
             (line, seconds)
         })
         .collect()
@@ -7270,7 +7316,11 @@ mod tests {
                 "Ok?",
             ]
         );
-        assert!(lines.iter().all(|(_, seconds)| (1.0..=7.0).contains(seconds)));
+        assert!(
+            lines
+                .iter()
+                .all(|(_, seconds)| (1.0..=7.0).contains(seconds))
+        );
         assert_eq!(lines[0].1, 1.0);
         assert!(lines[2].1 > lines[0].1);
         assert!(script_captions("  \n ").is_empty());

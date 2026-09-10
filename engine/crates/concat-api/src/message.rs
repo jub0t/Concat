@@ -383,8 +383,9 @@ pub struct ParamInfo {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Response {
-    /// The reply.
-    Result(Reply),
+    /// The reply. Boxed: a `Reply` is the largest thing this wire carries
+    /// by far, and the enum pays for the biggest arm on every match.
+    Result(Box<Reply>),
     /// Why there is none.
     Error(String),
 }
@@ -392,7 +393,7 @@ pub enum Response {
 impl From<Result<Reply, String>> for Response {
     fn from(result: Result<Reply, String>) -> Self {
         match result {
-            Ok(reply) => Response::Result(reply),
+            Ok(reply) => Response::Result(Box::new(reply)),
             Err(error) => Response::Error(error),
         }
     }

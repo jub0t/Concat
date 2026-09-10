@@ -421,8 +421,9 @@ impl Api {
 }
 
 /// [`Request::CatalogueList`]: the built-in packages plus whatever
-/// [`Catalogue::install`] added, in id order.
-fn catalogue(kind: Option<&str>) -> Result<Vec<PackageInfo>, String> {
+/// [`Catalogue::install`] added, in id order. Also the window's
+/// remote-control route, which answers the same method from the same table.
+pub fn catalogue(kind: Option<&str>) -> Result<Vec<PackageInfo>, String> {
     let kind = match kind {
         None => None,
         Some("effect") => Some(Kind::Effect),
@@ -530,7 +531,7 @@ mod tests {
 
     fn ok(response: Response) -> Reply {
         match response {
-            Response::Result(reply) => reply,
+            Response::Result(reply) => *reply,
             Response::Error(error) => panic!("refused: {error}"),
         }
     }
@@ -595,7 +596,8 @@ mod tests {
 
     #[test]
     fn a_response_is_a_result_or_an_error_object() {
-        let worked = serde_json::to_value(Response::Result(Reply::Done(Done {}))).expect("json");
+        let worked =
+            serde_json::to_value(Response::Result(Box::new(Reply::Done(Done {})))).expect("json");
         assert_eq!(worked, json!({ "result": {} }));
         let refused = serde_json::to_value(Response::Error("no".to_owned())).expect("json");
         assert_eq!(refused, json!({ "error": "no" }));

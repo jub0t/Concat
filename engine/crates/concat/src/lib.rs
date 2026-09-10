@@ -37,9 +37,11 @@ mod format;
 mod gpu;
 mod host;
 mod i18n;
+mod mcp;
 mod platform;
 mod prefs;
 mod presets;
+mod remote;
 mod studio;
 mod sysinfo;
 
@@ -967,6 +969,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
         let at = state.playhead;
         state.seek(at);
     }));
+    app.on_settings_mcp_toggled(on_window!(|state, enabled: bool| {
+        // A page rebuild re-echoes the switch's position; only a real
+        // flip may touch the service.
+        if enabled == mcp::is_running() {
+            return;
+        }
+        let outcome = if enabled {
+            mcp::ensure_started()
+        } else {
+            mcp::stop();
+            Ok(String::new())
+        };
+        if let Err(error) = outcome {
+            // The switch shows the service's real state on the publish
+            // that follows; the toast says why the start stuck.
+            state.notify(&error, true);
+        }
+        state.prefs.mcp_enabled = enabled;
+        state.prefs.save(&state.host.dirs);
+    }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
         state.model_activate(id.as_str());
     }));
@@ -1245,6 +1267,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         shell.studio.borrow_mut().refresh_art();
         shell.studio.borrow().publish(&app, &shell.models);
     }
+    // Opt-in together: `--remote-control` or `CONCAT_REMOTE=1` brings up
+    // the line-JSON socket and, beside it, MCP over HTTP. No-ops otherwise.
+    remote::start();
+    mcp::start();
 
     app.run()
 }

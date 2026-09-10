@@ -53,6 +53,10 @@ export struct SettingsData {
     audio-tracks: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// whether the MCP-over-HTTP service is listening right now
+    mcp-enabled: bool,
+    /// its endpoint URL, when it is
+    mcp-url: string,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -342,6 +346,8 @@ export component SettingsDialog inherits Modal {
     callback theme-changed(dark: bool);
     callback audio-tracks-changed(index: int);
     callback playhead-stops-changed(on: bool);
+    /// The MCP-over-HTTP service, started and stopped from this page.
+    callback mcp-toggled(enabled: bool);
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -492,6 +498,24 @@ export component SettingsDialog inherits Modal {
                         current: root.data.audio-tracks;
                         changed(index) => { root.audio-tracks-changed(index); }
                     }
+                }
+            }
+
+            // A listening port is a fact worth showing twice: the switch,
+            // and the exact URL a client gets pointed at while it is on.
+            if root.data.tab == 0: DialogSection {
+                title: I18n.t("Remote control");
+
+                SegmentedControl {
+                    options: [I18n.t("Off"), I18n.t("On")];
+                    current: root.data.mcp-enabled ? 1 : 0;
+                    changed(index) => { root.mcp-toggled(index == 1); }
+                }
+
+                if root.data.mcp-enabled: Text {
+                    text: root.data.mcp-url;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
                 }
             }
 

@@ -99,6 +99,11 @@ concat-effects.workspace = true
 # The cutout's mapping from a stage press to a source fraction; the model
 # itself runs in the host.
 concat-vision.workspace = true
+# The remote-control route speaks the same wire contract as the headless
+# transports: one Request, one meaning everywhere. It maps requests onto
+# the window's own Studio rather than onto an Api - the window is not a
+# headless client of itself.
+concat-api.workspace = true
 
 # Remembered preferences, as a small JSON file in the config directory.
 serde = { version = "1", features = ["derive"] }

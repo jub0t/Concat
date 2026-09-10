@@ -1,0 +1,51 @@
+--2026-09-10 13:03:46--  https://cfhcable.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1
+Resolving cfhcable.dl.sourceforge.net (cfhcable.dl.sourceforge.net)... 146.71.73.6
+Connecting to cfhcable.dl.sourceforge.net (cfhcable.dl.sourceforge.net)|146.71.73.6|:443... connected.
+HTTP request sent, awaiting response... 301 Moved Permanently
+Location: https://downloads.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1 [following]
+--2026-09-10 13:03:47--  https://downloads.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1
+Resolving downloads.sourceforge.net (downloads.sourceforge.net)... 104.18.13.149, 104.18.12.149, 2606:4700::6812:d95, ...
+Connecting to downloads.sourceforge.net (downloads.sourceforge.net)|104.18.13.149|:443... connected.
+HTTP request sent, awaiting response... 302 Found
+Location: https://pilotfiber.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1&fid=c5371ffd6e864185&e=1789103028&st=cGVrN9lMTSWAvQ3o5qeD2A [following]
+--2026-09-10 13:03:49--  https://pilotfiber.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1&fid=c5371ffd6e864185&e=1789103028&st=cGVrN9lMTSWAvQ3o5qeD2A
+Resolving pilotfiber.dl.sourceforge.net (pilotfiber.dl.sourceforge.net)... 216.158.133.250
+Connecting to pilotfiber.dl.sourceforge.net (pilotfiber.dl.sourceforge.net)|216.158.133.250|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 41781489 (40M) [application/octet-stream]
+Saving to: ‘vcxsrv-64.21.1.10.0.installer.exe?viasf=1’
+
+vcxsrv-64.21.1.10.0.installer.exe?viasf=1                             0%[                                                                                                                                                                    ]       0  --.-KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                             0%[                                                                                                                                                                    ]  39.74K   158KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                             2%[==>                                                                                                                                                                 ] 823.74K  1.76MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                             2%[==>                                                                                                                                                                 ] 855.74K   937KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            20%[===============================>                                                                                                                                    ]   7.99M  6.86MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            33%[======================================================>                                                                                                             ]  13.40M  8.88MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            38%[==============================================================>                                                                                                     ]  15.52M  8.47MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            55%[==========================================================================================>                                                                         ]  22.13M  9.63MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            62%[=====================================================================================================>                                                              ]  24.98M  9.92MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            64%[========================================================================================================>                                                           ]  25.73M  9.47MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            73%[=======================================================================================================================>                                            ]  29.38M  9.84MB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            81%[====================================================================================================================================>                               ]  32.48M  10.1MB/s    eta 1s     vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            81%[====================================================================================================================================>                               ]  32.49M  9.53MB/s    eta 1s     vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            82%[=====================================================================================================================================>                              ]  32.77M  9.08MB/s    eta 1s     vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            89%[=================================================================================================================================================>                  ]  35.60M  9.34MB/s    eta 1s     vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            97%[==============================================================================================================================================================>     ]  38.82M  9.58MB/s    eta 1s     vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[==================================================================================================================================================================> ]  39.61M  9.71MB/s    in 4.1s    
+
+2026-09-10 13:03:54 (9.71 MB/s) - Read error at byte 41533440/41781489 (Connection reset by peer). Retrying.
+
+--2026-09-10 13:03:55--  (try: 2)  https://pilotfiber.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1&fid=c5371ffd6e864185&e=1789103028&st=cGVrN9lMTSWAvQ3o5qeD2A
+Connecting to pilotfiber.dl.sourceforge.net (pilotfiber.dl.sourceforge.net)|216.158.133.250|:443... connected.
+HTTP request sent, awaiting response... 206 Partial Content
+Length: 41781489 (40M), 248049 (242K) remaining [application/octet-stream]
+Saving to: ‘vcxsrv-64.21.1.10.0.installer.exe?viasf=1’
+
+vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.61M  --.-KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.70M  --.-KB/s    in 0.07s   
+
+2026-09-10 13:03:56 (1.37 MB/s) - Read error at byte 41631435/41781489 (Connection reset by peer). Retrying.
+
+--2026-09-10 13:03:58--  (try: 3)  https://pilotfiber.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1&fid=c5371ffd6e864185&e=1789103028&st=cGVrN9lMTSWAvQ3o5qeD2A
+Connecting to pilotfiber.dl.sourceforge.net (pilotfiber.dl.sourceforge.net)|216.158.133.250|:443... connected.
+HTTP request sent, awaiting response... 206 Partial Content
+Length: 41781489 (40M), 150054 (147K) remaining [application/octet-stream]
+Saving to: ‘vcxsrv-64.21.1.10.0.installer.exe?viasf=1’
+
+vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.70M  --.-KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.80M   282KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.83M   347KB/s    in 0.4s    
+
+2026-09-10 13:04:00 (347 KB/s) - Read error at byte 41762198/41781489 (Connection reset by peer). Retrying.
+
+--2026-09-10 13:04:03--  (try: 4)  https://pilotfiber.dl.sourceforge.net/project/vcxsrv/vcxsrv/21.1.10/vcxsrv-64.21.1.10.0.installer.exe?viasf=1&fid=c5371ffd6e864185&e=1789103028&st=cGVrN9lMTSWAvQ3o5qeD2A
+Connecting to pilotfiber.dl.sourceforge.net (pilotfiber.dl.sourceforge.net)|216.158.133.250|:443... connected.
+HTTP request sent, awaiting response... 206 Partial Content
+Length: 41781489 (40M), 19291 (19K) remaining [application/octet-stream]
+Saving to: ‘vcxsrv-64.21.1.10.0.installer.exe?viasf=1’
+
+vcxsrv-64.21.1.10.0.installer.exe?viasf=1                            99%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ ]  39.83M  --.-KB/s               vcxsrv-64.21.1.10.0.installer.exe?viasf=1                           100%[+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++>]  39.85M  --.-KB/s    in 0s      
+
+2026-09-10 13:04:04 (152 MB/s) - ‘vcxsrv-64.21.1.10.0.installer.exe?viasf=1’ saved [41781489/41781489]
+
