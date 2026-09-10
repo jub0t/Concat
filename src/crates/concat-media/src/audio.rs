@@ -225,10 +225,11 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         // based trim close the input early. `mix_to_file` counts the source
         // samples it feeds per input and stops at `duration * speed` source
         // seconds instead; see the `clip_samples` field.
-        let mut stage = format!(
-            "[{index}:a]atrim=start={:.6},asetpts=PTS-STARTPTS",
-            clip.source_start
-        );
+        // No trim or restamp in the graph: Rust stamps each frame's PTS from
+        // a sample counter and stops feeding the input after duration*speed
+        // source seconds. This sidesteps timestamp discontinuities (edit
+        // lists, paused recordings) that parked frames outside the mix.
+        let mut stage = format!("[{index}:a]anull");
 
         for filter in speed_filters(speed, clip.preserve_pitch) {
             stage.push(',');
@@ -393,7 +394,6 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 }
             })?;
         let stream = input.stream(stream_index).expect("just found");
-        let time_base = stream.time_base();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
@@ -413,9 +413,11 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             samples_sent: 0,
             clip_samples: 0,
         };
-        let first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
+        let mut first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
             path: path.to_path_buf(),
         })?;
+        // Our continuous PTS: sample count from the start of this clip.
+        first.set_pts(Some(0));
         // The out-point lives here, not in the filtergraph: how many source
         // samples this clip may feed. A sped-up clip covers more source than
         // its timeline length, hence the speed factor. The first frame goes
@@ -423,10 +425,11 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         mix_input.samples_sent = first.samples() as i64;
         mix_input.clip_samples =
             (clip.duration * clamp_speed(clip.speed) * first.rate() as f64).round() as i64;
+        // One sample per time-base tick: the PTS we stamp is a plain
+        // running sample count, so the graph's clock is the sample clock.
         let args = format!(
-            "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
-            time_base.numerator(),
-            time_base.denominator(),
+            "time_base=1/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
+            first.rate(),
             first.rate(),
             first.format().name(),
             first.ch_layout().description()
@@ -595,8 +598,12 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 continue;
             }
             match input.next()? {
-                Some(frame) => {
+                Some(mut frame) => {
                     let frame_samples = frame.samples() as i64;
+                    // Our continuous PTS: whatever the source's timestamp
+                    // series does from here on cannot move this frame out
+                    // of its place in the mix.
+                    frame.set_pts(Some(input.samples_sent));
                     // Stop feeding this input once we've sent its clip's worth.
                     // The graph's apad will fill the rest with silence until
                     // the mix's atrim=duration ends the whole thing.
