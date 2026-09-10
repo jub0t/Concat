@@ -223,7 +223,7 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         // A sped-up clip covers more source than its timeline length, so the
         // trim takes `duration * speed` before the rate is applied.
         let mut stage = format!(
-            "[{index}:a]aresample=async=1,atrim=start={:.6}:duration={:.6},asetpts=PTS-STARTPTS",
+            "[{index}:a]aresample=async=1,asetpts=PTS-STARTPTS",
             clip.source_start,
             clip.duration * speed
         );
@@ -317,6 +317,10 @@ struct MixInput {
     decoder: ffmpeg::codec::decoder::Audio,
     label: String,
     done: bool,
+    /// Samples already sent to the graph for this clip.
+    samples_sent: i64,
+    /// How many samples this clip should contribute to the mix.
+    clip_samples: i64,
 }
 
 impl MixInput {
@@ -397,6 +401,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             let _ = input.seek(target, ..=target);
         }
         let label = format!("{index}:a");
+        let clip_samples = (clip.duration * 48000.0).round() as i64;
         let mut mix_input = MixInput {
             path: path.to_path_buf(),
             input,
@@ -404,6 +409,8 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             decoder,
             label,
             done: false,
+            samples_sent: 0,
+            clip_samples,
         };
         let first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
             path: path.to_path_buf(),
@@ -581,11 +588,22 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             }
             match input.next()? {
                 Some(frame) => {
+                    let frame_samples = frame.samples() as i64;
+                    // Stop feeding this input once we've sent its clip's worth.
+                    // The graph's apad will fill the rest with silence until
+                    // the mix's atrim=duration ends the whole thing.
+                    if input.samples_sent >= input.clip_samples {
+                        let mut context = graph.get(&input.label).expect("source exists");
+                        let _ = context.source().flush();
+                        input.done = true;
+                        continue;
+                    }
                     // Scope the add call so its borrow ends before the flush.
                     let added = {
                         let mut context = graph.get(&input.label).expect("source exists");
                         context.source().add(&frame)
                     };
+                    input.samples_sent += frame_samples;
                     let mut context = graph.get(&input.label).expect("source exists");
                     match added {
                         Ok(()) => {}
