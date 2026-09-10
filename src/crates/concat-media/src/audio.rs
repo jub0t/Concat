@@ -761,13 +761,31 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
             }
         };
 
+    // Timestamps from each input arrive in that input's own time base -
+    // 1/15360 for this project's video, 1/48000 for its audio - so a bare
+    // integer compare of the two treats one tick of each as equal when they
+    // are not: 1024 ticks is 0.067s of video but only 0.021s of audio. That
+    // silently misordered the interleave, which is enough for some players'
+    // sample tables to come out wrong even though every packet is still
+    // physically written. Comparing in a common unit fixes the ordering
+    // regardless of what the two files' time bases happen to be.
+    let compare_pts = |pts: Option<i64>, tb: ffmpeg::Rational| -> i64 {
+        let pts = pts.unwrap_or(i64::MIN);
+        if pts == i64::MIN {
+            return i64::MIN;
+        }
+        pts.saturating_mul(tb.numerator() as i64) / tb.denominator() as i64
+    };
+
     let mut video_packet =
         next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
     let mut audio_packet =
         next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
     loop {
         let take_video = match (&video_packet, &audio_packet) {
-            (Some(v), Some(a)) => v.pts().unwrap_or(i64::MIN) <= a.pts().unwrap_or(i64::MIN),
+            (Some(v), Some(a)) => {
+                compare_pts(v.pts(), out_video_tb) <= compare_pts(a.pts(), out_audio_tb)
+            }
             (Some(_), None) => true,
             (None, Some(_)) => false,
             (None, None) => break,
