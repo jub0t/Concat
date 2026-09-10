@@ -393,6 +393,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_media_filter_changed(on_window!(|state, filter: MediaFilter| {
         state.set_media_filter(filter);
     }));
+    editor.on_media_sort_changed(on_window!(|state, index: i32| {
+        // Slint hands indices over as i32; the sort is an index into a
+        // three-entry table, so clamp negatives to the default order.
+        state.set_media_sort(index.max(0) as usize);
+    }));
     editor.on_media_select(on_window!(|state, id: i32, additive: bool| {
         state.media_select(id, additive);
     }));
@@ -1077,6 +1082,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.snap = !state.snap,
+                        "sort-added" => state.set_media_sort(0),
+                        "sort-name" => state.set_media_sort(1),
+                        "sort-kind" => state.set_media_sort(2),
                         "zoom-in" => {
                             state.seconds_per_pixel = (state.seconds_per_pixel / 1.4).max(0.000_5)
                         }

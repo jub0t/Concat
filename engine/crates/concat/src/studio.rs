@@ -638,6 +638,8 @@ pub struct Studio {
     next_media_row: i32,
     media_selected: HashSet<String>,
     media_filter: MediaFilter,
+    /// 0 = Added, 1 = Name, 2 = Kind
+    media_sort: usize,
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Peaks>>,
     pub thumbs: HashMap<String, slint::Image>,
@@ -1319,6 +1321,7 @@ impl Studio {
             next_media_row: 1,
             media_selected: HashSet::new(),
             media_filter: MediaFilter::All,
+            media_sort: 0,
             peaks: HashMap::new(),
             thumbs: HashMap::new(),
             strips: HashMap::new(),
@@ -2012,6 +2015,10 @@ impl Studio {
 
     pub fn set_media_filter(&mut self, filter: MediaFilter) {
         self.media_filter = filter;
+    }
+
+    pub fn set_media_sort(&mut self, sort: usize) {
+        self.media_sort = sort.min(2);
     }
 
     pub fn media_select(&mut self, row: i32, additive: bool) {
@@ -6361,11 +6368,33 @@ impl Studio {
         // The bin.
         let filter = self.media_filter;
         let items = &self.project().media;
+
+        // Grupiši po tipu (Video -> Audio -> Slike), pa abecedno po imenu
+        let mut visible: Vec<_> = items
+            .iter()
+            .filter(|item| Self::shows(filter, item.kind))
+            .collect();
+
+        match self.media_sort {
+            0 => { /* Added - no sorting, keep import order */ }
+            1 => visible.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            2 => visible.sort_by(|a, b| {
+                let rank = |kind: model::MediaKind| match kind {
+                    model::MediaKind::Video => 0,
+                    model::MediaKind::Audio => 1,
+                    model::MediaKind::Image => 2,
+                };
+                rank(a.kind)
+                    .cmp(&rank(b.kind))
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            }),
+            _ => {}
+        }
+
         sync(
             &models.media,
-            items
-                .iter()
-                .filter(|item| Self::shows(filter, item.kind))
+            visible
+                .into_iter()
                 .map(|item| MediaItemData {
                     id: *self.media_rows.get(&item.id).unwrap_or(&0),
                     name: item.name.as_str().into(),
@@ -6770,6 +6799,17 @@ impl Studio {
             kind: MenuRow::Separator,
             ..Default::default()
         };
+        let check = |id: &str, label: &str, on: bool| MenuItemData {
+            id: id.into(),
+            label: label.into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::None,
+            shortcut: "".into(),
+            enabled: true,
+            danger: false,
+            checkable: true,
+            checked: on,
+        };
         let selected = self.selection.len();
         let playhead = f64::from(self.playhead);
         let straddled = self.timeline().clips.iter().any(|clip| {
@@ -6860,6 +6900,10 @@ impl Studio {
             2 => vec![
                 row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
                 row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
+                rule(),
+                check("sort-added", "Sort by: Added", self.media_sort == 0),
+                check("sort-name", "Sort by: Name", self.media_sort == 1),
+                check("sort-kind", "Sort by: Type", self.media_sort == 2),
                 rule(),
                 row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
                 row("end", t("Go to end"), Glyph::SkipForward, "End", true),
