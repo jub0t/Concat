@@ -12,6 +12,7 @@
 //! definition of what speed, fades and gain mean for sound - the same reason
 //! `Clip::source_time_at` is the one definition for picture.
 
+use std::io::Write;
 use std::path::Path;
 
 use concat_core::animate::Track;
@@ -222,7 +223,7 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         // A sped-up clip covers more source than its timeline length, so the
         // trim takes `duration * speed` before the rate is applied.
         let mut stage = format!(
-            "[{index}:a]atrim=start={:.6}:duration={:.6},asetpts=PTS-STARTPTS",
+            "[{index}:a]aresample=async=1,atrim=start={:.6}:duration={:.6},asetpts=PTS-STARTPTS",
             clip.source_start,
             clip.duration * speed
         );
@@ -554,7 +555,21 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 // Break, do not return: the finalisation below this loop
                 // flushes the encoder and writes the trailer, and an m4a
                 // without its trailer cannot be opened by the muxer.
-                Err(ffmpeg::Error::Eof) => break 'mix,
+                Err(ffmpeg::Error::Eof) => {
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(std::env::temp_dir().join("concat-mix.log"))
+                    {
+                        let expected = (duration * 48000.0) as i64;
+                        let _ = writeln!(
+                            f,
+                            "[mix] sink EOF at sample {} of ~{}",
+                            written_samples, expected
+                        );
+                    }
+                    break 'mix;
+                }
                 Err(error) if ffi::is_again(&error) => break,
                 Err(error) => return Err(ffi::fail("filter output", destination, error)),
             }
@@ -579,6 +594,18 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                         // Take what it got and end the input gracefully
                         // instead of failing the whole mix on a trimmed clip.
                         Err(ffmpeg::Error::Eof) => {
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(std::env::temp_dir().join("concat-mix.log"))
+                            {
+                                let _ = writeln!(
+                                    f,
+                                    "[mix] graph closed {} at sample {}",
+                                    input.path.display(),
+                                    written_samples
+                                );
+                            }
                             let _ = context.source().flush();
                             input.done = true;
                         }
@@ -586,6 +613,18 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                     }
                 }
                 None => {
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(std::env::temp_dir().join("concat-mix.log"))
+                    {
+                        let _ = writeln!(
+                            f,
+                            "[mix] decoder EOF for {} at sample {}",
+                            input.path.display(),
+                            written_samples
+                        );
+                    }
                     let mut context = graph.get(&input.label).expect("source exists");
                     let _ = context.source().flush();
                     input.done = true;
