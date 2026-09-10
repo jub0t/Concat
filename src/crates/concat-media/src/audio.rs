@@ -220,12 +220,14 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         // to every channel; without it only the left channel moves, which is
         // a memorable way to discover the flag exists.
         //
-        // A sped-up clip covers more source than its timeline length, so the
-        // trim takes `duration * speed` before the rate is applied.
+        // The out-point is not trimmed here: source files with broken
+        // timestamp series (edit lists, paused recordings) made a duration
+        // based trim close the input early. `mix_to_file` counts the source
+        // samples it feeds per input and stops at `duration * speed` source
+        // seconds instead; see the `clip_samples` field.
         let mut stage = format!(
-            "[{index}:a]aresample=async=1,asetpts=PTS-STARTPTS",
-            clip.source_start,
-            clip.duration * speed
+            "[{index}:a]atrim=start={:.6},asetpts=PTS-STARTPTS",
+            clip.source_start
         );
 
         for filter in speed_filters(speed, clip.preserve_pitch) {
@@ -401,7 +403,6 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             let _ = input.seek(target, ..=target);
         }
         let label = format!("{index}:a");
-        let clip_samples = (clip.duration * 48000.0).round() as i64;
         let mut mix_input = MixInput {
             path: path.to_path_buf(),
             input,
@@ -410,11 +411,18 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             label,
             done: false,
             samples_sent: 0,
-            clip_samples,
+            clip_samples: 0,
         };
         let first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
             path: path.to_path_buf(),
         })?;
+        // The out-point lives here, not in the filtergraph: how many source
+        // samples this clip may feed. A sped-up clip covers more source than
+        // its timeline length, hence the speed factor. The first frame goes
+        // into the graph separately below, so it counts towards the total.
+        mix_input.samples_sent = first.samples() as i64;
+        mix_input.clip_samples =
+            (clip.duration * clamp_speed(clip.speed) * first.rate() as f64).round() as i64;
         let args = format!(
             "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
             time_base.numerator(),
@@ -852,12 +860,18 @@ mod tests {
     }
 
     #[test]
-    fn a_sped_up_clip_trims_more_source_than_its_timeline_length() {
+    fn a_sped_up_clip_still_retimes_in_the_graph() {
         let mut fast = clip("a.mp4");
         fast.speed = 2.0;
         let graph = mix_graph(&[fast], 2.0).expect("valid");
-        assert!(graph.contains("duration=4.000000"), "graph was: {graph}");
+        // The out-point trim moved to `mix_to_file`'s sample counter, so the
+        // graph only keeps the in-point window and the retime.
         assert!(graph.contains("atempo=2.000000"), "graph was: {graph}");
+        assert!(
+            graph.contains("atrim=start=0.000000,"),
+            "graph was: {graph}"
+        );
+        assert!(!graph.contains("duration=4.000000"), "graph was: {graph}");
     }
 
     #[test]
