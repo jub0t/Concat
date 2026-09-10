@@ -49,6 +49,7 @@ const BUILT_IN: [(&str, &str); 12] = [
     ("de", include_str!("../locales/de.json")),
     ("es", include_str!("../locales/es.json")),
     ("fr", include_str!("../locales/fr.json")),
+    ("hr", include_str!("../locales/hr.json")),
     ("it", include_str!("../locales/it.json")),
     ("ja", include_str!("../locales/ja.json")),
     ("ko", include_str!("../locales/ko.json")),
