@@ -9,6 +9,7 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { TextAlignment } from "../timeline/model.slint";
 import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
+import { Select } from "../primitives/select.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -1245,6 +1246,8 @@ export component MediaPane inherits Rectangle {
 
     callback import-media();
     callback filter-changed(filter: MediaFilter);
+    /// The sort dropdown beside the import button picked a new order.
+    callback sort-changed(index: int);
     /// A press on the bin's floor; see Editor.blur.
     callback floor-pressed();
     callback select(id: int, additive: bool);
@@ -1730,9 +1733,35 @@ export component MediaPane inherits Rectangle {
 
                 if root.tab == 0: HorizontalLayout {
                     padding: 8px;
+                    spacing: 8px;
                     ImportButton {
+                        horizontal-stretch: 1;
                         busy: root.importing;
                         clicked => { root.import-media(); }
+                    }
+                    // Sort and filter live beside the import button, the way
+                    // the owner sketched it; the sidebar rows and the View
+                    // menu drive the same state underneath.
+                    Select {
+                        horizontal-stretch: 0;
+                        width: 130px;
+                        options: [I18n.t("Sort: Added"), I18n.t("Sort: Name"),
+                            I18n.t("Sort: Type")];
+                        current: 0;
+                        changed(index) => { root.sort-changed(index); }
+                    }
+                    Select {
+                        horizontal-stretch: 0;
+                        width: 120px;
+                        options: [I18n.t("All media"), I18n.t("Video"),
+                            I18n.t("Audio"), I18n.t("Images")];
+                        current: 0;
+                        changed(index) => {
+                            root.filter-changed(index == 0 ? MediaFilter.all
+                                : index == 1 ? MediaFilter.video
+                                : index == 2 ? MediaFilter.audio
+                                : MediaFilter.images);
+                        }
                     }
                 }
 

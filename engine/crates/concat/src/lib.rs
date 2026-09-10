@@ -393,6 +393,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_media_filter_changed(on_window!(|state, filter: MediaFilter| {
         state.set_media_filter(filter);
     }));
+    editor.on_media_sort_changed(on_window!(|state, index: i32| {
+        // Slint hands indices over as i32; the sort is an index into a
+        // three-entry table, so clamp negatives to the default order.
+        state.set_media_sort(index.max(0) as usize);
+    }));
     editor.on_media_select(on_window!(|state, id: i32, additive: bool| {
         state.media_select(id, additive);
     }));

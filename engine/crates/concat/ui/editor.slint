@@ -75,6 +75,7 @@ export global Editor {
 
     callback import-media();
     callback media-filter-changed(filter: MediaFilter);
+    callback media-sort-changed(index: int);
     callback media-select(id: int, additive: bool);
     /// A marquee closed over the bin's grid, as the block of cells it caught.
     /// See MediaGrid.band-selected: the grid is placed by arithmetic, so the
