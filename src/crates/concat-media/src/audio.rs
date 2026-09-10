@@ -728,41 +728,64 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         .map(|stream| stream.time_base())
         .unwrap_or(audio_tb);
 
-    // Alternate one packet from each; `write_interleaved` orders them by
-    // timestamp. When either input ends, the file ends: `-shortest`.
-    let mut copy = |input: &mut ffmpeg::format::context::Input,
-                    wanted: usize,
-                    from: ffmpeg::Rational,
-                    to: ffmpeg::Rational,
-                    stream: usize,
-                    path: &Path|
-     -> Result<bool> {
-        loop {
-            let mut packet = ffmpeg::Packet::empty();
-            match packet.read(input) {
-                Ok(()) => {
-                    if packet.stream() != wanted {
-                        continue;
+    // Merge the two streams by timestamp: always take the packet whose
+    // PTS comes next, until both inputs end. Alternating one-and-one
+    // truncated whichever stream carries more packets per second - audio
+    // runs at ~46 packets/s against video's 24-60, so at 30 fps the
+    // soundtrack died at exactly 30/46.9 of the picture. `write_interleaved`
+    // still does the final ordering; feeding it in order keeps its buffer
+    // small. The file ends with the shorter input, as `-shortest`.
+    let mut next_packet =
+        |input: &mut ffmpeg::format::context::Input,
+         wanted: usize,
+         from: ffmpeg::Rational,
+         to: ffmpeg::Rational,
+         stream: usize,
+         path: &Path|
+     -> Result<Option<ffmpeg::Packet>> {
+            loop {
+                let mut packet = ffmpeg::Packet::empty();
+                match packet.read(input) {
+                    Ok(()) => {
+                        if packet.stream() != wanted {
+                            continue;
+                        }
+                        packet.set_stream(stream);
+                        packet.rescale_ts(from, to);
+                        packet.set_position(-1);
+                        return Ok(Some(packet));
                     }
-                    packet.set_stream(stream);
-                    packet.rescale_ts(from, to);
-                    packet.set_position(-1);
-                    packet
-                        .write_interleaved(&mut out)
-                        .map_err(|error| ffi::fail("write packet", output, error))?;
-                    return Ok(true);
+                    Err(ffmpeg::Error::Eof) => return Ok(None),
+                    Err(error) => return Err(ffi::fail("read", path, error)),
                 }
-                Err(ffmpeg::Error::Eof) => return Ok(false),
-                Err(error) => return Err(ffi::fail("read", path, error)),
             }
-        }
-    };
+        };
+
+    let mut video_packet =
+        next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
+    let mut audio_packet =
+        next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
     loop {
-        if !copy(&mut video_in, video_index, video_tb, out_video_tb, 0, video)? {
-            break;
-        }
-        if !copy(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)? {
-            break;
+        let take_video = match (&video_packet, &audio_packet) {
+            (Some(v), Some(a)) => v.pts().unwrap_or(i64::MIN) <= a.pts().unwrap_or(i64::MIN),
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        if take_video {
+            let mut packet = video_packet.take().expect("checked above");
+            packet
+                .write_interleaved(&mut out)
+                .map_err(|error| ffi::fail("write packet", output, error))?;
+            video_packet =
+                next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
+        } else {
+            let mut packet = audio_packet.take().expect("checked above");
+            packet
+                .write_interleaved(&mut out)
+                .map_err(|error| ffi::fail("write packet", output, error))?;
+            audio_packet =
+                next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
         }
     }
     out.write_trailer()
