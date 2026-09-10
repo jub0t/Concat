@@ -1058,9 +1058,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "open" => {
                             if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
                             {
-                                let concat_json = path.join("concat.json");
-                                let wolfcut_json = path.join("wolfcut.json");
-                                if concat_json.exists() || wolfcut_json.exists() {
+                                let concat_json = path.join("concat.json");                                
+                                if concat_json.exists() {
                                     state.open_recent(&path.to_string_lossy());
                                 } else {
                                     state.notify("Not a valid project folder", true);
