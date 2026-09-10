@@ -636,7 +636,12 @@ impl Catalogue {
                     1.0
                 };
                 let values = package.resolve(&set);
-                Some(shader.pass(&values, &package.manifest.params, intensity, package.lut.clone()))
+                Some(shader.pass(
+                    &values,
+                    &package.manifest.params,
+                    intensity,
+                    package.lut.clone(),
+                ))
             })
             .collect()
     }

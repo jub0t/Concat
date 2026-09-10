@@ -45,7 +45,9 @@ use crate::dock::{
 use crate::format::{
     bytes, colour_of, eta, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase,
 };
-use crate::host::{Host, MediaArt, image_at, image_of, media_art, on_ui, spawn, spawn_art};
+use crate::host::{
+    Host, MediaArt, cached_media_art, image_at, image_of, media_art, on_ui, spawn, spawn_art,
+};
 use crate::i18n::{self, t, tf};
 use crate::prefs::{AudioTracks, Preferences};
 use crate::presets::{self, TextPreset};
@@ -2151,6 +2153,7 @@ impl Studio {
             has_audio: bool,
             duration: Option<f64>,
             stream: Option<u32>,
+            pictures: bool,
         }
         let project = self.project();
         let mut wanted: Vec<Want> = project
@@ -2173,6 +2176,7 @@ impl Studio {
                 has_audio: item.has_audio,
                 duration: item.duration,
                 stream: None,
+                pictures: item.kind != model::MediaKind::Audio,
             })
             .collect();
         // The other streams clips have chosen, once each.
@@ -2209,23 +2213,59 @@ impl Studio {
                 has_audio: item.has_audio,
                 duration: item.duration,
                 stream: Some(stream),
+                pictures: false,
             });
         }
         for want in wanted {
-            self.art_pending.insert(want.key);
-            let project = project_path.clone();
             let Want {
+                key,
                 id,
                 path,
                 kind,
                 has_audio,
                 duration,
                 stream,
-                ..
+                mut pictures,
             } = want;
+
+            // Restore pictures from the project's JPEG artwork cache before
+            // starting a decoder. Peaks already have their own disk cache in
+            // concat-media; thumbnails and filmstrips are what used to be
+            // recreated on every project open.
+            if stream.is_none() && kind != model::MediaKind::Audio {
+                let cached = cached_media_art(&project_path, &id, &path, kind);
+                if let Some(image) = cached.thumbnail {
+                    self.thumbs.insert(id.clone(), image);
+                }
+                if let Some(strip) = cached.strip {
+                    self.strips.insert(
+                        id.clone(),
+                        Strip {
+                            image: strip.image,
+                            frames: strip.frames as i32,
+                            frame_width: strip.frame_width as i32,
+                            height: strip.height as i32,
+                        },
+                    );
+                }
+                pictures = !self.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
+            }
+
+            let needs_peaks =
+                (kind == model::MediaKind::Audio || has_audio) && !self.peaks.contains_key(&key);
+            if !pictures && !needs_peaks {
+                continue;
+            }
+
+            self.art_pending.insert(key);
+            let project = project_path.clone();
             // On the artwork lane, a few at a time - see host.rs.
             spawn_art(
-                move || media_art(id, path, kind, has_audio, duration, project, stream),
+                move || {
+                    media_art(
+                        id, path, kind, has_audio, duration, project, stream, pictures,
+                    )
+                },
                 |studio, _, _, art: MediaArt| {
                     let key = art_key(&art.id, art.stream);
                     studio.art_pending.remove(&key);
@@ -7226,7 +7266,8 @@ fn script_captions(text: &str) -> Vec<(String, f64)> {
         .flat_map(sentences)
         .flat_map(|sentence| wrap_caption(&sentence))
         .map(|line| {
-            let seconds = (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
+            let seconds =
+                (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
             (line, seconds)
         })
         .collect()
@@ -7324,7 +7365,11 @@ mod tests {
                 "Ok?",
             ]
         );
-        assert!(lines.iter().all(|(_, seconds)| (1.0..=7.0).contains(seconds)));
+        assert!(
+            lines
+                .iter()
+                .all(|(_, seconds)| (1.0..=7.0).contains(seconds))
+        );
         assert_eq!(lines[0].1, 1.0);
         assert!(lines[2].1 > lines[0].1);
         assert!(script_captions("  \n ").is_empty());

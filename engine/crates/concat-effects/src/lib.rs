@@ -133,8 +133,17 @@ mod tests {
             .ffmpeg_fragment(&BTreeMap::new(), 0)
             .expect("renders")
             .expect("has a chain");
-        assert!(chain.starts_with("lut3d=file='") && chain.ends_with("look.cube'"), "{chain}");
-        assert_eq!(catalogue.shader_passes(&[AppliedFilter::new("test.table")])[0].lut.as_ref().map(|l| l.size), Some(2));
+        assert!(
+            chain.starts_with("lut3d=file='") && chain.ends_with("look.cube'"),
+            "{chain}"
+        );
+        assert_eq!(
+            catalogue.shader_passes(&[AppliedFilter::new("test.table")])[0]
+                .lut
+                .as_ref()
+                .map(|l| l.size),
+            Some(2)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

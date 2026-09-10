@@ -130,8 +130,8 @@ pub fn highlight(frame: &mut Frame, mask: &Mask, mapping: &Mapping, colour: [u8;
             // it is not: the tint reads as the mask's own edge.
             let mix = mask.sample(u, v) * 0.55;
             for c in 0..3 {
-                pixel[c] = (f32::from(pixel[c]) * (1.0 - mix) + f32::from(colour[c]) * mix + 0.5)
-                    as u8;
+                pixel[c] =
+                    (f32::from(pixel[c]) * (1.0 - mix) + f32::from(colour[c]) * mix + 0.5) as u8;
             }
         }
     }

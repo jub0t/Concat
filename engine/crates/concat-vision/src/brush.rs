@@ -107,7 +107,10 @@ impl Brush {
             .encoder
             .lock()
             .map_err(|_| "brush encoder poisoned".to_owned())?
-            .run(vec![input], &["image_embeddings", "image_positional_embeddings"])?;
+            .run(
+                vec![input],
+                &["image_embeddings", "image_positional_embeddings"],
+            )?;
         let positional = outputs.pop().ok_or("brush: no positional embeddings")?;
         let image = outputs.pop().ok_or("brush: no image embeddings")?;
         Ok(Embedding {
@@ -157,7 +160,9 @@ impl Brush {
             .into_iter()
             .map(|(_, mask)| (overlap(&mask, previous), mask))
             .max_by(|a, b| a.0.total_cmp(&b.0));
-        Ok(best.filter(|(iou, _)| *iou >= STILL_IT).map(|(_, mask)| mask))
+        Ok(best
+            .filter(|(iou, _)| *iou >= STILL_IT)
+            .map(|(_, mask)| mask))
     }
 
     /// The model's three answers for `picked` points, each with the
@@ -223,8 +228,8 @@ impl Brush {
                 let logits = &masks[index * plane..(index + 1) * plane];
                 let mut bytes = Vec::with_capacity(size * size);
                 for y in 0..size {
-                    let py = ((y as f32 + 0.5) / size as f32) * sh / SAM_SIZE as f32
-                        * SAM_MASK as f32;
+                    let py =
+                        ((y as f32 + 0.5) / size as f32) * sh / SAM_SIZE as f32 * SAM_MASK as f32;
                     for x in 0..size {
                         let px = ((x as f32 + 0.5) / size as f32) * sw / SAM_SIZE as f32
                             * SAM_MASK as f32;
@@ -260,8 +265,12 @@ fn interior_points(region: &Mask) -> Vec<[f64; 2]> {
     // The region's box, cut into a grid; the sure pixel nearest each
     // cell's centre is a prompt, so the prompts cover the thing rather
     // than cluster.
-    let (x0, x1) = sure.iter().fold((usize::MAX, 0), |(lo, hi), &(x, _)| (lo.min(x), hi.max(x)));
-    let (y0, y1) = sure.iter().fold((usize::MAX, 0), |(lo, hi), &(_, y)| (lo.min(y), hi.max(y)));
+    let (x0, x1) = sure
+        .iter()
+        .fold((usize::MAX, 0), |(lo, hi), &(x, _)| (lo.min(x), hi.max(x)));
+    let (y0, y1) = sure
+        .iter()
+        .fold((usize::MAX, 0), |(lo, hi), &(_, y)| (lo.min(y), hi.max(y)));
     let cells = (AT_MOST as f64).sqrt().round() as usize;
     let mut out = Vec::new();
     for cy in 0..cells {
@@ -277,7 +286,10 @@ fn interior_points(region: &Mask) -> Vec<[f64; 2]> {
                 // thing's; skip it rather than prompt beside the thing.
                 let reach = ((x1 - x0).max(y1 - y0) as f64 / cells as f64).max(2.0);
                 if distance.sqrt() <= reach {
-                    out.push([(x as f64 + 0.5) / width as f64, (y as f64 + 0.5) / height as f64]);
+                    out.push([
+                        (x as f64 + 0.5) / width as f64,
+                        (y as f64 + 0.5) / height as f64,
+                    ]);
                 }
             }
         }
@@ -302,7 +314,11 @@ fn overlap(a: &Mask, b: &Mask) -> f32 {
             either += u32::from(in_a || in_b);
         }
     }
-    if either == 0 { 0.0 } else { both as f32 / either as f32 }
+    if either == 0 {
+        0.0
+    } else {
+        both as f32 / either as f32
+    }
 }
 
 /// A value from a square plane, bilinear between the four around it,
@@ -343,7 +359,10 @@ mod tests {
         let points = interior_points(&region);
         assert!(!points.is_empty() && points.len() <= 9);
         for [x, y] in &points {
-            assert!((0.25..0.75).contains(x) && (0.25..0.75).contains(y), "{x} {y}");
+            assert!(
+                (0.25..0.75).contains(x) && (0.25..0.75).contains(y),
+                "{x} {y}"
+            );
         }
         assert_eq!(overlap(&region, &region), 1.0);
         let empty = Mask::filled(32, 32, 0);

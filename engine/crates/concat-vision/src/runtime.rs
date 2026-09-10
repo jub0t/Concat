@@ -90,8 +90,10 @@ impl Model {
     /// Runs the model on `inputs` and returns the named outputs, in the
     /// order asked for.
     pub fn run(&mut self, inputs: Vec<Input<'_>>, outputs: &[&str]) -> Result<Vec<Output>, String> {
-        let mut fed: Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)> =
-            Vec::with_capacity(inputs.len());
+        let mut fed: Vec<(
+            std::borrow::Cow<'static, str>,
+            ort::session::SessionInputValue<'_>,
+        )> = Vec::with_capacity(inputs.len());
         for input in inputs {
             let value: ort::session::SessionInputValue<'_> = match input.data {
                 Data::F32(data) => Tensor::from_array((input.dims, data))

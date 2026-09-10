@@ -95,7 +95,12 @@ mod tests {
             for g in 0..n {
                 for r in 0..n {
                     let s = 1.0 / (n - 1) as f32;
-                    text.push_str(&format!("{} {} {}\n", r as f32 * s, g as f32 * s, b as f32 * s));
+                    text.push_str(&format!(
+                        "{} {} {}\n",
+                        r as f32 * s,
+                        g as f32 * s,
+                        b as f32 * s
+                    ));
                 }
             }
         }
@@ -107,7 +112,11 @@ mod tests {
         let lut = parse(&identity(9)).expect("parses");
         assert_eq!(lut.size, 9);
         let out = lut.sample([0.3, 0.6, 0.9]);
-        assert!((out[0] - 0.3).abs() < 0.01 && (out[1] - 0.6).abs() < 0.01 && (out[2] - 0.9).abs() < 0.01);
+        assert!(
+            (out[0] - 0.3).abs() < 0.01
+                && (out[1] - 0.6).abs() < 0.01
+                && (out[2] - 0.9).abs() < 0.01
+        );
     }
 
     #[test]

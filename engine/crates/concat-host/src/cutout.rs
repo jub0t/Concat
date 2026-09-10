@@ -344,7 +344,8 @@ impl Cutouts {
                         active = self.downloaded(ModelId::Object, &cancel, progress)?;
                         decoder = open(&active)?;
                         active.begin();
-                        let Some(again) = decoder.next_frame().map_err(|error| error.to_string())?
+                        let Some(again) =
+                            decoder.next_frame().map_err(|error| error.to_string())?
                         else {
                             break;
                         };
