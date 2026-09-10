@@ -1060,6 +1060,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     state.open_menu = -1;
                     match action.as_str() {
                         "add-selected" => state.add_selected_media(),
+                        "open" => {
+                            if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
+                            {
+                                let concat_json = path.join("concat.json");                                
+                                if concat_json.exists() {
+                                    state.open_recent(&path.to_string_lossy());
+                                } else {
+                                    state.notify("Not a valid project folder", true);
+                                }
+                            }
+                        }
                         "import" => {
                             if let Some(paths) =
                                 platform::pick_files(&i18n::t("Import media"), None)
