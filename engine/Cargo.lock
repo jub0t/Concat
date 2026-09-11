@@ -1153,6 +1153,7 @@ dependencies = [
  "concat-project",
  "concat-speech",
  "concat-vision",
+ "image",
  "opener",
  "png 0.17.16",
  "pollster",

@@ -219,13 +219,16 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         // to every channel; without it only the left channel moves, which is
         // a memorable way to discover the flag exists.
         //
-        // A sped-up clip covers more source than its timeline length, so the
-        // trim takes `duration * speed` before the rate is applied.
-        let mut stage = format!(
-            "[{index}:a]atrim=start={:.6}:duration={:.6},asetpts=PTS-STARTPTS",
-            clip.source_start,
-            clip.duration * speed
-        );
+        // The out-point is not trimmed here: source files with broken
+        // timestamp series (edit lists, paused recordings) made a duration
+        // based trim close the input early. `mix_to_file` counts the source
+        // samples it feeds per input and stops at `duration * speed` source
+        // seconds instead; see the `clip_samples` field.
+        // No trim or restamp in the graph: Rust stamps each frame's PTS from
+        // a sample counter and stops feeding the input after duration*speed
+        // source seconds. This sidesteps timestamp discontinuities (edit
+        // lists, paused recordings) that parked frames outside the mix.
+        let mut stage = format!("[{index}:a]anull");
 
         for filter in speed_filters(speed, clip.preserve_pitch) {
             stage.push(',');
@@ -316,6 +319,10 @@ struct MixInput {
     decoder: ffmpeg::codec::decoder::Audio,
     label: String,
     done: bool,
+    /// Samples already sent to the graph for this clip.
+    samples_sent: i64,
+    /// How many samples this clip should contribute to the mix.
+    clip_samples: i64,
 }
 
 impl MixInput {
@@ -386,7 +393,6 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 }
             })?;
         let stream = input.stream(stream_index).expect("just found");
-        let time_base = stream.time_base();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
@@ -403,14 +409,26 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             decoder,
             label,
             done: false,
+            samples_sent: 0,
+            clip_samples: 0,
         };
-        let first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
+        let mut first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
             path: path.to_path_buf(),
         })?;
+        // Our continuous PTS: sample count from the start of this clip.
+        first.set_pts(Some(0));
+        // The out-point lives here, not in the filtergraph: how many source
+        // samples this clip may feed. A sped-up clip covers more source than
+        // its timeline length, hence the speed factor. The first frame goes
+        // into the graph separately below, so it counts towards the total.
+        mix_input.samples_sent = first.samples() as i64;
+        mix_input.clip_samples =
+            (clip.duration * clamp_speed(clip.speed) * first.rate() as f64).round() as i64;
+        // One sample per time-base tick: the PTS we stamp is a plain
+        // running sample count, so the graph's clock is the sample clock.
         let args = format!(
-            "time_base={}/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
-            time_base.numerator(),
-            time_base.denominator(),
+            "time_base=1/{}:sample_rate={}:sample_fmt={}:channel_layout={}",
+            first.rate(),
             first.rate(),
             first.format().name(),
             first.ch_layout().description()
@@ -530,8 +548,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             .add(&first)
             .map_err(|error| ffi::fail("filter", &inputs[index].path, error))?;
     }
-    let mut live = inputs.len();
-    loop {
+    'mix: loop {
         // Pull everything the sink has.
         loop {
             let mut mixed = Audio::empty();
@@ -548,16 +565,17 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                         .map_err(|error| ffi::fail("encode", destination, error))?;
                     drain(&mut encoder, &mut output)?;
                 }
-                Err(ffmpeg::Error::Eof) => {
-                    live = 0;
-                    break;
-                }
+                // The graph's atrim=duration filter ended the mix at the
+                // exact timeline duration. All inputs may have finished
+                // earlier (trimmed clips, shorter audio), but the graph
+                // padded silence via apad until duration was reached.
+                // Break, do not return: the finalisation below this loop
+                // flushes the encoder and writes the trailer, and an m4a
+                // without its trailer cannot be opened by the muxer.
+                Err(ffmpeg::Error::Eof) => break 'mix,
                 Err(error) if ffi::is_again(&error) => break,
                 Err(error) => return Err(ffi::fail("filter output", destination, error)),
             }
-        }
-        if live == 0 {
-            break;
         }
         // Push one frame from every input that still has one.
         for input in inputs.iter_mut() {
@@ -565,45 +583,47 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 continue;
             }
             match input.next()? {
-                Some(frame) => {
+                Some(mut frame) => {
+                    let frame_samples = frame.samples() as i64;
+                    // Our continuous PTS: whatever the source's timestamp
+                    // series does from here on cannot move this frame out
+                    // of its place in the mix.
+                    frame.set_pts(Some(input.samples_sent));
+                    // Stop feeding this input once we've sent its clip's worth.
+                    // The graph's apad will fill the rest with silence until
+                    // the mix's atrim=duration ends the whole thing.
+                    if input.samples_sent >= input.clip_samples {
+                        let mut context = graph.get(&input.label).expect("source exists");
+                        let _ = context.source().flush();
+                        input.done = true;
+                        continue;
+                    }
+                    // Scope the add call so its borrow ends before the flush.
+                    let added = {
+                        let mut context = graph.get(&input.label).expect("source exists");
+                        context.source().add(&frame)
+                    };
+                    input.samples_sent += frame_samples;
                     let mut context = graph.get(&input.label).expect("source exists");
-                    context
-                        .source()
-                        .add(&frame)
-                        .map_err(|error| ffi::fail("filter", &input.path, error))?;
+                    match added {
+                        Ok(()) => {}
+                        // The graph closed this input's slot - its trim ran
+                        // out or the mix ended while a frame was in flight.
+                        // Take what it got and end the input gracefully
+                        // instead of failing the whole mix on a trimmed clip.
+                        Err(ffmpeg::Error::Eof) => {
+                            let _ = context.source().flush();
+                            input.done = true;
+                        }
+                        Err(error) => return Err(ffi::fail("filter", &input.path, error)),
+                    }
                 }
                 None => {
                     let mut context = graph.get(&input.label).expect("source exists");
                     let _ = context.source().flush();
-                    live -= 1;
+                    input.done = true;
                 }
             }
-        }
-        // `live` counting down to zero means every source was flushed; the
-        // sink then drains to EOF on the next pass, which is what ends the
-        // outer loop.
-        if live == 0 {
-            loop {
-                let mut mixed = Audio::empty();
-                let pulled = {
-                    let mut context = graph.get("sink").expect("the graph has a sink");
-                    context.sink().frame(&mut mixed)
-                };
-                match pulled {
-                    Ok(()) => {
-                        mixed.set_pts(Some(written_samples));
-                        written_samples += mixed.samples() as i64;
-                        encoder
-                            .send_frame(&mixed)
-                            .map_err(|error| ffi::fail("encode", destination, error))?;
-                        drain(&mut encoder, &mut output)?;
-                    }
-                    Err(ffmpeg::Error::Eof) => break,
-                    Err(error) if ffi::is_again(&error) => break,
-                    Err(error) => return Err(ffi::fail("filter output", destination, error)),
-                }
-            }
-            break;
         }
     }
 
@@ -669,15 +689,20 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         .map(|stream| stream.time_base())
         .unwrap_or(audio_tb);
 
-    // Alternate one packet from each; `write_interleaved` orders them by
-    // timestamp. When either input ends, the file ends: `-shortest`.
-    let mut copy = |input: &mut ffmpeg::format::context::Input,
-                    wanted: usize,
-                    from: ffmpeg::Rational,
-                    to: ffmpeg::Rational,
-                    stream: usize,
-                    path: &Path|
-     -> Result<bool> {
+    // Merge the two streams by timestamp: always take the packet whose
+    // PTS comes next, until both inputs end. Alternating one-and-one
+    // truncated whichever stream carries more packets per second - audio
+    // runs at ~46 packets/s against video's 24-60, so at 30 fps the
+    // soundtrack died at exactly 30/46.9 of the picture. `write_interleaved`
+    // still does the final ordering; feeding it in order keeps its buffer
+    // small. The file ends with the shorter input, as `-shortest`.
+    let next_packet = |input: &mut ffmpeg::format::context::Input,
+                       wanted: usize,
+                       from: ffmpeg::Rational,
+                       to: ffmpeg::Rational,
+                       stream: usize,
+                       path: &Path|
+     -> Result<Option<ffmpeg::Packet>> {
         loop {
             let mut packet = ffmpeg::Packet::empty();
             match packet.read(input) {
@@ -688,22 +713,57 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
                     packet.set_stream(stream);
                     packet.rescale_ts(from, to);
                     packet.set_position(-1);
-                    packet
-                        .write_interleaved(&mut out)
-                        .map_err(|error| ffi::fail("write packet", output, error))?;
-                    return Ok(true);
+                    return Ok(Some(packet));
                 }
-                Err(ffmpeg::Error::Eof) => return Ok(false),
+                Err(ffmpeg::Error::Eof) => return Ok(None),
                 Err(error) => return Err(ffi::fail("read", path, error)),
             }
         }
     };
-    loop {
-        if !copy(&mut video_in, video_index, video_tb, out_video_tb, 0, video)? {
-            break;
+
+    // Timestamps from each input arrive in that input's own time base -
+    // 1/15360 for this project's video, 1/48000 for its audio - so a bare
+    // integer compare of the two treats one tick of each as equal when they
+    // are not: 1024 ticks is 0.067s of video but only 0.021s of audio. That
+    // silently misordered the interleave, which is enough for some players'
+    // sample tables to come out wrong even though every packet is still
+    // physically written. Comparing in a common unit fixes the ordering
+    // regardless of what the two files' time bases happen to be.
+    let compare_pts = |pts: Option<i64>, tb: ffmpeg::Rational| -> i64 {
+        let pts = pts.unwrap_or(i64::MIN);
+        if pts == i64::MIN {
+            return i64::MIN;
         }
-        if !copy(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)? {
-            break;
+        pts.saturating_mul(tb.numerator() as i64) / tb.denominator() as i64
+    };
+
+    let mut video_packet =
+        next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
+    let mut audio_packet =
+        next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
+    loop {
+        let take_video = match (&video_packet, &audio_packet) {
+            (Some(v), Some(a)) => {
+                compare_pts(v.pts(), out_video_tb) <= compare_pts(a.pts(), out_audio_tb)
+            }
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (None, None) => break,
+        };
+        if take_video {
+            let packet = video_packet.take().expect("checked above");
+            packet
+                .write_interleaved(&mut out)
+                .map_err(|error| ffi::fail("write packet", output, error))?;
+            video_packet =
+                next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
+        } else {
+            let packet = audio_packet.take().expect("checked above");
+            packet
+                .write_interleaved(&mut out)
+                .map_err(|error| ffi::fail("write packet", output, error))?;
+            audio_packet =
+                next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
         }
     }
     out.write_trailer()
@@ -808,12 +868,18 @@ mod tests {
     }
 
     #[test]
-    fn a_sped_up_clip_trims_more_source_than_its_timeline_length() {
+    fn a_sped_up_clip_still_retimes_in_the_graph() {
         let mut fast = clip("a.mp4");
         fast.speed = 2.0;
         let graph = mix_graph(&[fast], 2.0).expect("valid");
-        assert!(graph.contains("duration=4.000000"), "graph was: {graph}");
+        // The out-point trim moved to `mix_to_file`'s sample counter, so the
+        // graph only keeps the in-point window and the retime.
         assert!(graph.contains("atempo=2.000000"), "graph was: {graph}");
+        assert!(
+            graph.contains("atrim=start=0.000000,"),
+            "graph was: {graph}"
+        );
+        assert!(!graph.contains("duration=4.000000"), "graph was: {graph}");
     }
 
     #[test]

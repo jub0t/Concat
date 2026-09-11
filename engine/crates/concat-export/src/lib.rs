@@ -271,6 +271,8 @@ pub struct ExportRequest {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
+    /// Video encoder name, e.g. "libx264", "h264_nvenc".
+    pub encoder: String,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -961,6 +963,7 @@ fn render_picture(
         request.height,
         rate,
         &EncodeOptions {
+            codec: request.encoder.clone(),
             crf: request.crf,
             preset: request.preset.clone(),
             ..EncodeOptions::default()
@@ -1885,6 +1888,7 @@ pub fn preview_plan(
         rate_den,
         crf: 18,
         preset: String::new(),
+        encoder: "libx264".to_owned(),
         clips: Vec::new(),
     };
     PreviewPlan {

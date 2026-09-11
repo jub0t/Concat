@@ -1063,7 +1063,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "open" => {
                             if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
                             {
-                                let concat_json = path.join("concat.json");                                
+                                let concat_json = path.join("concat.json");
                                 if concat_json.exists() {
                                     state.open_recent(&path.to_string_lossy());
                                 } else {

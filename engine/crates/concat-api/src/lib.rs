@@ -316,6 +316,7 @@ impl Api {
                 .preset
                 .clone()
                 .unwrap_or_else(|| DEFAULT_PRESET.to_owned()),
+            encoder: "libx264".into(),
         };
         let mut request = export::request(session, &host_spec, titles);
         request.width = width;

@@ -26,6 +26,8 @@ pub struct ExportSpec {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
+    /// Video encoder (libx264, h264_nvenc, h264_amf, h264_qsv).
+    pub encoder: String,
 }
 
 /// One progress report: which frame of how many, in which stage.
@@ -52,6 +54,7 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         rate_den: settings.rate_den,
         crf: spec.crf,
         preset: spec.preset.clone(),
+        encoder: spec.encoder.clone(),
         clips,
     }
 }

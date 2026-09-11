@@ -96,6 +96,8 @@
           ffmpeg_8
           # The cutout models' runtime; see ORT_LIB_LOCATION above.
           onnxruntime
+          openssl
+          pkg-config
           alsa-lib
           fontconfig
           freetype

@@ -4903,10 +4903,13 @@ impl Studio {
             self.export.folder.trim_end_matches('/'),
             self.export.name.trim()
         );
+        let encoder = std::env::var("CONCAT_ENCODER").unwrap_or_else(|_| "libx264".to_owned());
+        eprintln!("Export: using encoder={}", encoder);
         let spec = ExportSpec {
             output: output.clone(),
             crf: EXPORT_CRF[self.export.quality.min(2)],
             preset: "veryfast".into(),
+            encoder: encoder.into(),
         };
         let (frame_w, frame_h) = self.output_size();
         let titles = self

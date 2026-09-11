@@ -382,6 +382,7 @@ pub struct ParamInfo {
 /// "..."}` with the sentence a person would be shown when it did not.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::large_enum_variant)]
 pub enum Response {
     /// The reply.
     Result(Reply),
