@@ -19,6 +19,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-c6f432?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=000000" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
+<p align="center">
+  <a href="./README.md">English</a> · <a href="./README_ES.md">Español</a> · <a href="./README_FR.md">Français</a> · <a href="./README_DE.md">Deutsch</a> · <a href="./README_ZH.md">中文</a> · <a href="./README_JA.md">日本語</a> · <a href="./README_PT.md">Português</a>
+</p>
+
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
 </div>
