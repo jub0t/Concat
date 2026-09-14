@@ -307,6 +307,35 @@ pub fn folder_name(name: &str) -> String {
     }
 }
 
+/// Removes all cached artwork and waveforms from a project folder.
+///
+/// The cache is entirely regenerable, so the whole folder goes, subfolders
+/// (`art/`, peaks and all) included. `remove_file` alone would skip them:
+/// it refuses directories.
+pub fn clear_cache(path: &str) -> Result<usize, String> {
+    let cache_dir = Path::new(path).join("cache");
+    if !cache_dir.exists() {
+        return Ok(0);
+    }
+    let count = count_files(&cache_dir);
+    std::fs::remove_dir_all(&cache_dir)
+        .map_err(|error| format!("cannot remove {}: {error}", cache_dir.display()))?;
+    Ok(count)
+}
+
+/// Recursively counts the files under a directory, for the clear-cache toast.
+fn count_files(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| {
+            let path = entry.path();
+            if path.is_dir() { count_files(&path) } else { 1 }
+        })
+        .sum()
+}
 #[cfg(test)]
 mod tests {
     use super::*;

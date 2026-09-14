@@ -18,6 +18,12 @@
 //! Everything Slint draws is produced by `publish` and its two halves from
 //! those two, on every event that could have changed either.
 
+#![allow(
+    clippy::type_complexity,
+    clippy::collapsible_if,
+    clippy::manual_unwrap_or_default
+)]
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -748,6 +754,7 @@ pub struct Studio {
     /// text clip is drawn from; see `footprint`.
     /// Per text clip: the painted block's size in frame pixels, and its
     /// centre's offset from the clip's centre - see `TitleClip::offset`.
+    #[allow(clippy::type_complexity)]
     pub title_blocks: HashMap<String, ((u32, u32), (i32, i32))>,
     pub drop: Option<DropPlan>,
     pub project_sheet: ProjectSheet,
@@ -4551,6 +4558,7 @@ impl Studio {
             .filter_map(|id| self.clip(id).cloned())
             .filter(|clip| !self.locked(&clip.track_id))
             .collect();
+        #[allow(clippy::collapsible_if)]
         if sources.is_empty() {
             if let Some(id) = self.menu_target.clone() {
                 if let Some(clip) = self.clip(&id).cloned() {
@@ -4738,6 +4746,23 @@ impl Studio {
             Ok(info) => self.open_project(info),
             Err(error) => self.start.error = error,
         }
+    }
+
+    /// Clears all cached artwork and waveforms from the current project.
+    pub fn clear_project_cache(&mut self) {
+        let Some(path) = self
+            .session
+            .as_ref()
+            .map(|session| session.path().to_string())
+        else {
+            return;
+        };
+        match concat_host::projects::clear_cache(&path) {
+            Ok(count) => self.notify(&format!("Cleared {count} cache files"), false),
+            Err(error) => self.notify(&format!("Cache clear failed: {error}"), true),
+        }
+        self.request_media_art();
+        self.request_preview();
     }
 
     pub fn forget_recent(&mut self, path: &str) {
@@ -6842,6 +6867,13 @@ impl Studio {
                 ),
                 row("template", t("Save as template…"), Glyph::Slot, "", true),
                 row("speech", t("Text to speech…"), Glyph::Volume, "", true),
+                row(
+                    "clear-cache",
+                    t("Clear project cache"),
+                    Glyph::None,
+                    "",
+                    true,
+                ),
                 rule(),
                 row("settings", t("Settings…"), Glyph::Settings, "⌘,", true),
                 rule(),
