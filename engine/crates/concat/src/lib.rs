@@ -868,9 +868,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
 
     app.on_relink_all(on_window!(|state| {
-        // TODO: Implement folder picker and relink logic
-        state.notify("Relink not yet implemented", true);
-        state.relink.open = false;
+        state.relink_all();
     }));
 
     app.on_relink_dismiss(on_window!(|state| {
