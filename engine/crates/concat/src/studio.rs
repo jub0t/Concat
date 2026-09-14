@@ -271,6 +271,13 @@ pub struct SettingsState {
     pub playhead_stops: bool,
 }
 
+/// The missing media relink dialog state.
+#[derive(Default)]
+pub struct RelinkState {
+    pub open: bool,
+    pub items: Vec<concat_project::model::MissingMedia>,
+}
+
 /// The bottom-right notice: one at a time. The token is what the panel
 /// watches, bumped per notice so the same sentence said twice blinks twice.
 #[derive(Default)]
@@ -679,6 +686,7 @@ pub struct Studio {
     // ── the sheets and menus ──
     pub export: ExportState,
     pub settings: SettingsState,
+    pub relink: RelinkState,
     pub transcribers: Vec<ModelState>,
     pub voices: Vec<ModelState>,
     pub open_menu: i32,
@@ -1348,6 +1356,7 @@ impl Studio {
             preview_failed: false,
             export: ExportState::default(),
             settings: SettingsState::default(),
+            relink: RelinkState::default(),
             transcribers: Vec::new(),
             voices: Vec::new(),
             open_menu: -1,
@@ -4721,6 +4730,10 @@ impl Studio {
                                 let _ = writeln!(file, "  - {} ({})", m.name, m.path);
                             }
                         }
+
+                        // Open relink dialog
+                        self.relink.open = true;
+                        self.relink.items = missing;
                     }
                 }
             }
