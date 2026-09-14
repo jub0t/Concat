@@ -37,7 +37,6 @@ use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 use concat_project::{Command, why_not_merge};
-use slint::VecModel;
 use slint::{Model, SharedString, VecModel};
 
 use crate::dock::{
