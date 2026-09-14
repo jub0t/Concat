@@ -5,7 +5,6 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
 import { Button, DialogSection, Modal } from "../primitives/modal.slint";
-import { TextButton } from "../primitives/panel.slint";
 
 export struct MissingMediaItem {
     id: string,
@@ -26,13 +25,13 @@ export component RelinkDialog inherits Modal {
 
     open: root.data.open;
     title: I18n.t("Missing Media");
-    glyph: Glyph.warning;
+    glyph: Glyph.info;
     surface-width: 600px;
 
     VerticalLayout {
         DialogSection {
             first: true;
-            title: I18n.t1("{0} media file(s) not found", data.items.length);
+            title: I18n.t1("{0} media file(s) not found", "" + data.items.length);
 
             Text {
                 text: I18n.t("The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.");
@@ -40,7 +39,6 @@ export component RelinkDialog inherits Modal {
                 wrap: word-wrap;
             }
 
-            // Lista missing fajlova - scrollable ako ih je puno
             Flickable {
                 height: 200px;
                 viewport-height: items-layout.preferred-height;
@@ -87,14 +85,14 @@ export component RelinkDialog inherits Modal {
             spacing: 8px;
 
             Button {
-                kind: secondary;
-                text: I18n.t("Dismiss");
+                primary: false;
+                label: I18n.t("Dismiss");
                 clicked => { root.dismiss(); }
             }
 
             Button {
-                kind: primary;
-                text: I18n.t("Relink All…");
+                primary: true;
+                label: I18n.t("Relink All…");
                 clicked => { root.relink-all(); }
             }
         }

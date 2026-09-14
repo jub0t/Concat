@@ -667,5 +667,10 @@
   "{0} months ago": "prije {0} mjeseci",
   "{0} strokes": "{0} poteza",
   "{0}m {1}s left": "preostalo {0}m {1}s",
-  "{0}s left": "preostalo {0}s"
+  "{0}s left": "preostalo {0}s",
+  "Missing Media": "Nedostajući mediji",
+  "{0} media file(s) not found": "{0} medijskih datoteka nije pronađeno",
+  "The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.": "Sljedeće medijske datoteke nisu pronađene. Možete ih ponovno povezati s novom mapom ili odbaciti ovaj dijalog da nastavite s offline placeholderima.",
+  "Dismiss": "Odbaci",
+  "Relink All…": "Ponovno poveži sve…"
 }
