@@ -4744,6 +4744,108 @@ impl Studio {
         }
     }
 
+    /// Relinks missing media by searching a folder (recursively) for files
+    /// whose basename matches. The user picks one folder; each missing item
+    /// looks for its own filename inside it. Successful relinks go through
+    /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
+    pub fn relink_all(&mut self) {
+        use concat_project::commands::Command;
+
+        let Some(folder) = crate::platform::pick_folder(
+            &crate::i18n::t("Select folder containing media files"),
+            "",
+        ) else {
+            return;
+        };
+
+        // Snapshot the missing list now: as relinks land the list shrinks,
+        // and we want a stable target for the toast count.
+        let items: Vec<(String, String)> = self
+            .relink
+            .items
+            .iter()
+            .map(|m| (m.id.clone(), m.path.clone()))
+            .collect();
+        let total = items.len();
+        if total == 0 {
+            self.relink.open = false;
+            return;
+        }
+
+        // Build a basename -> full path index of every file under the folder
+        // so the per-item lookup is O(1) rather than a walk each time.
+        let mut index: std::collections::HashMap<String, std::path::PathBuf> =
+            std::collections::HashMap::new();
+        let mut stack = vec![folder.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    // First match wins: if the user has duplicates, the one
+                    // closest to the root is the most likely correct copy.
+                    index.entry(name.to_owned()).or_insert(path);
+                }
+            }
+        }
+
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+
+        let mut relinked = 0usize;
+        let mut commands: Vec<Command> = Vec::new();
+        for (id, path) in items {
+            let Some(basename) = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_owned())
+            else {
+                continue;
+            };
+            if let Some(found) = index.get(&basename) {
+                commands.push(Command::UpdateMediaPath {
+                    media_id: id,
+                    new_path: found.to_string_lossy().to_string(),
+                });
+                relinked += 1;
+            }
+        }
+
+        if !commands.is_empty() {
+            if let Err(error) = session.apply(Command::Batch { commands }) {
+                self.notify(&format!("Relink failed: {error}"), true);
+                return;
+            }
+            self.dirty = true;
+            self.revision += 1;
+        }
+
+        // Re-check what is still missing: the dialog updates to the
+        // remainder (often empty, in which case it closes).
+        let remaining = session.project().missing_media();
+        if remaining.is_empty() {
+            self.relink.open = false;
+            self.relink.items.clear();
+        } else {
+            self.relink.items = remaining;
+        }
+
+        self.notify(
+            &format!(
+                "Relinked {relinked} of {total} file{}",
+                if total == 1 { "" } else { "s" }
+            ),
+            false,
+        );
+        self.request_media_art();
+        self.request_preview();
+    }
+
     pub fn create_project(&mut self) {
         let name = self.start.name.trim().to_owned();
         let name = if name.is_empty() {
