@@ -25,6 +25,7 @@ import { ContextMenu, MenuItemData, MenuRow } from "primitives/context-menu.slin
 import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
+import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
@@ -468,6 +469,10 @@ export component App inherits Window {
         model-remove(id) => { root.model-remove(id); }
     }
 
+    in property <RelinkData> relink;
+    callback relink-all();
+    callback relink-dismiss();
+
     ProjectDialog {
         x: 0;
         y: 0;
@@ -481,6 +486,13 @@ export component App inherits Window {
         rate-changed(index) => { root.project-rate-changed(index); }
         apply => { root.project-apply(); }
     }
+
+    RelinkDialog {
+        data: root.relink;
+        relink-all => { root.relink-all(); }
+        dismiss => { root.relink-dismiss(); }
+    }
+
 
     CaptionsDialog {
         x: 0;
