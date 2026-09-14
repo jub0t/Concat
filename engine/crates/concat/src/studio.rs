@@ -6508,6 +6508,22 @@ impl Studio {
                     .chain(self.voices.iter())
                     .filter(|model| model.installed)
                     .collect();
+
+                let relink_data = RelinkData {
+                    open: self.relink.open,
+                    items: slint::ModelRc::new(
+                        self.relink
+                            .items
+                            .iter()
+                            .map(|item| MissingMediaItem {
+                                id: item.id.clone().into(),
+                                name: item.name.clone().into(),
+                                path: item.path.clone().into(),
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                };
+                app.set_relink(relink_data);
                 let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
                 tf(
                     "{0} installed · {1} MB on disk",
