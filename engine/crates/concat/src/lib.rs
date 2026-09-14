@@ -1045,7 +1045,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "open" => {
                             if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
                             {
-                                let concat_json = path.join("concat.json");                                
+                                let concat_json = path.join("concat.json");
                                 if concat_json.exists() {
                                     state.open_recent(&path.to_string_lossy());
                                 } else {
@@ -1067,6 +1067,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         }
                         "template" => state.save_template(),
                         "speech" => state.speech_open(),
+                        "clear-cache" => state.clear_project_cache(),
                         "settings" => {
                             state.refresh_models();
                             state.settings.open = true;

@@ -4740,6 +4740,23 @@ impl Studio {
         }
     }
 
+    /// Clears all cached artwork and waveforms from the current project.
+    pub fn clear_project_cache(&mut self) {
+        let Some(path) = self
+            .session
+            .as_ref()
+            .map(|session| session.path().to_string())
+        else {
+            return;
+        };
+        match concat_host::projects::clear_cache(&path) {
+            Ok(count) => self.notify(&format!("Cleared {count} cache files"), false),
+            Err(error) => self.notify(&format!("Cache clear failed: {error}"), true),
+        }
+        self.request_media_art();
+        self.request_preview();
+    }
+
     pub fn forget_recent(&mut self, path: &str) {
         if let Err(error) = projects::forget(&self.host.dirs.config, path) {
             self.start.error = error;
@@ -6842,6 +6859,13 @@ impl Studio {
                 ),
                 row("template", t("Save as template…"), Glyph::Slot, "", true),
                 row("speech", t("Text to speech…"), Glyph::Volume, "", true),
+                row(
+                    "clear-cache",
+                    t("Clear project cache"),
+                    Glyph::None,
+                    "",
+                    true,
+                ),
                 rule(),
                 row("settings", t("Settings…"), Glyph::Settings, "⌘,", true),
                 rule(),
