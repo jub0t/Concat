@@ -49,7 +49,7 @@ use crate::host::{
     Host, MediaArt, cached_media_art, image_at, image_of, media_art, on_ui, spawn, spawn_art,
 };
 use crate::i18n::{self, t, tf};
-use crate::prefs::{AudioTracks, Preferences};
+use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
 
@@ -267,8 +267,6 @@ pub struct SettingsState {
     pub open: bool,
     pub tab: i32,
     pub language: usize,
-    /// Row of [`AudioTracks`] in the General page.
-    pub audio_tracks: i32,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
 }
@@ -1398,7 +1396,6 @@ impl Studio {
             .iter()
             .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
             .unwrap_or(0);
-        studio.settings.audio_tracks = studio.prefs.audio_tracks.row();
         studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
         studio.refresh_models();
         studio
@@ -2456,8 +2453,7 @@ impl Studio {
             })
         };
         if let Some(id) = created {
-            self.selection = vec![id.clone()];
-            self.settle_audio_tracks(&id);
+            self.selection = vec![id];
         }
     }
 
@@ -2485,51 +2481,7 @@ impl Studio {
             })
         };
         if let Some(id) = created {
-            self.selection = vec![id.clone()];
-            self.settle_audio_tracks(&id);
-        }
-    }
-
-    /// The Settings choice for a file with several audio tracks, applied to
-    /// a clip just placed from the bin. Nothing for the first track: that
-    /// is what a fresh clip plays. The last track is named on the clip; every
-    /// track is the sound pulled out, one clip per track, as Detach audio
-    /// does. A file with one track has nothing to choose, whatever the
-    /// setting says. A second edit after the placement, so an undo takes the
-    /// choice back and leaves the clip, the way a freeze frame's trim does.
-    fn settle_audio_tracks(&mut self, clip_id: &str) {
-        let choice = self.prefs.audio_tracks;
-        if choice == AudioTracks::First {
-            return;
-        }
-        let Some(media_id) = self.clip(clip_id).map(|clip| clip.media_id.clone()) else {
-            return;
-        };
-        let tracks = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.id == media_id)
-            .map(|item| item.audio_tracks.clone())
-            .unwrap_or_default();
-        if tracks.len() < 2 {
-            return;
-        }
-        let clip_id = clip_id.to_owned();
-        match choice {
-            AudioTracks::First => {}
-            AudioTracks::Last => {
-                self.apply(Command::UpdateClip {
-                    clip_id,
-                    patch: ClipPatch {
-                        audio_stream: Some(tracks.last().map(|track| track.index)),
-                        ..ClipPatch::default()
-                    },
-                });
-            }
-            AudioTracks::Every => {
-                self.apply(Command::DetachAudio { clip_id });
-            }
+            self.selection = vec![id];
         }
     }
 
@@ -5657,7 +5609,6 @@ impl Studio {
                     let height = self.lane_height(lane);
                     let row = TrackData {
                         id: lane.id.as_str().into(),
-                        name: lane.name.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,
                         locked: self.locked(&lane.id),
@@ -6532,7 +6483,6 @@ impl Studio {
             open: self.settings.open,
             tab: self.settings.tab,
             language: self.settings.language as i32,
-            audio_tracks: self.settings.audio_tracks,
             playhead_stops: self.settings.playhead_stops,
             disk: {
                 let installed: Vec<&ModelState> = self
@@ -6974,9 +6924,7 @@ impl Studio {
             .collect();
         let start = f64::from(self.playhead.max(0.0));
         for media_id in ids {
-            if let Some(id) = self.apply(Command::AddClipAtFirstFree { media_id, start }) {
-                self.settle_audio_tracks(&id);
-            }
+            self.apply(Command::AddClipAtFirstFree { media_id, start });
         }
     }
 

@@ -48,9 +48,6 @@ export struct SettingsData {
     /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 About
     tab: int,
     language: int,
-    /// what a clip of a file with several audio tracks plays when placed:
-    /// 0 the first track, 1 the last, 2 every track as its own clip
-    audio-tracks: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
     /// "3 installed · 612 MB on disk"
@@ -340,7 +337,6 @@ export component SettingsDialog inherits Modal {
     /// say "the other one"; a page with two named options can say which one is
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
-    callback audio-tracks-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback model-activated(id: string);
     callback model-download(id: string);
@@ -476,21 +472,6 @@ export component SettingsDialog inherits Modal {
                                 toggled(on) => { root.playhead-stops-changed(on); }
                             }
                         }
-                    }
-                }
-
-                // A file with one audio track has nothing to choose, so this
-                // only ever matters for a recording that kept the desktop and
-                // the microphone apart. It sets what a placed clip starts on;
-                // the Audio panel changes any one clip afterwards.
-                DialogSection {
-                    title: I18n.t("Audio tracks");
-                    hint: I18n.t("What a clip plays when its file has more than one audio track, as a screen recording with the desktop and the microphone apart does. Every track puts each one on a sound lane of its own, the way Detach audio does. The Audio panel can change any clip afterwards.");
-
-                    SegmentedControl {
-                        options: [I18n.t("First track"), I18n.t("Last track"), I18n.t("Every track")];
-                        current: root.data.audio-tracks;
-                        changed(index) => { root.audio-tracks-changed(index); }
                     }
                 }
             }

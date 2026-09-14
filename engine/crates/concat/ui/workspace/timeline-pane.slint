@@ -89,7 +89,6 @@ export component TimelinePane inherits Rectangle {
     callback track-flag-changed(index: int, visible: bool, muted: bool, locked: bool);
     callback track-sized(index: int, size: TrackSize);
     callback track-removed(index: int);
-    callback track-renamed(index: int, name: string);
 
     /// The corner button: show something else in this pane's seat.
     callback pane-picked(kind: PaneKind);
@@ -228,7 +227,6 @@ export component TimelinePane inherits Rectangle {
                 }
                 sized(index, size) => { root.track-sized(index, size); }
                 removed(index) => { root.track-removed(index); }
-                renamed(index, name) => { root.track-renamed(index, name); }
             }
 
             HairlineSplitter {

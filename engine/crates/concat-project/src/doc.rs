@@ -106,10 +106,9 @@ fn read_tracks(raw: Option<&Value>) -> Vec<Track> {
         .filter_map(|entry| {
             let id = entry.get("id")?.as_str()?.to_owned();
             Some(Track {
-                name: text(entry.get("name"), &id),
+                id,
                 visible: flag(entry.get("visible"), true),
                 muted: flag(entry.get("muted"), false),
-                id,
             })
         })
         .collect()

@@ -1333,25 +1333,6 @@ mod tests {
     #[test]
     fn renames_trim_whitespace_and_refuse_to_blank_a_name() {
         let (mut editor, _, _) = fixture();
-        let track_id = editor.project().active().tracks[0].id.clone();
-        editor
-            .apply(Command::RenameTrack {
-                track_id: track_id.clone(),
-                name: "  Cutaways  ".to_owned(),
-            })
-            .expect("renames");
-        assert_eq!(editor.project().active().tracks[0].name, "Cutaways");
-
-        // Whitespace-only would leave the lane unlabelled, so it is ignored.
-        let outcome = editor
-            .apply(Command::RenameTrack {
-                track_id,
-                name: "   ".to_owned(),
-            })
-            .expect("tolerated");
-        assert!(!outcome.applied);
-        assert_eq!(editor.project().active().tracks[0].name, "Cutaways");
-
         editor
             .apply(Command::RenameTimeline {
                 timeline_id: "TL1".to_owned(),
@@ -1645,10 +1626,6 @@ mod tests {
             Command::AddTrack,
             Command::RemoveTrack {
                 track_id: "T1".to_owned(),
-            },
-            Command::RenameTrack {
-                track_id: "T1".to_owned(),
-                name: "Cutaways".to_owned(),
             },
             Command::SetTrackFlag {
                 track_id: "T1".to_owned(),

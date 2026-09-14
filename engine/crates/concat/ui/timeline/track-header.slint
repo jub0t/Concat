@@ -3,13 +3,15 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { Focus } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { ThinScrollbar } from "../primitives/scrollbar.slint";
 import { TrackData, TrackSize } from "model.slint";
 
-// The lane labels, in a fixed column beside the lanes.
+// The lane switches, in a fixed column beside the lanes.
+//
+// No label on a row: the lanes are untyped, so there is no kind to name, and
+// a lane's place in the stack is the only handle anything needs on it.
 //
 // Both a visibility and a mute toggle on every row, because a track is not
 // typed — the same lane can be carrying a video clip and an mp3 side by side,
@@ -31,7 +33,6 @@ import { TrackData, TrackSize } from "model.slint";
 // it, so the row reads as one strip of controls.
 component SizeMenu inherits Rectangle {
     in property <TrackSize> current;
-    in property <string> name;
 
     callback picked(size: TrackSize);
 
@@ -57,7 +58,7 @@ component SizeMenu inherits Rectangle {
 
     IconButton {
         glyph: Glyph.rows;
-        label: I18n.t1("Row height for {0}", "\{root.name}");
+        label: I18n.t("Row height");
         icon-size: 12px;
         // Lit only when the lane has been sized by hand: auto is the resting
         // state, and a button lit on every row would say nothing.
@@ -130,12 +131,6 @@ component Header inherits Rectangle {
     callback flag-changed(visible: bool, muted: bool, locked: bool);
     callback sized(size: TrackSize);
     callback removed();
-    callback renamed(name: string);
-
-    property <bool> renaming;
-    /// Neither seen nor heard: the name goes dim, so a lane that contributes
-    /// nothing to the render says so at a glance.
-    property <bool> silent: !root.track.visible && root.track.muted;
 
     Rectangle {
         x: 0;
@@ -158,83 +153,19 @@ component Header inherits Rectangle {
             // switches are start-aligned on the *cross* axis individually,
             // which is the part that was actually wanted.
 
-            VerticalLayout {
-                alignment: start;
-                horizontal-stretch: 1;
-
-                Rectangle {
-                    height: 20px;
-                    horizontal-stretch: 1;
-
-                    name := Text {
-                        x: 0;
-                        y: (parent.height - self.height) / 2;
-                        width: parent.width;
-                        text: root.track.name;
-                        color: root.silent ? Theme.fg-dim : Theme.fg;
-                        font-size: Theme.fs;
-                        vertical-alignment: center;
-                        overflow: elide;
-                        visible: !root.renaming;
-                    }
-
-                    // Double-click to rename, commit on blur — the same rule
-                    // the tab strip follows.
-                    if !root.renaming: TouchArea {
-                        double-clicked => { root.renaming = true; }
-                    }
-
-                    if root.renaming: Rectangle {
-                        border-radius: Theme.r-xs;
-                        background: Theme.well;
-                        border-width: 1px;
-                        border-color: Theme.accent;
-                        clip: true;
-
-                        rename := TextInput {
-                            x: 4px;
-                            y: (parent.height - self.height) / 2;
-                            width: parent.width - 8px;
-                            text: root.track.name;
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            single-line: true;
-                            selection-background-color: Theme.accent;
-                            selection-foreground-color: Theme.on-accent;
-
-                            init => {
-                                self.focus();
-                                self.select-all();
-                            }
-
-                            changed has-focus => {
-                                if (!self.has-focus && root.renaming) {
-                                    root.renamed(self.text);
-                                    root.renaming = false;
-                                }
-                            }
-
-                            accepted => { Focus.release(); }
-
-                            key-pressed(event) => {
-                                if (event.text == Key.Escape) {
-                                    self.text = root.track.name;
-                                    Focus.release();
-                                    return EventResult.accept;
-                                }
-                                return EventResult.reject;
-                            }
-                        }
-                    }
-                }
-            }
+            // The lanes are deliberately untyped and no longer named, so
+            // nothing goes here. It stays as the row's give: the switches
+            // stay against the trailing edge at every column width, and a
+            // narrow column takes the gap away from here rather than from
+            // them.
+            Rectangle { horizontal-stretch: 1; }
 
             // Revealed on hover, and never on the last lane standing.
-            if root.removable && row.has-hover && !root.renaming: VerticalLayout {
+            if root.removable && row.has-hover: VerticalLayout {
                 alignment: start;
                 IconButton {
                     glyph: Glyph.close;
-                    label: I18n.t1("Remove {0}", "\{root.track.name}");
+                    label: I18n.t("Remove lane");
                     icon-size: 11px;
                     danger: true;
                     clicked => { root.removed(); }
@@ -245,7 +176,6 @@ component Header inherits Rectangle {
                 alignment: start;
                 SizeMenu {
                     current: root.track.size;
-                    name: root.track.name;
                     picked(size) => { root.sized(size); }
                 }
             }
@@ -254,8 +184,7 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
-                    label: root.track.locked ? I18n.t1("Unlock {0}", "\{root.track.name}")
-                        : I18n.t1("Lock {0}", "\{root.track.name}");
+                    label: root.track.locked ? I18n.t("Unlock lane") : I18n.t("Lock lane");
                     icon-size: 12px;
                     checked: root.track.locked;
                     clicked => {
@@ -272,8 +201,7 @@ component Header inherits Rectangle {
                     // something is being withheld, which is the state worth
                     // announcing.
                     glyph: root.track.visible ? Glyph.eye : Glyph.eye-off;
-                    label: root.track.visible ? I18n.t1("Hide {0}", "\{root.track.name}")
-                        : I18n.t1("Show {0}", "\{root.track.name}");
+                    label: root.track.visible ? I18n.t("Hide lane") : I18n.t("Show lane");
                     icon-size: 12px;
                     checked: !root.track.visible;
                     clicked => {
@@ -287,8 +215,7 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
-                    label: root.track.muted ? I18n.t1("Unmute {0}", "\{root.track.name}")
-                        : I18n.t1("Mute {0}", "\{root.track.name}");
+                    label: root.track.muted ? I18n.t("Unmute lane") : I18n.t("Mute lane");
                     icon-size: 12px;
                     checked: root.track.muted;
                     clicked => {
@@ -318,7 +245,6 @@ export component TrackHeaders inherits Rectangle {
     callback flag-changed(index: int, visible: bool, muted: bool, locked: bool);
     callback sized(index: int, size: TrackSize);
     callback removed(index: int);
-    callback renamed(index: int, name: string);
 
     clip: true;
 
@@ -339,7 +265,6 @@ export component TrackHeaders inherits Rectangle {
         }
         sized(size) => { root.sized(index, size); }
         removed => { root.removed(index); }
-        renamed(name) => { root.renamed(index, name); }
     }
 
     // The bar, over the rows and under the corner. On the trailing edge,

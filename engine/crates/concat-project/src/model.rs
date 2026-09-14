@@ -150,9 +150,6 @@ pub struct Track {
     /// Minted per timeline ("t5", or "T1".."T4" for the first timeline's
     /// starter lanes); never shared between timelines.
     pub id: String,
-    /// User-editable label. Renames to whitespace are ignored, so it is
-    /// never blank.
-    pub name: String,
     /// Video clips on this track are left out of the composite when false.
     pub visible: bool,
     /// Audio on this track is silent when true.
@@ -1219,7 +1216,6 @@ impl Project {
                 tracks: (1..=4)
                     .map(|number| Track {
                         id: format!("T{number}"),
-                        name: format!("Track {number}"),
                         visible: true,
                         muted: false,
                     })

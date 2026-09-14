@@ -578,18 +578,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.track_flags(row, visible, muted, locked);
         }
     ));
-    editor.on_track_renamed(on_window!(|state, row: i32, name: SharedString| {
-        let trimmed = name.trim().to_string();
-        let Some(id) = state.row_track(row).map(|track| track.id.clone()) else {
-            return;
-        };
-        if !trimmed.is_empty() {
-            state.apply(concat_project::Command::RenameTrack {
-                track_id: id,
-                name: trimmed,
-            });
-        }
-    }));
     editor.on_track_sized(on_window!(|state, row: i32, size: TrackSize| {
         state.set_lane_size(row, size);
     }));
@@ -955,12 +943,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             // their way through `t`, the tree's through `I18n.lang`.
             i18n::select(&language.code, &state.host.dirs);
         }
-        state.prefs.save(&state.host.dirs);
-    }));
-    app.on_settings_audio_tracks_changed(on_window!(|state, index: i32| {
-        let choice = prefs::AudioTracks::from_row(index);
-        state.settings.audio_tracks = choice.row();
-        state.prefs.audio_tracks = choice;
         state.prefs.save(&state.host.dirs);
     }));
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {

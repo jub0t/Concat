@@ -535,14 +535,6 @@ pub enum Command {
         /// The lane to delete.
         track_id: String,
     },
-    /// Renames a lane. Whitespace-only names are ignored so a track can
-    /// never end up blank; unknown ids are tolerated.
-    RenameTrack {
-        /// The lane to rename.
-        track_id: String,
-        /// The new label; trimmed before it lands.
-        name: String,
-    },
     /// Flips one of a track's two toggles. An unknown id is a no-op.
     SetTrackFlag {
         /// The lane to change.
@@ -570,8 +562,8 @@ pub enum Command {
         /// The frame and the rate, together.
         video: VideoSettings,
     },
-    /// Renames a timeline tab, with the same trim-and-ignore-blank rule as
-    /// [`Command::RenameTrack`].
+    /// Renames a timeline tab. Whitespace-only names are ignored so a tab
+    /// can never end up blank; unknown ids are tolerated.
     RenameTimeline {
         /// The timeline to rename.
         timeline_id: String,
@@ -1853,13 +1845,8 @@ pub fn apply(
                         Some(track) => track.id.clone(),
                         None => {
                             let id = mint.next("t");
-                            let name = next_numbered(
-                                "Track",
-                                timeline.tracks.iter().map(|track| track.name.clone()),
-                            );
                             timeline.tracks.push(Track {
                                 id: id.clone(),
-                                name,
                                 visible: true,
                                 muted: false,
                             });
@@ -1929,13 +1916,8 @@ pub fn apply(
         Command::AddTrack => {
             let timeline = project.active_mut();
             let id = mint.next("t");
-            let name = next_numbered(
-                "Track",
-                timeline.tracks.iter().map(|track| track.name.clone()),
-            );
             timeline.tracks.push(Track {
                 id: id.clone(),
-                name,
                 visible: true,
                 muted: false,
             });
@@ -1956,23 +1938,6 @@ pub fn apply(
             // Clips only ever sit on existing tracks, so an unknown id - the
             // tolerated no-op - removes neither.
             let applied = timeline.tracks.len() != track_count;
-            Ok(Outcome {
-                created_id: None,
-                applied,
-            })
-        }
-
-        Command::RenameTrack { track_id, name } => {
-            let trimmed = name.trim();
-            if trimmed.is_empty() {
-                return Ok(Outcome::default());
-            }
-            let timeline = project.active_mut();
-            let applied = timeline
-                .tracks
-                .iter_mut()
-                .find(|track| track.id == track_id)
-                .is_some_and(|track| assign(&mut track.name, trimmed.to_owned()));
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -2009,9 +1974,8 @@ pub fn apply(
                     .map(|timeline| timeline.name.clone()),
             );
             let tracks = (1..=4)
-                .map(|number| Track {
+                .map(|_| Track {
                     id: mint.next("t"),
-                    name: format!("Track {number}"),
                     visible: true,
                     muted: false,
                 })

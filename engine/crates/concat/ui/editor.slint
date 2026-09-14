@@ -287,7 +287,6 @@ export global Editor {
     callback track-flag-changed(index: int, visible: bool, muted: bool, locked: bool);
     callback track-sized(index: int, size: TrackSize);
     callback track-removed(index: int);
-    callback track-renamed(index: int, name: string);
     /// A tab dragged to a new place in the strip. `to` is counted with the
     /// tab already out of its old slot, the way MoveTimeline counts.
     callback tab-moved(from: int, to: int);

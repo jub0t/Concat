@@ -74,11 +74,8 @@ Concat runs everything on your machine, so the hardware sets the ceiling. The mi
 |---|---|---|
 | **CPU** | Any 64-bit processor from 2013 or later | 6 cores or more |
 | **GPU** | None. Without a usable GPU the window and monitor fall back to the CPU | Any GPU with Metal (macOS), DirectX 12 (Windows) or Vulkan (Linux) |
-| **RAM** | 4 GB | 16 GB for 4K timelines and the larger caption models |
-| **Storage** | 500 MB for the app and the smallest caption model | 2 GB for every optional model, plus room for projects and exports |
-| **Display** | 1280 × 720 | 1920 × 1080 or larger |
-| **Audio** | Optional. Playback wants an output device, everything else works without one | |
-| **Internet** | Not required. Only used when you download an optional model, once | |
+| **RAM** | **4 GB** | **16 GB** for 4K timelines and the larger caption models |
+| **Storage** | **500 MB** for the app and the smallest caption model | **2 GB** for every optional model, plus room for projects and exports |
 
 Optional models download from the settings panel on first use and then never need the network again: auto-captions 78 MB to 488 MB depending on the whisper size you pick, text-to-speech 132 MB or 349 MB, person cutout 15 MB, object cutout 179 MB, and the cutout brush 40 MB.
 

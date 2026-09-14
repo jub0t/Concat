@@ -81,6 +81,9 @@ export enum Glyph {
     export,
     chevron-up,
     search,
+    // what the bin is sorted by: when it came in, its name, its kind
+    clock,
+    tag,
     // the timeline tray and its lane headers
     pointer,
     razor,
@@ -484,6 +487,20 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M16 9a7 7 0 1 1-14 0a7 7 0 1 1 14 0 M22 15a7 7 0 1 1-14 0a7 7 0 1 1 14 0";
     }
+    // lucide/clock
+    if root.glyph == Glyph.clock: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0 M12 6v6l4 2";
+    }
+
+    // lucide/tag
+    if root.glyph == Glyph.tag: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0"
+            + " .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426"
+            + " 2.426 0 0 0 0-3.42z M7.5 7.5h.01";
+    }
+
     // lucide/audio-lines
     if root.glyph == Glyph.waveform: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;

@@ -4,6 +4,7 @@
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
+import { Tip } from "tooltip.slint";
 
 // Custom listbox dropdown rather than a native combo box, so options can carry
 // icons and match the panel styling. Arrows, Home/End, Enter and Escape all
@@ -20,6 +21,14 @@ export component Select inherits Rectangle {
     in property <string> placeholder: "Select";
     /// leading adornment on the trigger
     in property <Glyph> glyph: Glyph.none;
+    /// One mark per option, in the same order. Set it and the trigger shows
+    /// the current option's mark in place of its words — the words stay in
+    /// the list, where there is room for them, and each row carries its mark
+    /// beside them so the pairing is learnt by reading the list once. For a
+    /// control that is one of several against the edge of a row, where three
+    /// words of "Sort: Added" cost more room than they earn. Shorter than
+    /// `options` is fine; a row past its end simply has none.
+    in property <[Glyph]> icons;
     in property <bool> enabled: true;
     /// drop the field background, for a select used as panel chrome
     in property <bool> flat;
@@ -36,6 +45,25 @@ export component Select inherits Rectangle {
     property <string> label: (root.current >= 0 && root.current < root.options.length)
         ? root.options[root.current]
         : root.placeholder;
+    /// the current option has a mark, so the trigger wears it instead of words
+    property <bool> marked: root.current >= 0 && root.current < root.icons.length;
+    property <Glyph> mark: root.marked ? root.icons[root.current] : Glyph.none;
+    /// the mark on the trigger, at the size of the glyph it replaces
+    property <length> mark-size: 14px;
+
+    /// What the trigger needs to show its options whole: the padding, the
+    /// chevron, the optional glyph, and the gaps between them. A select set
+    /// against the edge of a row takes this instead of a share of the row —
+    /// `width: self.natural-width` at the call site.
+    ///
+    /// Measured off the widest option rather than the current one, so the
+    /// control keeps its size as the selection moves from a long option to a
+    /// short one; a trigger that changed width when you picked from it would
+    /// walk the controls beside it across the row.
+    out property <length> natural-width: 8px + 6px + 12px + 6px
+        + (root.marked
+            ? root.mark-size
+            : measure.preferred-width + (root.glyph != Glyph.none ? 12px + 6px : 0px));
 
     height: Theme.h;
     min-width: 60px;
@@ -89,12 +117,30 @@ export component Select inherits Rectangle {
         padding-right: 6px;
         spacing: 6px;
 
-        if root.glyph != Glyph.none: VerticalLayout {
+        if root.glyph != Glyph.none && !root.marked: VerticalLayout {
             alignment: center;
             Icon { glyph: root.glyph; size: 12px; tint: Theme.fg-dim; }
         }
 
-        Text {
+        // A layout of its own rather than the mark on its own, so a marked
+        // trigger given more width than it asked for keeps the mark at the
+        // leading edge and the chevron at the trailing one, the way the words
+        // it stands in for would have sat.
+        if root.marked: HorizontalLayout {
+            horizontal-stretch: 1;
+            alignment: start;
+
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    glyph: root.mark;
+                    size: root.mark-size;
+                    tint: (root.open || trigger.has-hover) ? Theme.fg : Theme.fg-muted;
+                }
+            }
+        }
+
+        if !root.marked: Text {
             horizontal-stretch: 1;
             text: root.label;
             color: root.current >= 0 ? (root.flat ? Theme.fg-muted : Theme.fg) : Theme.fg-dim;
@@ -106,6 +152,25 @@ export component Select inherits Rectangle {
         VerticalLayout {
             alignment: center;
             Icon { glyph: Glyph.chevron-down; size: 12px; tint: Theme.fg-muted; }
+        }
+    }
+
+    // The ruler behind `natural-width`. Measured rather than estimated: a Text
+    // parked at the origin still reports the real width of its string in the
+    // real face — see TooltipLayer — and a child given an `x` is left out of
+    // its parent's constraints, so measuring the trigger cannot widen it. The
+    // rows are stacked because a VerticalLayout's preferred width is the
+    // widest of them, which is the only fold over a model the language has.
+    measure := VerticalLayout {
+        x: 0;
+        y: 0;
+        width: 0px;
+        height: 0px;
+        visible: false;
+
+        for option in root.options: Text {
+            text: option;
+            font-size: Theme.fs;
         }
     }
 
@@ -121,6 +186,13 @@ export component Select inherits Rectangle {
     FocusRing {
         active: root.ring || root.open;
         radius: Theme.r;
+    }
+
+    // Only where the mark replaced the words. A trigger showing its label is
+    // already saying what a tip would say, and the open list says it too.
+    Tip {
+        text: root.marked ? root.label : "";
+        active: trigger.has-hover && root.enabled && !root.open;
     }
 
     list := PopupWindow {
@@ -186,6 +258,15 @@ export component Select inherits Rectangle {
                         padding-left: 6px;
                         padding-right: 6px;
                         spacing: 6px;
+
+                        if index < root.icons.length: VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                glyph: root.icons[index];
+                                size: 13px;
+                                tint: index == root.active ? Theme.on-accent : Theme.fg-dim;
+                            }
+                        }
 
                         Text {
                             horizontal-stretch: 1;
