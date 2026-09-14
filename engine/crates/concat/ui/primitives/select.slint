@@ -195,10 +195,21 @@ export component Select inherits Rectangle {
         active: trigger.has-hover && root.enabled && !root.open;
     }
 
+    /// The width the list needs to spell every option out: the widest
+    /// option's own width plus the row's marks and padding around it
+    /// (6+6 row, 13 icon, 6+6 gaps, 12 check, 8 list padding, 2 border).
+    /// A marked trigger is only as wide as its icon, and the list it opens
+    /// is the one place the options are written, so the list may not
+    /// inherit that width.
+    property <length> list-w: Math.max(root.width, measure.preferred-width + 59px);
+
     list := PopupWindow {
-        x: 0;
+        // Right edge on the trigger's right edge: a list wider than an
+        // icon-sized trigger at a row's end grows back into the row, not
+        // off the pane.
+        x: root.width - root.list-w;
         y: root.height + 4px;
-        width: root.width;
+        width: root.list-w;
         height: root.list-h;
         close-policy: close-on-click-outside;
 

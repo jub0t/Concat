@@ -672,5 +672,11 @@
   "{0} media file(s) not found": "{0} medijskih datoteka nije pronađeno",
   "The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.": "Sljedeće medijske datoteke nisu pronađene. Možete ih ponovno povezati s novom mapom ili odbaciti ovaj dijalog da nastavite s offline placeholderima.",
   "Dismiss": "Odbaci",
-  "Relink All…": "Ponovno poveži sve…"
+  "Relink All…": "Ponovno poveži sve…",
+  "Open project": "Open project",
+  "Open project…": "Open project…",
+  "Select folder containing media files": "Select folder containing media files",
+  "Sort: Added": "Sort: Added",
+  "Sort: Name": "Sort: Name",
+  "Sort: Type": "Sort: Type"
 }
