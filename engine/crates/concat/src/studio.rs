@@ -4706,6 +4706,23 @@ impl Studio {
                 self.request_preview();
                 self.ensure_cutouts();
                 self.ensure_regions();
+
+                // Log missing media to file for debugging
+                if let Some(session) = &self.session {
+                    let missing = session.project().missing_media();
+                    if !missing.is_empty() {
+                        let log_path = std::path::Path::new(&info.path)
+                            .join("cache")
+                            .join("missing_media.log");
+                        if let Ok(mut file) = std::fs::File::create(&log_path) {
+                            use std::io::Write;
+                            let _ = writeln!(file, "{} media files missing:", missing.len());
+                            for m in &missing {
+                                let _ = writeln!(file, "  - {} ({})", m.name, m.path);
+                            }
+                        }
+                    }
+                }
             }
             Err(error) => {
                 self.start.busy = false;
