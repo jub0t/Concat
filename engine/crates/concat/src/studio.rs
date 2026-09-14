@@ -37,6 +37,7 @@ use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 use concat_project::{Command, why_not_merge};
+use slint::VecModel;
 use slint::{Model, SharedString, VecModel};
 
 use crate::dock::{
@@ -6626,7 +6627,7 @@ impl Studio {
 
                 let relink_data = RelinkData {
                     open: self.relink.open,
-                    items: slint::ModelRc::new(
+                    items: slint::ModelRc::new(VecModel::from(
                         self.relink
                             .items
                             .iter()
@@ -6636,7 +6637,7 @@ impl Studio {
                                 path: item.path.clone().into(),
                             })
                             .collect::<Vec<_>>(),
-                    ),
+                    )),
                 };
                 app.set_relink(relink_data);
                 let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
