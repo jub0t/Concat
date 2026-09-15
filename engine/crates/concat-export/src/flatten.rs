@@ -97,6 +97,8 @@ pub fn flatten_timeline_in(
                     cutout: None,
                     mask_dir: String::new(),
                     highlighted: false,
+                    masks: Vec::new(),
+                    masks_enabled: false,
                 });
             }
 
@@ -177,6 +179,8 @@ pub fn flatten_timeline_in(
                     _ => String::new(),
                 },
                 highlighted: false,
+                masks: clip.masks.clone(),
+                masks_enabled: clip.masks_enabled,
             })
         })
         .collect()

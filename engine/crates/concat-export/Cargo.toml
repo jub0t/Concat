@@ -17,6 +17,7 @@ concat-media.workspace = true
 concat-render.workspace = true
 concat-project = { path = "../concat-project" }
 concat-effects.workspace = true
+concat-text.workspace = true
 # Masks for cutouts: read from the project's cache and applied to a decoded
 # frame before it is placed. Reading only; the host finds them.
 concat-vision.workspace = true

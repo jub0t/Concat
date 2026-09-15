@@ -144,6 +144,8 @@ impl Titles {
                     cutout: None,
                     mask_dir: String::new(),
                     highlighted: false,
+                    masks: Vec::new(),
+                    masks_enabled: false,
                 },
                 block: art.block,
                 offset: art.offset,

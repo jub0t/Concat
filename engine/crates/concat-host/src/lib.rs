@@ -29,6 +29,7 @@ pub mod models;
 pub mod playback;
 pub mod preview;
 pub mod projects;
+mod proxy;
 pub mod session;
 pub mod templates;
 pub mod titles;

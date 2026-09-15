@@ -404,6 +404,8 @@ impl Api {
                 time,
                 width,
                 height,
+                live: false,
+                prewarm: false,
             },
         )?;
         write_png(Path::new(output), width, height, &pixels)?;

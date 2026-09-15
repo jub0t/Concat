@@ -230,6 +230,44 @@ export global Keyframes {
     }
 }
 
+/// One mask in the selected clip's mask stack.
+export struct MaskChipData {
+    id: string,
+    label: string,
+    shape: int,
+}
+
+/// The selected mask flattened for the inspector at the current playhead.
+export struct MaskInspectorData {
+    present: bool,
+    id: string,
+    enabled: bool,
+    inverted: bool,
+    shape: int,
+    position-x: float,
+    position-y: float,
+    rotation: float,
+    width: float,
+    height: float,
+    feather: float,
+    roundness: float,
+    linked: bool,
+    text: string,
+    brush-size: float,
+    points: int,
+    position-x-keyframed: bool,
+    position-y-keyframed: bool,
+    rotation-keyframed: bool,
+    width-keyframed: bool,
+    height-keyframed: bool,
+    feather-keyframed: bool,
+    roundness-keyframed: bool,
+    drawing: bool,
+    tracking: bool,
+    track-progress: float,
+    track-direction: int,
+}
+
 /// The same again for the properties that are text rather than numbers.
 export enum ClipTextField {
     content, font-family, color, stroke-color, background,

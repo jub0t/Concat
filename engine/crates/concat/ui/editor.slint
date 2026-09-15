@@ -10,7 +10,7 @@ import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
 import {
-    ClipData, ClipField, ClipTextField, DropData, SelectedClipData,
+    ClipData, ClipField, ClipTextField, DropData, MaskChipData, MaskInspectorData, SelectedClipData,
     StageGuideData, StageItemData, TimelineTabData, TimelineTool, TrackData,
     TrackSize,
 } from "timeline/model.slint";
@@ -222,6 +222,27 @@ export global Editor {
     callback cutout-painting(on: bool);
     callback cutout-subject(index: int);
     callback cutout-clear();
+
+    // Source-space masks. The shape and property ordinals are documented in
+    // MaskInspectorData and mirrored by Rust's MaskShape/MaskProperty enums.
+    in-out property <[MaskChipData]> masks;
+    in-out property <MaskInspectorData> mask;
+    callback mask-add(shape: int);
+    callback mask-shape(shape: int);
+    callback mask-select(id: string);
+    callback mask-remove();
+    callback mask-enabled(on: bool);
+    callback mask-inverted(on: bool);
+    callback mask-linked(on: bool);
+    callback mask-set(field: int, value: float);
+    callback mask-commit();
+    callback mask-keyframe-toggle(field: int, on: bool);
+    callback mask-text(value: string);
+    callback mask-drawing(on: bool);
+    callback mask-clear-points();
+    callback mask-reset();
+    callback mask-track-direction(index: int);
+    callback mask-track();
 
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;

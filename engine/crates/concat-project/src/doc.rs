@@ -24,8 +24,8 @@ use serde_json::{Map, Value, json};
 
 use crate::commands::{MAX_STRETCH, MIN_STRETCH};
 use crate::model::{
-    AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout,
-    KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
+    AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, ClipMask, Crop, CustomFont,
+    Cutout, KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
     TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
@@ -293,6 +293,14 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                     .get("cutout")
                     .and_then(|value| serde_json::from_value::<Cutout>(value.clone()).ok())
                     .map(Cutout::tidy),
+                masks: entry
+                    .get("masks")
+                    .and_then(|value| serde_json::from_value::<Vec<ClipMask>>(value.clone()).ok())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(ClipMask::tidy)
+                    .collect(),
+                masks_enabled: flag(entry.get("masksEnabled"), entry.get("masks").is_some()),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),

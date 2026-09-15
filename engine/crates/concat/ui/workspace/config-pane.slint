@@ -12,8 +12,9 @@ import {
     CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
+import { MaskPanel } from "../inspector/mask-panel.slint";
 import {
-    ClipField, ClipKind, ClipTextField, SelectedClipData,
+    ClipField, ClipKind, ClipTextField, MaskChipData, MaskInspectorData, SelectedClipData,
 } from "../timeline/model.slint";
 
 // The inspector column, in its two states:
@@ -179,6 +180,25 @@ export component ConfigPane inherits Rectangle {
     callback cutout-subject(index: int);
     callback cutout-clear();
 
+    in property <[MaskChipData]> masks;
+    in property <MaskInspectorData> mask;
+    callback mask-add(shape: int);
+    callback mask-shape(shape: int);
+    callback mask-select(id: string);
+    callback mask-remove();
+    callback mask-enabled(on: bool);
+    callback mask-inverted(on: bool);
+    callback mask-linked(on: bool);
+    callback mask-set(field: int, value: float);
+    callback mask-commit();
+    callback mask-keyframe-toggle(field: int, on: bool);
+    callback mask-text(value: string);
+    callback mask-drawing(on: bool);
+    callback mask-clear-points();
+    callback mask-reset();
+    callback mask-track-direction(index: int);
+    callback mask-track();
+
 
     // The tab strip follows the selection, and stays short: three tabs at
     // most, each with a dropdown of its sections, because seven tabs on a
@@ -234,8 +254,8 @@ export component ConfigPane inherits Rectangle {
 
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
-            ? (root.is-image ? ["Basic", "Animation", "Adjust"]
-                : ["Basic", "Speed", "Animation", "Adjust"])
+            ? (root.is-image ? ["Basic", "Mask", "Animation", "Adjust"]
+                : ["Basic", "Mask", "Speed", "Animation", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
         : root.heading == "Effects" ? ["Effects"]
@@ -243,8 +263,8 @@ export component ConfigPane inherits Rectangle {
         : ["Layer"];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
-            ? (root.is-image ? [I18n.t("Basic"), I18n.t("Animation"), I18n.t("Adjust")]
-                : [I18n.t("Basic"), I18n.t("Speed"), I18n.t("Animation"), I18n.t("Adjust")])
+            ? (root.is-image ? [I18n.t("Basic"), I18n.t("Mask"), I18n.t("Animation"), I18n.t("Adjust")]
+                : [I18n.t("Basic"), I18n.t("Mask"), I18n.t("Speed"), I18n.t("Animation"), I18n.t("Adjust")])
         : root.heading == "Audio"
             ? (root.is-audio ? [I18n.t("Sound"), I18n.t("Speed")] : [I18n.t("Sound")])
         : root.heading == "Effects" ? [I18n.t("Effects")]
@@ -529,6 +549,27 @@ export component ConfigPane inherits Rectangle {
                     cutout-painting(on) => { root.cutout-painting(on); }
                     cutout-subject(index) => { root.cutout-subject(index); }
                     cutout-clear => { root.cutout-clear(); }
+                }
+
+                if root.showing == "Mask": MaskPanel {
+                    masks: root.masks;
+                    mask: root.mask;
+                    add(shape) => { root.mask-add(shape); }
+                    shape(shape) => { root.mask-shape(shape); }
+                    select(id) => { root.mask-select(id); }
+                    remove => { root.mask-remove(); }
+                    enabled(on) => { root.mask-enabled(on); }
+                    inverted(on) => { root.mask-inverted(on); }
+                    linked(on) => { root.mask-linked(on); }
+                    set(field, value) => { root.mask-set(field, value); }
+                    commit => { root.mask-commit(); }
+                    keyframe-toggle(field, on) => { root.mask-keyframe-toggle(field, on); }
+                    text(value) => { root.mask-text(value); }
+                    drawing(on) => { root.mask-drawing(on); }
+                    clear-points => { root.mask-clear-points(); }
+                    reset => { root.mask-reset(); }
+                    track-direction(index) => { root.mask-track-direction(index); }
+                    track => { root.mask-track(); }
                 }
 
                 if root.showing == "Animation": AnimationPanel {

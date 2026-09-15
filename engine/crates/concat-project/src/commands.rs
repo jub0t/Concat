@@ -12,9 +12,9 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, Crop, CustomFont,
-    Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, Stroke,
-    TextStyle, Timeline, Track, Transition, VideoSettings,
+    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ClipMask, Crop,
+    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MaskShape, MediaItem, MediaKind, Project,
+    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 /// Fallback length for media whose container reports no duration.
@@ -412,6 +412,34 @@ pub enum Command {
         /// The stroke, in source fractions.
         stroke: Stroke,
     },
+    /// Adds one geometric mask and returns its stable `mask*` id.
+    AddClipMask {
+        /// The picture clip receiving the mask.
+        clip_id: String,
+        /// Initial mask geometry.
+        shape: MaskShape,
+    },
+    /// Replaces one mask after an inspector or monitor gesture.
+    UpdateClipMask {
+        /// The picture clip owning the mask.
+        clip_id: String,
+        /// Complete replacement carrying the same stable mask id.
+        mask: ClipMask,
+    },
+    /// Removes one mask without disturbing the others.
+    RemoveClipMask {
+        /// The picture clip owning the mask.
+        clip_id: String,
+        /// Stable id of the mask to remove.
+        mask_id: String,
+    },
+    /// Temporarily bypasses or re-enables every geometric mask on a clip.
+    SetClipMasksEnabled {
+        /// The picture clip owning the masks.
+        clip_id: String,
+        /// Whether its mask stack participates in rendering.
+        enabled: bool,
+    },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
     /// per [`ClipMove`].
@@ -706,6 +734,9 @@ impl IdMint {
             }
             for clip in &timeline.clips {
                 self.adopt(&clip.id);
+                for mask in &clip.masks {
+                    self.adopt(&mask.id);
+                }
             }
         }
     }
@@ -751,6 +782,8 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         blend: String::new(),
         crop: None,
         cutout: None,
+        masks: Vec::new(),
+        masks_enabled: false,
         filters: Vec::new(),
         video_effects: Vec::new(),
         audio_stream: None,
@@ -1102,6 +1135,8 @@ pub fn apply(
                 blend: String::new(),
                 crop: None,
                 cutout: None,
+                masks: Vec::new(),
+                masks_enabled: false,
                 filters: Vec::new(),
                 video_effects: Vec::new(),
                 audio_stream: None,
@@ -1171,6 +1206,8 @@ pub fn apply(
                 blend: String::new(),
                 crop: None,
                 cutout: None,
+                masks: Vec::new(),
+                masks_enabled: false,
                 filters: Vec::new(),
                 video_effects: vec![AppliedFilter::new(effect_id)],
                 audio_stream: None,
@@ -1571,6 +1608,67 @@ pub fn apply(
             Ok(Outcome {
                 created_id: None,
                 applied: true,
+            })
+        }
+
+        Command::AddClipMask { clip_id, shape } => {
+            if project.active().clip(&clip_id).is_none() {
+                return Ok(Outcome::default());
+            }
+            let id = mint.next("mask");
+            let timeline = project.active_mut();
+            let clip = timeline
+                .clip_mut(&clip_id)
+                .expect("the clip was checked before minting the mask id");
+            clip.masks.push(ClipMask::new(id.clone(), shape));
+            clip.masks_enabled = true;
+            Ok(Outcome {
+                created_id: Some(id),
+                applied: true,
+            })
+        }
+
+        Command::UpdateClipMask { clip_id, mask } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let Some(held) = clip.masks.iter_mut().find(|held| held.id == mask.id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = assign(held, mask.tidy());
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::RemoveClipMask { clip_id, mask_id } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let before = clip.masks.len();
+            clip.masks.retain(|mask| mask.id != mask_id);
+            let applied = clip.masks.len() != before;
+            if clip.masks.is_empty() {
+                clip.masks_enabled = false;
+            }
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipMasksEnabled { clip_id, enabled } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = assign(&mut clip.masks_enabled, enabled && !clip.masks.is_empty());
+            Ok(Outcome {
+                created_id: None,
+                applied,
             })
         }
 
