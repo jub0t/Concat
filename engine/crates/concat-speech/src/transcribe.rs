@@ -20,7 +20,7 @@
 //!    segments come back relative to the window.
 
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use concat_host::{AppDirs, SingleFlight};
@@ -120,6 +120,14 @@ fn models_dir(dirs: &AppDirs) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("could not create {}: {error}", dir.display()))?;
     Ok(dir)
+}
+
+/// whisper's abort callback: `user_data` is the run's cancel flag, and a
+/// true here stops the computation where it stands. See `transcribe`.
+unsafe extern "C" fn abort_when_set(user_data: *mut std::ffi::c_void) -> bool {
+    // SAFETY: the caller passed `Arc::as_ptr` of an `AtomicBool` it keeps
+    // alive for as long as whisper may call this.
+    unsafe { (*(user_data as *const AtomicBool)).load(Ordering::Relaxed) }
 }
 
 fn model_file(dirs: &AppDirs, id: &str) -> Result<PathBuf, String> {
@@ -369,16 +377,35 @@ impl Transcriber {
             .unwrap_or(4);
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(threads as i32);
-        // The language is whisper's to hear: it detects it from the first
-        // window, and an English-only model ignores the setting anyway.
-        params.set_language(Some("auto"));
+        // The language is whisper's to hear, when it can hear more than
+        // one: a multilingual model detects it from the first window. An
+        // English-only model asked for "auto" still runs the detection,
+        // over a vocabulary it was never trained on, and "hears" Thai at
+        // one percent - so it is simply told English.
+        params.set_language(Some(if context.is_multilingual() {
+            "auto"
+        } else {
+            "en"
+        }));
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
         params.set_suppress_blank(true);
-        let abort = Arc::clone(&cancel);
-        params.set_abort_callback_safe(move || abort.load(Ordering::Relaxed));
+        // The raw hooks, not `set_abort_callback_safe`. whisper-rs 0.16's
+        // safe one hands whisper a pointer to a boxed trait object with a
+        // trampoline typed for the closure itself, so whisper reads the
+        // box's two words as the closure and the answer is whatever byte
+        // sits there: true, as a rule, and every encode was aborted before
+        // it began - "failed to encode", error -6, on the first clip. The
+        // flag itself is what whisper is given here, and it outlives the
+        // call: `cancel` is held to the end of this function.
+        // SAFETY: `abort_when_set` reads `user_data` as the `AtomicBool`
+        // inside `cancel`, which lives until `full` has returned.
+        unsafe {
+            params.set_abort_callback(Some(abort_when_set));
+            params.set_abort_callback_user_data(Arc::as_ptr(&cancel) as *mut std::ffi::c_void);
+        }
         params.set_progress_callback_safe(progress);
 
         state
@@ -459,5 +486,41 @@ mod tests {
         assert_eq!(status.models.len(), KNOWN_MODELS.len());
         assert!(status.models.iter().all(|model| !model.downloaded));
         let _ = std::fs::remove_dir_all(&scratch);
+    }
+}
+
+#[cfg(test)]
+mod real_audio {
+    use super::*;
+
+    /// The whole path through whisper on a real file with a downloaded
+    /// model - the thing the unit tests cannot cover, and what the abort
+    /// hook broke. Ignored: it wants the app's model directory and a file
+    /// named in CONCAT_TRANSCRIBE_AUDIO.
+    ///
+    ///   CONCAT_TRANSCRIBE_AUDIO=speech.wav cargo test -p concat-speech -- --ignored real_audio
+    #[test]
+    #[ignore = "needs a downloaded tiny.en and CONCAT_TRANSCRIBE_AUDIO"]
+    fn transcribes_a_file_with_the_installed_model() {
+        let Ok(audio) = std::env::var("CONCAT_TRANSCRIBE_AUDIO") else {
+            eprintln!("CONCAT_TRANSCRIBE_AUDIO not set; nothing to transcribe");
+            return;
+        };
+        let dirs = AppDirs::locate().expect("the app's directories");
+        let transcriber = Transcriber::new();
+        let request = TranscribeRequest {
+            path: audio,
+            audio_stream: None,
+            source_start: 0.0,
+            window: 30.0,
+            model_id: "tiny.en".to_owned(),
+        };
+        let segments = transcriber
+            .transcribe(&dirs, &request, |percent| eprintln!("{percent}%"))
+            .expect("transcription");
+        for segment in &segments {
+            eprintln!("{:.2}-{:.2} {}", segment.start, segment.end, segment.text);
+        }
+        assert!(!segments.is_empty(), "no words heard");
     }
 }
