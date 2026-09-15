@@ -55,6 +55,10 @@ env:
   # ONNX Runtime, for the Linux bundles: the version the ort crate is built
   # against (see ort-sys's dist table), as Microsoft's own shared build.
   ORT_VERSION: 1.28.0
+  # And for Intel Macs, which neither ort nor Microsoft build for any more:
+  # the last release Microsoft made for them. The ort crate asks for the
+  # runtime's API 17 and up, which this carries.
+  ORT_INTEL_MAC_VERSION: 1.23.2
   # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
   # this; it is the Intel floor.
   MACOSX_DEPLOYMENT_TARGET: "12.0"
@@ -210,6 +214,28 @@ jobs:
           # build on a developer's Mac never sees this: with no deployment
           # target set, the check is folded away at compile time.)
           echo "RUSTFLAGS=-C link-arg=$(xcrun clang --print-file-name=libclang_rt.osx.a)" >> "$GITHUB_ENV"
+
+      # ONNX Runtime on an Intel Mac. ort ships no static build for
+      # x86_64-apple-darwin, so the cutout's runtime is Microsoft's shared
+      # one, linked dynamically the way Linux does it, and bundled into
+      # Frameworks by dylibbundler along with FFmpeg's - the install name
+      # is @rpath, so the bundler is told where to look. Apple silicon
+      # keeps ort's static build.
+      - name: ONNX Runtime (Intel macOS)
+        if: matrix.platform == 'macos' && matrix.arch == 'x86_64'
+        run: |
+          set -euo pipefail
+          stem="onnxruntime-osx-x86_64-$ORT_INTEL_MAC_VERSION"
+          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_INTEL_MAC_VERSION/$stem.tgz"
+          tar -xzf onnxruntime.tgz
+          test -f "$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib"
+          ln -sf "libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib" "$stem/lib/libonnxruntime.dylib"
+          {
+            echo "ORT_LIB_LOCATION=$PWD/$stem/lib"
+            echo "ORT_PREFER_DYNAMIC_LINK=1"
+            echo "ORT_DIR=$PWD/$stem"
+          } >> "$GITHUB_ENV"
 
       # ── Windows ────────────────────────────────────────────────────────
       # LLVM: libclang for bindgen on both architectures, and the C/C++
@@ -410,7 +436,8 @@ jobs:
           dylibbundler -od -b \
             -x "$app/Contents/MacOS/concat" \
             -d "$app/Contents/Frameworks" \
-            -p @executable_path/../Frameworks
+            -p @executable_path/../Frameworks \
+            ${ORT_DIR:+-s "$ORT_DIR/lib"}
 
           # Nothing outside the bundle may remain: a load path into
           # Homebrew would break on a Mac without it.
