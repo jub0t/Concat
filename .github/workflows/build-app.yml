@@ -52,6 +52,9 @@ env:
   # BtbN's autobuilds: GPL (x264 in), shared, FFmpeg 8.1, one per arch.
   FFMPEG_RELEASE: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
   FFMPEG_VERSION: 8.1
+  # ONNX Runtime, for the Linux bundles: the version the ort crate is built
+  # against (see ort-sys's dist table), as Microsoft's own shared build.
+  ORT_VERSION: 1.28.0
   # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
   # this; it is the Intel floor.
   MACOSX_DEPLOYMENT_TARGET: "12.0"
@@ -91,12 +94,14 @@ jobs:
             target: x86_64-unknown-linux-gnu
             ffmpeg: linux64
             sherpa: linux-x64
+            ort: x64
           - platform: linux
             arch: aarch64
             os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
             ffmpeg: linuxarm64
             sherpa: linux-aarch64
+            ort: aarch64
           - platform: windows
             arch: x86_64
             os: windows-2022
@@ -155,6 +160,33 @@ jobs:
             # not transitive, so libavformat's own load of libavcodec would
             # ignore it and the staged binary would not stand alone.
             echo "RUSTFLAGS=-C link-arg=-Wl,-rpath,\$ORIGIN/lib -C link-arg=-Wl,--disable-new-dtags"
+          } >> "$GITHUB_ENV"
+
+      # ONNX Runtime, the cutout models' runtime. Left to itself ort-sys
+      # downloads a static build and links it in; sherpa-onnx links a
+      # static build of its own, and the two carry the same protobuf, which
+      # the linker refuses as duplicate symbols the moment both are pulled
+      # - every Linux link since the cutout arrived. So on Linux ort links
+      # Microsoft's shared build instead, through ORT_LIB_LOCATION with
+      # dynamic linking preferred, and the library ships in lib/ beside
+      # FFmpeg's, where the rpath above finds it. The Nix package links
+      # the same way against nixpkgs' onnxruntime.
+      - name: ONNX Runtime (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          stem="onnxruntime-linux-${{ matrix.ort }}-$ORT_VERSION"
+          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$stem.tgz"
+          tar -xzf onnxruntime.tgz
+          test -f "$stem/lib/libonnxruntime.so.$ORT_VERSION"
+          # The tarball carries the soname and the full version; the linker
+          # asks for the bare name.
+          ln -sf "libonnxruntime.so.$ORT_VERSION" "$stem/lib/libonnxruntime.so"
+          {
+            echo "ORT_LIB_LOCATION=$PWD/$stem/lib"
+            echo "ORT_PREFER_DYNAMIC_LINK=1"
+            echo "ORT_DIR=$PWD/$stem"
           } >> "$GITHUB_ENV"
 
       # ── macOS ──────────────────────────────────────────────────────────
@@ -447,6 +479,7 @@ jobs:
           mkdir -p "stage/$name/lib"
           cp "engine/target/${{ matrix.target }}/app/concat" "stage/$name/concat"
           cp -a ffmpeg-dev/lib/*.so* "stage/$name/lib/"
+          cp -a "$ORT_DIR"/lib/libonnxruntime.so* "stage/$name/lib/"
           cp assets/icons/concat_logo_256.png "stage/$name/concat.png"
           cat > "stage/$name/concat.desktop" <<DESKTOP
           [Desktop Entry]

@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz
+      # See build-app.yml: the version the ort crate is built against.
+      ORT_VERSION: 1.28.0
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -47,7 +49,24 @@ jobs:
           mkdir -p ffmpeg-dev
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib" >> "$GITHUB_ENV"
+
+      # ONNX Runtime as a shared library, linked dynamically, for the reason
+      # build-app.yml gives: a static one beside sherpa-onnx's is the same
+      # protobuf twice, and the test binary does not link. The tests then
+      # find it through LD_LIBRARY_PATH, as they find FFmpeg.
+      - name: ONNX Runtime
+        run: |
+          set -euo pipefail
+          stem="onnxruntime-linux-x64-$ORT_VERSION"
+          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$stem.tgz"
+          tar -xzf onnxruntime.tgz
+          ln -sf "libonnxruntime.so.$ORT_VERSION" "$stem/lib/libonnxruntime.so"
+          {
+            echo "ORT_LIB_LOCATION=$PWD/$stem/lib"
+            echo "ORT_PREFER_DYNAMIC_LINK=1"
+            echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib:$PWD/$stem/lib"
+          } >> "$GITHUB_ENV"
 
       - run: cargo fmt --check
         working-directory: engine
