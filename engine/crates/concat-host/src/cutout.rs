@@ -369,14 +369,17 @@ impl Cutouts {
 
 /// Streams a model into `file`, by way of a `.part` beside it, reporting
 /// every couple of megabytes and stopping when `cancel` is set.
+///
+/// Concat's own mirror first, the upstream it was filled from second: see
+/// [`crate::models`]. Whichever answers, the bytes are checked against the
+/// digest the table carries before anything is renamed into place, so a
+/// truncated or substituted file never becomes an installed model.
 pub(crate) fn fetch(
     id: ModelId,
     file: &Path,
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(), String> {
-    use std::io::{Read, Write};
-
     let spec = id.spec();
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)
@@ -388,6 +391,42 @@ pub(crate) fn fetch(
         total: spec.bytes,
     });
 
+    let mut last: String = String::new();
+    for url in crate::models::sources(spec.file, spec.upstream) {
+        match stream(&url, &partial, spec.bytes, cancel, progress) {
+            Ok(()) => {
+                if let Err(error) = crate::models::verify(&partial, spec.sha256) {
+                    let _ = std::fs::remove_file(&partial);
+                    // A mirror that serves the wrong bytes is not something
+                    // upstream can fix, and trying it next would only hide
+                    // which of the two is wrong.
+                    return Err(error);
+                }
+                return std::fs::rename(&partial, file)
+                    .map_err(|error| format!("could not finish {}: {error}", file.display()));
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&partial);
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(error);
+                }
+                last = error;
+            }
+        }
+    }
+    Err(format!("could not fetch the {} model: {last}", spec.file))
+}
+
+/// One attempt at one URL: straight into `partial`, reporting as it goes.
+fn stream(
+    url: &str,
+    partial: &Path,
+    estimate: u64,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+
     // A stalled connection blocks in `read` with the cancel flag
     // unreachable; thirty seconds without a byte means it is dead.
     let agent = ureq::AgentBuilder::new()
@@ -395,54 +434,44 @@ pub(crate) fn fetch(
         .timeout_read(std::time::Duration::from_secs(30))
         .build();
     let response = agent
-        .get(spec.url)
+        .get(url)
         .call()
-        .map_err(|error| format!("could not fetch the {} model: {error}", spec.file))?;
+        .map_err(|error| format!("{url} did not answer: {error}"))?;
     let total = response
         .header("Content-Length")
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(spec.bytes);
+        .unwrap_or(estimate);
 
-    let result = (|| {
-        let mut out = std::fs::File::create(&partial)
-            .map_err(|error| format!("could not create {}: {error}", partial.display()))?;
-        let mut reader = response.into_reader();
-        let mut buffer = [0u8; 64 * 1024];
-        let mut received = 0u64;
-        let mut reported = 0u64;
-        loop {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cutout analysis cancelled".to_owned());
-            }
-            let read = reader
-                .read(&mut buffer)
-                .map_err(|error| format!("model download interrupted: {error}"))?;
-            if read == 0 {
-                break;
-            }
-            out.write_all(&buffer[..read])
-                .map_err(|error| format!("could not write the model: {error}"))?;
-            received += read as u64;
-            if received - reported >= 2 * 1024 * 1024 {
-                reported = received;
-                progress(Progress::Fetching { received, total });
-            }
+    let mut out = std::fs::File::create(partial)
+        .map_err(|error| format!("could not create {}: {error}", partial.display()))?;
+    let mut reader = response.into_reader();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut received = 0u64;
+    let mut reported = 0u64;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cutout analysis cancelled".to_owned());
         }
-        out.flush()
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| format!("model download interrupted: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        out.write_all(&buffer[..read])
             .map_err(|error| format!("could not write the model: {error}"))?;
-        if received == 0 {
-            return Err(format!("the {} model came back empty", spec.file));
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => std::fs::rename(&partial, file)
-            .map_err(|error| format!("could not finish {}: {error}", file.display())),
-        Err(error) => {
-            let _ = std::fs::remove_file(&partial);
-            Err(error)
+        received += read as u64;
+        if received - reported >= 2 * 1024 * 1024 {
+            reported = received;
+            progress(Progress::Fetching { received, total });
         }
     }
+    out.flush()
+        .map_err(|error| format!("could not write the model: {error}"))?;
+    if received == 0 {
+        return Err(format!("{url} came back empty"));
+    }
+    Ok(())
 }
 
 /// Every instant the ranges need that the store lacks, ascending, once.

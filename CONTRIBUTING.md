@@ -58,6 +58,13 @@ If you added or changed text the interface shows, also run
 Translations live in one JSON file per language — see
 [`TRANSLATING.md`](TRANSLATING.md).
 
+If you added or changed a downloadable model, put it in
+[`models/manifest.toml`](models/manifest.toml) as well as the engine table it
+belongs to, and run `python3 scripts/models.py --check`; CI checks that too.
+A maintainer then runs the *Mirror models* workflow, which fetches the model,
+records its digest in both places and publishes it to the mirror the app
+downloads from.
+
 New source files need a licence header — see below. Match the style of the code
 around you; the engine avoids cleverness on purpose.
 

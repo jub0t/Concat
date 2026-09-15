@@ -1,0 +1,151 @@
+# The models Concat downloads, and where they come from.
+#
+# Concat ships no weights inside its bundles - a cutout network, a Kokoro
+# voice bank and a whisper model together outweigh the editor many times
+# over, and most people never ask for all three. They are fetched the first
+# time a feature needs one.
+#
+# What they are fetched *from* is this file. Every model is mirrored onto a
+# release of this repository, under the `release` tag below, and that mirror
+# is what the app asks for; `upstream` is where the mirror was filled from
+# and what the app falls back to if our own release cannot be reached. The
+# point of the mirror is that a model Concat offers stays reachable, stays
+# the bytes we tested, and stays under one roof, rather than depending on a
+# third party's bucket keeping a path alive.
+#
+#   scripts/models.py --check          # this table against the engine's
+#   scripts/models.py mirror --out dir # fill a mirror from upstream
+#   scripts/models.py release-manifest # the manifest.json a release carries
+#
+# Refreshing the mirror is .github/workflows/models.yml: it fetches every
+# `upstream`, checks each against `sha256`, records the digest when this
+# table has none yet, and uploads the lot to the `release` tag. Bump that
+# tag only when a model's bytes change - app releases point at it by name,
+# so an unchanged model is never re-uploaded.
+#
+# `sha256` is what the app verifies a finished download against. An empty
+# digest means the mirror has not been filled since the model was added;
+# the workflow prints what it computed, and that goes here and into the
+# engine's table beside it.
+
+# The release every model is mirrored on.
+release = "models-v1"
+
+# ── Cutout ───────────────────────────────────────────────────────────────
+# engine/crates/concat-vision/src/models.rs
+
+[[model]]
+id = "cutout-person"
+family = "cutout"
+file = "rvm-mobilenetv3.onnx"
+bytes = 14975696
+sha256 = "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828"
+licence = "GPL-3.0"
+upstream = "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx"
+
+[[model]]
+id = "cutout-object"
+family = "cutout"
+file = "isnet-general-use.onnx"
+bytes = 178648008
+sha256 = ""
+licence = "Apache-2.0"
+upstream = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
+
+[[model]]
+id = "cutout-brush-encoder"
+family = "cutout"
+file = "slimsam-77-encoder.onnx"
+bytes = 23276014
+sha256 = ""
+licence = "Apache-2.0"
+upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx"
+
+[[model]]
+id = "cutout-brush-decoder"
+family = "cutout"
+file = "slimsam-77-decoder.onnx"
+bytes = 16557892
+sha256 = ""
+licence = "Apache-2.0"
+upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx"
+
+# ── Text to speech ───────────────────────────────────────────────────────
+# engine/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
+# official sherpa-onnx conversions; the two differ only in quantisation.
+
+[[model]]
+id = "kokoro-int8-multi-lang-v1_0"
+family = "tts"
+file = "kokoro-int8-multi-lang-v1_0.tar.bz2"
+bytes = 131839838
+sha256 = ""
+licence = "Apache-2.0"
+upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2"
+
+[[model]]
+id = "kokoro-multi-lang-v1_0"
+family = "tts"
+file = "kokoro-multi-lang-v1_0.tar.bz2"
+bytes = 349418188
+sha256 = ""
+licence = "Apache-2.0"
+upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+
+# ── Transcription ────────────────────────────────────────────────────────
+# engine/crates/concat-speech/src/transcribe.rs. whisper.cpp's GGML
+# conversions of OpenAI's whisper.
+
+[[model]]
+id = "whisper-tiny.en"
+family = "whisper"
+file = "ggml-tiny.en.bin"
+bytes = 77700000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+
+[[model]]
+id = "whisper-tiny"
+family = "whisper"
+file = "ggml-tiny.bin"
+bytes = 77700000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
+
+[[model]]
+id = "whisper-base.en"
+family = "whisper"
+file = "ggml-base.en.bin"
+bytes = 147400000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+
+[[model]]
+id = "whisper-base"
+family = "whisper"
+file = "ggml-base.bin"
+bytes = 147500000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+
+[[model]]
+id = "whisper-small.en"
+family = "whisper"
+file = "ggml-small.en.bin"
+bytes = 487600000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+
+[[model]]
+id = "whisper-small"
+family = "whisper"
+file = "ggml-small.bin"
+bytes = 487600000
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"

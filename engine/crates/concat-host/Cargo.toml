@@ -22,6 +22,9 @@ concat-text.workspace = true
 # runs them, and ureq because the host is what fetches them.
 concat-vision = { workspace = true, features = ["infer"] }
 ureq = "2"
+# A finished download is checked against the digest its table carries
+# before anything is allowed to call it installed; see models.rs.
+sha2 = "0.10"
 # The CPU compositor draws the monitor's frame; the wgpu one is behind
 # `gpu`, so a headless host pays for no GPU tree.
 concat-render.workspace = true

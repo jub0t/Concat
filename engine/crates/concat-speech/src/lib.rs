@@ -39,6 +39,50 @@ pub struct DownloadProgress {
     pub done: bool,
 }
 
+/// Streams a model into `partial`: Concat's own mirror first, the upstream
+/// it was filled from second, and the finished file checked against the
+/// digest its table carries before the caller is told it arrived.
+///
+/// `file` is what the model is called on the mirror. Two tries and not one
+/// because a mirror that cannot be reached - a proxy that blocks our host,
+/// a release still being published - should cost a retry rather than a
+/// feature; see [`concat_host::models`]. A file that arrives and hashes
+/// wrong is refused outright rather than retried, since the second try
+/// would only hide which source served it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fetch_model(
+    file: &str,
+    upstream: &str,
+    partial: &std::path::Path,
+    id: &str,
+    estimate: u64,
+    sha256: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(DownloadProgress),
+) -> Result<(u64, u64), String> {
+    use std::sync::atomic::Ordering;
+
+    let mut last = String::new();
+    for url in concat_host::models::sources(file, upstream) {
+        match download_to(&url, partial, id, estimate, cancel, progress) {
+            Ok(totals) => {
+                concat_host::models::verify(partial, sha256).inspect_err(|_| {
+                    let _ = std::fs::remove_file(partial);
+                })?;
+                return Ok(totals);
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(partial);
+                if cancel.load(Ordering::Relaxed) {
+                    return Err(error);
+                }
+                last = error;
+            }
+        }
+    }
+    Err(last)
+}
+
 /// Streams `url` into `partial`, reporting every couple of megabytes and
 /// stopping when `cancel` is set. Shared by both model downloaders.
 fn download_to(

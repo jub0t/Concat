@@ -24,6 +24,7 @@ pub mod dirs;
 pub mod export;
 pub mod jobs;
 pub mod media;
+pub mod models;
 pub mod playback;
 pub mod preview;
 pub mod projects;

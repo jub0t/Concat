@@ -18,8 +18,9 @@ on Windows and in CI. FFmpeg source code: https://ffmpeg.org/download.html
 
 Transcription compiles whisper.cpp (https://github.com/ggml-org/whisper.cpp,
 MIT) and ggml into the app through the `whisper-rs` crate. Whisper models
-are downloaded on demand from https://huggingface.co/ggerganov/whisper.cpp
-(MIT) and never bundled.
+originate at https://huggingface.co/ggerganov/whisper.cpp (MIT); Concat
+mirrors them and downloads them on demand from that mirror, and never
+bundles them. See "The model mirror" below.
 
 ## Slint — used under GPL-3.0-only
 
@@ -83,9 +84,10 @@ and AGPL-3.0 expressly permits that combination, so the combined binary may be
 conveyed on those terms.
 
 Kokoro voice model bundles (Apache-2.0,
-https://huggingface.co/hexgrad/Kokoro-82M) are downloaded on demand from the
-sherpa-onnx releases - including espeak-ng's data files - and are never
-bundled with the app.
+https://huggingface.co/hexgrad/Kokoro-82M) originate in the sherpa-onnx
+releases - including espeak-ng's data files. Concat mirrors those bundles
+and downloads them on demand from that mirror, and never bundles them with
+the app. See "The model mirror" below.
 
 ## The cutout models
 
@@ -99,8 +101,8 @@ except the first:
   `engine/crates/concat-vision/models/NOTICE.md`. The answer when nothing
   has been downloaded.
 - Robust Video Matting, the MobileNetV3 variant, by Peter Lin and others
-  (https://github.com/PeterL1n/RobustVideoMatting, GPL-3.0), downloaded on
-  first use from that repository's releases. The person model.
+  (https://github.com/PeterL1n/RobustVideoMatting, GPL-3.0), from that
+  repository's releases, downloaded on first use. The person model.
 - IS-Net from "Highly Accurate Dichotomous Image Segmentation" by Qin and
   others (https://github.com/xuebinqin/DIS, Apache-2.0), in the ONNX
   export the rembg project publishes
@@ -111,12 +113,31 @@ except the first:
   (Apache-2.0), downloaded on first use. The brushes' model.
 
 Downloaded models live in the app's data directory under `cutout-models`
-and are never bundled. They are all run by ONNX Runtime
+and are never bundled; the three that are downloaded come from Concat's own
+mirror of the sources named above, described below. They are all run by
+ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate
 (https://github.com/pykeio/ort, MIT OR Apache-2.0), with the platform's
 own accelerator behind it: CoreML on macOS and iOS, DirectML on Windows,
 NNAPI on Android. The runtime is linked statically from the builds pyke
 publishes for each target.
+
+## The model mirror
+
+Every model named above is mirrored onto a release of Concat's own
+repository, and the app fetches it from there; the upstream each was
+obtained from is the fallback and is named above in every case. The table of
+what is mirrored, and the digest each download is checked against, is
+`models/manifest.toml`; `.github/workflows/models.yml` is what fills the
+mirror.
+
+Mirroring is redistribution, and each model keeps the licence it arrived
+under - Apache-2.0 for the Kokoro bundles, SlimSAM and IS-Net, MIT for the
+whisper conversions, GPL-3.0 for Robust Video Matting. Those terms are met
+by the attributions above and by the licence files each mirrored archive
+carries; a mirrored file is a verbatim copy, never a modification. Nothing
+in the mirror is bundled with the app, and Concat claims no rights over any
+of it.
 
 ## Effect preview photograph
 

@@ -1,0 +1,122 @@
+name: Mirror models
+
+# Fills Concat's model mirror from upstream and publishes it as a release.
+#
+# Concat fetches its cutout networks, its Kokoro voice bank and its whisper
+# models on demand, and it fetches them from a release of this repository
+# rather than from whoever published them. models/manifest.toml is the table
+# of what those are; this workflow is what turns that table into the release
+# the app asks for.
+#
+# Run it when a model is added to the table, or when one's bytes change and
+# its release tag is bumped. It is not part of cutting an app release: the
+# mirror has its own tag, app releases point at it by name, and an unchanged
+# model is never re-uploaded. Roughly 2 GB down and 2 GB up, so give it time.
+#
+# A model whose row has no digest yet is recorded: the job fetches it,
+# computes the sha256, writes it into models/manifest.toml and into the
+# engine's table beside it, and uploads the patch as an artifact for a
+# maintainer to commit. Until that lands, the app accepts the download
+# unverified, which is what the empty digest means.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: A family (cutout, tts, whisper) or one model id; blank for all
+        required: false
+        default: ""
+      publish:
+        description: Upload to the release tag, rather than only fetching and checking
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: models
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Fill and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The table
+        id: table
+        run: |
+          set -euo pipefail
+          release=$(sed -n 's/^release = "\(.*\)"/\1/p' models/manifest.toml | head -1)
+          test -n "$release"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          python3 scripts/models.py --check
+
+      # The runner has room for the lot with a few gigabytes to spare, but
+      # not much more; the mirror folder is deleted with the runner.
+      - name: Disk before
+        run: df -h /
+
+      - name: Fetch from upstream
+        env:
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          python3 scripts/models.py mirror --out mirror "${args[@]}"
+          ls -l mirror
+
+      # What the fetch recorded, if anything: the digests are now in the
+      # table and in the engine, and that diff is what wants committing.
+      - name: Digests recorded
+        id: recorded
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Nothing recorded: every model already carried its digest." >> "$GITHUB_STEP_SUMMARY"
+            echo "patch=false" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "### Digests recorded"
+              echo
+              echo 'Commit this patch, or the app keeps accepting these downloads unverified.'
+              echo
+              echo '```diff'
+              git diff
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            git diff > recorded-digests.patch
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: steps.recorded.outputs.patch == 'true'
+        with:
+          name: recorded-digests
+          path: recorded-digests.patch
+          if-no-files-found: error
+
+      # The mirror is one flat release: every file in the table is uploaded
+      # under its own name, and `--clobber` means re-running after a fixed
+      # row replaces the file rather than failing on it.
+      - name: Publish
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ steps.table.outputs.release }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE" >/dev/null 2>&1; then
+            gh release create "$RELEASE" \
+              --title "Concat models ($RELEASE)" \
+              --notes "The models Concat downloads on demand, mirrored from the upstreams named in models/manifest.toml. Not an app release: see the tags beginning with v for those." \
+              --latest=false
+          fi
+          gh release upload "$RELEASE" mirror/* --clobber
+          gh release view "$RELEASE"
+
+      - name: Disk after
+        if: always()
+        run: df -h /

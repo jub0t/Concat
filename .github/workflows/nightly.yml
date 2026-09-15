@@ -49,7 +49,7 @@ jobs:
           merge-multiple: true
 
       # Named by the commit, so two testers can say which nightly they have.
-      - name: Name the bundles by commit and write checksums
+      - name: Name the bundles by commit
         id: stamp
         run: |
           set -euo pipefail
@@ -59,13 +59,33 @@ jobs:
           for file in Concat-*; do
             mv "$file" "${file/Concat-$version/Concat-$version-nightly.$sha}"
           done
-          sha256sum -- * > SHA256SUMS
           ls -l
           {
             echo "sha=$sha"
             echo "version=$version"
+            echo "stamped=$version-nightly.$sha"
             echo "date=$(date -u +%Y-%m-%d)"
           } >> "$GITHUB_OUTPUT"
+
+      # The same manifest a tagged release carries, so anything reading one
+      # can read the other: a row per bundle, and a row per model with the
+      # mirror it is fetched from. See scripts/models.py.
+      - name: Write the manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/models.py release-manifest \
+            --version "${{ steps.stamp.outputs.stamped }}" \
+            --tag nightly \
+            --bundles bundles \
+            --out bundles/manifest.json
+          cat bundles/manifest.json
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd bundles
+          sha256sum -- * > SHA256SUMS
+          ls -l
 
       # Yesterday's bundles carry yesterday's commit in their names, so
       # they would pile up beside today's; the release holds one set.

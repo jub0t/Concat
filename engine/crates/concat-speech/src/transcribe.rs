@@ -38,6 +38,9 @@ struct KnownModel {
     /// One line for the settings row: what this size trades away.
     blurb: &'static str,
     approx_bytes: u64,
+    /// What the finished file must hash to. Empty until the mirror has been
+    /// filled once and reported what it holds; see [`concat_host::models`].
+    sha256: &'static str,
     english_only: bool,
 }
 
@@ -52,6 +55,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Tiny (English)",
         blurb: "Fastest draft. Rough on names and punctuation.",
         approx_bytes: 77_700_000,
+        sha256: "",
         english_only: true,
     },
     KnownModel {
@@ -59,6 +63,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Tiny (Multilingual)",
         blurb: "Fastest draft, any language.",
         approx_bytes: 77_700_000,
+        sha256: "",
         english_only: false,
     },
     KnownModel {
@@ -66,6 +71,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Base (English)",
         blurb: "The sweet spot: solid captions at ~10x realtime.",
         approx_bytes: 147_400_000,
+        sha256: "",
         english_only: true,
     },
     KnownModel {
@@ -73,6 +79,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Base (Multilingual)",
         blurb: "Solid captions, any language.",
         approx_bytes: 147_500_000,
+        sha256: "",
         english_only: false,
     },
     KnownModel {
@@ -80,6 +87,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Small (English)",
         blurb: "Noticeably better wording; a few times slower.",
         approx_bytes: 487_600_000,
+        sha256: "",
         english_only: true,
     },
     KnownModel {
@@ -87,6 +95,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Small (Multilingual)",
         blurb: "Best quality offered, any language.",
         approx_bytes: 487_600_000,
+        sha256: "",
         english_only: false,
     },
 ];
@@ -95,7 +104,13 @@ fn known(id: &str) -> Option<&'static KnownModel> {
     KNOWN_MODELS.iter().find(|model| model.id == id)
 }
 
-fn model_url(id: &str) -> String {
+/// The file a model arrives as, and what it is called on the mirror.
+fn model_archive(id: &str) -> String {
+    format!("ggml-{id}.bin")
+}
+
+/// Where the mirror was filled from, and the second place a download tries.
+fn model_upstream(id: &str) -> String {
     format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{id}.bin")
 }
 
@@ -221,7 +236,7 @@ impl Transcriber {
         })
     }
 
-    /// Streams one model from Hugging Face into the models folder. Blocks
+    /// Streams one model from Concat's mirror into the models folder. Blocks
     /// for the whole download: run it on its own thread.
     ///
     /// Written to `<file>.part` and renamed at the end: a download killed
@@ -240,11 +255,13 @@ impl Transcriber {
         }
         let estimate = known(id).map(|model| model.approx_bytes).unwrap_or(0);
         let partial = destination.with_extension("bin.part");
-        let (received, total) = crate::download_to(
-            &model_url(id),
+        let (received, total) = crate::fetch_model(
+            &model_archive(id),
+            &model_upstream(id),
             &partial,
             id,
             estimate,
+            known(id).map(|model| model.sha256).unwrap_or(""),
             job.cancel_flag(),
             &mut progress,
         )?;
@@ -420,9 +437,15 @@ mod tests {
     }
 
     #[test]
-    fn every_known_model_has_a_url_and_file_name() {
+    fn every_known_model_is_asked_of_the_mirror_before_upstream() {
         for model in KNOWN_MODELS {
-            assert!(model_url(model.id).ends_with(&format!("ggml-{}.bin", model.id)));
+            let file = model_archive(model.id);
+            assert_eq!(file, format!("ggml-{}.bin", model.id));
+            assert!(model_upstream(model.id).ends_with(&file));
+            let [mirror, upstream] = concat_host::models::sources(&file, &model_upstream(model.id));
+            assert!(mirror.contains(concat_host::models::RELEASE));
+            assert!(mirror.ends_with(&file));
+            assert_eq!(upstream, model_upstream(model.id));
             assert!(model.approx_bytes > 0);
         }
     }

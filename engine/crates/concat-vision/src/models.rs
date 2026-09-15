@@ -10,6 +10,12 @@
 //! killed download leaves nothing that could be mistaken for one. The
 //! fetching itself is the host's, since it is the host that has a network
 //! and a job slot; this crate only knows the table.
+//!
+//! A model is fetched from Concat's own mirror, and `upstream` is where
+//! that mirror was filled from and the second thing tried. The table is
+//! the engine's half of `models/manifest.toml`, which is what fills the
+//! mirror; `scripts/models.py --check` keeps the two saying the same
+//! thing.
 
 use std::path::{Path, PathBuf};
 
@@ -35,12 +41,17 @@ pub enum ModelId {
 pub struct ModelSpec {
     /// Which model.
     pub id: ModelId,
-    /// The file name on disk, and what a mask store records.
+    /// The file name on disk, what a mask store records, and what the
+    /// file is called on the mirror.
     pub file: &'static str,
-    /// Where it is fetched from.
-    pub url: &'static str,
+    /// Where the mirror was filled from, and the second place a download
+    /// tries; the host's `models` module is what puts the two in order.
+    pub upstream: &'static str,
     /// Its size, for a progress bar before the server says.
     pub bytes: u64,
+    /// What a finished download must hash to. Empty until the mirror has
+    /// been filled once and reported what it holds.
+    pub sha256: &'static str,
     /// The licence it comes under, for the notices.
     pub licence: &'static str,
 }
@@ -50,29 +61,33 @@ pub const MODELS: [ModelSpec; 4] = [
     ModelSpec {
         id: ModelId::Person,
         file: "rvm-mobilenetv3.onnx",
-        url: "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
+        upstream: "https://github.com/PeterL1n/RobustVideoMatting/releases/download/v1.0.0/rvm_mobilenetv3_fp32.onnx",
         bytes: 14_975_696,
+        sha256: "88d4531297118f595bf2fd60f6f566aec2e559393802d1f436c380f0cbbd2828",
         licence: "GPL-3.0",
     },
     ModelSpec {
         id: ModelId::Object,
         file: "isnet-general-use.onnx",
-        url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        upstream: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
         bytes: 178_648_008,
+        sha256: "",
         licence: "Apache-2.0",
     },
     ModelSpec {
         id: ModelId::BrushEncoder,
         file: "slimsam-77-encoder.onnx",
-        url: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx",
+        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx",
         bytes: 23_276_014,
+        sha256: "",
         licence: "Apache-2.0",
     },
     ModelSpec {
         id: ModelId::BrushDecoder,
         file: "slimsam-77-decoder.onnx",
-        url: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx",
+        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx",
         bytes: 16_557_892,
+        sha256: "",
         licence: "Apache-2.0",
     },
 ];

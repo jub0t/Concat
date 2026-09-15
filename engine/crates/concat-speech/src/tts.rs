@@ -48,6 +48,10 @@ struct KnownModel {
     /// One line for the settings row: what this size trades away.
     blurb: &'static str,
     approx_bytes: u64,
+    /// What the finished archive must hash to. Empty until the mirror has
+    /// been filled once and reported what it holds; see
+    /// [`concat_host::models`].
+    sha256: &'static str,
 }
 
 /// The models the settings panel offers, smallest first.
@@ -62,12 +66,14 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Kokoro (compact)",
         blurb: "The recommended build: same voices, a third of the download.",
         approx_bytes: 131_839_838,
+        sha256: "",
     },
     KnownModel {
         id: "kokoro-multi-lang-v1_0",
         label: "Kokoro (full precision)",
         blurb: "Bit-perfect weights for the skeptical; rarely audibly better.",
         approx_bytes: 349_418_188,
+        sha256: "",
     },
 ];
 
@@ -121,7 +127,13 @@ fn known(id: &str) -> Option<&'static KnownModel> {
     KNOWN_MODELS.iter().find(|model| model.id == id)
 }
 
-fn model_url(id: &str) -> String {
+/// The archive a bundle arrives as, and what it is called on the mirror.
+fn model_archive(id: &str) -> String {
+    format!("{id}.tar.bz2")
+}
+
+/// Where the mirror was filled from, and the second place a download tries.
+fn model_upstream(id: &str) -> String {
     format!("https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/{id}.tar.bz2")
 }
 
@@ -280,7 +292,7 @@ impl Speech {
         })
     }
 
-    /// Streams one bundle from the sherpa-onnx releases and unpacks it.
+    /// Streams one Kokoro bundle from Concat's mirror and unpacks it.
     /// Blocks for the whole download: run it on its own thread.
     ///
     /// The archive lands in a `.part`, unpacks into a `.staging-<id>` folder,
@@ -304,11 +316,13 @@ impl Speech {
         let archive = parent.join(format!("{id}.tar.bz2.part"));
         let staging = parent.join(format!(".staging-{id}"));
         let result = (|| {
-            let (received, total) = crate::download_to(
-                &model_url(id),
+            let (received, total) = crate::fetch_model(
+                &model_archive(id),
+                &model_upstream(id),
                 &archive,
                 id,
                 estimate,
+                known(id).map(|model| model.sha256).unwrap_or(""),
                 cancel,
                 &mut progress,
             )?;
@@ -572,9 +586,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_known_model_has_a_url_and_size() {
+    fn every_known_model_is_asked_of_the_mirror_before_upstream() {
         for model in KNOWN_MODELS {
-            assert!(model_url(model.id).ends_with(&format!("{}.tar.bz2", model.id)));
+            let file = model_archive(model.id);
+            assert_eq!(file, format!("{}.tar.bz2", model.id));
+            assert!(model_upstream(model.id).ends_with(&file));
+            let [mirror, upstream] = concat_host::models::sources(&file, &model_upstream(model.id));
+            assert!(mirror.contains(concat_host::models::RELEASE));
+            assert!(mirror.ends_with(&file));
+            assert_eq!(upstream, model_upstream(model.id));
             assert!(model.approx_bytes > 0);
         }
     }
