@@ -108,12 +108,14 @@ jobs:
             target: x86_64-pc-windows-msvc
             ffmpeg: win64
             sherpa: win-x64
+            inno: x64compatible
           - platform: windows
             arch: aarch64
             os: windows-11-arm
             target: aarch64-pc-windows-msvc
             ffmpeg: winarm64
             sherpa: win-arm64
+            inno: arm64
     runs-on: ${{ matrix.os }}
     # The slowest target (Intel macOS, fat LTO) finishes in under half an
     # hour. A job still running past this is stuck, not slow.
@@ -524,6 +526,19 @@ jobs:
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md "stage\$name\"
+          # The installer, from the same folder, before it is zipped away:
+          # Inno Setup, which the x64 image carries and the ARM image is
+          # given. See assets/windows/concat.iss.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Installing Inno Setup"
+            choco install innosetup --no-progress -y | Out-Null
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup is not at $iscc" }
+          & $iscc "/DVersion=$env:VERSION" "/DArch=${{ matrix.inno }}" "/DSuffix=${{ matrix.arch }}" `
+            "/DStage=$PWD\stage\$name" "/DOut=$PWD\stage" assets\windows\concat.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
+          if (-not (Test-Path "stage\$name-setup.exe")) { throw "stage\$name-setup.exe is not there" }
           Compress-Archive -Path "stage\$name" -DestinationPath "stage\$name.zip"
           Remove-Item -Recurse -Force "stage\$name"
 
