@@ -70,7 +70,22 @@ pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
 
 /// Builds the window, binds it to the engine, and runs it until it closes.
 pub fn run() -> Result<(), slint::PlatformError> {
-    let gpu = platform::select_backend()?;
+    // The shell doesn't exist yet - it needs the window the backend is about
+    // to help create - but `Shell::with` is a no-op until `Shell::install`
+    // runs, and by the time an OS drop can actually happen, it has. Import
+    // goes through the same `Studio::import` the Import menu uses, so a
+    // dropped file gets the same probe, the same failure notice, and the
+    // same "no project open yet" no-op that a picked one does.
+    let gpu = platform::select_backend(|paths| {
+        Shell::with(|shell, app| {
+            {
+                let mut studio = shell.studio.borrow_mut();
+                studio.import(paths);
+            }
+            shell.studio.borrow_mut().refresh_art();
+            shell.studio.borrow().publish(&app, &shell.models);
+        });
+    })?;
 
     let host = match Host::start(gpu) {
         Ok(host) => host,

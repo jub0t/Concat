@@ -3,30 +3,89 @@
 
 //! What the window asks of the platform it runs on.
 //!
-//! Three things differ between a desk and a phone: how the backend is
-//! chosen, how a file or folder is picked, and whether the window has a
-//! title strip of its own to drag. Everything else in the crate is the same
-//! tree, the same state and the same callbacks, so the differences live here
-//! and nowhere else.
+//! Four things differ between a desk and a phone: how the backend is
+//! chosen, how a file or folder is picked, whether the window has a title
+//! strip of its own to drag, and whether a file dragged in from outside the
+//! window is even a thing that can happen. Everything else in the crate is
+//! the same tree, the same state and the same callbacks, so the differences
+//! live here and nowhere else.
 //!
 //! Desktop and iOS draw through the winit backend; Android through Slint's
 //! android-activity backend, which the activity sets up before [`crate::run`]
 //! is called. File dialogs are the desktop's: on a phone a pick goes through
-//! the system's document picker, which arrives with the phone layout.
+//! the system's document picker, which arrives with the phone layout. A drag
+//! in from the OS is a desktop thing for the same reason: winit only reports
+//! `DroppedFile` on macOS, Windows and X11 - not Wayland, which has no such
+//! event as of this winit, and not iOS, which has no such gesture.
 
 use std::path::PathBuf;
 
 use slint::PlatformError;
+use slint::winit_030::winit::event::WindowEvent;
+use slint::winit_030::winit::event_loop::ActiveEventLoop;
+use slint::winit_030::winit::window::{Window as WinitWindow, WindowId};
+use slint::winit_030::{CustomApplicationHandler, EventResult};
 
 use crate::gpu::Gpu;
+
+/// Collects the paths of a single OS drag as `DroppedFile` events deliver
+/// them one at a time, then hands the whole batch to `on_dropped` once
+/// winit says this pass over the event queue is done - the same shape a
+/// picked-files dialog hands the caller, so the caller need not know drag
+/// and drop split it up.
+struct DropHandler {
+    pending: Vec<PathBuf>,
+    on_dropped: Box<dyn Fn(Vec<PathBuf>)>,
+}
+
+impl DropHandler {
+    fn new(on_dropped: impl Fn(Vec<PathBuf>) + 'static) -> Self {
+        Self {
+            pending: Vec::new(),
+            on_dropped: Box::new(on_dropped),
+        }
+    }
+}
+
+impl CustomApplicationHandler for DropHandler {
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        _winit_window: Option<&WinitWindow>,
+        _slint_window: Option<&slint::Window>,
+        event: &WindowEvent,
+    ) -> EventResult {
+        if let WindowEvent::DroppedFile(path) = event {
+            self.pending.push(path.clone());
+        }
+        EventResult::Propagate
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) -> EventResult {
+        if !self.pending.is_empty() {
+            (self.on_dropped)(std::mem::take(&mut self.pending));
+        }
+        EventResult::Propagate
+    }
+}
 
 /// Whether the window draws the macOS traffic lights over its own strip.
 pub const MACOS: bool = cfg!(target_os = "macos");
 
 /// Chooses and installs the backend, and hands back the device the
 /// renderer and the engine's compositor share, when there is one.
+///
+/// `on_files_dropped` fires on the event-loop thread with the paths of a
+/// file (or several) dragged in from outside the window - Finder, Explorer,
+/// a file manager - batched into one call per drag. It is taken here,
+/// before the window exists, because the backend - and the hook into its
+/// event loop that OS drops arrive through - has to be selected before
+/// anything is built on top of it; see [`DropHandler`].
 #[cfg(not(target_os = "android"))]
-pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
+pub fn select_backend(
+    on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
+) -> Result<Option<Gpu>, PlatformError> {
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
     let gpu = Gpu::acquire();
@@ -34,7 +93,9 @@ pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
         log::warn!("no GPU adapter; the monitor composites on the CPU");
     }
 
-    let mut selector = slint::BackendSelector::new().backend_name("winit".into());
+    let mut selector = slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .with_winit_custom_application_handler(DropHandler::new(on_files_dropped));
     selector = match &gpu {
         Some(gpu) => selector.require_wgpu_29(gpu.configuration()),
         None => {
@@ -135,9 +196,15 @@ pub fn is_maximized(window: &slint::Window) -> bool {
 
 /// On Android the activity installed the backend before calling in, and
 /// that backend draws on a device of its own; the monitor composites on the
-/// CPU and hands the renderer finished pixels.
+/// CPU and hands the renderer finished pixels. Android has no OS drag to
+/// wire up - a file arrives through the document picker instead - so
+/// `on_files_dropped` is taken only to keep the signature the same as the
+/// desktop's and is never called.
 #[cfg(target_os = "android")]
-pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
+pub fn select_backend(
+    on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
+) -> Result<Option<Gpu>, PlatformError> {
+    let _ = on_files_dropped;
     Ok(None)
 }
 
