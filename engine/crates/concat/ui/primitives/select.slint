@@ -32,6 +32,11 @@ export component Select inherits Rectangle {
     in property <bool> enabled: true;
     /// drop the field background, for a select used as panel chrome
     in property <bool> flat;
+    /// Size `natural-width` to the current option rather than the widest.
+    /// For a control at the edge of a crowded tray, where the room a long
+    /// option would reserve is room the tray does not have; the trigger
+    /// then changes width as the choice does, which is the trade.
+    in property <bool> snug;
 
     callback changed(index: int);
 
@@ -63,7 +68,8 @@ export component Select inherits Rectangle {
     out property <length> natural-width: 8px + 6px + 12px + 6px
         + (root.marked
             ? root.mark-size
-            : measure.preferred-width + (root.glyph != Glyph.none ? 12px + 6px : 0px));
+            : (root.snug ? shown.preferred-width : measure.preferred-width)
+                + (root.glyph != Glyph.none ? 12px + 6px : 0px));
 
     height: Theme.h;
     min-width: 60px;
@@ -170,6 +176,11 @@ export component Select inherits Rectangle {
 
         for option in root.options: Text {
             text: option;
+            font-size: Theme.fs;
+        }
+        // The current option alone, for a `snug` trigger.
+        shown := Text {
+            text: root.label;
             font-size: Theme.fs;
         }
     }

@@ -68,9 +68,10 @@ component RatioGlyph inherits Rectangle {
 // against the trailing edge rather than joined on with a dash, so the column
 // of ratios stays scannable and the sizes line up as a column of their own.
 //
-// The trigger carries only the ratio and its glyph. The full size is what you
-// open the list to compare; repeating it on a closed control spends the width
-// of the whole tray on something already stated in the panel's header.
+// The trigger carries only the glyph. The ratio's name and its full size are
+// what you open the list to compare; either on a closed control spends the
+// width of the tray on something the shape already says, and the size is
+// stated in the panel's header besides.
 component RatioPicker inherits Rectangle {
     in property <[int]> widths;
     in property <[int]> heights;
@@ -85,7 +86,7 @@ component RatioPicker inherits Rectangle {
     property <int> active;
     property <length> row-h: 26px;
 
-    width: 92px;
+    width: 8px + 14px + 6px + 12px + 6px;
     height: Theme.h;
     border-radius: Theme.r;
     background: (root.open || trigger.has-hover) ? Theme.field-hover : Theme.field;
@@ -110,18 +111,8 @@ component RatioPicker inherits Rectangle {
             RatioGlyph {
                 ratio-w: root.widths[root.current];
                 ratio-h: root.heights[root.current];
-                tint: Theme.fg-muted;
+                tint: Theme.fg;
             }
-        }
-
-        Text {
-            horizontal-stretch: 1;
-            text: root.names[root.current];
-            color: Theme.fg;
-            font-family: Theme.font-technical;
-            font-size: Theme.fs;
-            vertical-alignment: center;
-            overflow: elide;
         }
 
         VerticalLayout {
@@ -1057,7 +1048,8 @@ export component PreviewPane inherits Rectangle {
                     VerticalLayout {
                         alignment: center;
                         Select {
-                            width: 104px;
+                            snug: true;
+                            width: self.natural-width;
                             current: root.quality-index;
                             options: [I18n.t("Full"), I18n.t("Half"), I18n.t("Quarter")];
                             details: ["1:1", "1:2", "1:4"];
@@ -1065,34 +1057,16 @@ export component PreviewPane inherits Rectangle {
                         }
                     }
 
-                    // How close we are looking. The steps are the view's,
-                    // and the trigger reads the live zoom between them, so
-                    // a wheel-zoomed view says "137%" rather than nothing.
+                    // The one control the view needs: the way back. The
+                    // zoom itself is the wheel's, and a readout of it was
+                    // width spent on a number nobody steers by.
                     VerticalLayout {
                         alignment: center;
-                        Select {
-                            width: 76px;
-                            options: [I18n.t("Fit"), "25%", "50%", "100%", "200%", "400%"];
-                            current: viewport.fitted ? 0
-                                : viewport.zoom == 0.25 ? 1
-                                : viewport.zoom == 0.5 ? 2
-                                : viewport.zoom == 1 ? 3
-                                : viewport.zoom == 2 ? 4
-                                : viewport.zoom == 4 ? 5
-                                : -1;
-                            // Off `zoom`, not `scale`: the fitted scale is
-                            // a function of the pane's layout, and this
-                            // text is part of that layout - a loop the
-                            // compiler refuses. Fitted, the row says Fit.
-                            placeholder: "\{Math.round(viewport.zoom * 100)}%";
-                            changed(index) => {
-                                if (index == 0) {
-                                    viewport.fit();
-                                } else {
-                                    viewport.zoom-to(index == 1 ? 0.25 : index == 2 ? 0.5
-                                        : index == 3 ? 1 : index == 4 ? 2 : 4);
-                                }
-                            }
+                        IconButton {
+                            glyph: Glyph.fit;
+                            label: I18n.t("Fit the frame to the pane");
+                            enabled: !viewport.fitted;
+                            clicked => { viewport.fit(); }
                         }
                     }
                 }
