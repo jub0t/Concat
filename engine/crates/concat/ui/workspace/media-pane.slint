@@ -70,6 +70,9 @@ export struct MediaItemData {
 
 component LibraryTab inherits Rectangle {
     in property <string> label;
+    /// The page's mark, drawn over the label: a chip has the height for two
+    /// lines and only ever needed one, so the second is where the mark goes.
+    in property <Glyph> glyph;
     in property <bool> current;
 
     callback clicked();
@@ -88,19 +91,41 @@ component LibraryTab inherits Rectangle {
 
     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
-    HorizontalLayout {
+    // The mark and the label share one tint, so a chip lights up as one thing
+    // under the pointer and not as a glyph that answers and a word that
+    // follows.
+    property <brush> tint: (root.current || touch.has-hover) ? Theme.fg : Theme.fg-muted;
+
+    animate tint { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    // Two lines in the 32px a chip gets inside the strip: 13px of mark, 2px of
+    // air, then the label at fs-sm. The strip stays at 44px so the three pane
+    // headers keep one edge across the window (see PaneHeader), which is why
+    // the numbers are this tight and not looser.
+    VerticalLayout {
+        padding-top: 2px;
+        padding-bottom: 2px;
         padding-left: 6px;
         padding-right: 6px;
+        spacing: 2px;
+        alignment: center;
+
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 13px;
+                tint: root.tint;
+            }
+        }
 
         Text {
             text: root.label;
-            color: (root.current || touch.has-hover) ? Theme.fg : Theme.fg-muted;
+            color: root.tint;
             font-size: Theme.fs-sm;
             horizontal-alignment: center;
             vertical-alignment: center;
             overflow: elide;
-
-            animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
         }
     }
 
@@ -1445,7 +1470,14 @@ export component MediaPane inherits Rectangle {
             }
 
             HorizontalLayout {
-                padding: 8px;
+                // 4px above and below, not the 8px at the sides: the chips
+                // carry a mark over their label now, and those two lines need
+                // the room within the 44px the strip shares with the other
+                // panes' headers.
+                padding-top: 4px;
+                padding-bottom: 4px;
+                padding-left: 8px;
+                padding-right: 8px;
                 spacing: 8px;
 
                 // A sunken track and nothing else. No border: this sits
@@ -1463,31 +1495,37 @@ export component MediaPane inherits Rectangle {
                         spacing: 2px;
 
                         LibraryTab {
+                            glyph: Glyph.film;
                             label: I18n.t("Media");
                             current: root.tab == 0;
                             clicked => { root.tab = 0; }
                         }
                         LibraryTab {
+                            glyph: Glyph.text-mark;
                             label: I18n.t("Text");
                             current: root.tab == 1;
                             clicked => { root.tab = 1; }
                         }
                         LibraryTab {
+                            glyph: Glyph.transition;
                             label: I18n.t("Transitions");
                             current: root.tab == 2;
                             clicked => { root.tab = 2; }
                         }
                         LibraryTab {
+                            glyph: Glyph.sparkle;
                             label: I18n.t("Effects");
                             current: root.tab == 3;
                             clicked => { root.tab = 3; }
                         }
                         LibraryTab {
+                            glyph: Glyph.filter;
                             label: I18n.t("Filters");
                             current: root.tab == 4;
                             clicked => { root.tab = 4; }
                         }
                         LibraryTab {
+                            glyph: Glyph.slot;
                             label: I18n.t("Templates");
                             current: root.tab == 5;
                             clicked => { root.tab = 5; }
