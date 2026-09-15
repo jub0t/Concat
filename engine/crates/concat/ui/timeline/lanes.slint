@@ -210,11 +210,20 @@ component Clip inherits Rectangle {
         }
 
         // The filmstrip. Tiles are the strip's frames at the body's height,
-        // and each tile shows the frame under its own midpoint: the clip
-        // covers `span` of the footage from `start`, so a tile a fraction f
-        // along the clip wants the frame at start + span * f. Every tile is
-        // one Image with a source clip, so a zoom changes how many tiles
-        // there are and which frame each picks, never the picture itself.
+        // and each tile shows the frame under the midpoint of as much of it
+        // as is in the clip: the clip covers `span` of the footage from
+        // `start`, so a tile a fraction f along the clip wants the frame at
+        // start + span * f. Every tile is one Image with a source clip, so
+        // a zoom changes how many tiles there are and which frame each
+        // picks, never the picture itself.
+        //
+        // The midpoint of the *visible* part, not of the tile. The last
+        // tile runs past the clip's edge, and a clip narrower than one tile
+        // is all last tile: measured to the tile's own middle, a
+        // two-second clip in a 210px tile asked for the frame at 1.09 of
+        // its length, which clamped to the strip's final slice, and every
+        // clip at that zoom showed the same last frame - or nothing. What
+        // you see is the frame under the middle of what you see.
         //
         // Drawn at any width. A clip narrower than a tile shows the left
         // of one frame, cut where the clip ends - a sliver of the picture
@@ -230,6 +239,13 @@ component Clip inherits Rectangle {
                 parent.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
             property <int> tiles: Math.min(400, Math.ceil(parent.width / self.tile-w));
 
+            /// The fraction of the clip under the middle of tile `i`'s
+            /// visible part.
+            pure function at(i: int) -> float {
+                return (i * self.tile-w + Math.min(self.width, (i + 1) * self.tile-w))
+                    / 2 / Math.max(1px, self.width);
+            }
+
             for i in self.tiles: Image {
                 x: i * parent.tile-w;
                 y: 0;
@@ -238,8 +254,8 @@ component Clip inherits Rectangle {
                 source: root.item.strip.image;
                 image-fit: fill;
                 source-clip-x: Math.clamp(
-                    Math.floor(root.item.strip.frames * (root.item.strip.start
-                        + root.item.strip.span * ((i + 0.5) * parent.tile-w / parent.width))),
+                    Math.floor(root.item.strip.frames
+                        * (root.item.strip.start + root.item.strip.span * parent.at(i))),
                     0, root.item.strip.frames - 1) * root.item.strip.frame-width;
                 source-clip-y: 0;
                 source-clip-width: root.item.strip.frame-width;
