@@ -25,6 +25,15 @@ import { ClipKind, StageGuideData, StageItemData } from "../timeline/model.slint
 // The stage is black. A decoded frame is drawn fitted into it when there is
 // one; otherwise it says that nothing is under the playhead, which is a state
 // a real monitor spends plenty of its time in.
+//
+// The stage sits on a canvas, not in a frame. Fitted by default, and it
+// follows the pane while it is; but a wheel pans it, a ctrl or cmd wheel
+// zooms it about the pointer, a ctrl drag or a middle drag anywhere moves
+// it - as does a plain drag on the well, where there is nothing to select -
+// and from then on it stays where it was put until it is fitted again: the
+// picker in the tray, or a double-click on the well. A pane squeezed into
+// an odd shape by the splitters is then still a pane you can look closely
+// into, rather than one showing a postage stamp of the frame.
 
 /// An outline in the shape of the thing it selects. Beats any label at saying
 /// "tall" or "wide" at a glance, and it is drawn at ratio rather than to a
@@ -498,6 +507,14 @@ component StageOverlay inherits Rectangle {
     callback grip-pressed(id: string, grip: int, x: float, y: float);
     callback dragged(x: float, y: float, snap: bool);
     callback released();
+    /// A ctrl drag or a middle drag over the stage moves the view, not a
+    /// picture. The points are in the parent's frame - `x` plus `mouse-x` -
+    /// because this overlay is what the drag moves, and a delta measured
+    /// against a moving origin comes back as zero on every event after the
+    /// first.
+    callback pan-pressed(x: length, y: length);
+    callback pan-dragged(x: length, y: length);
+    callback pan-released();
 
     background: transparent;
 
@@ -505,22 +522,34 @@ component StageOverlay inherits Rectangle {
     // it against the pictures, rotation and stacking included.
     floor := TouchArea {
         property <bool> live;
+        property <bool> panning;
         property <bool> snap;
-        mouse-cursor: root.painting ? MouseCursor.crosshair : MouseCursor.default;
+        mouse-cursor: self.panning ? MouseCursor.grabbing
+            : root.painting ? MouseCursor.crosshair : MouseCursor.default;
 
         pointer-event(event) => {
             self.snap = event.modifiers.shift;
             if (event.kind == PointerEventKind.down
+                && (event.button == PointerEventButton.middle
+                    || (event.button == PointerEventButton.left
+                        && event.modifiers.control))) {
+                self.panning = true;
+                root.pan-pressed(root.x + self.mouse-x, root.y + self.mouse-y);
+            } else if (event.kind == PointerEventKind.down
                 && event.button == PointerEventButton.left) {
                 self.live = true;
+                // Shift or cmd adds to the selection; ctrl is the view's.
                 root.pressed(self.mouse-x / root.width, self.mouse-y / root.height,
-                    event.modifiers.shift || event.modifiers.control
-                        || event.modifiers.meta);
+                    event.modifiers.shift || event.modifiers.meta);
             } else if (event.kind == PointerEventKind.up
                 || event.kind == PointerEventKind.cancel) {
                 if (self.live) {
                     self.live = false;
                     root.released();
+                }
+                if (self.panning) {
+                    self.panning = false;
+                    root.pan-released();
                 }
             }
         }
@@ -528,6 +557,9 @@ component StageOverlay inherits Rectangle {
             if (self.live) {
                 root.dragged(self.mouse-x / root.width, self.mouse-y / root.height,
                     self.snap);
+            }
+            if (self.panning) {
+                root.pan-dragged(root.x + self.mouse-x, root.y + self.mouse-y);
             }
         }
     }
@@ -696,18 +728,144 @@ export component PreviewPane inherits Rectangle {
             property <length> pad: 16px;
             property <length> room-w: Math.max(1px, self.width - 2 * self.pad);
             property <length> room-h: Math.max(1px, self.height - 2 * self.pad);
-            /// Always fitted, on whichever axis runs out first. The picker in
-            /// the tray sets how much of the frame the engine composites, not
-            /// how large it is drawn — the monitor shows the whole frame
-            /// either way, which is the point of a monitor.
-            property <length> stage-w: Math.min(self.room-w / root.output-width,
-                self.room-h / root.output-height) * root.output-width;
+
+            // ── the view ──
+            //
+            // Stage pixels per output pixel. Fitted, it is whatever the pane
+            // allows on the axis that runs out first, and it follows the
+            // pane; once a gesture has taken the view over, it is `zoom`
+            // and the pane's shape no longer touches it. The quality picker
+            // in the tray sets how much of the frame the engine composites,
+            // never how large it is drawn.
+            property <float> fit-scale: Math.min(
+                self.room-w / Math.max(1, root.output-width),
+                self.room-h / Math.max(1, root.output-height)) / 1px;
+            property <bool> fitted: true;
+            property <float> zoom: 1;
+            property <float> scale: self.fitted ? self.fit-scale : self.zoom;
+            /// A 4K frame under an inch, or eight device pixels to one of
+            /// the picture's: past either end there is nothing left to see.
+            property <float> min-zoom: 0.02;
+            property <float> max-zoom: 8;
+            property <length> stage-w: root.output-width * self.scale * 1px;
+            property <length> stage-h: root.output-height * self.scale * 1px;
+
+            // Where the stage's centre sits, from the viewport's. Held raw
+            // and clamped on read, so that however the pane is squeezed
+            // after the view was put somewhere, at least a corner's worth
+            // of stage stays in it to grab.
+            property <length> pan-x;
+            property <length> pan-y;
+            property <length> keep: 48px;
+            property <length> reach-x: Math.max(0px, (self.width + self.stage-w) / 2 - self.keep);
+            property <length> reach-y: Math.max(0px, (self.height + self.stage-h) / 2 - self.keep);
+            property <length> shown-x: Math.max(-self.reach-x, Math.min(self.reach-x, self.pan-x));
+            property <length> shown-y: Math.max(-self.reach-y, Math.min(self.reach-y, self.pan-y));
+
+            /// Scratch for `zoom-about`: Slint functions have no locals.
+            property <float> next;
+            /// The pan when a drag began, and where it began.
+            property <length> grab-x;
+            property <length> grab-y;
+            property <length> from-x;
+            property <length> from-y;
+
+            /// The view leaves fit mode the moment a gesture takes it, from
+            /// exactly where fit had it - nothing jumps.
+            function unfit() {
+                if (self.fitted) {
+                    self.zoom = self.fit-scale;
+                    self.pan-x = self.shown-x;
+                    self.pan-y = self.shown-y;
+                    self.fitted = false;
+                }
+            }
+            public function fit() {
+                self.fitted = true;
+                self.pan-x = 0;
+                self.pan-y = 0;
+            }
+            /// Scales the view by `factor`, keeping the output point under
+            /// the viewport point (`px`, `py`) where it is.
+            public function zoom-about(factor: float, px: length, py: length) {
+                self.unfit();
+                self.next = Math.max(self.min-zoom, Math.min(self.max-zoom, self.zoom * factor));
+                self.pan-x = px - self.width / 2
+                    - (px - self.width / 2 - self.shown-x) * (self.next / self.zoom);
+                self.pan-y = py - self.height / 2
+                    - (py - self.height / 2 - self.shown-y) * (self.next / self.zoom);
+                self.zoom = self.next;
+            }
+            /// To an exact scale, about the viewport's centre.
+            public function zoom-to(scale: float) {
+                self.zoom-about(scale / self.scale, self.width / 2, self.height / 2);
+            }
+            public function pan-by(dx: length, dy: length) {
+                self.unfit();
+                self.pan-x = self.shown-x + dx;
+                self.pan-y = self.shown-y + dy;
+            }
+            public function grab(x: length, y: length) {
+                self.unfit();
+                self.grab-x = self.shown-x;
+                self.grab-y = self.shown-y;
+                self.from-x = x;
+                self.from-y = y;
+            }
+            public function drag-to(x: length, y: length) {
+                self.pan-x = self.grab-x + (x - self.from-x);
+                self.pan-y = self.grab-y + (y - self.from-y);
+            }
+
+            // Ancestor of the stage and its overlay, so a wheel they do not
+            // handle reaches it, and a press on the well - the one place
+            // the overlay does not cover - is a drag of the view.
+            view := TouchArea {
+                property <bool> panning;
+                mouse-cursor: self.panning ? MouseCursor.grabbing : MouseCursor.default;
+
+                scroll-event(event) => {
+                    if (event.modifiers.control || event.modifiers.meta) {
+                        // The same gesture the lanes take, at the same
+                        // rate: proportional to the distance, clamped so
+                        // one enormous delta cannot jump octaves. Up is in.
+                        viewport.zoom-about(
+                            Math.max(0.5, Math.min(2.0, Math.pow(1.0025, event.delta-y / 1px))),
+                            self.mouse-x, self.mouse-y);
+                        return EventResult.accept;
+                    }
+                    // Both axes pan. A wheel with no horizontal axis of its
+                    // own pans sideways with shift, as it does everywhere.
+                    if (event.modifiers.shift && event.delta-x == 0px) {
+                        viewport.pan-by(event.delta-y, 0px);
+                    } else {
+                        viewport.pan-by(event.delta-x, event.delta-y);
+                    }
+                    return EventResult.accept;
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down
+                        && (event.button == PointerEventButton.left
+                            || event.button == PointerEventButton.middle)) {
+                        self.panning = true;
+                        viewport.grab(self.mouse-x, self.mouse-y);
+                    } else if (event.kind == PointerEventKind.up
+                        || event.kind == PointerEventKind.cancel) {
+                        self.panning = false;
+                    }
+                }
+                moved => {
+                    if (self.panning) {
+                        viewport.drag-to(self.mouse-x, self.mouse-y);
+                    }
+                }
+                double-clicked => { viewport.fit(); }
 
             stage := Rectangle {
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
+                x: (parent.width - self.width) / 2 + viewport.shown-x;
+                y: (parent.height - self.height) / 2 + viewport.shown-y;
                 width: viewport.stage-w;
-                height: self.width / root.aspect;
+                height: viewport.stage-h;
                 background: Theme.stage;
                 // A 1px ring lifts the stage off the well. Slint has no
                 // box-shadow, so the ring does the work alone — which is why
@@ -771,6 +929,10 @@ export component PreviewPane inherits Rectangle {
                 grip-pressed(id, grip, x, y) => { root.stage-grip-pressed(id, grip, x, y); }
                 dragged(x, y, snap) => { root.stage-dragged(x, y, snap); }
                 released => { root.stage-released(); }
+                pan-pressed(x, y) => { viewport.grab(x, y); }
+                pan-dragged(x, y) => { viewport.drag-to(x, y); }
+                pan-released => { }
+            }
             }
         }
 
@@ -900,6 +1062,37 @@ export component PreviewPane inherits Rectangle {
                             options: [I18n.t("Full"), I18n.t("Half"), I18n.t("Quarter")];
                             details: ["1:1", "1:2", "1:4"];
                             changed(index) => { root.quality-changed(index); }
+                        }
+                    }
+
+                    // How close we are looking. The steps are the view's,
+                    // and the trigger reads the live zoom between them, so
+                    // a wheel-zoomed view says "137%" rather than nothing.
+                    VerticalLayout {
+                        alignment: center;
+                        Select {
+                            width: 76px;
+                            options: [I18n.t("Fit"), "25%", "50%", "100%", "200%", "400%"];
+                            current: viewport.fitted ? 0
+                                : viewport.zoom == 0.25 ? 1
+                                : viewport.zoom == 0.5 ? 2
+                                : viewport.zoom == 1 ? 3
+                                : viewport.zoom == 2 ? 4
+                                : viewport.zoom == 4 ? 5
+                                : -1;
+                            // Off `zoom`, not `scale`: the fitted scale is
+                            // a function of the pane's layout, and this
+                            // text is part of that layout - a loop the
+                            // compiler refuses. Fitted, the row says Fit.
+                            placeholder: "\{Math.round(viewport.zoom * 100)}%";
+                            changed(index) => {
+                                if (index == 0) {
+                                    viewport.fit();
+                                } else {
+                                    viewport.zoom-to(index == 1 ? 0.25 : index == 2 ? 0.5
+                                        : index == 3 ? 1 : index == 4 ? 2 : 4);
+                                }
+                            }
                         }
                     }
                 }
