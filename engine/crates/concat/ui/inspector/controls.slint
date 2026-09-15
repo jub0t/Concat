@@ -401,7 +401,12 @@ export component Param inherits VerticalLayout {
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
-            precision: InspectorFmt.precision-of(root.step * root.unit-scale);
+            // The field rounds what it *holds* to this, and it holds the
+            // model's number - a fraction, for a row worn as a percent. The
+            // display's precision is the format's business below; handing
+            // it here rounded a scale of 1.01 to 1, and a drag on Width
+            // went nowhere until it could go to 200%.
+            precision: InspectorFmt.precision-of(root.step);
             enabled: root.enabled;
             unit: root.unit;
             // Shown scaled, typed scaled, held as is.
@@ -448,7 +453,8 @@ export component Param inherits VerticalLayout {
             minimum: root.minimum;
             maximum: root.maximum;
             step: root.step;
-            precision: InspectorFmt.precision-of(root.step * root.unit-scale);
+            // The model's precision, as above.
+            precision: InspectorFmt.precision-of(root.step);
             enabled: root.enabled;
             unit: root.unit;
             format(v) => {
