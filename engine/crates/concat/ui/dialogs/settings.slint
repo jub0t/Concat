@@ -226,6 +226,7 @@ component ModelRow inherits Rectangle {
                     color: Theme.fg-muted;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
+                    vertical-alignment: center;
                 }
 
                 Text {
@@ -233,6 +234,7 @@ component ModelRow inherits Rectangle {
                     color: Theme.fg-muted;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
+                    vertical-alignment: center;
                 }
             }
         }
@@ -311,6 +313,9 @@ component FactRow inherits HorizontalLayout {
         font-family: Theme.font-technical;
         font-size: Theme.fs;
         horizontal-alignment: right;
+        // The label beside this one is centred and the row is taller than a
+        // line; without this the value rides at the top of it.
+        vertical-alignment: center;
         read-only: true;
         single-line: false;
         wrap: word-wrap;

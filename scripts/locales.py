@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The interface's string inventory, and the check that every locale keeps up.
 
-    scripts/locales.py            # rewrite locales/en.json from the source
+    scripts/locales.py            # rewrite locales/en.json from the source,
+                                  # and drop lines no source asks for
     scripts/locales.py --check    # report what each locale lacks; exit 1 on
                                   # a key no source asks for
 
@@ -80,6 +81,32 @@ def write_inventory(inventory: set[str]) -> None:
     )
 
 
+def prune(inventory: set[str]) -> int:
+    """Drops lines for strings the interface no longer has.
+
+    A stale line fails --check, and the only thing to do about one is delete
+    it: the string it translates is gone from the source, so the translation
+    has nothing left to be of. Done here rather than by hand across twelve
+    files, and only on a plain run - --check reports, it never edits.
+    """
+    dropped = 0
+    for path in sorted(LOCALES.glob("*.json")):
+        if path.name == "en.json":
+            continue
+        data = read(path)
+        stale = [k for k in data if k != "_" and k not in inventory]
+        if not stale:
+            continue
+        for key in stale:
+            del data[key]
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"{path.stem:8s} dropped {len(stale)}: {', '.join(repr(k) for k in stale)}")
+        dropped += len(stale)
+    return dropped
+
+
 def check(inventory: set[str]) -> int:
     failed = 0
     for path in sorted(LOCALES.glob("*.json")):
@@ -115,6 +142,7 @@ def main() -> int:
         return check(inventory)
     write_inventory(inventory)
     print(f"{len(inventory)} strings in {LOCALES / 'en.json'}")
+    prune(inventory)
     return check(inventory) and 0
 
 

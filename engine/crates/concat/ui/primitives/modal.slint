@@ -344,8 +344,12 @@ export component DialogSection inherits VerticalLayout {
         background: Theme.line;
     }
 
+    // The header band. Tight to the title, because the gap under it is the
+    // header's leftover height plus the body's top padding, and the two
+    // together were reading as a break between groups rather than as a title
+    // sitting on the thing it names.
     Rectangle {
-        height: 36px;
+        height: 30px;
         background: !root.collapsible ? Colors.transparent
             : head.has-hover ? Theme.field
             : Theme.raised;
@@ -423,13 +427,17 @@ export component DialogSection inherits VerticalLayout {
         height: root.open ? body.preferred-height : 0px;
         clip: true;
 
-        // An equal 14px inset on every side, matching the sheet's own gutter.
+        // A 14px inset on three sides, matching the sheet's own gutter, and
+        // a short one on top: the title above is already a header's worth of
+        // space away, and a full gutter under it as well left every group
+        // looking detached from its own heading.
         body := VerticalLayout {
             x: 0;
             y: 0;
             width: parent.width;
             height: self.preferred-height;
             padding: 14px;
+            padding-top: 4px;
             spacing: 6px;
             @children
         }

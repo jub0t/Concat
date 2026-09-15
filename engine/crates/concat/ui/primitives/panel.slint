@@ -278,7 +278,16 @@ export component IconButton inherits Rectangle {
             tint: root.tint;
         }
 
+        // Given the chip's whole box, because an alignment is only ever
+        // relative to the box the text has. A Text takes its own implicit
+        // size inside a Rectangle - a Rectangle is not a layout, and nothing
+        // stretches it - so without these four it is a text-sized box at the
+        // top left corner, and centring it inside itself moves nothing.
         if root.text != "": Text {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
             text: root.text;
             color: root.tint;
             font-size: Theme.fs;

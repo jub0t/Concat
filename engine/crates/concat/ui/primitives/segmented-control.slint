@@ -78,7 +78,14 @@ export component SegmentedControl inherits Rectangle {
         width: root.seg-w;
         height: root.height - 2 * root.inset;
 
+        // The segment's whole box, so the label can centre in it; see the
+        // note on IconButton's text in panel.slint for why a Text needs to
+        // be handed one.
         Text {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
             text: option;
             color: (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
             font-size: Theme.fs;

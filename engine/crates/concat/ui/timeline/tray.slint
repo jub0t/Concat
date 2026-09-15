@@ -3,9 +3,8 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { Glyph, Icon } from "../icons.slint";
+import { Glyph } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
-import { Tip } from "../primitives/tooltip.slint";
 import { TimelineTool } from "model.slint";
 
 // The timeline's tool tray.
@@ -17,84 +16,20 @@ import { TimelineTool } from "model.slint";
 // tall, 4px between buttons, an 18px hairline with 4px of air on each side
 // between groups. Tight, without crowding a 26px button.
 //
-// The sound and word tools carry their names on the bar. They used to hang
-// off one menu button, and a menu is where a tool goes to not be found:
-// nobody looking for captions opens a waveform icon. Captions and Speak
-// open their sheets whatever is selected - each has a source of its own
-// to fall back on - and the tip says what the sheet will start on. Detach
-// is greyed rather than absent when the selection cannot use it, because
-// a greyed button with a tip answers "why not" and an absent one only
-// asks it.
+// The sound and word tools sit on the bar rather than behind a menu,
+// because a menu is where a tool goes to not be found. They are marks like
+// every other button here, and what names them is the tip: a sentence
+// saying what the press will do, which reads better on hover than a word
+// beside the mark reads at rest. Captions and Speak open whatever is
+// selected - each has a source of its own to fall back on - and the tip
+// says which. Detach is greyed rather than absent when the selection
+// cannot use it, because a greyed button with a tip answers "why not" and
+// an absent one only asks it.
 //
 // A disabled Merge carries the reason it is blocked, because a button that
 // greys out without saying why leaves you guessing at the rule:
 // `merge-blocked-because` is accepted and becomes the button's label, which
 // is its accessible name and where a tooltip reads from.
-
-// A tool with its name beside its mark: the same chip an IconButton is,
-// wide enough for a word.
-component TrayTool inherits Rectangle {
-    in property <Glyph> glyph;
-    in property <string> caption;
-    /// what the tip says; the reason, when the tool is greyed
-    in property <string> label;
-    in property <bool> enabled: true;
-
-    callback clicked();
-
-    property <bool> lit: touch.has-hover && root.enabled;
-    property <brush> tint: root.lit ? Theme.fg : Theme.fg-muted;
-
-    width: text.preferred-width + 35px;
-    min-height: 26px;
-
-    chip := Rectangle {
-        y: (root.height - self.height) / 2;
-        width: root.width;
-        height: 26px;
-        border-radius: Theme.r-sm;
-        opacity: root.enabled ? 1.0 : 0.4;
-        background: !root.enabled ? Colors.transparent
-            : touch.pressed ? Theme.field-active
-            : touch.has-hover ? Theme.field
-            : Colors.transparent;
-
-        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-        HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 9px;
-            spacing: 5px;
-
-            VerticalLayout {
-                alignment: center;
-                Icon {
-                    glyph: root.glyph;
-                    size: 14px;
-                    tint: root.tint;
-                }
-            }
-
-            text := Text {
-                text: root.caption;
-                color: root.tint;
-                font-size: Theme.fs-sm;
-                vertical-alignment: center;
-            }
-        }
-
-        touch := TouchArea {
-            enabled: root.enabled;
-            mouse-cursor: pointer;
-            clicked => { root.clicked(); }
-        }
-
-        Tip {
-            text: root.label;
-            active: touch.has-hover;
-        }
-    }
-}
 
 component Divider inherits Rectangle {
     width: 9px;
@@ -231,33 +166,33 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        TrayTool {
+        IconButton {
             glyph: Glyph.text-mark;
-            caption: I18n.t("Captions");
             label: root.sound-selected ? I18n.t("Auto captions from this clip's sound")
                 : I18n.t("Captions from a script, at the playhead");
+            icon-size: 16px;
             clicked => { root.captions(); }
         }
-        TrayTool {
+        IconButton {
             glyph: Glyph.volume;
-            caption: I18n.t("Speak");
             label: root.title-selected ? I18n.t("Read this title aloud")
                 : I18n.t("Read a script aloud at the playhead");
+            icon-size: 16px;
             clicked => { root.speak(); }
         }
         // One slot, two verbs: the sound is either on its picture or off it.
-        if !root.can-reattach: TrayTool {
+        if !root.can-reattach: IconButton {
             glyph: Glyph.waveform;
-            caption: I18n.t("Detach audio");
             label: root.can-detach ? I18n.t("Put this clip's sound on its own lane")
                 : I18n.t("Select one video clip to detach its sound");
+            icon-size: 16px;
             enabled: root.can-detach;
             clicked => { root.detach(); }
         }
-        if root.can-reattach: TrayTool {
+        if root.can-reattach: IconButton {
             glyph: Glyph.merge;
-            caption: I18n.t("Reattach");
             label: I18n.t("Put the detached sound back on its picture");
+            icon-size: 16px;
             clicked => { root.reattach(); }
         }
 

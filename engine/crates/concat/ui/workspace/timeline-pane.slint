@@ -101,17 +101,19 @@ export component TimelinePane inherits Rectangle {
     /// That row was used.
     callback pane-removed();
 
-    /// Wide enough for a lane name and its switches without eliding the name
-    /// at every default. This column carries four switches, and at 164px the
-    /// name was left with about six characters once the remove button
-    /// appeared on hover. Both numbers went up by one 26px slot when the
-    /// row-height menu joined the switches — the alternative was a name that
-    /// elided at the default width, which is the thing this width exists to
-    /// prevent.
-    in-out property <length> header-width: 234px;
-    /// Narrow enough to be useful as a squeeze, wide enough that the switches
-    /// never overlap the name.
-    in property <length> min-header: 158px;
+    /// Wide enough for what the column actually carries, and no wider: every
+    /// pixel here is a pixel the lanes do not get.
+    ///
+    /// A lane has no name — it is untyped, and its place in the stack is the
+    /// only handle anything needs on it — so the column is a strip of
+    /// switches. Five 26px slots at their widest (remove, row height, lock,
+    /// visibility, mute; remove only on hover), 1px between them and the
+    /// row's own 8px and 4px gutters come to 147px. The rest is the give
+    /// that keeps the switches off the scrollbar on the trailing edge.
+    in-out property <length> header-width: 156px;
+    /// The switches and their gutters, and nothing spare: below this the row
+    /// has nowhere left to take the squeeze from and the buttons overlap.
+    in property <length> min-header: 150px;
 
     /// Where the column was when the divider went down. A drag is one pointer,
     /// so one slot is enough.

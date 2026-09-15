@@ -155,6 +155,11 @@ component PlainInput inherits Rectangle {
         x: 0;
         y: (parent.height - self.height) / 2;
         width: parent.width;
+        // A TextInput fills its Rectangle parent by default, so without this
+        // the centring above subtracts the parent's own height from itself
+        // and resolves to zero, leaving the text against the top edge. Same
+        // fix, and the same reason, as Field in modal.slint.
+        height: self.preferred-height;
         text <=> root.draft;
         color: Theme.fg;
         font-family: root.face;
