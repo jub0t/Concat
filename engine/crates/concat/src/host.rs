@@ -17,10 +17,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use concat_host::export::Exporter;
+pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_host::playback::{Playback, PlaybackEvents};
 use concat_host::preview::Monitor;
 use concat_host::{AppDirs, media};
-pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_speech::{Speech, Transcriber};
 
 use crate::gpu::Gpu;
@@ -454,25 +454,28 @@ pub fn cached_window_art(
     let dir = art_cache_dir(project);
     let stem = art_cache_stem(id, path);
     let prefix = format!("{stem}.win.{level}.{cell}.");
-    std::fs::read_dir(&dir).ok()?.filter_map(Result::ok).find_map(|entry| {
-        let name = entry.file_name();
-        let name = name.to_str()?;
-        let rest = name.strip_prefix(&prefix)?.strip_suffix(".jpg")?;
-        let mut parts = rest.split('.');
-        let frames: u32 = parts.next()?.parse().ok()?;
-        let frame_width: u32 = parts.next()?.parse().ok()?;
-        let height: u32 = parts.next()?.parse().ok()?;
-        if parts.next().is_some() {
-            return None;
-        }
-        let image = image_at(&entry.path())?;
-        Some(CachedStrip {
-            image,
-            frames,
-            frame_width,
-            height,
+    std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .find_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            let rest = name.strip_prefix(&prefix)?.strip_suffix(".jpg")?;
+            let mut parts = rest.split('.');
+            let frames: u32 = parts.next()?.parse().ok()?;
+            let frame_width: u32 = parts.next()?.parse().ok()?;
+            let height: u32 = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None;
+            }
+            let image = image_at(&entry.path())?;
+            Some(CachedStrip {
+                image,
+                frames,
+                frame_width,
+                height,
+            })
         })
-    })
 }
 
 fn save_window_art_cache(

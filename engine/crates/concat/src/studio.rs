@@ -2334,7 +2334,9 @@ impl Studio {
                         studio.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
                     if let Some((frame, frames)) = art.strip {
-                        studio.strips.insert(art.id.clone(), Strip::of(&frame, frames));
+                        studio
+                            .strips
+                            .insert(art.id.clone(), Strip::of(&frame, frames));
                     }
                     if let Some(peaks) = art.peaks {
                         let prefix = format!("{key}|");

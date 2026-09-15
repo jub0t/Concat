@@ -484,7 +484,9 @@ fn read_through(
     }
     // Past the last frame - a duration the container overstated - the last
     // picture stands for what is left; the caller spreads it.
-    if index < count && let Some(frame) = last {
+    if index < count
+        && let Some(frame) = last
+    {
         tiles[index] = Some(frame);
     }
     Ok(())
@@ -570,8 +572,14 @@ mod window_tests {
                 let (level, cell) = strip_window(start, span, duration).expect("a cell");
                 let from = window_start(level, cell);
                 let to = from + window_span(level);
-                assert!(from <= start && start + span <= to + 1e-12, "{start} {span} at {level}/{cell}");
-                assert!(to <= 1.0 + 1e-12, "cell {level}/{cell} runs past the footage");
+                assert!(
+                    from <= start && start + span <= to + 1e-12,
+                    "{start} {span} at {level}/{cell}"
+                );
+                assert!(
+                    to <= 1.0 + 1e-12,
+                    "cell {level}/{cell} runs past the footage"
+                );
                 // and, short of the cap, the cut is at least a quarter of
                 // it: the cell is the finest whose half still holds the cut
                 let finest = duration.log2().floor() as u32;
@@ -596,7 +604,10 @@ mod window_tests {
         // 10s of footage: a cell no shorter than a second is level 3
         assert_eq!(strip_window(0.0, 1e-6, 10.0), Some((3, 0)));
         // and a day of footage stops at WINDOW_LEVELS
-        assert_eq!(strip_window(0.0, 1e-9, 86400.0).map(|(level, _)| level), Some(WINDOW_LEVELS));
+        assert_eq!(
+            strip_window(0.0, 1e-9, 86400.0).map(|(level, _)| level),
+            Some(WINDOW_LEVELS)
+        );
     }
 }
 
