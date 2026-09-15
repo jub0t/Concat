@@ -102,6 +102,7 @@
           gtk3
           libxkbcommon
           wayland
+          openssl
         ];
     in
     {
