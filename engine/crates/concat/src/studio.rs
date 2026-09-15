@@ -1741,8 +1741,10 @@ impl Studio {
     pub fn request_preview(&mut self) {
         /// A monitor frame on its way to the window.
         enum Picture {
-            /// Already on the GPU, on the window's own device.
-            Texture(concat_host::preview::wgpu::Texture),
+            /// Decoded and placed, waiting to be drawn on the window's own
+            /// device - which happens back on this thread, never on the
+            /// worker that decoded it. See `Monitor::texture_of`.
+            Sources(concat_export::PreviewSources),
             /// Raw RGBA, to be uploaded.
             Pixels(Vec<u8>, u32, u32),
         }
@@ -1890,8 +1892,8 @@ impl Studio {
                 // one it comes back as pixels and is uploaded here.
                 let frame = if monitor.has_gpu() {
                     monitor
-                        .frame_texture(std::sync::Arc::clone(&clips), &settings, spec)
-                        .map(Picture::Texture)
+                        .frame_sources(std::sync::Arc::clone(&clips), &settings, spec)
+                        .map(Picture::Sources)
                 } else {
                     monitor
                         .frame(std::sync::Arc::clone(&clips), &settings, spec)
@@ -1909,20 +1911,32 @@ impl Studio {
                 }
                 frame
             },
-            |studio, _, _, result| {
+            move |studio, _, _, result| {
                 studio.preview_busy = false;
-                match result {
-                    Ok(Picture::Texture(texture)) => match slint::Image::try_from(texture) {
-                        Ok(image) => studio.preview = image,
-                        Err(error) => eprintln!("concat: preview texture: {error}"),
-                    },
+                let picture = match result {
+                    // Drawn here and not on the worker: this is the event
+                    // loop, the one thread the window's renderer submits
+                    // from, and a second thread submitting beside it hangs
+                    // the GPU - see `Monitor::texture_of`.
+                    Ok(Picture::Sources(sources)) => studio
+                        .host
+                        .monitor
+                        .texture_of(&sources, spec)
+                        .and_then(|texture| {
+                            slint::Image::try_from(texture)
+                                .map_err(|error| format!("preview texture: {error}"))
+                        }),
                     Ok(Picture::Pixels(bytes, width, height)) => {
                         let buffer =
                             slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                                 &bytes, width, height,
                             );
-                        studio.preview = slint::Image::from_rgba8(buffer);
+                        Ok(slint::Image::from_rgba8(buffer))
                     }
+                    Err(error) => Err(error),
+                };
+                match picture {
+                    Ok(image) => studio.preview = image,
                     Err(error) => {
                         eprintln!("concat: preview: {error}");
                         if !studio.preview_failed {

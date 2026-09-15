@@ -4,15 +4,18 @@
 //! The paused monitor's true frame.
 //!
 //! One reader pool for the app's lifetime: its whole value is what stays
-//! warm between scrubs. The pool locks per reader, so a frame is composited
-//! on whatever thread the caller chose while another thread decodes ahead
-//! on a different file - the window debounces and drops stale results, so a
-//! slow decode never wedges anything but itself.
+//! warm between scrubs. The pool locks per reader, so a frame is decoded on
+//! whatever thread the caller chose while another thread decodes ahead on a
+//! different file - the window debounces and drops stale results, so a slow
+//! decode never wedges anything but itself.
 //!
 //! With the `gpu` feature and a device from [`Monitor::with_gpu`], a frame
-//! is composited on that device and handed back as a texture: decoded
-//! pictures go up once, the composite happens where it is shown, and no
-//! pixel comes back down.
+//! is drawn on that device and handed back as a texture: decoded pictures
+//! go up once, the composite happens where it is shown, and no pixel comes
+//! back down. A frame is therefore two calls and not one -
+//! [`Monitor::frame_sources`] anywhere, [`Monitor::texture_of`] on the
+//! thread that owns the device - because the drawing is not a thing a
+//! worker may do; see `texture_of`.
 
 use std::sync::{Arc, Mutex};
 
@@ -75,7 +78,7 @@ impl Monitor {
     }
 
     /// A monitor that composites on `device` - the window's - so
-    /// [`Monitor::frame_texture`] yields textures the window shows as they
+    /// [`Monitor::texture_of`] yields textures the window shows as they
     /// are.
     #[cfg(feature = "gpu")]
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
@@ -100,23 +103,52 @@ impl Monitor {
         }
     }
 
-    /// The engine-composited frame at one instant, as a texture on the
-    /// device this monitor was given: `Rgba8Unorm`, `spec.width` by
-    /// `spec.height`, bindable and renderable. Errs without a device, or
-    /// once the device is lost.
+    /// The pictures a monitor frame is made of, decoded and placed but not
+    /// yet drawn.
+    ///
+    /// The half of a frame that is safe on any thread: it reads files and
+    /// the reader pool and never touches the device. The other half is
+    /// [`Monitor::texture_of`], which is safe on exactly one - see there
+    /// for why the two are split at all.
     #[cfg(feature = "gpu")]
-    pub fn frame_texture(
+    pub fn frame_sources(
         &self,
         clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
+        spec: FrameSpec,
+    ) -> Result<concat_export::PreviewSources, String> {
+        let plan = self.plan_for(clips, settings, spec, true);
+        concat_export::preview_sources_of(&self.pool, &plan, spec.time)
+    }
+
+    /// Draws [`Monitor::frame_sources`] into a texture on the device this
+    /// monitor was given: `Rgba8Unorm`, `spec.width` by `spec.height`,
+    /// bindable and renderable. Errs without a device, or once the device
+    /// is lost.
+    ///
+    /// # Call this from the thread that owns the device, and nowhere else
+    ///
+    /// That device is the window's, and the window's renderer took the
+    /// native queue out of it and submits to that queue itself, from the
+    /// event loop, outside anything wgpu locks. A queue is externally
+    /// synchronised in every one of the three APIs underneath: two threads
+    /// submitting to one is undefined, and what it does is not a wrong
+    /// pixel. On Mesa's Intel driver it corrupts the submission the driver
+    /// is building, the GPU hangs on the bad batch, and the reset takes the
+    /// device down for every process on the machine - the editor, the
+    /// player, the browser - until the machine is restarted (#70).
+    ///
+    /// So the decode goes to a worker and the drawing comes back here.
+    #[cfg(feature = "gpu")]
+    pub fn texture_of(
+        &self,
+        sources: &concat_export::PreviewSources,
         spec: FrameSpec,
     ) -> Result<wgpu::Texture, String> {
         let gpu = self
             .gpu
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
-        let plan = self.plan_for(clips, settings, spec, true);
-        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time)?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         if sources.has_treatments() {
             // A layer whose look is a shader is applied where the stack is
