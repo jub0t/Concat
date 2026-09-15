@@ -1013,16 +1013,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_speak(on_window!(|state| {
         state.speech_open();
     }));
-    editor.on_detach_audio(on_window!(|state| {
-        if let Some(clip_id) = state.sole_selection() {
-            state.apply(concat_project::Command::DetachAudio { clip_id });
-        }
-    }));
-    editor.on_reattach_audio(on_window!(|state| {
-        if let Some(clip_id) = state.sole_selection() {
-            state.apply(concat_project::Command::ReattachAudio { clip_id });
-        }
-    }));
 
     app.on_captions_closed(on_window!(|state| {
         state.captions.open = false;

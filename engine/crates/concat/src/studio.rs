@@ -4797,13 +4797,21 @@ impl Studio {
 
     /// What the tray's sound and word tools may do to the selection: one
     /// clip with sound for Captions to start on, one title for Speak to
-    /// read, one video clip whose sound is on it to detach, or whose sound
-    /// is off it to put back. The first two are hints - both sheets open
-    /// without them - and the last two are gates.
-    fn sound_tools(&self) -> (bool, bool, bool, bool) {
+    /// read. Hints, not gates - both sheets open without them.
+    fn sound_tools(&self) -> (bool, bool) {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
-            return (false, false, false, false);
+            return (false, false);
         };
+        (
+            self.clip_has_sound(clip),
+            clip.kind == model::ClipKind::Text,
+        )
+    }
+
+    /// Where a clip's sound is: whether it is a video clip whose sound is
+    /// still on its picture, to take off, and whether it is a picture whose
+    /// sound is off it - or that sound itself - to put back.
+    fn sound_placement(&self, clip: &Clip) -> (bool, bool) {
         let detached = self
             .timeline()
             .clips
@@ -4811,8 +4819,6 @@ impl Studio {
             .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
         let video = clip.kind == model::ClipKind::Video;
         (
-            self.clip_has_sound(clip),
-            clip.kind == model::ClipKind::Text,
             video && !detached,
             (video && detached)
                 || (clip.kind == model::ClipKind::Audio && clip.detached_from.is_some()),
@@ -6038,11 +6044,9 @@ impl Studio {
         editor.set_tool(self.tool);
         editor.set_snap(self.snap);
         editor.set_selected_count(self.selection.len() as i32);
-        let (sound_selected, title_selected, can_detach, can_reattach) = self.sound_tools();
+        let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
         editor.set_title_selected(title_selected);
-        editor.set_can_detach(can_detach);
-        editor.set_can_reattach(can_reattach);
         editor.set_merge_blocked_because(match self.merge_blocked() {
             Some(reason) => reason.into(),
             None => SharedString::new(),
@@ -7066,6 +7070,29 @@ impl Studio {
             ),
             rule(),
         ];
+        // One slot, two verbs: the sound is either on its picture or off it.
+        // Shown on every video clip, so the verb is where a person looks for
+        // it, and greyed rather than gone when the file has no sound.
+        let (can_detach, can_reattach) = self.sound_placement(clip);
+        if can_reattach {
+            rows.push(action(
+                "reattach",
+                t("Reattach audio"),
+                Glyph::Merge,
+                "",
+                !locked,
+            ));
+            rows.push(rule());
+        } else if clip.kind == model::ClipKind::Video {
+            rows.push(action(
+                "detach",
+                t("Detach audio"),
+                Glyph::Waveform,
+                "",
+                !locked && can_detach && self.clip_has_sound(clip),
+            ));
+            rows.push(rule());
+        }
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
             "mute",
@@ -7464,6 +7491,16 @@ impl Studio {
                 self.split_at(at, true);
             }
             "freeze" => self.freeze_at_playhead(),
+            "detach" => {
+                self.apply(Command::DetachAudio {
+                    clip_id: id.to_owned(),
+                });
+            }
+            "reattach" => {
+                self.apply(Command::ReattachAudio {
+                    clip_id: id.to_owned(),
+                });
+            }
             "mute" => {
                 let volume = if clip.volume <= 0.0 { 1.0 } else { 0.0 };
                 self.apply(Command::UpdateClip {

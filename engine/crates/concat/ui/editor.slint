@@ -233,14 +233,10 @@ export global Editor {
     in-out property <int> selected-count;
     in-out property <string> merge-blocked-because;
     /// What the selection offers the tray's sound and word tools: one clip
-    /// with sound for Captions to start on, one title for Speak to read,
-    /// one video clip whose sound is on it to detach, or whose sound is off
-    /// it to put back. The first two are hints - both sheets open without
-    /// them - and the last two are gates.
+    /// with sound for Captions to start on, one title for Speak to read.
+    /// Hints, not gates - both sheets open without them.
     in-out property <bool> sound-selected;
     in-out property <bool> title-selected;
-    in-out property <bool> can-detach;
-    in-out property <bool> can-reattach;
     in-out property <float> playhead;
     in-out property <float> frame-rate;
     in-out property <float> scroll-left;
@@ -255,12 +251,11 @@ export global Editor {
     callback split();
     callback merge();
     callback delete-selected();
-    /// The tray's tools for a clip's sound and words. The first two open a
-    /// sheet; the last two are the edit itself.
+    /// The tray's tools for a clip's sound and words; each opens a sheet.
+    /// Taking a clip's sound off its picture, and putting it back, are rows
+    /// of the clip's own menu - see `clip-context`.
     callback captions();
     callback speak();
-    callback detach-audio();
-    callback reattach-audio();
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);

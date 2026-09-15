@@ -40,8 +40,6 @@ export component TimelinePane inherits Rectangle {
     in property <string> merge-blocked-because;
     in property <bool> sound-selected;
     in property <bool> title-selected;
-    in property <bool> can-detach;
-    in property <bool> can-reattach;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -50,8 +48,6 @@ export component TimelinePane inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
-    callback detach();
-    callback reattach();
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
@@ -183,8 +179,6 @@ export component TimelinePane inherits Rectangle {
             merge-blocked-because: root.merge-blocked-because;
             sound-selected: root.sound-selected;
             title-selected: root.title-selected;
-            can-detach: root.can-detach;
-            can-reattach: root.can-reattach;
             readout: Fmt.frames-timecode(root.playhead, root.frame-rate);
 
             tool-changed(tool) => { root.tool-changed(tool); }
@@ -194,8 +188,6 @@ export component TimelinePane inherits Rectangle {
             delete-selected => { root.delete-selected(); }
             captions => { root.captions(); }
             speak => { root.speak(); }
-            detach => { root.detach(); }
-            reattach => { root.reattach(); }
             add-track => { root.add-track(); }
             fit => { root.zoom-to-fit(lanes.width); }
             // No anchor from a button: a wheel zooms about the pointer and a

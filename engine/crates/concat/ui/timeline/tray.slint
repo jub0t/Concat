@@ -53,8 +53,6 @@ export component TimelineTray inherits Rectangle {
     /// clip's worth of truth, decided by Rust; see the Editor global.
     in property <bool> sound-selected;
     in property <bool> title-selected;
-    in property <bool> can-detach;
-    in property <bool> can-reattach;
     /// hh:mm:ss:ff at the playhead, formatted by the caller
     in property <string> readout;
 
@@ -65,8 +63,6 @@ export component TimelineTray inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
-    callback detach();
-    callback reattach();
     callback add-track();
     callback fit();
     callback zoom(factor: float);
@@ -179,21 +175,6 @@ export component TimelineTray inherits Rectangle {
                 : I18n.t("Read a script aloud at the playhead");
             icon-size: 16px;
             clicked => { root.speak(); }
-        }
-        // One slot, two verbs: the sound is either on its picture or off it.
-        if !root.can-reattach: IconButton {
-            glyph: Glyph.waveform;
-            label: root.can-detach ? I18n.t("Put this clip's sound on its own lane")
-                : I18n.t("Select one video clip to detach its sound");
-            icon-size: 16px;
-            enabled: root.can-detach;
-            clicked => { root.detach(); }
-        }
-        if root.can-reattach: IconButton {
-            glyph: Glyph.merge;
-            label: I18n.t("Put the detached sound back on its picture");
-            icon-size: 16px;
-            clicked => { root.reattach(); }
         }
 
         Rectangle { horizontal-stretch: 1; }
