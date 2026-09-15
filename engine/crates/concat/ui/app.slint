@@ -183,6 +183,7 @@ export component App inherits Window {
 
     callback settings-closed();
     callback settings-page-changed(index: int);
+    callback settings-show-log();
     callback settings-language-changed(index: int);
     callback settings-theme-changed(dark: bool);
     callback settings-playhead-stops-changed(on: bool);
@@ -460,6 +461,7 @@ export component App inherits Window {
 
         closed => { root.settings-closed(); }
         page-changed(index) => { root.settings-page-changed(index); }
+        show-log => { root.settings-show-log(); }
         language-changed(index) => { root.settings-language-changed(index); }
         theme-changed(dark) => { root.settings-theme-changed(dark); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }

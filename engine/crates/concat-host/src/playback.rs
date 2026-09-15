@@ -333,7 +333,7 @@ pub struct Playback {
 /// silence. Logged for the console, reported for the window's toast - the
 /// difference between "audio is broken" and a bug report that names a file.
 fn report(events: &dyn PlaybackEvents, message: String) {
-    eprintln!("concat: {message}");
+    log::warn!("{message}");
     events.error(message);
 }
 
@@ -878,7 +878,7 @@ fn supervise_stream(
                     {
                         // Informational only - switching outputs is a
                         // normal act, not an error toast.
-                        eprintln!("concat: audio device changed to {current}; rebuilding");
+                        log::info!("audio device changed to {current}; rebuilding");
                         break;
                     }
                 }

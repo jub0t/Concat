@@ -25,6 +25,9 @@ ureq = "2"
 # A finished download is checked against the digest its table carries
 # before anything is allowed to call it installed; see models.rs.
 sha2 = "0.10"
+# The log facade. The engine writes `log::warn!` and logs.rs is what puts
+# the line in a file; a phone puts it in logcat as well.
+log = { version = "0.4", features = ["std"] }
 # The CPU compositor draws the monitor's frame; the wgpu one is behind
 # `gpu`, so a headless host pays for no GPU tree.
 concat-render.workspace = true

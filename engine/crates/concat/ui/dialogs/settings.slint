@@ -332,6 +332,8 @@ export component SettingsDialog inherits Modal {
     in property <string> system-report;
 
     callback page-changed(index: int);
+    /// Opens the folder this run's log is being written into.
+    callback show-log();
     callback language-changed(index: int);
     /// The theme, chosen rather than flipped. A toggle in the strip could only
     /// say "the other one"; a page with two named options can say which one is
@@ -586,6 +588,18 @@ export component SettingsDialog inherits Modal {
 
                     HorizontalLayout {
                         alignment: end;
+                        spacing: Theme.gap;
+
+                        // The other half of a report: the block above says
+                        // what this machine is, the log says what the app
+                        // did on it. A run writes one file, and the last ten
+                        // runs are in the folder this opens.
+                        IconButton {
+                            glyph: Glyph.folder;
+                            label: I18n.t("Show the log");
+                            icon-size: 13px;
+                            clicked => { root.show-log(); }
+                        }
 
                         IconButton {
                             glyph: Glyph.copy;

@@ -23,6 +23,7 @@ pub mod cutout;
 pub mod dirs;
 pub mod export;
 pub mod jobs;
+pub mod logs;
 pub mod media;
 pub mod models;
 pub mod playback;

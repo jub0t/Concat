@@ -49,6 +49,8 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 
 **Portable:** the Windows and Linux builds are plain archives. To keep everything on the stick or in the folder you unpacked into, make a folder named `portable` beside the `concat` executable: settings, recents and downloaded models then live there and nothing is written to the user profile.
 
+**Reporting something:** every run writes a log, and Settings › About has the button that opens it along with the one that copies your system information. Attach both to an [issue](https://github.com/jub0t/Concat/issues) and the report arrives with everything it needs. The last ten runs are kept, so yesterday's is still there; nothing is ever sent anywhere on its own.
+
 **Platform support:**
 
 - ✅ **Windows** — tested

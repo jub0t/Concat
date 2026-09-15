@@ -31,7 +31,7 @@ pub fn select_backend() -> Result<Option<Gpu>, PlatformError> {
     // the backend is selected with it.
     let gpu = Gpu::acquire();
     if gpu.is_none() {
-        eprintln!("concat: no GPU adapter; the monitor composites on the CPU");
+        log::warn!("no GPU adapter; the monitor composites on the CPU");
     }
 
     let mut selector = slint::BackendSelector::new().backend_name("winit".into());
@@ -203,6 +203,11 @@ pub fn pick_files(title: &str, filter: Option<(&str, &[&str])>) -> Option<Vec<Pa
 }
 
 /// Shows a written file in the platform's file manager.
+///
+/// A phone has no file manager to hand a path to, and says so rather than
+/// appearing to work: a control that silently does nothing is worse than one
+/// that explains itself. The path is in the message, which is the part a
+/// developer on a cable can still use.
 pub fn reveal(path: &str) -> Result<(), String> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
@@ -210,7 +215,8 @@ pub fn reveal(path: &str) -> Result<(), String> {
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        let _ = path;
-        Ok(())
+        Err(format!(
+            "this device has no file manager to open {path} with"
+        ))
     }
 }

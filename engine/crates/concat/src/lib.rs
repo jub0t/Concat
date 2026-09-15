@@ -48,6 +48,26 @@ use host::{Host, Shell};
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
+/// Opens this run's log file and makes it where the app writes things down.
+///
+/// Each entry point calls this before [`run`], because each knows where its
+/// console is: a desktop has a standard error, a phone has logcat, and that
+/// is what arrives here as `extra`. Everything after it - the engine's
+/// warnings, a panic, the lines below - is written down in
+/// `<app data>/logs/` as well as said out loud. See `concat_host::logs`.
+pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
+    concat_host::logs::catch_panics();
+    let opened = match concat_host::AppDirs::locate() {
+        Ok(dirs) => concat_host::logs::open(&dirs, extra).map(|_| ()),
+        // No directory at all: the facade still has to lead somewhere, or
+        // every line disappears silently rather than loudly.
+        Err(error) => concat_host::logs::open_console(extra).and(Err(error)),
+    };
+    if let Err(error) = opened {
+        log::warn!("this run is not being written to a file: {error}");
+    }
+}
+
 /// Builds the window, binds it to the engine, and runs it until it closes.
 pub fn run() -> Result<(), slint::PlatformError> {
     let gpu = platform::select_backend()?;
@@ -55,7 +75,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let host = match Host::start(gpu) {
         Ok(host) => host,
         Err(error) => {
-            eprintln!("concat: {error}");
+            log::error!("{error}");
             return Err(slint::PlatformError::Other(error));
         }
     };
@@ -63,7 +83,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // The user's own packages - imported looks - sit beside the built-ins
     // from the first frame. One that will not load is reported and skipped.
     for error in concat_effects::Catalogue::install(&Studio::looks_dir(&host.dirs)) {
-        eprintln!("concat: look: {error}");
+        log::warn!("look: {error}");
     }
 
     let app = App::new()?;
@@ -941,6 +961,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // ── settings ──
     app.on_settings_page_changed(on_window!(|state, index: i32| {
         state.settings.tab = index;
+    }));
+    app.on_settings_show_log(on_window!(|state| {
+        // The file this run is writing, when there is one, so the manager
+        // opens with it selected; the folder when there is not, which is
+        // still where the previous runs are.
+        let target = concat_host::logs::current()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| concat_host::logs::folder(&state.host.dirs));
+        if let Err(error) = platform::reveal(&target.to_string_lossy()) {
+            state.notify(&i18n::tf("Could not show the log: {0}", &[&error]), true);
+        }
     }));
     app.on_settings_language_changed(on_window!(|state, index: i32| {
         let index = index.max(0) as usize;

@@ -39,22 +39,32 @@ mod activity {
         }
     }
 
-    /// Routes the log facade, panics and stderr to logcat.
-    pub fn open_logcat() {
-        android_logger::init_once(
+    /// Routes the log facade, panics and stderr to logcat, and to a file.
+    ///
+    /// logcat is what a phone on a cable gives you, and nothing else is as
+    /// good while there is a cable. A phone in somebody's hand has none, so
+    /// the same lines are written into the app's own storage as well; the
+    /// window's Settings is where they are found. Called after
+    /// [`name_directories`], because that is what says where storage is.
+    pub fn open_log() {
+        // Info is logcat's floor, as it always was; CONCAT_LOG is the
+        // ceiling over both sinks, so turning the file up to debug does not
+        // also flood logcat, and turning everything down still quiets it.
+        let logcat = android_logger::AndroidLogger::new(
             android_logger::Config::default()
                 .with_max_level(log::LevelFilter::Info)
                 .with_tag("concat"),
         );
-        std::panic::set_hook(Box::new(|info| {
-            log::error!("panic: {info}");
-        }));
+        concat::open_logging(Some(Box::new(logcat)));
         forward_stderr();
     }
 
     /// Everything written to stderr is read back off a pipe and logged a
-    /// line at a time, so `eprintln!` reaches logcat without every call
-    /// site knowing about phones.
+    /// line at a time, so a stray `eprintln!` in a dependency reaches logcat
+    /// without that dependency knowing about phones. The app's own lines do
+    /// not come this way - they go through the facade, which on a phone
+    /// deliberately leaves stderr alone so a line cannot come back round
+    /// this pipe and log itself forever.
     fn forward_stderr() {
         use std::os::fd::FromRawFd;
         let mut ends = [0i32; 2];
@@ -90,8 +100,9 @@ mod activity {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
-    activity::open_logcat();
+    // Directories first: the log file is written into one of them.
     activity::name_directories(&app);
+    activity::open_log();
     log::info!("Concat {} starting", env!("CARGO_PKG_VERSION"));
     if let Err(error) = slint::android::init(app) {
         log::error!("could not start the Android backend: {error}");

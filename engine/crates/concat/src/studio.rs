@@ -1938,7 +1938,7 @@ impl Studio {
                 match picture {
                     Ok(image) => studio.preview = image,
                     Err(error) => {
-                        eprintln!("concat: preview: {error}");
+                        log::warn!("preview: {error}");
                         if !studio.preview_failed {
                             studio.preview_failed = true;
                             studio.notify(&tf("Preview failed: {0}", &[&error]), true);
@@ -4710,7 +4710,7 @@ impl Studio {
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
-                    eprintln!("concat: {error}");
+                    log::warn!("{error}");
                 }
                 self.pause();
                 self.session = Some(session);
@@ -5666,7 +5666,7 @@ impl Studio {
             return;
         }
         for error in Catalogue::install(&dir) {
-            eprintln!("concat: look: {error}");
+            log::warn!("look: {error}");
         }
         self.library[0].query.clear();
         self.notify(

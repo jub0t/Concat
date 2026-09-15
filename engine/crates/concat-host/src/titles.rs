@@ -95,7 +95,7 @@ impl Titles {
             let (path, art) = match self.painted(project, &text, width, height) {
                 Ok(art) => art,
                 Err(error) => {
-                    eprintln!("concat: title {}: {error}", clip.id);
+                    log::warn!("title {}: {error}", clip.id);
                     continue;
                 }
             };

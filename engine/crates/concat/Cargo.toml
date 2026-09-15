@@ -82,6 +82,9 @@ slint = { version = "1.17", default-features = false, features = [
 # Writes the card still an imported look gets, rendered here from the
 # reference picture through the table.
 png = "0.17"
+# The log facade. The window writes `log::warn!`; where that ends up is
+# concat-host's logs.rs, opened by whichever entry point started this run.
+log = "0.4"
 # The one device: created in gpu.rs, handed to Slint and to the monitor.
 wgpu.workspace = true
 pollster.workspace = true
