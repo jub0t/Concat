@@ -215,7 +215,11 @@ component Clip inherits Rectangle {
         // along the clip wants the frame at start + span * f. Every tile is
         // one Image with a source clip, so a zoom changes how many tiles
         // there are and which frame each picks, never the picture itself.
-        if root.item.strip.frames > 0 && root.width > 8px: Rectangle {
+        //
+        // Drawn at any width. A clip narrower than a tile shows the left
+        // of one frame, cut where the clip ends - a sliver of the picture
+        // is still the picture, and the well it would leave showing is not.
+        if root.item.strip.frames > 0 && root.width > 0px: Rectangle {
             x: 0;
             y: 0;
             width: parent.width;

@@ -359,6 +359,30 @@ const STRIP_SEQUENTIAL_FRAMES: f64 = 3000.0;
 /// reports no duration there is nothing to space frames across, so this
 /// refuses rather than guessing.
 pub fn filmstrip(path: &str, count: u32, height: u32) -> Result<Frame, String> {
+    filmstrip_between(path, 0.0, f64::INFINITY, count, height)
+}
+
+/// The same strip, sampled across one stretch of the footage - `from` to
+/// `to`, in seconds - rather than the whole of it.
+///
+/// This is what a clip cut down to a few seconds of a long file tiles its
+/// body with: the file's own strip has one frame per twenty-fourth of the
+/// footage, and a cut shorter than that is that one frame repeated to the
+/// end of the clip. The window is held inside the file, and never shorter
+/// than a frame per tile, which is the finest the file can show.
+///
+/// No tile is ever left black. A tile whose instant would not decode - a
+/// seek the index refuses, a duration the container overstated - takes the
+/// nearest picture before it, or the first one after when there is none
+/// before. The strip was a black canvas the frames were painted onto, and
+/// a cut that landed wholly on a hole was a clip with a black body.
+pub fn filmstrip_between(
+    path: &str,
+    from: f64,
+    to: f64,
+    count: u32,
+    height: u32,
+) -> Result<Frame, String> {
     let count = count.clamp(1, 60);
     let height = height.clamp(16, 240);
 
@@ -369,54 +393,112 @@ pub fn filmstrip(path: &str, count: u32, height: u32) -> Result<Frame, String> {
         .map(|duration| duration.as_f64())
         .filter(|seconds| *seconds > 0.0)
         .ok_or_else(|| format!("{path} reports no duration"))?;
-    let fps = video.frame_rate.fps().as_f64();
+    let fps = video.frame_rate.fps().as_f64().max(1.0);
     // Aspect-correct and even, which is what the scaler is happiest with.
     let width = ((f64::from(height) * f64::from(video.width) / f64::from(video.height)).round()
         as u32)
         .max(2)
         & !1;
 
+    // The window, inside the file and at least a frame per tile long.
+    let least = (f64::from(count) / fps).min(duration);
+    let mut from = from.clamp(0.0, duration);
+    let mut to = to.clamp(from, duration);
+    if to - from < least {
+        to = (from + least).min(duration);
+        from = (to - least).max(0.0);
+    }
+    let span = to - from;
+
     // Sample the middle of each slice, so the first frame is not always the
     // file's own first (often black) frame.
-    let instant = |index: u32| duration * (f64::from(index) + 0.5) / f64::from(count);
-    let mut strip = Frame::black(width * count, height);
-    let mut last: Option<Frame> = None;
+    let instant = |index: usize| from + span * (index as f64 + 0.5) / f64::from(count);
+    let mut tiles: Vec<Option<Frame>> = (0..count).map(|_| None).collect();
 
-    if duration * fps <= STRIP_SEQUENTIAL_FRAMES {
-        let mut decoder = Decoder::open(path, &DecodeOptions::default().scaled_to(width, height))
-            .map_err(describe)?;
-        let mut index = 0;
-        let mut produced = 0u64;
-        while index < count {
-            let Ok(Some(frame)) = decoder.next_frame() else {
-                break;
-            };
-            // Where this frame is: its own stamp, or its count when the
-            // container stamps nothing.
-            let at = decoder
-                .position()
-                .map(|position| position.as_f64())
-                .unwrap_or(produced as f64 / fps.max(1.0));
-            produced += 1;
-            // Every tile whose instant this frame has reached takes it; a
-            // file with fewer frames than tiles hands one frame to several.
-            while index < count && at >= instant(index) {
-                strip.blit(&frame, index * width, 0);
-                index += 1;
-            }
-            last = Some(frame);
+    if span * fps <= STRIP_SEQUENTIAL_FRAMES {
+        read_through(path, from, fps, &instant, width, height, &mut tiles)?;
+    } else {
+        seek_each(path, &instant, width, height, &mut tiles)?;
+        if tiles.iter().all(Option::is_none) {
+            // An index that will not seek at all: read the file instead, as
+            // far as the tiles reach.
+            read_through(path, from, fps, &instant, width, height, &mut tiles)?;
         }
-        // Past the last frame - a duration the container overstated - the
-        // last picture fills what is left rather than leaving holes.
-        if let Some(frame) = &last {
-            while index < count {
-                strip.blit(frame, index * width, 0);
-                index += 1;
-            }
-        }
-        return Ok(strip);
     }
 
+    let first = tiles
+        .iter()
+        .position(Option::is_some)
+        .ok_or_else(|| format!("no frame to show for {path}"))?;
+    let mut strip = Frame::black(width * count, height);
+    let mut shown = first;
+    for index in 0..tiles.len() {
+        if tiles[index].is_some() {
+            shown = index;
+        }
+        if let Some(frame) = &tiles[shown] {
+            strip.blit(frame, index as u32 * width, 0);
+        }
+    }
+    Ok(strip)
+}
+
+/// One pass through the footage from `from`, each tile taking the first
+/// frame at or past its instant. Exact, and cheap while the pass is short.
+fn read_through(
+    path: &str,
+    from: f64,
+    fps: f64,
+    instant: &dyn Fn(usize) -> f64,
+    width: u32,
+    height: u32,
+    tiles: &mut [Option<Frame>],
+) -> Result<(), String> {
+    let mut options = DecodeOptions::default().scaled_to(width, height);
+    if from > 0.0 {
+        options = options.starting_at(Rational::approximate(from).unwrap_or(Rational::ZERO));
+    }
+    let mut decoder = Decoder::open(path, &options).map_err(describe)?;
+    let count = tiles.len();
+    let mut index = 0;
+    let mut produced = 0u64;
+    let mut last: Option<Frame> = None;
+    while index < count {
+        let Ok(Some(frame)) = decoder.next_frame() else {
+            break;
+        };
+        // Where this frame is: its own stamp, or its count when the
+        // container stamps nothing.
+        let at = decoder
+            .position()
+            .map(|position| position.as_f64())
+            .unwrap_or(from + produced as f64 / fps);
+        produced += 1;
+        // Every tile whose instant this frame has reached takes it; a
+        // file with fewer frames than tiles hands one frame to several.
+        while index < count && at >= instant(index) {
+            tiles[index] = Some(frame.clone());
+            index += 1;
+        }
+        last = Some(frame);
+    }
+    // Past the last frame - a duration the container overstated - the last
+    // picture stands for what is left; the caller spreads it.
+    if index < count && let Some(frame) = last {
+        tiles[index] = Some(frame);
+    }
+    Ok(())
+}
+
+/// One seek per tile, to the keyframe at or before its instant. Near
+/// enough for a thumbnail, and one decode each however long the file.
+fn seek_each(
+    path: &str,
+    instant: &dyn Fn(usize) -> f64,
+    width: u32,
+    height: u32,
+    tiles: &mut [Option<Frame>],
+) -> Result<(), String> {
     let mut decoder = Decoder::open(
         path,
         &DecodeOptions::default()
@@ -424,21 +506,98 @@ pub fn filmstrip(path: &str, count: u32, height: u32) -> Result<Frame, String> {
             .nearest_keyframes(),
     )
     .map_err(describe)?;
-    for index in 0..count {
+    for (index, tile) in tiles.iter_mut().enumerate() {
         let time = Rational::approximate(instant(index)).unwrap_or(Rational::ZERO);
-        let frame = match decoder.seek(time).and_then(|()| decoder.next_frame()) {
-            Ok(Some(frame)) => Some(frame),
-            // Past the last frame, or a stretch that will not decode: repeat
-            // the last picture rather than leaving a hole.
-            _ => None,
-        };
-        let frame = frame.or_else(|| last.take());
-        if let Some(frame) = &frame {
-            strip.blit(frame, index * width, 0);
+        if let Ok(Some(frame)) = decoder.seek(time).and_then(|()| decoder.next_frame()) {
+            *tile = Some(frame);
         }
-        last = frame;
     }
-    Ok(strip)
+    Ok(())
+}
+
+/// The fraction of the footage a cell at `level` spans.
+pub fn window_span(level: u32) -> f64 {
+    1.0 / f64::from(1u32 << level)
+}
+
+/// Where cell `cell` at `level` begins, as a fraction of the footage.
+pub fn window_start(level: u32, cell: u32) -> f64 {
+    f64::from(cell) / f64::from(1u32 << (level + 1))
+}
+
+/// The cell a cut wants its frames sampled across, or `None` when the
+/// file's own strip already shows it as more than a few frames.
+///
+/// `start` and `span` are the cut as fractions of the footage, `duration`
+/// the footage in seconds. The level is the finest whose half-cell still
+/// holds the cut, so the cut covers at least half the strip it is drawn
+/// from and at least twelve of its frames; it stops at the level where a
+/// cell is a second long, under which the file has no more pictures to
+/// give, and at [`WINDOW_LEVELS`] regardless. Cuts over a quarter of the
+/// footage get no cell: the file's strip has six or more frames across them.
+pub fn strip_window(start: f64, span: f64, duration: f64) -> Option<(u32, u32)> {
+    if span.is_nan() || span <= 0.0 || duration.is_nan() || duration <= 1.0 {
+        return None;
+    }
+    let finest = (duration.log2().floor() as i64).min(i64::from(WINDOW_LEVELS));
+    let level = ((1.0 / span).log2().floor() as i64 - 1).min(finest);
+    if level < 1 {
+        return None;
+    }
+    let level = level as u32;
+    let steps = 1u32 << (level + 1);
+    // The last cell is the one that ends at the end of the footage.
+    let cell = ((start.clamp(0.0, 1.0) * f64::from(steps)).floor() as u32).min(steps - 2);
+    Some((level, cell))
+}
+
+/// The finest cell grid: 1/65536 of the footage, where a cut is a frame or
+/// two of even the longest file.
+pub const WINDOW_LEVELS: u32 = 16;
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    /// The cell a cut is given holds the whole cut, at every level.
+    #[test]
+    fn a_cut_fits_in_its_cell() {
+        let duration = 3600.0;
+        let mut span = 0.25;
+        while span > 1.0 / 200_000.0 {
+            let mut start = 0.0;
+            while start + span <= 1.0 {
+                let (level, cell) = strip_window(start, span, duration).expect("a cell");
+                let from = window_start(level, cell);
+                let to = from + window_span(level);
+                assert!(from <= start && start + span <= to + 1e-12, "{start} {span} at {level}/{cell}");
+                assert!(to <= 1.0 + 1e-12, "cell {level}/{cell} runs past the footage");
+                // and, short of the cap, the cut is at least a quarter of
+                // it: the cell is the finest whose half still holds the cut
+                let finest = duration.log2().floor() as u32;
+                assert!(level == finest || span * 4.0 >= window_span(level) - 1e-12);
+                start += span * 0.37;
+            }
+            span *= 0.7;
+        }
+    }
+
+    #[test]
+    fn wide_cuts_and_short_files_keep_the_files_own_strip() {
+        assert_eq!(strip_window(0.0, 0.5, 3600.0), None);
+        assert_eq!(strip_window(0.1, 0.26, 3600.0), None);
+        assert_eq!(strip_window(0.1, 0.01, 0.5), None);
+        assert_eq!(strip_window(0.1, 0.0, 3600.0), None);
+        assert_eq!(strip_window(0.1, f64::NAN, 3600.0), None);
+    }
+
+    #[test]
+    fn the_grid_stops_at_a_second_and_at_the_finest_level() {
+        // 10s of footage: a cell no shorter than a second is level 3
+        assert_eq!(strip_window(0.0, 1e-6, 10.0), Some((3, 0)));
+        // and a day of footage stops at WINDOW_LEVELS
+        assert_eq!(strip_window(0.0, 1e-9, 86400.0).map(|(level, _)| level), Some(WINDOW_LEVELS));
+    }
 }
 
 /// A small poster frame for one project, as a JPEG, for the launch screen's

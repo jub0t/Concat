@@ -52,7 +52,9 @@ use crate::format::{
     bytes, colour_of, eta, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase,
 };
 use crate::host::{
-    Host, MediaArt, cached_media_art, image_at, image_of, media_art, on_ui, spawn, spawn_art,
+    CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
+    image_of, media_art, on_ui, spawn, spawn_art, strip_window, window_art, window_span,
+    window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::prefs::Preferences;
@@ -97,6 +99,39 @@ pub struct Strip {
     /// The picture's height in its own pixels.
     pub height: i32,
 }
+
+impl From<CachedStrip> for Strip {
+    fn from(strip: CachedStrip) -> Self {
+        Self {
+            image: strip.image,
+            frames: strip.frames as i32,
+            frame_width: strip.frame_width as i32,
+            height: strip.height as i32,
+        }
+    }
+}
+
+impl Strip {
+    /// A decoded strip of `frames` frames.
+    fn of(frame: &concat_core::frame::Frame, frames: u32) -> Self {
+        Self {
+            image: image_of(frame),
+            frames: frames as i32,
+            frame_width: (frame.width() / frames.max(1)) as i32,
+            height: frame.height() as i32,
+        }
+    }
+}
+
+/// The key a cell's strip is held under: the media and the cell.
+fn window_key(media_id: &str, level: u32, cell: u32) -> String {
+    format!("{media_id}|{level}|{cell}")
+}
+
+/// How many cell strips are kept before the ones no clip on the current
+/// timeline shows are let go. Each is a picture the size of the file's own
+/// strip; a trim walks through several levels on its way down.
+const WINDOWS_KEPT: usize = 96;
 
 /// Steps per second the drawn waveform is quantised to. See `Studio::wave`:
 /// it is what keeps a trim from synthesising a new envelope on every pointer
@@ -662,7 +697,12 @@ pub struct Studio {
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
+    /// Filmstrips of one cell of a file each, by `window_key`, for the cuts
+    /// too short a piece of their footage for the file's strip to show as
+    /// more than one frame repeated. See `host::strip_window`.
+    pub windows: HashMap<String, Strip>,
     art_pending: HashSet<String>,
+    window_pending: HashSet<String>,
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
     waves: RefCell<HashMap<String, SharedString>>,
@@ -1343,7 +1383,9 @@ impl Studio {
             peaks: HashMap::new(),
             thumbs: HashMap::new(),
             strips: HashMap::new(),
+            windows: HashMap::new(),
             art_pending: HashSet::new(),
+            window_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
             lane_view: HashMap::new(),
             selection: Vec::new(),
@@ -2265,15 +2307,7 @@ impl Studio {
                     self.thumbs.insert(id.clone(), image);
                 }
                 if let Some(strip) = cached.strip {
-                    self.strips.insert(
-                        id.clone(),
-                        Strip {
-                            image: strip.image,
-                            frames: strip.frames as i32,
-                            frame_width: strip.frame_width as i32,
-                            height: strip.height as i32,
-                        },
-                    );
+                    self.strips.insert(id.clone(), strip.into());
                 }
                 pictures = !self.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
             }
@@ -2300,13 +2334,7 @@ impl Studio {
                         studio.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
                     if let Some((frame, frames)) = art.strip {
-                        let strip = Strip {
-                            image: image_of(&frame),
-                            frames: frames as i32,
-                            frame_width: (frame.width() / frames.max(1)) as i32,
-                            height: frame.height() as i32,
-                        };
-                        studio.strips.insert(art.id.clone(), strip);
+                        studio.strips.insert(art.id.clone(), Strip::of(&frame, frames));
                     }
                     if let Some(peaks) = art.peaks {
                         let prefix = format!("{key}|");
@@ -2319,6 +2347,107 @@ impl Studio {
                 },
             );
         }
+        self.request_window_art();
+    }
+
+    /// Decodes a cell strip for every picture clip on the current timeline
+    /// whose cut is too short a piece of its footage for the file's own
+    /// strip - see `host::strip_window` - and lets go of the cells nothing
+    /// shows once there are more than `WINDOWS_KEPT` of them.
+    fn request_window_art(&mut self) {
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project_path = session.path().to_owned();
+        struct Want {
+            key: String,
+            id: String,
+            path: String,
+            level: u32,
+            cell: u32,
+            duration: f64,
+        }
+        let mut shown: HashSet<String> = HashSet::new();
+        let mut wanted: Vec<Want> = Vec::new();
+        for clip in &self.timeline().clips {
+            if clip.kind != model::ClipKind::Video {
+                continue;
+            }
+            let Some(item) = self.project().media_by_id(&clip.media_id) else {
+                continue;
+            };
+            if item.placeholder || item.path.is_empty() {
+                continue;
+            }
+            let Some((start, span, duration)) = self.cut_of(clip) else {
+                continue;
+            };
+            let Some((level, cell)) = strip_window(start, span, duration) else {
+                continue;
+            };
+            let key = window_key(&clip.media_id, level, cell);
+            if !shown.insert(key.clone())
+                || self.windows.contains_key(&key)
+                || self.window_pending.contains(&key)
+            {
+                continue;
+            }
+            wanted.push(Want {
+                key,
+                id: item.id.clone(),
+                path: item.path.clone(),
+                level,
+                cell,
+                duration,
+            });
+        }
+        if self.windows.len() > WINDOWS_KEPT {
+            self.windows.retain(|key, _| shown.contains(key));
+        }
+        for want in wanted {
+            let Want {
+                key,
+                id,
+                path,
+                level,
+                cell,
+                duration,
+            } = want;
+            if let Some(strip) = cached_window_art(&project_path, &id, &path, level, cell) {
+                self.windows.insert(key, strip.into());
+                continue;
+            }
+            self.window_pending.insert(key);
+            let project = project_path.clone();
+            spawn_art(
+                move || window_art(id, path, project, level, cell, duration),
+                |studio, _, _, art: WindowArt| {
+                    let key = window_key(&art.id, art.level, art.cell);
+                    studio.window_pending.remove(&key);
+                    if let Some((frame, frames)) = art.strip {
+                        studio.windows.insert(key, Strip::of(&frame, frames));
+                    }
+                },
+            );
+        }
+    }
+
+    /// A picture clip's cut as fractions of its footage - where it begins
+    /// and how much it covers - with the footage's length in seconds.
+    /// `None` for a still or footage of unknown length: one frame, all of it.
+    fn cut_of(&self, clip: &Clip) -> Option<(f64, f64, f64)> {
+        let seconds = self
+            .project()
+            .media
+            .iter()
+            .find(|item| item.id == clip.media_id)
+            .and_then(|item| item.duration)
+            .filter(|seconds| *seconds > 0.0)?;
+        Some((
+            (clip.source_start / seconds).clamp(0.0, 1.0),
+            (clip.duration * clip.speed / seconds).clamp(0.0, 1.0),
+            seconds,
+        ))
     }
 
     /// The clip's filmstrip, with the window of the strip its cut covers:
@@ -2329,24 +2458,25 @@ impl Studio {
         if !matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Image) {
             return StripData::default();
         }
-        let Some(strip) = self.strips.get(&clip.media_id) else {
+        let Some(mut strip) = self.strips.get(&clip.media_id) else {
             return StripData::default();
         };
-        let footage = self
-            .project()
-            .media
-            .iter()
-            .find(|item| item.id == clip.media_id)
-            .and_then(|item| item.duration)
-            .filter(|seconds| *seconds > 0.0);
-        let (start, span) = match footage {
-            Some(seconds) => (
-                (clip.source_start / seconds).clamp(0.0, 1.0),
-                (clip.duration * clip.speed / seconds).clamp(0.0, 1.0),
-            ),
-            // A still, or footage of unknown length: one frame, all of it.
-            None => (0.0, 1.0),
-        };
+        let (mut start, mut span) = (0.0, 1.0);
+        if let Some((cut_start, cut_span, duration)) = self.cut_of(clip) {
+            start = cut_start;
+            span = cut_span;
+            // The cell strip, once it is here: the cut re-expressed as a
+            // window of that cell rather than of the whole file. Until it
+            // arrives the file's strip stands in, and the tiles repeat.
+            if let Some((level, cell)) = strip_window(start, span, duration)
+                && let Some(window) = self.windows.get(&window_key(&clip.media_id, level, cell))
+            {
+                let (cell_start, cell_span) = (window_start(level, cell), window_span(level));
+                start = ((start - cell_start) / cell_span).clamp(0.0, 1.0);
+                span = (span / cell_span).clamp(0.0, 1.0);
+                strip = window;
+            }
+        }
         StripData {
             image: strip.image.clone(),
             frames: strip.frames,

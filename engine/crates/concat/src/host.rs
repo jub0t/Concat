@@ -20,6 +20,7 @@ use concat_host::export::Exporter;
 use concat_host::playback::{Playback, PlaybackEvents};
 use concat_host::preview::Monitor;
 use concat_host::{AppDirs, media};
+pub use concat_host::media::{strip_window, window_span, window_start};
 use concat_speech::{Speech, Transcriber};
 
 use crate::gpu::Gpu;
@@ -435,6 +436,102 @@ fn save_frame_jpeg(
         image::ColorType::Rgb8.into(),
     )?;
     Ok(())
+}
+
+/// A filmstrip of one stretch of a media item, restored from the cache.
+///
+/// The stretches are cells on a grid over the footage: at `level` k a cell
+/// spans 1/2^k of it, and cell `j` starts at j/2^(k+1), so cells overlap by
+/// half and any cut no longer than half a cell fits wholly in one. See
+/// [`strip_window`].
+pub fn cached_window_art(
+    project: &str,
+    id: &str,
+    path: &str,
+    level: u32,
+    cell: u32,
+) -> Option<CachedStrip> {
+    let dir = art_cache_dir(project);
+    let stem = art_cache_stem(id, path);
+    let prefix = format!("{stem}.win.{level}.{cell}.");
+    std::fs::read_dir(&dir).ok()?.filter_map(Result::ok).find_map(|entry| {
+        let name = entry.file_name();
+        let name = name.to_str()?;
+        let rest = name.strip_prefix(&prefix)?.strip_suffix(".jpg")?;
+        let mut parts = rest.split('.');
+        let frames: u32 = parts.next()?.parse().ok()?;
+        let frame_width: u32 = parts.next()?.parse().ok()?;
+        let height: u32 = parts.next()?.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+        let image = image_at(&entry.path())?;
+        Some(CachedStrip {
+            image,
+            frames,
+            frame_width,
+            height,
+        })
+    })
+}
+
+fn save_window_art_cache(
+    project: &str,
+    id: &str,
+    path: &str,
+    level: u32,
+    cell: u32,
+    frame: &concat_core::frame::Frame,
+    frames: u32,
+) {
+    let dir = art_cache_dir(project);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stem = art_cache_stem(id, path);
+    let frames = frames.max(1);
+    let frame_width = frame.width() / frames;
+    let name = format!(
+        "{stem}.win.{level}.{cell}.{frames}.{frame_width}.{}.jpg",
+        frame.height()
+    );
+    let _ = save_frame_jpeg(&dir.join(name), frame, 78);
+}
+
+/// The strip of one cell of a media item, decoded on a worker.
+pub struct WindowArt {
+    /// The media id the strip belongs to.
+    pub id: String,
+    pub level: u32,
+    pub cell: u32,
+    /// The frames, side by side, and how many there are.
+    pub strip: Option<(concat_core::frame::Frame, u32)>,
+}
+
+/// Samples the frames of one cell of a media item - see [`strip_window`] -
+/// and writes them to the project's artwork cache beside the file's own.
+pub fn window_art(
+    id: String,
+    path: String,
+    project: String,
+    level: u32,
+    cell: u32,
+    duration: f64,
+) -> WindowArt {
+    let from = window_start(level, cell) * duration;
+    let to = from + window_span(level) * duration;
+    let strip = media::filmstrip_between(&path, from, to, STRIP_FRAMES, STRIP_HEIGHT)
+        .ok()
+        .map(|frame| (frame, STRIP_FRAMES));
+    if let Some((frame, frames)) = &strip {
+        save_window_art_cache(&project, &id, &path, level, cell, frame, *frames);
+    }
+    WindowArt {
+        id,
+        level,
+        cell,
+        strip,
+    }
 }
 
 /// A probe's error, in the words a toast can use.
