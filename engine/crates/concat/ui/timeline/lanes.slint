@@ -168,12 +168,19 @@ component Clip inherits Rectangle {
     /// the clip says why before you try, rather than feeling broken.
     in property <bool> locked;
 
-    opacity: root.locked ? 0.55 : 1.0;
+    // Neither `opacity` nor a rounded `clip` here, however much both would
+    // suit. A clip element is as wide as its clip is long: ten minutes at
+    // the default zoom is 12000px. `opacity` with children makes Slint
+    // flatten the element into an offscreen layer that size in every
+    // renderer, and a rounded `clip` does the same under femtovg-wgpu (the
+    // `wgpu` feature; Skia clips a rounded rect in place). The GPU refuses
+    // a texture past its limit - 8192 on the wgpu defaults - and the window
+    // dies on the frame that draws it. The body and the filmstrip clip
+    // themselves (square, so a scissor and not a layer); the outline is
+    // drawn over the children below, and a locked lane dims through the
+    // scrim after it.
     border-radius: Theme.r-sm;
     background: root.well;
-    border-width: root.item.selected ? 2px : 1px;
-    border-color: root.item.selected ? Theme.accent : root.mark;
-    clip: true;
 
     // ── body ─────────────────────────────────────────────────────────────
     Rectangle {
@@ -322,6 +329,12 @@ component Clip inherits Rectangle {
         y: 0;
         width: parent.width;
         height: root.header-h;
+        // The corners the clip's own rounding used to cut; an all-strip clip
+        // is the whole bar, so it takes the foot's two as well.
+        border-top-left-radius: Theme.r-sm;
+        border-top-right-radius: Theme.r-sm;
+        border-bottom-left-radius: root.all-strip ? Theme.r-sm : 0px;
+        border-bottom-right-radius: root.all-strip ? Theme.r-sm : 0px;
         background: root.mark;
 
         if root.marked && root.width > 20px: Icon {
@@ -381,6 +394,37 @@ component Clip inherits Rectangle {
                 vertical-alignment: center;
             }
         }
+    }
+
+    // ── outline ──────────────────────────────────────────────────────────
+    //
+    // Over the children, because they are over it: the header and the
+    // filmstrip both span the whole element, and the `clip` this bar used
+    // to have was what held them inside its border. Childless, so no layer.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        border-radius: Theme.r-sm;
+        border-width: root.item.selected ? 2px : 1px;
+        border-color: root.item.selected ? Theme.accent : root.mark;
+    }
+
+    // ── locked ───────────────────────────────────────────────────────────
+    //
+    // What `opacity: 0.55` used to say, said by a veil over the bar instead:
+    // one childless rectangle, which Slint paints straight onto the frame.
+    // The lane at the complementary alpha, so the clip fades toward what it
+    // sits on as the opacity did, in either theme - `Theme.scrim` is black
+    // and would invert the effect on the light one.
+    if root.locked: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        border-radius: Theme.r-sm;
+        background: Theme.lane.with-alpha(0.45);
     }
 
     // ── the gesture ──────────────────────────────────────────────────────
@@ -743,21 +787,29 @@ export component Lanes inherits Rectangle {
             width: Math.max(2px, root.drop.duration * root.px-per-second);
             height: Math.max(2px, root.tracks[root.drop.row].height - 10px);
             border-radius: Theme.r-sm;
-            background: Paint.well(root.drop.kind);
+            // Alpha in the paints, not `opacity`, and no rounded `clip`
+            // either: both make Slint flatten this element into an
+            // offscreen layer (the clip only under femtovg-wgpu), and a
+            // ghost is as wide as the clip it will make - a ten-minute drop
+            // at the default zoom asks for a 12000px texture and the GPU
+            // refuses past 8192. The children stay inside it on their own,
+            // so nothing needs clipping.
+            background: Paint.well(root.drop.kind).with-alpha(0.85);
             // The accent, not the kind's mark: this is a target, and every
             // other target in the window — the band, a selected clip — is
             // outlined in it.
             border-width: 2px;
-            border-color: Theme.accent;
-            opacity: 0.85;
-            clip: true;
+            border-color: Theme.accent.with-alpha(0.85);
 
             Rectangle {
                 x: 0;
                 y: 0;
                 width: parent.width;
                 height: 17px;
-                background: Paint.mark(root.drop.kind);
+                // The corners the ghost's own rounding used to cut.
+                border-top-left-radius: Theme.r-sm;
+                border-top-right-radius: Theme.r-sm;
+                background: Paint.mark(root.drop.kind).with-alpha(0.85);
 
                 if parent.width > 30px: Text {
                     x: 7px;
@@ -765,7 +817,7 @@ export component Lanes inherits Rectangle {
                     width: parent.width - 14px;
                     height: parent.height;
                     text: root.drop.label;
-                    color: Theme.clip-ink;
+                    color: Theme.clip-ink.with-alpha(0.85);
                     font-size: Theme.fs-sm;
                     vertical-alignment: center;
                     overflow: elide;
