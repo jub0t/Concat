@@ -265,6 +265,9 @@ pub struct ExportState {
     pub resolution: usize,
     pub rate: usize,
     pub quality: usize,
+    /// Index into `VideoCodec::ALL`.
+    pub codec: usize,
+    pub ten_bit: bool,
     pub phase: ExportPhase,
     pub progress: f32,
     pub stage: String,
@@ -284,6 +287,8 @@ impl Default for ExportState {
             resolution: 2,
             rate: 1,
             quality: 1,
+            codec: 0,
+            ten_bit: false,
             phase: ExportPhase::Idle,
             progress: 0.0,
             stage: String::new(),
@@ -5137,8 +5142,21 @@ impl Studio {
         let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
         let rate = num as f32 / den as f32;
         let pixels = (width as f32 * height as f32) / (1920.0 * 1080.0);
-        let video = EXPORT_TIERS[tier.min(2)] * 1_000_000.0 * pixels * (rate / 30.0);
+        let video = EXPORT_TIERS[tier.min(2)]
+            * 1_000_000.0
+            * pixels
+            * (rate / 30.0)
+            * self.export_codec().size_factor()
+            * if self.export.ten_bit { 1.05 } else { 1.0 };
         (video + AUDIO_BPS) * self.duration().max(1.0) / 8.0
+    }
+
+    /// The codec the sheet has chosen.
+    pub fn export_codec(&self) -> concat_media::VideoCodec {
+        concat_media::VideoCodec::ALL[self
+            .export
+            .codec
+            .min(concat_media::VideoCodec::ALL.len() - 1)]
     }
 
     /// Starts the render on a worker, reporting into the sheet.
@@ -5168,6 +5186,8 @@ impl Studio {
             output: output.clone(),
             crf: EXPORT_CRF[self.export.quality.min(2)],
             preset: "veryfast".into(),
+            codec: self.export_codec(),
+            ten_bit: self.export.ten_bit,
         };
         let (frame_w, frame_h) = self.output_size();
         let titles = self
@@ -6948,6 +6968,27 @@ impl Studio {
             resolution: self.export.resolution as i32,
             rate: self.export.rate as i32,
             quality: self.export.quality as i32,
+            codec: self.export.codec as i32,
+            ten_bit: self.export.ten_bit,
+            encoding: {
+                // "HEVC 10-bit · hardware": the standard, the depth when it
+                // is the deeper one, and whether the platform's own encoder
+                // will be doing it.
+                let codec = self.export_codec();
+                let mut words = vec![codec.label().to_owned()];
+                if self.export.ten_bit {
+                    words.push("10-bit".to_owned());
+                }
+                if codec
+                    .encoders(true)
+                    .first()
+                    .is_some_and(|name| name.ends_with("_videotoolbox"))
+                {
+                    words.push(format!("· {}", t("hardware")));
+                }
+                words.join(" ")
+            }
+            .into(),
             size_high: bytes(self.export_size_bytes(0)).into(),
             size_balanced: bytes(self.export_size_bytes(1)).into(),
             size_small: bytes(self.export_size_bytes(2)).into(),

@@ -24,8 +24,8 @@ pub mod probe;
 pub mod samples;
 pub mod treat;
 
-pub use decode::{DecodeOptions, Decoder, FrameSource, SeekableSource};
-pub use encode::{EncodeOptions, Encoder, FrameSink, jpeg};
+pub use decode::{ColorSignal, DecodeOptions, Decoder, FrameSource, SeekableSource};
+pub use encode::{EncodeOptions, Encoder, FrameSink, VideoCodec, jpeg};
 pub use error::{Error, Result};
 pub use ffi::{init, linked_version};
 pub use peaks::Peaks;

@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
+import { Switch } from "../inspector/controls.slint";
 
 // The export dialog.
 //
@@ -30,6 +31,11 @@ export struct ExportData {
     resolution: int,
     rate: int,
     quality: int,
+    /// index into the codec list: H.264, HEVC, AV1
+    codec: int,
+    ten-bit: bool,
+    /// "HEVC 10-bit · hardware": what the file will be encoded as
+    encoding: string,
     /// What each preset would weigh. Three strings rather than a list: a Slint
     /// struct cannot hold an array.
     size-high: string,
@@ -152,6 +158,8 @@ export component ExportDialog inherits Modal {
     callback resolution-changed(index: int);
     callback rate-changed(index: int);
     callback quality-changed(index: int);
+    callback codec-changed(index: int);
+    callback ten-bit-changed(on: bool);
     callback begin();
     callback cancel();
     callback reveal();
@@ -182,7 +190,7 @@ export component ExportDialog inherits Modal {
                 VerticalLayout {
                     spacing: 1px;
 
-                    Fact { label: I18n.t("Format"); value: root.data.format + " · H.264"; }
+                    Fact { label: I18n.t("Format"); value: root.data.format + " · " + root.data.encoding; }
                     Fact { label: I18n.t("Duration"); value: root.data.duration; }
                     Fact { label: I18n.t("Contents"); value: root.data.contents; }
                 }
@@ -236,6 +244,33 @@ export component ExportDialog inherits Modal {
                     current: root.data.rate;
                     options: ["24 fps", "30 fps", "60 fps"];
                     changed(index) => { root.rate-changed(index); }
+                }
+            }
+
+            // The standard, not the encoder: which encoder makes it is the
+            // platform's business, and the Format line above says when
+            // the hardware one will.
+            DialogRow {
+                label: I18n.t("Codec");
+                Select {
+                    current: root.data.codec;
+                    options: ["H.264", "HEVC", "AV1"];
+                    details: [I18n.t("Plays everywhere"), I18n.t("Half the size"), I18n.t("Smallest")];
+                    changed(index) => { root.codec-changed(index); }
+                }
+            }
+
+            DialogRow {
+                label: I18n.t("10-bit colour");
+                HorizontalLayout {
+                    alignment: end;
+                    VerticalLayout {
+                        alignment: center;
+                        Switch {
+                            checked: root.data.ten-bit;
+                            toggled(on) => { root.ten-bit-changed(on); }
+                        }
+                    }
                 }
             }
         }

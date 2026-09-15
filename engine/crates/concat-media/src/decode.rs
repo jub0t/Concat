@@ -155,14 +155,93 @@ impl DecodeOptions {
     }
 }
 
+/// How a stream says its colour is encoded: the tags in its container,
+/// as libavcodec reads them. Unspecified where it says nothing, which is
+/// most SD and a lot of HD, and then it is taken for BT.709.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColorSignal {
+    /// The gamut.
+    pub primaries: ffmpeg::color::Primaries,
+    /// The transfer curve: BT.709 for SDR, PQ or HLG for HDR.
+    pub transfer: ffmpeg::color::TransferCharacteristic,
+    /// The YCbCr matrix.
+    pub matrix: ffmpeg::color::Space,
+    /// Video (16-235) or full range.
+    pub range: ffmpeg::color::Range,
+}
+
+impl ColorSignal {
+    /// Whether the picture is outside BT.709 as the engine works in it:
+    /// an HDR transfer, or the BT.2020 gamut. Both need converting on
+    /// the way in, or they arrive flat, dim and the wrong colour - the
+    /// 10-bit PQ file from a phone, decoded as if it were a 709 one.
+    pub fn is_wide(&self) -> bool {
+        use ffmpeg::color::{Primaries, TransferCharacteristic as Transfer};
+        matches!(self.transfer, Transfer::SMPTE2084 | Transfer::ARIB_STD_B67)
+            || self.primaries == Primaries::BT2020
+    }
+
+    /// Whether the transfer is a high dynamic range one: PQ or HLG.
+    pub fn is_hdr(&self) -> bool {
+        use ffmpeg::color::TransferCharacteristic as Transfer;
+        matches!(self.transfer, Transfer::SMPTE2084 | Transfer::ARIB_STD_B67)
+    }
+
+    /// The `scale` filter's arguments that bring a wide picture into
+    /// BT.709: the source's tags named where it has them - `auto` reads
+    /// the frames' own where it does not - and BT.709 out, tone-mapped
+    /// perceptually rather than clipped. swscale has done this itself
+    /// since FFmpeg 7.1, so it costs no library the bundles lack.
+    fn bt709_args(self) -> String {
+        use ffmpeg::color::{Primaries, Range, Space, TransferCharacteristic as Transfer};
+        let primaries = match self.primaries {
+            Primaries::BT2020 => "bt2020",
+            Primaries::BT709 => "bt709",
+            Primaries::SMPTE432 => "smpte432",
+            _ => "auto",
+        };
+        let transfer = match self.transfer {
+            Transfer::SMPTE2084 => "smpte2084",
+            Transfer::ARIB_STD_B67 => "arib-std-b67",
+            Transfer::BT2020_10 => "bt2020-10",
+            Transfer::BT2020_12 => "bt2020-12",
+            Transfer::BT709 => "bt709",
+            _ => "auto",
+        };
+        let matrix = match self.matrix {
+            Space::BT2020NCL => "bt2020nc",
+            Space::BT2020CL => "bt2020c",
+            Space::BT709 => "bt709",
+            _ => "auto",
+        };
+        let range = match self.range {
+            Range::MPEG => "tv",
+            Range::JPEG => "pc",
+            _ => "auto",
+        };
+        format!(
+            ":in_primaries={primaries}:in_transfer={transfer}:in_color_matrix={matrix}\
+             :in_range={range}:out_primaries=bt709:out_transfer=bt709\
+             :out_color_matrix=bt709:out_range=tv:intent=perceptual"
+        )
+    }
+}
+
 /// The filtergraph between the decoder and the caller, as one string.
 ///
 /// Rotation first, so everything downstream sees the picture the way a
-/// player would; then scale-to-fit; then the effect chain at output
+/// player would; then scale-to-fit, which is also where a wide or HDR
+/// picture is brought into BT.709; then the effect chain at output
 /// resolution (cheaper than filtering the source size, and parameters mean
 /// the same thing at every export size); then the guard scale that pins the
 /// frame size the caller was promised; then RGBA.
-fn video_filter(rotation: i64, options: &DecodeOptions, width: u32, height: u32) -> String {
+fn video_filter(
+    rotation: i64,
+    options: &DecodeOptions,
+    width: u32,
+    height: u32,
+    color: Option<&ColorSignal>,
+) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(turn) = ffi::rotation_filters(rotation) {
         parts.push(turn.to_owned());
@@ -170,7 +249,11 @@ fn video_filter(rotation: i64, options: &DecodeOptions, width: u32, height: u32)
     if let Some(pre) = &options.pre_chain {
         parts.push(pre.clone());
     }
-    parts.push(format!("scale={width}:{height}:flags=bilinear"));
+    let convert = color
+        .filter(|signal| signal.is_wide())
+        .map(|signal| signal.bt709_args())
+        .unwrap_or_default();
+    parts.push(format!("scale={width}:{height}:flags=bilinear{convert}"));
     if let Some(chain) = &options.filter_chain {
         parts.push(chain.clone());
         parts.push(format!("scale={width}:{height}:flags=bilinear"));
@@ -211,6 +294,8 @@ pub struct Decoder {
     source_done: bool,
     produced: u64,
     position: Option<Rational>,
+    /// What the stream says its colour is.
+    color: ColorSignal,
 }
 
 impl Decoder {
@@ -246,6 +331,12 @@ impl Decoder {
         if options.keyframes_only {
             decoder.skip_frame(ffmpeg::Discard::NonKey);
         }
+        let color = ColorSignal {
+            primaries: decoder.color_primaries(),
+            transfer: decoder.color_transfer_characteristic(),
+            matrix: decoder.color_space(),
+            range: decoder.color_range(),
+        };
 
         let (width, height) = match options.size {
             Some(size) => size,
@@ -277,6 +368,7 @@ impl Decoder {
             source_done: false,
             produced: 0,
             position: None,
+            color,
         };
         if let Some(start) = options.start
             && !start.is_zero()
@@ -432,7 +524,13 @@ impl Decoder {
                 "",
             )
             .map_err(|error| ffi::fail("buffer sink", &self.path, error))?;
-        let spec = video_filter(self.rotation, &self.options, self.width, self.height);
+        let spec = video_filter(
+            self.rotation,
+            &self.options,
+            self.width,
+            self.height,
+            Some(&self.color),
+        );
         graph
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))
@@ -516,6 +614,13 @@ impl Decoder {
     }
 }
 
+impl Decoder {
+    /// What the stream says its colour is; see [`ColorSignal`].
+    pub fn color(&self) -> ColorSignal {
+        self.color
+    }
+}
+
 impl FrameSource for Decoder {
     fn width(&self) -> u32 {
         self.width
@@ -575,7 +680,7 @@ mod tests {
             .scaled_to(640, 360)
             .filtered("hue=s=0");
         assert_eq!(
-            video_filter(0, &options, 640, 360),
+            video_filter(0, &options, 640, 360, None),
             "scale=640:360:flags=bilinear,hue=s=0,scale=640:360:flags=bilinear,format=rgba",
         );
     }
@@ -583,8 +688,91 @@ mod tests {
     #[test]
     fn rotation_comes_first() {
         let options = DecodeOptions::default();
-        assert!(video_filter(90, &options, 1080, 1920).starts_with("transpose=clock,"));
-        assert!(video_filter(0, &options, 1920, 1080).starts_with("scale="));
+        assert!(video_filter(90, &options, 1080, 1920, None).starts_with("transpose=clock,"));
+        assert!(video_filter(0, &options, 1920, 1080, None).starts_with("scale="));
+    }
+
+    #[test]
+    fn a_wide_picture_is_brought_into_bt709_and_a_709_one_is_left_alone() {
+        use ffmpeg::color::{Primaries, Range, Space, TransferCharacteristic as Transfer};
+        let options = DecodeOptions::default();
+        let sdr = ColorSignal {
+            primaries: Primaries::BT709,
+            transfer: Transfer::BT709,
+            matrix: Space::BT709,
+            range: Range::MPEG,
+        };
+        assert!(!sdr.is_wide());
+        assert_eq!(
+            video_filter(0, &options, 640, 360, Some(&sdr)),
+            "scale=640:360:flags=bilinear,format=rgba"
+        );
+        let hdr = ColorSignal {
+            primaries: Primaries::BT2020,
+            transfer: Transfer::SMPTE2084,
+            matrix: Space::BT2020NCL,
+            range: Range::MPEG,
+        };
+        assert!(hdr.is_wide() && hdr.is_hdr());
+        let spec = video_filter(0, &options, 640, 360, Some(&hdr));
+        assert!(spec.starts_with("scale=640:360:flags=bilinear:in_primaries=bt2020:in_transfer=smpte2084:in_color_matrix=bt2020nc:in_range=tv:out_primaries=bt709"), "{spec}");
+        assert!(spec.contains("intent=perceptual,format=rgba"), "{spec}");
+        // wide gamut with an SDR curve converts too, and the untagged
+        // half of it is left to the frames
+        let wide = ColorSignal {
+            primaries: Primaries::BT2020,
+            transfer: Transfer::Unspecified,
+            matrix: Space::Unspecified,
+            range: Range::Unspecified,
+        };
+        assert!(wide.is_wide() && !wide.is_hdr());
+        assert!(
+            video_filter(0, &options, 64, 64, Some(&wide))
+                .contains(":in_transfer=auto:in_color_matrix=auto:in_range=auto:")
+        );
+    }
+
+    /// A PQ-tagged ten-bit HEVC file, made with the encoder's own machinery,
+    /// decodes through the tone-map to frames that are neither the black
+    /// nor the blown-out white a curve mismatch gives.
+    #[test]
+    fn an_hdr_file_decodes_through_the_tone_map() {
+        use crate::encode::{EncodeOptions, Encoder, FrameSink, VideoCodec};
+        use ffmpeg::color::{Primaries, Space, TransferCharacteristic as Transfer};
+        if !VideoCodec::Hevc.available() {
+            eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+            return;
+        }
+        let path = std::env::temp_dir().join("concat-decode-hdr-test.mp4");
+        let options = EncodeOptions {
+            codec: VideoCodec::Hevc,
+            preset: "ultrafast".to_owned(),
+            crf: 20,
+            ten_bit: true,
+            hardware: false,
+        };
+        let mut encoder = Encoder::create_tagged(
+            &path,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &options,
+            (Primaries::BT2020, Transfer::SMPTE2084, Space::BT2020NCL),
+        )
+        .expect("an HEVC encoder");
+        let mut frame = Frame::black(64, 64);
+        frame.fill([180, 180, 180, 255]);
+        for _ in 0..3 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let mut decoder = Decoder::open(&path, &DecodeOptions::default()).expect("opens");
+        assert!(decoder.color().is_hdr(), "{:?}", decoder.color());
+        let decoded = decoder.next_frame().expect("decodes").expect("a frame");
+        let _ = std::fs::remove_file(&path);
+        let luma = decoded.pixels()[0];
+        assert!(luma > 8 && luma < 250, "tone-mapped grey came out {luma}");
     }
 
     #[test]

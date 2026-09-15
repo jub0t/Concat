@@ -11,7 +11,8 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-pub use concat_export::{ExportClip, ExportRequest, Reporter, render};
+use concat_export::{ExportClip, ExportRequest, Reporter, render};
+pub use concat_media::VideoCodec;
 
 use crate::jobs::{Job, SingleFlight};
 use crate::session::Session;
@@ -26,6 +27,10 @@ pub struct ExportSpec {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
+    /// What to encode to.
+    pub codec: VideoCodec,
+    /// Ten bits a channel rather than eight.
+    pub ten_bit: bool,
 }
 
 /// One progress report: which frame of how many, in which stage.
@@ -52,6 +57,8 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         rate_den: settings.rate_den,
         crf: spec.crf,
         preset: spec.preset.clone(),
+        codec: spec.codec,
+        ten_bit: spec.ten_bit,
         clips,
     }
 }

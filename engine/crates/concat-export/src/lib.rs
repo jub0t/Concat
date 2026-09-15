@@ -35,7 +35,9 @@ use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
-use concat_media::{DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource};
+use concat_media::{
+    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, VideoCodec,
+};
 use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{
     Compositor, CpuCompositor, Layer, Placement, Treatment as GpuTreatment, plan_frame,
@@ -271,8 +273,26 @@ pub struct ExportRequest {
     pub crf: u8,
     /// The x264 speed/size preset name, e.g. "medium".
     pub preset: String,
+    /// What to encode to, by name: "h264", "hevc" or "av1". H.264 when a
+    /// request does not say.
+    #[serde(default, deserialize_with = "codec_by_name")]
+    pub codec: VideoCodec,
+    /// Ten bits a channel rather than eight.
+    #[serde(default)]
+    pub ten_bit: bool,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
+}
+
+/// A codec named the way [`VideoCodec::name`] names it, refusing a name
+/// the engine has no encoder for rather than quietly falling back.
+fn codec_by_name<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<VideoCodec, D::Error> {
+    let name = String::deserialize(deserializer)?;
+    VideoCodec::parse(&name).ok_or_else(|| {
+        serde::de::Error::custom(format!("unknown codec {name:?}: h264, hevc or av1"))
+    })
 }
 
 /// What the export loop calls to report and to ask "should I stop?".
@@ -963,7 +983,9 @@ fn render_picture(
         &EncodeOptions {
             crf: request.crf,
             preset: request.preset.clone(),
-            ..EncodeOptions::default()
+            codec: request.codec,
+            ten_bit: request.ten_bit,
+            hardware: true,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -1885,6 +1907,8 @@ pub fn preview_plan(
         rate_den,
         crf: 18,
         preset: String::new(),
+        codec: VideoCodec::H264,
+        ten_bit: false,
         clips: Vec::new(),
     };
     PreviewPlan {

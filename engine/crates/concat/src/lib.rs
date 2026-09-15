@@ -935,6 +935,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_export_quality_changed(on_window!(|state, index: i32| {
         state.export.quality = (index.max(0) as usize).min(2);
     }));
+    app.on_export_codec_changed(on_window!(|state, index: i32| {
+        state.export.codec = (index.max(0) as usize).min(2);
+    }));
+    app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
+        state.export.ten_bit = on;
+    }));
     app.on_export_again(on_window!(|state| {
         state.export.phase = ExportPhase::Idle;
         state.export.progress = 0.0;

@@ -309,6 +309,11 @@ impl Api {
 
         let session = self.session(path)?;
         let titles = self.title_clips(session, width, height);
+        let codec = match spec.codec.as_deref() {
+            None => export::VideoCodec::H264,
+            Some(name) => export::VideoCodec::parse(name)
+                .ok_or_else(|| format!("unknown codec {name:?}: h264, hevc or av1"))?,
+        };
         let host_spec = export::ExportSpec {
             output: spec.output.clone(),
             crf: spec.crf.unwrap_or(DEFAULT_CRF),
@@ -316,6 +321,8 @@ impl Api {
                 .preset
                 .clone()
                 .unwrap_or_else(|| DEFAULT_PRESET.to_owned()),
+            codec,
+            ten_bit: spec.ten_bit.unwrap_or(false),
         };
         let mut request = export::request(session, &host_spec, titles);
         request.width = width;

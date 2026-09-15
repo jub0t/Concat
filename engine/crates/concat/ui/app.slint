@@ -176,6 +176,8 @@ export component App inherits Window {
     callback export-resolution-changed(index: int);
     callback export-rate-changed(index: int);
     callback export-quality-changed(index: int);
+    callback export-codec-changed(index: int);
+    callback export-ten-bit-changed(on: bool);
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -441,6 +443,8 @@ export component App inherits Window {
         resolution-changed(index) => { root.export-resolution-changed(index); }
         rate-changed(index) => { root.export-rate-changed(index); }
         quality-changed(index) => { root.export-quality-changed(index); }
+        codec-changed(index) => { root.export-codec-changed(index); }
+        ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }
