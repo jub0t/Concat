@@ -89,6 +89,16 @@ releases - including espeak-ng's data files. Concat mirrors those bundles
 and downloads them on demand from that mirror, and never bundles them with
 the app. See "The model mirror" below.
 
+## ONNX Runtime
+
+The cutout models run on Microsoft's ONNX Runtime
+(https://github.com/microsoft/onnxruntime, MIT), through the `ort` crate
+(https://github.com/pykeio/ort, MIT or Apache-2.0). On macOS, Windows and
+the phones it is linked into the app from pyke's builds of it; the Linux
+bundles ship Microsoft's own shared build of the same version beside the
+binary, in `lib/`, and its licence is in the release it was taken from
+(https://github.com/microsoft/onnxruntime/releases).
+
 ## The cutout models
 
 Remove background runs three models, none of which ship inside the app
