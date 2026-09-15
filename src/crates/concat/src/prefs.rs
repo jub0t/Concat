@@ -7,6 +7,7 @@
 //! defaults, never an error.
 
 use concat_host::AppDirs;
+use concat_host::hardware::Tier;
 use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.json";
@@ -45,6 +46,13 @@ pub struct Preferences {
     /// The Concat API on a socket while the window is open.
     #[serde(default)]
     pub server: ServerPrefs,
+    /// This machine's detected performance tier, cached from the first run
+    /// so it is never re-probed - see `Studio::new` and
+    /// `concat_host::hardware::detect`. `None` means undetected, either
+    /// because this is the first run or because an older settings file
+    /// predates the detector; either way `Studio::new` fills it in and
+    /// saves it back.
+    pub hardware_tier: Option<Tier>,
 }
 
 /// The Settings sheet's Remote page: whether the API is served while the

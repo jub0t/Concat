@@ -38,6 +38,10 @@ serde_json.workspace = true
 # decoded PCM disk-backed instead of resident.
 cpal = "0.16"
 memmap2 = "0.9"
+# CPU and RAM facts for the hardware-tier detector; see hardware.rs. Only the
+# CPU and memory backends are built - no processes, no disks, no network -
+# because that is all `hardware::detect` reads.
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 
 [lints]
 workspace = true

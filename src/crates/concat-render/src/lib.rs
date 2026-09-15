@@ -16,6 +16,11 @@
 pub mod compositor;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+// Unconditional: `AdapterKind` names a fact about a GPU, not the wgpu tree
+// itself, so a caller who never turns `gpu` on can still hold and store one
+// - `concat_host::hardware`'s cached tier does exactly that. Only what
+// actually reads an adapter (`kind_of`, `probe_adapter`) needs the feature.
+pub mod hardware;
 pub mod plan;
 
 pub use compositor::{Compositor, CpuCompositor, Layer, Placement, Treatment};

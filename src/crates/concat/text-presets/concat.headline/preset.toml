@@ -1,0 +1,6 @@
+id = "concat.headline"
+name = "Headline"
+
+[style]
+fontSize = 0.12
+strokeWidth = 0.008

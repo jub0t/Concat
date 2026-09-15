@@ -1,0 +1,11 @@
+[effect]
+id = "concat.wipe-left"
+name = "Wipe Left"
+kind = "transition"
+category = "Motion"
+order = 0
+aliases = ["wipe-left"]
+description = "A straight edge sweeps across the overlap, uncovering the incoming picture behind it."
+
+[transition]
+wipe = "left"

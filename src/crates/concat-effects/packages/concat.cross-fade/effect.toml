@@ -1,0 +1,10 @@
+[effect]
+id = "concat.cross-fade"
+name = "Cross Fade"
+kind = "transition"
+category = "Basic"
+order = 0
+aliases = ["cross-fade"]
+description = "The outgoing picture dissolves into the incoming one."
+
+[transition]

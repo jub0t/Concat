@@ -32,6 +32,11 @@ pub struct Manifest {
     /// `lut()`, and a chain names its file as `{lut}`.
     #[serde(default)]
     pub lut: Option<LutTable>,
+    /// How a transition renders, when the package is one. Its own backend:
+    /// a transition has no `[ffmpeg]` chain, because what it does is shape
+    /// the cut itself, not filter one clip's pixels.
+    #[serde(default)]
+    pub transition: Option<Transition>,
 }
 
 /// The `[lut]` table: a `.cube` file beside the manifest.
@@ -186,6 +191,103 @@ pub struct Ffmpeg {
     pub chain: String,
 }
 
+/// The `[transition]` table: how a transition renders. Every kind but a
+/// dual-texture blend (not yet possible - see the crate's shader prelude)
+/// decomposes into shapes the engine already knows how to play: a property
+/// "ride" on one or both clips across the cut's overlap, that overlap's
+/// plain dissolve, a wipe's moving edge, or two independent fades to a
+/// shared colour with no overlap at all. `concat-export`'s
+/// `resolve_transitions` is what actually plays these.
+#[derive(Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Transition {
+    /// Property rides, one entry per animated property per side. Both
+    /// clips ride the same seconds across the overlap, so a shape that
+    /// keys one side keys the other too.
+    #[serde(default, rename = "ride")]
+    pub rides: Vec<Ride>,
+    /// Also fades the incoming clip in across the overlap, alongside the
+    /// rides. Meaningless without at least one ride.
+    #[serde(default)]
+    pub dissolve: bool,
+    /// A straight edge sweeping across the overlap, uncovering the incoming
+    /// clip behind it. Only baked at export; the monitor shows the plain
+    /// dissolve every unshaped overlap falls back to.
+    #[serde(default)]
+    pub wipe: Option<Direction>,
+    /// No overlap at all: the outgoing clip fades out to this colour and
+    /// the incoming clip fades in from it, independently. Only baked at
+    /// export, for the reason `wipe` is.
+    #[serde(default)]
+    pub fade: Option<Colour>,
+}
+
+/// Which clip a ride plays on: the incoming clip rides from its (extended)
+/// head, the outgoing clip from its tail - the two ends that actually touch
+/// across the overlap.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    /// The clip the cut is transitioning into.
+    Incoming,
+    /// The clip the cut is transitioning out of.
+    Outgoing,
+}
+
+/// One `[[transition.ride]]`: an animated property key pair across the
+/// overlap, on one side of the cut.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Ride {
+    /// Which clip this key pair plays on.
+    pub side: Side,
+    /// The animation property to key, e.g. "offsetX" or "scale" - the same
+    /// vocabulary a clip's own animation keys use.
+    pub property: String,
+    /// The value at the start of the ride.
+    pub from: f64,
+    /// The value at the end of the ride.
+    pub to: f64,
+    /// The timing function into the second key.
+    #[serde(default)]
+    pub ease: Ease,
+}
+
+/// A ride's timing function, the CSS names an editor's user already knows.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Ease {
+    /// A straight line.
+    #[default]
+    Linear,
+    /// Starts slow.
+    EaseIn,
+    /// Ends slow.
+    EaseOut,
+    /// Slow at both ends.
+    EaseInOut,
+}
+
+/// Which edge a wipe sweeps from.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    /// The edge starts at the left and moves right.
+    Left,
+    /// The edge starts at the right and moves left.
+    Right,
+}
+
+/// The colour a fade-to-colour transition passes through.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Colour {
+    /// Through black.
+    Black,
+    /// Through white.
+    White,
+}
+
 /// The `[wgsl]` table: a shader.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
@@ -327,15 +429,41 @@ impl Manifest {
             )));
         }
         // Both backends may be present: the shader renders wherever there
-        // is a GPU, and the chain is what a machine without one gets.
-        if self.ffmpeg.is_none() && self.wgsl.is_none() {
-            return Err(self.invalid("no backend: add an [ffmpeg] or a [wgsl] table"));
+        // is a GPU, and the chain is what a machine without one gets. A
+        // transition's backend is `[transition]` instead - see below.
+        if self.ffmpeg.is_none() && self.wgsl.is_none() && self.transition.is_none() {
+            return Err(
+                self.invalid("no backend: add an [ffmpeg], a [wgsl] or a [transition] table")
+            );
         }
         if self.ffmpeg.is_some() && matches!(self.effect.kind, Kind::Transition | Kind::Generator) {
             return Err(self.invalid("an [ffmpeg] package must be an effect, a filter or audio"));
         }
         if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
             return Err(self.invalid("a [wgsl] package cannot be audio"));
+        }
+        if let Some(transition) = &self.transition {
+            if self.effect.kind != Kind::Transition {
+                return Err(self.invalid("[transition] is only for kind = \"transition\""));
+            }
+            let shapes = [
+                !transition.rides.is_empty(),
+                transition.wipe.is_some(),
+                transition.fade.is_some(),
+            ];
+            if shapes.iter().filter(|shaped| **shaped).count() > 1 {
+                return Err(
+                    self.invalid("a transition may use a ride, a wipe or a fade, not more than one")
+                );
+            }
+            if transition.dissolve && transition.rides.is_empty() {
+                return Err(self.invalid("dissolve needs at least one ride"));
+            }
+            for ride in &transition.rides {
+                if ride.property.trim().is_empty() {
+                    return Err(self.invalid("a ride's property is empty"));
+                }
+            }
         }
         Ok(())
     }

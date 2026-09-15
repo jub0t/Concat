@@ -1,0 +1,8 @@
+id = "concat.minimal"
+name = "Minimal"
+
+[style]
+fontSize = 0.06
+fontWeight = 400
+tracking = 0.03
+shadow = false

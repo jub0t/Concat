@@ -46,13 +46,13 @@ use concat_host::export::{self, Exporter};
 use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::EditorView;
 use concat_host::templates::{self, SlotFill};
-use concat_host::{ProjectInfo, Session, Titles, media, projects};
+use concat_host::{ProjectInfo, Session, Titles, hardware, media, projects};
 use concat_project::Command;
 use concat_project::model::VideoSettings;
 
 pub use message::{
-    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, PackageInfo, ParamInfo,
-    Picture, Reply, Request, Response, Started, VersionInfo, Written,
+    API_VERSION, ApiError, Dirs, Done, ErrorCode, Event, ExportSpec, Fill, HardwareInfo,
+    PackageInfo, ParamInfo, Picture, Reply, Request, Response, Started, VersionInfo, Written,
 };
 
 /// The export sheet's middle quality, and what an export gets when the
@@ -163,6 +163,7 @@ impl Api {
             }
             Request::MediaImport { path, file } => view(self.import(&path, &file)?),
             Request::CatalogueList { kind } => Ok(Reply::Packages(catalogue(kind.as_deref())?)),
+            Request::HardwareProfile => Ok(Reply::Hardware(hardware())),
             Request::TemplateList => Ok(Reply::Templates(templates::list(&self.dirs.config))),
             Request::TemplateInstantiate {
                 template,
@@ -642,6 +643,23 @@ fn catalogue(kind: Option<&str>) -> Result<Vec<PackageInfo>, ApiError> {
         .collect();
     packages.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(packages)
+}
+
+/// [`Request::HardwareProfile`]: the machine's tier, probed fresh - there is
+/// no window here to hand over an already-acquired adapter, so a build with
+/// the crate's `gpu` feature on probes one of its own; without it the
+/// reply's `gpu` is `None`, not a lie.
+fn hardware() -> HardwareInfo {
+    let profile = hardware::detect(None);
+    HardwareInfo {
+        cpu_threads: profile.cpu_threads,
+        ram_gb: profile.ram_gb,
+        gpu: profile
+            .gpu
+            .map(|kind| format!("{kind:?}").to_ascii_lowercase()),
+        gpu_name: profile.gpu_name,
+        tier: format!("{:?}", profile.tier).to_ascii_lowercase(),
+    }
 }
 
 /// The key a project folder is held under: its canonical path where the

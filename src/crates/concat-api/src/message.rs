@@ -164,6 +164,13 @@ pub enum Request {
         kind: Option<String>,
     },
 
+    /// This machine's detected performance tier and the facts it is built
+    /// from - the same detector `concat::studio` runs once at launch and
+    /// caches, run fresh here every time. Not project-scoped: this is a fact
+    /// about the machine, not about anything open.
+    #[serde(rename = "hardware.profile")]
+    HardwareProfile,
+
     /// The template library.
     #[serde(rename = "template.list")]
     TemplateList,
@@ -294,6 +301,8 @@ pub enum Reply {
     Media(MediaSummary),
     /// [`Request::CatalogueList`].
     Packages(Vec<PackageInfo>),
+    /// [`Request::HardwareProfile`].
+    Hardware(HardwareInfo),
     /// [`Request::TemplateList`].
     Templates(Vec<TemplateInfo>),
     /// [`Request::TemplateSave`].
@@ -378,6 +387,23 @@ pub struct Picture {
 /// The empty reply, an object so every reply is one.
 #[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct Done {}
+
+/// [`Request::HardwareProfile`]: what `concat_host::hardware::detect` found.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareInfo {
+    /// Logical CPU threads.
+    pub cpu_threads: usize,
+    /// System memory, in gigabytes.
+    pub ram_gb: f32,
+    /// "discrete", "integrated", "virtual", "cpu" or "other"; absent when
+    /// this build has no GPU probe compiled in.
+    pub gpu: Option<String>,
+    /// The adapter's own name, when one was found.
+    pub gpu_name: Option<String>,
+    /// "low", "mainstream", "high" or "enthusiast".
+    pub tier: String,
+}
 
 /// One effect package, as a caller building a chain needs it.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]

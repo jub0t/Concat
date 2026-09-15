@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! Compiles the `.slint` tree into the binary and records three facts about
-//! the build for Settings > About.
+//! Compiles the `.slint` tree into the binary, embeds the built-in text
+//! presets, and records three facts about the build for Settings > About.
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
 
 fn main() {
+    embed_text_presets();
     // Fonts and images are compiled into the binary rather than read off disk
     // at run time.
     //
@@ -65,4 +69,42 @@ fn main() {
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=BUILD_RUSTC={version}");
+}
+
+/// Embeds every built-in text preset under `text-presets/`, the same way
+/// `concat-effects`'s `build.rs` embeds effect packages: each folder holds a
+/// `preset.toml`, and this script lists them and writes a table of
+/// `include_str!`s, so adding a built-in preset is adding a folder - nothing
+/// in Rust names it.
+fn embed_text_presets() {
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    let presets = root.join("text-presets");
+    println!("cargo:rerun-if-changed={}", presets.display());
+
+    let mut ids: Vec<String> = std::fs::read_dir(&presets)
+        .expect("text-presets/ exists")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().join("preset.toml").is_file())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    ids.sort();
+
+    let mut table = String::from(
+        "/// Every built-in text preset: its folder name and its TOML.\n\
+         pub(crate) static BUILTIN_PRESET_SOURCES: &[(&str, &str)] = &[\n",
+    );
+    for id in &ids {
+        let path = presets.join(id).join("preset.toml");
+        println!("cargo:rerun-if-changed={}", path.display());
+        writeln!(
+            table,
+            "    ({id:?}, include_str!({:?})),",
+            path.display().to_string()
+        )
+        .expect("write");
+    }
+    table.push_str("];\n");
+
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("out dir")).join("text_presets.rs");
+    std::fs::write(out, table).expect("write text_presets.rs");
 }

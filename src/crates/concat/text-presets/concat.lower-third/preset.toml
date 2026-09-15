@@ -1,0 +1,12 @@
+id = "concat.lower-third"
+name = "Lower third"
+offsetY = 0.32
+
+[style]
+content = "Name — Title"
+fontSize = 0.05
+fontWeight = 600
+color = "#10160a"
+align = "left"
+background = "#c6f432"
+shadow = false

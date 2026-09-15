@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
+use concat_host::hardware::Tier;
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
 use concat_host::{
@@ -583,6 +584,10 @@ pub struct Models {
     pub recents: Rc<VecModel<RecentProjectData>>,
     /// The Text page's presets, published once from the loaded list.
     pub text_presets: Rc<VecModel<TextPresetData>>,
+    /// The Transitions page's two shelves, from the catalogue's transition
+    /// packages - see `transition_items`.
+    pub transitions_basic: Rc<VecModel<CatalogueItemData>>,
+    pub transitions_motion: Rc<VecModel<CatalogueItemData>>,
 }
 
 impl Models {
@@ -621,6 +626,8 @@ impl Models {
             dividers: Rc::new(VecModel::default()),
             recents: Rc::new(VecModel::default()),
             text_presets: Rc::new(VecModel::default()),
+            transitions_basic: Rc::new(VecModel::default()),
+            transitions_motion: Rc::new(VecModel::default()),
         }
     }
 }
@@ -970,6 +977,39 @@ fn shelves(
             .collect(),
         entries,
     )
+}
+
+/// The monitor-quality and export-quality index a detected hardware tier
+/// starts at: 0 full/best, 1 half/middle, 2 quarter/leanest - the same
+/// tunable starting point for both, since a machine too light for full
+/// preview resolution is also too light to default to the biggest export
+/// bitrate. `None` (a build too old to have detected anything, or one that
+/// somehow never got the chance) keeps today's plain default.
+fn default_quality(tier: Option<Tier>) -> usize {
+    match tier {
+        Some(Tier::Low) => 2,
+        Some(Tier::Mainstream) => 1,
+        Some(Tier::High) | Some(Tier::Enthusiast) => 0,
+        None => 1,
+    }
+}
+
+/// One shelf of the Transitions page: every transition package whose
+/// category is `category`, in catalogue order. The page has no search, no
+/// groups and no favourites - just the two shelves the catalogue's own
+/// `category` field already sorts packages into.
+fn transition_items(category: &str) -> Vec<CatalogueItemData> {
+    Catalogue::builtin()
+        .of_kind(PackageKind::Transition)
+        .filter(|package| package.manifest.effect.category == category)
+        .map(|package| CatalogueItemData {
+            id: package.id().into(),
+            label: t(&package.manifest.effect.name).into(),
+            enabled: true,
+            art: slint::Image::default(),
+            glyph: Glyph::Transition,
+        })
+        .collect()
 }
 
 /// How a manifest's unit is read out. Anything the inspector has no words
@@ -1351,13 +1391,25 @@ impl Studio {
     /// A window with nothing open: the launch screen, with the recents list
     /// read off disk.
     pub fn new(host: Host) -> Self {
-        let prefs = Preferences::load(&host.dirs);
+        let mut prefs = Preferences::load(&host.dirs);
+        // Detected once, ever: a fresh settings file (or one from before
+        // this existed) gets a tier filled in and saved back immediately,
+        // so every later launch reads it from `prefs` instead of probing
+        // the machine again. `quality_of` and the export sheet's own tier
+        // still override it - this only sets where they start.
+        if prefs.hardware_tier.is_none() {
+            let profile = concat_host::hardware::detect(host.gpu_kind.clone());
+            prefs.hardware_tier = Some(profile.tier);
+            prefs.save(&host.dirs);
+        }
         // The words first, so everything published from here on is in
         // the remembered language.
         i18n::select(prefs.locale.as_deref().unwrap_or(i18n::ENGLISH), &host.dirs);
         let languages = i18n::languages(&host.dirs);
         let recents = projects::list(&host.dirs.config);
         let text_presets = presets::all(&host.dirs);
+        let mut export = crate::panes::export::ExportPane::default();
+        export.quality = default_quality(prefs.hardware_tier);
         let mut studio = Self {
             prefs,
             library: Default::default(),
@@ -1395,7 +1447,7 @@ impl Studio {
             preview_busy: false,
             preview_wanted: false,
             preview_failed: false,
-            export: Default::default(),
+            export,
             settings: SettingsState::default(),
             relink: RelinkState::default(),
             transcribers: Vec::new(),
@@ -1497,7 +1549,7 @@ impl Studio {
         self.quality
             .get(&self.project().active_timeline_id)
             .copied()
-            .unwrap_or(1)
+            .unwrap_or_else(|| default_quality(self.prefs.hardware_tier))
     }
 
     /// Picks the monitor's quality tier for the active timeline.
@@ -6632,6 +6684,8 @@ impl Studio {
                 shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
             sync(&models.audio_groups, groups);
             sync(&models.catalogue_audio, entries);
+            sync(&models.transitions_basic, transition_items("Basic"));
+            sync(&models.transitions_motion, transition_items("Motion"));
             *self.shelf_stamp.borrow_mut() = Some(stamp);
         }
         sync(

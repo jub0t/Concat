@@ -51,6 +51,10 @@ pub struct Host {
     /// own sessions, apart from the window's: a caller edits projects of
     /// its own, not the one on screen.
     pub server: Option<concat_server::Server>,
+    /// The window's own adapter, read once here before its device moves into
+    /// the monitor - `concat_host::hardware::detect`'s hint, so detecting
+    /// the machine's tier never has to ask wgpu for a second adapter.
+    pub gpu_kind: Option<(concat_render::hardware::AdapterKind, String)>,
 }
 
 impl Host {
@@ -61,6 +65,13 @@ impl Host {
     pub fn start(gpu: Option<Gpu>) -> Result<Host, String> {
         let dirs = AppDirs::locate()?;
         let _ = std::fs::create_dir_all(&dirs.config);
+        // Read before `gpu.device`/`gpu.queue` move into the monitor below -
+        // this is the only adapter the window ever acquires, and the
+        // hardware detector reads it rather than asking wgpu again.
+        let gpu_kind = gpu.as_ref().map(|gpu| {
+            let info = gpu.adapter.get_info();
+            (concat_render::hardware::kind_of(&info), info.name)
+        });
         Ok(Host {
             titles: concat_host::Titles::new(&dirs),
             cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
@@ -75,6 +86,7 @@ impl Host {
             transcriber: Arc::new(Transcriber::new()),
             speech: Arc::new(Speech::new()),
             server: None,
+            gpu_kind,
         })
     }
 }

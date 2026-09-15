@@ -1,0 +1,9 @@
+id = "concat.caption"
+name = "Caption"
+offsetY = 0.35
+
+[style]
+fontSize = 0.05
+fontWeight = 600
+color = "#ffe14a"
+strokeWidth = 0.006
