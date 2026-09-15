@@ -599,6 +599,13 @@ pub enum Command {
         /// The family to unregister.
         family: String,
     },
+    /// Updates a media item's path on disk (relink). An unknown id is a no-op.
+    UpdateMediaPath {
+        /// The media item to update.
+        media_id: String,
+        /// The new absolute path on disk.
+        new_path: String,
+    },
 }
 
 /// What a command produced, beyond the new state: the ids it minted, so the
@@ -2106,6 +2113,18 @@ pub fn apply(
             let font_count = project.fonts.len();
             project.fonts.retain(|font| font.family != family);
             let applied = project.fonts.len() != font_count;
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::UpdateMediaPath { media_id, new_path } => {
+            let applied = project
+                .media
+                .iter_mut()
+                .find(|item| item.id == media_id)
+                .is_some_and(|item| assign(&mut item.path, new_path));
             Ok(Outcome {
                 created_id: None,
                 applied,

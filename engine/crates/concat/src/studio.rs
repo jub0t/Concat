@@ -277,6 +277,13 @@ pub struct SettingsState {
     pub playhead_stops: bool,
 }
 
+/// The missing media relink dialog state.
+#[derive(Default)]
+pub struct RelinkState {
+    pub open: bool,
+    pub items: Vec<concat_project::model::MissingMedia>,
+}
+
 /// The bottom-right notice: one at a time. The token is what the panel
 /// watches, bumped per notice so the same sentence said twice blinks twice.
 #[derive(Default)]
@@ -685,6 +692,7 @@ pub struct Studio {
     // ── the sheets and menus ──
     pub export: ExportState,
     pub settings: SettingsState,
+    pub relink: RelinkState,
     pub transcribers: Vec<ModelState>,
     pub voices: Vec<ModelState>,
     pub open_menu: i32,
@@ -1355,6 +1363,7 @@ impl Studio {
             preview_failed: false,
             export: ExportState::default(),
             settings: SettingsState::default(),
+            relink: RelinkState::default(),
             transcribers: Vec::new(),
             voices: Vec::new(),
             open_menu: -1,
@@ -4714,12 +4723,135 @@ impl Studio {
                 self.request_preview();
                 self.ensure_cutouts();
                 self.ensure_regions();
+
+                // Log missing media to file for debugging
+                if let Some(session) = &self.session {
+                    let missing = session.project().missing_media();
+                    if !missing.is_empty() {
+                        let log_path = std::path::Path::new(&info.path)
+                            .join("cache")
+                            .join("missing_media.log");
+                        if let Ok(mut file) = std::fs::File::create(&log_path) {
+                            use std::io::Write;
+                            let _ = writeln!(file, "{} media files missing:", missing.len());
+                            for m in &missing {
+                                let _ = writeln!(file, "  - {} ({})", m.name, m.path);
+                            }
+                        }
+
+                        // Open relink dialog
+                        self.relink.open = true;
+                        self.relink.items = missing;
+                    }
+                }
             }
             Err(error) => {
                 self.start.busy = false;
                 self.start.error = error;
             }
         }
+    }
+
+    /// Relinks missing media by searching a folder (recursively) for files
+    /// whose basename matches. The user picks one folder; each missing item
+    /// looks for its own filename inside it. Successful relinks go through
+    /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
+    pub fn relink_all(&mut self) {
+        use concat_project::commands::Command;
+
+        let Some(folder) = crate::platform::pick_folder(
+            &crate::i18n::t("Select folder containing media files"),
+            "",
+        ) else {
+            return;
+        };
+
+        // Snapshot the missing list now: as relinks land the list shrinks,
+        // and we want a stable target for the toast count.
+        let items: Vec<(String, String)> = self
+            .relink
+            .items
+            .iter()
+            .map(|m| (m.id.clone(), m.path.clone()))
+            .collect();
+        let total = items.len();
+        if total == 0 {
+            self.relink.open = false;
+            return;
+        }
+
+        // Build a basename -> full path index of every file under the folder
+        // so the per-item lookup is O(1) rather than a walk each time.
+        let mut index: std::collections::HashMap<String, std::path::PathBuf> =
+            std::collections::HashMap::new();
+        let mut stack = vec![folder.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    // First match wins: if the user has duplicates, the one
+                    // closest to the root is the most likely correct copy.
+                    index.entry(name.to_owned()).or_insert(path);
+                }
+            }
+        }
+
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+
+        let mut relinked = 0usize;
+        let mut commands: Vec<Command> = Vec::new();
+        for (id, path) in items {
+            let Some(basename) = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_owned())
+            else {
+                continue;
+            };
+            if let Some(found) = index.get(&basename) {
+                commands.push(Command::UpdateMediaPath {
+                    media_id: id,
+                    new_path: found.to_string_lossy().to_string(),
+                });
+                relinked += 1;
+            }
+        }
+
+        if !commands.is_empty() {
+            if let Err(error) = session.apply(Command::Batch { commands }) {
+                self.notify(&format!("Relink failed: {error}"), true);
+                return;
+            }
+            self.dirty = true;
+            self.revision += 1;
+        }
+
+        // Re-check what is still missing: the dialog updates to the
+        // remainder (often empty, in which case it closes).
+        let remaining = session.project().missing_media();
+        if remaining.is_empty() {
+            self.relink.open = false;
+            self.relink.items.clear();
+        } else {
+            self.relink.items = remaining;
+        }
+
+        self.notify(
+            &format!(
+                "Relinked {relinked} of {total} file{}",
+                if total == 1 { "" } else { "s" }
+            ),
+            false,
+        );
+        self.request_media_art();
+        self.request_preview();
     }
 
     pub fn create_project(&mut self) {
@@ -6516,6 +6648,22 @@ impl Studio {
                     .chain(self.voices.iter())
                     .filter(|model| model.installed)
                     .collect();
+
+                let relink_data = RelinkData {
+                    open: self.relink.open,
+                    items: slint::ModelRc::new(VecModel::from(
+                        self.relink
+                            .items
+                            .iter()
+                            .map(|item| MissingMediaItem {
+                                id: item.id.clone().into(),
+                                name: item.name.clone().into(),
+                                path: item.path.clone().into(),
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                };
+                app.set_relink(relink_data);
                 let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
                 tf(
                     "{0} installed · {1} MB on disk",

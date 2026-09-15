@@ -40,7 +40,7 @@ mod tests {
     use crate::commands::{ClipMove, ClipPatch, Command, NewMedia, TrackFlag, TrimEdge};
     use crate::doc::DocumentSettings;
     use crate::editor::Editor;
-    use crate::model::{AudioTrack, ClipKind, MediaKind, TextStyle};
+    use crate::model::{AudioTrack, ClipKind, MediaItem, MediaKind, Project, TextStyle};
 
     fn media(path: &str, duration: f64, has_audio: bool) -> Command {
         Command::AddMedia {
@@ -1811,5 +1811,67 @@ mod tests {
             .video_effects[0];
         assert!(!link.is_keyed("exposure"));
         assert_eq!(link.value_at("exposure", 0.5, 0.0), 1.0);
+    }
+
+    #[test]
+    fn missing_media_detects_nonexistent_paths() {
+        let mut project = Project::new();
+
+        // Dodaj media item s nepostojećom pathom
+        let id = "m1".to_owned();
+        project.media.push(MediaItem {
+            id: id.clone(),
+            path: "/does/not/exist.mp4".to_owned(),
+            name: "Missing Clip".to_owned(),
+            duration: Some(10.0),
+            kind: MediaKind::Video,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: None,
+            frame_rate_fraction: None,
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: vec![],
+            placeholder: false,
+        });
+
+        let missing = project.missing_media();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].id, "m1");
+        assert_eq!(missing[0].name, "Missing Clip");
+        assert_eq!(missing[0].path, "/does/not/exist.mp4");
+    }
+
+    #[test]
+    fn missing_media_ignores_existing_paths() {
+        let mut project = Project::new();
+
+        // Koristi Cargo.toml koji sigurno postoji
+        let existing = std::env::current_dir()
+            .unwrap()
+            .join("Cargo.toml")
+            .to_string_lossy()
+            .to_string();
+
+        project.media.push(MediaItem {
+            id: "m2".to_owned(),
+            path: existing,
+            name: "Existing Clip".to_owned(),
+            duration: Some(5.0),
+            kind: MediaKind::Video,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: None,
+            frame_rate_fraction: None,
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: vec![],
+            placeholder: false,
+        });
+
+        let missing = project.missing_media();
+        assert_eq!(missing.len(), 0);
     }
 }

@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, DialogSection, Modal } from "../primitives/modal.slint";
+
+export struct MissingMediaItem {
+    id: string,
+    name: string,
+    path: string,
+}
+
+export struct RelinkData {
+    open: bool,
+    items: [MissingMediaItem],
+}
+
+export component RelinkDialog inherits Modal {
+    in property <RelinkData> data;
+
+    callback relink-all();
+    callback dismiss();
+
+    open: root.data.open;
+    title: I18n.t("Missing Media");
+    glyph: Glyph.info;
+    surface-width: 600px;
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: I18n.t1("{0} media file(s) not found", "" + data.items.length);
+
+            Text {
+                text: I18n.t("The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.");
+                color: Theme.fg;
+                wrap: word-wrap;
+            }
+
+            Flickable {
+                height: 200px;
+                viewport-height: items-layout.preferred-height;
+
+                items-layout := VerticalLayout {
+                    spacing: 4px;
+                    
+                    for item in root.data.items : Rectangle {
+                        height: 40px;
+                        background: Theme.field;
+                        border-radius: 4px;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            alignment: start;
+
+                            VerticalLayout {
+                                alignment: center;
+
+                                Text {
+                                    text: item.name;
+                                    color: Theme.fg;
+                                    font-size: Theme.fs;
+                                    overflow: elide;
+                                }
+
+                                Text {
+                                    text: item.path;
+                                    color: Theme.fg-dim;
+                                    font-size: Theme.fs-sm;
+                                    font-family: Theme.font-technical;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+
+            Button {
+                primary: false;
+                label: I18n.t("Dismiss");
+                clicked => { root.dismiss(); }
+            }
+
+            Button {
+                primary: true;
+                label: I18n.t("Relink All…");
+                clicked => { root.relink-all(); }
+            }
+        }
+    }
+}

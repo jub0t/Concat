@@ -667,5 +667,16 @@
   "{0} months ago": "{0} 個月前",
   "{0} strokes": "{0} 筆筆畫",
   "{0}m {1}s left": "剩餘 {0} 分 {1} 秒",
-  "{0}s left": "剩餘 {0} 秒"
+  "{0}s left": "剩餘 {0} 秒",
+  "Dismiss": "忽略",
+  "Missing Media": "媒體遺失",
+  "Open project": "Open project",
+  "Open project…": "Open project…",
+  "Relink All…": "全部重新連結…",
+  "Select folder containing media files": "Select folder containing media files",
+  "Sort: Added": "Sort: Added",
+  "Sort: Name": "Sort: Name",
+  "Sort: Type": "Sort: Type",
+  "The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.": "找不到下列媒體檔案。您可以將它們重新連結到新資料夾，或關閉此對話方塊以離線佔位符繼續。",
+  "{0} media file(s) not found": "找不到 {0} 個媒體檔案"
 }
