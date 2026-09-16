@@ -154,7 +154,7 @@ export enum ClipField {
     anim-in, anim-out, anim-combo, anim-in-duration, anim-out-duration,
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
     font-size, font-weight, italic, text-opacity, align,
-    stroke-width, shadow, line-height, tracking,
+    stroke-width, shadow, line-height, tracking, text-width,
     cutout-feather,
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
@@ -329,6 +329,9 @@ export struct SelectedClipData {
     plated: bool,
     line-height: float,
     tracking: float,
+    /// the widest a line runs before wrapping, as a fraction of the frame;
+    /// zero for no limit
+    text-width: float,
 }
 
 /// One picture under the playhead, as the monitor places it.

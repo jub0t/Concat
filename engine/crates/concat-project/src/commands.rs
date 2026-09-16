@@ -205,6 +205,11 @@ pub struct NewMedia {
 /// so a caller need not read `apply` to know what a command will do.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+// A clip patch carries a whole text style, which is the largest variant by
+// a couple of hundred bytes. Commands are made one at a time and kept only
+// in the undo history, where a few hundred bytes each is nothing; boxing
+// the patch would cost every caller for a saving nobody would measure.
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     /// Imports a file into the bin, minting an "m" id. A path already
     /// present is a tolerated no-op that mints nothing.

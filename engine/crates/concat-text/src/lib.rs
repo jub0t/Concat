@@ -81,6 +81,9 @@ pub struct TitleStyle {
     pub line_height: f64,
     /// Extra advance after every glyph, as a fraction of frame height.
     pub tracking: f64,
+    /// The widest a line may run, as a fraction of frame width, before its
+    /// words wrap; zero for no limit.
+    pub max_width: f64,
 }
 
 /// The finished title.
@@ -267,6 +270,44 @@ impl ttf_parser::OutlineBuilder for Outliner<'_> {
 }
 
 /// Shapes one line and outlines it, pen starting at (0, 0) on the baseline.
+/// A paragraph as the lines it wraps to within `max_w` pixels: words are
+/// added while they fit, and a word that fits nowhere gets a line of its
+/// own rather than being cut. No limit, one line.
+fn wrap_line(
+    face: &rustybuzz::Face<'_>,
+    text: &str,
+    em: f32,
+    tracking: f32,
+    max_w: f32,
+) -> Vec<Line> {
+    if max_w <= 0.0 || text.trim().is_empty() {
+        return vec![shape_line(face, text, em, tracking)];
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut shaped = shape_line(face, "", em, tracking);
+    for word in text.split_whitespace() {
+        let candidate = if current.is_empty() {
+            word.to_owned()
+        } else {
+            format!("{current} {word}")
+        };
+        let trial = shape_line(face, &candidate, em, tracking);
+        if trial.width <= max_w || current.is_empty() {
+            current = candidate;
+            shaped = trial;
+        } else {
+            lines.push(shaped);
+            current = word.to_owned();
+            shaped = shape_line(face, word, em, tracking);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(shaped);
+    }
+    lines
+}
+
 fn shape_line(face: &rustybuzz::Face<'_>, text: &str, em: f32, tracking: f32) -> Line {
     if text.is_empty() {
         return Line {
@@ -384,11 +425,13 @@ pub fn render(
     let descent = -(face.descender() as f32) / upem * em;
 
     // Shape every line with the pen at the origin; placement comes after,
-    // once the block's width is known.
+    // once the block's width is known. A paragraph wider than the style's
+    // limit is wrapped at its spaces first.
+    let max_w = (style.max_width as f32) * width as f32;
     let lines: Vec<Line> = style
         .content
         .lines()
-        .map(|line| shape_line(&face, line, em, tracking))
+        .flat_map(|line| wrap_line(&face, line, em, tracking, max_w))
         .collect();
     let rows = lines.len().max(1);
     let block_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
@@ -592,7 +635,36 @@ mod tests {
             background: String::new(),
             line_height: 1.2,
             tracking: 0.0,
+            max_width: 0.0,
         }
+    }
+
+    /// A limit narrower than the words wraps them: the block comes out no
+    /// wider than the limit and taller than the one-line block.
+    #[test]
+    fn a_width_limit_wraps_words_onto_more_lines() {
+        let fonts = Fonts::new();
+        let one = render(&fonts, &style("one two three four five six"), 640, 360).expect("renders");
+        let mut narrow = style("one two three four five six");
+        narrow.max_width = 0.3;
+        let wrapped = render(&fonts, &narrow, 640, 360).expect("renders");
+        assert!(
+            one.block_width > wrapped.block_width,
+            "{} vs {}",
+            one.block_width,
+            wrapped.block_width
+        );
+        assert!(
+            wrapped.block_width <= (0.3 * 640.0) as u32 + 1,
+            "{}",
+            wrapped.block_width
+        );
+        assert!(wrapped.block_height > one.block_height);
+        // and a word no line can hold still gets a line, uncut
+        let mut tiny = style("unbreakable");
+        tiny.max_width = 0.01;
+        let rendered = render(&fonts, &tiny, 640, 360).expect("renders");
+        assert!(rendered.block_width > 7);
     }
 
     fn opaque_pixels(png: &[u8]) -> usize {

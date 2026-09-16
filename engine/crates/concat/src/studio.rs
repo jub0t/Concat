@@ -473,6 +473,16 @@ pub enum Gesture {
         /// The picture's turn, to project the pointer onto its axes.
         rotation: f64,
     },
+    /// A side grip on a title pulls the width its words wrap at, not the
+    /// glyphs: the box edge follows the pointer and the words reflow into
+    /// it. The width is twice the pointer's distance from the centre along
+    /// the box's own axis, as the box is drawn about the centre.
+    TextWidth {
+        clip: String,
+        centre: (f64, f64),
+        /// The title's turn, to project the pointer onto its axis.
+        rotation: f64,
+    },
     /// The rotation grip dragged: the picture turns by the angle the pointer
     /// has swept about the centre since the press.
     StageRotate {
@@ -3232,6 +3242,7 @@ impl Studio {
             | Gesture::StageScale { .. }
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
+            | Gesture::TextWidth { .. }
             | Gesture::Paint { .. } => {}
         }
         self.gesture = gesture;
@@ -3294,6 +3305,7 @@ impl Studio {
             | Gesture::StageScale { .. }
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
+            | Gesture::TextWidth { .. }
             | Gesture::Paint { .. }) => {
                 self.gesture = other;
             }
@@ -3442,6 +3454,7 @@ impl Studio {
             ClipField::Shadow => text.shadow = value != 0.0,
             ClipField::LineHeight => text.line_height = value.clamp(0.7, 2.5),
             ClipField::Tracking => text.tracking = value.clamp(-0.05, 0.3),
+            ClipField::TextWidth => text.max_width = value.clamp(0.0, 2.0),
         }
         // A media clip has no text; the placeholder must not linger.
         if clip.kind != model::ClipKind::Text {
@@ -3970,6 +3983,14 @@ impl Studio {
                 centre,
                 from: dy.atan2(dx),
             }
+        } else if (grip == 6 || grip == 8) && clip.kind == model::ClipKind::Text {
+            // A title's side grips set where its words wrap, not how wide
+            // its glyphs are; see `Gesture::TextWidth`.
+            Gesture::TextWidth {
+                clip: id.to_owned(),
+                centre,
+                rotation: clip.rotation,
+            }
         } else if grip >= 5 {
             // 5 top, 6 right, 7 bottom, 8 left: the pointer's offset from
             // the centre, turned back into the box's own frame.
@@ -4192,6 +4213,25 @@ impl Studio {
                     }
                 }
             }
+            Gesture::TextWidth {
+                clip,
+                centre,
+                rotation,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                let along = (dx * cos + dy * sin).abs();
+                // Twice the reach, as a fraction of the frame; no narrower
+                // than a few percent, or every word stands alone.
+                let mut next = (2.0 * along / f64::from(width)).clamp(0.03, 2.0);
+                if snap {
+                    next = (next * 20.0).round() / 20.0;
+                }
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    clip.text.get_or_insert_with(TextStyle::default).max_width = next;
+                }
+            }
             Gesture::StageRotate {
                 clip,
                 rotation,
@@ -4235,7 +4275,8 @@ impl Studio {
             }
             Gesture::StageScale { clip, .. }
             | Gesture::StageRotate { clip, .. }
-            | Gesture::StageStretch { clip, .. } => vec![clip],
+            | Gesture::StageStretch { clip, .. }
+            | Gesture::TextWidth { clip, .. } => vec![clip],
             Gesture::Paint {
                 clip,
                 tool,
@@ -4288,13 +4329,23 @@ impl Studio {
                 || after.stretch_y != before.stretch_y
             {
                 commands.push(Command::SetClipTransform {
-                    clip_id: id,
+                    clip_id: id.clone(),
                     scale: Some(after.scale),
                     offset_x: Some(after.offset_x),
                     offset_y: Some(after.offset_y),
                     rotation: Some(after.rotation),
                     stretch_x: Some(after.stretch_x),
                     stretch_y: Some(after.stretch_y),
+                });
+            }
+            // A title's wrap width, from its side grips.
+            if after.text != before.text {
+                commands.push(Command::UpdateClip {
+                    clip_id: id,
+                    patch: ClipPatch {
+                        text: Some(after.text.clone()),
+                        ..Default::default()
+                    },
                 });
             }
         }
@@ -6462,6 +6513,7 @@ impl Studio {
             plated: plate.alpha() > 0,
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
+            text_width: text.max_width as f32,
             cutout: match &clip.cutout {
                 None => 0,
                 Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,

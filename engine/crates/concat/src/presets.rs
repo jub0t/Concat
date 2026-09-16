@@ -83,6 +83,7 @@ struct PresetStyle {
     background: Option<String>,
     line_height: Option<f64>,
     tracking: Option<f64>,
+    max_width: Option<f64>,
 }
 
 impl PresetStyle {
@@ -112,6 +113,7 @@ impl PresetStyle {
             background: self.background.unwrap_or_default(),
             line_height: self.line_height.unwrap_or(base.line_height).max(0.5),
             tracking: self.tracking.unwrap_or(0.0),
+            max_width: self.max_width.unwrap_or(0.0).max(0.0),
         }
     }
 }

@@ -310,6 +310,7 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         shadow: style.shadow,
         background: style.background.clone(),
         line_height: style.line_height,
+        max_width: style.max_width,
         tracking: style.tracking,
     }
 }

@@ -195,6 +195,7 @@ fn read_text_style(raw: Option<&Value>) -> TextStyle {
         background: text(style.get("background"), &base.background),
         line_height: number(style.get("lineHeight"), base.line_height).max(0.5),
         tracking: number(style.get("tracking"), base.tracking),
+        max_width: number(style.get("maxWidth"), base.max_width).max(0.0),
     }
 }
 

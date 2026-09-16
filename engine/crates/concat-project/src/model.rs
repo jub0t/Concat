@@ -805,6 +805,10 @@ pub struct TextStyle {
     /// Extra letter spacing, in the same frame-height fractions as
     /// `font_size`. Zero is the font's natural fit.
     pub tracking: f64,
+    /// The widest a line may run, as a fraction of frame width, before its
+    /// words wrap onto the next; the stage's side grips set it. Zero - the
+    /// default - is no limit: a line is as long as its words.
+    pub max_width: f64,
 }
 
 impl Default for TextStyle {
@@ -824,6 +828,7 @@ impl Default for TextStyle {
             background: String::new(),
             line_height: 1.2,
             tracking: 0.0,
+            max_width: 0.0,
         }
     }
 }

@@ -40,6 +40,7 @@ export component TextPanel inherits VerticalLayout {
     property <float> stroke-width;
     property <float> line-height;
     property <float> tracking;
+    property <float> text-width;
     property <float> offset-x;
     property <float> offset-y;
     property <int> weight-index;
@@ -53,6 +54,7 @@ export component TextPanel inherits VerticalLayout {
         root.stroke-width = root.selected.stroke-width;
         root.line-height = root.selected.line-height;
         root.tracking = root.selected.tracking;
+        root.text-width = root.selected.text-width;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
         root.weight-index = root.selected.font-weight >= 700 ? 3
@@ -314,6 +316,21 @@ export component TextPanel inherits VerticalLayout {
             unit: "%";
             unit-scale: 100;
             changed(v) => { root.set(ClipField.tracking, v); root.commit(); }
+        }
+
+        // Where the words wrap. Zero is no limit; the side grips on the
+        // stage set it by pulling the box's edge.
+        Param {
+            label: I18n.t("Max width");
+            value <=> root.text-width;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            default-value: 0;
+            fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
+            changed(v) => { root.set(ClipField.text-width, v); root.commit(); }
         }
         }
     }
