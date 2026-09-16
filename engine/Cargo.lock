@@ -1171,8 +1171,10 @@ dependencies = [
 name = "concat-android"
 version = "0.2.2"
 dependencies = [
+ "android-build",
  "android_logger",
  "concat",
+ "jni 0.22.4",
  "libc",
  "log",
  "slint",
