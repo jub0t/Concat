@@ -112,9 +112,26 @@ export component TooltipLayer inherits Rectangle {
         font-size: Theme.fs-sm;
         visible: false;
     }
+    /// The widest a bubble gets before its words wrap. A help tip is a
+    /// sentence or three, and one line of that ran off the window.
+    property <length> max-text-w: 280px;
+    /// The same words at the cap, for how tall they come out wrapped.
+    wrapped := Text {
+        x: 0;
+        y: 0;
+        width: root.max-text-w;
+        height: 0px;
+        text: Tips.text;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+        visible: false;
+    }
 
-    property <length> bubble-w: measure.preferred-width + 16px;
-    property <length> bubble-h: 22px;
+    property <length> text-w: Math.min(measure.preferred-width, root.max-text-w);
+    property <length> bubble-w: root.text-w + 16px;
+    /// One line is 22px; wrapped words take what they take, plus the
+    /// same padding above and below.
+    property <length> bubble-h: Math.max(22px, wrapped.preferred-height + 10px);
     /// The gap between the control and the bubble.
     property <length> gap: 6px;
 
@@ -157,14 +174,17 @@ export component TooltipLayer inherits Rectangle {
         border-color: Theme.line-strong;
 
         Text {
-            x: 0;
+            x: 8px;
             y: 0;
-            width: parent.width;
+            width: parent.width - 16px;
             height: parent.height;
             text: Tips.text;
             color: Theme.fg;
             font-size: Theme.fs-sm;
-            horizontal-alignment: center;
+            wrap: word-wrap;
+            // Centred on one line, as a label; ranged left once it wraps,
+            // as a paragraph.
+            horizontal-alignment: wrapped.preferred-height > 16px ? left : center;
             vertical-alignment: center;
         }
     }

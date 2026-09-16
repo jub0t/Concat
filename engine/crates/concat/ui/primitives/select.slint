@@ -5,6 +5,7 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
 import { Tip } from "tooltip.slint";
+import { ThinScrollbar } from "scrollbar.slint";
 
 // Custom listbox dropdown rather than a native combo box, so options can carry
 // icons and match the panel styling. Arrows, Home/End, Enter and Escape all
@@ -42,7 +43,29 @@ export component Select inherits Rectangle {
 
     property <bool> ring;
     property <length> row-h: 26px;
-    property <length> list-h: Math.min(240px, root.options.length * root.row-h + 8px);
+    /// What the rows need, and what the list is given: the rows, capped
+    /// at nine or so. Past the cap the list scrolls - see `at`.
+    property <length> content-h: root.options.length * root.row-h + 8px;
+    property <length> list-h: Math.min(240px, root.content-h);
+    /// How far down the rows are parked. Held raw and clamped on read, so
+    /// a list that reopens shorter, or a wheel past the end, cannot leave
+    /// the rows parked beyond it.
+    property <length> overflow: Math.max(0px, root.content-h - root.list-h);
+    property <length> scroll;
+    property <length> at: Math.max(0px, Math.min(root.overflow, root.scroll));
+
+    pure function row-top(index: int) -> length {
+        return 4px + index * root.row-h;
+    }
+    /// Scrolls just enough to bring row `index` into view: from above when
+    /// it is above, from below when it is below, not at all when it shows.
+    function reveal-row(index: int) {
+        if (root.row-top(index) - 4px < root.at) {
+            root.scroll = root.row-top(index) - 4px;
+        } else if (root.row-top(index) + root.row-h + 4px > root.at + root.list-h) {
+            root.scroll = root.row-top(index) + root.row-h + 4px - root.list-h;
+        }
+    }
     // Read from the popup rather than tracked here: a click outside closes it
     // without telling us, so a hand-rolled flag goes stale.
     property <bool> open: list.is-open;
@@ -96,6 +119,10 @@ export component Select inherits Rectangle {
             return;
         }
         root.active = Math.max(root.current, 0);
+        // Opened on the current row: a list of twelve languages that
+        // opened at the top hid whichever was chosen past the ninth.
+        root.scroll = 0px;
+        root.reveal-row(root.active);
         list.show();
     }
 
@@ -240,18 +267,22 @@ export component Select inherits Rectangle {
                 key-pressed(event) => {
                     if (event.text == Key.DownArrow) {
                         root.active = Math.min(root.active + 1, root.options.length - 1);
+                        root.reveal-row(root.active);
                         return EventResult.accept;
                     }
                     if (event.text == Key.UpArrow) {
                         root.active = Math.max(root.active - 1, 0);
+                        root.reveal-row(root.active);
                         return EventResult.accept;
                     }
                     if (event.text == Key.Home) {
                         root.active = 0;
+                        root.reveal-row(root.active);
                         return EventResult.accept;
                     }
                     if (event.text == Key.End) {
                         root.active = root.options.length - 1;
+                        root.reveal-row(root.active);
                         return EventResult.accept;
                     }
                     if (event.text == "\n" || event.text == " ") {
@@ -267,9 +298,19 @@ export component Select inherits Rectangle {
                 }
             }
 
-            VerticalLayout {
-                padding: 4px;
-                alignment: start;
+            // Ancestor of the rows, so a wheel their own touch areas do
+            // not handle reaches it; the rows are parked `at` up.
+            wheel := TouchArea {
+                scroll-event(event) => {
+                    root.scroll = root.at - event.delta-y;
+                    return EventResult.accept;
+                }
+
+                VerticalLayout {
+                    y: -root.at;
+                    height: root.content-h;
+                    padding: 4px;
+                    alignment: start;
 
                 for option[index] in root.options: Rectangle {
                     height: root.row-h;
@@ -331,6 +372,17 @@ export component Select inherits Rectangle {
                         }
                     }
                 }
+                }
+            }
+
+            ThinScrollbar {
+                x: parent.width - self.width - 1px;
+                y: 1px;
+                height: parent.height - 2px;
+                viewport: root.list-h;
+                content: root.content-h;
+                offset: root.at;
+                scrolled(to) => { root.scroll = to; }
             }
         }
     }

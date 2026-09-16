@@ -164,15 +164,13 @@ export component TimelineTray inherits Rectangle {
 
         IconButton {
             glyph: Glyph.text-mark;
-            label: root.sound-selected ? I18n.t("Auto captions from this clip's sound")
-                : I18n.t("Captions from a script, at the playhead");
+            label: I18n.t("Generate Captions");
             icon-size: 16px;
             clicked => { root.captions(); }
         }
         IconButton {
             glyph: Glyph.volume;
-            label: root.title-selected ? I18n.t("Read this title aloud")
-                : I18n.t("Read a script aloud at the playhead");
+            label: I18n.t("Text to Speech");
             icon-size: 16px;
             clicked => { root.speak(); }
         }
