@@ -1041,9 +1041,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.prefs.custom_context_actions = on;
         state.prefs.save(&state.host.dirs);
     }));
-    app.on_editor_shortcut(on_window!(|state, action: SharedString| {
-        state.context_menu_action(action.as_str());
-    }));
 
     app.on_settings_download_source_changed(on_window!(|state, index: i32| {
         use concat_host::models::SourcePreference;

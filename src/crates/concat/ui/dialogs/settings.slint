@@ -511,6 +511,34 @@ export component SettingsDialog inherits Modal {
                     }
                 }
 
+                // Off, the clip context menu shows only the basics.
+                // On, it also shows Flip horizontal, Flip vertical, and Reverse.
+                DialogSection {
+                    title: I18n.t("Context menu");
+                    hint: I18n.t("Show Flip horizontal, Flip vertical, and Reverse in the clip context menu. Keyboard shortcuts (H, J, R) always work.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Show advanced actions");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.custom-context-actions;
+                                toggled(on) => { root.custom-context-actions-changed(on); }
+                            }
+                        }
+                    }
+                }
+
                 // The models are open weights from elsewhere, mirrored so
                 // they stay reachable; where a download looks first is a
                 // matter of where you are. Every source is still tried.
