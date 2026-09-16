@@ -6,7 +6,7 @@ editor window floating on a soft gradient card, built by
 
 ## Steps
 
-1. **Run the app** — `cd engine && cargo run --release -p concat`. Stage something
+1. **Run the app** — `cd src && cargo run --release -p concat`. Stage something
    presentable: clips in the media bin, a few tracks on the timeline, the
    playhead somewhere interesting. Avoid personal file names in the media
    panel. Make the window wide (the composite assumes a landscape window).

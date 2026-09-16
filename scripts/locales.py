@@ -19,9 +19,9 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-CRATE = ROOT / "engine" / "crates" / "concat"
+CRATE = ROOT / "src" / "crates" / "concat"
 LOCALES = CRATE / "locales"
-PACKAGES = ROOT / "engine" / "crates" / "concat-effects" / "packages"
+PACKAGES = ROOT / "src" / "crates" / "concat-effects" / "packages"
 
 # A Rust or Slint string literal, with its escapes.
 LITERAL = r'"((?:[^"\\]|\\.)*)"'

@@ -21,7 +21,7 @@ text. A locale is a JSON file that maps that English to your language:
   Language list shows, so someone who cannot read the current language can
   still find their own.
 - Every other key is the English exactly as it appears in
-  [`engine/crates/concat/locales/en.json`](engine/crates/concat/locales/en.json),
+  [`src/crates/concat/locales/en.json`](src/crates/concat/locales/en.json),
   the complete inventory. Copy that file, keep the keys, replace the values.
 - `{0}`, `{1}` and so on are filled in at run time — a count, a name, a
   file size. Keep them, and put them where your language wants them.
@@ -47,9 +47,9 @@ change.
 
 ## Shipping a language with Concat
 
-1. Put the file in `engine/crates/concat/locales/`.
+1. Put the file in `src/crates/concat/locales/`.
 2. Add its code and file to the `BUILT_IN` table at the top of
-   `engine/crates/concat/src/i18n.rs`.
+   `src/crates/concat/src/i18n.rs`.
 3. Run `python3 scripts/locales.py --check`. It lists every line each
    locale still lacks, and refuses a key nothing in the source asks for.
 4. Open a pull request. Corrections to the languages Concat already ships

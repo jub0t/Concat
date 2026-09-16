@@ -32,7 +32,7 @@
 release = "models-v1"
 
 # ── Cutout ───────────────────────────────────────────────────────────────
-# engine/crates/concat-vision/src/models.rs
+# src/crates/concat-vision/src/models.rs
 
 [[model]]
 id = "cutout-person"
@@ -71,7 +71,7 @@ licence = "Apache-2.0"
 upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx"
 
 # ── Text to speech ───────────────────────────────────────────────────────
-# engine/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
+# src/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
 # official sherpa-onnx conversions; the two differ only in quantisation.
 
 [[model]]
@@ -93,7 +93,7 @@ licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
 
 # ── Transcription ────────────────────────────────────────────────────────
-# engine/crates/concat-speech/src/transcribe.rs. whisper.cpp's GGML
+# src/crates/concat-speech/src/transcribe.rs. whisper.cpp's GGML
 # conversions of OpenAI's whisper.
 
 [[model]]

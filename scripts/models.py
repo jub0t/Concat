@@ -24,7 +24,7 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "models" / "manifest.toml"
-CRATES = ROOT / "engine" / "crates"
+CRATES = ROOT / "src" / "crates"
 
 # The repository the mirror lives on, and the engine constant that must
 # agree with this file about which release holds it.

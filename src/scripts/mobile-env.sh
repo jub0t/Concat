@@ -15,14 +15,14 @@
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android or aarch64-apple-ios}
-engine=$(cd "$(dirname "$0")/.." && pwd)
-ffmpeg=$engine/vendor/ffmpeg/$target
+workspace=$(cd "$(dirname "$0")/.." && pwd)
+ffmpeg=$workspace/vendor/ffmpeg/$target
 [ -d "$ffmpeg/lib" ] || { echo "no FFmpeg for $target: run scripts/ffmpeg-mobile.sh $target" >&2; exit 1; }
 echo "export FFMPEG_DIR='$ffmpeg'"
 
 case "$target" in
   aarch64-linux-android)
-    sherpa=$engine/vendor/sherpa-onnx/jniLibs/arm64-v8a
+    sherpa=$workspace/vendor/sherpa-onnx/jniLibs/arm64-v8a
     [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
     echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
 
@@ -53,14 +53,14 @@ case "$target" in
     # instead, and it contributes exactly what the missing library would
     # have. The ar magic alone is a well-formed archive with no members.
     if [ "$(uname -s)" = Darwin ]; then
-      shim=$engine/vendor/shim/$target
+      shim=$workspace/vendor/shim/$target
       mkdir -p "$shim"
       printf '!<arch>\n' > "$shim/libggml-blas.a"
       echo "export RUSTFLAGS='-L native=$shim'"
     fi
     ;;
   aarch64-apple-ios)
-    sherpa=$engine/vendor/sherpa-onnx/ios/lib
+    sherpa=$workspace/vendor/sherpa-onnx/ios/lib
     [ -d "$sherpa" ] || { echo "no sherpa-onnx for $target: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
     echo "export SHERPA_ONNX_LIB_DIR='$sherpa'"
     echo "export IPHONEOS_DEPLOYMENT_TARGET='${IPHONEOS_DEPLOYMENT_TARGET:-15.0}'"

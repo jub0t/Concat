@@ -6,8 +6,8 @@
   #   nix run              build and launch it
   #   nix develop          a shell with everything `cargo run -p concat` needs
   #
-  # The build is one Cargo workspace under engine/, so cargo dependencies
-  # come straight from engine/Cargo.lock and there is no vendor hash to keep
+  # The build is one Cargo workspace under src/, so cargo dependencies
+  # come straight from src/Cargo.lock and there is no vendor hash to keep
   # in sync. Three native pieces need care inside the sandbox, which has no
   # network:
   #
@@ -40,7 +40,7 @@
       ];
       eachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
 
-      # Must match the sherpa-onnx-sys version in engine/Cargo.lock: the sys
+      # Must match the sherpa-onnx-sys version in src/Cargo.lock: the sys
       # crate names the archive after its own version and refuses any other.
       sherpaVersion = "1.13.7";
       sherpaArchives = {
@@ -113,9 +113,9 @@
           version = "0.2.2";
           src = self;
 
-          cargoRoot = "engine";
-          buildAndTestSubdir = "engine";
-          cargoLock.lockFile = ./engine/Cargo.lock;
+          cargoRoot = "src";
+          buildAndTestSubdir = "src";
+          cargoLock.lockFile = ./src/Cargo.lock;
           cargoBuildFlags = [
             "-p"
             "concat"
@@ -193,7 +193,7 @@
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibs pkgs);
 
           shellHook = ''
-            echo "Concat: cd engine && cargo run -p concat --no-default-features --features wgpu"
+            echo "Concat: cd src && cargo run -p concat --no-default-features --features wgpu"
           '';
         };
       });

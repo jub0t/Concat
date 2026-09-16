@@ -19,13 +19,13 @@
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android or aarch64-apple-ios}
-engine=$(cd "$(dirname "$0")/.." && pwd)
-version=$(grep -A1 'name = "sherpa-onnx-sys"' "$engine/Cargo.lock" | sed -n 's/^version = "\(.*\)"/\1/p')
+workspace=$(cd "$(dirname "$0")/.." && pwd)
+version=$(grep -A1 'name = "sherpa-onnx-sys"' "$workspace/Cargo.lock" | sed -n 's/^version = "\(.*\)"/\1/p')
 release=https://github.com/k2-fsa/sherpa-onnx/releases/download
 
 case "$target" in
   aarch64-linux-android)
-    out=${2:-$engine/vendor/sherpa-onnx}
+    out=${2:-$workspace/vendor/sherpa-onnx}
     ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
     if [ -z "$ndk" ]; then
       sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
@@ -50,7 +50,7 @@ case "$target" in
     echo "  export SHERPA_ONNX_LIB_DIR=$out/jniLibs/arm64-v8a"
     ;;
   aarch64-apple-ios)
-    out=${2:-$engine/vendor/sherpa-onnx/ios}
+    out=${2:-$workspace/vendor/sherpa-onnx/ios}
     echo "Fetching sherpa-onnx $version for iOS"
     mkdir -p "$out"
     curl -fsSL --retry 5 --retry-all-errors -o "$out/sherpa-onnx-ios.zip" \

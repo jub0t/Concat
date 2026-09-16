@@ -15,19 +15,19 @@ set -euo pipefail
 
 target=${1:?target triple: aarch64-apple-ios or aarch64-apple-ios-sim}
 profile=${2:-release}
-engine=$(cd "$(dirname "$0")/.." && pwd)
-root=$(cd "$engine/.." && pwd)
-version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$engine/Cargo.toml" | head -1)
+workspace=$(cd "$(dirname "$0")/.." && pwd)
+root=$(cd "$workspace/.." && pwd)
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$workspace/Cargo.toml" | head -1)
 ios_min=${IPHONEOS_DEPLOYMENT_TARGET:-15.0}
 
-binary=$engine/target/$target/$profile/concat
+binary=$workspace/target/$target/$profile/concat
 [ -f "$binary" ] || { echo "no binary at $binary: build first" >&2; exit 1; }
-framework=$(find "$engine/vendor/sherpa-onnx/ios" -maxdepth 2 -name '*.xcframework' | head -1)
+framework=$(find "$workspace/vendor/sherpa-onnx/ios" -maxdepth 2 -name '*.xcframework' | head -1)
 [ -n "$framework" ] || { echo "no sherpa-onnx xcframework: run scripts/sherpa-mobile.sh $target" >&2; exit 1; }
 slice=ios-arm64
 [ "$target" = aarch64-apple-ios-sim ] && slice=ios-arm64_x86_64-simulator
 
-app=$engine/target/$target/$profile/Concat.app
+app=$workspace/target/$target/$profile/Concat.app
 rm -rf "$app"
 mkdir -p "$app/Frameworks"
 cp "$binary" "$app/Concat"

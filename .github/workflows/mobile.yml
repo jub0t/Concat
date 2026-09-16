@@ -13,11 +13,11 @@ name: Build for phones
 # Phones are cross-compiled - the Android job runs on Linux with the NDK,
 # the iOS job on macOS with Xcode - and the two native libraries that
 # cannot be fetched prebuilt for a phone are built from source here and
-# cached: FFmpeg by engine/scripts/ffmpeg-mobile.sh, with the platform's
+# cached: FFmpeg by src/scripts/ffmpeg-mobile.sh, with the platform's
 # hardware codecs, and whisper.cpp by its crate. sherpa-onnx comes prebuilt
-# from k2-fsa through engine/scripts/sherpa-mobile.sh.
+# from k2-fsa through src/scripts/sherpa-mobile.sh.
 #
-# engine/scripts/mobile-env.sh is the one description of the build
+# src/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
 #
 # The APK is signed with the repository's key when ANDROID_KEYSTORE (the
@@ -59,15 +59,15 @@ jobs:
       - name: Read the version
         id: version
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Concat $version for aarch64-linux-android"
       # The engine pins its toolchain in rust-toolchain.toml, so the phone's
-      # standard library is added to that toolchain from inside engine/,
+      # standard library is added to that toolchain from inside src/,
       # where the pin applies.
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add aarch64-linux-android
-        working-directory: engine
+        working-directory: src
       - uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-apk
@@ -86,24 +86,24 @@ jobs:
         id: ffmpeg
         uses: actions/cache/restore@v4
         with:
-          path: engine/vendor/ffmpeg/aarch64-linux-android
-          key: ffmpeg-aarch64-linux-android-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        run: engine/scripts/ffmpeg-mobile.sh aarch64-linux-android
+        run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
       - name: FFmpeg for Android (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: engine/vendor/ffmpeg/aarch64-linux-android
+          path: src/vendor/ffmpeg/aarch64-linux-android
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
       - name: sherpa-onnx for Android
-        run: engine/scripts/sherpa-mobile.sh aarch64-linux-android
+        run: src/scripts/sherpa-mobile.sh aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: src
           key: aarch64-linux-android
 
       # A release APK has to be signed. With the repository's key it is
@@ -131,7 +131,7 @@ jobs:
 
       # The build environment first, then the build under it.
       - name: Build the APK
-        working-directory: engine
+        working-directory: src
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
@@ -140,11 +140,11 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
-          if [ -f engine/build.log ]; then
+          if [ -f src/build.log ]; then
             {
               echo "### Build failed: Android arm64"
               echo '```'
-              tail -n 150 engine/build.log
+              tail -n 150 src/build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -157,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir stage
-          cp engine/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-arm64.apk"
+          cp src/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-arm64.apk"
           ls -l stage
 
       - uses: actions/upload-artifact@v7
@@ -175,15 +175,15 @@ jobs:
       - name: Read the version
         id: version
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Concat $version for aarch64-apple-ios"
       # The engine pins its toolchain in rust-toolchain.toml, so the phone's
-      # standard library is added to that toolchain from inside engine/,
+      # standard library is added to that toolchain from inside src/,
       # where the pin applies.
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add aarch64-apple-ios
-        working-directory: engine
+        working-directory: src
 
       - run: brew install cmake
 
@@ -194,28 +194,28 @@ jobs:
         id: ffmpeg
         uses: actions/cache/restore@v4
         with:
-          path: engine/vendor/ffmpeg/aarch64-apple-ios
-          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('engine/scripts/ffmpeg-mobile.sh') }}
+          path: src/vendor/ffmpeg/aarch64-apple-ios
+          key: ffmpeg-aarch64-apple-ios-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
       - name: FFmpeg for iOS
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        run: engine/scripts/ffmpeg-mobile.sh aarch64-apple-ios
+        run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios
       - name: FFmpeg for iOS (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: engine/vendor/ffmpeg/aarch64-apple-ios
+          path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
 
       - name: sherpa-onnx for iOS
-        run: engine/scripts/sherpa-mobile.sh aarch64-apple-ios
+        run: src/scripts/sherpa-mobile.sh aarch64-apple-ios
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: src
           key: aarch64-apple-ios
 
       - name: Build
-        working-directory: engine
+        working-directory: src
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh aarch64-apple-ios)"
@@ -224,11 +224,11 @@ jobs:
       - name: Build log to the summary (failure only)
         if: failure()
         run: |
-          if [ -f engine/build.log ]; then
+          if [ -f src/build.log ]; then
             {
               echo "### Build failed: iOS arm64"
               echo '```'
-              tail -n 150 engine/build.log
+              tail -n 150 src/build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -237,7 +237,7 @@ jobs:
       # signed. A developer's identity and provisioning profile go on with
       # codesign before it can be installed on a phone.
       - name: Bundle
-        run: engine/scripts/ios-app.sh aarch64-apple-ios release
+        run: src/scripts/ios-app.sh aarch64-apple-ios release
 
       # An .ipa is the bundle under Payload/ in a zip: the form every
       # sideloading tool and Xcode's Devices window take, re-signing it
@@ -250,7 +250,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p stage payload/Payload
-          cp -R engine/target/aarch64-apple-ios/release/Concat.app payload/Payload/
+          cp -R src/target/aarch64-apple-ios/release/Concat.app payload/Payload/
           (cd payload && ditto -c -k --keepParent Payload "../stage/Concat-$VERSION-ios-arm64.ipa")
           ls -l stage
 

@@ -21,8 +21,8 @@
 set -euo pipefail
 
 target=${1:?target triple: aarch64-linux-android, aarch64-apple-ios or aarch64-apple-ios-sim}
-engine=$(cd "$(dirname "$0")/.." && pwd)
-out=${2:-$engine/vendor/ffmpeg/$target}
+workspace=$(cd "$(dirname "$0")/.." && pwd)
+out=${2:-$workspace/vendor/ffmpeg/$target}
 version=${FFMPEG_VERSION:-8.1}
 # Oldest OS each build runs on. Android 8.0 is where AAudio, the audio
 # path the engine plays through, appears; iOS 15 is where Slint draws.
@@ -30,7 +30,7 @@ android_api=${ANDROID_API:-26}
 ios_min=${IPHONEOS_DEPLOYMENT_TARGET:-15.0}
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-work=${FFMPEG_WORK_DIR:-$engine/vendor/ffmpeg/src}
+work=${FFMPEG_WORK_DIR:-$workspace/vendor/ffmpeg/src}
 src=$work/ffmpeg-$version
 mkdir -p "$work"
 if [ ! -f "$src/configure" ]; then

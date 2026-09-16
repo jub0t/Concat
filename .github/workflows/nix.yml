@@ -11,15 +11,15 @@ on:
     paths:
       - flake.nix
       - flake.lock
-      - engine/Cargo.lock
-      - engine/Cargo.toml
-      - engine/crates/*/Cargo.toml
+      - src/Cargo.lock
+      - src/Cargo.toml
+      - src/crates/*/Cargo.toml
       - .github/workflows/nix.yml
   pull_request:
     paths:
       - flake.nix
       - flake.lock
-      - engine/Cargo.lock
+      - src/Cargo.lock
       - .github/workflows/nix.yml
   workflow_dispatch:
 

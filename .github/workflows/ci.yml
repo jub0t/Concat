@@ -28,7 +28,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: src
 
       # Slint's Skia renderer links fontconfig and freetype; cpal links
       # ALSA; bindgen needs libclang; whisper.cpp is built by cmake; the
@@ -69,7 +69,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - run: cargo fmt --check
-        working-directory: engine
+        working-directory: src
       # Every string the interface shows is a key in a locale file; this
       # keeps en.json the inventory of them and every shipped language
       # keyed off it. See TRANSLATING.md.
@@ -84,14 +84,14 @@ jobs:
       # before tests: they finish in a fraction of the time and catch the
       # most.
       - run: cargo clippy --workspace --all-targets -- -D warnings
-        working-directory: engine
+        working-directory: src
       - run: cargo test --workspace
-        working-directory: engine
+        working-directory: src
 
   # The engine crates that carry no native library build for the web. This
   # job is what keeps that true: a std::thread or a blocking wait that
   # creeps into concat-core or concat-project fails here, not when someone
-  # next tries the target. See engine/README.md for the list.
+  # next tries the target. See src/README.md for the list.
   web:
     name: Engine on wasm32
     runs-on: ubuntu-latest
@@ -103,11 +103,11 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: src
           key: wasm32
       - run: >
           cargo clippy
           -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text
           --features concat-render/gpu --target wasm32-unknown-unknown
           -- -D warnings
-        working-directory: engine
+        working-directory: src

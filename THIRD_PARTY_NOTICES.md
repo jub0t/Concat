@@ -24,7 +24,7 @@ bundles them. See "The model mirror" below.
 
 ## Slint — used under GPL-3.0-only
 
-The `concat` crate (`engine/crates/concat`) builds against
+The `concat` crate (`src/crates/concat`) builds against
 [Slint](https://github.com/slint-ui/slint), which its authors offer under
 **any one** of three licences, at the user's choice: a Royalty-free licence, a
 paid commercial licence, or **GNU GPL-3.0-only**.
@@ -50,7 +50,7 @@ two licences and remove or replace Concat's AGPL-licensed code accordingly;
 the two cannot be mixed.
 
 Slint pulls in the renderer selected by the feature flags in
-`engine/crates/concat/Cargo.toml` — Skia by default, FemtoVG over wgpu under
+`src/crates/concat/Cargo.toml` — Skia by default, FemtoVG over wgpu under
 `--features wgpu` — along with winit and their transitive crates, which are
 predominantly MIT/Apache-2.0/BSD licensed. `cargo tree -p concat` gives the
 resolved set of any given build.
@@ -58,9 +58,9 @@ resolved set of any given build.
 ## Fonts
 
 The window embeds its fonts into the binary
-(`engine/crates/concat/build.rs`, `EmbedResourcesKind::EmbedFiles`), so a
+(`src/crates/concat/build.rs`, `EmbedResourcesKind::EmbedFiles`), so a
 distributed binary carries them and their licences travel with it. Full texts
-are in `engine/crates/concat/ui/fonts/`.
+are in `src/crates/concat/ui/fonts/`.
 
 - **Helvetica Neue** — Copyright (c) 1981, 1997 Linotype-Hell AG. Neue
   Helvetica is a Monotype typeface, used under the licence held for it; the
@@ -108,7 +108,7 @@ except the first:
   conversion published by the ONNX Community
   (https://huggingface.co/onnx-community/mediapipe_selfie_segmentation,
   Apache-2.0), compiled into the `concat-vision` crate; see
-  `engine/crates/concat-vision/models/NOTICE.md`. The answer when nothing
+  `src/crates/concat-vision/models/NOTICE.md`. The answer when nothing
   has been downloaded.
 - Robust Video Matting, the MobileNetV3 variant, by Peter Lin and others
   (https://github.com/PeterL1n/RobustVideoMatting, GPL-3.0), from that
@@ -156,4 +156,4 @@ Vitaly Gariev on Unsplash (https://unsplash.com/@silverkblack), used
 under the Unsplash License. The source still lives at
 `assets/effect-preview-source.jpg`; the tiles are each effect's real FFmpeg
 chain (`concat-export`'s `chains.rs`) run over it, and are embedded from
-`engine/crates/concat/ui/assets/effect-previews/`.
+`src/crates/concat/ui/assets/effect-previews/`.

@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           sha=$(git rev-parse --short=10 HEAD)
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           cd bundles
           for file in Concat-*; do
             mv "$file" "${file/Concat-$version/Concat-$version-nightly.$sha}"

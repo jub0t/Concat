@@ -24,22 +24,22 @@ down for reasons that were invisible from outside.
 
 ## Setting up
 
-You will need Rust (see `rust-version` in `engine/Cargo.toml`), the FFmpeg
-7+ development libraries (`brew install ffmpeg`; see `engine/README.md` for
+You will need Rust (see `rust-version` in `src/Cargo.toml`), the FFmpeg
+7+ development libraries (`brew install ffmpeg`; see `src/README.md` for
 Windows and Linux), cmake and a C++ compiler. Then:
 
 ```sh
-cd engine && cargo run -p concat
+cd src && cargo run -p concat
 ```
 
 That is the editor window. Everything - the engine, the host layer and the
-Slint UI - is one Cargo workspace under `engine/`.
+Slint UI - is one Cargo workspace under `src/`.
 
 ## Layout
 
 | Path | What lives there |
 |---|---|
-| `engine/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
+| `src/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
 | `test/` | Media and analysis fixtures |
 
 [`ARCHITECTURE.md`](ARCHITECTURE.md) explains how these fit together and where
@@ -50,7 +50,7 @@ the sharp edges are. Read it before touching the engine.
 Run these before opening a PR:
 
 ```sh
-cd engine && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+cd src && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
 If you added or changed text the interface shows, also run
@@ -69,7 +69,7 @@ Write what happens through the `log` facade — `log::info!`, `log::warn!`,
 `log::error!` — rather than to standard output or standard error. Every run
 writes `<app data>/logs/concat-<when>.log`, and a packaged build has no
 terminal for anything that goes anywhere else; `CONCAT_LOG=debug` turns the
-level up. See `engine/crates/concat-host/src/logs.rs`.
+level up. See `src/crates/concat-host/src/logs.rs`.
 
 New source files need a licence header — see below. Match the style of the code
 around you; the engine avoids cleverness on purpose.

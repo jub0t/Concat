@@ -1,6 +1,6 @@
 name: Build app
 
-# Builds Concat - the Slint window, `engine/crates/concat` - for every
+# Builds Concat - the Slint window, `src/crates/concat` - for every
 # platform and architecture it ships on, each on a runner of that
 # architecture so nothing is cross-compiled, and uploads one artifact per
 # target:
@@ -142,7 +142,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' engine/Cargo.toml | head -1)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Concat $version for ${{ matrix.target }}"
 
@@ -308,7 +308,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version=$(grep -A1 'name = "sherpa-onnx-sys"' engine/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
           stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-static-lib"
           echo "Downloading $stem"
           curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
@@ -358,7 +358,7 @@ jobs:
       # under the old one.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: engine
+          workspaces: src
           key: ${{ matrix.target }}
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST GGML
 
@@ -370,7 +370,7 @@ jobs:
       # build goes there, and a red run explains itself to anyone.
       - name: Build
         shell: bash
-        working-directory: engine
+        working-directory: src
         run: |
           set -o pipefail
           cargo build --profile app -p concat --target ${{ matrix.target }} 2>&1 | tee build.log
@@ -379,11 +379,11 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          if [ -f engine/build.log ]; then
+          if [ -f src/build.log ]; then
             {
               echo "### Build failed: ${{ matrix.target }}"
               echo '```'
-              tail -n 150 engine/build.log
+              tail -n 150 src/build.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -402,7 +402,7 @@ jobs:
           app=Concat.app
           rm -rf "$app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
-          cp "engine/target/${{ matrix.target }}/app/concat" "$app/Contents/MacOS/concat"
+          cp "src/target/${{ matrix.target }}/app/concat" "$app/Contents/MacOS/concat"
 
           # The icon set Apple wants: each size and its @2x twin.
           iconset=Concat.iconset
@@ -516,7 +516,7 @@ jobs:
           set -euo pipefail
           name="Concat-${VERSION}-linux-${{ matrix.arch }}"
           mkdir -p "stage/$name/lib"
-          cp "engine/target/${{ matrix.target }}/app/concat" "stage/$name/concat"
+          cp "src/target/${{ matrix.target }}/app/concat" "stage/$name/concat"
           cp -a ffmpeg-dev/lib/*.so* "stage/$name/lib/"
           cp -a "$ORT_DIR"/lib/libonnxruntime.so* "stage/$name/lib/"
           cp assets/icons/concat_logo_256.png "stage/$name/concat.png"
