@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Concat's Windows Installer package, the .msi beside the Inno Setup .exe.
+
+  Built by build-app.yml with WiX from the very folder the zip is made of,
+  so the two installers and the zip ship the same files. The .exe is the
+  one a person double-clicks; this is the one an administrator deploys -
+  Group Policy, Intune, winget - and it installs for the machine, into
+  Program Files, with a Start menu entry and a clean uninstall. Handed in:
+
+    wix build -arch x64 -d Version=0.2.2 -d Stage=C:\...\stage\Concat-0.2.2-windows-x86_64
+              -o stage\Concat-0.2.2-windows-x86_64.msi assets\windows\concat.wxs
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- One upgrade code for the life of the product, so a newer .msi
+       replaces an older one rather than sitting beside it. -->
+  <Package Name="Concat"
+           Manufacturer="Concat contributors"
+           Version="$(var.Version)"
+           UpgradeCode="6C4D5D8E-9B2A-4F3B-8E1C-5A7D2B9F0C11"
+           Scope="perMachine"
+           Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Concat is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="concat.ico" SourceFile="..\icons\concat.ico" />
+    <Property Id="ARPPRODUCTICON" Value="concat.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/jub0t/Concat" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Concat" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="Concat" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Concat" Level="1">
+      <ComponentGroupRef Id="Program" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+
+    <!-- Every file in the staged folder, as it is there. -->
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Files Include="$(var.Stage)\**" />
+    </ComponentGroup>
+
+    <Component Id="StartMenu" Directory="ShortcutFolder" Guid="2F0B7C51-6E4D-4A1B-9C3E-8D5F1A2B3C44">
+      <Shortcut Id="StartMenuShortcut"
+                Name="Concat"
+                Description="Video editor"
+                Target="[INSTALLFOLDER]concat.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="concat.ico" />
+      <RemoveFolder Id="RemoveShortcutFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Concat" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

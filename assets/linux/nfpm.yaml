@@ -1,0 +1,69 @@
+# Concat's Linux packages: one description for the .deb and the .rpm.
+#
+# Built by build-app.yml with nfpm from the very folder the tarball is
+# made of, so every Linux bundle ships the same files. The program lives
+# whole under /opt/concat - the binary finds its libraries in lib/ beside
+# itself, by rpath, and nothing else on the system has to line up - with
+# a launcher on the path, a desktop entry and an icon where the desktop
+# looks for them. The version and architecture are handed in as
+# environment; the files are named relative to the staged folder, which
+# is where nfpm is run from:
+#
+#   cd stage/Concat-0.2.2-linux-x86_64
+#   VERSION=0.2.2 NFPM_ARCH=amd64 nfpm package -f ../../assets/linux/nfpm.yaml -p deb -t ..
+name: concat
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+section: video
+priority: optional
+maintainer: Concat contributors <jub0trd@gmail.com>
+vendor: Concat contributors
+homepage: https://github.com/jub0t/Concat
+license: AGPL-3.0-or-later
+description: |
+  Free and open source video editor.
+  Timeline editing, effects, transitions, titles, captions and speech,
+  with FFmpeg underneath and hardware-accelerated preview and export.
+
+contents:
+  - src: concat
+    dst: /opt/concat/concat
+    file_info:
+      mode: 0755
+  - src: lib/*
+    dst: /opt/concat/lib/
+  - src: pkg/concat
+    dst: /usr/bin/concat
+    file_info:
+      mode: 0755
+  - src: pkg/concat.desktop
+    dst: /usr/share/applications/concat.desktop
+  - src: concat.png
+    dst: /usr/share/icons/hicolor/256x256/apps/concat.png
+  - src: LICENSE
+    dst: /usr/share/doc/concat/LICENSE
+  - src: THIRD_PARTY_NOTICES.md
+    dst: /usr/share/doc/concat/THIRD_PARTY_NOTICES.md
+
+# What the binary loads from the system rather than from lib/: the
+# toolkit the file dialogs use, sound, fonts and OpenGL. Named as each
+# family names them.
+overrides:
+  deb:
+    depends:
+      - libc6
+      - libgtk-3-0
+      - libfontconfig1
+      - libfreetype6
+      - libxkbcommon0
+      - libgl1
+      - libasound2 | libasound2t64
+  rpm:
+    depends:
+      - gtk3
+      - fontconfig
+      - freetype
+      - libxkbcommon
+      - mesa-libGL
+      - alsa-lib

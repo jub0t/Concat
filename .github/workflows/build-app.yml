@@ -59,6 +59,10 @@ env:
   # the last release Microsoft made for them. The ort crate asks for the
   # runtime's API 17 and up, which this carries.
   ORT_INTEL_MAC_VERSION: 1.23.2
+  # The Linux packagers: nfpm for the .deb and .rpm, appimagetool for the
+  # AppImage; and WiX for the Windows .msi.
+  NFPM_VERSION: 2.47.0
+  WIX_VERSION: 6.0.2
   # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
   # this; it is the Intel floor.
   MACOSX_DEPLOYMENT_TARGET: "12.0"
@@ -99,6 +103,8 @@ jobs:
             ffmpeg: linux64
             sherpa: linux-x64
             ort: x64
+            nfpm: amd64
+            appimage: x86_64
           - platform: linux
             arch: aarch64
             os: ubuntu-22.04-arm
@@ -106,6 +112,8 @@ jobs:
             ffmpeg: linuxarm64
             sherpa: linux-aarch64
             ort: aarch64
+            nfpm: arm64
+            appimage: aarch64
           - platform: windows
             arch: x86_64
             os: windows-2022
@@ -113,6 +121,7 @@ jobs:
             ffmpeg: win64
             sherpa: win-x64
             inno: x64compatible
+            wix: x64
           - platform: windows
             arch: aarch64
             os: windows-11-arm
@@ -120,6 +129,7 @@ jobs:
             ffmpeg: winarm64
             sherpa: win-arm64
             inno: arm64
+            wix: arm64
     runs-on: ${{ matrix.os }}
     # The slowest target (Intel macOS, fat LTO) finishes in under half an
     # hour. A job still running past this is stuck, not slow.
@@ -536,7 +546,65 @@ jobs:
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
-          (cd stage && tar -czf "$name.tar.gz" "$name" && rm -r "$name")
+          (cd stage && tar -czf "$name.tar.gz" "$name")
+
+      # The same folder three more ways. A .deb and an .rpm, from one
+      # description in assets/linux/nfpm.yaml: the program whole under
+      # /opt/concat, a launcher on the path, a desktop entry and an icon.
+      # And an AppImage: the folder as an AppDir, one file that runs on
+      # any distribution with the toolkit installed, which every desktop
+      # has. Both from the folder the tarball was made of - see issue #83.
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NFPM_ARCH: ${{ matrix.nfpm }}
+          ARCH: ${{ matrix.appimage }}
+        run: |
+          set -euo pipefail
+          name="Concat-${VERSION}-linux-${{ matrix.arch }}"
+          export STAGE="$PWD/stage/$name"
+
+          # What the packages add over the folder: the launcher, and a
+          # desktop entry that names the program by its installed path.
+          mkdir -p "$STAGE/pkg"
+          printf '#!/bin/sh\nexec /opt/concat/concat "$@"\n' > "$STAGE/pkg/concat"
+          chmod +x "$STAGE/pkg/concat"
+          sed 's|^Exec=concat|Exec=/opt/concat/concat %U|' "$STAGE/concat.desktop" > "$STAGE/pkg/concat.desktop"
+
+          curl -fsSL --retry 5 --retry-all-errors -o nfpm.tar.gz \
+            "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$( [ "${{ matrix.arch }}" = x86_64 ] && echo x86_64 || echo arm64 ).tar.gz"
+          mkdir -p nfpm && tar -xzf nfpm.tar.gz -C nfpm
+          # From inside the folder: nfpm names files relative to where it
+          # runs, and expands no variables in their paths.
+          for kind in deb rpm; do
+            (cd "$STAGE" && "$OLDPWD/nfpm/nfpm" package -f "$OLDPWD/assets/linux/nfpm.yaml" -p "$kind" -t "$OLDPWD/stage/$name.$kind")
+          done
+          rm -r "$STAGE/pkg"
+
+          # The AppDir: the binary and its lib/ under usr/bin, so the
+          # rpath holds; the desktop entry and icon at the root, where
+          # the tool wants them; AppRun is the binary.
+          appdir="$PWD/Concat.AppDir"
+          rm -rf "$appdir"
+          mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/applications"
+          cp "$STAGE/concat" "$appdir/usr/bin/concat"
+          cp -a "$STAGE/lib" "$appdir/usr/bin/lib"
+          cp "$STAGE/concat.desktop" "$appdir/concat.desktop"
+          cp "$STAGE/concat.desktop" "$appdir/usr/share/applications/concat.desktop"
+          cp "$STAGE/concat.png" "$appdir/concat.png"
+          cp "$STAGE/concat.png" "$appdir/usr/share/icons/hicolor/256x256/apps/concat.png"
+          ln -s concat.png "$appdir/.DirIcon"
+          ln -s usr/bin/concat "$appdir/AppRun"
+          curl -fsSL --retry 5 --retry-all-errors -o appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
+          chmod +x appimagetool
+          # Extract-and-run: the runner has no FUSE to mount the tool with.
+          ./appimagetool --appimage-extract-and-run "$appdir" "stage/$name.AppImage"
+          chmod +x "stage/$name.AppImage"
+
+          rm -r "$STAGE" "$appdir"
+          ls -l stage
 
       # ── Package: Windows ───────────────────────────────────────────────
       - name: Stage (Windows)
@@ -566,6 +634,13 @@ jobs:
             "/DStage=$PWD\stage\$name" "/DOut=$PWD\stage" assets\windows\concat.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name-setup.exe")) { throw "stage\$name-setup.exe is not there" }
+          # And the .msi, with WiX, for the machines an administrator
+          # deploys to. See assets/windows/concat.wxs.
+          dotnet tool install --global wix --version $env:WIX_VERSION | Out-Null
+          wix build -arch ${{ matrix.wix }} "-d" "Version=$env:VERSION" "-d" "Stage=$PWD\stage\$name" `
+            -o "stage\$name.msi" assets\windows\concat.wxs
+          if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
+          if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
           Compress-Archive -Path "stage\$name" -DestinationPath "stage\$name.zip"
           Remove-Item -Recurse -Force "stage\$name"
 
