@@ -26,6 +26,15 @@ slint = { version = "1.17", default-features = false, features = [
 log = "0.4"
 android_logger = "0.15"
 libc = "0.2"
+# The bridge to the activity's Java: the document picker in java/, loaded
+# from the dex that build.rs makes. The version Slint's backend uses, so
+# there is one JNI in the binary.
+jni = "0.22"
+
+[build-dependencies]
+# javac and d8 through the SDK, the way Slint's backend compiles its own
+# helper.
+android-build = "0.1"
 
 # `cargo apk build -p concat-android` packages the shared object, the
 # sherpa-onnx runtime libraries and the manifest below into an APK. The

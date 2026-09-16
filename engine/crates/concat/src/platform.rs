@@ -260,6 +260,52 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
     }
 }
 
+/// What a phone does when asked for files: shows the system's picker and
+/// calls back, later, with what was chosen - an empty list for nothing.
+/// Installed by the phone's own crate before the window runs; see
+/// [`install_file_picker`].
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub type FilePicker = Box<dyn Fn(Box<dyn FnOnce(Vec<PathBuf>) + Send>) + Send + Sync>;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static FILE_PICKER: std::sync::OnceLock<FilePicker> = std::sync::OnceLock::new();
+
+/// Installs the picker a phone answers [`pick_files_async`] with. Once;
+/// a second call is ignored.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_file_picker(picker: FilePicker) {
+    let _ = FILE_PICKER.set(picker);
+}
+
+/// Asks for files and calls `on_picked` with them, on whichever thread the
+/// platform answers from - the caller hops to the window's thread itself.
+///
+/// On a desktop the dialog blocks and the callback runs before this
+/// returns. On a phone the system's picker is another screen: this returns
+/// at once and the callback comes when the picker is dismissed, through
+/// the picker the phone's crate installed. `filter` is the desktop
+/// dialog's; a phone's picker offers every kind of media on its own.
+pub fn pick_files_async(
+    title: &str,
+    filter: Option<(&str, &[&str])>,
+    on_picked: impl FnOnce(Vec<PathBuf>) + Send + 'static,
+) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if let Some(paths) = pick_files(title, filter) {
+            on_picked(paths);
+        }
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (title, filter);
+        match FILE_PICKER.get() {
+            Some(picker) => picker(Box::new(on_picked)),
+            None => log::warn!("no file picker on this platform yet"),
+        }
+    }
+}
+
 /// Asks for files. `filter` names a family and its extensions, and limits
 /// the dialog to them.
 pub fn pick_files(title: &str, filter: Option<(&str, &[&str])>) -> Option<Vec<PathBuf>> {

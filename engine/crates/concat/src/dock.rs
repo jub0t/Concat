@@ -271,6 +271,19 @@ pub fn default_dock() -> Dock {
 }
 
 /// The top edge of a row, measured down the stack from the first lane.
+/// The dock a narrow window shows: the monitor over the timeline, and
+/// nothing beside either. The library and the inspector are a switch away
+/// on each seat - see `PaneSwitcher` - which on a phone is how they are
+/// reached in every editor: one at a time, in the space the picture had.
+pub fn compact_dock() -> Dock {
+    Dock::Split {
+        columns: false,
+        ratio: 0.5,
+        first: Dock::leaf(PaneKind::Preview),
+        second: Dock::leaf(PaneKind::Timeline),
+    }
+}
+
 pub fn row_top(heights: &[f32], row: i32) -> f32 {
     heights.iter().take(row.max(0) as usize).sum()
 }

@@ -38,13 +38,17 @@ mod gpu;
 mod host;
 mod i18n;
 mod platform;
+/// What a phone's own crate installs before the window runs: the way to
+/// the system's file picker. See `platform::pick_files_async`.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub use platform::{FilePicker, install_file_picker};
 mod prefs;
 mod presets;
 mod studio;
 mod sysinfo;
 
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
-use host::{Host, Shell};
+use host::{Host, Shell, on_ui};
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -345,6 +349,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // ── the workspace's arrangement ──
     editor.on_workspace_resized(on_dock!(|state, width: f32, height: f32| {
         state.workspace = (width, height);
+        // A narrow window - a phone, a tablet held upright, a desktop
+        // window squeezed - gets the compact dock: two seats, the monitor
+        // over the timeline, with the switcher on each to bring the
+        // library or the inspector into it. The wide dock waits, whole,
+        // for the window to widen again; every dock operation works on
+        // whichever is showing.
+        state.set_compact(width < studio::COMPACT_WIDTH);
     }));
     editor.on_dock_set(on_dock!(|state, seat: i32, kind: PaneKind| {
         let Some(path) = state.dock.leaf_path(seat.max(0) as usize) else {
@@ -466,24 +477,28 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_media_remove_selected(on_window!(|state| {
         state.media_remove_selected();
     }));
-    editor.on_import_media(on_window!(|state| {
-        if state.session.is_none() {
-            return;
-        }
-        let picked = platform::pick_files(
-            &i18n::t("Import media"),
-            Some((
-                i18n::t("Media").as_str(),
-                &[
-                    "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a", "flac",
-                    "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
-                ],
-            )),
-        );
-        if let Some(paths) = picked {
-            state.import(paths);
-        }
-    }));
+    // Not through the handler macro: nothing here changes the state, and
+    // the import is asynchronous - a phone's picker is another screen, and
+    // the files come back later, on whatever thread, to be imported on the
+    // window's. A desktop's dialog answers before this returns.
+    editor.on_import_media(|| {
+        Shell::with(|shell, _| {
+            if shell.studio.borrow().session.is_none() {
+                return;
+            }
+            platform::pick_files_async(
+                &i18n::t("Import media"),
+                Some((
+                    i18n::t("Media").as_str(),
+                    &[
+                        "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a",
+                        "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
+                    ],
+                )),
+                |paths| on_ui(move |studio, _, _| studio.import(paths)),
+            );
+        });
+    });
     editor.on_media_activate(on_window!(|state, id: i32| {
         state.place_at_playhead(&format!("media:{id}"));
     }));
@@ -1117,11 +1132,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             }
                         }
                         "import" => {
-                            if let Some(paths) =
-                                platform::pick_files(&i18n::t("Import media"), None)
-                            {
-                                state.import(paths);
-                            }
+                            platform::pick_files_async(&i18n::t("Import media"), None, |paths| {
+                                on_ui(move |studio, _, _| studio.import(paths))
+                            });
                         }
                         "export" => {
                             state.export.open = true;

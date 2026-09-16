@@ -145,6 +145,10 @@ const WAVE_STEPS: f32 = 30.0;
 /// the picker chooses how fine, never which way round.
 pub const EXPORT_SHORT_SIDES: [u32; 4] = [2160, 1440, 1080, 720];
 pub const EXPORT_RATES: [(i64, i64); 3] = [(24, 1), (30, 1), (60, 1)];
+/// Narrower than this, in logical pixels, and the workspace shows the
+/// compact dock: a phone, a tablet held upright, a desktop window squeezed
+/// to a corner. Four panes across less than this is four slivers.
+pub const COMPACT_WIDTH: f32 = 860.0;
 /// Megabits per second at 1080p30 for each quality tier, for the size
 /// estimate; and the CRF each tier renders at.
 const EXPORT_TIERS: [f32; 3] = [16.0, 8.0, 4.0];
@@ -756,6 +760,12 @@ pub struct Studio {
 
     // ── the workspace ──
     pub dock: Dock,
+    /// The dock not showing: the compact one while the window is wide,
+    /// the wide one while it is compact. Swapped with `dock` as the
+    /// window crosses `COMPACT_WIDTH`, so each keeps its shape.
+    pub dock_aside: Dock,
+    /// Whether `dock` is the compact one.
+    pub compact: bool,
     pub workspace: (f32, f32),
     pub divider_press: Option<(usize, f32, f32)>,
     pub gesture: Gesture,
@@ -1425,6 +1435,8 @@ impl Studio {
             posters_pending: HashSet::new(),
             project_name: "Untitled project".into(),
             dock: default_dock(),
+            dock_aside: crate::dock::compact_dock(),
+            compact: false,
             workspace: (0.0, 0.0),
             divider_press: None,
             gesture: Gesture::None,
@@ -5878,6 +5890,15 @@ impl Studio {
         let out = self.dock_layout();
         sync(&models.seats, out.seats);
         sync(&models.dividers, out.dividers);
+    }
+
+    /// Shows the compact dock, or the wide one, keeping whichever is put
+    /// away whole; see `COMPACT_WIDTH`.
+    pub fn set_compact(&mut self, compact: bool) {
+        if compact != self.compact {
+            std::mem::swap(&mut self.dock, &mut self.dock_aside);
+            self.compact = compact;
+        }
     }
 
     pub fn dock_layout(&self) -> DockLayout {
