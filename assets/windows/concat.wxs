@@ -8,8 +8,12 @@
   Group Policy, Intune, winget - and it installs for the machine, into
   Program Files, with a Start menu entry and a clean uninstall. Handed in:
 
-    wix build -arch x64 -d Version=0.2.2 -d Stage=C:\...\stage\Concat-0.2.2-windows-x86_64
+    wix build -arch x64 -d Version=0.2.2 -d Root=C:\...\Concat
+              -d Stage=C:\...\stage\Concat-0.2.2-windows-x86_64
               -o stage\Concat-0.2.2-windows-x86_64.msi assets\windows\concat.wxs
+
+  Root is the repository: WiX resolves a source path against where it is
+  run from, not against this file.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <!-- One upgrade code for the life of the product, so a newer .msi
@@ -23,7 +27,7 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Concat is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="concat.ico" SourceFile="..\icons\concat.ico" />
+    <Icon Id="concat.ico" SourceFile="$(var.Root)\assets\icons\concat.ico" />
     <Property Id="ARPPRODUCTICON" Value="concat.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/jub0t/Concat" />
 
