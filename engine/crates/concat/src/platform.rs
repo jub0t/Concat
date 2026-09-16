@@ -21,9 +21,15 @@
 use std::path::PathBuf;
 
 use slint::PlatformError;
+// The winit backend, and so these, exist everywhere but Android, which
+// draws through Slint's android-activity backend and has no winit at all.
+#[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event::WindowEvent;
+#[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event_loop::ActiveEventLoop;
+#[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::window::{Window as WinitWindow, WindowId};
+#[cfg(not(target_os = "android"))]
 use slint::winit_030::{CustomApplicationHandler, EventResult};
 
 use crate::gpu::Gpu;
@@ -33,11 +39,13 @@ use crate::gpu::Gpu;
 /// winit says this pass over the event queue is done - the same shape a
 /// picked-files dialog hands the caller, so the caller need not know drag
 /// and drop split it up.
+#[cfg(not(target_os = "android"))]
 struct DropHandler {
     pending: Vec<PathBuf>,
     on_dropped: Box<dyn Fn(Vec<PathBuf>)>,
 }
 
+#[cfg(not(target_os = "android"))]
 impl DropHandler {
     fn new(on_dropped: impl Fn(Vec<PathBuf>) + 'static) -> Self {
         Self {
@@ -47,6 +55,7 @@ impl DropHandler {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 impl CustomApplicationHandler for DropHandler {
     fn window_event(
         &mut self,
