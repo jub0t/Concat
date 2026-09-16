@@ -71,8 +71,9 @@ pub(crate) fn fetch_model(
                 })?;
                 return Ok(totals);
             }
+            // The partial stays for the next source, or the next time:
+            // whichever answers takes up where this one stopped.
             Err(error) => {
-                let _ = std::fs::remove_file(partial);
                 if cancel.load(Ordering::Relaxed) {
                     return Err(error);
                 }
@@ -83,8 +84,9 @@ pub(crate) fn fetch_model(
     Err(last)
 }
 
-/// Streams `url` into `partial`, reporting every couple of megabytes and
-/// stopping when `cancel` is set. Shared by both model downloaders.
+/// Streams `url` into `partial` through the shared downloader - taking
+/// up from whatever of `partial` is already there - reporting every
+/// couple of megabytes and stopping when `cancel` is set.
 fn download_to(
     url: &str,
     partial: &std::path::Path,
@@ -93,60 +95,20 @@ fn download_to(
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(DownloadProgress),
 ) -> Result<(u64, u64), String> {
-    use std::io::Read;
-    use std::sync::atomic::Ordering;
-
-    // A read timeout, or a stalled connection blocks in `read` forever
-    // with the cancel flag unreachable - the flag is only checked between
-    // reads. Thirty seconds without a byte means the download is dead.
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(20))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
-    let response = agent
-        .get(url)
-        .call()
-        .map_err(|error| format!("download failed: {error}"))?;
-    let total = response
-        .header("Content-Length")
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(estimate);
-
-    let mut file = std::fs::File::create(partial)
-        .map_err(|error| format!("could not create {}: {error}", partial.display()))?;
-
-    let mut reader = response.into_reader();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut received: u64 = 0;
-    let mut last_report: u64 = 0;
-
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            drop(file);
-            let _ = std::fs::remove_file(partial);
-            return Err("download cancelled".to_owned());
-        }
-        let read = reader
-            .read(&mut buffer)
-            .map_err(|error| format!("download interrupted: {error}"))?;
-        if read == 0 {
-            break;
-        }
-        std::io::Write::write_all(&mut file, &buffer[..read])
-            .map_err(|error| format!("could not write model: {error}"))?;
-        received += read as u64;
-
-        // Every 2 MB, not every chunk: a progress bar cannot use more.
-        if received - last_report >= 2 * 1024 * 1024 {
-            last_report = received;
+    concat_host::models::download(
+        url,
+        partial,
+        estimate,
+        cancel,
+        "download cancelled",
+        &mut |received, total| {
             progress(DownloadProgress {
                 id: id.to_owned(),
                 received,
                 total,
                 unpacking: false,
                 done: false,
-            });
-        }
-    }
-    Ok((received, received.max(total)))
+            })
+        },
+    )
 }

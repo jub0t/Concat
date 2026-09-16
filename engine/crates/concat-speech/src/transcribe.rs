@@ -469,10 +469,11 @@ mod tests {
             let file = model_archive(model.id);
             assert_eq!(file, format!("ggml-{}.bin", model.id));
             assert!(model_upstream(model.id).ends_with(&file));
-            let [mirror, upstream] = concat_host::models::sources(&file, &model_upstream(model.id));
+            let sources = concat_host::models::sources(&file, &model_upstream(model.id));
+            let (mirror, upstream) = (&sources[0], &sources[1]);
             assert!(mirror.contains(concat_host::models::RELEASE));
             assert!(mirror.ends_with(&file));
-            assert_eq!(upstream, model_upstream(model.id));
+            assert_eq!(*upstream, model_upstream(model.id));
             assert!(model.approx_bytes > 0);
         }
     }

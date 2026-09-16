@@ -4,7 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogSection, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
@@ -50,6 +50,11 @@ export struct SettingsData {
     language: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// where model downloads look first: automatic, Concat's mirror,
+    /// hf-mirror.com, the original source, a custom URL
+    download-source: int,
+    /// the base URL of a custom source
+    download-base: string,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -345,6 +350,8 @@ export component SettingsDialog inherits Modal {
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
+    callback download-source-changed(index: int);
+    callback download-base-edited(text: string);
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -479,6 +486,43 @@ export component SettingsDialog inherits Modal {
                                 toggled(on) => { root.playhead-stops-changed(on); }
                             }
                         }
+                    }
+                }
+
+                // The models are open weights from elsewhere, mirrored so
+                // they stay reachable; where a download looks first is a
+                // matter of where you are. Every source is still tried.
+                DialogSection {
+                    title: I18n.t("Downloads");
+                    hint: I18n.t("Models are fetched the first time a feature needs one. This is where the download looks first; every other source is still tried after it.");
+
+                    DialogRow {
+                        label: I18n.t("Source");
+                        Select {
+                            current: root.data.download-source;
+                            options: [
+                                I18n.t("Automatic"),
+                                I18n.t("Concat's mirror"),
+                                "hf-mirror.com",
+                                I18n.t("Original source"),
+                                I18n.t("Custom URL"),
+                            ];
+                            details: [
+                                "",
+                                "github.com",
+                                I18n.t("For mainland China"),
+                                I18n.t("Where each model came from"),
+                                I18n.t("A mirror of your own"),
+                            ];
+                            changed(index) => { root.download-source-changed(index); }
+                        }
+                    }
+
+                    if root.data.download-source == 4: Field {
+                        value: root.data.download-base;
+                        placeholder: "https://models.example.com/concat";
+                        technical: true;
+                        edited(text) => { root.download-base-edited(text); }
                     }
                 }
             }

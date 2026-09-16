@@ -405,8 +405,9 @@ pub(crate) fn fetch(
                 return std::fs::rename(&partial, file)
                     .map_err(|error| format!("could not finish {}: {error}", file.display()));
             }
+            // The partial stays for the next source, or the next time:
+            // whichever answers takes up where this one stopped.
             Err(error) => {
-                let _ = std::fs::remove_file(&partial);
                 if cancel.load(Ordering::Relaxed) {
                     return Err(error);
                 }
@@ -417,7 +418,8 @@ pub(crate) fn fetch(
     Err(format!("could not fetch the {} model: {last}", spec.file))
 }
 
-/// One attempt at one URL: straight into `partial`, reporting as it goes.
+/// One attempt at one URL, through the shared downloader: into `partial`,
+/// taking up from whatever of it is already there.
 fn stream(
     url: &str,
     partial: &Path,
@@ -425,53 +427,15 @@ fn stream(
     cancel: &AtomicBool,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<(), String> {
-    use std::io::{Read, Write};
-
-    // A stalled connection blocks in `read` with the cancel flag
-    // unreachable; thirty seconds without a byte means it is dead.
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(20))
-        .timeout_read(std::time::Duration::from_secs(30))
-        .build();
-    let response = agent
-        .get(url)
-        .call()
-        .map_err(|error| format!("{url} did not answer: {error}"))?;
-    let total = response
-        .header("Content-Length")
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(estimate);
-
-    let mut out = std::fs::File::create(partial)
-        .map_err(|error| format!("could not create {}: {error}", partial.display()))?;
-    let mut reader = response.into_reader();
-    let mut buffer = [0u8; 64 * 1024];
-    let mut received = 0u64;
-    let mut reported = 0u64;
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cutout analysis cancelled".to_owned());
-        }
-        let read = reader
-            .read(&mut buffer)
-            .map_err(|error| format!("model download interrupted: {error}"))?;
-        if read == 0 {
-            break;
-        }
-        out.write_all(&buffer[..read])
-            .map_err(|error| format!("could not write the model: {error}"))?;
-        received += read as u64;
-        if received - reported >= 2 * 1024 * 1024 {
-            reported = received;
-            progress(Progress::Fetching { received, total });
-        }
-    }
-    out.flush()
-        .map_err(|error| format!("could not write the model: {error}"))?;
-    if received == 0 {
-        return Err(format!("{url} came back empty"));
-    }
-    Ok(())
+    crate::models::download(
+        url,
+        partial,
+        estimate,
+        cancel,
+        "cutout analysis cancelled",
+        &mut |received, total| progress(Progress::Fetching { received, total }),
+    )
+    .map(|_| ())
 }
 
 /// Every instant the ranges need that the store lacks, ascending, once.

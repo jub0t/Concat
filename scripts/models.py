@@ -56,6 +56,14 @@ def table() -> dict:
     return tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
+def hf_mirror(url: str) -> str | None:
+    """`url` through hf-mirror.com, for a Hugging Face URL; None otherwise."""
+    for host in ("https://huggingface.co/", "https://hf.co/"):
+        if url.startswith(host):
+            return "https://hf-mirror.com/" + url[len(host):]
+    return None
+
+
 def asset_url(release: str, file: str) -> str:
     return f"https://github.com/{REPO}/releases/download/{release}/{file}"
 
@@ -297,6 +305,18 @@ def release_manifest(version: str, tag: str, bundles: pathlib.Path | None) -> di
             "licence": model["licence"],
             "url": asset_url(release, model["file"]),
             "upstream": model["upstream"],
+            # Every place the file can be fetched from, best first: the
+            # app's own order, for anything that reads this instead of the
+            # app. hf-mirror.com carries whatever Hugging Face does.
+            "sources": [
+                url
+                for url in [
+                    asset_url(release, model["file"]),
+                    model["upstream"],
+                    hf_mirror(model["upstream"]),
+                ]
+                if url
+            ],
         }
 
     return {

@@ -319,6 +319,10 @@ pub struct SettingsState {
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
+    /// Index into `SourcePreference::ALL`: where model downloads look first.
+    pub download_source: usize,
+    /// The base URL of a custom download source.
+    pub download_base: String,
 }
 
 /// The missing media relink dialog state.
@@ -1472,6 +1476,9 @@ impl Studio {
             .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
             .unwrap_or(0);
         studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
+        studio.settings.download_source = studio.download_source().0;
+        studio.settings.download_base = studio.prefs.download_base.clone().unwrap_or_default();
+        studio.apply_download_source();
         studio.refresh_models();
         studio
     }
@@ -5892,6 +5899,27 @@ impl Studio {
         sync(&models.dividers, out.dividers);
     }
 
+    /// The remembered download source: its place in the menu, and itself.
+    pub fn download_source(&self) -> (usize, concat_host::models::SourcePreference) {
+        use concat_host::models::SourcePreference;
+        let preference =
+            SourcePreference::parse(self.prefs.download_source.as_deref().unwrap_or_default());
+        let index = SourcePreference::ALL
+            .iter()
+            .position(|candidate| *candidate == preference)
+            .unwrap_or(0);
+        (index, preference)
+    }
+
+    /// Tells the downloaders where to look first, from the preferences.
+    pub fn apply_download_source(&self) {
+        let (_, preference) = self.download_source();
+        concat_host::models::set_preference(
+            preference,
+            self.prefs.download_base.as_deref().unwrap_or_default(),
+        );
+    }
+
     /// Shows the compact dock, or the wide one, keeping whichever is put
     /// away whole; see `COMPACT_WIDTH`.
     pub fn set_compact(&mut self, compact: bool) {
@@ -6832,6 +6860,8 @@ impl Studio {
             tab: self.settings.tab,
             language: self.settings.language as i32,
             playhead_stops: self.settings.playhead_stops,
+            download_source: self.settings.download_source as i32,
+            download_base: self.settings.download_base.as_str().into(),
             disk: {
                 let installed: Vec<&ModelState> = self
                     .transcribers

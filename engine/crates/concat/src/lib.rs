@@ -1042,6 +1042,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
         let at = state.playhead;
         state.seek(at);
     }));
+    app.on_settings_download_source_changed(on_window!(|state, index: i32| {
+        use concat_host::models::SourcePreference;
+        let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
+        state.settings.download_source = index;
+        state.prefs.download_source = Some(SourcePreference::ALL[index].name().to_owned());
+        state.prefs.save(&state.host.dirs);
+        state.apply_download_source();
+    }));
+    app.on_settings_download_base_edited(on_window!(|state, text: SharedString| {
+        let base = text.trim().to_owned();
+        state.settings.download_base = base.clone();
+        state.prefs.download_base = (!base.is_empty()).then_some(base);
+        state.prefs.save(&state.host.dirs);
+        state.apply_download_source();
+    }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
         state.model_activate(id.as_str());
     }));
