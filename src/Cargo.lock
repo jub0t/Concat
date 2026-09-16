@@ -1184,6 +1184,7 @@ dependencies = [
 name = "concat-api"
 version = "0.2.2"
 dependencies = [
+ "base64 0.22.1",
  "concat-effects",
  "concat-export",
  "concat-host",

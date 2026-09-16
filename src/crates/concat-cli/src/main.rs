@@ -6,7 +6,7 @@
 //! This exists so the engine can be exercised end to end without a UI. The
 //! `render` command is the vertical slice: probe, build a timeline, plan every
 //! frame, decode, composite, encode. The `api` command is the Concat API's
-//! first transport: JSON requests in, JSON responses and events out, one per
+//! first transport: JSON-RPC requests in, responses and events out, one per
 //! line, so a script in any language edits and exports a project. `preview`
 //! is how the window's effect cards get their pictures: one still through one
 //! package at its defaults.
@@ -14,8 +14,10 @@
 use std::error::Error;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use concat_api::rpc::{Call, Message};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
 use concat_media::{
@@ -52,8 +54,9 @@ enum Command {
         fade: u64,
     },
 
-    /// Speak the Concat API: a JSON request per line on stdin, a response per
-    /// line on stdout, with events in between as they happen.
+    /// Speak the Concat API: a JSON-RPC request per line on stdin, a
+    /// response per line on stdout, with events from running jobs as they
+    /// happen. A bare `{"method": ..., ...}` without the envelope works too.
     Api {
         /// One request to run instead of reading stdin.
         request: Option<String>,
@@ -100,32 +103,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-/// The stdin transport. Every line in is one request; every line out is
-/// one JSON object, either an event or the response, flushed as written so
-/// a caller reading a pipe sees progress as it happens. A line that is not
-/// a request gets an error response and the loop goes on.
+/// The stdin transport. Every line in is one call; every line out is one
+/// JSON object, a response or an event, written whole under stdout's lock
+/// and flushed, so a caller reading a pipe sees progress as it happens and
+/// never half a line. A line that is not a call gets an error response and
+/// the loop goes on. At the end of input the jobs still running - an export
+/// begun on the last line - are waited for, so their events are written
+/// before the process exits.
 fn api(single: Option<String>) -> Result<(), Box<dyn Error>> {
-    let mut api = concat_api::Api::new()?;
-    let stdout = std::io::stdout();
-
-    let mut serve = |line: &str| -> Result<(), Box<dyn Error>> {
-        let mut out = stdout.lock();
-        let response = match serde_json::from_str::<concat_api::Request>(line) {
-            Ok(request) => api.dispatch(request, &mut |event| {
-                // An event that cannot be written is a caller that went
-                // away; the response's write will say so.
-                let _ = serde_json::to_writer(&mut out, &event)
-                    .and_then(|()| writeln!(out).map_err(serde_json::Error::io));
-                let _ = out.flush();
-            }),
-            Err(error) => concat_api::Response::Error(format!("not a request: {error}")),
+    let mut api = concat_api::Api::new(Arc::new(|event| emit(&Message::Event(event))))?;
+    let mut serve = |line: &str| {
+        let (id, response) = match Call::parse(line) {
+            Ok(call) => (call.id, api.dispatch(call.request)),
+            Err((id, error)) => (id, concat_api::Response::Error(error)),
         };
-        serde_json::to_writer(&mut out, &response)?;
-        writeln!(out)?;
-        out.flush()?;
-        Ok(())
+        emit(&Message::Reply { id, response });
     };
-
     match single {
         Some(line) => serve(&line),
         None => {
@@ -134,11 +127,20 @@ fn api(single: Option<String>) -> Result<(), Box<dyn Error>> {
                 if line.trim().is_empty() {
                     continue;
                 }
-                serve(&line)?;
+                serve(&line);
             }
-            Ok(())
         }
     }
+    api.finish();
+    Ok(())
+}
+
+/// One line to stdout. A line that cannot be written is a caller that
+/// went away, and the loop learns that from stdin's end.
+fn emit(message: &Message) {
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{}", message.to_json());
+    let _ = out.flush();
 }
 
 /// One frame of `input`, scaled to the card's size, through `effect` at its

@@ -16,6 +16,8 @@ serde_json.workspace = true
 # The frame method hands back a PNG: the one picture format every
 # caller reads and that keeps the compositor's pixels exact.
 png = "0.17"
+# A frame handed back inline crosses as text.
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

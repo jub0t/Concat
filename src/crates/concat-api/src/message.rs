@@ -8,8 +8,17 @@
 //! contract: a transport is free to carry it over stdin, a socket or a
 //! function call, but never to reinterpret it. Requests are tagged by
 //! `method`, events by `event`, and a response is `{"result": ...}` or
-//! `{"error": "..."}`. Fields are camelCase, matching the document and the
-//! command layer, so a caller learns one spelling.
+//! `{"error": {"code": ..., "message": ...}}`. Fields are camelCase,
+//! matching the document and the command layer, so a caller learns one
+//! spelling. On a line or a socket the three travel inside the JSON-RPC 2.0
+//! envelope [`crate::rpc`] describes, which adds an id to tie a response to
+//! its request and nothing else.
+//!
+//! A method that takes longer than a caller should wait - an export - is a
+//! job: the response names it at once, and everything that happens to it
+//! comes back as [`Event`]s carrying that name, ending in `export.done` or
+//! `export.failed`. A refusal is an [`ApiError`]: a [`ErrorCode`] a program
+//! can branch on and the sentence a person would be shown.
 //!
 //! The edit vocabulary is not redefined here. [`Request::EditApply`] carries
 //! a `concat_project` [`Command`] as it is, so every operation the window
@@ -29,7 +38,7 @@ use serde_json::Value;
 /// The version of this contract. Bumped when a method's shape changes in a
 /// way a caller written against the previous one would misread; adding a
 /// method or an optional field does not bump it.
-pub const API_VERSION: &str = "0.1";
+pub const API_VERSION: &str = "0.2";
 
 /// What a caller asks for. One variant per method, named `area.verb`.
 ///
@@ -182,9 +191,11 @@ pub enum Request {
     },
 
     /// Renders an open project's active timeline to a file, exactly as
-    /// the window's Export does: titles painted, cutouts analysed, then the
-    /// frame loop and the mix. Blocks until the file is written, reporting
-    /// through [`Event`]s.
+    /// the window's Export does: cutouts analysed, titles painted, then the
+    /// frame loop and the mix. Returns at once with the job's name; the
+    /// render runs on its own thread and reports through [`Event`]s, ending
+    /// in [`Event::ExportDone`] or [`Event::ExportFailed`]. One export runs
+    /// at a time; a second is refused as [`ErrorCode::Busy`].
     #[serde(rename = "export.run")]
     ExportRun {
         /// The project folder.
@@ -193,20 +204,26 @@ pub enum Request {
         #[serde(flatten)]
         spec: ExportSpec,
     },
-    /// Stops the export that is running, if one is. Meaningful only from a
-    /// transport that can speak while a dispatch blocks.
+    /// Stops a running export at its next frame. The job then ends with
+    /// [`Event::ExportFailed`] carrying [`ErrorCode::Cancelled`].
     #[serde(rename = "export.cancel")]
-    ExportCancel,
+    ExportCancel {
+        /// The job [`Started`] named.
+        job: String,
+    },
 
-    /// Composites the true frame at one instant and writes it as a PNG.
+    /// Composites the true frame at one instant. Written as a PNG to
+    /// `output` when there is one, and handed back inline as a
+    /// [`Picture`] otherwise, for a caller on the far side of a socket.
     #[serde(rename = "preview.frame")]
     PreviewFrame {
         /// The project folder.
         path: String,
         /// The timeline instant, in seconds.
         time: f64,
-        /// The file to write.
-        output: String,
+        /// The file to write; absent means the picture comes back inline.
+        #[serde(default)]
+        output: Option<String>,
         /// Frame width; the timeline's when absent.
         #[serde(default)]
         width: Option<u32>,
@@ -281,9 +298,12 @@ pub enum Reply {
     Templates(Vec<TemplateInfo>),
     /// [`Request::TemplateSave`].
     Template(TemplateInfo),
-    /// [`Request::ExportRun`] and [`Request::PreviewFrame`]: the file
-    /// written.
+    /// [`Request::ExportRun`]: the job that is now running.
+    Started(Started),
+    /// [`Request::PreviewFrame`] with an output: the file written.
     Written(Written),
+    /// [`Request::PreviewFrame`] without one: the picture itself.
+    Picture(Picture),
     /// Methods with nothing to say beyond having worked.
     Done(Done),
 }
@@ -329,6 +349,30 @@ pub struct Written {
     pub width: u32,
     /// Its picture size.
     pub height: u32,
+}
+
+/// A job the API has begun. Every event about it carries `job`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Started {
+    /// The job's name, unique for the life of the API: "j1", "j2", ...
+    pub job: String,
+    /// The project it works on.
+    pub path: String,
+    /// The file it will write.
+    pub output: String,
+}
+
+/// A frame handed back without touching the disk.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Picture {
+    /// Its picture size.
+    pub width: u32,
+    /// Its picture size.
+    pub height: u32,
+    /// The PNG, base64 in the standard alphabet with padding.
+    pub png: String,
 }
 
 /// The empty reply, an object so every reply is one.
@@ -384,8 +428,89 @@ pub struct ParamInfo {
     pub labels: Vec<String>,
 }
 
+/// Why a request has no reply, as a program reads it. The JSON-RPC number
+/// each maps to is [`ErrorCode::number`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorCode {
+    /// The line was not JSON.
+    Parse,
+    /// The JSON was not a request: an unknown method, a missing or
+    /// ill-typed field, a value out of range.
+    Invalid,
+    /// The project named is not open; open it first.
+    NotOpen,
+    /// A job, template or package named does not exist.
+    NotFound,
+    /// The edit layer said no. The message is the sentence the window
+    /// would show, and the state is as it was.
+    Refused,
+    /// A one-at-a-time job is already running.
+    Busy,
+    /// The job was stopped by [`Request::ExportCancel`].
+    Cancelled,
+    /// Everything else: a file that could not be read or written, a decode
+    /// that failed, a model that did not download.
+    Failed,
+}
+
+impl ErrorCode {
+    /// The code's JSON-RPC 2.0 number: the standard ones for the standard
+    /// meanings, and server-defined ones (-32000 downwards) for the rest.
+    pub fn number(self) -> i64 {
+        match self {
+            ErrorCode::Parse => -32700,
+            ErrorCode::Invalid => -32600,
+            ErrorCode::Failed => -32000,
+            ErrorCode::NotOpen => -32001,
+            ErrorCode::NotFound => -32002,
+            ErrorCode::Refused => -32003,
+            ErrorCode::Busy => -32004,
+            ErrorCode::Cancelled => -32005,
+        }
+    }
+}
+
+/// A refusal: what kind, and the sentence a person would be shown.
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiError {
+    /// What kind of refusal.
+    pub code: ErrorCode,
+    /// The sentence.
+    pub message: String,
+}
+
+impl ApiError {
+    /// An error of `code` saying `message`.
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> ApiError {
+        ApiError {
+            code,
+            message: message.into(),
+        }
+    }
+
+    /// [`ErrorCode::Invalid`].
+    pub fn invalid(message: impl Into<String>) -> ApiError {
+        ApiError::new(ErrorCode::Invalid, message)
+    }
+
+    /// [`ErrorCode::Failed`].
+    pub fn failed(message: impl Into<String>) -> ApiError {
+        ApiError::new(ErrorCode::Failed, message)
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ApiError {}
+
 /// A request's outcome. `{"result": ...}` when it worked, `{"error":
-/// "..."}` with the sentence a person would be shown when it did not.
+/// {"code": ..., "message": ...}}` when it did not.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::large_enum_variant)]
@@ -393,11 +518,11 @@ pub enum Response {
     /// The reply.
     Result(Reply),
     /// Why there is none.
-    Error(String),
+    Error(ApiError),
 }
 
-impl From<Result<Reply, String>> for Response {
-    fn from(result: Result<Reply, String>) -> Self {
+impl From<Result<Reply, ApiError>> for Response {
+    fn from(result: Result<Reply, ApiError>) -> Self {
         match result {
             Ok(reply) => Response::Result(reply),
             Err(error) => Response::Error(error),
@@ -405,24 +530,19 @@ impl From<Result<Reply, String>> for Response {
     }
 }
 
-/// Something that happened while a request ran. A transport forwards
-/// these as they come; a caller that does not care ignores them.
+/// Something that happened to a job. A transport forwards these to every
+/// caller as they come; each names its job and its project, so a caller
+/// keeps the ones it asked for and ignores the rest.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all_fields = "camelCase")]
 pub enum Event {
-    /// The export moved on.
-    #[serde(rename = "export.progress")]
-    ExportProgress {
-        /// Frames done.
-        frame: i64,
-        /// Frames in total.
-        total: i64,
-        /// "rendering", "mixing audio" or "muxing".
-        stage: String,
-    },
     /// A cutout's masks are being found ahead of an export.
     #[serde(rename = "cutout.progress")]
     CutoutProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
         /// The media being analysed.
         media_id: String,
         /// True while a model downloads, false while it runs.
@@ -430,14 +550,66 @@ pub enum Event {
         /// How far along, `0..=1`.
         fraction: f32,
     },
+    /// The export moved on.
+    #[serde(rename = "export.progress")]
+    ExportProgress {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// Frames done.
+        frame: i64,
+        /// Frames in total.
+        total: i64,
+        /// "video", "audio" or "mux".
+        stage: String,
+    },
+    /// The export wrote its file. The job is over.
+    #[serde(rename = "export.done")]
+    ExportDone {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// The file written.
+        output: String,
+        /// Its picture size.
+        width: u32,
+        /// Its picture size.
+        height: u32,
+    },
+    /// The export did not write its file. The job is over.
+    #[serde(rename = "export.failed")]
+    ExportFailed {
+        /// The job.
+        job: String,
+        /// The project folder.
+        path: String,
+        /// Why: [`ErrorCode::Cancelled`] when asked to stop, otherwise what
+        /// went wrong.
+        error: ApiError,
+    },
 }
 
-impl From<Progress> for Event {
-    fn from(progress: Progress) -> Self {
+impl Event {
+    /// [`Event::ExportProgress`] for one report from the renderer.
+    pub fn progress(job: &str, path: &str, progress: Progress) -> Event {
         Event::ExportProgress {
+            job: job.to_owned(),
+            path: path.to_owned(),
             frame: progress.frame,
             total: progress.total,
             stage: progress.stage.to_owned(),
+        }
+    }
+
+    /// The job this event is about.
+    pub fn job(&self) -> &str {
+        match self {
+            Event::CutoutProgress { job, .. }
+            | Event::ExportProgress { job, .. }
+            | Event::ExportDone { job, .. }
+            | Event::ExportFailed { job, .. } => job,
         }
     }
 }
