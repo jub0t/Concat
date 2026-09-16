@@ -1057,6 +1057,31 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.prefs.save(&state.host.dirs);
         state.apply_download_source();
     }));
+    app.on_settings_server_enabled_changed(on_window!(|state, on: bool| {
+        state.prefs.server.enabled = on;
+        state.prefs.save(&state.host.dirs);
+        state.apply_server();
+    }));
+    app.on_settings_server_listen_edited(on_window!(|state, text: SharedString| {
+        let listen = text.trim().to_owned();
+        state.prefs.server.listen = if listen.is_empty() {
+            prefs::DEFAULT_LISTEN.to_owned()
+        } else {
+            listen
+        };
+        state.prefs.save(&state.host.dirs);
+        state.apply_server();
+    }));
+    app.on_settings_server_token_edited(on_window!(|state, text: SharedString| {
+        state.prefs.server.token = text.trim().to_owned();
+        state.prefs.save(&state.host.dirs);
+        state.apply_server();
+    }));
+    app.on_settings_server_token_generated(on_window!(|state| {
+        state.prefs.server.token = Studio::new_token();
+        state.prefs.save(&state.host.dirs);
+        state.apply_server();
+    }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
         state.model_activate(id.as_str());
     }));

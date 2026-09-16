@@ -191,6 +191,10 @@ export component App inherits Window {
     callback settings-playhead-stops-changed(on: bool);
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
+    callback settings-server-enabled-changed(on: bool);
+    callback settings-server-listen-edited(text: string);
+    callback settings-server-token-edited(text: string);
+    callback settings-server-token-generated();
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -483,6 +487,10 @@ export component App inherits Window {
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }
+        server-enabled-changed(on) => { root.settings-server-enabled-changed(on); }
+        server-listen-edited(text) => { root.settings-server-listen-edited(text); }
+        server-token-edited(text) => { root.settings-server-token-edited(text); }
+        server-token-generated => { root.settings-server-token-generated(); }
         model-activated(id) => { root.model-activated(id); }
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }

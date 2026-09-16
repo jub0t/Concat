@@ -323,6 +323,9 @@ pub struct SettingsState {
     pub download_source: usize,
     /// The base URL of a custom download source.
     pub download_base: String,
+    /// Why the server is not running when the switch is on: the bind that
+    /// failed. Empty while it runs, or is off.
+    pub server_error: String,
 }
 
 /// The missing media relink dialog state.
@@ -1489,6 +1492,7 @@ impl Studio {
         studio.settings.download_source = studio.download_source().0;
         studio.settings.download_base = studio.prefs.download_base.clone().unwrap_or_default();
         studio.apply_download_source();
+        studio.apply_server();
         studio.refresh_models();
         studio
     }
@@ -5998,6 +6002,78 @@ impl Studio {
         (index, preference)
     }
 
+    /// Starts or stops the API's server to match the preferences. A server
+    /// already running is stopped first, so an edited address or token
+    /// takes effect; a bind that fails turns the switch back off and says
+    /// why on the page.
+    pub fn apply_server(&mut self) {
+        if let Some(server) = self.host.server.take() {
+            server.stop();
+        }
+        self.settings.server_error.clear();
+        let prefs = &self.prefs.server;
+        if !prefs.enabled {
+            return;
+        }
+        let started = prefs
+            .listen
+            .trim()
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| {
+                tf(
+                    "{0} is not an address like 127.0.0.1:7420",
+                    &[&prefs.listen],
+                )
+            })
+            .and_then(|address| {
+                let config = concat_server::Config {
+                    json: Some(address),
+                    token: Some(prefs.token.clone()).filter(|token| !token.is_empty()),
+                    ..concat_server::Config::default()
+                };
+                concat_server::Server::start(config, concat_api::Api::new)
+            });
+        match started {
+            Ok(server) => self.host.server = Some(server),
+            Err(error) => {
+                self.prefs.server.enabled = false;
+                self.prefs.save(&self.host.dirs);
+                self.settings.server_error = error.clone();
+                self.notify(&error, true);
+            }
+        }
+    }
+
+    /// What the Remote page says under the switch.
+    fn server_status(&self) -> String {
+        match &self.host.server {
+            Some(server) => {
+                let address = server
+                    .json_addr()
+                    .map(|address| address.to_string())
+                    .unwrap_or_default();
+                tf(
+                    "Listening on {0} · {1} connected",
+                    &[&address, &server.connections()],
+                )
+            }
+            None if !self.settings.server_error.is_empty() => self.settings.server_error.clone(),
+            None => t("Off"),
+        }
+    }
+
+    /// A fresh token: 128 bits from the OS's randomness, as the standard
+    /// library hands it out through its hasher's seed, spelled in hex.
+    pub fn new_token() -> String {
+        use std::hash::{BuildHasher, Hasher};
+        let word = |salt: u64| {
+            let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+            hasher.write_u64(salt);
+            hasher.finish()
+        };
+        format!("{:016x}{:016x}", word(1), word(2))
+    }
+
     /// Tells the downloaders where to look first, from the preferences.
     pub fn apply_download_source(&self) {
         let (_, preference) = self.download_source();
@@ -6950,6 +7026,10 @@ impl Studio {
             playhead_stops: self.settings.playhead_stops,
             download_source: self.settings.download_source as i32,
             download_base: self.settings.download_base.as_str().into(),
+            server_enabled: self.prefs.server.enabled,
+            server_listen: self.prefs.server.listen.as_str().into(),
+            server_token: self.prefs.server.token.as_str().into(),
+            server_status: self.server_status().into(),
             disk: {
                 let installed: Vec<&ModelState> = self
                     .transcribers

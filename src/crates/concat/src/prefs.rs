@@ -39,7 +39,38 @@ pub struct Preferences {
     pub download_source: Option<String>,
     /// The base URL a custom download source appends a model's file to.
     pub download_base: Option<String>,
+    /// The Concat API on a socket while the window is open.
+    #[serde(default)]
+    pub server: ServerPrefs,
 }
+
+/// The Settings sheet's Remote page: whether the API is served while the
+/// window is open, where, and behind which token.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ServerPrefs {
+    /// Serve while the window is open.
+    pub enabled: bool,
+    /// The TCP address JSON-RPC lines are served on.
+    pub listen: String,
+    /// What a connection presents first. Empty means none, which the
+    /// server only allows on loopback.
+    pub token: String,
+}
+
+impl Default for ServerPrefs {
+    fn default() -> Self {
+        ServerPrefs {
+            enabled: false,
+            listen: DEFAULT_LISTEN.to_owned(),
+            token: String::new(),
+        }
+    }
+}
+
+/// Where the window's server listens unless told otherwise: loopback, on
+/// the port `concat-cli serve` uses too.
+pub const DEFAULT_LISTEN: &str = "127.0.0.1:7420";
 
 impl Preferences {
     /// Reads the file, or the defaults when there is none.

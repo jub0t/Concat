@@ -47,6 +47,10 @@ pub struct Host {
     pub cutouts: Arc<concat_host::Cutouts>,
     /// The brush model, and the regions it reads under smart strokes.
     pub brushes: Arc<concat_host::Brushes>,
+    /// The Concat API on a socket, while the Remote page has it on. Its
+    /// own sessions, apart from the window's: a caller edits projects of
+    /// its own, not the one on screen.
+    pub server: Option<concat_server::Server>,
 }
 
 impl Host {
@@ -70,6 +74,7 @@ impl Host {
             exporter: Exporter::new(),
             transcriber: Arc::new(Transcriber::new()),
             speech: Arc::new(Speech::new()),
+            server: None,
         })
     }
 }

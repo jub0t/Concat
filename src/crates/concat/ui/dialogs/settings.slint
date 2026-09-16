@@ -45,7 +45,7 @@ export struct SystemFactData {
 
 export struct SettingsData {
     open: bool,
-    /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 About
+    /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About
     tab: int,
     language: int,
     /// the playhead stops at the end of the content
@@ -55,6 +55,14 @@ export struct SettingsData {
     download-source: int,
     /// the base URL of a custom source
     download-base: string,
+    /// the Concat API served on a socket while the window is open
+    server-enabled: bool,
+    /// "127.0.0.1:7420"
+    server-listen: string,
+    /// what a connection presents first; empty for none
+    server-token: string,
+    /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
+    server-status: string,
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
@@ -352,6 +360,11 @@ export component SettingsDialog inherits Modal {
     callback playhead-stops-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
+    callback server-enabled-changed(on: bool);
+    callback server-listen-edited(text: string);
+    callback server-token-edited(text: string);
+    /// A fresh random token, in place of whatever is there.
+    callback server-token-generated();
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -434,10 +447,16 @@ export component SettingsDialog inherits Modal {
                     clicked => { root.page-changed(3); }
                 }
                 PageTab {
-                    label: I18n.t("About");
-                    glyph: Glyph.sparkle;
+                    label: I18n.t("Remote");
+                    glyph: Glyph.lock;
                     current: root.data.tab == 4;
                     clicked => { root.page-changed(4); }
+                }
+                PageTab {
+                    label: I18n.t("About");
+                    glyph: Glyph.sparkle;
+                    current: root.data.tab == 5;
+                    clicked => { root.page-changed(5); }
                 }
             }
         }
@@ -598,7 +617,81 @@ export component SettingsDialog inherits Modal {
                 }
             }
 
+            // The API on a socket. The switch is the whole of it for most
+            // people; the address and the token are there for the one who
+            // is putting a script on another machine, and the hints say
+            // what that opens.
             if root.data.tab == 4: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("Remote control");
+                    hint: I18n.t("Serves the Concat API while the window is open, so a script or another program can create, edit and export projects of its own. Anything that connects can read and write files as you can.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Serve the API");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.server-enabled;
+                                toggled(on) => { root.server-enabled-changed(on); }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: root.data.server-status;
+                        color: Theme.fg-muted;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                }
+
+                DialogSection {
+                    title: I18n.t("Address");
+                    hint: I18n.t("127.0.0.1 is this machine only. Any other address is reachable from the network, needs a token, and is still not encrypted.");
+
+                    Field {
+                        value: root.data.server-listen;
+                        placeholder: "127.0.0.1:7420";
+                        technical: true;
+                        edited(text) => { root.server-listen-edited(text); }
+                    }
+                }
+
+                DialogSection {
+                    title: I18n.t("Token");
+                    hint: I18n.t("What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Field {
+                            value: root.data.server-token;
+                            placeholder: I18n.t("none");
+                            technical: true;
+                            edited(text) => { root.server-token-edited(text); }
+                        }
+
+                        Button {
+                            label: I18n.t("New token");
+                            clicked => { root.server-token-generated(); }
+                        }
+                    }
+                }
+            }
+
+            if root.data.tab == 5: VerticalLayout {
                 DialogSection {
                     first: true;
                     title: I18n.t("About");
