@@ -87,6 +87,12 @@ jobs:
         working-directory: src
       - run: cargo test --workspace
         working-directory: src
+      # The gRPC transport is a feature nothing else in the workspace turns
+      # on, so it is linted and tested here on its own. See concat-server.
+      - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings
+        working-directory: src
+      - run: cargo test -p concat-server --features grpc
+        working-directory: src
 
   # The engine crates that carry no native library build for the web. This
   # job is what keeps that true: a std::thread or a blocking wait that

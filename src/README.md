@@ -12,8 +12,9 @@ The video engine behind Concat. Rust, no GC, no hidden control flow.
 | `concat-render` | Turning a timeline plus a timestamp into one finished frame. | `concat-core`, wgpu (optional) |
 | `concat-effects` | Effect packages: manifests, chain templates, the catalogue. Each built-in effect is a folder under `packages/`. | `concat-project`, serde, toml |
 | `concat-export` | Timeline to file: flatten, the frame-by-frame render loop, the paused monitor's true frame. | `concat-core`, `concat-media`, `concat-render`, `concat-project`, `concat-effects` |
-| `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-project` |
-| `concat-cli` | A binary to drive the above: `probe`, `render`, and `api`, the API over stdin and stdout. | `concat-api`, the engine crates |
+| `concat-api` | The Concat API: JSON requests in, responses and events out. Projects, edits, media, the catalogue, templates, exports as jobs, frames. | `concat-host`, `concat-export`, `concat-effects`, `concat-project` |
+| `concat-server` | The API on a socket: JSON-RPC lines over TCP or a Unix socket, and gRPC behind the `grpc` feature. One dispatcher, many callers. | `concat-api`; tonic and tokio with `grpc` |
+| `concat-cli` | A binary to drive the above: `probe`, `render`, `api` (the API over stdin and stdout) and `serve` (the API on a socket). | `concat-server`, `concat-api`, the engine crates |
 | `concat-host` | What the window needs that is not the edit: sessions, project folders, previews, playback, templates, job slots. | `concat-media`, `concat-project`, `concat-export`, cpal |
 | `concat-speech` | Transcription (whisper.cpp, in-process) and text to speech (Kokoro via sherpa-onnx). | `concat-host`, `concat-media`, whisper-rs, sherpa-onnx |
 | `concat` | The editor window: every pane, dialog and primitive, in Slint. The app a user launches. | slint, `concat-host`, `concat-speech` |
@@ -25,7 +26,7 @@ The dependency arrows point one way:
 concat -> concat-speech -> concat-host -> {export, project, media} -> core
                                        -> render -> core
                                           export -> effects -> project
-concat-cli -> concat-api -> concat-host
+concat-cli -> concat-server -> concat-api -> concat-host
 ```
 
 If you ever find yourself wanting `core` to depend on `media`, something has
@@ -43,7 +44,9 @@ cargo test
 cargo run -p concat-cli -- probe some-video.mp4
 cargo run -p concat-cli -- render some-video.mp4 out.mp4 --frames 120
 cargo run -p concat-cli -- api '{"method":"catalogue.list","kind":"filter"}'
-cargo run -p concat-cli -- api < edits.jsonl   # one request per line; see concat-api
+cargo run -p concat-cli -- api < edits.jsonl   # one JSON-RPC call per line; see below
+cargo run -p concat-cli -- serve               # the same API on 127.0.0.1:7420
+cargo run -p concat-cli --features grpc -- serve --grpc 127.0.0.1:7421
 cargo run -p concat                    # the editor window, debug
 cargo run --profile quick -p concat    # optimised, rebuilds in seconds: for trying changes
 cargo build --profile app -p concat    # the shipping binary: fat LTO, panic=abort, stripped
@@ -115,6 +118,41 @@ desktop and on iOS runs it from `main.rs`, `concat-android` from the
 activity's `android_main`, and `crates/concat/src/platform.rs` is where
 the three differ - how the backend is chosen, how files are picked, and
 whether there is a title strip to drag.
+
+## Driving Concat without the window
+
+Everything the window does to a project, a script can do through the Concat
+API: `concat-api` is the one dispatcher, and the transports only carry it.
+On a line - stdin, TCP, a Unix socket - a call is JSON-RPC 2.0, one object
+per line, and the response comes back with the call's id:
+
+```jsonl
+{"jsonrpc":"2.0","id":1,"method":"project.open","params":{"path":"/edits/Reel"}}
+{"jsonrpc":"2.0","id":1,"result":{"project":{...},"canUndo":false,...}}
+{"jsonrpc":"2.0","id":2,"method":"edit.apply","params":{"path":"/edits/Reel","command":{"op":"addTextClip","start":1.5}}}
+{"jsonrpc":"2.0","id":2,"result":{...}}
+{"jsonrpc":"2.0","id":3,"method":"export.run","params":{"path":"/edits/Reel","output":"/edits/reel.mp4"}}
+{"jsonrpc":"2.0","id":3,"result":{"job":"j1","path":"/edits/Reel","output":"/edits/reel.mp4"}}
+{"jsonrpc":"2.0","method":"export.progress","params":{"job":"j1","path":"/edits/Reel","frame":30,"total":900,"stage":"video"}}
+{"jsonrpc":"2.0","method":"export.done","params":{"job":"j1","path":"/edits/Reel","output":"/edits/reel.mp4","width":1920,"height":1080}}
+```
+
+An `edit.apply` carries a `concat-project` command as it is, so every edit
+the window can make is one a caller can make, with the same refusals. An
+error is `{"code": -32001, "message": "...", "data": {"code": "notOpen"}}`:
+the number is JSON-RPC's, the name in `data` is the API's - `parse`,
+`invalid`, `notOpen`, `notFound`, `refused`, `busy`, `cancelled`, `failed`,
+`unauthorized`. Exports are jobs: the response names one at once and its
+events follow, to every connected caller, each naming its job and project.
+
+`concat-cli serve` puts the same lines on a socket. It binds loopback unless
+told otherwise and refuses any other address without `--token` (or
+`CONCAT_API_TOKEN`), which a connection then presents as its first line,
+`{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":"..."}}`. There
+is no encryption; a bind off loopback belongs behind something that has it.
+With the `grpc` feature the same API is served over HTTP/2 from
+`crates/concat-server/proto/concat.proto`, a thin envelope carrying the
+same JSON, with the token as `authorization: Bearer ...` metadata.
 
 ## Reading this codebase cold
 

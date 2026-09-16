@@ -1,0 +1,42 @@
+[package]
+name = "concat-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The Concat API served on a socket: JSON-RPC lines over TCP or a Unix socket, and gRPC behind a feature. One dispatcher, any number of callers."
+
+[features]
+default = []
+# gRPC over HTTP/2 through tonic. Off by default: it brings tokio and
+# hyper, which nothing else in the workspace needs, and a JSON-RPC line is
+# enough for a script. Built and tested in CI so it does not rot.
+grpc = [
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:prost",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:tonic-prost-build",
+    "dep:protox",
+]
+
+[dependencies]
+concat-api.workspace = true
+serde_json.workspace = true
+tonic = { version = "0.14", optional = true }
+tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "net", "time", "macros"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+[build-dependencies]
+tonic-prost-build = { version = "0.14", optional = true }
+# A protoc written in Rust, so the build needs nothing installed.
+protox = { version = "0.9", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

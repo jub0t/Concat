@@ -449,6 +449,9 @@ pub enum ErrorCode {
     Busy,
     /// The job was stopped by [`Request::ExportCancel`].
     Cancelled,
+    /// The transport wanted a token and did not get the right one. Never
+    /// raised by the API itself.
+    Unauthorized,
     /// Everything else: a file that could not be read or written, a decode
     /// that failed, a model that did not download.
     Failed,
@@ -467,6 +470,7 @@ impl ErrorCode {
             ErrorCode::Refused => -32003,
             ErrorCode::Busy => -32004,
             ErrorCode::Cancelled => -32005,
+            ErrorCode::Unauthorized => -32006,
         }
     }
 }

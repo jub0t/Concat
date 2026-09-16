@@ -40,12 +40,13 @@ use base64::Engine as _;
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind;
 use concat_export::{ExportClip, ExportRequest};
+pub use concat_host::AppDirs;
 use concat_host::cutout::{self, AnalyseRequest, Cutouts};
 use concat_host::export::{self, Exporter};
 use concat_host::preview::{FrameSpec, Monitor};
 use concat_host::session::EditorView;
 use concat_host::templates::{self, SlotFill};
-use concat_host::{AppDirs, ProjectInfo, Session, Titles, media, projects};
+use concat_host::{ProjectInfo, Session, Titles, media, projects};
 use concat_project::Command;
 use concat_project::model::VideoSettings;
 

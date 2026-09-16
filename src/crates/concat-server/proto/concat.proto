@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The Concat API over gRPC.
+//
+// This is an envelope, not a second contract. The methods, their params
+// and their replies are the API's own and travel as the JSON text the
+// line transport would carry, so a method added to the API reaches gRPC
+// with no change here, and a caller reads one set of docs. What gRPC adds
+// is HTTP/2, generated clients, and a streamed reply for events.
+syntax = "proto3";
+
+package concat.v1;
+
+service Concat {
+  // One call, one response.
+  rpc Call (Request) returns (Response);
+  // Every event from every job, for as long as the stream is open. Each
+  // names its job and its project.
+  rpc Events (EventsRequest) returns (stream Event);
+}
+
+message Request {
+  // The method, e.g. "edit.apply".
+  string method = 1;
+  // The params object as JSON text. Empty for a method that takes none.
+  string params = 2;
+}
+
+message Response {
+  oneof outcome {
+    // The reply as JSON text: the same object a JSON-RPC result holds.
+    string result = 1;
+    Error error = 2;
+  }
+}
+
+message Error {
+  // The API's code: "notOpen", "refused", "busy", ...
+  string code = 1;
+  // The same code as its JSON-RPC number.
+  int32 number = 2;
+  // The sentence a person would be shown.
+  string message = 3;
+}
+
+message EventsRequest {}
+
+message Event {
+  // The event, e.g. "export.progress".
+  string event = 1;
+  // Its fields as JSON text.
+  string params = 2;
+}

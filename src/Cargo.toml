@@ -16,6 +16,7 @@ concat-render = { path = "crates/concat-render" }
 concat-export = { path = "crates/concat-export" }
 concat-host = { path = "crates/concat-host" }
 concat-api = { path = "crates/concat-api" }
+concat-server = { path = "crates/concat-server" }
 concat-speech = { path = "crates/concat-speech" }
 concat-effects = { path = "crates/concat-effects" }
 concat-text = { path = "crates/concat-text" }
@@ -24,7 +25,7 @@ concat = { path = "crates/concat" }
 
 serde_json = "1"
 thiserror = "2"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 # The GPU compositor, behind concat-render's `gpu` feature. A heavy tree, which
 # is exactly why it is optional: engine-only work never pays for it. Pinned to

@@ -7,12 +7,14 @@
 //! `render` command is the vertical slice: probe, build a timeline, plan every
 //! frame, decode, composite, encode. The `api` command is the Concat API's
 //! first transport: JSON-RPC requests in, responses and events out, one per
-//! line, so a script in any language edits and exports a project. `preview`
-//! is how the window's effect cards get their pictures: one still through one
-//! package at its defaults.
+//! line, so a script in any language edits and exports a project; `serve`
+//! is the same API on a socket, for callers that are other processes.
+//! `preview` is how the window's effect cards get their pictures: one still
+//! through one package at its defaults.
 
 use std::error::Error;
 use std::io::{BufRead, Write};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -62,6 +64,25 @@ enum Command {
         request: Option<String>,
     },
 
+    /// Serve the Concat API on a socket until the process is stopped:
+    /// JSON-RPC lines over TCP or a Unix socket, and gRPC in a build that
+    /// has it. With no address given, JSON-RPC on 127.0.0.1:7420.
+    Serve {
+        /// The TCP address for JSON-RPC lines, e.g. 127.0.0.1:7420.
+        #[arg(long)]
+        json: Option<SocketAddr>,
+        /// A Unix socket path for JSON-RPC lines.
+        #[arg(long)]
+        socket: Option<PathBuf>,
+        /// The TCP address for gRPC. Needs a build with the `grpc` feature.
+        #[arg(long)]
+        grpc: Option<SocketAddr>,
+        /// The token every connection presents first. Required for any
+        /// address that is not loopback.
+        #[arg(long, env = "CONCAT_API_TOKEN")]
+        token: Option<String>,
+    },
+
     /// Run one picture through an effect at its defaults and write the
     /// result as a JPEG - how the effect cards' previews are made:
     /// `concat-cli preview assets/effect-preview-source.jpg out.jpg --effect concat.emboss`.
@@ -93,6 +114,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             fade,
         } => render(&input, &output, frames, fade),
         Command::Api { request } => api(request),
+        Command::Serve {
+            json,
+            socket,
+            grpc,
+            token,
+        } => serve(json, socket, grpc, token),
         Command::Preview {
             input,
             output,
@@ -142,6 +169,48 @@ fn emit(message: &Message) {
     let _ = writeln!(out, "{}", message.to_json());
     let _ = out.flush();
 }
+
+/// The socket transports, until the process is stopped. Where they listen
+/// is printed, one line each, so a script that started this knows where
+/// to connect.
+fn serve(
+    json: Option<SocketAddr>,
+    socket: Option<PathBuf>,
+    grpc: Option<SocketAddr>,
+    token: Option<String>,
+) -> Result<(), Box<dyn Error>> {
+    let nothing_asked = json.is_none() && socket.is_none() && grpc.is_none();
+    let config = concat_server::Config {
+        json: json.or_else(|| nothing_asked.then(|| DEFAULT_JSON.parse().expect("an address"))),
+        socket,
+        grpc,
+        token,
+    };
+    let server = concat_server::Server::start(config, concat_api::Api::new)?;
+    if let Some(address) = server.json_addr() {
+        println!(
+            "Concat API {}: JSON-RPC on {address}",
+            concat_api::API_VERSION
+        );
+    }
+    if let Some(path) = server.socket_path() {
+        println!(
+            "Concat API {}: JSON-RPC on {}",
+            concat_api::API_VERSION,
+            path.display()
+        );
+    }
+    if let Some(address) = server.grpc_addr() {
+        println!("Concat API {}: gRPC on {address}", concat_api::API_VERSION);
+    }
+    loop {
+        std::thread::park();
+    }
+}
+
+/// Where `serve` listens when not told: loopback, on a port nothing else
+/// is known to use.
+const DEFAULT_JSON: &str = "127.0.0.1:7420";
 
 /// One frame of `input`, scaled to the card's size, through `effect` at its
 /// defaults, as a JPEG at `output`.

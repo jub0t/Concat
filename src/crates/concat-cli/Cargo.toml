@@ -15,14 +15,20 @@ path = "src/main.rs"
 concat-core.workspace = true
 concat-media.workspace = true
 concat-render.workspace = true
-# The `api` command: the Concat API over stdin and stdout.
+# The `api` command: the Concat API over stdin and stdout. The `serve`
+# command: the same on a socket.
 concat-api.workspace = true
+concat-server.workspace = true
 serde_json.workspace = true
 # `preview` renders one effect at its defaults: the catalogue for the
 # chain, the document model for the applied entry it takes.
 concat-effects.workspace = true
 concat-project.workspace = true
 clap.workspace = true
+
+[features]
+# `serve --grpc`. Off by default; see concat-server.
+grpc = ["concat-server/grpc"]
 
 [lints]
 workspace = true
