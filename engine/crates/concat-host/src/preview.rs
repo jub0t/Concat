@@ -103,6 +103,12 @@ impl Monitor {
         }
     }
 
+    /// Makes `frame` the still the pool serves under `path`, a name no
+    /// file has; see `ReaderPool::hold_still`.
+    pub fn hold_still(&self, path: &std::path::Path, frame: Arc<concat_core::frame::Frame>) {
+        self.pool.hold_still(path, frame);
+    }
+
     /// The pictures a monitor frame is made of, decoded and placed but not
     /// yet drawn.
     ///

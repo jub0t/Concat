@@ -26,17 +26,24 @@ use crate::ffi;
 /// Runs `frame` through `chain` and returns the result at the same size.
 /// An empty chain returns a copy.
 pub fn treat(frame: &Frame, chain: &str) -> Result<Frame> {
-    if chain.trim().is_empty() {
+    treat_to(frame, frame.width(), frame.height(), chain)
+}
+
+/// Runs `frame` through `chain` and returns the result at `width` by
+/// `height`: the chain at the picture's own size, then the scale. An empty
+/// chain at the same size returns a copy.
+pub fn treat_to(frame: &Frame, width: u32, height: u32, chain: &str) -> Result<Frame> {
+    if chain.trim().is_empty() && width == frame.width() && height == frame.height() {
         return Ok(frame.clone());
     }
     ffi::init();
     // The graph has no file behind it; errors name the layer instead.
     let path = Path::new("layer");
-    let (width, height) = (frame.width(), frame.height());
+    let (source_w, source_h) = (frame.width(), frame.height());
 
     let mut graph = filter::Graph::new();
     let args = format!(
-        "video_size={width}x{height}:pix_fmt={}:time_base=1/1000:pixel_aspect=1/1",
+        "video_size={source_w}x{source_h}:pix_fmt={}:time_base=1/1000:pixel_aspect=1/1",
         Into::<ffmpeg::sys::AVPixelFormat>::into(Pixel::RGBA).0
     );
     let missing = |name: &str| Error::Missing {
@@ -57,7 +64,11 @@ pub fn treat(frame: &Frame, chain: &str) -> Result<Frame> {
             "",
         )
         .map_err(|error| ffi::fail("buffer sink", path, error))?;
-    let spec = format!("{chain},scale={width}:{height}:flags=bilinear,format=rgba");
+    let spec = if chain.trim().is_empty() {
+        format!("scale={width}:{height}:flags=bilinear,format=rgba")
+    } else {
+        format!("{chain},scale={width}:{height}:flags=bilinear,format=rgba")
+    };
     graph
         .output("in", 0)
         .and_then(|parser| parser.input("out", 0))
@@ -68,9 +79,9 @@ pub fn treat(frame: &Frame, chain: &str) -> Result<Frame> {
         .map_err(|error| ffi::fail("filter graph", path, error))?;
 
     // The picture, as a padded FFmpeg frame.
-    let mut source = Video::new(Pixel::RGBA, width, height);
+    let mut source = Video::new(Pixel::RGBA, source_w, source_h);
     {
-        let row = width as usize * 4;
+        let row = source_w as usize * 4;
         let stride = source.stride(0);
         let data = source.data_mut(0);
         for (y, line) in frame.pixels().chunks_exact(row).enumerate() {

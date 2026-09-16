@@ -32,4 +32,4 @@ pub use peaks::Peaks;
 pub use pool::{FrameCache, ReaderPool};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
 pub use samples::{AudioDecoder, AudioOptions, SampleFormat};
-pub use treat::treat;
+pub use treat::{treat, treat_to};

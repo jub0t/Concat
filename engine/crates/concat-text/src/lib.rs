@@ -86,6 +86,26 @@ pub struct TitleStyle {
     pub max_width: f64,
 }
 
+/// The finished title as pixels: the canvas, RGBA with straight alpha,
+/// for a monitor that wants it now and not from a file.
+#[derive(Clone, PartialEq, Debug)]
+pub struct RenderedFrame {
+    /// The canvas, `width` by `height` RGBA, alpha straight.
+    pub rgba: Vec<u8>,
+    /// The canvas width: the frame's.
+    pub width: u32,
+    /// The canvas height: the frame's.
+    pub height: u32,
+    /// See [`Rendered::block_width`].
+    pub block_width: u32,
+    /// See [`Rendered::block_height`].
+    pub block_height: u32,
+    /// See [`Rendered::block_dx`].
+    pub block_dx: i32,
+    /// See [`Rendered::block_dy`].
+    pub block_dy: i32,
+}
+
 /// The finished title.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rendered {
@@ -405,6 +425,64 @@ pub fn render(
     width: u32,
     height: u32,
 ) -> Result<Rendered, Error> {
+    let (canvas, block) = paint(fonts, style, width, height)?;
+    let png = canvas
+        .encode_png()
+        .map_err(|error| Error::Encode(error.to_string()))?;
+    Ok(Rendered {
+        png,
+        width,
+        height,
+        block_width: block.0,
+        block_height: block.1,
+        block_dx: block.2,
+        block_dy: block.3,
+    })
+}
+
+/// [`render`], but the pixels rather than a PNG of them: no encoding, and
+/// nothing for a reader to decode again. For a monitor showing a title
+/// while its words are being pulled about, where a file per pointer step
+/// was the whole of the lag.
+pub fn render_frame(
+    fonts: &Fonts,
+    style: &TitleStyle,
+    width: u32,
+    height: u32,
+) -> Result<RenderedFrame, Error> {
+    let (canvas, block) = paint(fonts, style, width, height)?;
+    // tiny-skia keeps premultiplied pixels; a frame carries straight alpha.
+    let mut rgba = Vec::with_capacity(canvas.pixels().len() * 4);
+    for pixel in canvas.pixels() {
+        let straight = pixel.demultiply();
+        rgba.extend_from_slice(&[
+            straight.red(),
+            straight.green(),
+            straight.blue(),
+            straight.alpha(),
+        ]);
+    }
+    Ok(RenderedFrame {
+        rgba,
+        width,
+        height,
+        block_width: block.0,
+        block_height: block.1,
+        block_dx: block.2,
+        block_dy: block.3,
+    })
+}
+
+/// A painted block: (width, height, dx, dy), on [`Rendered`]'s terms.
+type Block = (u32, u32, i32, i32);
+
+/// The canvas with the title on it, and the block.
+fn paint(
+    fonts: &Fonts,
+    style: &TitleStyle,
+    width: u32,
+    height: u32,
+) -> Result<(Pixmap, Block), Error> {
     let mut canvas = Pixmap::new(width, height).ok_or(Error::Canvas(width, height))?;
     let frame_h = height as f32;
     let em = (style.font_size.clamp(0.005, 1.0) as f32) * frame_h;
@@ -438,18 +516,7 @@ pub fn render(
     let block_h = (rows as f32 - 1.0) * pitch + ascent + descent;
     if block_w <= 0.0 || lines.is_empty() {
         // Nothing to paint: an empty, valid canvas.
-        let png = canvas
-            .encode_png()
-            .map_err(|error| Error::Encode(error.to_string()))?;
-        return Ok(Rendered {
-            png,
-            width,
-            height,
-            block_width: 0,
-            block_height: 0,
-            block_dx: 0,
-            block_dy: 0,
-        });
+        return Ok((canvas, (0, 0, 0, 0)));
     }
 
     // The plate's padding is part of the block: it is what a monitor should
@@ -494,18 +561,10 @@ pub fn render(
         words.push_path(&placed);
     }
     let Some(words) = words.finish() else {
-        let png = canvas
-            .encode_png()
-            .map_err(|error| Error::Encode(error.to_string()))?;
-        return Ok(Rendered {
-            png,
-            width,
-            height,
-            block_width: outer_w.round() as u32,
-            block_height: outer_h.round() as u32,
-            block_dx,
-            block_dy: 0,
-        });
+        return Ok((
+            canvas,
+            (outer_w.round() as u32, outer_h.round() as u32, block_dx, 0),
+        ));
     };
 
     let mut paint = Paint {
@@ -581,18 +640,10 @@ pub fn render(
         None,
     );
 
-    let png = canvas
-        .encode_png()
-        .map_err(|error| Error::Encode(error.to_string()))?;
-    Ok(Rendered {
-        png,
-        width,
-        height,
-        block_width: outer_w.round() as u32,
-        block_height: outer_h.round() as u32,
-        block_dx,
-        block_dy: 0,
-    })
+    Ok((
+        canvas,
+        (outer_w.round() as u32, outer_h.round() as u32, block_dx, 0),
+    ))
 }
 
 /// A rectangle with rounded corners, radius clamped to half the short side.

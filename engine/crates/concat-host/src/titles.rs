@@ -18,7 +18,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+
+use concat_core::frame::Frame;
 
 use concat_export::chains::video_effect_chain;
 use concat_export::{ClipKind, ExportClip};
@@ -41,6 +43,10 @@ pub struct TitleClip {
     /// right for a left-aligned one, whose block starts at the clip's
     /// position. See `concat_text::Align`.
     pub offset: (i32, i32),
+    /// The pixels, when the title was painted live rather than to disk:
+    /// what the monitor is to show under `clip.path`, a name no file has.
+    /// See [`Titles::clips_live`].
+    pub frame: Option<Arc<Frame>>,
 }
 
 /// What one render left behind.
@@ -58,7 +64,19 @@ pub struct Titles {
     loaded_files: Mutex<HashSet<String>>,
     /// What is known to be on disk, by key.
     memo: Mutex<HashMap<u64, Art>>,
+    /// Titles painted live, by key: the newest few, so a width dragged
+    /// back and forth over the same values paints each once.
+    live: Mutex<LivePaintings>,
 }
+
+/// The live paintings held, and the order they came in.
+type LivePaintings = (
+    HashMap<u64, (Art, Arc<Frame>)>,
+    std::collections::VecDeque<u64>,
+);
+
+/// How many live paintings are kept; see `Titles::live`.
+const LIVE_KEPT: usize = 16;
 
 impl Titles {
     /// A painter that caches under the app's data directory.
@@ -70,6 +88,7 @@ impl Titles {
             fonts: Mutex::new(None),
             loaded_files: Mutex::new(HashSet::new()),
             memo: Mutex::new(HashMap::new()),
+            live: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
         }
     }
 
@@ -77,6 +96,20 @@ impl Titles {
     /// `width` × `height` frame. A title that fails to paint is left out and
     /// said once on stderr; the rest of the edit still renders.
     pub fn clips(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
+        self.clips_with(project, width, height, false)
+    }
+
+    /// [`Titles::clips`] for a monitor showing a change as it is made:
+    /// every title is painted in memory at `width` by `height` - the
+    /// monitor's own size, not the output's - and comes back with its
+    /// pixels under a name no file has, for the monitor to hold. Nothing
+    /// touches the disk, which is what makes a drag smooth: a PNG per
+    /// pointer step, encoded, written and decoded again, was the lag.
+    pub fn clips_live(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
+        self.clips_with(project, width, height, true)
+    }
+
+    fn clips_with(&self, project: &Project, width: u32, height: u32, live: bool) -> Vec<TitleClip> {
         let timeline = project.active();
         let mut out = Vec::new();
         for clip in &timeline.clips {
@@ -92,7 +125,14 @@ impl Titles {
             };
             let track = &timeline.tracks[index];
             let text = clip.text.clone().unwrap_or_default();
-            let (path, art) = match self.painted(project, &text, width, height) {
+            let painted = if live {
+                self.painted_live(project, &text, width, height)
+                    .map(|(path, art, frame)| (path, art, Some(frame)))
+            } else {
+                self.painted(project, &text, width, height)
+                    .map(|(path, art)| (path, art, None))
+            };
+            let (path, art, frame) = match painted {
                 Ok(art) => art,
                 Err(error) => {
                     log::warn!("title {}: {error}", clip.id);
@@ -147,9 +187,64 @@ impl Titles {
                 },
                 block: art.block,
                 offset: art.offset,
+                frame,
             });
         }
         out
+    }
+
+    /// One style at one size, painted in memory: the name the monitor is
+    /// to hold the pixels under, the block, and the pixels.
+    fn painted_live(
+        &self,
+        project: &Project,
+        style: &TextStyle,
+        width: u32,
+        height: u32,
+    ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
+        let key = key_of(project, style, width, height);
+        let path = PathBuf::from(format!("memory://titles/{key:016x}"));
+        if let Some((art, frame)) = self
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
+            .get(&key)
+        {
+            return Ok((path, *art, Arc::clone(frame)));
+        }
+        let title = title_style(style);
+        let rendered = {
+            let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+            let fonts = fonts.get_or_insert_with(Fonts::new);
+            let mut loaded = self.loaded_files.lock().unwrap_or_else(|e| e.into_inner());
+            for font in &project.fonts {
+                if !font.path.is_empty() && loaded.insert(font.path.clone()) {
+                    fonts.add_file(Path::new(&font.path));
+                }
+            }
+            concat_text::render_frame(fonts, &title, width, height)
+                .map_err(|error| error.to_string())?
+        };
+        let art = Art {
+            block: (rendered.block_width, rendered.block_height),
+            offset: (rendered.block_dx, rendered.block_dy),
+        };
+        let frame = Arc::new(
+            Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
+                .ok_or_else(|| "the painter returned a frame of the wrong size".to_owned())?,
+        );
+        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        let (kept, order) = &mut *live;
+        if kept.insert(key, (art, Arc::clone(&frame))).is_none() {
+            order.push_back(key);
+        }
+        while order.len() > LIVE_KEPT {
+            if let Some(oldest) = order.pop_front() {
+                kept.remove(&oldest);
+            }
+        }
+        Ok((path, art, frame))
     }
 
     /// The PNG for one style at one frame size, painted if it is not on disk

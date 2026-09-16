@@ -112,6 +112,22 @@ impl FrameCache {
     }
 
     /// Bytes currently held.
+    /// Drops every frame cut from `path`.
+    fn forget(&mut self, path: &Path) {
+        let gone: Vec<FrameKey> = self
+            .frames
+            .keys()
+            .filter(|key| key.path == path)
+            .cloned()
+            .collect();
+        for key in gone {
+            if let Some((frame, _)) = self.frames.remove(&key) {
+                self.held -= frame.pixels().len();
+            }
+        }
+    }
+
+    /// Bytes of frames held.
     pub fn held(&self) -> usize {
         self.held
     }
@@ -255,7 +271,24 @@ pub struct ReaderPool {
     cache: Mutex<FrameCache>,
     readers: Mutex<Readers>,
     facts: Mutex<HashMap<PathBuf, Arc<MediaFacts>>>,
+    /// Stills that exist nowhere but here: a title painted while its words
+    /// are being pulled about, handed in as pixels under a name no file
+    /// has, and served from these at whatever size and through whatever
+    /// chain a plan asks - see [`ReaderPool::hold_still`]. The newest
+    /// [`STILLS_HELD`] stay.
+    memory: Mutex<HeldStills>,
 }
+
+/// The stills held in memory, and the order they came in.
+type HeldStills = (
+    HashMap<PathBuf, Arc<Frame>>,
+    std::collections::VecDeque<PathBuf>,
+);
+
+/// How many in-memory stills the pool keeps. Each is a frame, mostly
+/// transparent, at the monitor's size; a drag makes a few dozen a second
+/// and shows one.
+const STILLS_HELD: usize = 24;
 
 impl ReaderPool {
     /// A pool with `cache_bytes` of frame cache and up to `max_readers` warm
@@ -269,7 +302,44 @@ impl ReaderPool {
                 max: max_readers.max(1),
             }),
             facts: Mutex::new(HashMap::new()),
+            memory: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
         }
+    }
+
+    /// Makes `frame` the still at `path`, a name no file has, until
+    /// [`STILLS_HELD`] newer ones have come. Frames already cut from an
+    /// earlier still of that name are let go, so the name never shows
+    /// stale pixels.
+    pub fn hold_still(&self, path: &Path, frame: Arc<Frame>) {
+        if let Ok(mut held) = self.memory.lock() {
+            let (stills, order) = &mut *held;
+            if stills.insert(path.to_path_buf(), frame).is_none() {
+                order.push_back(path.to_path_buf());
+            }
+            while order.len() > STILLS_HELD {
+                if let Some(oldest) = order.pop_front() {
+                    stills.remove(&oldest);
+                }
+            }
+        }
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.forget(path);
+        }
+        if let Ok(mut facts) = self.facts.lock() {
+            facts.insert(
+                path.to_path_buf(),
+                Arc::new(MediaFacts {
+                    rate: FrameRate::THIRTY,
+                    still: true,
+                    frames: None,
+                }),
+            );
+        }
+    }
+
+    /// The still held under `path`, if one is.
+    fn held_still(&self, path: &Path) -> Option<Arc<Frame>> {
+        self.memory.lock().ok()?.0.get(path).cloned()
     }
 
     /// Bytes of decoded frames currently cached.
@@ -335,6 +405,19 @@ impl ReaderPool {
             index: target,
         };
         if let Some(frame) = self.cached(&key) {
+            return Ok(frame);
+        }
+        // A still held in memory has no file to open: it is cut to the size
+        // and through the chain asked for, here, and kept like any frame.
+        if let Some(source) = self.held_still(path) {
+            let spec: String = [pre, chain]
+                .into_iter()
+                .flatten()
+                .filter(|part| !part.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join(",");
+            let frame = Arc::new(crate::treat::treat_to(&source, width, height, &spec)?);
+            self.remember(key, Arc::clone(&frame));
             return Ok(frame);
         }
 
@@ -604,6 +687,39 @@ mod tests {
         assert!(cache.get(&key(1)).is_none(), "coldest was evicted");
         assert!(cache.get(&key(2)).is_some());
         assert_eq!(cache.held(), 32);
+    }
+
+    /// A still held in memory is served under its name at the size asked
+    /// for, and a newer still under the same name replaces it, frames cut
+    /// from the old one included.
+    #[test]
+    fn a_held_still_is_served_at_any_size_and_replaced_whole() {
+        let pool = ReaderPool::new(64 * 1024 * 1024, 2);
+        let path = Path::new("memory://titles/test");
+        let mut first = Frame::black(64, 32);
+        first.fill([255, 0, 0, 255]);
+        pool.hold_still(path, Arc::new(first));
+        let same = pool
+            .frame_at(path, Rational::ZERO, 64, 32, true, None, None)
+            .expect("its own size");
+        assert_eq!((same.width(), same.height()), (64, 32));
+        assert_eq!(&same.pixels()[..4], &[255, 0, 0, 255]);
+        let half = pool
+            .frame_at(path, Rational::ZERO, 32, 16, true, None, None)
+            .expect("half size");
+        assert_eq!((half.width(), half.height()), (32, 16));
+        assert_eq!(half.pixels()[0], 255, "still red when scaled");
+        let mut second = Frame::black(64, 32);
+        second.fill([0, 0, 255, 255]);
+        pool.hold_still(path, Arc::new(second));
+        let again = pool
+            .frame_at(path, Rational::ZERO, 32, 16, true, None, None)
+            .expect("half size again");
+        assert_eq!(
+            again.pixels()[2],
+            255,
+            "the old cut is gone with the old still"
+        );
     }
 
     #[test]

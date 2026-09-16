@@ -1860,10 +1860,46 @@ impl Studio {
                 Some(&project_dir),
             );
             // Titles, painted to pictures and rejoined; see concat-host's titles.
-            for title in self.host.titles.clips(self.project(), width, height) {
-                self.title_blocks
-                    .insert(title.clip_id, (title.block, title.offset));
-                clips.push(title.clip);
+            if self.echo.is_some() {
+                // A change in flight: the titles are painted in memory at
+                // the monitor's size and handed to it as pixels - no file
+                // per pointer step - and the blocks they report are scaled
+                // back up to the output's terms, which the stage measures
+                // in. Nothing is written until the change is committed.
+                let scale = match self.quality_of() {
+                    0 => 1.0,
+                    1 => 0.5,
+                    _ => 0.25,
+                };
+                let shown_w = ((f64::from(width) * scale).round() as u32).max(2) & !1;
+                let shown_h = ((f64::from(height) * scale).round() as u32).max(2) & !1;
+                let up = |px: u32| (f64::from(px) / scale).round() as u32;
+                let up_off = |px: i32| (f64::from(px) / scale).round() as i32;
+                for title in self
+                    .host
+                    .titles
+                    .clips_live(self.project(), shown_w, shown_h)
+                {
+                    self.title_blocks.insert(
+                        title.clip_id,
+                        (
+                            (up(title.block.0), up(title.block.1)),
+                            (up_off(title.offset.0), up_off(title.offset.1)),
+                        ),
+                    );
+                    if let Some(frame) = title.frame {
+                        self.host
+                            .monitor
+                            .hold_still(std::path::Path::new(&title.clip.path), frame);
+                    }
+                    clips.push(title.clip);
+                }
+            } else {
+                for title in self.host.titles.clips(self.project(), width, height) {
+                    self.title_blocks
+                        .insert(title.clip_id, (title.block, title.offset));
+                    clips.push(title.clip);
+                }
             }
             let clips = std::sync::Arc::new(clips);
             if self.echo.is_none() {
