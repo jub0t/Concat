@@ -372,6 +372,15 @@ export component App inherits Window {
         VerticalLayout {
             width: 100%;
             height: 100%;
+            // Inside the system's own bars. A phone or a tablet draws the
+            // window edge to edge, under the status bar and the home
+            // indicator, and the window says how far each reaches in; the
+            // title strip and everything under it start below it, and the
+            // ground shows through behind the bars. Zero on a desktop.
+            padding-top: root.safe-area-insets.top;
+            padding-bottom: root.safe-area-insets.bottom;
+            padding-left: root.safe-area-insets.left;
+            padding-right: root.safe-area-insets.right;
 
             TitleBar {
                 macos: root.macos;
@@ -381,9 +390,10 @@ export component App inherits Window {
 
                 menu: root.open-menu;
                 menu-opened(index, at-x) => {
-                    appmenu.request-x = at-x;
-                    // Under the strip, which is 32px tall.
-                    appmenu.request-y = 32px;
+                    // Under the strip, which is 32px tall - both measured
+                    // from the window's corner, past the system's bars.
+                    appmenu.request-x = at-x + root.safe-area-insets.left;
+                    appmenu.request-y = 32px + root.safe-area-insets.top;
                     root.menu-opened(index);
                 }
 
