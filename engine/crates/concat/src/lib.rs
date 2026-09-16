@@ -244,10 +244,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
     app.on_titlebar_close(|| {
+        log::info!("close: titlebar X pressed");
         Shell::with(|shell, app| {
             shell.studio.borrow_mut().close_project();
+            log::info!("close: project closed, hiding window");
             app.window().hide().ok();
+            slint::quit_event_loop().ok();
+            log::info!("close: quit_event_loop called");
         });
+    });
+    // System-driven close (Alt+F4, taskbar close): the same road out.
+    app.window().on_close_requested(|| {
+        log::info!("close: system close request (Alt+F4 / taskbar)");
+        Shell::with(|shell, _app| {
+            shell.studio.borrow_mut().close_project();
+        });
+        slint::quit_event_loop().ok();
+        slint::CloseRequestResponse::HideWindow
     });
     // Maximised or not is read back on every resize rather than tracked:
     // the platform can maximise the window without us - a drag to the top
@@ -1154,8 +1167,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     }
                 }
                 if action == "close-window" {
+                    log::info!("close: File > Close Window");
                     shell.studio.borrow_mut().close_project();
                     app.window().hide().ok();
+                    slint::quit_event_loop().ok();
+                    log::info!("close: quit_event_loop called (menu)");
                     return;
                 }
                 shell.studio.borrow_mut().refresh_art();
@@ -1298,5 +1314,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         shell.studio.borrow().publish(&app, &shell.models);
     }
 
-    app.run()
+    let result = app.run();
+    log::info!("close: event loop exited (ok={})", result.is_ok());
+    std::process::exit(0);
 }
