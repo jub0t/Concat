@@ -637,7 +637,9 @@ jobs:
           # And the .msi, with WiX, for the machines an administrator
           # deploys to. See assets/windows/concat.wxs.
           dotnet tool install --global wix --version $env:WIX_VERSION | Out-Null
-          wix build -arch ${{ matrix.wix }} "-d" "Version=$env:VERSION" "-d" "Root=$PWD" "-d" "Stage=$PWD\stage\$name" `
+          # No .wixpdb: everything in stage/ is published, and a debug
+          # database for the installer is nothing a release should carry.
+          wix build -arch ${{ matrix.wix }} -pdbtype none "-d" "Version=$env:VERSION" "-d" "Root=$PWD" "-d" "Stage=$PWD\stage\$name" `
             -o "stage\$name.msi" assets\windows\concat.wxs
           if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
