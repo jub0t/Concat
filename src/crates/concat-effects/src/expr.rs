@@ -431,9 +431,21 @@ fn call(name: &str, args: &[Value]) -> Result<Value, EvalError> {
                 args[2].clone()
             }
         }
+        // The standard clamps panic on crossed or NaN bounds, and a
+        // package's bounds are its own to get wrong.
         "clamp" => match (&args[0], &args[1], &args[2]) {
-            (Value::Int(x), Value::Int(lo), Value::Int(hi)) => Value::Int((*x).clamp(*lo, *hi)),
-            _ => Value::Float(num(0)?.clamp(num(1)?, num(2)?)),
+            (Value::Int(x), Value::Int(lo), Value::Int(hi)) if lo <= hi => {
+                Value::Int((*x).clamp(*lo, *hi))
+            }
+            _ => {
+                let (lo, hi) = (num(1)?, num(2)?);
+                if lo.is_nan() || hi.is_nan() || lo > hi {
+                    return Err(EvalError(format!(
+                        "clamp: the bounds {lo} and {hi} are crossed"
+                    )));
+                }
+                Value::Float(num(0)?.clamp(lo, hi))
+            }
         },
         "min" => match (&args[0], &args[1]) {
             (Value::Int(a), Value::Int(b)) => Value::Int((*a).min(*b)),
@@ -547,5 +559,19 @@ mod tests {
         assert!(Expr::parse("1 & 2").is_err());
         assert!(Expr::parse("(1").is_err());
         assert!(Expr::parse("1 2").is_err());
+    }
+
+    #[test]
+    fn clamp_with_crossed_or_undefined_bounds_is_an_error() {
+        let fails = |source: &str| {
+            Expr::parse(source)
+                .expect("parses")
+                .eval(&BTreeMap::new())
+                .is_err()
+        };
+        assert!(fails("clamp(0.5, 1, 0)"));
+        assert!(fails("clamp(round(5), round(10), round(0))"));
+        assert!(fails("clamp(0.5, 0, sqrt(0 - 1))"));
+        assert_eq!(eval("clamp(0.5, 1, 1)", &[]), Value::Float(1.0));
     }
 }
