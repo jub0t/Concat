@@ -50,6 +50,8 @@ export struct SettingsData {
     language: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// show flip/reverse in clip context menu
+    custom-context-actions: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -358,6 +360,7 @@ export component SettingsDialog inherits Modal {
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
+    callback custom-context-actions-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);

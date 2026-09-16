@@ -274,6 +274,8 @@ pub struct SettingsState {
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
+    /// Show flip/reverse in clip context menu.
+    pub custom_context_actions: bool,
     /// Index into `SourcePreference::ALL`: where model downloads look first.
     pub download_source: usize,
     /// The base URL of a custom download source.
@@ -6831,6 +6833,7 @@ impl Studio {
             tab: self.settings.tab,
             language: self.settings.language as i32,
             playhead_stops: self.settings.playhead_stops,
+            custom_context_actions: self.prefs.custom_context_actions,
             download_source: self.settings.download_source as i32,
             download_base: self.settings.download_base.as_str().into(),
             server_enabled: self.prefs.server.enabled,
@@ -7092,6 +7095,23 @@ impl Studio {
             clip.volume <= 0.0,
             !locked && audible,
         ));
+        if self.prefs.custom_context_actions {
+            rows.push(check(
+                "flip-h",
+                &t("Flip horizontal"),
+                "H",
+                clip.flip_h,
+                !locked,
+            ));
+            rows.push(check(
+                "flip-v",
+                &t("Flip vertical"),
+                "J",
+                clip.flip_v,
+                !locked,
+            ));
+            rows.push(check("reverse", &t("Reverse"), "R", clip.reverse, !locked));
+        }
         rows.push(check("lock", &t("Lock track"), "", locked, true));
         rows.push(rule());
         rows.push(MenuItemData {
@@ -7320,6 +7340,72 @@ impl Studio {
         }
     }
 
+    pub fn toggle_flip_h(&mut self) {
+        if self.selection.is_empty() {
+            return;
+        }
+        let commands: Vec<Command> = self
+            .selection
+            .iter()
+            .filter_map(|id| {
+                self.clip(id).map(|clip| Command::UpdateClip {
+                    clip_id: id.clone(),
+                    patch: ClipPatch {
+                        flip_h: Some(!clip.flip_h),
+                        ..Default::default()
+                    },
+                })
+            })
+            .collect();
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
+    pub fn toggle_flip_v(&mut self) {
+        if self.selection.is_empty() {
+            return;
+        }
+        let commands: Vec<Command> = self
+            .selection
+            .iter()
+            .filter_map(|id| {
+                self.clip(id).map(|clip| Command::UpdateClip {
+                    clip_id: id.clone(),
+                    patch: ClipPatch {
+                        flip_v: Some(!clip.flip_v),
+                        ..Default::default()
+                    },
+                })
+            })
+            .collect();
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
+    pub fn toggle_reverse(&mut self) {
+        if self.selection.is_empty() {
+            return;
+        }
+        let commands: Vec<Command> = self
+            .selection
+            .iter()
+            .filter_map(|id| {
+                self.clip(id).map(|clip| Command::UpdateClip {
+                    clip_id: id.clone(),
+                    patch: ClipPatch {
+                        reverse: Some(!clip.reverse),
+                        ..Default::default()
+                    },
+                })
+            })
+            .collect();
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
+    }
+
     pub fn toggle_lock(&mut self, track_id: &str) {
         let view = self.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
@@ -7427,6 +7513,9 @@ impl Studio {
                     self.clip_action(&id, action);
                 }
             }
+            "flip-h" => self.toggle_flip_h(),
+            "flip-v" => self.toggle_flip_v(),
+            "reverse" => self.toggle_reverse(),
             "paste" => {
                 let Some(held) = self.clipboard.clone() else {
                     return;
