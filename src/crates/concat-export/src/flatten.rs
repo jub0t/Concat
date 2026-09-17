@@ -57,66 +57,33 @@ pub fn flatten_timeline_in(
             // its opacity the strength and its fades the ramps.
             if clip.kind == ModelClipKind::Layer {
                 return Some(ExportClip {
-                    path: String::new(),
-                    audio_stream: None,
-                    kind: ClipKind::Layer,
-                    start: clip.start,
-                    duration: clip.duration,
-                    source_start: 0.0,
-                    track: index,
                     hidden: !track.visible,
                     muted: true,
                     volume: 0.0,
                     fade_in: clip.fade_in,
                     fade_out: clip.fade_out,
-                    filter_chain: String::new(),
-                    speed: 1.0,
-                    preserve_pitch: true,
-                    speed_curve: Vec::new(),
-                    reverse: false,
-                    animation: Vec::new(),
-                    flip_h: false,
-                    flip_v: false,
-                    blend: String::new(),
-                    crop: None,
                     effects: clip.video_effects.clone(),
-                    transition_chain: String::new(),
-                    scale: 1.0,
-                    offset_x: 0.0,
-                    offset_y: 0.0,
-                    rotation: 0.0,
-                    stretch_x: 1.0,
-                    stretch_y: 1.0,
                     opacity: clip.opacity,
                     video_filter_chain: video_effect_chain(&clip.video_effects),
-                    transition: None,
-                    video_fade_in: 0.0,
-                    media_width: None,
-                    media_height: None,
                     has_audio: Some(false),
-                    cutout: None,
-                    mask_dir: String::new(),
-                    highlighted: false,
+                    ..ExportClip::blank(ClipKind::Layer, clip.start, clip.duration, index)
                 });
             }
 
             let media = project.media.iter().find(|item| item.id == clip.media_id)?;
 
+            let kind = match clip.kind {
+                ModelClipKind::Video => ClipKind::Video,
+                ModelClipKind::Audio => ClipKind::Audio,
+                ModelClipKind::Image => ClipKind::Image,
+                // Handled above; unreachable spelled as a skip so a new
+                // kind fails soft.
+                ModelClipKind::Text | ModelClipKind::Layer => return None,
+            };
             Some(ExportClip {
                 path: media.path.clone(),
                 audio_stream: clip.audio_stream,
-                kind: match clip.kind {
-                    ModelClipKind::Video => ClipKind::Video,
-                    ModelClipKind::Audio => ClipKind::Audio,
-                    ModelClipKind::Image => ClipKind::Image,
-                    // Handled above; unreachable spelled as a skip so a new
-                    // kind fails soft.
-                    ModelClipKind::Text | ModelClipKind::Layer => return None,
-                },
-                start: clip.start,
-                duration: clip.duration,
                 source_start: clip.source_start,
-                track: index,
                 hidden: !track.visible,
                 muted: track.muted || clip.muted == Some(true),
                 volume: export_base(clip, KeyProperty::Volume),
@@ -142,7 +109,6 @@ pub fn flatten_timeline_in(
                     .filter(|crop| !crop.is_none())
                     .map(|crop| [crop.left, crop.top, crop.right, crop.bottom]),
                 effects: clip.video_effects.clone(),
-                transition_chain: String::new(),
                 scale: export_base(clip, KeyProperty::Scale),
                 offset_x: export_base(clip, KeyProperty::OffsetX),
                 offset_y: export_base(clip, KeyProperty::OffsetY),
@@ -163,7 +129,6 @@ pub fn flatten_timeline_in(
                         kind: transition.id.clone(),
                         duration: transition.duration,
                     }),
-                video_fade_in: 0.0,
                 media_width: media.width,
                 media_height: media.height,
                 has_audio: Some(media.has_audio),
@@ -176,7 +141,7 @@ pub fn flatten_timeline_in(
                     }
                     _ => String::new(),
                 },
-                highlighted: false,
+                ..ExportClip::blank(kind, clip.start, clip.duration, index)
             })
         })
         .collect()
