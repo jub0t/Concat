@@ -14,14 +14,16 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::{Map, Value};
 
 /// What a piece of media is. A still is not a video with one frame: it has no
 /// intrinsic duration, so its length on a timeline is editorial.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaKind {
     /// Moving pictures, with or without embedded sound.
+    #[default]
     Video,
     /// Sound only; nothing to composite.
     Audio,
@@ -85,8 +87,8 @@ pub struct AudioTrack {
 /// One entry in the media bin: a file the user imported, plus what the host's
 /// probe learned about it. The probe metadata is stored, not re-derived, so a
 /// document opens meaningfully even when the file itself is missing.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct MediaItem {
     /// Minted by the editor ("m1", "m2", ...) and never re-issued, even
     /// across a save/load - clips reference media by this id.
@@ -100,6 +102,7 @@ pub struct MediaItem {
     pub duration: Option<f64>,
     /// What the probe decided the file is; fixes which [`ClipKind`] its
     /// clips get.
+    #[serde(deserialize_with = "wire::media_kind")]
     pub kind: MediaKind,
     /// Pixel width, when the file has pictures and the probe found one.
     pub width: Option<u32>,
@@ -122,6 +125,7 @@ pub struct MediaItem {
     /// what lets a clip choose between them. Skipped when empty, so
     /// documents without such media stay byte-identical.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(deserialize_with = "wire::list")]
     pub audio_tracks: Vec<AudioTrack>,
     /// True when this item is a template slot: a stand-in whose metadata says
     /// what kind of media belongs here, waiting to be replaced by the user's
@@ -130,6 +134,16 @@ pub struct MediaItem {
     /// false, so documents without templates stay byte-identical.
     #[serde(default, skip_serializing_if = "is_false")]
     pub placeholder: bool,
+    /// Fields this build does not know, kept so a document written by a
+    /// newer or a different build round-trips through this one intact.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+}
+
+/// Half a second: what an animation preset lasts when its entry does not
+/// say.
+fn default_animation_duration() -> f64 {
+    0.5
 }
 
 fn unity() -> f64 {
@@ -146,7 +160,7 @@ fn is_false(value: &bool) -> bool {
 
 /// A lane. Deliberately untyped: any media goes on any track.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Track {
     /// Minted per timeline ("t5", or "T1".."T4" for the first timeline's
     /// starter lanes); never shared between timelines.
@@ -155,6 +169,20 @@ pub struct Track {
     pub visible: bool,
     /// Audio on this track is silent when true.
     pub muted: bool,
+    /// Fields this build does not know, kept so they round-trip.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+}
+
+impl Default for Track {
+    fn default() -> Self {
+        Track {
+            id: String::new(),
+            visible: true,
+            muted: false,
+            extra: Map::new(),
+        }
+    }
 }
 
 /// One applied audio filter or video effect: a catalogue id plus whatever
@@ -177,7 +205,11 @@ pub struct AppliedFilter {
     /// parameter name, each `at` a fraction of the clip like a `ClipKey`'s.
     /// A parameter with keys is played from them and its `params` entry is
     /// only what it falls back to with the keys taken off.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "wire::runs",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
     pub keys: BTreeMap<String, Vec<ParamKey>>,
 }
 
@@ -548,7 +580,24 @@ pub struct ClipAnimation {
     /// The shape's name, e.g. "Fade".
     pub preset: String,
     /// Seconds the shape takes, for In and Out; ignored by a Combo.
+    #[serde(default = "default_animation_duration")]
     pub duration: f64,
+}
+
+impl ClipAnimation {
+    /// The entry, or nothing for one naming no preset.
+    pub fn tidy(mut self) -> Option<ClipAnimation> {
+        self.preset = self.preset.trim().to_owned();
+        if self.preset.is_empty() {
+            return None;
+        }
+        self.duration = if self.duration.is_finite() {
+            self.duration.max(0.0)
+        } else {
+            default_animation_duration()
+        };
+        Some(self)
+    }
 }
 
 /// Which property a user-set key belongs to.
@@ -624,9 +673,32 @@ impl KeyProperty {
 /// Serialised as a bare array: `"ease": [0.42, 0, 0.58, 1]`. Documents
 /// written before the curve editor spell it `"linear"` / `"in"` / `"out"` /
 /// `"inOut"` instead, and `from_value` still reads those.
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 #[serde(transparent)]
 pub struct KeyEase(pub [f64; 4]);
+
+impl<'de> Deserialize<'de> for KeyEase {
+    /// Either spelling, and a straight line for anything else: the
+    /// reader's standing rule is that a hand-edited file degrades to
+    /// something openable, and a key that still moves is better than one
+    /// that fails its clip.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Name(String),
+            Points(Vec<f64>),
+        }
+        let value = Value::deserialize(deserializer)?;
+        Ok(match serde_json::from_value::<Wire>(value) {
+            Ok(Wire::Name(name)) => KeyEase::from_name(&name),
+            Ok(Wire::Points(points)) if points.len() == 4 => {
+                KeyEase([points[0], points[1], points[2], points[3]]).sane()
+            }
+            _ => KeyEase::LINEAR,
+        })
+    }
+}
 
 impl Default for KeyEase {
     fn default() -> Self {
@@ -743,6 +815,7 @@ pub struct Transition {
     /// Which transition from the catalogue, e.g. "cross-fade".
     pub id: String,
     /// Seconds the transition covers.
+    #[serde(default = "unity")]
     pub duration: f64,
 }
 
@@ -787,6 +860,7 @@ pub struct TextStyle {
     /// Fill colour as a CSS hex string, e.g. "#ffffff".
     pub color: String,
     /// Line alignment within the block; see [`TextAlign`].
+    #[serde(deserialize_with = "wire::text_align")]
     pub align: TextAlign,
     /// Opacity of the whole title in 0..=1, multiplied with the clip's own
     /// opacity.
@@ -812,6 +886,26 @@ pub struct TextStyle {
     pub max_width: f64,
 }
 
+impl TextStyle {
+    /// Every number pulled into the range a title can be drawn at: a
+    /// hand-edited zero size would render an invisible title, and lines
+    /// cannot collapse onto each other.
+    pub fn tidy(mut self) -> TextStyle {
+        fn finite(value: f64, fallback: f64) -> f64 {
+            if value.is_finite() { value } else { fallback }
+        }
+        let base = TextStyle::default();
+        self.font_size = finite(self.font_size, base.font_size).clamp(0.01, 1.0);
+        self.font_weight = finite(self.font_weight, base.font_weight).clamp(100.0, 900.0);
+        self.opacity = finite(self.opacity, base.opacity).clamp(0.0, 1.0);
+        self.stroke_width = finite(self.stroke_width, base.stroke_width).max(0.0);
+        self.line_height = finite(self.line_height, base.line_height).max(0.5);
+        self.tracking = finite(self.tracking, base.tracking);
+        self.max_width = finite(self.max_width, base.max_width).max(0.0);
+        self
+    }
+}
+
 impl Default for TextStyle {
     fn default() -> Self {
         Self {
@@ -831,6 +925,102 @@ impl Default for TextStyle {
             tracking: 0.0,
             max_width: 0.0,
         }
+    }
+}
+
+/// Reading with tolerance. The document reader's standing rule is that a
+/// hand-edited or older file degrades to something openable: a list keeps
+/// the entries that parse and drops the rest, an optional keeps a value
+/// that parses and is otherwise nothing, and a kind this build has never
+/// heard of falls back to the plainest one. Every helper reads a
+/// [`serde_json::Value`] first, so nothing here can fail the whole load.
+pub(crate) mod wire {
+    use std::collections::BTreeMap;
+
+    use serde::de::DeserializeOwned;
+    use serde::{Deserialize, Deserializer};
+    use serde_json::Value;
+
+    use super::{ClipKind, MediaKind, ParamKey, TextAlign};
+
+    /// The entries of a list that parse, in order; not a list at all is
+    /// an empty one.
+    pub fn list<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: DeserializeOwned,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Ok(match value {
+            Value::Array(items) => items
+                .into_iter()
+                .filter_map(|item| serde_json::from_value(item).ok())
+                .collect(),
+            _ => Vec::new(),
+        })
+    }
+
+    /// [`list`], as an optional that is none when nothing parsed.
+    pub fn maybe_list<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: DeserializeOwned,
+    {
+        let items: Vec<T> = list(deserializer)?;
+        Ok((!items.is_empty()).then_some(items))
+    }
+
+    /// A value that parses, or nothing.
+    pub fn maybe<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: DeserializeOwned,
+    {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).ok())
+    }
+
+    /// An effect's parameter keys: a run per parameter name, each run the
+    /// keys of it that parse, runs with none dropped.
+    pub fn runs<'de, D>(deserializer: D) -> Result<BTreeMap<String, Vec<ParamKey>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let Value::Object(runs) = value else {
+            return Ok(BTreeMap::new());
+        };
+        Ok(runs
+            .into_iter()
+            .filter_map(|(name, run)| {
+                let keys: Vec<ParamKey> = match run {
+                    Value::Array(items) => items
+                        .into_iter()
+                        .filter_map(|item| serde_json::from_value(item).ok())
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                (!keys.is_empty()).then_some((name, keys))
+            })
+            .collect())
+    }
+
+    /// A clip kind by name, video for a name this build does not know.
+    pub fn clip_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ClipKind, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or(ClipKind::Video))
+    }
+
+    /// A media kind by name, video for a name this build does not know.
+    pub fn media_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<MediaKind, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or(MediaKind::Video))
+    }
+
+    /// A text alignment by name, centred for one this build does not know.
+    pub fn text_align<'de, D: Deserializer<'de>>(deserializer: D) -> Result<TextAlign, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or(TextAlign::Center))
     }
 }
 
@@ -871,7 +1061,7 @@ pub mod ranges {
 /// timing, mix, transform, and effects. Everything an edit decision touches
 /// lives here, which is why most commands are clip commands.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Clip {
     /// Minted by the editor ("c1", "c2", ...); how every command names its
     /// target. Survives splits - the head keeps the id - and merges.
@@ -886,6 +1076,7 @@ pub struct Clip {
     pub name: String,
     /// What this clip renders as. Follows the media's kind, and is rewritten
     /// when a template slot is filled with a different kind of file.
+    #[serde(deserialize_with = "wire::clip_kind")]
     pub kind: ClipKind,
     /// Seconds from the start of the timeline.
     pub start: f64,
@@ -923,18 +1114,22 @@ pub struct Clip {
     /// Speed as it changes over the clip: points of `(at, speed)`, `at` a
     /// fraction of the clip's timeline length. None is the constant rate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe_list")]
     pub speed_curve: Option<Vec<SpeedPoint>>,
     /// Played backwards.
     #[serde(default, skip_serializing_if = "is_false")]
     pub reverse: bool,
     /// How the clip comes in: a named shape over its first seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub animation_in: Option<ClipAnimation>,
     /// How it goes out: a named shape over its last seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub animation_out: Option<ClipAnimation>,
     /// A shape over its whole length.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub animation_combo: Option<ClipAnimation>,
     /// The user's own keys, sorted by property and then by `at`. Empty is a
     /// clip whose properties are the constants above.
@@ -944,6 +1139,7 @@ pub struct Clip {
     /// to, so a clip can carry both a hand-keyed scale and a Fade preset
     /// without either having to know about the other.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(deserialize_with = "wire::list")]
     pub keys: Vec<ClipKey>,
     /// Mirrored left to right.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -958,19 +1154,23 @@ pub struct Clip {
     /// What is cut off each edge of the source before it is fitted, as
     /// fractions of the source's width and height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub crop: Option<Crop>,
     /// The background taken away by a mask rather than a key colour; see
     /// [`Cutout`]. Keying by colour is a package on `video_effects`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub cutout: Option<Cutout>,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
     /// Audio filters, in order - order is audible.
     #[serde(default)]
+    #[serde(deserialize_with = "wire::list")]
     pub filters: Vec<AppliedFilter>,
     /// Video effects, in order - the visual sibling of `filters`.
     #[serde(default)]
+    #[serde(deserialize_with = "wire::list")]
     pub video_effects: Vec<AppliedFilter>,
     /// Which of the media's audio streams this clip plays, by the stream's
     /// index in the file - see [`MediaItem::audio_tracks`]. None is the first
@@ -986,10 +1186,24 @@ pub struct Clip {
     pub detached_from: Option<String>,
     /// The transition on the cut into this clip, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub transition_in: Option<Transition>,
     /// The overlay, when this is a text clip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
     pub text: Option<TextStyle>,
+    /// Fields this build does not know, kept so a document written by a
+    /// newer or a different build round-trips through this one intact.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+}
+
+impl Default for Clip {
+    /// What a document entry starts from before its own fields land on
+    /// it: [`Clip::blank`] with no id, on no track, one second of video.
+    fn default() -> Self {
+        Clip::blank("", "", ClipKind::Video, "clip", 0.0, 1.0)
+    }
 }
 
 impl Clip {
@@ -1044,6 +1258,7 @@ impl Clip {
             detached_from: None,
             transition_in: None,
             text: None,
+            extra: Map::new(),
         }
     }
 
@@ -1093,8 +1308,24 @@ impl Clip {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
         }
         self.keys
-            .retain(|key| key.at.is_finite() && key.value.is_finite());
+            .retain(|key| (0.0..=1.0).contains(&key.at) && key.value.is_finite());
         self.sort_keys();
+        for chain in [&mut self.filters, &mut self.video_effects] {
+            for entry in chain.iter_mut() {
+                entry.sort_keys();
+            }
+        }
+        for slot in [
+            &mut self.animation_in,
+            &mut self.animation_out,
+            &mut self.animation_combo,
+        ] {
+            *slot = slot.take().and_then(ClipAnimation::tidy);
+        }
+        self.text = self.text.take().map(TextStyle::tidy);
+        if self.muted == Some(false) {
+            self.muted = None;
+        }
         self
     }
 
@@ -1246,7 +1477,7 @@ impl Clip {
 /// One timeline: a name and its lanes and clips. Every operation takes the
 /// project and works on whichever timeline is active.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Timeline {
     /// Minted by the editor ("tl2", ...), except the founding "TL1".
     pub id: String,
@@ -1260,6 +1491,7 @@ pub struct Timeline {
     pub video: VideoSettings,
     /// The lanes, top to bottom. Never empty - `RemoveTrack` keeps a floor
     /// of one.
+    #[serde(deserialize_with = "wire::list")]
     pub tracks: Vec<Track>,
     /// Every clip on this timeline, in insertion order, not time order -
     /// readers must sort by `start` where order matters.
@@ -1268,7 +1500,24 @@ pub struct Timeline {
     /// every command - copies one pointer per clip, and only the clip a
     /// command then writes to is copied for real ([`Arc::make_mut`] in
     /// [`Timeline::clip_mut`]). Reading through the `Arc` is transparent.
+    #[serde(deserialize_with = "wire::list")]
     pub clips: Vec<Arc<Clip>>,
+    /// Fields this build does not know, kept so they round-trip.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
+}
+
+impl Default for Timeline {
+    fn default() -> Self {
+        Timeline {
+            id: String::new(),
+            name: "Timeline".to_owned(),
+            video: VideoSettings::default(),
+            tracks: Vec::new(),
+            clips: Vec::new(),
+            extra: Map::new(),
+        }
+    }
 }
 
 /// A timeline's output frame and rate.
@@ -1309,6 +1558,34 @@ impl VideoSettings {
         self.rate_num as f64 / self.rate_den.max(1) as f64
     }
 
+    /// This frame with every zero or negative field taken from `fallback`
+    /// instead: a document hand-edited into nonsense still opens at a size
+    /// that is a size.
+    pub fn or(self, fallback: VideoSettings) -> VideoSettings {
+        VideoSettings {
+            width: if self.width > 0 {
+                self.width
+            } else {
+                fallback.width
+            },
+            height: if self.height > 0 {
+                self.height
+            } else {
+                fallback.height
+            },
+            rate_num: if self.rate_num > 0 {
+                self.rate_num
+            } else {
+                fallback.rate_num
+            },
+            rate_den: if self.rate_den > 0 {
+                self.rate_den
+            } else {
+                fallback.rate_den
+            },
+        }
+    }
+
     /// Whether every term is one a frame could actually have. A zero
     /// dimension or rate is never a real setting, only a caller bug, and
     /// writing one would poison the document until the next open.
@@ -1335,17 +1612,24 @@ pub struct CustomFont {
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     /// The bin: every imported file, shared by all timelines.
+    #[serde(default, deserialize_with = "wire::list")]
     pub media: Vec<MediaItem>,
     /// Fonts the user added from disk, available to every title.
+    #[serde(default, deserialize_with = "wire::list")]
     pub fonts: Vec<CustomFont>,
     /// Every timeline, in tab order. Always at least one. Behind `Arc` for
     /// the reason [`Timeline::clips`] is: a command on one timeline leaves
     /// the others shared with the undo snapshot.
+    #[serde(default, deserialize_with = "wire::list")]
     pub timelines: Vec<Arc<Timeline>>,
     /// Which timeline commands act on. Maintained by the command layer, so
     /// it always names a member of `timelines`; [`Project::active`] degrades
     /// to the first timeline if it somehow does not.
+    #[serde(default)]
     pub active_timeline_id: String,
+    /// Top-level fields this build does not know, kept so they round-trip.
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    pub extra: Map<String, Value>,
 }
 
 /// A media reference that points to a non-existent file.
@@ -1371,6 +1655,7 @@ impl Project {
         Self {
             media: Vec::new(),
             fonts: Vec::new(),
+            extra: Map::new(),
             timelines: vec![Arc::new(Timeline {
                 id: "TL1".to_owned(),
                 name: "Timeline 1".to_owned(),
@@ -1378,11 +1663,11 @@ impl Project {
                 tracks: (1..=4)
                     .map(|number| Track {
                         id: format!("T{number}"),
-                        visible: true,
-                        muted: false,
+                        ..Track::default()
                     })
                     .collect(),
                 clips: Vec::new(),
+                extra: Map::new(),
             })],
             active_timeline_id: "TL1".to_owned(),
         }
@@ -1429,6 +1714,14 @@ impl Project {
 }
 
 impl MediaItem {
+    /// A nameless entry is called by its path.
+    pub fn tidy(mut self) -> MediaItem {
+        if self.name.is_empty() {
+            self.name = self.path.clone();
+        }
+        self
+    }
+
     /// Which row of `audio_tracks` a clip's `audio_stream` is: the named
     /// stream's position, or the first row for a clip that names none or
     /// names a stream this file does not have - the same fallback the

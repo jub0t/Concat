@@ -39,6 +39,7 @@ pub(super) fn apply(
                 has_audio: item.has_audio,
                 audio_tracks: item.audio_tracks,
                 placeholder: false,
+                extra: Default::default(),
             });
             Ok(Outcome {
                 created_id: Some(id),

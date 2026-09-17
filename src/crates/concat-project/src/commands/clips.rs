@@ -313,6 +313,7 @@ pub(super) fn apply(
                         has_audio: false,
                         audio_tracks: Vec::new(),
                         placeholder: false,
+                        extra: Default::default(),
                     });
                     id
                 }

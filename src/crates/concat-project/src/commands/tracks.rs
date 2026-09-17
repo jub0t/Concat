@@ -22,6 +22,7 @@ pub(super) fn apply(
                 id: id.clone(),
                 visible: true,
                 muted: false,
+                extra: Default::default(),
             });
             Ok(Outcome {
                 created_id: Some(id),

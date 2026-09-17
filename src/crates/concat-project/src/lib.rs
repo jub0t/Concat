@@ -664,6 +664,135 @@ mod tests {
     }
 
     #[test]
+    fn fields_this_build_does_not_know_survive_a_round_trip() {
+        let (editor, _, clip_id) = fixture();
+        let mut document = editor.to_document(&settings());
+        document["futureSetting"] = json!({ "on": true });
+        document["timelines"][0]["colourSpace"] = json!("rec709");
+        document["timelines"][0]["tracks"][0]["name"] = json!("Dialogue");
+        document["timelines"][0]["clips"][0]["mask"] = json!({ "shape": "ellipse" });
+        document["media"][0]["proxy"] = json!("/proxies/a.mp4");
+
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert_eq!(
+            loaded
+                .project()
+                .active()
+                .clip(&clip_id)
+                .expect("clip")
+                .extra["mask"]["shape"],
+            "ellipse"
+        );
+        let saved = loaded.to_document(&settings());
+        assert_eq!(saved["futureSetting"]["on"], true);
+        assert_eq!(saved["timelines"][0]["colourSpace"], "rec709");
+        assert_eq!(saved["timelines"][0]["tracks"][0]["name"], "Dialogue");
+        assert_eq!(
+            saved["timelines"][0]["clips"][0]["mask"]["shape"],
+            "ellipse"
+        );
+        assert_eq!(saved["media"][0]["proxy"], "/proxies/a.mp4");
+        // The flat mirror carries the clip's unknown field too: it is the
+        // same clip serialised twice.
+        assert_eq!(saved["clips"][0]["mask"]["shape"], "ellipse");
+        // And the writer's own fields are never duplicated from `extra`.
+        assert_eq!(
+            loaded.project().extra.len(),
+            1,
+            "{:?}",
+            loaded.project().extra
+        );
+    }
+
+    #[test]
+    fn a_timeline_without_its_own_frame_takes_the_documents() {
+        let document = json!({
+            "name": "Old", "version": 1,
+            "video": { "width": 1080, "height": 1920, "rateNum": 60, "rateDen": 1 },
+            "media": [],
+            "timelines": [
+                { "id": "TL1", "name": "Vertical",
+                  "tracks": [{ "id": "T1", "visible": true, "muted": false }], "clips": [] },
+                { "id": "TL2", "name": "Half", "video": { "width": 0, "height": 540 },
+                  "tracks": [{ "id": "T2", "visible": true, "muted": false }], "clips": [] }
+            ],
+            "activeTimelineId": "TL2"
+        });
+        let editor = Editor::from_document(&document).expect("loads");
+        let timelines = &editor.project().timelines;
+        assert_eq!(
+            (timelines[0].video.width, timelines[0].video.height),
+            (1080, 1920)
+        );
+        assert_eq!(timelines[0].video.rate_num, 60);
+        // A zero width takes the document's; a stated height is kept.
+        assert_eq!(
+            (timelines[1].video.width, timelines[1].video.height),
+            (1080, 540)
+        );
+        assert_eq!(editor.project().active_timeline_id, "TL2");
+    }
+
+    #[test]
+    fn an_entry_the_reader_cannot_parse_is_dropped_not_the_document() {
+        let document = json!({
+            "name": "Mixed", "version": 1,
+            "media": [
+                { "id": "m1", "path": "/a.mp4", "kind": "hologram" },
+                { "id": "m2", "path": "/b.mp4", "kind": "audio", "audioTracks": "nope" },
+                { "path": "/no-id.mp4" }
+            ],
+            "tracks": [{ "id": "T1" }, { "visible": false }],
+            "clips": [
+                { "id": "c1", "trackId": "T1", "mediaId": "m1", "kind": "video",
+                  "cutout": { "mode": "unknown" }, "keys": "garbage",
+                  "transitionIn": { "id": "cross-fade" },
+                  "animationIn": { "preset": "  " },
+                  "videoEffects": [{ "id": "sepia", "keys": { "amount": [ { "at": 0.5, "value": 1.0 }, { "at": 7.0, "value": 2.0 } ] } }, "not an effect"] },
+                { "id": "c2", "trackId": "T1", "mediaId": "m2", "kind": "audio", "start": "soon" }
+            ]
+        });
+        let editor = Editor::from_document(&document).expect("loads");
+        let project = editor.project();
+        assert_eq!(project.media.len(), 2, "the entry without an id is dropped");
+        assert_eq!(
+            project.media[0].kind,
+            MediaKind::Video,
+            "an unknown kind is video"
+        );
+        assert_eq!(
+            project.media[0].name, "/a.mp4",
+            "a nameless entry is called by its path"
+        );
+        assert!(
+            project.media[1].audio_tracks.is_empty(),
+            "a list that is not one is empty"
+        );
+        let timeline = project.active();
+        assert_eq!(
+            timeline.tracks.len(),
+            1,
+            "the lane without an id is dropped"
+        );
+        let ids: Vec<&str> = timeline.clips.iter().map(|clip| clip.id.as_str()).collect();
+        assert_eq!(ids, ["c1"], "a clip whose start is not a number is dropped");
+        let clip = timeline.clip("c1").expect("c1");
+        assert!(
+            clip.cutout.is_none(),
+            "a cutout that does not parse is no cutout"
+        );
+        assert!(clip.keys.is_empty());
+        assert_eq!(clip.transition_in.as_ref().expect("kept").duration, 1.0);
+        assert!(clip.animation_in.is_none(), "a preset with no name is none");
+        assert_eq!(clip.video_effects.len(), 1);
+        assert_eq!(
+            clip.video_effects[0].keys["amount"].len(),
+            1,
+            "the out-of-range key is dropped"
+        );
+    }
+
+    #[test]
     fn rearranged_pieces_refuse_to_merge() {
         let (mut editor, _, clip_id) = fixture();
         editor
@@ -2285,6 +2414,7 @@ mod tests {
             has_audio: false,
             audio_tracks: vec![],
             placeholder: false,
+            extra: Default::default(),
         });
 
         let missing = project.missing_media();
@@ -2320,6 +2450,7 @@ mod tests {
             has_audio: false,
             audio_tracks: vec![],
             placeholder: false,
+            extra: Default::default(),
         });
 
         let missing = project.missing_media();

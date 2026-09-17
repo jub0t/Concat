@@ -1,39 +1,43 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! Reading and writing `concat.json`.
+//! The document: `concat.json` in and out.
 //!
-//! Projects saved before the renames carry the same document as
-//! `wolfcut.json`. The name on disk is the host's concern:
-//! it keeps whichever name a project already has, and this module never
-//! looks at a filename.
+//! Reading is three steps, each with one job:
 //!
-//! The reader's tolerance rules are the contract with every document
-//! already on disk: every field defaults rather than being trusted, clips whose
-//! track or media vanished are dropped, text clips survive without media,
-//! legacy flat documents load as a single timeline. A hand-edited or older
-//! file must degrade to something openable, never to a load error.
+//! 1. **Migrate.** The JSON is walked through [`MIGRATIONS`], oldest shape
+//!    first, until it has the shape this build writes. A document from a
+//!    later build than this one is refused whole rather than read in part
+//!    and then saved over.
+//! 2. **Parse.** The model's own `serde` derives read it. Every struct
+//!    defaults a missing field, every list keeps the entries that parse and
+//!    drops the rest, and every field this build does not know lands in the
+//!    struct's `extra` map, so it is written back out untouched. See
+//!    `model::wire` for the tolerant readers.
+//! 3. **Settle.** What no derive can decide: a clip whose track or media is
+//!    gone has nowhere to live and is dropped, a timeline with no lanes is
+//!    no timeline, every number is pulled into the range a command holds it
+//!    to ([`Clip::tidy`]), and the active timeline is one that exists.
 //!
-//! The writer produces the same structure - including the
-//! flat `tracks`/`clips` mirror of the active timeline that keeps documents
-//! openable in builds that predate multiple timelines.
+//! The standing rule through all three: a hand-edited or older file
+//! degrades to something openable. Nothing short of a document that is not
+//! an object, or that has no timeline in it, fails the load.
+//!
+//! Writing is the derives again, plus a mirror of the active timeline in
+//! the flat `tracks` / `clips` / `video` fields that builds from before
+//! multiple timelines read, so a file saved here still opens there.
 
-use std::collections::BTreeMap;
-
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
-use crate::model::{
-    AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout,
-    KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
-    TextStyle, Timeline, Track, Transition, VideoSettings,
-};
+use crate::model::{Clip, MediaItem, Project, Timeline, VideoSettings};
 
 /// Bumped only when a change cannot be absorbed by defaulting. Read back
 /// on load: a document from a later version is refused whole rather than
-/// read in part and then saved over. Add a migration step here when it
-/// moves.
+/// read in part and then saved over. Every bump adds a step to
+/// [`MIGRATIONS`].
 pub const DOCUMENT_VERSION: u64 = 1;
 
 /// The version a document says it is. Documents from before the field
@@ -42,368 +46,233 @@ pub fn document_version(document: &Value) -> u64 {
     document.get("version").and_then(Value::as_u64).unwrap_or(1)
 }
 
-fn text(value: Option<&Value>, fallback: &str) -> String {
-    value.and_then(Value::as_str).unwrap_or(fallback).to_owned()
+/// One step of the reader's migration table: a name for the log, and the
+/// rewrite. Each step is idempotent - a document already in the shape it
+/// produces passes through unchanged - so the table is simply applied in
+/// order, and a document at any age comes out at the current shape.
+struct Migration {
+    #[allow(dead_code)]
+    name: &'static str,
+    apply: fn(&mut Map<String, Value>),
 }
 
-fn number(value: Option<&Value>, fallback: f64) -> f64 {
-    value
-        .and_then(Value::as_f64)
-        .filter(|n| n.is_finite())
-        .unwrap_or(fallback)
+/// The migration table, oldest shape first. Add to the end; never reorder
+/// or remove, because a document written at any point in the project's
+/// history has to walk the whole way up.
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        name: "timelines from the flat fields",
+        apply: lift_flat_timeline,
+    },
+    Migration {
+        name: "every timeline carries its frame",
+        apply: give_timelines_their_frame,
+    },
+];
+
+/// A document from before multiple timelines holds one, as the top-level
+/// `tracks`, `clips` and `video`. Lifted into `timelines` as the one
+/// timeline it always was, leaving the flat fields in place: they are
+/// written back as the mirror every save writes.
+fn lift_flat_timeline(document: &mut Map<String, Value>) {
+    let has_timelines = document
+        .get("timelines")
+        .and_then(Value::as_array)
+        .is_some_and(|entries| !entries.is_empty());
+    if has_timelines {
+        return;
+    }
+    let tracks = document.get("tracks").cloned().unwrap_or(Value::Null);
+    if tracks.as_array().is_none_or(|tracks| tracks.is_empty()) {
+        return;
+    }
+    let clips = document.get("clips").cloned().unwrap_or(json!([]));
+    let mut timeline = json!({
+        "id": "TL1",
+        "name": "Timeline 1",
+        "tracks": tracks,
+        "clips": clips,
+    });
+    if let Some(video) = document.get("video").cloned()
+        && let Some(timeline) = timeline.as_object_mut()
+    {
+        timeline.insert("video".to_owned(), video);
+    }
+    document.insert("timelines".to_owned(), json!([timeline]));
 }
 
-fn flag(value: Option<&Value>, fallback: bool) -> bool {
-    value.and_then(Value::as_bool).unwrap_or(fallback)
-}
-
-fn opt_u32(value: Option<&Value>) -> Option<u32> {
-    value
-        .and_then(Value::as_u64)
-        .and_then(|n| u32::try_from(n).ok())
-}
-
-fn opt_string(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::to_owned)
-}
-
-fn read_media(raw: Option<&Value>) -> Vec<MediaItem> {
-    let Some(entries) = raw.and_then(Value::as_array) else {
-        return Vec::new();
+/// Timelines from before each carried its own frame take the document's
+/// top-level `video` block, a field at a time: a timeline naming a zero
+/// dimension or rate gets the shared value for that field rather than the
+/// zero, and one naming nothing gets the block whole.
+fn give_timelines_their_frame(document: &mut Map<String, Value>) {
+    let shared = document
+        .get("video")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let Some(timelines) = document.get_mut("timelines").and_then(Value::as_array_mut) else {
+        return;
     };
-    entries
-        .iter()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.to_owned();
-            let path = entry.get("path")?.as_str()?.to_owned();
-            let kind = match entry.get("kind").and_then(Value::as_str) {
-                Some("audio") => MediaKind::Audio,
-                Some("image") => MediaKind::Image,
-                _ => MediaKind::Video,
-            };
-            Some(MediaItem {
-                name: text(entry.get("name"), &path),
-                duration: entry.get("duration").and_then(Value::as_f64),
-                kind,
-                width: opt_u32(entry.get("width")),
-                height: opt_u32(entry.get("height")),
-                frame_rate: entry.get("frameRate").and_then(Value::as_f64),
-                frame_rate_fraction: opt_string(entry.get("frameRateFraction")),
-                video_codec: opt_string(entry.get("videoCodec")),
-                audio_codec: opt_string(entry.get("audioCodec")),
-                has_audio: flag(entry.get("hasAudio"), false),
-                // Tolerated like everything else: a list the reader cannot
-                // make sense of is no list, and clips fall back to the
-                // file's first stream.
-                audio_tracks: entry
-                    .get("audioTracks")
-                    .and_then(|value| serde_json::from_value::<Vec<AudioTrack>>(value.clone()).ok())
-                    .unwrap_or_default(),
-                placeholder: flag(entry.get("placeholder"), false),
-                id,
-                path,
-            })
-        })
-        .collect()
-}
-
-fn read_tracks(raw: Option<&Value>) -> Vec<Track> {
-    let Some(entries) = raw.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.to_owned();
-            Some(Track {
-                id,
-                visible: flag(entry.get("visible"), true),
-                muted: flag(entry.get("muted"), false),
-            })
-        })
-        .collect()
-}
-
-fn read_filters(raw: Option<&Value>) -> Vec<AppliedFilter> {
-    let Some(entries) = raw.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.to_owned();
-            let params = entry
-                .get("params")
-                .and_then(Value::as_object)
-                .map(|map| {
-                    map.iter()
-                        .filter_map(|(key, value)| Some((key.clone(), value.as_f64()?)))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let mut filter = AppliedFilter {
-                id,
-                params,
-                enabled: flag(entry.get("enabled"), true),
-                keys: read_param_keys(entry.get("keys")),
-            };
-            filter.sort_keys();
-            Some(filter)
-        })
-        .collect()
-}
-
-/// An effect's parameter keys: a run per parameter name, each key read
-/// with the same tolerance as a clip's own.
-fn read_param_keys(raw: Option<&Value>) -> BTreeMap<String, Vec<ParamKey>> {
-    let Some(runs) = raw.and_then(Value::as_object) else {
-        return BTreeMap::new();
-    };
-    runs.iter()
-        .filter_map(|(name, run)| {
-            let keys: Vec<ParamKey> = run
-                .as_array()?
-                .iter()
-                .filter_map(|entry| {
-                    let at = number(entry.get("at"), -1.0);
-                    let value = number(entry.get("value"), f64::NAN);
-                    ((0.0..=1.0).contains(&at) && value.is_finite()).then_some(ParamKey {
-                        at,
-                        value,
-                        ease: read_ease(entry.get("ease")),
-                    })
-                })
-                .collect();
-            (!keys.is_empty()).then(|| (name.clone(), keys))
-        })
-        .collect()
-}
-
-fn read_text_style(raw: Option<&Value>) -> TextStyle {
-    let base = TextStyle::default();
-    let Some(style) = raw.filter(|value| value.is_object()) else {
-        return base;
-    };
-    TextStyle {
-        content: text(style.get("content"), &base.content),
-        font_family: text(style.get("fontFamily"), &base.font_family),
-        // Clamped, not just defaulted: a hand-edited 0 would render an
-        // invisible title.
-        font_size: number(style.get("fontSize"), base.font_size).clamp(0.01, 1.0),
-        font_weight: number(style.get("fontWeight"), base.font_weight).clamp(100.0, 900.0),
-        italic: flag(style.get("italic"), base.italic),
-        color: text(style.get("color"), &base.color),
-        align: match style.get("align").and_then(Value::as_str) {
-            Some("left") => TextAlign::Left,
-            Some("right") => TextAlign::Right,
-            _ => TextAlign::Center,
-        },
-        opacity: number(style.get("opacity"), base.opacity).clamp(0.0, 1.0),
-        stroke_width: number(style.get("strokeWidth"), base.stroke_width).max(0.0),
-        stroke_color: text(style.get("strokeColor"), &base.stroke_color),
-        shadow: flag(style.get("shadow"), base.shadow),
-        background: text(style.get("background"), &base.background),
-        line_height: number(style.get("lineHeight"), base.line_height).max(0.5),
-        tracking: number(style.get("tracking"), base.tracking),
-        max_width: number(style.get("maxWidth"), base.max_width).max(0.0),
+    for timeline in timelines.iter_mut().filter_map(Value::as_object_mut) {
+        let mut video = timeline
+            .get("video")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        for key in ["width", "height", "rateNum", "rateDen"] {
+            let usable = video
+                .get(key)
+                .and_then(Value::as_i64)
+                .is_some_and(|n| n > 0);
+            if !usable && let Some(value) = shared.get(key) {
+                video.insert(key.to_owned(), value.clone());
+            }
+        }
+        if !video.is_empty() {
+            timeline.insert("video".to_owned(), Value::Object(video));
+        }
     }
 }
 
-fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec<Clip> {
-    let Some(entries) = raw.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    entries
-        .iter()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.to_owned();
-            let track_id = entry.get("trackId")?.as_str()?.to_owned();
-            // A clip whose track vanished has nowhere to live.
-            if !tracks.iter().any(|track| track.id == track_id) {
-                return None;
-            }
-
-            let kind_name = entry.get("kind").and_then(Value::as_str);
-            let is_text = kind_name == Some("text");
-            let is_layer = kind_name == Some("layer");
-            let media_id = if is_text || is_layer {
-                String::new()
-            } else {
-                let media_id = entry.get("mediaId")?.as_str()?.to_owned();
-                // Only the kinds that come from the bin are dropped when
-                // their source is gone.
-                if !media.iter().any(|item| item.id == media_id) {
-                    return None;
-                }
-                media_id
-            };
-
-            let kind = if is_text {
-                ClipKind::Text
-            } else if is_layer {
-                ClipKind::Layer
-            } else {
-                match kind_name {
-                    Some("audio") => ClipKind::Audio,
-                    Some("image") => ClipKind::Image,
-                    _ => ClipKind::Video,
-                }
-            };
-
-            Some(Clip {
-                name: text(entry.get("name"), "clip"),
-                kind,
-                start: number(entry.get("start"), 0.0).max(0.0),
-                duration: number(entry.get("duration"), 1.0),
-                source_start: number(entry.get("sourceStart"), 0.0).max(0.0),
-                volume: number(entry.get("volume"), 1.0).max(0.0),
-                fade_in: number(entry.get("fadeIn"), 0.0).max(0.0),
-                fade_out: number(entry.get("fadeOut"), 0.0).max(0.0),
-                scale: number(entry.get("scale"), 1.0),
-                offset_x: number(entry.get("offsetX"), 0.0),
-                offset_y: number(entry.get("offsetY"), 0.0),
-                rotation: number(entry.get("rotation"), 0.0),
-                stretch_x: number(entry.get("stretchX"), 1.0),
-                stretch_y: number(entry.get("stretchY"), 1.0),
-                opacity: number(entry.get("opacity"), 1.0),
-                speed: number(entry.get("speed"), 1.0),
-                speed_curve: entry.get("speedCurve").and_then(|value| {
-                    let points: Vec<SpeedPoint> = value
-                        .as_array()?
-                        .iter()
-                        .map(|point| SpeedPoint {
-                            at: number(point.get("at"), -1.0),
-                            speed: number(point.get("speed"), 1.0),
-                        })
-                        .collect();
-                    (!points.is_empty()).then_some(points)
-                }),
-                reverse: flag(entry.get("reverse"), false),
-                animation_in: read_animation(entry.get("animationIn")),
-                animation_out: read_animation(entry.get("animationOut")),
-                animation_combo: read_animation(entry.get("animationCombo")),
-                keys: read_keys(entry.get("keys")),
-                flip_h: flag(entry.get("flipH"), false),
-                flip_v: flag(entry.get("flipV"), false),
-                blend: text(entry.get("blend"), ""),
-                crop: entry.get("crop").map(|crop| Crop {
-                    left: number(crop.get("left"), 0.0),
-                    top: number(crop.get("top"), 0.0),
-                    right: number(crop.get("right"), 0.0),
-                    bottom: number(crop.get("bottom"), 0.0),
-                }),
-                // Tolerated like everything else: a cutout the reader
-                // cannot make sense of is no cutout.
-                cutout: entry
-                    .get("cutout")
-                    .and_then(|value| serde_json::from_value::<Cutout>(value.clone()).ok()),
-                preserve_pitch: flag(entry.get("preservePitch"), true),
-                filters: read_filters(entry.get("filters")),
-                video_effects: read_filters(entry.get("videoEffects")),
-                audio_stream: opt_u32(entry.get("audioStream")),
-                muted: flag(entry.get("muted"), false).then_some(true),
-                detached_from: opt_string(entry.get("detachedFrom")),
-                transition_in: entry.get("transitionIn").and_then(|transition| {
-                    Some(Transition {
-                        id: transition.get("id")?.as_str()?.to_owned(),
-                        duration: number(transition.get("duration"), 1.0),
-                    })
-                }),
-                text: is_text.then(|| read_text_style(entry.get("text"))),
-                id,
-                track_id,
-                media_id,
-            })
-        })
-        // Every number pulled into the range a command holds it to: the
-        // one place the rules live, so a file cannot disagree with an edit.
-        .map(Clip::tidy)
-        .collect()
-}
-
-/// Rebuilds a project from a document. Returns None only when there is
-/// nothing recognisable to load at all.
-pub fn from_document(document: &Value) -> Option<Project> {
-    if !document.is_object() || document_version(document) > DOCUMENT_VERSION {
+/// The document at this build's shape, or `None` for one from a later
+/// build.
+fn migrate(document: &Value) -> Option<Map<String, Value>> {
+    let mut document = document.as_object()?.clone();
+    if document_version(&Value::Object(document.clone())) > DOCUMENT_VERSION {
         return None;
     }
-    let media = read_media(document.get("media"));
-
-    // The document's frame, as every build has written it at the top level.
-    // The default for any timeline that does not carry its own - which is
-    // every timeline in a document from before they could.
-    let shared = read_video(document.get("video"), VideoSettings::default());
-
-    // The timelines array is the source of truth when present and usable; a
-    // file from before multiple timelines loads its flat fields as the one
-    // timeline they always were.
-    let mut timelines: Vec<Arc<Timeline>> = Vec::new();
-    if let Some(entries) = document.get("timelines").and_then(Value::as_array) {
-        for entry in entries {
-            let Some(id) = entry.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if timelines.iter().any(|existing| existing.id == id) {
-                continue;
-            }
-            let tracks = read_tracks(entry.get("tracks"));
-            if tracks.is_empty() {
-                continue;
-            }
-            let clips = read_clips(entry.get("clips"), &tracks, &media);
-            timelines.push(Arc::new(Timeline {
-                id: id.to_owned(),
-                name: text(entry.get("name"), "Timeline"),
-                video: read_video(entry.get("video"), shared),
-                tracks,
-                clips: clips.into_iter().map(Arc::new).collect(),
-            }));
-        }
+    for migration in MIGRATIONS {
+        (migration.apply)(&mut document);
     }
-    if timelines.is_empty() {
-        let tracks = read_tracks(document.get("tracks"));
-        if tracks.is_empty() {
-            return None;
-        }
-        let clips = read_clips(document.get("clips"), &tracks, &media);
-        timelines.push(Arc::new(Timeline {
-            id: "TL1".to_owned(),
-            name: "Timeline 1".to_owned(),
-            video: shared,
-            tracks,
-            clips: clips.into_iter().map(Arc::new).collect(),
-        }));
+    Some(document)
+}
+
+/// The top-level keys the writer owns. Read, they would land in the
+/// project's `extra` map and be written twice; they are the writer's to
+/// produce afresh.
+const WRITER_OWNED: &[&str] = &[
+    "concat",
+    "version",
+    "name",
+    "video",
+    "tracks",
+    "clips",
+    "media",
+    "fonts",
+    "timelines",
+    "activeTimelineId",
+];
+
+/// Rebuilds a project from a document. Returns None only when there is
+/// nothing to open: a value that is not an object, a document from a later
+/// build, or one with no timeline that has a lane.
+pub fn from_document(document: &Value) -> Option<Project> {
+    let document = migrate(document)?;
+    let project: Project = serde_json::from_value(Value::Object(document)).ok()?;
+    settle(project)
+}
+
+/// Everything the derives cannot decide about a freshly parsed project;
+/// see the module doc. `None` when no timeline survives.
+fn settle(mut project: Project) -> Option<Project> {
+    for key in WRITER_OWNED {
+        project.extra.remove(*key);
     }
+    project.media = project
+        .media
+        .into_iter()
+        // An empty path is a template's placeholder, not a broken entry.
+        .filter(|item| !item.id.is_empty())
+        .map(MediaItem::tidy)
+        .collect();
+    let media: Vec<MediaItem> = project.media.clone();
+    project
+        .fonts
+        .retain(|font| !font.family.is_empty() && !font.path.is_empty());
 
-    let active_timeline_id = document
-        .get("activeTimelineId")
-        .and_then(Value::as_str)
-        .filter(|id| timelines.iter().any(|timeline| timeline.id == *id))
-        .unwrap_or(&timelines[0].id)
-        .to_owned();
-
-    let fonts = document
-        .get("fonts")
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    Some(CustomFont {
-                        family: entry.get("family")?.as_str()?.to_owned(),
-                        path: entry.get("path")?.as_str()?.to_owned(),
-                    })
-                })
-                .collect()
+    let mut seen: HashSet<String> = HashSet::new();
+    project.timelines = project
+        .timelines
+        .into_iter()
+        .filter_map(|timeline| {
+            let timeline = Arc::try_unwrap(timeline).unwrap_or_else(|shared| (*shared).clone());
+            settle_timeline(timeline, &media)
         })
-        .unwrap_or_default();
+        .filter(|timeline| seen.insert(timeline.id.clone()))
+        .map(Arc::new)
+        .collect();
+    if project.timelines.is_empty() {
+        return None;
+    }
+    if !project
+        .timelines
+        .iter()
+        .any(|timeline| timeline.id == project.active_timeline_id)
+    {
+        project.active_timeline_id = project.timelines[0].id.clone();
+    }
+    Some(project)
+}
 
-    Some(Project {
-        media,
-        fonts,
-        timelines,
-        active_timeline_id,
-    })
+/// One timeline settled: lanes and clips with ids, clips on lanes that
+/// exist and media that is in the bin, every number in range. `None` for
+/// a timeline with no id or no lane.
+fn settle_timeline(mut timeline: Timeline, media: &[MediaItem]) -> Option<Timeline> {
+    if timeline.id.is_empty() {
+        return None;
+    }
+    if timeline.name.trim().is_empty() {
+        timeline.name = "Timeline".to_owned();
+    }
+    timeline.video = timeline.video.or(VideoSettings::default());
+    let mut seen: HashSet<String> = HashSet::new();
+    timeline
+        .tracks
+        .retain(|track| !track.id.is_empty() && seen.insert(track.id.clone()));
+    if timeline.tracks.is_empty() {
+        return None;
+    }
+    let tracks = timeline.tracks.clone();
+    timeline.clips = timeline
+        .clips
+        .into_iter()
+        .filter_map(|clip| {
+            let clip = Arc::try_unwrap(clip).unwrap_or_else(|shared| (*shared).clone());
+            settle_clip(clip, &tracks, media)
+        })
+        .map(Arc::new)
+        .collect();
+    Some(timeline)
+}
+
+/// One clip settled, or `None` for one with nowhere to live: no id, a
+/// track that vanished, or - for the kinds that come from the bin - media
+/// that is gone. Titles and layers have no media and need none.
+fn settle_clip(
+    mut clip: Clip,
+    tracks: &[crate::model::Track],
+    media: &[MediaItem],
+) -> Option<Clip> {
+    use crate::model::ClipKind;
+    if clip.id.is_empty() {
+        return None;
+    }
+    if !tracks.iter().any(|track| track.id == clip.track_id) {
+        return None;
+    }
+    match clip.kind {
+        ClipKind::Text | ClipKind::Layer => clip.media_id.clear(),
+        ClipKind::Video | ClipKind::Audio | ClipKind::Image => {
+            if !media.iter().any(|item| item.id == clip.media_id) {
+                return None;
+            }
+        }
+    }
+    if clip.kind != ClipKind::Text {
+        clip.text = None;
+    }
+    Some(clip.tidy())
 }
 
 /// Settings the host manages around the edit: the manifest's identity fields.
@@ -482,100 +351,10 @@ pub fn to_document(settings: &DocumentSettings, project: &Project) -> Value {
         serde_json::to_value(&project.timelines).expect("serialises"),
     );
     document.insert("activeTimelineId".into(), json!(project.active_timeline_id));
+    // Whatever a newer or a different build put at the top level, back
+    // where it was; never over a field this writer owns.
+    for (key, value) in &project.extra {
+        document.entry(key.clone()).or_insert_with(|| value.clone());
+    }
     Value::Object(document)
-}
-
-/// The clip's own keys. Tolerant like everything else here: an entry naming
-/// a property this build does not have, or sitting outside the clip, is
-/// dropped rather than failing the load, and the survivors come back in the
-/// order the model promises.
-fn read_keys(raw: Option<&Value>) -> Vec<ClipKey> {
-    let Some(entries) = raw.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    let mut keys: Vec<ClipKey> = entries
-        .iter()
-        .filter_map(|entry| {
-            let property = KeyProperty::from_name(entry.get("property")?.as_str()?)?;
-            let at = number(entry.get("at"), -1.0);
-            let value = number(entry.get("value"), f64::NAN);
-            (0.0..=1.0)
-                .contains(&at)
-                .then_some(ClipKey {
-                    property,
-                    at,
-                    value,
-                    ease: read_ease(entry.get("ease")),
-                })
-                .filter(|key| key.value.is_finite())
-        })
-        .collect();
-    keys.sort_by(|a, b| {
-        (a.property as u8)
-            .cmp(&(b.property as u8))
-            .then_with(|| a.at.total_cmp(&b.at))
-    });
-    keys
-}
-
-/// A `video` block - the top-level one, or a timeline's own - falling back
-/// to `fallback` a field at a time. A block naming a zero dimension or rate
-/// gets the fallback for that field rather than the zero: a document that
-/// has been hand-edited into nonsense should still open at a size that is a
-/// size.
-fn read_video(value: Option<&Value>, fallback: VideoSettings) -> VideoSettings {
-    let positive_u32 = |key: &str, fallback: u32| {
-        value
-            .and_then(|block| block.get(key))
-            .and_then(Value::as_u64)
-            .filter(|n| *n > 0)
-            .and_then(|n| u32::try_from(n).ok())
-            .unwrap_or(fallback)
-    };
-    let positive_i64 = |key: &str, fallback: i64| {
-        value
-            .and_then(|block| block.get(key))
-            .and_then(Value::as_i64)
-            .filter(|n| *n > 0)
-            .unwrap_or(fallback)
-    };
-    VideoSettings {
-        width: positive_u32("width", fallback.width),
-        height: positive_u32("height", fallback.height),
-        rate_num: positive_i64("rateNum", fallback.rate_num),
-        rate_den: positive_i64("rateDen", fallback.rate_den),
-    }
-}
-
-/// A key's easing, in either spelling.
-///
-/// Documents written before the curve editor name one of four shapes;
-/// documents written since carry the four control-point numbers. Both are
-/// read, and anything else is a straight line - the reader's standing rule
-/// is that a hand-edited file degrades to something openable.
-fn read_ease(value: Option<&Value>) -> KeyEase {
-    match value {
-        Some(Value::String(name)) => KeyEase::from_name(name),
-        Some(Value::Array(points)) if points.len() == 4 => KeyEase([
-            number(points.first(), 0.0),
-            number(points.get(1), 0.0),
-            number(points.get(2), 1.0),
-            number(points.get(3), 1.0),
-        ])
-        .sane(),
-        _ => KeyEase::LINEAR,
-    }
-}
-
-/// A named animation on a slot, or None when the entry says nothing usable.
-fn read_animation(value: Option<&Value>) -> Option<ClipAnimation> {
-    let value = value?;
-    let preset = value.get("preset")?.as_str()?.trim().to_owned();
-    if preset.is_empty() {
-        return None;
-    }
-    Some(ClipAnimation {
-        preset,
-        duration: number(value.get("duration"), 0.5).max(0.0),
-    })
 }
