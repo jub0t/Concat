@@ -22,15 +22,27 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
 
-use crate::commands::{MAX_STRETCH, MIN_STRETCH};
+use crate::commands::{
+    MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_CLIP_DURATION, MIN_SCALE, MIN_SPEED,
+    MIN_STRETCH, wrap_rotation,
+};
 use crate::model::{
     AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout,
     KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
     TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
-/// Bumped only when a change cannot be absorbed by defaulting.
-const DOCUMENT_VERSION: u64 = 1;
+/// Bumped only when a change cannot be absorbed by defaulting. Read back
+/// on load: a document from a later version is refused whole rather than
+/// read in part and then saved over. Add a migration step here when it
+/// moves.
+pub const DOCUMENT_VERSION: u64 = 1;
+
+/// The version a document says it is. Documents from before the field
+/// existed are version 1: that is the version their shape was given.
+pub fn document_version(document: &Value) -> u64 {
+    document.get("version").and_then(Value::as_u64).unwrap_or(1)
+}
 
 fn text(value: Option<&Value>, fallback: &str) -> String {
     value.and_then(Value::as_str).unwrap_or(fallback).to_owned()
@@ -244,28 +256,31 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 name: text(entry.get("name"), "clip"),
                 kind,
                 start: number(entry.get("start"), 0.0).max(0.0),
-                duration: number(entry.get("duration"), 1.0).max(0.01),
+                // The same floors and ceilings every command holds, so a
+                // hand-edited or older file cannot carry a value no edit
+                // could produce.
+                duration: number(entry.get("duration"), 1.0).max(MIN_CLIP_DURATION),
                 source_start: number(entry.get("sourceStart"), 0.0).max(0.0),
                 volume: number(entry.get("volume"), 1.0).max(0.0),
                 fade_in: number(entry.get("fadeIn"), 0.0).max(0.0),
                 fade_out: number(entry.get("fadeOut"), 0.0).max(0.0),
-                scale: number(entry.get("scale"), 1.0).max(0.05),
-                offset_x: number(entry.get("offsetX"), 0.0),
-                offset_y: number(entry.get("offsetY"), 0.0),
-                rotation: number(entry.get("rotation"), 0.0),
+                scale: number(entry.get("scale"), 1.0).clamp(MIN_SCALE, MAX_SCALE),
+                offset_x: number(entry.get("offsetX"), 0.0).clamp(-MAX_OFFSET, MAX_OFFSET),
+                offset_y: number(entry.get("offsetY"), 0.0).clamp(-MAX_OFFSET, MAX_OFFSET),
+                rotation: wrap_rotation(number(entry.get("rotation"), 0.0)),
                 stretch_x: number(entry.get("stretchX"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
                 stretch_y: number(entry.get("stretchY"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
                 // Clamped: a hand-edited 2 would export differently from how
                 // the preview clamps it on screen.
                 opacity: number(entry.get("opacity"), 1.0).clamp(0.0, 1.0),
-                speed: number(entry.get("speed"), 1.0).clamp(0.0625, 16.0),
+                speed: number(entry.get("speed"), 1.0).clamp(MIN_SPEED, MAX_SPEED),
                 speed_curve: entry.get("speedCurve").and_then(|value| {
                     let points: Vec<SpeedPoint> = value
                         .as_array()?
                         .iter()
                         .map(|point| SpeedPoint {
                             at: number(point.get("at"), -1.0),
-                            speed: number(point.get("speed"), 1.0),
+                            speed: number(point.get("speed"), 1.0).clamp(MIN_SPEED, MAX_SPEED),
                         })
                         .filter(|point| (0.0..=1.0).contains(&point.at))
                         .collect();
@@ -318,7 +333,7 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
 /// Rebuilds a project from a document. Returns None only when there is
 /// nothing recognisable to load at all.
 pub fn from_document(document: &Value) -> Option<Project> {
-    if !document.is_object() {
+    if !document.is_object() || document_version(document) > DOCUMENT_VERSION {
         return None;
     }
     let media = read_media(document.get("media"));

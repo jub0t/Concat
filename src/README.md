@@ -156,7 +156,7 @@ same JSON, with the token as `authorization: Bearer ...` metadata.
 
 ## Reading this codebase cold
 
-1. [`../ARCHITECTURE.md`](../ARCHITECTURE.md) - the map of the whole system. Read it first.
+1. The layout table and dependency arrows above - the map of the whole system.
 2. `crates/*/src/lib.rs` - every crate opens with a `//!` block saying what it is for.
 3. `cargo doc --open` - the generated API map of the whole engine.
 

@@ -42,8 +42,8 @@ Slint UI - is one Cargo workspace under `src/`.
 | `src/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
 | `test/` | Media and analysis fixtures |
 
-[`ARCHITECTURE.md`](ARCHITECTURE.md) explains how these fit together and where
-the sharp edges are. Read it before touching the engine.
+[`src/README.md`](src/README.md) explains how the crates fit together and
+where the sharp edges are. Read it before touching the engine.
 
 ## Checks
 

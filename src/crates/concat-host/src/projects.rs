@@ -179,8 +179,16 @@ pub fn save(path: &str, document: &serde_json::Value) -> Result<(), String> {
     let encoded = serde_json::to_vec_pretty(document)
         .map_err(|error| format!("could not encode the project: {error}"))?;
 
-    std::fs::write(&temporary, encoded)
+    // Written, then flushed to the disk, then renamed: a rename is only
+    // atomic over bytes that have reached the platter. Without the sync a
+    // power cut after the rename can leave a zero-length manifest.
+    let mut file = std::fs::File::create(&temporary)
         .map_err(|error| format!("could not write {}: {error}", temporary.display()))?;
+    std::io::Write::write_all(&mut file, &encoded)
+        .map_err(|error| format!("could not write {}: {error}", temporary.display()))?;
+    file.sync_all()
+        .map_err(|error| format!("could not flush {}: {error}", temporary.display()))?;
+    drop(file);
 
     std::fs::rename(&temporary, &manifest)
         .map_err(|error| format!("could not replace {}: {error}", manifest.display()))

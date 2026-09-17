@@ -29,7 +29,7 @@ pub mod model;
 pub mod speed;
 
 pub use commands::{Command, CommandError, Outcome, why_not_merge};
-pub use doc::{DocumentSettings, from_document, to_document};
+pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::Editor;
 pub use model::Project;
 
@@ -188,8 +188,9 @@ mod tests {
     }
 
     /// A freeze cuts the clip the way a split does, so a reversed or curved
-    /// clip has to come out of it the way a split leaves one: both pieces at
-    /// the constant mean, forwards, meeting at the frozen source time.
+    /// clip has to come out of it the way a split leaves one: a curve goes
+    /// to its constant mean, a reverse is kept, and the pieces meet at the
+    /// frozen source time either way.
     #[test]
     fn freeze_frame_on_a_reversed_or_curved_clip_keeps_the_pieces_continuous() {
         for (reverse, curve) in [
@@ -257,15 +258,27 @@ mod tests {
                 .expect("tail");
             for piece in [head, tail] {
                 assert!(
-                    !piece.reverse && piece.speed_curve.is_none(),
-                    "reverse {reverse}, curve {curve:?}: a piece kept a map its in-point was not computed for"
+                    piece.speed_curve.is_none(),
+                    "reverse {reverse}, curve {curve:?}: a piece kept a curve its in-point was not computed for"
+                );
+                assert_eq!(piece.reverse, reverse, "a cut keeps the direction");
+            }
+            if reverse {
+                // Backwards, the tail shows the early source and the head
+                // picks up where the tail's span ends.
+                assert_eq!(
+                    tail.source_start + tail.duration * tail.speed,
+                    head.source_start,
+                    "the head shows what comes after the tail's span"
+                );
+                assert_eq!(tail.source_start, 0.0, "the tail keeps the in-point");
+            } else {
+                assert_eq!(
+                    head.source_start + head.duration * head.speed,
+                    tail.source_start,
+                    "curve {curve:?}: the tail picks up where the head ends"
                 );
             }
-            assert_eq!(
-                head.source_start + head.duration * head.speed,
-                tail.source_start,
-                "reverse {reverse}, curve {curve:?}: the tail picks up where the head ends"
-            );
         }
     }
 
@@ -293,6 +306,238 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].duration, 10.0);
         assert_eq!(clips[0].id, clip_id, "the first piece keeps its identity");
+    }
+
+    #[test]
+    fn a_reversed_clip_splits_into_mirrored_halves_and_merges_back() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    reverse: Some(true),
+                    ..Default::default()
+                },
+            })
+            .expect("reverses");
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        let clips = &editor.project().active().clips;
+        assert_eq!(clips.len(), 2);
+        let (head, tail) = (&clips[0], &clips[1]);
+        assert!(
+            head.reverse && tail.reverse,
+            "both halves still play backwards"
+        );
+        // The whole showed source 10→0. The head's four seconds show 10→6,
+        // so its span is [6, 10); the tail's six show 6→0, span [0, 6).
+        assert_eq!(head.duration, 4.0);
+        assert_eq!(head.source_start, 6.0);
+        assert_eq!(tail.duration, 6.0);
+        assert_eq!(tail.source_start, 0.0);
+
+        let ids: Vec<String> = clips.iter().map(|clip| clip.id.clone()).collect();
+        editor
+            .apply(Command::MergeClips { clip_ids: ids })
+            .expect("merges");
+        let clip = &editor.project().active().clips[0];
+        assert_eq!((clip.duration, clip.source_start), (10.0, 0.0));
+        assert!(clip.reverse);
+    }
+
+    #[test]
+    fn a_head_trim_on_a_reversed_clip_keeps_the_in_point() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    reverse: Some(true),
+                    ..Default::default()
+                },
+            })
+            .expect("reverses");
+        editor
+            .apply(Command::TrimClip {
+                clip_id: clip_id.clone(),
+                edge: TrimEdge::Start,
+                delta: 3.0,
+            })
+            .expect("trims");
+        let clip = &editor.project().active().clips[0];
+        // The head showed source 10; three seconds in it shows 7, and that
+        // is what the trimmed clip now opens on: span [0, 7), in-point 0.
+        assert_eq!(
+            (clip.start, clip.duration, clip.source_start),
+            (3.0, 7.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_head_trim_cannot_reach_before_the_source_begins() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::MoveClips {
+                moves: vec![crate::commands::ClipMove {
+                    clip_id: clip_id.clone(),
+                    start: 5.0,
+                    track_id: editor.project().active().clips[0].track_id.clone(),
+                }],
+            })
+            .expect("moves");
+        // Pulling the head four seconds left would want source -4: the trim
+        // stops at the source's start, and the pixels do not slide.
+        editor
+            .apply(Command::TrimClip {
+                clip_id: clip_id.clone(),
+                edge: TrimEdge::Start,
+                delta: -4.0,
+            })
+            .expect("trims");
+        let clip = &editor.project().active().clips[0];
+        assert_eq!(
+            (clip.start, clip.duration, clip.source_start),
+            (5.0, 10.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_video_whose_detached_sound_was_deleted_can_be_unmuted() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::DetachAudio {
+                clip_id: clip_id.clone(),
+            })
+            .expect("detaches");
+        let sound: Vec<String> = editor
+            .project()
+            .active()
+            .clips
+            .iter()
+            .filter(|clip| clip.id != clip_id)
+            .map(|clip| clip.id.clone())
+            .collect();
+        assert_eq!(sound.len(), 1);
+        editor
+            .apply(Command::RemoveClips { clip_ids: sound })
+            .expect("removes");
+        assert_eq!(
+            editor
+                .project()
+                .active()
+                .clip(&clip_id)
+                .expect("video")
+                .muted,
+            Some(true)
+        );
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    muted: Some(false),
+                    ..Default::default()
+                },
+            })
+            .expect("unmutes");
+        assert_eq!(
+            editor
+                .project()
+                .active()
+                .clip(&clip_id)
+                .expect("video")
+                .muted,
+            None,
+            "unmuted is the absent value"
+        );
+    }
+
+    #[test]
+    fn a_command_carrying_nan_is_refused_whole() {
+        let (mut editor, _, clip_id) = fixture();
+        let before = editor.project().clone();
+        for command in [
+            Command::SetClipSpeed {
+                clip_id: clip_id.clone(),
+                speed: f64::NAN,
+            },
+            Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: f64::NAN,
+            },
+            Command::SetClipTransform {
+                clip_id: clip_id.clone(),
+                scale: None,
+                offset_x: Some(f64::INFINITY),
+                offset_y: None,
+                rotation: None,
+                stretch_x: None,
+                stretch_y: None,
+            },
+            Command::Batch {
+                commands: vec![Command::TrimClip {
+                    clip_id: clip_id.clone(),
+                    edge: TrimEdge::End,
+                    delta: f64::NAN,
+                }],
+            },
+        ] {
+            assert_eq!(
+                editor.apply(command).expect_err("refused"),
+                crate::CommandError::NotANumber
+            );
+        }
+        assert_eq!(editor.project(), &before, "nothing changed");
+    }
+
+    #[test]
+    fn a_document_from_a_newer_build_is_refused() {
+        let (editor, _, _) = fixture();
+        let mut document = editor.to_document(&settings());
+        document["version"] = serde_json::json!(crate::DOCUMENT_VERSION + 1);
+        assert!(Editor::from_document(&document).is_none());
+        assert_eq!(
+            crate::document_version(&document),
+            crate::DOCUMENT_VERSION + 1
+        );
+        assert_eq!(crate::document_version(&serde_json::json!({})), 1);
+    }
+
+    #[test]
+    fn a_loaded_document_holds_the_same_ranges_every_command_does() {
+        let (editor, _, _) = fixture();
+        let mut document = editor.to_document(&settings());
+        let clip = &mut document["timelines"][0]["clips"][0];
+        clip["duration"] = serde_json::json!(0.001);
+        clip["scale"] = serde_json::json!(50.0);
+        clip["offsetX"] = serde_json::json!(-9.0);
+        clip["rotation"] = serde_json::json!(540.0);
+        clip["speed"] = serde_json::json!(100.0);
+        let loaded = Editor::from_document(&document).expect("loads");
+        let clip = &loaded.project().active().clips[0];
+        assert_eq!(clip.duration, 1.0 / 60.0);
+        assert_eq!(clip.scale, 8.0);
+        assert_eq!(clip.offset_x, -3.0);
+        assert_eq!(clip.rotation, 180.0);
+        assert_eq!(clip.speed, 16.0);
+    }
+
+    #[test]
+    fn a_renamed_timeline_does_not_count_towards_the_next_number() {
+        let (mut editor, _, _) = fixture();
+        editor.apply(Command::AddTimeline).expect("adds");
+        let second = editor.project().timelines[1].id.clone();
+        editor
+            .apply(Command::RenameTimeline {
+                timeline_id: second,
+                name: "Timeline 2 v10".to_owned(),
+            })
+            .expect("renames");
+        editor.apply(Command::AddTimeline).expect("adds");
+        assert_eq!(editor.project().timelines[2].name, "Timeline 2");
     }
 
     #[test]
@@ -1793,7 +2038,7 @@ mod tests {
         let editor = Editor::from_document(&document).expect("loads");
         let clip = &editor.project().active().clips[0];
         assert_eq!(clip.start, 0.0);
-        assert_eq!(clip.duration, 0.01);
+        assert_eq!(clip.duration, 1.0 / 60.0, "the floor every command holds");
         assert_eq!(clip.source_start, 0.0);
         assert_eq!(clip.volume, 0.0);
         assert_eq!(clip.opacity, 1.0);

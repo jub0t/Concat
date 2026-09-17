@@ -80,6 +80,13 @@ impl Session {
                 None if projects::is_settings_only(&document) => {
                     Editor::with_video(settings.video())
                 }
+                None if concat_project::document_version(&document)
+                    > concat_project::DOCUMENT_VERSION =>
+                {
+                    return Err(format!(
+                        "{path} was saved by a newer Concat than this one: update to open it"
+                    ));
+                }
                 None => {
                     return Err(format!("{path} holds a document this build cannot read"));
                 }

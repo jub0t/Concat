@@ -25,19 +25,19 @@ const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
-const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
+pub(crate) const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
 /// Default hold for a CapCut-style freeze when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
-const MIN_SPEED: f64 = 0.0625;
-const MAX_SPEED: f64 = 16.0;
-const MIN_SCALE: f64 = 0.05;
-const MAX_SCALE: f64 = 8.0;
+pub(crate) const MIN_SPEED: f64 = 0.0625;
+pub(crate) const MAX_SPEED: f64 = 16.0;
+pub(crate) const MIN_SCALE: f64 = 0.05;
+pub(crate) const MAX_SCALE: f64 = 8.0;
 /// How far a picture may be pulled along one axis: a tenth to ten times
 /// its fitted extent, which covers every squash and every banner.
 pub(crate) const MIN_STRETCH: f64 = 0.1;
 pub(crate) const MAX_STRETCH: f64 = 10.0;
-const MAX_OFFSET: f64 = 3.0;
+pub(crate) const MAX_OFFSET: f64 = 3.0;
 /// How far apart two clips may sit and still count as touching, in seconds.
 const JOIN_EPSILON: f64 = 1e-6;
 
@@ -97,6 +97,12 @@ pub struct ClipPatch {
     pub opacity: Option<f64>,
     /// New pitch-preservation setting, taken as sent.
     pub preserve_pitch: Option<bool>,
+    /// Whether the clip's own sound is silenced: true mutes it, false lets
+    /// it play again. A detach sets this on the video it took the sound
+    /// from, so this is also how a video whose detached sound was later
+    /// deleted gets its voice back.
+    #[serde(default)]
+    pub muted: Option<bool>,
     /// Play backwards.
     #[serde(default)]
     pub reverse: Option<bool>,
@@ -665,6 +671,10 @@ pub enum CommandError {
     /// [`Command::RemoveTimeline`] would have deleted the last timeline.
     #[error("A project needs at least one timeline.")]
     LastTimeline,
+    /// A number in the command is NaN or infinite. No edit means one, and
+    /// one stored would poison every duration and key that touched it.
+    #[error("A number in that edit is not finite.")]
+    NotANumber,
 }
 
 /// Mints ids. Owned by the editor so restored projects advance it past every
@@ -798,15 +808,137 @@ fn first_line(content: &str) -> String {
 }
 
 /// "Track 5" from the highest number already in use, not from the count.
+/// Only names of the exact shape `"{name} N"` count: a renamed "Timeline 2
+/// v10" is somebody's own name, not a number in the sequence.
 fn next_numbered(name: &str, existing: impl Iterator<Item = String>) -> String {
     let highest = existing
         .filter_map(|candidate| {
-            let digits: String = candidate.chars().filter(char::is_ascii_digit).collect();
-            digits.parse::<u64>().ok()
+            candidate
+                .strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix(' '))
+                .and_then(|digits| digits.parse::<u64>().ok())
         })
         .max()
         .unwrap_or(0);
     format!("{name} {}", highest + 1)
+}
+
+impl Command {
+    /// True when any number in the command is NaN or infinite. JSON cannot
+    /// spell one, but a caller in Rust can, and `NaN.clamp()` is NaN: one
+    /// stored would poison every duration and key it touched, and the
+    /// document reader would only repair it on the next load.
+    pub fn has_non_finite(&self) -> bool {
+        fn bad(values: impl IntoIterator<Item = f64>) -> bool {
+            values.into_iter().any(|value| !value.is_finite())
+        }
+        fn bad_stroke(stroke: &Stroke) -> bool {
+            bad([stroke.size]) || bad(stroke.at) || stroke.points.iter().any(|point| bad(*point))
+        }
+        fn bad_chain(chain: &[AppliedFilter]) -> bool {
+            chain.iter().any(|entry| {
+                bad(entry.params.values().copied())
+                    || entry
+                        .keys
+                        .values()
+                        .flatten()
+                        .any(|key| bad([key.at, key.value]) || bad(key.ease.0))
+            })
+        }
+        match self {
+            Command::Batch { commands } => commands.iter().any(Command::has_non_finite),
+            Command::AddMedia { item } | Command::FillSlot { item, .. } => {
+                bad(item.duration) || bad(item.frame_rate)
+            }
+            Command::AddClip { start, .. } | Command::AddClipAtFirstFree { start, .. } => {
+                bad([*start])
+            }
+            Command::AddTextClip {
+                start,
+                duration,
+                offset_y,
+                ..
+            } => bad([*start]) || bad(*duration) || bad(*offset_y),
+            Command::AddLayerClip {
+                start, duration, ..
+            } => bad([*start]) || bad(*duration),
+            Command::SetClipSpeedCurve { curve, .. } => bad(curve
+                .iter()
+                .flatten()
+                .flat_map(|point| [point.at, point.speed])),
+            Command::SetClipAnimation { animation, .. } => {
+                bad(animation.iter().map(|animation| animation.duration))
+            }
+            Command::SetClipKey {
+                at, value, ease, ..
+            }
+            | Command::SetEffectKey {
+                at, value, ease, ..
+            } => bad([*at, *value]) || bad(ease.0),
+            Command::ClearClipKey { at, .. } | Command::ClearEffectKey { at, .. } => bad([*at]),
+            Command::SetClipCutout { cutout, .. } => cutout.as_ref().is_some_and(|cutout| {
+                bad([cutout.feather]) || cutout.strokes.iter().any(bad_stroke)
+            }),
+            Command::AddCutoutStroke { stroke, .. } => bad_stroke(stroke),
+            Command::MoveClips { moves } => bad(moves.iter().map(|wanted| wanted.start)),
+            Command::TrimClip { delta, .. } => bad([*delta]),
+            Command::SplitClips { time, .. } => bad([*time]),
+            Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
+            Command::UpdateClip { patch, .. } => {
+                bad(patch.volume)
+                    || bad(patch.fade_in)
+                    || bad(patch.fade_out)
+                    || bad(patch.opacity)
+                    || patch
+                        .crop
+                        .iter()
+                        .flatten()
+                        .any(|crop| bad([crop.left, crop.top, crop.right, crop.bottom]))
+                    || patch.filters.as_deref().is_some_and(bad_chain)
+                    || patch.video_effects.as_deref().is_some_and(bad_chain)
+            }
+            Command::SetClipSpeed { speed, .. } => bad([*speed]),
+            Command::SetClipTransform {
+                scale,
+                offset_x,
+                offset_y,
+                rotation,
+                stretch_x,
+                stretch_y,
+                ..
+            } => bad([scale, offset_x, offset_y, rotation, stretch_x, stretch_y]
+                .into_iter()
+                .flatten()
+                .copied()),
+            _ => false,
+        }
+    }
+}
+
+/// A rotation kept in (-180, 180] so a full drag never accumulates turns.
+pub(crate) fn wrap_rotation(degrees: f64) -> f64 {
+    let wrapped = ((degrees % 360.0) + 540.0) % 360.0 - 180.0;
+    if wrapped == -180.0 { 180.0 } else { wrapped }
+}
+
+/// Where each piece of a clip cut at `offset` begins in the source.
+/// Forwards, the head keeps its in-point and the tail starts `offset ×
+/// speed` later. Backwards, the head shows the late end of the span, so
+/// the tail keeps the in-point and the head's moves up past what the tail
+/// now shows. Either way the two pieces together show exactly what the
+/// whole did.
+fn split_source(
+    source_start: f64,
+    duration: f64,
+    speed: f64,
+    offset: f64,
+    reverse: bool,
+) -> (f64, f64) {
+    if reverse {
+        (source_start + (duration - offset) * speed, source_start)
+    } else {
+        (source_start, source_start + offset * speed)
+    }
 }
 
 /// Why these clips cannot be merged, or None if they can. A sentence, because
@@ -828,6 +960,21 @@ pub fn why_not_merge(timeline: &Timeline, clip_ids: &[String]) -> Option<String>
     if clips.iter().any(|clip| clip.speed != clips[0].speed) {
         return Some("Merged clips must play at the same speed.".to_owned());
     }
+    if clips.iter().any(|clip| clip.kind != clips[0].kind) {
+        return Some("Merged clips must be the same kind.".to_owned());
+    }
+    if clips.iter().any(|clip| clip.reverse != clips[0].reverse) {
+        return Some("Merged clips must play the same way round.".to_owned());
+    }
+    if clips.iter().any(|clip| clip.speed_curve.is_some()) {
+        return Some("A clip with a speed curve cannot be merged.".to_owned());
+    }
+    if clips
+        .iter()
+        .any(|clip| clip.audio_stream != clips[0].audio_stream)
+    {
+        return Some("Merged clips must play the same audio track.".to_owned());
+    }
 
     let mut ordered = clips.clone();
     ordered.sort_by(|left, right| left.start.total_cmp(&right.start));
@@ -836,10 +983,15 @@ pub fn why_not_merge(timeline: &Timeline, clip_ids: &[String]) -> Option<String>
         if (current.start - (previous.start + previous.duration)).abs() > JOIN_EPSILON {
             return Some("Merged clips must touch, with no gap or overlap.".to_owned());
         }
-        if (current.source_start - (previous.source_start + previous.duration * previous.speed))
-            .abs()
-            > JOIN_EPSILON
-        {
+        // Forwards the next piece starts where the last one's source ended;
+        // backwards it is the other way round, the earlier piece showing the
+        // later source.
+        let continuous = if previous.reverse {
+            previous.source_start - (current.source_start + current.duration * current.speed)
+        } else {
+            current.source_start - (previous.source_start + previous.duration * previous.speed)
+        };
+        if continuous.abs() > JOIN_EPSILON {
             return Some("These pieces are no longer in their original order.".to_owned());
         }
     }
@@ -868,6 +1020,9 @@ pub fn apply(
     mint: &mut IdMint,
     command: Command,
 ) -> Result<Outcome, CommandError> {
+    if command.has_non_finite() {
+        return Err(CommandError::NotANumber);
+    }
     match command {
         Command::AddMedia { item } => {
             if project
@@ -1228,12 +1383,23 @@ pub fn apply(
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
-                    // under the remaining part of the clip do not slide.
-                    let shift = delta.min(clip.duration - MIN_CLIP_DURATION);
+                    // under the remaining part of the clip do not slide. A
+                    // reversed clip shows the far end of its span at the
+                    // head, so its in-point is the span's other end and stays
+                    // put: only the span changes.
+                    let mut shift = delta.min(clip.duration - MIN_CLIP_DURATION);
+                    if !clip.reverse {
+                        // The head cannot reach before the source begins.
+                        shift = shift.max(-clip.source_start / clip.speed);
+                    }
                     let start = (clip.start + shift).max(0.0);
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
-                    let source_start = (clip.source_start + moved * clip.speed).max(0.0);
+                    let source_start = if clip.reverse {
+                        clip.source_start
+                    } else {
+                        (clip.source_start + moved * clip.speed).max(0.0)
+                    };
                     // Bitwise so no assignment is short-circuited away.
                     assign(&mut clip.start, start)
                         | assign(&mut clip.duration, duration)
@@ -1254,18 +1420,17 @@ pub fn apply(
                     continue;
                 };
                 {
-                    // A curve or a reverse does not survive a cut in halves:
-                    // the map from here to the source is not affine, so both
-                    // halves go to the constant mean, which is what they
-                    // averaged.
+                    // A curve does not survive a cut in halves: the map from
+                    // here to the source is not affine, so both halves go to
+                    // the constant mean, which is what they averaged. A
+                    // reverse is affine and survives: see `split_source`.
                     let clip = &mut timeline.clips[index];
                     let offset = time - clip.start;
                     if offset > MIN_CLIP_DURATION
                         && offset < clip.duration - MIN_CLIP_DURATION
-                        && (clip.speed_curve.is_some() || clip.reverse)
+                        && clip.speed_curve.is_some()
                     {
                         clip.speed_curve = None;
-                        clip.reverse = false;
                     }
                 }
                 let clip = &timeline.clips[index];
@@ -1273,16 +1438,24 @@ pub fn apply(
                 if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
                     continue;
                 }
+                let (head_source, tail_source) = split_source(
+                    clip.source_start,
+                    clip.duration,
+                    clip.speed,
+                    offset,
+                    clip.reverse,
+                );
                 let mut tail = clip.clone();
                 tail.id = mint.next("c");
                 tail.start = clip.start + offset;
                 tail.duration = clip.duration - offset;
-                tail.source_start = clip.source_start + offset * clip.speed;
+                tail.source_start = tail_source;
                 // The transition belongs to the cut at the original clip's
                 // start, which the head keeps.
                 tail.transition_in = None;
                 created = Some(tail.id.clone());
                 timeline.clips[index].duration = offset;
+                timeline.clips[index].source_start = head_source;
                 timeline.clips.insert(index + 1, tail);
             }
             // A split always mints the tail, so "minted anything" and
@@ -1364,22 +1537,22 @@ pub fn apply(
                 return Ok(Outcome::default());
             };
             // The cut is a split's, so it leaves the pieces as a split does:
-            // under a curve or a reverse the map is not affine, and the
-            // in-point below assumes it is, so both pieces go to the constant
-            // mean they averaged.
-            {
-                let clip = &mut timeline.clips[index];
-                clip.speed_curve = None;
-                clip.reverse = false;
-            }
+            // under a curve the map is not affine, and the in-point below
+            // assumes it is, so both pieces go to the constant mean they
+            // averaged. A reverse is affine and is kept; see `split_source`.
+            timeline.clips[index].speed_curve = None;
+            let reverse = timeline.clips[index].reverse;
             let offset = time - start;
+            let (head_source, tail_source) =
+                split_source(source_start, clip_duration, speed, offset, reverse);
             let mut tail = timeline.clips[index].clone();
             tail.id = mint.next("c");
             tail.start = time;
             tail.duration = clip_duration - offset;
-            tail.source_start = source_start + offset * speed;
+            tail.source_start = tail_source;
             tail.transition_in = None;
             timeline.clips[index].duration = offset;
+            timeline.clips[index].source_start = head_source;
             timeline.clips.insert(index + 1, tail);
 
             // Ripple every later placement on this track (including the new
@@ -1445,6 +1618,11 @@ pub fn apply(
                 .clip_mut(&first.id)
                 .expect("the first piece survives the retain");
             survivor.duration = merged_duration;
+            if first.reverse {
+                // The last piece shows the earliest source, and the merged
+                // clip's in-point is that.
+                survivor.source_start = last.source_start;
+            }
             // A validated merge always absorbs at least one piece.
             Ok(Outcome {
                 created_id: Some(first.id),
@@ -1489,6 +1667,11 @@ pub fn apply(
             }
             if let Some(preserve) = patch.preserve_pitch {
                 applied |= assign(&mut clip.preserve_pitch, preserve);
+            }
+            if let Some(muted) = patch.muted {
+                // Unmuted is the absent value, so a document never carries
+                // a `muted: false` that means the same as nothing.
+                applied |= assign(&mut clip.muted, muted.then_some(true));
             }
             if let Some(reverse) = patch.reverse {
                 applied |= assign(&mut clip.reverse, reverse);
@@ -1791,10 +1974,7 @@ pub fn apply(
                 applied |= assign(&mut clip.offset_y, offset.clamp(-MAX_OFFSET, MAX_OFFSET));
             }
             if let Some(rotation) = rotation {
-                // Kept in (-180, 180] so a full drag never accumulates turns.
-                let wrapped = ((rotation % 360.0) + 540.0) % 360.0 - 180.0;
-                let next = if wrapped == -180.0 { 180.0 } else { wrapped };
-                applied |= assign(&mut clip.rotation, next);
+                applied |= assign(&mut clip.rotation, wrap_rotation(rotation));
             }
             if let Some(stretch) = stretch_x {
                 applied |= assign(&mut clip.stretch_x, stretch.clamp(MIN_STRETCH, MAX_STRETCH));
