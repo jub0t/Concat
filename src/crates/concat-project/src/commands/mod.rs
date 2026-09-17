@@ -115,8 +115,13 @@ pub struct ClipPatch {
     /// The blend mode's name; empty is normal.
     #[serde(default)]
     pub blend: Option<String>,
-    /// The crop; `Some(None)` takes it off.
-    #[serde(default)]
+    /// The crop, same three-way wire semantics as `transition_in`: absent
+    /// leaves it alone, null takes it off, a value replaces it.
+    #[serde(
+        default,
+        with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub crop: Option<Option<Crop>>,
     /// Wholesale replacement of the audio filter chain - the UI sends the
     /// full list, not a diff.
