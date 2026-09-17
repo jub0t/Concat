@@ -302,11 +302,12 @@ impl Decoder {
     /// Opens `path` for decoding.
     pub fn open(path: impl AsRef<Path>, options: &DecodeOptions) -> Result<Self> {
         ffi::init();
-        // The same slot-escape rule the audio graph enforces: a chain with
-        // `;` or `[..]` is no longer a filter applied to this clip.
-        if let Some(chain) = &options.filter_chain {
-            crate::audio::validate_chain(chain)?;
-        }
+        // No slot rule on the chain, unlike the audio mix's: this graph is
+        // the clip's own, in to out, and a chain that branches and rejoins
+        // with labels - a bloom is a split, a blur and a screen blend - is
+        // the shape half the catalogue's effects take. Held to the mix's
+        // rule, every one of them failed to open on the CPU renderer. A
+        // chain that is not a graph fails at the parse, with its error.
 
         let path = path.as_ref();
         let input = ffmpeg::format::input(path).map_err(|error| ffi::fail("open", path, error))?;
@@ -780,18 +781,47 @@ mod tests {
         assert!(DecodeOptions::default().filtered("").filter_chain.is_none());
     }
 
+    /// A chain that branches and rejoins with labels is the clip's own
+    /// graph, and opens: the shape a bloom takes. A chain that is not a
+    /// graph is an error at the parse, and never a panic.
     #[test]
-    fn a_chain_that_escapes_its_slot_is_refused_before_anything_opens() {
-        for bad in ["hue=s=0;movie=x", "split[a][b]", "a\nb"] {
-            let result = Decoder::open(
-                "irrelevant.mp4",
-                &DecodeOptions::default().scaled_to(64, 64).filtered(bad),
-            );
-            assert!(
-                matches!(result, Err(Error::InvalidFilterChain { .. })),
-                "{bad:?} should have been refused",
-            );
+    fn a_branching_chain_is_the_clips_own_graph_and_a_broken_one_is_an_error() {
+        use crate::{EncodeOptions, Encoder, FrameSink};
+        let path = std::env::temp_dir().join("concat-decode-chain-test.mp4");
+        let mut encoder = Encoder::create(
+            &path,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                preset: "ultrafast".to_owned(),
+                ..EncodeOptions::default()
+            },
+        )
+        .expect("the linked FFmpeg encodes h264");
+        for _ in 0..4 {
+            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
         }
+        encoder.finish().expect("finishes");
+
+        let bloom = "split[a][b];[b]gblur=sigma=2[c];[a][c]blend=all_mode=screen";
+        let mut decoder = Decoder::open(
+            &path,
+            &DecodeOptions::default().scaled_to(64, 64).filtered(bloom),
+        )
+        .expect("a branching chain opens");
+        let frame = decoder.next_frame().expect("decodes through the graph");
+        assert!(frame.is_some(), "the bloom gives a frame back");
+
+        let mut broken = Decoder::open(
+            &path,
+            &DecodeOptions::default()
+                .scaled_to(64, 64)
+                .filtered("nosuchfilter=1"),
+        )
+        .expect("the file opens; the graph is built on the first frame");
+        assert!(broken.next_frame().is_err(), "a chain that is not a graph");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
