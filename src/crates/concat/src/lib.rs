@@ -598,6 +598,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_tool_changed(on_window!(|state, tool: TimelineTool| {
         state.tool = tool;
     }));
+    editor.on_pan_changed(on_window!(|state, on: bool| {
+        state.pan_mode = on;
+    }));
     editor.on_snap_changed(on_window!(|state, snap: bool| {
         state.snap = snap;
     }));

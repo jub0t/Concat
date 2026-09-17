@@ -230,6 +230,8 @@ export global Editor {
     in-out property <[ClipData]> clips;
     in-out property <TimelineTool> tool;
     in-out property <bool> snap;
+    /// Hand tool: wheel and drag pan time instead of scrolling the stack.
+    in-out property <bool> pan-mode: false;
     in-out property <int> selected-count;
     in-out property <string> merge-blocked-because;
     /// What the selection offers the tray's sound and word tools: one clip
@@ -248,6 +250,7 @@ export global Editor {
     callback tab-added();
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback pan-changed(on: bool);
     callback split();
     callback merge();
     callback delete-selected();

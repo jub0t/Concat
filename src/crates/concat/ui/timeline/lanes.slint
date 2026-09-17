@@ -496,6 +496,8 @@ export component Lanes inherits Rectangle {
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
+    /// Hand tool: wheel and drag pan time instead of scrolling the stack.
+    in property <bool> pan-mode: false;
     /// The zoom: seconds covered by one pixel.
     in property <float> seconds-per-pixel: 0.05;
     in property <length> track-scroll;
@@ -588,6 +590,12 @@ export component Lanes inherits Rectangle {
     // up to here. A sibling would not see it.
     wheel := TouchArea {
         scroll-event(event) => {
+            // Hand tool: any wheel pans time, no modifier needed.
+            if (root.pan-mode) {
+                root.scrolled(Math.max(0, root.scroll-left
+                    - event.delta-y / root.px-per-second));
+                return EventResult.accept;
+            }
             if (event.modifiers.control || event.modifiers.meta) {
                 // Proportional to the gesture rather than a fixed notch per
                 // event. A trackpad sends a stream of small deltas, and a flat
@@ -956,5 +964,27 @@ export component Lanes inherits Rectangle {
                 }
             }
         }
+        // Hand tool: left-drag pans time. Sits at the top of the wheel's
+        // children so it takes the drag before any clip or the band does.
+        if root.pan-mode: pan := TouchArea {
+            mouse-cursor: pointer;
+            property <length> last-x: 0px;
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    && event.button == PointerEventButton.left) {
+                    last-x = self.mouse-x;
+                }
+                if (event.kind == PointerEventKind.move && self.pressed) {
+                    let delta = last-x - self.mouse-x;
+                    root.scrolled(Math.max(0.0, root.scroll-left - delta / root.px-per-second));
+                    last-x = self.mouse-x;
+                }
+                if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    last-x = 0px;
+                }
+            }
+        }
+
     }
 }

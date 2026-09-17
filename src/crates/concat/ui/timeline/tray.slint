@@ -46,6 +46,7 @@ component Divider inherits Rectangle {
 export component TimelineTray inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
+    in property <bool> pan-mode: false;
     in property <int> selected-count;
     /// Empty when the selection can be merged; otherwise why it cannot.
     in property <string> merge-blocked-because;
@@ -58,6 +59,7 @@ export component TimelineTray inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback pan-changed(on: bool);
     callback split();
     callback merge();
     callback delete-selected();
@@ -148,6 +150,16 @@ export component TimelineTray inherits Rectangle {
             font-size: Theme.fs-sm;
             horizontal-alignment: center;
             vertical-alignment: center;
+        }
+
+        Divider { }
+
+        IconButton {
+            glyph: Glyph.hand;
+            label: I18n.t("Pan tool");
+            icon-size: 16px;
+            checked: root.pan-mode;
+            clicked => { root.pan-changed(!root.pan-mode); }
         }
 
         Divider { }

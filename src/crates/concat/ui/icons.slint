@@ -57,6 +57,7 @@ export enum Glyph {
     flip-v,
     keyframe,
     reset,
+    hand,
     /// the title strip's maximise: one square; restore is `copy`, two
     maximize,
     angle,
@@ -441,6 +442,13 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M8 3H5a2 2 0 0 0-2 2v3 M21 8V5a2 2 0 0 0-2-2h-3 M3 16v3a2 2 0 0 0"
             + " 2 2h3 M16 21h3a2 2 0 0 0 2-2v-3";
+    }
+
+    // lucide/hand
+    if root.glyph == Glyph.hand: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M18 11V6a2 2 0 0 0-4 0v5 M14 10V4a2 2 0 0 0-4 0v2"
+            + " M10 10.5V6a2 2 0 0 0-4 0v8 M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15";
     }
 
     // lucide/mouse-pointer-2

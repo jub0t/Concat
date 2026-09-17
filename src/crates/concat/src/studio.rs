@@ -698,6 +698,8 @@ pub struct Studio {
     pub seconds_per_pixel: f32,
     pub tool: TimelineTool,
     pub snap: bool,
+    /// Hand tool: wheel and drag pan time instead of scrolling the stack.
+    pub pan_mode: bool,
     /// 0 Full, 1 Half, 2 Quarter of the output size, for the monitor.
     pub quality: HashMap<String, usize>,
     pub playing: bool,
@@ -1384,6 +1386,7 @@ impl Studio {
             seconds_per_pixel: 0.05,
             tool: TimelineTool::Select,
             snap: true,
+            pan_mode: false,
             quality: HashMap::new(),
             playing: false,
             transport: slint::Timer::default(),
@@ -6086,6 +6089,7 @@ impl Studio {
         editor.set_frame_rate(self.frame_rate());
         editor.set_tool(self.tool);
         editor.set_snap(self.snap);
+        editor.set_pan_mode(self.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
         let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
