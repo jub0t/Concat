@@ -42,6 +42,7 @@ mod platform;
 /// the system's file picker. See `platform::pick_files_async`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub use platform::{FilePicker, install_file_picker};
+mod panes;
 mod prefs;
 mod presets;
 mod studio;
@@ -49,6 +50,8 @@ mod sysinfo;
 
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
+use panes::Msg;
+use panes::export::ExportMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -940,9 +943,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the dialogs ──
     app.on_export_clicked(on_window!(|state| {
-        state.export.open = true;
-        state.export.phase = ExportPhase::Idle;
-        state.export.message.clear();
+        state.handle(Msg::Export(ExportMsg::Open));
     }));
     app.on_open_settings(on_window!(|state| {
         state.refresh_models();
@@ -961,50 +962,43 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
     app.on_export_closed(on_window!(|state| {
-        state.export.open = false;
+        state.handle(Msg::Export(ExportMsg::Close));
     }));
     app.on_settings_closed(on_window!(|state| {
         state.settings.open = false;
     }));
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
-        state.export.name = name.to_string();
+        state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
     }));
     app.on_export_resolution_changed(on_window!(|state, index: i32| {
-        state.export.resolution = (index.max(0) as usize).min(3);
+        state.handle(Msg::Export(ExportMsg::ResolutionChanged(index)));
     }));
     app.on_export_rate_changed(on_window!(|state, index: i32| {
-        state.export.rate = (index.max(0) as usize).min(2);
+        state.handle(Msg::Export(ExportMsg::RateChanged(index)));
     }));
     app.on_export_quality_changed(on_window!(|state, index: i32| {
-        state.export.quality = (index.max(0) as usize).min(2);
+        state.handle(Msg::Export(ExportMsg::QualityChanged(index)));
     }));
     app.on_export_codec_changed(on_window!(|state, index: i32| {
-        state.export.codec = (index.max(0) as usize).min(2);
+        state.handle(Msg::Export(ExportMsg::CodecChanged(index)));
     }));
     app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
-        state.export.ten_bit = on;
+        state.handle(Msg::Export(ExportMsg::TenBitChanged(on)));
     }));
     app.on_export_again(on_window!(|state| {
-        state.export.phase = ExportPhase::Idle;
-        state.export.progress = 0.0;
+        state.handle(Msg::Export(ExportMsg::Again));
     }));
     app.on_export_browse(on_window!(|state| {
-        if let Some(folder) = platform::pick_folder(&i18n::t("Export to"), &state.export.folder) {
-            state.export.folder = folder.to_string_lossy().into_owned();
-        }
+        state.handle(Msg::Export(ExportMsg::Browse));
     }));
     app.on_export_reveal(on_window!(|state| {
-        if !state.export.written.is_empty()
-            && let Err(error) = platform::reveal(&state.export.written)
-        {
-            state.notify(&i18n::tf("Could not show the file: {0}", &[&error]), true);
-        }
+        state.handle(Msg::Export(ExportMsg::Reveal));
     }));
     app.on_export_cancel(on_window!(|state| {
-        state.export_cancel();
+        state.handle(Msg::Export(ExportMsg::Cancel));
     }));
     app.on_export_start(on_window!(|state| {
-        state.export_start();
+        state.handle(Msg::Export(ExportMsg::Start));
     }));
 
     // ── settings ──
@@ -1176,11 +1170,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                                 on_ui(move |studio, _, _| studio.import(paths))
                             });
                         }
-                        "export" => {
-                            state.export.open = true;
-                            state.export.phase = ExportPhase::Idle;
-                            state.export.message.clear();
-                        }
+                        "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
                         "speech" => state.speech_open(),
                         "clear-cache" => state.clear_project_cache(),

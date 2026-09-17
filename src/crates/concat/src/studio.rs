@@ -31,7 +31,6 @@ use std::sync::Arc;
 
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
-use concat_host::export::{self, ExportSpec};
 use concat_host::playback::ClipSpec;
 use concat_host::preview::FrameSpec;
 use concat_host::{
@@ -48,9 +47,7 @@ use slint::{Model, SharedString, VecModel};
 use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
-use crate::format::{
-    bytes, colour_of, eta, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase,
-};
+use crate::format::{colour_of, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase};
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
     image_of, media_art, on_ui, spawn, spawn_art, strip_window, window_art, window_span,
@@ -151,9 +148,9 @@ pub const EXPORT_RATES: [(i64, i64); 3] = [(24, 1), (30, 1), (60, 1)];
 pub const COMPACT_WIDTH: f32 = 860.0;
 /// Megabits per second at 1080p30 for each quality tier, for the size
 /// estimate; and the CRF each tier renders at.
-const EXPORT_TIERS: [f32; 3] = [16.0, 8.0, 4.0];
-const EXPORT_CRF: [u8; 3] = [16, 20, 26];
-const AUDIO_BPS: f32 = 192_000.0;
+pub(crate) const EXPORT_TIERS: [f32; 3] = [16.0, 8.0, 4.0];
+pub(crate) const EXPORT_CRF: [u8; 3] = [16, 20, 26];
+pub(crate) const AUDIO_BPS: f32 = 192_000.0;
 
 /// The frame sizes the launch screen offers, and what each label means.
 pub const RESOLUTIONS: [(&str, u32, u32); 4] = [
@@ -261,51 +258,9 @@ const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 /// A rough speaking rate, for the estimate under the script.
 const CHARS_PER_SECOND: f32 = 14.0;
 
-/// The export sheet's state.
-pub struct ExportState {
-    pub open: bool,
-    pub name: String,
-    pub folder: String,
-    pub resolution: usize,
-    pub rate: usize,
-    pub quality: usize,
-    /// Index into `VideoCodec::ALL`.
-    pub codec: usize,
-    pub ten_bit: bool,
-    pub phase: ExportPhase,
-    pub progress: f32,
-    pub stage: String,
-    pub message: String,
-    /// Where the finished file is, for Reveal.
-    pub written: String,
-    /// When the render started, for a real ETA.
-    started_at: Option<std::time::Instant>,
-}
-
-impl Default for ExportState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            name: "Untitled".into(),
-            folder: home_folder("Movies"),
-            resolution: 2,
-            rate: 1,
-            quality: 1,
-            codec: 0,
-            ten_bit: false,
-            phase: ExportPhase::Idle,
-            progress: 0.0,
-            stage: String::new(),
-            message: String::new(),
-            written: String::new(),
-            started_at: None,
-        }
-    }
-}
-
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
-fn home_folder(name: &str) -> String {
+pub(crate) fn home_folder(name: &str) -> String {
     std::env::var("HOME")
         .map(|home| format!("{home}/{name}"))
         .unwrap_or_default()
@@ -756,7 +711,7 @@ pub struct Studio {
     preview_failed: bool,
 
     // ── the sheets and menus ──
-    pub export: ExportState,
+    pub export: crate::panes::export::ExportPane,
     pub settings: SettingsState,
     pub relink: RelinkState,
     pub transcribers: Vec<ModelState>,
@@ -1435,7 +1390,7 @@ impl Studio {
             preview_busy: false,
             preview_wanted: false,
             preview_failed: false,
-            export: ExportState::default(),
+            export: Default::default(),
             settings: SettingsState::default(),
             relink: RelinkState::default(),
             transcribers: Vec::new(),
@@ -5210,146 +5165,18 @@ impl Studio {
         }
     }
 
-    // ── export ──
-
-    /// The frame the export renders at: the sheet's short side, scaled
-    /// along the project's aspect and rounded to even dimensions, which is
-    /// what the encoder's chroma subsampling needs.
-    pub fn export_size(&self) -> (u32, u32) {
-        let short = EXPORT_SHORT_SIDES[self.export.resolution.min(EXPORT_SHORT_SIDES.len() - 1)];
-        let (project_w, project_h) = self.output_size();
-        let (project_w, project_h) = (project_w.max(1) as f64, project_h.max(1) as f64);
-        let even = |side: f64| ((side / 2.0).round() as u32 * 2).max(2);
-        if project_w >= project_h {
-            (even(short as f64 * project_w / project_h), short)
-        } else {
-            (short, even(short as f64 * project_h / project_w))
-        }
-    }
-
-    pub fn export_size_bytes(&self, tier: usize) -> f32 {
-        let (width, height) = self.export_size();
-        let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
-        let rate = num as f32 / den as f32;
-        let pixels = (width as f32 * height as f32) / (1920.0 * 1080.0);
-        let video = EXPORT_TIERS[tier.min(2)]
-            * 1_000_000.0
-            * pixels
-            * (rate / 30.0)
-            * self.export_codec().size_factor()
-            * if self.export.ten_bit { 1.05 } else { 1.0 };
-        (video + AUDIO_BPS) * self.duration().max(1.0) / 8.0
-    }
-
-    /// The codec the sheet has chosen.
-    pub fn export_codec(&self) -> concat_media::VideoCodec {
-        concat_media::VideoCodec::ALL[self
-            .export
-            .codec
-            .min(concat_media::VideoCodec::ALL.len() - 1)]
-    }
-
-    /// Starts the render on a worker, reporting into the sheet.
-    pub fn export_start(&mut self) {
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
-        if self.timeline().clips.is_empty() {
-            self.export.phase = ExportPhase::Failed;
-            self.export.message = t("There is nothing on the timeline to export");
-            return;
-        }
-        let job = match self.host.exporter.begin() {
-            Ok(job) => job,
-            Err(error) => {
-                self.export.phase = ExportPhase::Failed;
-                self.export.message = error;
-                return;
+    /// Routes one message to its pane and applies it. The pane is taken out
+    /// of the studio for the duration, so its `update` can be handed the
+    /// rest of the window without borrowing itself twice; a pane never
+    /// reads its own slot on the studio.
+    pub fn handle(&mut self, msg: crate::panes::Msg) {
+        match msg {
+            crate::panes::Msg::Export(msg) => {
+                let mut pane = std::mem::take(&mut self.export);
+                pane.update(msg, self);
+                self.export = pane;
             }
-        };
-        let output = format!(
-            "{}/{}.mp4",
-            self.export.folder.trim_end_matches('/'),
-            self.export.name.trim()
-        );
-        let spec = ExportSpec {
-            output: output.clone(),
-            crf: EXPORT_CRF[self.export.quality.min(2)],
-            preset: "veryfast".into(),
-            codec: self.export_codec(),
-            ten_bit: self.export.ten_bit,
-        };
-        let (frame_w, frame_h) = self.output_size();
-        let titles = self
-            .host
-            .titles
-            .clips(session.project(), frame_w, frame_h)
-            .into_iter()
-            .map(|title| title.clip)
-            .collect();
-        let mut request = export::request(session, &spec, titles);
-        let (width, height) = self.export_size();
-        let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
-        request.width = width;
-        request.height = height;
-        request.rate_num = num;
-        request.rate_den = den;
-
-        self.pause();
-        self.export.phase = ExportPhase::Running;
-        self.export.progress = 0.0;
-        self.export.stage = t("Rendering video");
-        self.export.message.clear();
-        self.export.written.clear();
-        self.export.started_at = Some(std::time::Instant::now());
-
-        spawn(
-            move || {
-                let job = job;
-                export::run(&request, job.cancel_flag(), |progress| {
-                    let fraction = if progress.total > 0 {
-                        progress.frame as f32 / progress.total as f32
-                    } else {
-                        0.0
-                    };
-                    let stage = match progress.stage {
-                        "rendering" => t("Rendering video"),
-                        "mixing audio" => t("Mixing audio"),
-                        "muxing" => t("Finalising file"),
-                        other => other.to_owned(),
-                    };
-                    on_ui(move |studio, _, _| {
-                        if studio.export.phase == ExportPhase::Running {
-                            studio.export.progress = fraction.clamp(0.0, 1.0);
-                            studio.export.stage = stage;
-                        }
-                    });
-                })
-            },
-            |studio, _, _, result| match result {
-                Ok(written) => {
-                    studio.export.phase = ExportPhase::Done;
-                    studio.export.progress = 1.0;
-                    studio.export.written = written;
-                    studio.notify(&t("Export finished"), false);
-                }
-                Err(error) => {
-                    if studio.export.phase == ExportPhase::Idle {
-                        // Cancelled: the sheet already went back to idle.
-                        return;
-                    }
-                    studio.export.phase = ExportPhase::Failed;
-                    studio.export.message = error.clone();
-                    studio.notify(&tf("Export failed: {0}", &[&error]), true);
-                }
-            },
-        );
-    }
-
-    pub fn export_cancel(&mut self) {
-        self.host.exporter.cancel();
-        self.export.phase = ExportPhase::Idle;
-        self.export.progress = 0.0;
+        }
     }
 
     // ── speech ──
@@ -6998,7 +6825,7 @@ impl Studio {
         sync(&models.menu, rows);
         editor.set_menu_token(self.menu_token);
 
-        app.set_export(self.export_data());
+        app.set_export(self.export.data(self));
         app.set_settings(SettingsData {
             open: self.settings.open,
             tab: self.settings.tab,
@@ -7130,84 +6957,6 @@ impl Studio {
         } else {
             self.assign_media_rows();
             self.request_media_art();
-        }
-    }
-
-    fn export_data(&self) -> ExportData {
-        let (width, height) = self.export_size();
-        let (num, den) = EXPORT_RATES[self.export.rate.min(2)];
-        let rate = num as f32 / den as f32;
-        let clips = self.timeline().clips.len();
-        let titles = self
-            .timeline()
-            .clips
-            .iter()
-            .filter(|clip| clip.kind == model::ClipKind::Text)
-            .count();
-        ExportData {
-            open: self.export.open,
-            name: self.export.name.as_str().into(),
-            path: format!(
-                "{}/{}.mp4",
-                self.export.folder.trim_end_matches('/'),
-                self.export.name
-            )
-            .into(),
-            format: format!("{width} × {height} · {rate:.2} fps").into(),
-            duration: {
-                let whole = self.duration().max(0.0) as i32;
-                format!("{}:{:02}", whole / 60, whole % 60).into()
-            },
-            contents: if titles > 0 {
-                format!("{clips} clips · {titles} titles")
-            } else {
-                format!("{clips} clips")
-            }
-            .into(),
-            resolution: self.export.resolution as i32,
-            rate: self.export.rate as i32,
-            quality: self.export.quality as i32,
-            codec: self.export.codec as i32,
-            ten_bit: self.export.ten_bit,
-            encoding: {
-                // "HEVC 10-bit · hardware": the standard, the depth when it
-                // is the deeper one, and whether the platform's own encoder
-                // will be doing it.
-                let codec = self.export_codec();
-                let mut words = vec![codec.label().to_owned()];
-                if self.export.ten_bit {
-                    words.push("10-bit".to_owned());
-                }
-                if codec
-                    .encoders(true)
-                    .first()
-                    .is_some_and(|name| name.ends_with("_videotoolbox"))
-                {
-                    words.push(format!("· {}", t("hardware")));
-                }
-                words.join(" ")
-            }
-            .into(),
-            size_high: bytes(self.export_size_bytes(0)).into(),
-            size_balanced: bytes(self.export_size_bytes(1)).into(),
-            size_small: bytes(self.export_size_bytes(2)).into(),
-            phase: self.export.phase,
-            progress: self.export.progress,
-            stage: self.export.stage.as_str().into(),
-            eta: if self.export.phase == ExportPhase::Running && self.export.progress > 0.02 {
-                self.export
-                    .started_at
-                    .map(|started| {
-                        let elapsed = started.elapsed().as_secs_f32();
-                        eta(elapsed / self.export.progress * (1.0 - self.export.progress)).into()
-                    })
-                    .unwrap_or_default()
-            } else {
-                SharedString::new()
-            },
-            message: self.export.message.as_str().into(),
-            done_size: bytes(self.export_size_bytes(self.export.quality)).into(),
-            empty: clips == 0,
         }
     }
 
