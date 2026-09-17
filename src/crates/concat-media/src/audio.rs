@@ -201,13 +201,25 @@ pub fn tempo_stages(speed: f64) -> Vec<f64> {
 }
 
 /// Builds the filtergraph that trims, retimes, shapes, delays and mixes every
-/// clip into one `[out]` stream of exactly `duration` seconds.
+/// clip into one `[out]` stream, padded with silence past the last clip
+/// for as long as it is read. Where it ends is the reader's call, by
+/// sample count: see `mix_to_file`.
 ///
 /// Input `N` is `clips[N].path`, bound to the label `[N:a]`, and every input
 /// must actually contain an audio stream - the graph names `[N:a]` on it
 /// rather than treating silence as a stream. The caller decides membership
 /// by probing; this function decides what the mix means.
-pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
+pub fn mix_graph(clips: &[AudioClip]) -> Result<String> {
+    mix_graph_from(clips, &vec![0.0; clips.len()])
+}
+
+/// [`mix_graph`] for inputs that did not land exactly on their in-point:
+/// `leads[N]` is how many seconds before its clip's in-point input `N`
+/// starts, which the graph cuts off the front. A container seek lands on
+/// the packet at or before the target - a whole AAC frame early, 21 ms -
+/// and `mix_to_file` measures the miss from the first decoded frame; on
+/// the continuous clock it stamps, the trim is then exact.
+fn mix_graph_from(clips: &[AudioClip], leads: &[f64]) -> Result<String> {
     let mut chains: Vec<String> = Vec::new();
 
     for (index, clip) in clips.iter().enumerate() {
@@ -215,21 +227,23 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
         let delay_ms = (clip.start * 1000.0).round().max(0.0) as i64;
         let speed = clamp_speed(clip.speed);
 
-        // Each input is trimmed to its in-point, restamped from zero, then
-        // delayed to where it sits on the timeline. `all=1` applies the delay
-        // to every channel; without it only the left channel moves, which is
-        // a memorable way to discover the flag exists.
+        // Each input is cut to its in-point, restamped from zero, then delayed
+        // to where it sits on the timeline. `all=1` applies the delay to
+        // every channel; without it only the left channel moves, which is a
+        // memorable way to discover the flag exists.
         //
-        // The out-point is not trimmed here: source files with broken
-        // timestamp series (edit lists, paused recordings) made a duration
-        // based trim close the input early. `mix_to_file` counts the source
-        // samples it feeds per input and stops at `duration * speed` source
-        // seconds instead; see the `clip_samples` field.
-        // No trim or restamp in the graph: Rust stamps each frame's PTS from
-        // a sample counter and stops feeding the input after duration*speed
-        // source seconds. This sidesteps timestamp discontinuities (edit
-        // lists, paused recordings) that parked frames outside the mix.
-        let mut stage = format!("[{index}:a]anull");
+        // The cut is by `lead`, not by the source's own timestamps:
+        // `mix_to_file` stamps every frame it feeds from a running sample
+        // count, so a source whose timestamp series jumps (edit lists,
+        // paused recordings) cannot park frames outside the mix, and the
+        // out-point is a sample count too - it stops feeding the input at
+        // `duration * speed` source seconds; see `MixInput::clip_samples`.
+        let lead = leads.get(index).copied().unwrap_or(0.0);
+        let mut stage = if lead > 0.0 {
+            format!("[{index}:a]atrim=start={lead:.6},asetpts=PTS-STARTPTS")
+        } else {
+            format!("[{index}:a]anull")
+        };
 
         for filter in speed_filters(speed, clip.preserve_pitch) {
             stage.push(',');
@@ -300,9 +314,14 @@ pub fn mix_graph(clips: &[AudioClip], duration: f64) -> Result<String> {
     // at once, and the single-clip `anull` path.
     //
     // Do not "simplify" this away because the rate on both sides is MIX_RATE.
-    chains.push(format!(
-        "{mix};[mixed]aresample={MIX_RATE},apad,atrim=duration={duration:.6}[out]"
-    ));
+    //
+    // No `atrim=duration` after the pad. The mix's length used to be cut
+    // there, by timestamp, and `amix` stops stamping its output the moment
+    // its first input ends - a clip cut short of its file, which is what a
+    // split makes - so the trim never saw the end come and the pad went on
+    // forever: an export with a split clip never finished. `mix_to_file`
+    // counts the samples it takes instead, on the clock it stamps itself.
+    chains.push(format!("{mix};[mixed]aresample={MIX_RATE},apad[out]"));
 
     Ok(chains.join(";"))
 }
@@ -372,7 +391,10 @@ impl MixInput {
 /// Every clip's file must contain an audio stream; see [`mix_graph`].
 pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Result<()> {
     ffi::init();
-    let graph_spec = mix_graph(clips, duration)?;
+    // A bad chain is refused before any file is opened.
+    for clip in clips {
+        validate_chain(&clip.filter_chain)?;
+    }
     let missing = |name: &str| Error::Missing {
         what: "filter",
         name: name.to_owned(),
@@ -382,6 +404,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
     // sources are described by what actually comes out of the decoders.
     let mut inputs: Vec<MixInput> = Vec::with_capacity(clips.len());
     let mut first_frames: Vec<Audio> = Vec::with_capacity(clips.len());
+    let mut leads: Vec<f64> = Vec::with_capacity(clips.len());
     let mut graph = filter::Graph::new();
     for (index, clip) in clips.iter().enumerate() {
         let path = clip.path.as_path();
@@ -394,10 +417,12 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                 }
             })?;
         let stream = input.stream(stream_index).expect("just found");
+        let time_base = stream.time_base();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
-        // Near the in-point; atrim in the graph does the exact cut.
+        // Near the in-point: the packet at or before it. The graph cuts the
+        // rest, by the lead measured off the first frame below.
         if clip.source_start > 0.0 {
             let target = (clip.source_start * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
             let _ = input.seek(target, ..=target);
@@ -416,15 +441,27 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         let mut first = mix_input.next()?.ok_or_else(|| Error::NoAudioStream {
             path: path.to_path_buf(),
         })?;
+        // How far before the in-point the seek landed, by the first frame's
+        // own timestamp - the one place a source timestamp is read, and
+        // only to place the cut. A frame with none, or one past the
+        // in-point, means nothing to cut.
+        let landed = first
+            .timestamp()
+            .and_then(|ticks| ffi::seconds(ticks, time_base))
+            .map_or(clip.source_start, |at| at.as_f64());
+        let lead = (clip.source_start - landed).max(0.0);
+        leads.push(lead);
         // Our continuous PTS: sample count from the start of this clip.
         first.set_pts(Some(0));
         // The out-point lives here, not in the filtergraph: how many source
-        // samples this clip may feed. A sped-up clip covers more source than
-        // its timeline length, hence the speed factor. The first frame goes
-        // into the graph separately below, so it counts towards the total.
+        // samples this clip may feed, the lead the graph cuts included. A
+        // sped-up clip covers more source than its timeline length, hence
+        // the speed factor. The first frame goes into the graph separately
+        // below, so it counts towards the total.
         mix_input.samples_sent = first.samples() as i64;
-        mix_input.clip_samples =
-            (clip.duration * clamp_speed(clip.speed) * first.rate() as f64).round() as i64;
+        mix_input.clip_samples = ((clip.duration * clamp_speed(clip.speed) + lead)
+            * f64::from(first.rate()))
+        .round() as i64;
         // One sample per time-base tick: the PTS we stamp is a plain
         // running sample count, so the graph's clock is the sample clock.
         let args = format!(
@@ -453,6 +490,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         .map_err(|error| ffi::fail("buffer sink", destination, error))?;
 
     // The plan's `[out]` lands on the encoder's own format before the sink.
+    let graph_spec = mix_graph_from(clips, &leads)?;
     let spec = format!(
         "{graph_spec};[out]aformat=sample_fmts=fltp:sample_rates={MIX_RATE}:channel_layouts=stereo[sink]"
     );
@@ -518,6 +556,12 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
     }
 
     let encoder_time_base = ffmpeg::Rational::new(1, MIX_RATE as i32);
+    // Where the mix ends, in samples of our own clock. The graph pads
+    // silence past the last clip for as long as it is asked, and its
+    // timestamps are not to be trusted for the cut - `amix` drops them once
+    // an input ends early - so the count of what has been taken is the
+    // whole of the decision, and the last frame is shortened to land on it.
+    let total_samples = (duration.max(0.0) * f64::from(MIX_RATE)).round() as i64;
     let mut written_samples: i64 = 0;
     let drain = |encoder: &mut encoder::audio::Encoder,
                  output: &mut ffmpeg::format::context::Output|
@@ -559,20 +603,27 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             };
             match pulled {
                 Ok(()) => {
+                    let remaining = total_samples - written_samples;
+                    if remaining <= 0 {
+                        break 'mix;
+                    }
+                    if mixed.samples() as i64 > remaining {
+                        mixed.set_samples(remaining as usize);
+                    }
                     mixed.set_pts(Some(written_samples));
                     written_samples += mixed.samples() as i64;
                     encoder
                         .send_frame(&mixed)
                         .map_err(|error| ffi::fail("encode", destination, error))?;
                     drain(&mut encoder, &mut output)?;
+                    if written_samples >= total_samples {
+                        break 'mix;
+                    }
                 }
-                // The graph's atrim=duration filter ended the mix at the
-                // exact timeline duration. All inputs may have finished
-                // earlier (trimmed clips, shorter audio), but the graph
-                // padded silence via apad until duration was reached.
-                // Break, do not return: the finalisation below this loop
-                // flushes the encoder and writes the trailer, and an m4a
-                // without its trailer cannot be opened by the muxer.
+                // The graph ran dry before the timeline's end: nothing left
+                // to pad from. Break, do not return: the finalisation below
+                // this loop flushes the encoder and writes the trailer, and
+                // an m4a without its trailer cannot be opened by the muxer.
                 Err(ffmpeg::Error::Eof) => break 'mix,
                 Err(error) if ffi::is_again(&error) => break,
                 Err(error) => return Err(ffi::fail("filter output", destination, error)),
@@ -590,9 +641,9 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
                     // series does from here on cannot move this frame out
                     // of its place in the mix.
                     frame.set_pts(Some(input.samples_sent));
-                    // Stop feeding this input once we've sent its clip's worth.
-                    // The graph's apad will fill the rest with silence until
-                    // the mix's atrim=duration ends the whole thing.
+                    // Stop feeding this input once we've sent its clip's
+                    // worth. The graph pads the rest with silence, and the
+                    // sink loop above ends the mix at the timeline's end.
                     if input.samples_sent >= input.clip_samples {
                         let mut context = graph.get(&input.label).expect("source exists");
                         let _ = context.source().flush();
@@ -895,14 +946,14 @@ mod tests {
 
     #[test]
     fn a_single_clip_avoids_amix_normalisation() {
-        let graph = mix_graph(&[clip("a.mp4")], 2.0).expect("valid");
+        let graph = mix_graph(&[clip("a.mp4")]).expect("valid");
         assert!(graph.contains("anull[mixed]"), "graph was: {graph}");
         assert!(!graph.contains("amix"), "graph was: {graph}");
     }
 
     #[test]
     fn several_clips_mix_without_normalisation() {
-        let graph = mix_graph(&[clip("a.mp4"), clip("b.mp4")], 3.0).expect("valid");
+        let graph = mix_graph(&[clip("a.mp4"), clip("b.mp4")]).expect("valid");
         assert!(
             graph.contains("amix=inputs=2:normalize=0"),
             "graph was: {graph}"
@@ -914,27 +965,37 @@ mod tests {
     }
 
     #[test]
-    fn the_final_stage_pads_and_trims_to_the_timeline_duration() {
-        let graph = mix_graph(&[clip("a.mp4")], 4.5).expect("valid");
+    fn the_final_stage_pads_and_leaves_the_end_to_the_reader() {
+        let graph = mix_graph(&[clip("a.mp4")]).expect("valid");
         assert!(
-            graph.ends_with("aresample=48000,apad,atrim=duration=4.500000[out]"),
+            graph.ends_with("aresample=48000,apad[out]"),
             "graph was: {graph}"
         );
+        assert!(!graph.contains("atrim=duration"), "graph was: {graph}");
     }
 
     #[test]
-    fn a_sped_up_clip_still_retimes_in_the_graph() {
+    fn a_sped_up_clip_retimes_in_the_graph_and_is_cut_by_sample_count() {
         let mut fast = clip("a.mp4");
         fast.speed = 2.0;
-        let graph = mix_graph(&[fast], 2.0).expect("valid");
-        // The out-point trim moved to `mix_to_file`'s sample counter, so the
-        // graph only keeps the in-point window and the retime.
-        assert!(graph.contains("atempo=2.000000"), "graph was: {graph}");
+        let graph = mix_graph(&[fast]).expect("valid");
+        // The out-point is `mix_to_file`'s sample counter, and an input
+        // that landed on its in-point has nothing to cut.
         assert!(
-            graph.contains("atrim=start=0.000000,"),
+            graph.contains("[0:a]anull,atempo=2.000000"),
             "graph was: {graph}"
         );
-        assert!(!graph.contains("duration=4.000000"), "graph was: {graph}");
+        assert!(!graph.contains("atrim=start"), "graph was: {graph}");
+    }
+
+    #[test]
+    fn an_input_that_landed_early_is_cut_to_its_in_point() {
+        let graph = mix_graph_from(&[clip("a.mp4"), clip("b.mp4")], &[0.0213, 0.0]).expect("valid");
+        assert!(
+            graph.contains("[0:a]atrim=start=0.021300,asetpts=PTS-STARTPTS,"),
+            "graph was: {graph}"
+        );
+        assert!(graph.contains("[1:a]anull,"), "graph was: {graph}");
     }
 
     #[test]
@@ -943,7 +1004,7 @@ mod tests {
         shaped.filter_chain = "highpass=f=80".to_owned();
         shaped.volume = 0.5;
         shaped.fade_out = 0.25;
-        let graph = mix_graph(&[shaped], 2.0).expect("valid");
+        let graph = mix_graph(&[shaped]).expect("valid");
 
         let chain_at = graph.find("highpass").expect("chain present");
         let volume_at = graph.find(",volume=").expect("volume present");
@@ -960,10 +1021,7 @@ mod tests {
             let mut hostile = clip("a.mp4");
             hostile.filter_chain = bad.to_owned();
             assert!(
-                matches!(
-                    mix_graph(&[hostile], 2.0),
-                    Err(Error::InvalidFilterChain { .. })
-                ),
+                matches!(mix_graph(&[hostile]), Err(Error::InvalidFilterChain { .. })),
                 "{bad:?} should have been refused",
             );
         }
@@ -1094,6 +1152,51 @@ mod tests {
             counts[1] > 150,
             "the sound is there too, not {} packets",
             counts[1]
+        );
+    }
+
+    /// A trimmed clip's mix ends when the timeline does. Two pieces of one
+    /// file, the second cut in at two seconds, mixed to sixteen: the mix
+    /// must come out, and be sixteen seconds long.
+    #[test]
+    fn a_mix_of_a_trimmed_clip_ends_with_the_timeline() {
+        let dir = std::env::temp_dir();
+        let source = dir.join("concat-mix-trim-source.m4a");
+        let output = dir.join("concat-mix-trim-out.m4a");
+        silent_aac(&source, 6.0);
+        let piece = |start: f64, source_start: f64, duration: f64| AudioClip {
+            path: source.clone(),
+            stream: None,
+            start,
+            duration,
+            source_start,
+            speed: 1.0,
+            preserve_pitch: true,
+            volume: 1.0,
+            volume_curve: Track::default(),
+            fade_in: 0.0,
+            fade_out: 0.0,
+            filter_chain: String::new(),
+        };
+        let clips = [piece(0.0, 0.0, 2.0), piece(2.0, 2.0, 4.0)];
+        let target = output.clone();
+        let worker = std::thread::spawn(move || mix_to_file(&clips, 16.0, &target));
+        let started = std::time::Instant::now();
+        while !worker.is_finished() {
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(60),
+                "the mix did not end: it is still writing after a minute"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        worker.join().expect("no panic").expect("mixes");
+        let info = crate::probe(&output).expect("probes the mix");
+        let _ = std::fs::remove_file(&source);
+        let _ = std::fs::remove_file(&output);
+        let seconds = info.duration.expect("a duration").as_f64();
+        assert!(
+            (seconds - 16.0).abs() < 0.1,
+            "the mix is {seconds}s, not 16s"
         );
     }
 
