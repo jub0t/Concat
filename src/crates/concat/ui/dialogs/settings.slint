@@ -50,6 +50,8 @@ export struct SettingsData {
     language: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// show flip/reverse in clip context menu
+    custom-context-actions: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -358,6 +360,7 @@ export component SettingsDialog inherits Modal {
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
+    callback custom-context-actions-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
@@ -503,6 +506,34 @@ export component SettingsDialog inherits Modal {
                             Switch {
                                 checked: root.data.playhead-stops;
                                 toggled(on) => { root.playhead-stops-changed(on); }
+                            }
+                        }
+                    }
+                }
+
+                // Off, the clip context menu shows only the basics.
+                // On, it also shows Flip horizontal, Flip vertical, and Reverse.
+                DialogSection {
+                    title: I18n.t("Timeline shortcuts");
+                    hint: I18n.t("H flips the selected clip horizontally, J vertically, R reverses it. Off, the keys do nothing.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Enable flip and reverse shortcuts");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.custom-context-actions;
+                                toggled(on) => { root.custom-context-actions-changed(on); }
                             }
                         }
                     }

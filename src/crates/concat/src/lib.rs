@@ -1036,6 +1036,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
         let at = state.playhead;
         state.seek(at);
     }));
+    app.on_settings_custom_context_actions_changed(on_window!(|state, on: bool| {
+        state.settings.custom_context_actions = on;
+        state.prefs.custom_context_actions = on;
+        state.prefs.save(&state.host.dirs);
+    }));
+
     app.on_settings_download_source_changed(on_window!(|state, index: i32| {
         use concat_host::models::SourcePreference;
         let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
