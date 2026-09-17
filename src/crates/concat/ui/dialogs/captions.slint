@@ -130,6 +130,19 @@ export component CaptionsDialog inherits Modal {
                     selection-foreground-color: Theme.on-accent;
                     changed has-focus => { root.typing = self.has-focus; }
                     edited => { root.text-edited(self.text); }
+                    // Home and End are unbound in Slint on macOS and would
+                    // walk up to the window's playhead shortcuts.
+                    key-pressed(event) => {
+                        if (event.text == Key.Home) {
+                            self.set-selection-offsets(0, 0);
+                            return accept;
+                        }
+                        if (event.text == Key.End) {
+                            self.set-selection-offsets(1000000000, 1000000000);
+                            return accept;
+                        }
+                        return reject;
+                    }
                 }
 
                 if root.draft == "" && !script.has-focus: Text {
