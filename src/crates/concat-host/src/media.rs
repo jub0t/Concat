@@ -135,7 +135,10 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// stream, usually with a frame rate of 25/1 invented by the demuxer.
 ///
 /// The duration check is what separates a still from an animation. An animated
-/// GIF or WebP reports a duration; a single image does not. It is a heuristic,
+/// GIF or WebP reports a duration of many frames; a single image reports none,
+/// or - through FFmpeg's `image2` demuxer, which is how a JPEG is read - the
+/// length of the one frame it invented a rate for: 0.04 s at 25 fps. Counting
+/// only "no duration" made every JPEG a 0.04-second video. It is a heuristic,
 /// and a deliberately conservative one - misreading an animation as a still
 /// shows its first frame rather than failing.
 fn classify(info: &concat_media::MediaInfo) -> concat_project::model::MediaKind {
@@ -151,7 +154,14 @@ fn classify(info: &concat_media::MediaInfo) -> concat_project::model::MediaKind 
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    if IMAGE_EXTENSIONS.contains(&extension.as_str()) && info.duration.is_none() {
+    // Up to a frame and a half, so a rate the demuxer rounded still counts.
+    let one_frame = info.video.as_ref().map_or(0.1, |video| {
+        video.frame_rate.frame_duration().as_f64() * 1.5
+    });
+    let single_image = info
+        .duration
+        .is_none_or(|duration| duration.as_f64() <= one_frame);
+    if IMAGE_EXTENSIONS.contains(&extension.as_str()) && single_image {
         MediaKind::Image
     } else {
         MediaKind::Video
@@ -744,6 +754,47 @@ pub fn describe(error: concat_media::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn probed(
+        path: &str,
+        duration: Option<concat_core::time::Rational>,
+    ) -> concat_media::MediaInfo {
+        concat_media::MediaInfo {
+            path: std::path::PathBuf::from(path),
+            duration,
+            video: Some(concat_media::VideoStream {
+                index: 0,
+                codec: "mjpeg".to_owned(),
+                width: 1440,
+                height: 1080,
+                frame_rate: concat_core::time::FrameRate::from_int(25),
+            }),
+            audio: None,
+            audio_streams: Vec::new(),
+        }
+    }
+
+    /// FFmpeg's `image2` demuxer, which reads JPEGs, states the one frame's
+    /// length as the file's duration; a JPEG is still a still. A GIF that
+    /// runs for seconds is not.
+    #[test]
+    fn a_picture_that_lasts_one_frame_is_a_still() {
+        use concat_core::time::Rational;
+        use concat_project::model::MediaKind;
+        assert_eq!(classify(&probed("/a.png", None)), MediaKind::Image);
+        assert_eq!(
+            classify(&probed("/a.jpg", Some(Rational::new(1, 25)))),
+            MediaKind::Image
+        );
+        assert_eq!(
+            classify(&probed("/a.gif", Some(Rational::new(3, 1)))),
+            MediaKind::Video
+        );
+        assert_eq!(
+            classify(&probed("/a.mp4", Some(Rational::new(1, 25)))),
+            MediaKind::Video
+        );
+    }
 
     #[test]
     fn artwork_keys_cannot_leave_the_cache() {
