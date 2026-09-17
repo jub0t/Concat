@@ -1676,6 +1676,20 @@ impl Studio {
         }
     }
 
+    /// [`Studio::apply`] as one move of an inspector gesture: the same
+    /// bookkeeping, but the editor folds it into the gesture's undo step
+    /// and the coalescing window stays open for the next move.
+    fn apply_within(&mut self, gesture: &str, command: Command) {
+        self.echo = None;
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        match session.apply_within(Some(gesture), command) {
+            Ok(_) => self.after_change(),
+            Err(error) => self.notify(&error, true),
+        }
+    }
+
     /// The bookkeeping every change to the edit needs: the caches that
     /// follow the document, the autosave, the monitor and the mix.
     fn after_change(&mut self) {
@@ -3719,29 +3733,23 @@ impl Studio {
         }
         // One undo step per gesture, not per pointer move: a commit that
         // changes the same things on the same clip as the last, within a
-        // moment of it, takes the last one's place. Every command here sets
-        // absolute values, so undoing the previous and applying this lands
-        // where this alone would have.
+        // moment of it, folds into the last one's step. The editor does the
+        // folding; this decides when a pause is long enough to be a new
+        // gesture on the same knob.
         let key = format!("{}:{}", after.id, commit_key(&commands));
         let now = std::time::Instant::now();
-        let coalesce = self
+        let continues = self
             .last_commit
             .as_ref()
             .is_some_and(|(last, at)| *last == key && now.duration_since(*at).as_millis() < 900);
-        if coalesce
-            && let Some(session) = self.session.as_mut()
-            && session.can_undo()
-        {
-            session.undo();
+        if !continues && let Some(session) = self.session.as_mut() {
+            session.end_gesture();
         }
-        match commands.len() {
-            1 => {
-                self.apply(commands.remove(0));
-            }
-            _ => {
-                self.apply(Command::Batch { commands });
-            }
-        }
+        let command = match commands.len() {
+            1 => commands.remove(0),
+            _ => Command::Batch { commands },
+        };
+        self.apply_within(&key, command);
         self.last_commit = Some((key, now));
     }
 
@@ -3874,6 +3882,7 @@ impl Studio {
         let mut clips: Vec<&Clip> = timeline
             .clips
             .iter()
+            .map(|clip| clip.as_ref())
             .filter(|clip| {
                 (clip.kind.is_visual() || clip.kind == model::ClipKind::Text)
                     && showing.contains(clip.track_id.as_str())

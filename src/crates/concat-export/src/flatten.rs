@@ -191,6 +191,7 @@ fn pick_timeline<'a>(project: &'a Project, timeline_id: Option<&str>) -> Option<
         .iter()
         .find(|timeline| timeline.id == wanted)
         .or_else(|| project.timelines.first())
+        .map(|timeline| timeline.as_ref())
 }
 
 /// The constant the engine should receive for a keyable property.

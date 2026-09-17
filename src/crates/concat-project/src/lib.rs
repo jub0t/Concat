@@ -541,6 +541,129 @@ mod tests {
     }
 
     #[test]
+    fn a_gesture_is_one_undo_step() {
+        let (mut editor, _, clip_id) = fixture();
+        let start = editor.project().active().clips[0].scale;
+        for scale in [1.1, 1.2, 1.3] {
+            editor
+                .apply_within(
+                    Some("scale"),
+                    Command::SetClipTransform {
+                        clip_id: clip_id.clone(),
+                        scale: Some(scale),
+                        offset_x: None,
+                        offset_y: None,
+                        rotation: None,
+                        stretch_x: None,
+                        stretch_y: None,
+                    },
+                )
+                .expect("scales");
+        }
+        editor.end_gesture();
+        editor
+            .apply_within(
+                Some("scale"),
+                Command::SetClipTransform {
+                    clip_id: clip_id.clone(),
+                    scale: Some(2.0),
+                    offset_x: None,
+                    offset_y: None,
+                    rotation: None,
+                    stretch_x: None,
+                    stretch_y: None,
+                },
+            )
+            .expect("scales again");
+        assert_eq!(editor.project().active().clips[0].scale, 2.0);
+        // Two steps: the drag, then the second drag after the gesture ended.
+        assert!(editor.undo());
+        assert_eq!(editor.project().active().clips[0].scale, 1.3);
+        assert!(editor.undo());
+        assert_eq!(editor.project().active().clips[0].scale, start);
+        assert!(editor.redo());
+        assert_eq!(editor.project().active().clips[0].scale, 1.3);
+    }
+
+    #[test]
+    fn switching_and_reordering_tabs_is_not_an_edit() {
+        let (mut editor, _, _) = fixture();
+        editor.apply(Command::AddTimeline).expect("adds");
+        let (first, second) = (
+            editor.project().timelines[0].id.clone(),
+            editor.project().timelines[1].id.clone(),
+        );
+        let steps_before = {
+            let mut count = 0;
+            while editor.undo() {
+                count += 1;
+            }
+            while editor.redo() {}
+            count
+        };
+        editor
+            .apply(Command::SelectTimeline {
+                timeline_id: first.clone(),
+            })
+            .expect("selects");
+        editor
+            .apply(Command::MoveTimeline {
+                timeline_id: second.clone(),
+                index: 0,
+            })
+            .expect("moves");
+        assert_eq!(editor.project().active_timeline_id, first);
+        assert_eq!(editor.project().timelines[0].id, second);
+        let mut count = 0;
+        while editor.undo() {
+            count += 1;
+        }
+        assert_eq!(
+            count, steps_before,
+            "neither the switch nor the move was a step"
+        );
+    }
+
+    #[test]
+    fn a_command_copies_only_what_it_writes() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        editor.apply(Command::AddTimeline).expect("adds");
+        editor
+            .apply(Command::SelectTimeline {
+                timeline_id: "TL1".to_owned(),
+            })
+            .expect("back to the first");
+        let other = std::sync::Arc::clone(&editor.project().timelines[1]);
+        let untouched = std::sync::Arc::clone(&editor.project().active().clips[1]);
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    volume: Some(0.5),
+                    ..Default::default()
+                },
+            })
+            .expect("edits the head");
+        assert!(
+            std::sync::Arc::ptr_eq(&other, &editor.project().timelines[1]),
+            "the other timeline is still shared with the snapshot"
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&untouched, &editor.project().active().clips[1]),
+            "the clip the edit did not touch is still shared"
+        );
+        assert_eq!(editor.project().active().clips[0].volume, 0.5);
+        assert!(editor.undo());
+        assert_eq!(editor.project().active().clips[0].volume, 1.0);
+    }
+
+    #[test]
     fn rearranged_pieces_refuse_to_merge() {
         let (mut editor, _, clip_id) = fixture();
         editor
@@ -683,6 +806,7 @@ mod tests {
         let sounds: Vec<&crate::model::Clip> = timeline
             .clips
             .iter()
+            .map(|clip| clip.as_ref())
             .filter(|clip| clip.kind == ClipKind::Audio)
             .collect();
         assert_eq!(sounds.len(), 2);

@@ -8,6 +8,7 @@
 //! the contract the window's gesture echo mirrors and tests against.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -824,6 +825,16 @@ fn next_numbered(name: &str, existing: impl Iterator<Item = String>) -> String {
 }
 
 impl Command {
+    /// True for a command that changes what the person is looking at, not
+    /// the edit: which timeline tab is showing and the order of the tabs.
+    /// Saved with the document, never recorded in undo history.
+    pub fn is_view_state(&self) -> bool {
+        matches!(
+            self,
+            Command::SelectTimeline { .. } | Command::MoveTimeline { .. }
+        )
+    }
+
     /// True when any number in the command is NaN or infinite. JSON cannot
     /// spell one, but a caller in Rust can, and `NaN.clamp()` is NaN: one
     /// stored would poison every duration and key it touched, and the
@@ -1107,8 +1118,8 @@ pub fn apply(
             // slot freeze-frames on its last frame downstream, which is the
             // renderer's existing behaviour for a trim past the media's end.
             // All timelines, like RemoveMedia: slots are not per-timeline.
-            for timeline in &mut project.timelines {
-                for clip in &mut timeline.clips {
+            for timeline in project.timelines.iter_mut().map(Arc::make_mut) {
+                for clip in timeline.clips_mut() {
                     if clip.media_id == media_id {
                         clip.source_start = 0.0;
                         clip.kind = kind;
@@ -1154,7 +1165,7 @@ pub fn apply(
             let media_count = project.media.len();
             project.media.retain(|item| item.id != media_id);
             let mut applied = project.media.len() != media_count;
-            for timeline in &mut project.timelines {
+            for timeline in project.timelines.iter_mut().map(Arc::make_mut) {
                 let clip_count = timeline.clips.len();
                 timeline.clips.retain(|clip| clip.media_id != media_id);
                 applied |= timeline.clips.len() != clip_count;
@@ -1181,7 +1192,7 @@ pub fn apply(
             let id = mint.next("c");
             timeline
                 .clips
-                .push(default_clip(id.clone(), track_id, &media, start));
+                .push(Arc::new(default_clip(id.clone(), track_id, &media, start)));
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,
@@ -1203,7 +1214,7 @@ pub fn apply(
             let id = mint.next("c");
             timeline
                 .clips
-                .push(default_clip(id.clone(), track_id, &media, start));
+                .push(Arc::new(default_clip(id.clone(), track_id, &media, start)));
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,
@@ -1230,7 +1241,7 @@ pub fn apply(
                 }
             };
             let id = mint.next("c");
-            timeline.clips.push(Clip {
+            timeline.clips.push(Arc::new(Clip {
                 id: id.clone(),
                 track_id,
                 media_id: String::new(),
@@ -1269,7 +1280,7 @@ pub fn apply(
                 detached_from: None,
                 transition_in: None,
                 text: Some(style),
-            });
+            }));
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,
@@ -1295,7 +1306,7 @@ pub fn apply(
                 }
             };
             let id = mint.next("c");
-            timeline.clips.push(Clip {
+            timeline.clips.push(Arc::new(Clip {
                 id: id.clone(),
                 track_id,
                 media_id: String::new(),
@@ -1338,7 +1349,7 @@ pub fn apply(
                 detached_from: None,
                 transition_in: None,
                 text: None,
-            });
+            }));
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,
@@ -1424,7 +1435,7 @@ pub fn apply(
                     // here to the source is not affine, so both halves go to
                     // the constant mean, which is what they averaged. A
                     // reverse is affine and survives: see `split_source`.
-                    let clip = &mut timeline.clips[index];
+                    let clip = timeline.clip_at_mut(index);
                     let offset = time - clip.start;
                     if offset > MIN_CLIP_DURATION
                         && offset < clip.duration - MIN_CLIP_DURATION
@@ -1433,7 +1444,7 @@ pub fn apply(
                         clip.speed_curve = None;
                     }
                 }
-                let clip = &timeline.clips[index];
+                let clip: &Clip = &timeline.clips[index];
                 let offset = time - clip.start;
                 if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
                     continue;
@@ -1454,9 +1465,9 @@ pub fn apply(
                 // start, which the head keeps.
                 tail.transition_in = None;
                 created = Some(tail.id.clone());
-                timeline.clips[index].duration = offset;
-                timeline.clips[index].source_start = head_source;
-                timeline.clips.insert(index + 1, tail);
+                timeline.clip_at_mut(index).duration = offset;
+                timeline.clip_at_mut(index).source_start = head_source;
+                timeline.clips.insert(index + 1, Arc::new(tail));
             }
             // A split always mints the tail, so "minted anything" and
             // "changed anything" are the same fact here.
@@ -1540,24 +1551,24 @@ pub fn apply(
             // under a curve the map is not affine, and the in-point below
             // assumes it is, so both pieces go to the constant mean they
             // averaged. A reverse is affine and is kept; see `split_source`.
-            timeline.clips[index].speed_curve = None;
+            timeline.clip_at_mut(index).speed_curve = None;
             let reverse = timeline.clips[index].reverse;
             let offset = time - start;
             let (head_source, tail_source) =
                 split_source(source_start, clip_duration, speed, offset, reverse);
-            let mut tail = timeline.clips[index].clone();
+            let mut tail = Clip::clone(&timeline.clips[index]);
             tail.id = mint.next("c");
             tail.start = time;
             tail.duration = clip_duration - offset;
             tail.source_start = tail_source;
             tail.transition_in = None;
-            timeline.clips[index].duration = offset;
-            timeline.clips[index].source_start = head_source;
-            timeline.clips.insert(index + 1, tail);
+            timeline.clip_at_mut(index).duration = offset;
+            timeline.clip_at_mut(index).source_start = head_source;
+            timeline.clips.insert(index + 1, Arc::new(tail));
 
             // Ripple every later placement on this track (including the new
             // tail) so the freeze does not sit on top of the remainder.
-            for clip in &mut timeline.clips {
+            for clip in timeline.clips_mut() {
                 if clip.track_id == track_id && clip.start >= time {
                     clip.start += hold;
                 }
@@ -1587,7 +1598,7 @@ pub fn apply(
             frozen.detached_from = None;
             frozen.transition_in = None;
             frozen.text = None;
-            timeline.clips.push(frozen);
+            timeline.clips.push(Arc::new(frozen));
 
             Ok(Outcome {
                 created_id: Some(freeze_id),
@@ -2067,7 +2078,7 @@ pub fn apply(
                 sound.muted = None;
                 sound.audio_stream = stream;
                 first_sound.get_or_insert_with(|| sound.id.clone());
-                timeline.clips.push(sound);
+                timeline.clips.push(Arc::new(sound));
             }
 
             let video = timeline.clip_mut(&clip_id).expect("still present");
@@ -2095,7 +2106,7 @@ pub fn apply(
                 .clips
                 .iter()
                 .filter(|other| other.detached_from.as_deref() == Some(video_id.as_str()))
-                .cloned()
+                .map(|other| Clip::clone(other))
                 .collect();
             if sounds.is_empty() {
                 return Ok(Outcome::default());
@@ -2185,13 +2196,13 @@ pub fn apply(
             // likeliest second timeline is another cut of the same picture,
             // and the one that is not is a sheet away from being told so.
             let video = project.active().video;
-            project.timelines.push(Timeline {
+            project.timelines.push(Arc::new(Timeline {
                 id: id.clone(),
                 name,
                 video,
                 tracks,
                 clips: Vec::new(),
-            });
+            }));
             project.active_timeline_id = id.clone();
             Ok(Outcome {
                 created_id: Some(id),
@@ -2207,7 +2218,7 @@ pub fn apply(
                 .timelines
                 .iter_mut()
                 .find(|timeline| timeline.id == timeline_id)
-                .is_some_and(|timeline| assign(&mut timeline.video, video));
+                .is_some_and(|timeline| assign(&mut Arc::make_mut(timeline).video, video));
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -2249,7 +2260,9 @@ pub fn apply(
                 .timelines
                 .iter_mut()
                 .find(|timeline| timeline.id == timeline_id)
-                .is_some_and(|timeline| assign(&mut timeline.name, trimmed.to_owned()));
+                .is_some_and(|timeline| {
+                    assign(&mut Arc::make_mut(timeline).name, trimmed.to_owned())
+                });
             Ok(Outcome {
                 created_id: None,
                 applied,

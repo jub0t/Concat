@@ -20,6 +20,8 @@
 
 use std::collections::BTreeMap;
 
+use std::sync::Arc;
+
 use serde_json::{Map, Value, json};
 
 use crate::commands::{
@@ -346,7 +348,7 @@ pub fn from_document(document: &Value) -> Option<Project> {
     // The timelines array is the source of truth when present and usable; a
     // file from before multiple timelines loads its flat fields as the one
     // timeline they always were.
-    let mut timelines: Vec<Timeline> = Vec::new();
+    let mut timelines: Vec<Arc<Timeline>> = Vec::new();
     if let Some(entries) = document.get("timelines").and_then(Value::as_array) {
         for entry in entries {
             let Some(id) = entry.get("id").and_then(Value::as_str) else {
@@ -360,13 +362,13 @@ pub fn from_document(document: &Value) -> Option<Project> {
                 continue;
             }
             let clips = read_clips(entry.get("clips"), &tracks, &media);
-            timelines.push(Timeline {
+            timelines.push(Arc::new(Timeline {
                 id: id.to_owned(),
                 name: text(entry.get("name"), "Timeline"),
                 video: read_video(entry.get("video"), shared),
                 tracks,
-                clips,
-            });
+                clips: clips.into_iter().map(Arc::new).collect(),
+            }));
         }
     }
     if timelines.is_empty() {
@@ -375,13 +377,13 @@ pub fn from_document(document: &Value) -> Option<Project> {
             return None;
         }
         let clips = read_clips(document.get("clips"), &tracks, &media);
-        timelines.push(Timeline {
+        timelines.push(Arc::new(Timeline {
             id: "TL1".to_owned(),
             name: "Timeline 1".to_owned(),
             video: shared,
             tracks,
-            clips,
-        });
+            clips: clips.into_iter().map(Arc::new).collect(),
+        }));
     }
 
     let active_timeline_id = document

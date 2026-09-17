@@ -9,7 +9,9 @@ description = "The edit itself: the project document, its operations, and undo. 
 [dependencies]
 # The speed curve's arithmetic lives with the engine's time map.
 concat-core.workspace = true
-serde = { version = "1", features = ["derive"] }
+# `rc`: timelines and clips sit behind Arc so an undo snapshot shares what
+# a command did not touch; the document still reads and writes them plain.
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json.workspace = true
 thiserror.workspace = true
 

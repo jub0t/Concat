@@ -12,6 +12,7 @@
 //! Serde names are camelCase: that is the document's spelling.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -1124,7 +1125,12 @@ pub struct Timeline {
     pub tracks: Vec<Track>,
     /// Every clip on this timeline, in insertion order, not time order -
     /// readers must sort by `start` where order matters.
-    pub clips: Vec<Clip>,
+    ///
+    /// Behind `Arc` so that cloning the timeline - which undo does before
+    /// every command - copies one pointer per clip, and only the clip a
+    /// command then writes to is copied for real ([`Arc::make_mut`] in
+    /// [`Timeline::clip_mut`]). Reading through the `Arc` is transparent.
+    pub clips: Vec<Arc<Clip>>,
 }
 
 /// A timeline's output frame and rate.
@@ -1194,8 +1200,10 @@ pub struct Project {
     pub media: Vec<MediaItem>,
     /// Fonts the user added from disk, available to every title.
     pub fonts: Vec<CustomFont>,
-    /// Every timeline, in tab order. Always at least one.
-    pub timelines: Vec<Timeline>,
+    /// Every timeline, in tab order. Always at least one. Behind `Arc` for
+    /// the reason [`Timeline::clips`] is: a command on one timeline leaves
+    /// the others shared with the undo snapshot.
+    pub timelines: Vec<Arc<Timeline>>,
     /// Which timeline commands act on. Maintained by the command layer, so
     /// it always names a member of `timelines`; [`Project::active`] degrades
     /// to the first timeline if it somehow does not.
@@ -1225,7 +1233,7 @@ impl Project {
         Self {
             media: Vec::new(),
             fonts: Vec::new(),
-            timelines: vec![Timeline {
+            timelines: vec![Arc::new(Timeline {
                 id: "TL1".to_owned(),
                 name: "Timeline 1".to_owned(),
                 video,
@@ -1237,7 +1245,7 @@ impl Project {
                     })
                     .collect(),
                 clips: Vec::new(),
-            }],
+            })],
             active_timeline_id: "TL1".to_owned(),
         }
     }
@@ -1260,7 +1268,7 @@ impl Project {
             .iter()
             .position(|timeline| timeline.id == self.active_timeline_id)
             .unwrap_or(0);
-        &mut self.timelines[index]
+        Arc::make_mut(&mut self.timelines[index])
     }
 
     /// The bin entry with this id, or None if it was removed.
@@ -1308,12 +1316,31 @@ impl Timeline {
     /// The clip with this id, or None if it is not on this timeline - which
     /// most commands treat as a tolerated no-op, not an error.
     pub fn clip(&self, clip_id: &str) -> Option<&Clip> {
-        self.clips.iter().find(|clip| clip.id == clip_id)
+        self.clips
+            .iter()
+            .find(|clip| clip.id == clip_id)
+            .map(Arc::as_ref)
     }
 
-    /// Mutable twin of [`Timeline::clip`].
+    /// Mutable twin of [`Timeline::clip`]. The clip is copied out of any
+    /// undo snapshot still sharing it before the reference is handed back.
     pub fn clip_mut(&mut self, clip_id: &str) -> Option<&mut Clip> {
-        self.clips.iter_mut().find(|clip| clip.id == clip_id)
+        self.clips
+            .iter_mut()
+            .find(|clip| clip.id == clip_id)
+            .map(Arc::make_mut)
+    }
+
+    /// Mutable access to the clip at `index`, copied out of any snapshot
+    /// sharing it first. The `Vec` index twin of [`Timeline::clip_mut`].
+    pub fn clip_at_mut(&mut self, index: usize) -> &mut Clip {
+        Arc::make_mut(&mut self.clips[index])
+    }
+
+    /// Every clip, mutable, each copied out of any snapshot sharing it as
+    /// it is reached.
+    pub fn clips_mut(&mut self) -> impl Iterator<Item = &mut Clip> {
+        self.clips.iter_mut().map(Arc::make_mut)
     }
 
     /// The track with this id, or None if it was removed.

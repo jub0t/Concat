@@ -191,11 +191,28 @@ impl Session {
 
     /// Applies one edit command and returns the new state.
     pub fn apply(&mut self, command: Command) -> Result<EditorView, String> {
+        self.apply_within(None, command)
+    }
+
+    /// Applies one edit command as a move of `gesture`, so that a knob
+    /// dragged through many values is one undo step; see
+    /// `concat_project::Editor::apply_within`. `None` is a step of its own.
+    pub fn apply_within(
+        &mut self,
+        gesture: Option<&str>,
+        command: Command,
+    ) -> Result<EditorView, String> {
         let outcome = self
             .editor
-            .apply(command)
+            .apply_within(gesture, command)
             .map_err(|error| error.to_string())?;
         Ok(self.view_with(outcome.created_id))
+    }
+
+    /// Ends the gesture in progress: the next command naming it starts a
+    /// new undo step.
+    pub fn end_gesture(&mut self) {
+        self.editor.end_gesture();
     }
 
     /// Steps the history back one edit.
