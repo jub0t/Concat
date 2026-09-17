@@ -834,6 +834,39 @@ impl Default for TextStyle {
     }
 }
 
+/// The ranges a clip's numbers are held in. One set, used by every
+/// command that sets a value and by the document reader through
+/// [`Clip::tidy`], so a file and an edit can never disagree about what is
+/// in range.
+pub mod ranges {
+    /// The shortest a clip can be: one frame at sixty.
+    pub const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
+    /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
+    pub const MIN_SPEED: f64 = 0.0625;
+    /// The top of the engine's speed range.
+    pub const MAX_SPEED: f64 = 16.0;
+    /// The smallest a picture can be scaled to.
+    pub const MIN_SCALE: f64 = 0.05;
+    /// The largest a picture can be scaled to.
+    pub const MAX_SCALE: f64 = 8.0;
+    /// How far a picture may be pulled along one axis: a tenth to ten
+    /// times its fitted extent, which covers every squash and every banner.
+    pub const MIN_STRETCH: f64 = 0.1;
+    /// The most a picture may be stretched along one axis.
+    pub const MAX_STRETCH: f64 = 10.0;
+    /// How far off centre a picture may be moved, in frame widths.
+    pub const MAX_OFFSET: f64 = 3.0;
+    /// A transition can be no shorter than this, in seconds.
+    pub const MIN_TRANSITION: f64 = 0.1;
+
+    /// A rotation kept in (-180, 180] so a full drag never accumulates
+    /// turns.
+    pub fn wrap_rotation(degrees: f64) -> f64 {
+        let wrapped = ((degrees % 360.0) + 540.0) % 360.0 - 180.0;
+        if wrapped == -180.0 { 180.0 } else { wrapped }
+    }
+}
+
 /// One placed piece of a timeline: a stretch of media (or a title) with its
 /// timing, mix, transform, and effects. Everything an edit decision touches
 /// lives here, which is why most commands are clip commands.
@@ -960,6 +993,111 @@ pub struct Clip {
 }
 
 impl Clip {
+    /// A clip with nothing set but what names and places it: unity gain,
+    /// scale and speed, no fades, no effects, no keys. Every constructor
+    /// starts here and sets the few fields its kind needs, so a field added
+    /// to the model is added in one place.
+    pub fn blank(
+        id: impl Into<String>,
+        track_id: impl Into<String>,
+        kind: ClipKind,
+        name: impl Into<String>,
+        start: f64,
+        duration: f64,
+    ) -> Clip {
+        Clip {
+            id: id.into(),
+            track_id: track_id.into(),
+            media_id: String::new(),
+            name: name.into(),
+            kind,
+            start: start.max(0.0),
+            duration: duration.max(ranges::MIN_CLIP_DURATION),
+            source_start: 0.0,
+            volume: 1.0,
+            fade_in: 0.0,
+            fade_out: 0.0,
+            scale: 1.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
+            rotation: 0.0,
+            stretch_x: 1.0,
+            stretch_y: 1.0,
+            opacity: 1.0,
+            speed: 1.0,
+            preserve_pitch: true,
+            speed_curve: None,
+            reverse: false,
+            animation_in: None,
+            animation_out: None,
+            animation_combo: None,
+            keys: Vec::new(),
+            flip_h: false,
+            flip_v: false,
+            blend: String::new(),
+            crop: None,
+            cutout: None,
+            filters: Vec::new(),
+            video_effects: Vec::new(),
+            audio_stream: None,
+            muted: None,
+            detached_from: None,
+            transition_in: None,
+            text: None,
+        }
+    }
+
+    /// Pulls every number back into the range a command would have held
+    /// it to: the floors and ceilings in [`ranges`], the rotation wrapped,
+    /// non-finite values replaced by their neutral, the crop and the cutout
+    /// tidied, the keys sorted. What the document reader runs over a clip
+    /// it has just read, so a hand-edited or older file holds nothing an
+    /// edit could not have produced.
+    pub fn tidy(mut self) -> Clip {
+        use ranges::*;
+        fn finite(value: f64, fallback: f64) -> f64 {
+            if value.is_finite() { value } else { fallback }
+        }
+        self.start = finite(self.start, 0.0).max(0.0);
+        self.duration = finite(self.duration, 1.0).max(MIN_CLIP_DURATION);
+        self.source_start = finite(self.source_start, 0.0).max(0.0);
+        self.volume = finite(self.volume, 1.0).max(0.0);
+        self.fade_in = finite(self.fade_in, 0.0).max(0.0);
+        self.fade_out = finite(self.fade_out, 0.0).max(0.0);
+        self.scale = finite(self.scale, 1.0).clamp(MIN_SCALE, MAX_SCALE);
+        self.offset_x = finite(self.offset_x, 0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
+        self.offset_y = finite(self.offset_y, 0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
+        self.rotation = wrap_rotation(finite(self.rotation, 0.0));
+        self.stretch_x = finite(self.stretch_x, 1.0).clamp(MIN_STRETCH, MAX_STRETCH);
+        self.stretch_y = finite(self.stretch_y, 1.0).clamp(MIN_STRETCH, MAX_STRETCH);
+        self.opacity = finite(self.opacity, 1.0).clamp(0.0, 1.0);
+        self.speed = finite(self.speed, 1.0).clamp(MIN_SPEED, MAX_SPEED);
+        self.speed_curve = self.speed_curve.take().and_then(|points| {
+            let points: Vec<SpeedPoint> = points
+                .into_iter()
+                .filter(|point| point.at.is_finite() && (0.0..=1.0).contains(&point.at))
+                .map(|point| SpeedPoint {
+                    at: point.at,
+                    speed: finite(point.speed, 1.0).clamp(MIN_SPEED, MAX_SPEED),
+                })
+                .collect();
+            (!points.is_empty()).then_some(points)
+        });
+        self.crop = self
+            .crop
+            .take()
+            .map(Crop::tidy)
+            .filter(|crop| !crop.is_none());
+        self.cutout = self.cutout.take().map(Cutout::tidy);
+        if let Some(transition) = self.transition_in.as_mut() {
+            transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
+        }
+        self.keys
+            .retain(|key| key.at.is_finite() && key.value.is_finite());
+        self.sort_keys();
+        self
+    }
+
     /// The clip's own constant for a keyable property - what the property is
     /// worth everywhere its track is silent.
     pub fn constant(&self, property: KeyProperty) -> f64 {

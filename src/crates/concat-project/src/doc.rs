@@ -24,10 +24,6 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
-use crate::commands::{
-    MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_CLIP_DURATION, MIN_SCALE, MIN_SPEED,
-    MIN_STRETCH, wrap_rotation,
-};
 use crate::model::{
     AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKey, ClipKind, Crop, CustomFont, Cutout,
     KeyEase, KeyProperty, MediaItem, MediaKind, ParamKey, Project, SpeedPoint, TextAlign,
@@ -258,33 +254,27 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 name: text(entry.get("name"), "clip"),
                 kind,
                 start: number(entry.get("start"), 0.0).max(0.0),
-                // The same floors and ceilings every command holds, so a
-                // hand-edited or older file cannot carry a value no edit
-                // could produce.
-                duration: number(entry.get("duration"), 1.0).max(MIN_CLIP_DURATION),
+                duration: number(entry.get("duration"), 1.0),
                 source_start: number(entry.get("sourceStart"), 0.0).max(0.0),
                 volume: number(entry.get("volume"), 1.0).max(0.0),
                 fade_in: number(entry.get("fadeIn"), 0.0).max(0.0),
                 fade_out: number(entry.get("fadeOut"), 0.0).max(0.0),
-                scale: number(entry.get("scale"), 1.0).clamp(MIN_SCALE, MAX_SCALE),
-                offset_x: number(entry.get("offsetX"), 0.0).clamp(-MAX_OFFSET, MAX_OFFSET),
-                offset_y: number(entry.get("offsetY"), 0.0).clamp(-MAX_OFFSET, MAX_OFFSET),
-                rotation: wrap_rotation(number(entry.get("rotation"), 0.0)),
-                stretch_x: number(entry.get("stretchX"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
-                stretch_y: number(entry.get("stretchY"), 1.0).clamp(MIN_STRETCH, MAX_STRETCH),
-                // Clamped: a hand-edited 2 would export differently from how
-                // the preview clamps it on screen.
-                opacity: number(entry.get("opacity"), 1.0).clamp(0.0, 1.0),
-                speed: number(entry.get("speed"), 1.0).clamp(MIN_SPEED, MAX_SPEED),
+                scale: number(entry.get("scale"), 1.0),
+                offset_x: number(entry.get("offsetX"), 0.0),
+                offset_y: number(entry.get("offsetY"), 0.0),
+                rotation: number(entry.get("rotation"), 0.0),
+                stretch_x: number(entry.get("stretchX"), 1.0),
+                stretch_y: number(entry.get("stretchY"), 1.0),
+                opacity: number(entry.get("opacity"), 1.0),
+                speed: number(entry.get("speed"), 1.0),
                 speed_curve: entry.get("speedCurve").and_then(|value| {
                     let points: Vec<SpeedPoint> = value
                         .as_array()?
                         .iter()
                         .map(|point| SpeedPoint {
                             at: number(point.get("at"), -1.0),
-                            speed: number(point.get("speed"), 1.0).clamp(MIN_SPEED, MAX_SPEED),
+                            speed: number(point.get("speed"), 1.0),
                         })
-                        .filter(|point| (0.0..=1.0).contains(&point.at))
                         .collect();
                     (!points.is_empty()).then_some(points)
                 }),
@@ -296,21 +286,17 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 flip_h: flag(entry.get("flipH"), false),
                 flip_v: flag(entry.get("flipV"), false),
                 blend: text(entry.get("blend"), ""),
-                crop: entry.get("crop").map(|crop| {
-                    Crop {
-                        left: number(crop.get("left"), 0.0),
-                        top: number(crop.get("top"), 0.0),
-                        right: number(crop.get("right"), 0.0),
-                        bottom: number(crop.get("bottom"), 0.0),
-                    }
-                    .tidy()
+                crop: entry.get("crop").map(|crop| Crop {
+                    left: number(crop.get("left"), 0.0),
+                    top: number(crop.get("top"), 0.0),
+                    right: number(crop.get("right"), 0.0),
+                    bottom: number(crop.get("bottom"), 0.0),
                 }),
                 // Tolerated like everything else: a cutout the reader
                 // cannot make sense of is no cutout.
                 cutout: entry
                     .get("cutout")
-                    .and_then(|value| serde_json::from_value::<Cutout>(value.clone()).ok())
-                    .map(Cutout::tidy),
+                    .and_then(|value| serde_json::from_value::<Cutout>(value.clone()).ok()),
                 preserve_pitch: flag(entry.get("preservePitch"), true),
                 filters: read_filters(entry.get("filters")),
                 video_effects: read_filters(entry.get("videoEffects")),
@@ -320,7 +306,7 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 transition_in: entry.get("transitionIn").and_then(|transition| {
                     Some(Transition {
                         id: transition.get("id")?.as_str()?.to_owned(),
-                        duration: number(transition.get("duration"), 1.0).max(0.1),
+                        duration: number(transition.get("duration"), 1.0),
                     })
                 }),
                 text: is_text.then(|| read_text_style(entry.get("text"))),
@@ -329,6 +315,9 @@ fn read_clips(raw: Option<&Value>, tracks: &[Track], media: &[MediaItem]) -> Vec
                 media_id,
             })
         })
+        // Every number pulled into the range a command holds it to: the
+        // one place the rules live, so a file cannot disagree with an edit.
+        .map(Clip::tidy)
         .collect()
 }
 
