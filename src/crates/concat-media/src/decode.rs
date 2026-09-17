@@ -323,8 +323,21 @@ impl Decoder {
         let parameters = stream.parameters();
         let coded = (parameters.width(), parameters.height());
 
-        let context = ffmpeg::codec::Context::from_parameters(parameters)
+        let mut context = ffmpeg::codec::Context::from_parameters(parameters)
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
+        // Every core. libavcodec's API opens a decoder on one thread unless
+        // told otherwise (the `ffmpeg` tool turns threads on for itself), and
+        // a seek decodes every frame from the keyframe before it: on one
+        // thread a 4K H.264 file decoded at about 87 frames a second, and a
+        // scrub waited 400 ms for its frame. Frame threads for that walk,
+        // slice threads for files cut into slices; zero lets the codec count.
+        // SAFETY: the context is not opened yet, which is when threading is
+        // set, and both fields are plain integers.
+        unsafe {
+            let raw = context.as_mut_ptr();
+            (*raw).thread_type = ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE;
+            (*raw).thread_count = 0;
+        }
         let mut decoder = context
             .decoder()
             .video()
@@ -822,6 +835,56 @@ mod tests {
         .expect("the file opens; the graph is built on the first frame");
         assert!(broken.next_frame().is_err(), "a chain that is not a graph");
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Frame threads hand frames back a few late; a seek must still land
+    /// on exactly the frame it asked for, not one the threads had queued.
+    #[test]
+    fn a_seek_lands_on_the_same_frame_as_decoding_up_to_it() {
+        use crate::{EncodeOptions, Encoder, FrameSink};
+        let path = std::env::temp_dir().join("concat-decode-threads-test.mp4");
+        let mut encoder = Encoder::create(
+            &path,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                preset: "ultrafast".to_owned(),
+                ..EncodeOptions::default()
+            },
+        )
+        .expect("the linked FFmpeg encodes h264");
+        for index in 0..30u8 {
+            // Every frame its own flat grey, so frames are told apart.
+            let pixels = [index * 8, index * 8, index * 8, 255].repeat(64 * 64);
+            let frame = Frame::from_rgba(64, 64, pixels).expect("a frame");
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let options = DecodeOptions::default().scaled_to(64, 64);
+        let mut walked = Decoder::open(&path, &options).expect("opens");
+        let mut fifteenth = None;
+        for _ in 0..=15 {
+            fifteenth = walked.next_frame().expect("decodes");
+        }
+        let mut sought = Decoder::open(&path, &options.clone().starting_at(Rational::new(1, 2)))
+            .expect("opens at half a second");
+        let landed = sought.next_frame().expect("decodes").expect("a frame");
+        let _ = std::fs::remove_file(&path);
+
+        let fifteenth = fifteenth.expect("sixteen frames");
+        let difference = fifteenth
+            .pixels()
+            .iter()
+            .zip(landed.pixels())
+            .map(|(a, b)| u32::from(a.abs_diff(*b)))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            difference <= 2,
+            "the seek landed {difference} levels from frame 15"
+        );
     }
 
     #[test]
