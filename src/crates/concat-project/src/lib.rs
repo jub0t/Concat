@@ -98,6 +98,42 @@ mod tests {
         }
     }
 
+    /// Over JSON a null crop takes the crop off, as the patch documents:
+    /// without `double_option` serde read null as "leave it", so no caller
+    /// on the far side of the API could ever remove a crop.
+    #[test]
+    fn a_null_crop_on_the_wire_takes_the_crop_off() {
+        let (mut editor, _, clip_id) = fixture();
+        let patch = |crop: serde_json::Value| -> Command {
+            serde_json::from_value(json!({
+                "op": "updateClip",
+                "clipId": clip_id,
+                "patch": { "crop": crop }
+            }))
+            .expect("parses")
+        };
+        editor
+            .apply(patch(
+                json!({ "left": 0.2, "top": 0.0, "right": 0.0, "bottom": 0.1 }),
+            ))
+            .expect("crops");
+        assert!(editor.project().active().clips[0].crop.is_some());
+        let outcome = editor.apply(patch(json!(null))).expect("uncrops");
+        assert!(outcome.applied, "null is take it off, not leave it");
+        assert!(editor.project().active().clips[0].crop.is_none());
+
+        let untouched: Command = serde_json::from_value(json!({
+            "op": "updateClip",
+            "clipId": clip_id,
+            "patch": { "opacity": 0.5 }
+        }))
+        .expect("parses");
+        match untouched {
+            Command::UpdateClip { patch, .. } => assert_eq!(patch.crop, None),
+            _ => panic!("not an update"),
+        }
+    }
+
     /// Editor with one media item and one clip at [0, 10) on track one.
     fn fixture() -> (Editor, String, String) {
         let mut editor = Editor::new();
