@@ -337,7 +337,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $version = (Select-String -Path engine\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
+          $version = (Select-String -Path src\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
           $stem = "sherpa-onnx-v$version-${{ matrix.sherpa }}-shared-MT-Release-lib"
           Write-Host "Downloading $stem"
           curl.exe -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
@@ -616,7 +616,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
           New-Item -ItemType Directory -Force "stage\$name" | Out-Null
-          Copy-Item "engine\target\${{ matrix.target }}\app\concat.exe" "stage\$name\"
+          Copy-Item "src\target\${{ matrix.target }}\app\concat.exe" "stage\$name\"
           Copy-Item "$env:FFMPEG_DIR\bin\*.dll" "stage\$name\"
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
