@@ -792,6 +792,239 @@ mod tests {
         );
     }
 
+    /// A key marks an instant of the picture. Cutting the clip around it,
+    /// trimming the clip under it and joining the pieces back must leave it
+    /// on that instant, and a ride cut in two must play, over each piece,
+    /// exactly what the whole played there.
+    #[test]
+    fn keys_stay_on_their_instant_through_split_trim_and_merge() {
+        use crate::model::{KeyEase, KeyProperty};
+        let (mut editor, _, clip_id) = fixture();
+        // Opacity 0 at the head, 1 at the middle (5 s of a 10 s clip), 0.5 at the end.
+        for (at, value) in [(0.0, 0.0), (0.5, 1.0), (1.0, 0.5)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: clip_id.clone(),
+                    property: KeyProperty::Opacity,
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        let whole = editor
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("clip")
+            .clone();
+        let ride_at = |seconds: f64| whole.value_at(KeyProperty::Opacity, seconds / whole.duration);
+
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        let timeline = editor.project().active();
+        let head = timeline.clips[0].clone();
+        let tail = timeline.clips[1].clone();
+        // The head's ride over its four seconds is the whole's over 0-4 s;
+        // the tail's over its six is the whole's over 4-10 s.
+        for seconds in [0.0, 1.0, 2.5, 4.0] {
+            let got = head.value_at(KeyProperty::Opacity, seconds / head.duration);
+            assert!(
+                (got - ride_at(seconds)).abs() < 1e-9,
+                "head at {seconds}: {got}"
+            );
+        }
+        for seconds in [4.0, 5.0, 7.0, 10.0] {
+            let got = tail.value_at(KeyProperty::Opacity, (seconds - 4.0) / tail.duration);
+            assert!(
+                (got - ride_at(seconds)).abs() < 1e-9,
+                "tail at {seconds}: {got}"
+            );
+        }
+        assert_eq!(
+            head.keys.len(),
+            2,
+            "the head: its own key and one on the cut"
+        );
+        assert_eq!(
+            tail.keys.len(),
+            3,
+            "the tail: one on the cut and its own two"
+        );
+
+        // Trimming a second off the tail's head keeps the middle key on
+        // the picture's 5 s: now one second into the tail.
+        editor
+            .apply(Command::TrimClip {
+                clip_id: tail.id.clone(),
+                edge: TrimEdge::Start,
+                delta: 1.0,
+            })
+            .expect("trims");
+        let trimmed = editor
+            .project()
+            .active()
+            .clip(&tail.id)
+            .expect("tail")
+            .clone();
+        let middle = trimmed
+            .keys_on(KeyProperty::Opacity)
+            .find(|key| (key.value - 1.0).abs() < 1e-9)
+            .expect("the middle key");
+        assert!(
+            (middle.at * trimmed.duration - 0.0).abs() < 1e-9,
+            "at {}",
+            middle.at
+        );
+        // And back, so the pieces join again.
+        editor
+            .apply(Command::TrimClip {
+                clip_id: tail.id.clone(),
+                edge: TrimEdge::Start,
+                delta: -1.0,
+            })
+            .expect("trims back");
+
+        editor
+            .apply(Command::MergeClips {
+                clip_ids: vec![clip_id.clone(), tail.id.clone()],
+            })
+            .expect("merges");
+        let merged = editor
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("merged")
+            .clone();
+        assert_eq!(merged.duration, 10.0);
+        for seconds in [0.0, 2.0, 4.0, 5.0, 8.0, 10.0] {
+            let got = merged.value_at(KeyProperty::Opacity, seconds / merged.duration);
+            assert!(
+                (got - ride_at(seconds)).abs() < 1e-9,
+                "merged at {seconds}: {got}"
+            );
+        }
+
+        // Lengthening the end spreads nothing: the keys keep their seconds.
+        editor
+            .apply(Command::TrimClip {
+                clip_id: clip_id.clone(),
+                edge: TrimEdge::End,
+                delta: 10.0,
+            })
+            .expect("extends");
+        let longer = editor
+            .project()
+            .active()
+            .clip(&clip_id)
+            .expect("clip")
+            .clone();
+        let middle = longer
+            .keys_on(KeyProperty::Opacity)
+            .find(|key| (key.value - 1.0).abs() < 1e-9)
+            .expect("the middle key");
+        assert!((middle.at * longer.duration - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_split_leaves_the_entrance_with_the_head_and_the_exit_with_the_tail() {
+        use crate::model::{AnimationSlot, ClipAnimation};
+        let (mut editor, _, clip_id) = fixture();
+        for (slot, preset) in [(AnimationSlot::In, "Fade"), (AnimationSlot::Out, "Fade")] {
+            editor
+                .apply(Command::SetClipAnimation {
+                    clip_id: clip_id.clone(),
+                    slot,
+                    animation: Some(ClipAnimation {
+                        preset: preset.to_owned(),
+                        duration: 0.5,
+                    }),
+                })
+                .expect("animates");
+        }
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    fade_in: Some(0.5),
+                    fade_out: Some(0.5),
+                    ..Default::default()
+                },
+            })
+            .expect("fades");
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        let timeline = editor.project().active();
+        let (head, tail) = (&timeline.clips[0], &timeline.clips[1]);
+        assert!(head.animation_in.is_some() && head.animation_out.is_none());
+        assert!(tail.animation_in.is_none() && tail.animation_out.is_some());
+        assert_eq!((head.fade_in, head.fade_out), (0.5, 0.0));
+        assert_eq!((tail.fade_in, tail.fade_out), (0.0, 0.5));
+
+        let ids: Vec<String> = timeline.clips.iter().map(|clip| clip.id.clone()).collect();
+        editor
+            .apply(Command::MergeClips { clip_ids: ids })
+            .expect("merges");
+        let clip = &editor.project().active().clips[0];
+        assert!(clip.animation_in.is_some() && clip.animation_out.is_some());
+        assert_eq!((clip.fade_in, clip.fade_out), (0.5, 0.5));
+    }
+
+    #[test]
+    fn effect_keys_stay_on_their_instant_through_a_split() {
+        use crate::model::{AppliedFilter, KeyEase};
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    video_effects: Some(vec![AppliedFilter::new("concat.vignette")]),
+                    ..Default::default()
+                },
+            })
+            .expect("applies");
+        for (at, value) in [(0.0, 10.0), (0.8, 90.0)] {
+            editor
+                .apply(Command::SetEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry: 0,
+                    key: "strength".to_owned(),
+                    at,
+                    value,
+                    ease: KeyEase::LINEAR,
+                })
+                .expect("keys");
+        }
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        let timeline = editor.project().active();
+        let (head, tail) = (&timeline.clips[0], &timeline.clips[1]);
+        // The ride is 10 → 90 over 0-8 s: 50 at the cut.
+        let at_cut_head = head.video_effects[0].value_at("strength", 1.0, 0.0);
+        let at_cut_tail = tail.video_effects[0].value_at("strength", 0.0, 0.0);
+        assert!((at_cut_head - 50.0).abs() < 1e-9, "{at_cut_head}");
+        assert!((at_cut_tail - 50.0).abs() < 1e-9, "{at_cut_tail}");
+        // The tail's second key is still on the picture's 8 s: four seconds in.
+        let ninety = tail.video_effects[0]
+            .keys_on("strength")
+            .iter()
+            .find(|key| (key.value - 90.0).abs() < 1e-9)
+            .expect("the 90 key");
+        assert!((ninety.at * tail.duration - 4.0).abs() < 1e-9);
+    }
+
     #[test]
     fn rearranged_pieces_refuse_to_merge() {
         let (mut editor, _, clip_id) = fixture();

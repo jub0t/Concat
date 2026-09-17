@@ -1198,6 +1198,38 @@ pub struct Clip {
     pub extra: Map<String, Value>,
 }
 
+/// One property's keys, as `(at, value, ease)` over `0..=1` of an old
+/// length, re-anchored to the window `(a, b)` of that length; see
+/// [`Clip::rewindow_keys`]. `value_at` is the ride over the old length.
+fn rewindow(
+    keys: impl Iterator<Item = (f64, f64, KeyEase)>,
+    (a, b): (f64, f64),
+    value_at: impl Fn(f64) -> f64,
+) -> Vec<(f64, f64, KeyEase)> {
+    let keys: Vec<(f64, f64, KeyEase)> = keys.collect();
+    let span = b - a;
+    let mut out = Vec::with_capacity(keys.len() + 2);
+    let before = keys.iter().any(|(at, ..)| *at < a - KEY_EPSILON);
+    if before {
+        out.push((0.0, value_at(a), KeyEase::LINEAR));
+    }
+    let mut first_after: Option<KeyEase> = None;
+    for (at, value, ease) in &keys {
+        if *at < a - KEY_EPSILON {
+            continue;
+        }
+        if *at > b + KEY_EPSILON {
+            first_after.get_or_insert(*ease);
+            continue;
+        }
+        out.push((((at - a) / span).clamp(0.0, 1.0), *value, *ease));
+    }
+    if let Some(ease) = first_after {
+        out.push((1.0, value_at(b), ease));
+    }
+    out
+}
+
 impl Default for Clip {
     /// What a document entry starts from before its own fields land on
     /// it: [`Clip::blank`] with no id, on no track, one second of video.
@@ -1457,6 +1489,106 @@ impl Clip {
         let before = self.keys.len();
         self.keys.retain(|key| key.property != property);
         self.keys.len() != before
+    }
+
+    /// Re-anchors every key - the clip's own and its effects' - after the
+    /// clip's span changed, so each key stays at the instant of the picture
+    /// it was set on.
+    ///
+    /// Keys are stored as fractions of the clip's length, which is the
+    /// right unit for a preset and the wrong one for an edit: a split, a
+    /// trim or a merge changes the length under them, and without this a
+    /// fade over the first half of a clip becomes a fade over the first
+    /// half of each piece. `old` is the length the keys were set against;
+    /// `[from, to]` is the window of that length the clip now covers, in
+    /// seconds from its old start. A window past either end of the old
+    /// clip (a trim that extends it, a merge) simply spreads the keys over
+    /// the longer span, where the ride holds its end values anyway.
+    ///
+    /// A key outside the window is replaced by one on the window's edge
+    /// carrying the ride's value there, so the piece plays exactly what
+    /// the whole played over that stretch, and a merge of the pieces gets
+    /// the ride back.
+    pub fn rewindow_keys(&mut self, old: f64, from: f64, to: f64) {
+        let sane = old.is_finite() && old > 0.0 && to.is_finite() && to > from;
+        if !sane {
+            return;
+        }
+        let (a, b) = (from / old, to / old);
+        for property in KeyProperty::ALL {
+            if !self.is_keyed(property) {
+                continue;
+            }
+            let ride = self.track_on(property);
+            let constant = self.constant(property);
+            let keys: Vec<ClipKey> = self.keys_on(property).copied().collect();
+            let windowed = rewindow(
+                keys.iter().map(|key| (key.at, key.value, key.ease)),
+                (a, b),
+                |x| ride.value_at(x, constant),
+            );
+            self.keys.retain(|key| key.property != property);
+            self.keys
+                .extend(windowed.into_iter().map(|(at, value, ease)| ClipKey {
+                    property,
+                    at,
+                    value,
+                    ease,
+                }));
+        }
+        for link in self.filters.iter_mut().chain(self.video_effects.iter_mut()) {
+            let names: Vec<String> = link.keys.keys().cloned().collect();
+            for name in names {
+                let ride = link.track_on(&name);
+                let constant = link.params.get(&name).copied().unwrap_or(0.0);
+                let keys: Vec<ParamKey> = link.keys_on(&name).to_vec();
+                let windowed = rewindow(
+                    keys.iter().map(|key| (key.at, key.value, key.ease)),
+                    (a, b),
+                    |x| ride.value_at(x, constant),
+                );
+                link.keys.insert(
+                    name,
+                    windowed
+                        .into_iter()
+                        .map(|(at, value, ease)| ParamKey { at, value, ease })
+                        .collect(),
+                );
+            }
+            link.sort_keys();
+        }
+        self.sort_keys();
+    }
+
+    /// Takes on the keys of `piece`, a clip that sat `offset` seconds
+    /// after this one's start and has been merged into it: each of its
+    /// keys lands at the same instant of the picture it marked, now
+    /// measured over this clip's `duration`. Effect keys come across where
+    /// the effect at the same position of the chain is the same effect.
+    pub fn absorb_keys(&mut self, piece: &Clip, offset: f64) {
+        let sane = self.duration.is_finite() && self.duration > 0.0;
+        if !sane {
+            return;
+        }
+        for key in &piece.keys {
+            let at = (offset + key.at * piece.duration) / self.duration;
+            self.set_key(key.property, at, key.value, key.ease);
+        }
+        for (mine, theirs) in self.filters.iter_mut().zip(piece.filters.iter()).chain(
+            self.video_effects
+                .iter_mut()
+                .zip(piece.video_effects.iter()),
+        ) {
+            if mine.id != theirs.id {
+                continue;
+            }
+            for (name, run) in &theirs.keys {
+                for key in run {
+                    let at = (offset + key.at * piece.duration) / self.duration;
+                    mine.set_key(name, at, key.value, key.ease);
+                }
+            }
+        }
     }
 
     /// Drops keys that are not finite or not in `0..=1`, then orders them.

@@ -165,7 +165,12 @@ pub(super) fn apply(
             let applied = match edge {
                 TrimEdge::End => {
                     let duration = (clip.duration + delta).max(MIN_CLIP_DURATION);
-                    assign(&mut clip.duration, duration)
+                    let old = clip.duration;
+                    let applied = assign(&mut clip.duration, duration);
+                    if applied {
+                        clip.rewindow_keys(old, 0.0, duration);
+                    }
+                    applied
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
@@ -186,10 +191,15 @@ pub(super) fn apply(
                     } else {
                         (clip.source_start + moved * clip.speed).max(0.0)
                     };
+                    let old = clip.duration;
                     // Bitwise so no assignment is short-circuited away.
-                    assign(&mut clip.start, start)
+                    let applied = assign(&mut clip.start, start)
                         | assign(&mut clip.duration, duration)
-                        | assign(&mut clip.source_start, source_start)
+                        | assign(&mut clip.source_start, source_start);
+                    if applied {
+                        clip.rewindow_keys(old, moved, old);
+                    }
+                    applied
                 }
             };
             Ok(Outcome {
@@ -231,17 +241,27 @@ pub(super) fn apply(
                     offset,
                     clip.reverse,
                 );
+                let whole = clip.duration;
                 let mut tail = clip.clone();
                 tail.id = mint.next("c");
                 tail.start = clip.start + offset;
                 tail.duration = clip.duration - offset;
                 tail.source_start = tail_source;
                 // The transition belongs to the cut at the original clip's
-                // start, which the head keeps.
+                // start, which the head keeps; the way in belongs to the
+                // head and the way out to the tail, so neither piece plays
+                // an entrance or an exit the whole did not have at the cut.
                 tail.transition_in = None;
+                tail.fade_in = 0.0;
+                tail.animation_in = None;
+                tail.rewindow_keys(whole, offset, whole);
                 created = Some(tail.id.clone());
-                timeline.clip_at_mut(index).duration = offset;
-                timeline.clip_at_mut(index).source_start = head_source;
+                let head = timeline.clip_at_mut(index);
+                head.duration = offset;
+                head.source_start = head_source;
+                head.fade_out = 0.0;
+                head.animation_out = None;
+                head.rewindow_keys(whole, 0.0, offset);
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
             // A split always mints the tail, so "minted anything" and
@@ -338,8 +358,15 @@ pub(super) fn apply(
             tail.duration = clip_duration - offset;
             tail.source_start = tail_source;
             tail.transition_in = None;
-            timeline.clip_at_mut(index).duration = offset;
-            timeline.clip_at_mut(index).source_start = head_source;
+            tail.fade_in = 0.0;
+            tail.animation_in = None;
+            tail.rewindow_keys(clip_duration, offset, clip_duration);
+            let head = timeline.clip_at_mut(index);
+            head.duration = offset;
+            head.source_start = head_source;
+            head.fade_out = 0.0;
+            head.animation_out = None;
+            head.rewindow_keys(clip_duration, 0.0, offset);
             timeline.clips.insert(index + 1, Arc::new(tail));
 
             // Ripple every later placement on this track (including the new
@@ -410,6 +437,14 @@ pub(super) fn apply(
                 // clip's in-point is that.
                 survivor.source_start = last.source_start;
             }
+            // Every piece's keys land where they were on the picture; the
+            // way out is the last piece's, as the way in is the first's.
+            survivor.rewindow_keys(first.duration, 0.0, merged_duration);
+            for piece in ordered.iter().skip(1) {
+                survivor.absorb_keys(piece, piece.start - first.start);
+            }
+            survivor.fade_out = last.fade_out;
+            survivor.animation_out = last.animation_out.clone();
             // A validated merge always absorbs at least one piece.
             Ok(Outcome {
                 created_id: Some(first.id),
