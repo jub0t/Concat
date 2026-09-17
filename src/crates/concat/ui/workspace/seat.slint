@@ -300,6 +300,7 @@ export component Seat inherits Rectangle {
             clips: Editor.clips;
             tool: Editor.tool;
             snap: Editor.snap;
+            pan-mode: Editor.pan-mode;
             selected-count: Editor.selected-count;
             merge-blocked-because: Editor.merge-blocked-because;
             sound-selected: Editor.sound-selected;
@@ -316,6 +317,7 @@ export component Seat inherits Rectangle {
             tab-moved(from, to) => { Editor.tab-moved(from, to); }
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
+            pan-changed(on) => { Editor.pan-changed(on); }
             split => { Editor.split(); }
             merge => { Editor.merge(); }
             delete-selected => { Editor.delete-selected(); }
