@@ -15,6 +15,7 @@
 use std::path::Path;
 
 use concat_core::animate::Track;
+use concat_core::time::Rational;
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::encoder;
 use ffmpeg_the_third::filter;
@@ -643,10 +644,8 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
 /// The result ends with the shorter of the two.
 pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
     ffi::init();
-    let mut video_in =
-        ffmpeg::format::input(video).map_err(|error| ffi::fail("open", video, error))?;
-    let mut audio_in =
-        ffmpeg::format::input(audio).map_err(|error| ffi::fail("open", audio, error))?;
+    let video_in = ffmpeg::format::input(video).map_err(|error| ffi::fail("open", video, error))?;
+    let audio_in = ffmpeg::format::input(audio).map_err(|error| ffi::fail("open", audio, error))?;
     let video_stream = video_in
         .streams()
         .best(ffmpeg::media::Type::Video)
@@ -689,85 +688,141 @@ pub fn mux(video: &Path, audio: &Path, output: &Path) -> Result<()> {
         .map(|stream| stream.time_base())
         .unwrap_or(audio_tb);
 
-    // Merge the two streams by timestamp: always take the packet whose
-    // PTS comes next, until both inputs end. Alternating one-and-one
-    // truncated whichever stream carries more packets per second - audio
-    // runs at ~46 packets/s against video's 24-60, so at 30 fps the
-    // soundtrack died at exactly 30/46.9 of the picture. `write_interleaved`
-    // still does the final ordering; feeding it in order keeps its buffer
-    // small. The file ends with the shorter input, as `-shortest`.
-    let next_packet = |input: &mut ffmpeg::format::context::Input,
-                       wanted: usize,
-                       from: ffmpeg::Rational,
-                       to: ffmpeg::Rational,
-                       stream: usize,
-                       path: &Path|
-     -> Result<Option<ffmpeg::Packet>> {
-        loop {
-            let mut packet = ffmpeg::Packet::empty();
-            match packet.read(input) {
-                Ok(()) => {
-                    if packet.stream() != wanted {
-                        continue;
-                    }
-                    packet.set_stream(stream);
-                    packet.rescale_ts(from, to);
-                    packet.set_position(-1);
-                    return Ok(Some(packet));
-                }
-                Err(ffmpeg::Error::Eof) => return Ok(None),
-                Err(error) => return Err(ffi::fail("read", path, error)),
-            }
-        }
-    };
-
-    // Timestamps from each input arrive in that input's own time base -
-    // 1/15360 for this project's video, 1/48000 for its audio - so a bare
-    // integer compare of the two treats one tick of each as equal when they
-    // are not: 1024 ticks is 0.067s of video but only 0.021s of audio. That
-    // silently misordered the interleave, which is enough for some players'
-    // sample tables to come out wrong even though every packet is still
-    // physically written. Comparing in a common unit fixes the ordering
-    // regardless of what the two files' time bases happen to be.
-    let compare_pts = |pts: Option<i64>, tb: ffmpeg::Rational| -> i64 {
-        let pts = pts.unwrap_or(i64::MIN);
-        if pts == i64::MIN {
-            return i64::MIN;
-        }
-        pts.saturating_mul(tb.numerator() as i64) / tb.denominator() as i64
-    };
-
-    let mut video_packet =
-        next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
-    let mut audio_packet =
-        next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
+    // Whichever stream's next packet is due sooner goes next. The
+    // interleaver only orders what it has been handed, and handing it one
+    // packet from each in turn let the denser stream fall behind: at 30 fps
+    // the sound (a packet every 21.3 ms) ran out of picture packets (every
+    // 33.3 ms) two-thirds of the way through, and at 60 fps it was the
+    // picture (every 16.7 ms) that stopped at three-quarters, one frame
+    // held under the rest of the sound - issue #112. Ordering by due time
+    // keeps the two abreast however their packet rates compare, and in
+    // seconds rather than ticks, since the two files' time bases differ.
+    let mut feeds = [
+        Feed::new(video_in, video_index, video_tb, out_video_tb, 0, video),
+        Feed::new(audio_in, audio_index, audio_tb, out_audio_tb, 1, audio),
+    ];
     loop {
-        let take_video = match (&video_packet, &audio_packet) {
-            (Some(v), Some(a)) => {
-                compare_pts(v.pts(), out_video_tb) <= compare_pts(a.pts(), out_audio_tb)
-            }
-            (Some(_), None) => true,
-            (None, Some(_)) => false,
-            (None, None) => break,
-        };
-        if take_video {
-            let packet = video_packet.take().expect("checked above");
-            packet
-                .write_interleaved(&mut out)
-                .map_err(|error| ffi::fail("write packet", output, error))?;
-            video_packet =
-                next_packet(&mut video_in, video_index, video_tb, out_video_tb, 0, video)?;
-        } else {
-            let packet = audio_packet.take().expect("checked above");
-            packet
-                .write_interleaved(&mut out)
-                .map_err(|error| ffi::fail("write packet", output, error))?;
-            audio_packet =
-                next_packet(&mut audio_in, audio_index, audio_tb, out_audio_tb, 1, audio)?;
+        for feed in &mut feeds {
+            feed.fill()?;
         }
+        // The file ends with the shorter of the two: once one stream has
+        // run out, the other carries on only to where that one ended.
+        let cutoff = feeds
+            .iter()
+            .filter(|feed| feed.next.is_none())
+            .map(|feed| feed.end)
+            .min();
+        let Some(pick) = feeds
+            .iter()
+            .enumerate()
+            .filter(|(_, feed)| feed.next.is_some())
+            .min_by_key(|(_, feed)| feed.due())
+            .map(|(index, _)| index)
+        else {
+            break;
+        };
+        if let Some(cutoff) = cutoff
+            && feeds[pick].shown().is_some_and(|shown| shown >= cutoff)
+        {
+            break;
+        }
+        feeds[pick].write(&mut out, output)?;
     }
     out.write_trailer()
         .map_err(|error| ffi::fail("write trailer", output, error))
+}
+
+/// One input of the mux: its demuxer, which of its streams is wanted, and
+/// the packet of that stream waiting to be written.
+struct Feed<'a> {
+    input: ffmpeg::format::context::Input,
+    wanted: usize,
+    /// The input stream's time base, and the output stream's.
+    from: ffmpeg::Rational,
+    to: ffmpeg::Rational,
+    /// The output stream the packets go to.
+    stream: usize,
+    path: &'a Path,
+    next: Option<ffmpeg::Packet>,
+    done: bool,
+    /// When the packet last written stops showing, in seconds.
+    end: Rational,
+}
+
+impl<'a> Feed<'a> {
+    fn new(
+        input: ffmpeg::format::context::Input,
+        wanted: usize,
+        from: ffmpeg::Rational,
+        to: ffmpeg::Rational,
+        stream: usize,
+        path: &'a Path,
+    ) -> Self {
+        Self {
+            input,
+            wanted,
+            from,
+            to,
+            stream,
+            path,
+            next: None,
+            done: false,
+            end: Rational::ZERO,
+        }
+    }
+
+    /// Reads ahead to the next packet of the wanted stream, unless one is
+    /// already waiting or the input has ended.
+    fn fill(&mut self) -> Result<()> {
+        while self.next.is_none() && !self.done {
+            let mut packet = ffmpeg::Packet::empty();
+            match packet.read(&mut self.input) {
+                Ok(()) => {
+                    if packet.stream() == self.wanted {
+                        self.next = Some(packet);
+                    }
+                }
+                Err(ffmpeg::Error::Eof) => self.done = true,
+                Err(error) => return Err(ffi::fail("read", self.path, error)),
+            }
+        }
+        Ok(())
+    }
+
+    /// When the waiting packet is due, in seconds: its decode time, which
+    /// is the order the interleaver wants, or its presentation time when
+    /// the container gave no other. None, for a packet with neither, sorts
+    /// first, so it goes out at once.
+    fn due(&self) -> Option<Rational> {
+        let packet = self.next.as_ref()?;
+        let ticks = packet.dts().or(packet.pts())?;
+        ffi::seconds(ticks, self.from)
+    }
+
+    /// When the waiting packet is shown, in seconds.
+    fn shown(&self) -> Option<Rational> {
+        let packet = self.next.as_ref()?;
+        let ticks = packet.pts().or(packet.dts())?;
+        ffi::seconds(ticks, self.from)
+    }
+
+    /// Writes the waiting packet to the output.
+    fn write(&mut self, out: &mut ffmpeg::format::context::Output, output: &Path) -> Result<()> {
+        let Some(mut packet) = self.next.take() else {
+            return Ok(());
+        };
+        if let Some(ticks) = packet.pts().or(packet.dts())
+            && let Some(end) = ffi::seconds(ticks + packet.duration(), self.from)
+        {
+            self.end = end;
+        }
+        packet.set_stream(self.stream);
+        packet.rescale_ts(self.from, self.to);
+        packet.set_position(-1);
+        packet
+            .write_interleaved(out)
+            .map_err(|error| ffi::fail("write packet", output, error))
+    }
 }
 
 #[cfg(test)]
@@ -912,6 +967,134 @@ mod tests {
                 "{bad:?} should have been refused",
             );
         }
+    }
+
+    /// Silence for `seconds`, as the AAC file the mix writes.
+    fn silent_aac(destination: &Path, seconds: f64) {
+        ffi::init();
+        let codec = encoder::find_by_name("aac").expect("the linked FFmpeg encodes aac");
+        let mut output = ffmpeg::format::output(destination).expect("creates");
+        let mut audio = ffmpeg::codec::Context::new_with_codec(codec)
+            .encoder()
+            .audio()
+            .expect("audio encoder");
+        audio.set_rate(MIX_RATE as i32);
+        audio.set_format(MIX_FORMAT);
+        audio.set_ch_layout(ChannelLayout::STEREO);
+        audio.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
+        if output
+            .format()
+            .flags()
+            .contains(ffmpeg::format::Flags::GLOBAL_HEADER)
+        {
+            audio.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
+        }
+        let mut encoder = audio.open().expect("opens");
+        let frame_size = encoder.frame_size().max(1) as usize;
+        {
+            let mut stream = output.add_stream(codec).expect("adds a stream");
+            stream.copy_parameters_from_context(&encoder);
+            stream.set_time_base(ffmpeg::Rational::new(1, MIX_RATE as i32));
+        }
+        output.write_header().expect("writes the header");
+        let stream_time_base = output.stream(0).expect("one stream").time_base();
+        let drain = |encoder: &mut encoder::audio::Encoder,
+                     output: &mut ffmpeg::format::context::Output| {
+            loop {
+                let mut packet = ffmpeg::Packet::empty();
+                match encoder.receive_packet(&mut packet) {
+                    Ok(()) => {
+                        packet.set_stream(0);
+                        packet.rescale_ts(
+                            ffmpeg::Rational::new(1, MIX_RATE as i32),
+                            stream_time_base,
+                        );
+                        packet.write_interleaved(output).expect("writes a packet");
+                    }
+                    Err(_) => return,
+                }
+            }
+        };
+        let total = (seconds * f64::from(MIX_RATE)) as i64;
+        let mut written: i64 = 0;
+        while written < total {
+            let mut frame = Audio::new(
+                MIX_FORMAT,
+                frame_size,
+                ffmpeg::util::channel_layout::ChannelLayoutMask::STEREO,
+            );
+            frame.set_ch_layout(ChannelLayout::STEREO);
+            frame.set_rate(MIX_RATE);
+            // The buffer comes uninitialised, and the encoder refuses a
+            // NaN: silence is written, one plane a channel. By sample, not
+            // by byte: the byte view knows the length of plane 0 only.
+            for plane in 0..frame.planes() {
+                frame.plane_mut::<f32>(plane).fill(0.0);
+            }
+            frame.set_pts(Some(written));
+            written += frame_size as i64;
+            encoder.send_frame(&frame).expect("encodes");
+            drain(&mut encoder, &mut output);
+        }
+        encoder.send_eof().expect("flushes");
+        drain(&mut encoder, &mut output);
+        output.write_trailer().expect("writes the trailer");
+    }
+
+    /// Packets per output stream, in stream order.
+    fn packets_of(path: &Path) -> Vec<usize> {
+        let mut input = ffmpeg::format::input(path).expect("opens");
+        let mut counts = vec![0; input.nb_streams() as usize];
+        for item in input.packets() {
+            let (stream, _) = item.expect("reads");
+            counts[stream.index()] += 1;
+        }
+        counts
+    }
+
+    /// Issue #112: a 60 fps export froze at three-quarters of its length.
+    /// The picture's packets come denser than the sound's, and copying one
+    /// from each in turn had the sound reach its end first, which ended the
+    /// file with a quarter of the picture unwritten.
+    #[test]
+    fn the_mux_keeps_the_whole_picture_when_its_packets_come_denser_than_the_sound() {
+        use crate::{EncodeOptions, Encoder, FrameSink};
+        use concat_core::frame::Frame;
+        use concat_core::time::FrameRate;
+
+        let dir = std::env::temp_dir();
+        let video = dir.join("concat-mux-test-picture.mp4");
+        let audio = dir.join("concat-mux-test-sound.m4a");
+        let output = dir.join("concat-mux-test-joined.mp4");
+
+        // Four seconds: 240 picture packets against about 190 of sound.
+        let frames = 240;
+        let options = EncodeOptions {
+            preset: "ultrafast".to_owned(),
+            ..EncodeOptions::default()
+        };
+        let mut encoder = Encoder::create(&video, 64, 64, FrameRate::SIXTY, &options)
+            .expect("the linked FFmpeg encodes h264");
+        let frame = Frame::black(64, 64);
+        for _ in 0..frames {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        silent_aac(&audio, 4.0);
+
+        let result = mux(&video, &audio, &output);
+        let counts = packets_of(&output);
+        let _ = std::fs::remove_file(&video);
+        let _ = std::fs::remove_file(&audio);
+        let _ = std::fs::remove_file(&output);
+        result.expect("muxes");
+
+        assert_eq!(counts[0], frames, "every picture packet is in the file");
+        assert!(
+            counts[1] > 150,
+            "the sound is there too, not {} packets",
+            counts[1]
+        );
     }
 
     #[test]
