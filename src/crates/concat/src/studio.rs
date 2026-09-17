@@ -7095,23 +7095,6 @@ impl Studio {
             clip.volume <= 0.0,
             !locked && audible,
         ));
-        if self.prefs.custom_context_actions {
-            rows.push(check(
-                "flip-h",
-                &t("Flip horizontal"),
-                "H",
-                clip.flip_h,
-                !locked,
-            ));
-            rows.push(check(
-                "flip-v",
-                &t("Flip vertical"),
-                "J",
-                clip.flip_v,
-                !locked,
-            ));
-            rows.push(check("reverse", &t("Reverse"), "R", clip.reverse, !locked));
-        }
         rows.push(check("lock", &t("Lock track"), "", locked, true));
         rows.push(rule());
         rows.push(MenuItemData {
@@ -7498,6 +7481,9 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
+        if !self.prefs.custom_context_actions && matches!(action, "flip-h" | "flip-v" | "reverse") {
+            return;
+        }
         match action {
             "split" => {
                 let at = self.playhead;
