@@ -3467,6 +3467,11 @@ impl Studio {
             ClipTextField::FontFamily => text.font_family = value.to_owned(),
             _ => {}
         }
+        // The words are on the echo now; show them. A title being typed is
+        // painted in memory at the monitor's size, the way a grip drag is,
+        // so the picture keeps up with the keystrokes while the commit
+        // still lands once, on the way out of the field.
+        self.request_preview();
     }
 
     pub fn clip_set_colour(&mut self, field: ClipTextField, value: slint::Color) {

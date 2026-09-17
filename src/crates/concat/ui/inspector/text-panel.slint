@@ -104,8 +104,13 @@ export component TextPanel inherits VerticalLayout {
                     selection-background-color: Theme.accent;
                     selection-foreground-color: Theme.on-accent;
 
-                    // Committed on the way out rather than per keystroke, so a
-                    // title being typed is one change and not forty.
+                    // Every keystroke goes to the echo so the monitor shows
+                    // the words as they are typed; the commit waits for the
+                    // way out, so a title being typed is one change and not
+                    // forty.
+                    edited => {
+                        root.set-text(ClipTextField.content, self.text);
+                    }
                     changed has-focus => {
                         if (!self.has-focus) {
                             root.set-text(ClipTextField.content, self.text);
