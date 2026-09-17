@@ -187,6 +187,88 @@ mod tests {
         );
     }
 
+    /// A freeze cuts the clip the way a split does, so a reversed or curved
+    /// clip has to come out of it the way a split leaves one: both pieces at
+    /// the constant mean, forwards, meeting at the frozen source time.
+    #[test]
+    fn freeze_frame_on_a_reversed_or_curved_clip_keeps_the_pieces_continuous() {
+        for (reverse, curve) in [
+            (true, None),
+            (
+                false,
+                Some(vec![
+                    crate::model::SpeedPoint {
+                        at: 0.0,
+                        speed: 0.5,
+                    },
+                    crate::model::SpeedPoint {
+                        at: 1.0,
+                        speed: 2.0,
+                    },
+                ]),
+            ),
+        ] {
+            let (mut editor, _, clip_id) = fixture();
+            editor
+                .apply(Command::UpdateClip {
+                    clip_id: clip_id.clone(),
+                    patch: ClipPatch {
+                        reverse: Some(reverse),
+                        ..Default::default()
+                    },
+                })
+                .expect("reverses");
+            editor
+                .apply(Command::SetClipSpeedCurve {
+                    clip_id: clip_id.clone(),
+                    curve: curve.clone(),
+                })
+                .expect("curves");
+            let freeze_id = editor
+                .apply(Command::FreezeFrame {
+                    clip_id: clip_id.clone(),
+                    time: 4.0,
+                    duration: Some(1.0),
+                    still: Some(NewMedia {
+                        path: "/freeze.jpg".into(),
+                        name: "freeze.jpg".into(),
+                        duration: None,
+                        kind: MediaKind::Image,
+                        width: Some(1920),
+                        height: Some(1080),
+                        frame_rate: None,
+                        frame_rate_fraction: None,
+                        video_codec: None,
+                        audio_codec: None,
+                        has_audio: false,
+                        audio_tracks: Vec::new(),
+                    }),
+                })
+                .expect("freezes")
+                .created_id
+                .expect("freeze id");
+
+            let timeline = editor.project().active();
+            let head = timeline.clip(&clip_id).expect("head");
+            let tail = timeline
+                .clips
+                .iter()
+                .find(|clip| clip.id != clip_id && clip.id != freeze_id)
+                .expect("tail");
+            for piece in [head, tail] {
+                assert!(
+                    !piece.reverse && piece.speed_curve.is_none(),
+                    "reverse {reverse}, curve {curve:?}: a piece kept a map its in-point was not computed for"
+                );
+            }
+            assert_eq!(
+                head.source_start + head.duration * head.speed,
+                tail.source_start,
+                "reverse {reverse}, curve {curve:?}: the tail picks up where the head ends"
+            );
+        }
+    }
+
     #[test]
     fn split_produces_source_continuous_halves_and_merge_rejoins_them() {
         let (mut editor, _, clip_id) = fixture();

@@ -1363,6 +1363,15 @@ pub fn apply(
             let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
                 return Ok(Outcome::default());
             };
+            // The cut is a split's, so it leaves the pieces as a split does:
+            // under a curve or a reverse the map is not affine, and the
+            // in-point below assumes it is, so both pieces go to the constant
+            // mean they averaged.
+            {
+                let clip = &mut timeline.clips[index];
+                clip.speed_curve = None;
+                clip.reverse = false;
+            }
             let offset = time - start;
             let mut tail = timeline.clips[index].clone();
             tail.id = mint.next("c");
