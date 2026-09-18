@@ -104,13 +104,34 @@ export component TextPanel inherits VerticalLayout {
                     selection-background-color: Theme.accent;
                     selection-foreground-color: Theme.on-accent;
 
-                    // Committed on the way out rather than per keystroke, so a
-                    // title being typed is one change and not forty.
+                    // Every keystroke goes to the echo so the monitor shows
+                    // the words as they are typed; the commit waits for the
+                    // way out, so a title being typed is one change and not
+                    // forty.
+                    edited => {
+                        root.set-text(ClipTextField.content, self.text);
+                    }
                     changed has-focus => {
                         if (!self.has-focus) {
                             root.set-text(ClipTextField.content, self.text);
                             root.commit();
                         }
+                    }
+
+                    // Slint binds Home and End to nothing on macOS, so they
+                    // walked up to the window's playhead shortcuts and the
+                    // preview went blank mid-sentence. They belong to the
+                    // text: the start and the end of it.
+                    key-pressed(event) => {
+                        if (event.text == Key.Home) {
+                            self.set-selection-offsets(0, 0);
+                            return accept;
+                        }
+                        if (event.text == Key.End) {
+                            self.set-selection-offsets(1000000000, 1000000000);
+                            return accept;
+                        }
+                        return reject;
                     }
                 }
             }

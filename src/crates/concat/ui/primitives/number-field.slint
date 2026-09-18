@@ -147,6 +147,16 @@ export component NumberField inherits Rectangle {
                     self.select-all();
                     return EventResult.accept;
                 }
+                // Home and End are unbound in Slint on macOS and would walk
+                // up to the window's playhead shortcuts; keep them in the field.
+                if (event.text == Key.Home) {
+                    self.set-selection-offsets(0, 0);
+                    return EventResult.accept;
+                }
+                if (event.text == Key.End) {
+                    self.set-selection-offsets(1000000000, 1000000000);
+                    return EventResult.accept;
+                }
                 return EventResult.reject;
             }
         }
