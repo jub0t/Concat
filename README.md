@@ -53,7 +53,7 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 
 **Platform support:**
 
-- ✅ **Windows** — tested
+- ✅ **Windows**
   - ✅ x86_64
 - ✅ **macOS** — unsigned binaries; run:
   `xattr -dr com.apple.quarantine /Applications/Concat.app`
