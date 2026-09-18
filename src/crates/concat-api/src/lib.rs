@@ -828,6 +828,7 @@ mod tests {
             Request::EditApply {
                 path: "/p".to_owned(),
                 command: Box::new(Command::AddTextClip {
+                    above: false,
                     track_id: None,
                     start: 1.5,
                     style: None,
@@ -978,6 +979,7 @@ mod tests {
         ok(api.dispatch(Request::EditApply {
             path: path.clone(),
             command: Box::new(Command::AddTextClip {
+                above: false,
                 track_id: None,
                 start: 0.0,
                 style: None,

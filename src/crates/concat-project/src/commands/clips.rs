@@ -66,6 +66,7 @@ pub(super) fn apply(
             style,
             duration,
             offset_y,
+            above,
         } => {
             let style = style.unwrap_or_default();
             let duration = duration
@@ -75,6 +76,21 @@ pub(super) fn apply(
             let track_id = match track_id {
                 Some(id) if timeline.track(&id).is_some() => id,
                 Some(_) => return Err(CommandError::TrackGone),
+                None if above => match first_free_track_above(timeline, start, duration) {
+                    Some(id) => id,
+                    None => {
+                        // Every lane above the video is taken: mint one at
+                        // the top for the caption to land on.
+                        let id = mint.next("t");
+                        timeline.tracks.push(Track {
+                            id: id.clone(),
+                            visible: true,
+                            muted: false,
+                            extra: Default::default(),
+                        });
+                        id
+                    }
+                },
                 None => {
                     first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
                 }
@@ -501,6 +517,36 @@ fn first_free_track(timeline: &Timeline, start: f64, duration: f64) -> Option<St
             })
         })
         .or(timeline.tracks.first())
+        .map(|track| track.id.clone())
+}
+
+/// First free lane *above* the highest one occupied over `[start, start +
+/// duration)`. `None` when every lane above is taken, which is the caller's
+/// cue to mint a new one at the top.
+///
+/// Captions go through this so they sit over the video, not under it. The
+/// plain `first_free_track` still walks from the bottom, which is what a
+/// title added by hand wants.
+fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Option<String> {
+    let end = start + duration;
+    let occupied = |track_id: &str| {
+        timeline.clips.iter().any(|clip| {
+            clip.track_id == track_id && clip.start < end && start < clip.start + clip.duration
+        })
+    };
+    let floor = timeline
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| occupied(&track.id))
+        .map(|(row, _)| row + 1)
+        .max()
+        .unwrap_or(0);
+    timeline
+        .tracks
+        .iter()
+        .skip(floor)
+        .find(|track| !occupied(&track.id))
         .map(|track| track.id.clone())
 }
 

@@ -276,6 +276,7 @@ fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Co
     let (offset_y, font_size) = look;
     Command::AddTextClip {
         track_id: None,
+        above: true,
         start,
         style: Some(TextStyle {
             content: text,
