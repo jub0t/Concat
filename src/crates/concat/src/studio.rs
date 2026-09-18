@@ -54,6 +54,7 @@ use crate::host::{
     window_start,
 };
 use crate::i18n::{self, t, tf};
+use crate::panes::captions::CHARS_PER_SECOND;
 use crate::panes::settings::installed;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
@@ -208,28 +209,6 @@ pub struct ProjectSheet {
     pub rate: usize,
 }
 
-/// The captions sheet: the tray's Captions tool, as a form and then as a
-/// progress report.
-#[derive(Default)]
-pub struct CaptionsSheet {
-    pub open: bool,
-    /// The clip being transcribed: the one selected when the sheet opened,
-    /// when it had sound. None, and the sheet is a script instead.
-    pub clip: Option<String>,
-    /// The script's words.
-    pub text: String,
-    /// Row in the installed transcriber list.
-    pub model: usize,
-    /// 0 bottom, 1 centre, 2 top.
-    pub placement: usize,
-    /// 0 small, 1 medium, 2 large.
-    pub size: usize,
-    pub running: bool,
-    pub progress: f32,
-    /// Why the last run failed, when it did.
-    pub message: String,
-}
-
 /// The speech sheet: a title's words, or any words, read aloud.
 #[derive(Default)]
 pub struct SpeechSheet {
@@ -251,13 +230,6 @@ pub struct SpeechSheet {
 
 /// The paces the speech sheet offers, as the voice's rate multiplier.
 const PACES: [f32; 3] = [0.85, 1.0, 1.15];
-/// Where a caption sits, by the sheet's row: a frame-height fraction from
-/// the centre, positive down. Bottom, centre, top.
-const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
-/// A caption's cap height by the sheet's row, as a fraction of the frame.
-const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
-/// A rough speaking rate, for the estimate under the script.
-const CHARS_PER_SECOND: f32 = 14.0;
 
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
@@ -762,7 +734,7 @@ pub struct Studio {
     pub title_blocks: HashMap<String, ((u32, u32), (i32, i32))>,
     pub drop: Option<DropPlan>,
     pub project_sheet: ProjectSheet,
-    pub captions: CaptionsSheet,
+    pub captions: crate::panes::captions::CaptionsPane,
     pub speech: SpeechSheet,
     /// Every speaker the voice engine offers, in its own order.
     pub speakers: Vec<concat_speech::tts::VoiceInfo>,
@@ -1393,7 +1365,7 @@ impl Studio {
             title_blocks: HashMap::new(),
             drop: None,
             project_sheet: ProjectSheet::default(),
-            captions: CaptionsSheet::default(),
+            captions: crate::panes::captions::CaptionsPane::default(),
             speech: SpeechSheet::default(),
             speakers: Vec::new(),
             text_presets,
@@ -4845,7 +4817,7 @@ impl Studio {
     /// Whether the clip has sound to transcribe: an audio clip, or a video
     /// clip whose file carries an audio stream. A silent video is not a
     /// sound source, however much it looks like one.
-    fn clip_has_sound(&self, clip: &Clip) -> bool {
+    pub(crate) fn clip_has_sound(&self, clip: &Clip) -> bool {
         match clip.kind {
             model::ClipKind::Audio => true,
             model::ClipKind::Video => self
@@ -5146,177 +5118,15 @@ impl Studio {
                 pane.update(msg, self);
                 self.settings = pane;
             }
+            crate::panes::Msg::Captions(msg) => {
+                let mut pane = std::mem::take(&mut self.captions);
+                pane.update(msg, self);
+                self.captions = pane;
+            }
         }
     }
 
     // ── speech ──
-
-    /// Opens the captions sheet with the chosen model already picked. What
-    /// it captions is decided here, not asked: the selected clip's sound
-    /// when one clip with sound is selected, and a script otherwise.
-    pub fn captions_open(&mut self) {
-        let installed = installed(&self.settings.transcribers);
-        let model = installed.iter().position(|model| model.active).unwrap_or(0);
-        let clip = self
-            .sole_selection()
-            .and_then(|id| self.clip(&id))
-            .filter(|clip| self.clip_has_sound(clip))
-            .map(|clip| clip.id.clone());
-        self.captions = CaptionsSheet {
-            open: true,
-            clip,
-            model,
-            placement: 0,
-            size: 1,
-            ..CaptionsSheet::default()
-        };
-    }
-
-    /// Runs the pass the sheet describes: the sound through the
-    /// transcriber, or the script cut into lines. Either lands as one batch
-    /// of title clips - one undo step.
-    pub fn captions_run(&mut self) {
-        if self.captions.clip.is_some() {
-            self.captions_from_sound();
-        } else {
-            self.captions_from_script();
-        }
-    }
-
-    /// A caption's look, by the sheet's rows: where it sits and its size.
-    fn caption_look(&self) -> (f64, f64) {
-        (
-            CAPTION_OFFSETS[self.captions.placement.min(2)],
-            CAPTION_SIZES[self.captions.size.min(2)],
-        )
-    }
-
-    fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Command {
-        let (offset_y, font_size) = look;
-        Command::AddTextClip {
-            track_id: None,
-            start,
-            style: Some(TextStyle {
-                content: text,
-                font_family: "Helvetica Neue".to_owned(),
-                font_size,
-                font_weight: 600.0,
-                ..TextStyle::default()
-            }),
-            duration: Some(duration),
-            offset_y: Some(offset_y),
-        }
-    }
-
-    /// The script as titles, one after another from the playhead.
-    fn captions_from_script(&mut self) {
-        let lines = script_captions(&self.captions.text);
-        if lines.is_empty() {
-            self.captions.message = t("Nothing to caption yet");
-            return;
-        }
-        let look = self.caption_look();
-        let mut at = f64::from(self.playhead);
-        let commands: Vec<Command> = lines
-            .into_iter()
-            .map(|(text, seconds)| {
-                let command = Self::caption_clip(text, at, seconds, look);
-                at += seconds;
-                command
-            })
-            .collect();
-        let count = commands.len();
-        self.captions.open = false;
-        self.apply(Command::Batch { commands });
-        self.notify(&tf("Added {0} captions", &[&count]), false);
-    }
-
-    /// The sheet's clip through the transcriber on a worker, reporting into
-    /// the sheet as it goes.
-    fn captions_from_sound(&mut self) {
-        let Some(clip) = self
-            .captions
-            .clip
-            .as_ref()
-            .and_then(|id| self.clip(id))
-            .cloned()
-        else {
-            self.captions.message = t("The clip is no longer on the timeline");
-            return;
-        };
-        let Some(media) = self.project().media_by_id(&clip.media_id).cloned() else {
-            self.captions.message = t("This clip has no file to transcribe");
-            return;
-        };
-        let Some(model) = installed(&self.settings.transcribers)
-            .get(self.captions.model)
-            .map(|model| model.id.clone())
-        else {
-            self.captions.message =
-                t("Download a transcriber model in Settings › Transcriber first");
-            return;
-        };
-        let request = concat_speech::transcribe::TranscribeRequest {
-            path: media.path.clone(),
-            audio_stream: clip.audio_stream,
-            source_start: clip.source_start,
-            window: clip.duration * clip.speed,
-            model_id: model,
-        };
-        let look = self.caption_look();
-        let dirs = self.host.dirs.clone();
-        let transcriber = Arc::clone(&self.host.transcriber);
-        self.captions.running = true;
-        self.captions.progress = 0.0;
-        self.captions.message.clear();
-        spawn(
-            move || {
-                transcriber.transcribe(&dirs, &request, |percent| {
-                    on_ui(move |studio, _, _| {
-                        studio.captions.progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
-                    });
-                })
-            },
-            move |studio, _, _, result| {
-                studio.captions.running = false;
-                match result {
-                    Ok(segments) => {
-                        let commands: Vec<Command> = segments
-                            .into_iter()
-                            .filter_map(|segment| {
-                                let text = segment.text.trim().to_owned();
-                                (!text.is_empty()).then(|| {
-                                    Self::caption_clip(
-                                        text,
-                                        clip.start + segment.start / clip.speed,
-                                        ((segment.end - segment.start) / clip.speed).max(0.2),
-                                        look,
-                                    )
-                                })
-                            })
-                            .collect();
-                        let count = commands.len();
-                        studio.captions.open = false;
-                        if count == 0 {
-                            studio.notify(&t("Nothing was said in that clip"), true);
-                        } else {
-                            studio.apply(Command::Batch { commands });
-                            studio.notify(&tf("Added {0} captions", &[&count]), false);
-                        }
-                    }
-                    // Asked for: the sheet is already on its way down.
-                    Err(error) if error.contains("cancel") => studio.captions.open = false,
-                    Err(error) => studio.captions.message = error,
-                }
-            },
-        );
-    }
-
-    pub fn captions_cancel(&mut self) {
-        self.host.transcriber.cancel();
-        self.captions.running = false;
-        self.captions.open = false;
-    }
 
     /// Opens the speech sheet: on the selected title's words when a title
     /// is selected, else on a blank script to be read at the playhead. The
@@ -6553,25 +6363,7 @@ impl Studio {
                 .map(|model| SharedString::from(model.name.as_str()))
                 .collect(),
         );
-        app.set_captions(CaptionsSheetData {
-            open: self.captions.open,
-            from_sound: self.captions.clip.is_some(),
-            subject: self
-                .captions
-                .clip
-                .as_ref()
-                .and_then(|id| self.clip(id))
-                .map(|clip| SharedString::from(clip.name.as_str()))
-                .unwrap_or_else(|| t("at the playhead").into()),
-            text: self.captions.text.as_str().into(),
-            model: self.captions.model as i32,
-            placement: self.captions.placement as i32,
-            size: self.captions.size as i32,
-            running: self.captions.running,
-            progress: self.captions.progress,
-            ready: !transcribers.is_empty(),
-            message: self.captions.message.as_str().into(),
-        });
+        app.set_captions(self.captions.data(self));
         let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
@@ -7260,130 +7052,9 @@ impl Studio {
     }
 }
 
-/// Longest a caption line gets before it is wrapped: about what two lines
-/// of broadcast subtitle hold, and what a reader takes in at a glance.
-const CAPTION_CHARS: usize = 42;
-
-/// A script as caption lines, each with how long it stays up: a line's
-/// reading time at [`CHARS_PER_SECOND`], held to one second at least so
-/// a short word is not a flicker, and seven at most so a long line does
-/// not hang. A line break in the script is a break the author asked for;
-/// within a paragraph a sentence is a caption, and a long sentence wraps
-/// at its words.
-fn script_captions(text: &str) -> Vec<(String, f64)> {
-    text.lines()
-        .flat_map(sentences)
-        .flat_map(|sentence| wrap_caption(&sentence))
-        .map(|line| {
-            let seconds =
-                (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
-            (line, seconds)
-        })
-        .collect()
-}
-
-/// A paragraph's sentences. A full stop, question or exclamation mark ends
-/// one when it is followed by space or by the end - so "3.5" and "e.g." hold
-/// together - and the CJK marks end one on their own.
-fn sentences(paragraph: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut chars = paragraph.chars().peekable();
-    while let Some(ch) = chars.next() {
-        current.push(ch);
-        let ends = match ch {
-            '。' | '！' | '？' => true,
-            '.' | '!' | '?' => chars.peek().is_none_or(|next| next.is_whitespace()),
-            _ => false,
-        };
-        if ends {
-            let sentence = current.trim();
-            if !sentence.is_empty() {
-                out.push(sentence.to_owned());
-            }
-            current.clear();
-        }
-    }
-    let rest = current.trim();
-    if !rest.is_empty() {
-        out.push(rest.to_owned());
-    }
-    out
-}
-
-/// A sentence in lines of at most [`CAPTION_CHARS`], broken between words;
-/// a word longer than a line, or a run of CJK with no spaces, is broken
-/// where it must be.
-fn wrap_caption(sentence: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    let mut line_chars = 0;
-    for word in sentence.split_whitespace() {
-        let word_chars = word.chars().count();
-        if line_chars > 0 && line_chars + 1 + word_chars > CAPTION_CHARS {
-            lines.push(std::mem::take(&mut line));
-            line_chars = 0;
-        }
-        if word_chars > CAPTION_CHARS {
-            let mut piece = String::new();
-            for ch in word.chars() {
-                piece.push(ch);
-                if piece.chars().count() == CAPTION_CHARS {
-                    lines.push(std::mem::take(&mut piece));
-                }
-            }
-            line = piece;
-            line_chars = line.chars().count();
-            continue;
-        }
-        if line_chars > 0 {
-            line.push(' ');
-            line_chars += 1;
-        }
-        line.push_str(word);
-        line_chars += word_chars;
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Footprint, Studio, script_captions};
-
-    /// A script becomes one caption per sentence, a hand line break is
-    /// kept, a long sentence wraps at its words, and each line is held for
-    /// its reading time within one to seven seconds.
-    #[test]
-    fn a_script_is_cut_into_readable_lines() {
-        let lines = script_captions(
-            "Hello there. This is version 3.5, mind!\n\nA sentence that runs on for far \
-             longer than a caption line has any business running on for. Ok?",
-        );
-        let text: Vec<&str> = lines.iter().map(|(line, _)| line.as_str()).collect();
-        assert_eq!(
-            text,
-            [
-                "Hello there.",
-                "This is version 3.5, mind!",
-                "A sentence that runs on for far longer",
-                "than a caption line has any business",
-                "running on for.",
-                "Ok?",
-            ]
-        );
-        assert!(
-            lines
-                .iter()
-                .all(|(_, seconds)| (1.0..=7.0).contains(seconds))
-        );
-        assert_eq!(lines[0].1, 1.0);
-        assert!(lines[2].1 > lines[0].1);
-        assert!(script_captions("  \n ").is_empty());
-        assert_eq!(script_captions("你好。再见！").len(), 2);
-    }
+    use super::{Footprint, Studio};
 
     const FRAME: (u32, u32) = (1920, 1080);
 

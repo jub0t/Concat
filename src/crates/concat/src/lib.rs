@@ -51,6 +51,7 @@ mod sysinfo;
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
 use panes::Msg;
+use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
 use panes::settings::SettingsMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
@@ -1059,34 +1060,33 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the tray's sound and word tools ──
     editor.on_captions(on_window!(|state| {
-        state.captions_open();
+        state.handle(Msg::Captions(CaptionsMsg::Open));
     }));
     editor.on_speak(on_window!(|state| {
         state.speech_open();
     }));
 
     app.on_captions_closed(on_window!(|state| {
-        state.captions.open = false;
+        state.handle(Msg::Captions(CaptionsMsg::Close));
     }));
     app.on_captions_text_edited(on_window!(|state, text: SharedString| {
-        state.captions.text = text.to_string();
+        state.handle(Msg::Captions(CaptionsMsg::TextEdited(text.to_string())));
     }));
     app.on_captions_model_changed(on_window!(|state, index: i32| {
-        state.captions.model = index.max(0) as usize;
+        state.handle(Msg::Captions(CaptionsMsg::ModelChanged(index)));
     }));
     app.on_captions_placement_changed(on_window!(|state, index: i32| {
-        state.captions.placement = (index.max(0) as usize).min(2);
+        state.handle(Msg::Captions(CaptionsMsg::PlacementChanged(index)));
     }));
     app.on_captions_size_changed(on_window!(|state, index: i32| {
-        state.captions.size = (index.max(0) as usize).min(2);
+        state.handle(Msg::Captions(CaptionsMsg::SizeChanged(index)));
     }));
     app.on_captions_begin(on_window!(|state| {
-        state.captions_run();
+        state.handle(Msg::Captions(CaptionsMsg::Begin));
     }));
     app.on_captions_cancel(on_window!(|state| {
-        state.captions_cancel();
+        state.handle(Msg::Captions(CaptionsMsg::Cancel));
     }));
-
     app.on_speech_closed(on_window!(|state| {
         state.speech.open = false;
     }));
