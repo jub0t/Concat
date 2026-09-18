@@ -1317,6 +1317,7 @@ dependencies = [
  "concat-core",
  "ffmpeg-the-third",
  "libc",
+ "log",
  "thiserror 2.0.20",
 ]
 
