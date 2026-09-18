@@ -117,6 +117,22 @@ export component TextPanel inherits VerticalLayout {
                             root.commit();
                         }
                     }
+
+                    // Slint binds Home and End to nothing on macOS, so they
+                    // walked up to the window's playhead shortcuts and the
+                    // preview went blank mid-sentence. They belong to the
+                    // text: the start and the end of it.
+                    key-pressed(event) => {
+                        if (event.text == Key.Home) {
+                            self.set-selection-offsets(0, 0);
+                            return accept;
+                        }
+                        if (event.text == Key.End) {
+                            self.set-selection-offsets(1000000000, 1000000000);
+                            return accept;
+                        }
+                        return reject;
+                    }
                 }
             }
         }
