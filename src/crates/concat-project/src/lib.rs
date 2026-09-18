@@ -549,8 +549,10 @@ mod tests {
             crate::CommandError::NotANumber
         );
         // A text style whose font_size is infinite must be caught.
-        let mut style = TextStyle::default();
-        style.font_size = f64::INFINITY;
+        let style = TextStyle {
+            font_size: f64::INFINITY,
+            ..Default::default()
+        };
         let bad_text = Command::UpdateClip {
             clip_id: clip_id.clone(),
             patch: ClipPatch {
