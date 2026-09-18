@@ -206,7 +206,9 @@ impl SpeechPane {
                 let summary = media::probe(&spoken.path)?;
                 Ok::<_, String>(summary)
             },
-            |studio, _, _, result| studio.handle(Msg::Speech(SpeechMsg::Finished(Box::new(result)))),
+            |studio, _, _, result| {
+                studio.handle(Msg::Speech(SpeechMsg::Finished(Box::new(result))))
+            },
         );
     }
 

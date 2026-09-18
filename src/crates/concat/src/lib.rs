@@ -53,8 +53,11 @@ use host::{Host, Shell, on_ui};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
+use panes::project::ProjectMsg;
+use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
+use panes::start::StartMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -320,36 +323,31 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the launch screen ──
     app.on_start_name_edited(on_window!(|state, name: SharedString| {
-        state.start.name = name.to_string();
+        state.handle(Msg::Start(StartMsg::NameEdited(name.to_string())));
     }));
     app.on_start_location_edited(on_window!(|state, path: SharedString| {
-        state.start.location = path.to_string();
+        state.handle(Msg::Start(StartMsg::LocationEdited(path.to_string())));
     }));
     app.on_start_resolution_changed(on_window!(|state, index: i32| {
-        state.start.resolution = (index.max(0) as usize).min(RESOLUTIONS.len() - 1);
+        state.handle(Msg::Start(StartMsg::ResolutionChanged(index)));
     }));
     app.on_start_rate_changed(on_window!(|state, index: i32| {
-        state.start.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+        state.handle(Msg::Start(StartMsg::RateChanged(index)));
     }));
     app.on_start_dismiss_error(on_window!(|state| {
-        state.start.error.clear();
+        state.handle(Msg::Start(StartMsg::DismissError));
     }));
     app.on_start_browse(on_window!(|state| {
-        if let Some(folder) = platform::pick_folder(
-            &i18n::t("Where should the project folder go?"),
-            &state.start.location,
-        ) {
-            state.start.location = folder.to_string_lossy().into_owned();
-        }
+        state.handle(Msg::Start(StartMsg::Browse));
     }));
     app.on_start_create(on_window!(|state| {
-        state.create_project();
+        state.handle(Msg::Start(StartMsg::Create));
     }));
     app.on_start_open_recent(on_window!(|state, path: SharedString| {
-        state.open_recent(path.as_str());
+        state.handle(Msg::Start(StartMsg::OpenRecent(path.to_string())));
     }));
     app.on_start_forget_recent(on_window!(|state, path: SharedString| {
-        state.forget_recent(path.as_str());
+        state.handle(Msg::Start(StartMsg::ForgetRecent(path.to_string())));
     }));
 
     // ── the workspace's arrangement ──
@@ -921,30 +919,29 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the project sheet ──
     editor.on_modify_project(on_window!(|state| {
-        state.project_sheet_open();
+        state.handle(Msg::Project(ProjectMsg::Open));
     }));
     app.on_project_closed(on_window!(|state| {
-        state.project_sheet.open = false;
+        state.handle(Msg::Project(ProjectMsg::Close));
     }));
     app.on_project_name_edited(on_window!(|state, name: SharedString| {
-        state.project_sheet.name = name.to_string();
+        state.handle(Msg::Project(ProjectMsg::NameEdited(name.to_string())));
     }));
     app.on_project_size_changed(on_window!(|state, index: i32| {
-        state.project_sheet.size = index;
+        state.handle(Msg::Project(ProjectMsg::SizeChanged(index)));
     }));
     app.on_project_rate_changed(on_window!(|state, index: i32| {
-        state.project_sheet.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+        state.handle(Msg::Project(ProjectMsg::RateChanged(index)));
     }));
     app.on_project_apply(on_window!(|state| {
-        state.project_apply();
+        state.handle(Msg::Project(ProjectMsg::Apply));
     }));
 
     app.on_relink_all(on_window!(|state| {
-        state.relink_all();
+        state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
-
     app.on_relink_dismiss(on_window!(|state| {
-        state.relink.open = false;
+        state.handle(Msg::Relink(RelinkMsg::Dismiss));
     }));
 
     // ── the dialogs ──
@@ -1128,7 +1125,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             {
                                 let concat_json = path.join("concat.json");
                                 if concat_json.exists() {
-                                    state.open_recent(&path.to_string_lossy());
+                                    state.handle(Msg::Start(StartMsg::OpenRecent(
+                                        path.to_string_lossy().into_owned(),
+                                    )));
                                 } else {
                                     state.notify("Not a valid project folder", true);
                                 }

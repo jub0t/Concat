@@ -194,30 +194,12 @@ pub struct LibraryView {
 pub const SHELF_KINDS: [PackageKind; 3] =
     [PackageKind::Filter, PackageKind::Effect, PackageKind::Audio];
 
-/// The project sheet: the Details panel's Modify button, as a form.
-#[derive(Default)]
-pub struct ProjectSheet {
-    pub open: bool,
-    pub name: String,
-    /// Row in `OUTPUTS`, or -1 for a frame the list does not carry.
-    pub size: i32,
-    /// Row in `START_RATES`.
-    pub rate: usize,
-}
-
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
 pub(crate) fn home_folder(name: &str) -> String {
     std::env::var("HOME")
         .map(|home| format!("{home}/{name}"))
         .unwrap_or_default()
-}
-
-/// The missing media relink dialog state.
-#[derive(Default)]
-pub struct RelinkState {
-    pub open: bool,
-    pub items: Vec<concat_project::model::MissingMedia>,
 }
 
 /// The bottom-right notice: one at a time. The token is what the panel
@@ -227,35 +209,6 @@ pub struct ToastState {
     pub token: i32,
     pub message: String,
     pub failed: bool,
-}
-
-/// The form on the launch screen.
-pub struct StartState {
-    pub name: String,
-    pub location: String,
-    pub resolution: usize,
-    pub rate: usize,
-    pub busy: bool,
-    pub error: String,
-}
-
-impl Default for StartState {
-    fn default() -> Self {
-        Self {
-            name: "Untitled project".into(),
-            // A phone has no desk: its projects live at the top of the
-            // folder the file manager shows for the app.
-            location: home_folder(if cfg!(target_os = "android") {
-                "Concat"
-            } else {
-                "Desktop/Concat"
-            }),
-            resolution: 0,
-            rate: 3,
-            busy: false,
-            error: String::new(),
-        }
-    }
 }
 
 /// What the window knows about a lane that the document does not: whether
@@ -630,7 +583,7 @@ pub struct Studio {
     // ── the sheets and menus ──
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
-    pub relink: RelinkState,
+    pub relink: crate::panes::relink::RelinkPane,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -639,7 +592,7 @@ pub struct Studio {
 
     // ── the launch screen ──
     pub on_start: bool,
-    pub start: StartState,
+    pub start: crate::panes::start::StartPane,
     pub recents: Vec<ProjectInfo>,
     pub posters: HashMap<String, slint::Image>,
     posters_pending: HashSet<String>,
@@ -707,7 +660,7 @@ pub struct Studio {
     #[allow(clippy::type_complexity)]
     pub title_blocks: HashMap<String, ((u32, u32), (i32, i32))>,
     pub drop: Option<DropPlan>,
-    pub project_sheet: ProjectSheet,
+    pub project_sheet: crate::panes::project::ProjectPane,
     pub captions: crate::panes::captions::CaptionsPane,
     pub speech: crate::panes::speech::SpeechPane,
     /// Every speaker the voice engine offers, in its own order.
@@ -1307,14 +1260,14 @@ impl Studio {
             preview_failed: false,
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
-            relink: RelinkState::default(),
+            relink: crate::panes::relink::RelinkPane::default(),
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
             menu_token: 0,
             toast: ToastState::default(),
             on_start: true,
-            start: StartState::default(),
+            start: crate::panes::start::StartPane::default(),
             recents,
             posters: HashMap::new(),
             posters_pending: HashSet::new(),
@@ -1337,7 +1290,7 @@ impl Studio {
             last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
-            project_sheet: ProjectSheet::default(),
+            project_sheet: crate::panes::project::ProjectPane::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::default(),
             text_presets,
@@ -2126,7 +2079,7 @@ impl Studio {
     /// and the waveform of its default audio stream - and, for every clip
     /// that plays another of its media's streams, that stream's waveform
     /// too, so a lane shows the sound it will make.
-    fn request_media_art(&mut self) {
+    pub(crate) fn request_media_art(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -4802,8 +4755,9 @@ impl Studio {
 
     // ── projects ──
 
-    /// Opens a project as the session and leaves the launch screen.
-    pub fn open_project(&mut self, info: ProjectInfo) {
+    /// Opens a project as the session and leaves the launch screen, or
+    /// says why it could not.
+    pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
@@ -4822,8 +4776,6 @@ impl Studio {
                 self.scroll_left = 0.0;
                 self.on_start = false;
                 self.preview_failed = false;
-                self.start.busy = false;
-                self.start.error.clear();
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
                 self.audition = None;
@@ -4850,144 +4802,14 @@ impl Studio {
                             }
                         }
 
-                        // Open relink dialog
-                        self.relink.open = true;
-                        self.relink.items = missing;
+                        self.handle(crate::panes::Msg::Relink(
+                            crate::panes::relink::RelinkMsg::Show(missing),
+                        ));
                     }
                 }
+                Ok(())
             }
-            Err(error) => {
-                self.start.busy = false;
-                self.start.error = error;
-            }
-        }
-    }
-
-    /// Relinks missing media by searching a folder (recursively) for files
-    /// whose basename matches. The user picks one folder; each missing item
-    /// looks for its own filename inside it. Successful relinks go through
-    /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
-    pub fn relink_all(&mut self) {
-        use concat_project::commands::Command;
-
-        let Some(folder) = crate::platform::pick_folder(
-            &crate::i18n::t("Select folder containing media files"),
-            "",
-        ) else {
-            return;
-        };
-
-        // Snapshot the missing list now: as relinks land the list shrinks,
-        // and we want a stable target for the toast count.
-        let items: Vec<(String, String)> = self
-            .relink
-            .items
-            .iter()
-            .map(|m| (m.id.clone(), m.path.clone()))
-            .collect();
-        let total = items.len();
-        if total == 0 {
-            self.relink.open = false;
-            return;
-        }
-
-        // Build a basename -> full path index of every file under the folder
-        // so the per-item lookup is O(1) rather than a walk each time.
-        let mut index: std::collections::HashMap<String, std::path::PathBuf> =
-            std::collections::HashMap::new();
-        let mut stack = vec![folder.clone()];
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    // First match wins: if the user has duplicates, the one
-                    // closest to the root is the most likely correct copy.
-                    index.entry(name.to_owned()).or_insert(path);
-                }
-            }
-        }
-
-        let Some(session) = self.session.as_mut() else {
-            return;
-        };
-
-        let mut relinked = 0usize;
-        let mut commands: Vec<Command> = Vec::new();
-        for (id, path) in items {
-            let Some(basename) = std::path::Path::new(&path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_owned())
-            else {
-                continue;
-            };
-            if let Some(found) = index.get(&basename) {
-                commands.push(Command::UpdateMediaPath {
-                    media_id: id,
-                    new_path: found.to_string_lossy().to_string(),
-                });
-                relinked += 1;
-            }
-        }
-
-        if !commands.is_empty() {
-            if let Err(error) = session.apply(Command::Batch { commands }) {
-                self.notify(&format!("Relink failed: {error}"), true);
-                return;
-            }
-            self.dirty = true;
-            self.revision += 1;
-        }
-
-        // Re-check what is still missing: the dialog updates to the
-        // remainder (often empty, in which case it closes).
-        let remaining = session.project().missing_media();
-        if remaining.is_empty() {
-            self.relink.open = false;
-            self.relink.items.clear();
-        } else {
-            self.relink.items = remaining;
-        }
-
-        self.notify(
-            &format!(
-                "Relinked {relinked} of {total} file{}",
-                if total == 1 { "" } else { "s" }
-            ),
-            false,
-        );
-        self.request_media_art();
-        self.request_preview();
-    }
-
-    pub fn create_project(&mut self) {
-        let name = self.start.name.trim().to_owned();
-        let name = if name.is_empty() {
-            "Untitled project".to_owned()
-        } else {
-            name
-        };
-        let (_, width, height) = RESOLUTIONS[self.start.resolution.min(RESOLUTIONS.len() - 1)];
-        let (_, num, den) = START_RATES[self.start.rate.min(START_RATES.len() - 1)];
-        if self.start.location.trim().is_empty() {
-            self.start.error = t("Choose where the project folder should go");
-            return;
-        }
-        match projects::create(&self.start.location, &name, width, height, num, den) {
-            Ok(info) => self.open_project(info),
-            Err(error) => self.start.error = error,
-        }
-    }
-
-    pub fn open_recent(&mut self, path: &str) {
-        match projects::open(path) {
-            Ok(info) => self.open_project(info),
-            Err(error) => self.start.error = error,
+            Err(error) => Err(error),
         }
     }
 
@@ -5006,13 +4828,6 @@ impl Studio {
         }
         self.request_media_art();
         self.request_preview();
-    }
-
-    pub fn forget_recent(&mut self, path: &str) {
-        if let Err(error) = projects::forget(&self.host.dirs.config, path) {
-            self.start.error = error;
-        }
-        self.recents = projects::list(&self.host.dirs.config);
     }
 
     /// Saves, then closes the session and returns to the launch screen.
@@ -5099,6 +4914,21 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.speech);
                 pane.update(msg, self);
                 self.speech = pane;
+            }
+            crate::panes::Msg::Relink(msg) => {
+                let mut pane = std::mem::take(&mut self.relink);
+                pane.update(msg, self);
+                self.relink = pane;
+            }
+            crate::panes::Msg::Project(msg) => {
+                let mut pane = std::mem::take(&mut self.project_sheet);
+                pane.update(msg, self);
+                self.project_sheet = pane;
+            }
+            crate::panes::Msg::Start(msg) => {
+                let mut pane = std::mem::take(&mut self.start);
+                pane.update(msg, self);
+                self.start = pane;
             }
         }
     }
@@ -5958,18 +5788,7 @@ impl Studio {
             message: self.toast.message.as_str().into(),
             failed: self.toast.failed,
         });
-        let (_, width, height) = RESOLUTIONS[self.start.resolution.min(RESOLUTIONS.len() - 1)];
-        let (_, num, den) = START_RATES[self.start.rate.min(START_RATES.len() - 1)];
-        app.set_start(StartData {
-            name: self.start.name.as_str().into(),
-            location: self.start.location.as_str().into(),
-            resolution: self.start.resolution as i32,
-            rate: self.start.rate as i32,
-            size_readout: format!("{width} x {height}").into(),
-            rate_readout: format!("{num}/{den} fps").into(),
-            busy: self.start.busy,
-            error: self.start.error.as_str().into(),
-        });
+        app.set_start(self.start.data());
         sync(
             &models.recents,
             self.recents
@@ -6119,14 +5938,7 @@ impl Studio {
         editor.set_count_media(self.project().media.len() as i32);
         editor.set_count_tracks(self.timeline().tracks.len() as i32);
         editor.set_count_clips(self.timeline().clips.len() as i32);
-        app.set_project_sheet(ProjectSheetData {
-            open: self.project_sheet.open,
-            name: self.project_sheet.name.as_str().into(),
-            folder,
-            timeline: timeline_name,
-            size: self.project_sheet.size,
-            rate: self.project_sheet.rate as i32,
-        });
+        app.set_project_sheet(self.project_sheet.data(self));
 
         let rows = self.menu();
         editor.set_menu_height(Self::menu_height(&rows));
@@ -6137,20 +5949,7 @@ impl Studio {
         app.set_settings(self.settings.data(self));
         sync(&models.transcribers, self.settings.transcriber_rows());
         sync(&models.voices, self.settings.voice_rows());
-        app.set_relink(RelinkData {
-            open: self.relink.open,
-            items: slint::ModelRc::new(VecModel::from(
-                self.relink
-                    .items
-                    .iter()
-                    .map(|item| MissingMediaItem {
-                        id: item.id.clone().into(),
-                        name: item.name.clone().into(),
-                        path: item.path.clone().into(),
-                    })
-                    .collect::<Vec<_>>(),
-            )),
-        });
+        app.set_relink(self.relink.data());
 
         // The speech sheets, and the lists they choose from.
         let transcribers = installed(&self.settings.transcribers);
@@ -6612,59 +6411,6 @@ impl Studio {
         };
         let timeline_id = self.project().active_timeline_id.clone();
         self.apply(Command::SetTimelineVideo { timeline_id, video });
-        self.request_preview();
-    }
-
-    // ── the project sheet ──
-
-    /// Opens the sheet on the project and its active timeline as they stand.
-    pub fn project_sheet_open(&mut self) {
-        let (width, height) = self.output_size();
-        let video = self.project().active().video;
-        let (num, den) = (video.rate_num, video.rate_den);
-        self.project_sheet = ProjectSheet {
-            open: true,
-            name: self.project_name.clone(),
-            size: OUTPUTS
-                .iter()
-                .position(|size| *size == (width as i32, height as i32))
-                .map_or(-1, |index| index as i32),
-            rate: START_RATES
-                .iter()
-                .position(|(_, n, d)| (*n, *d) == (num, den))
-                .unwrap_or(3),
-        };
-    }
-
-    /// Applies the sheet and closes it. The name is the project's; the frame
-    /// and the rate are the active timeline's, and go as one edit so an undo
-    /// takes both back together. The frame goes the way the monitor's picker
-    /// sends it, so the two cannot disagree about what a size means.
-    pub fn project_apply(&mut self) {
-        let sheet = std::mem::take(&mut self.project_sheet);
-        let name = sheet.name.trim().to_owned();
-        let size = usize::try_from(sheet.size)
-            .ok()
-            .and_then(|index| OUTPUTS.get(index).copied());
-        let (_, num, den) = START_RATES[sheet.rate.min(START_RATES.len() - 1)];
-        let Some(session) = self.session.as_mut() else {
-            return;
-        };
-        let mut video = session.video();
-        if let Some((width, height)) = size {
-            video.width = width as u32;
-            video.height = height as u32;
-        }
-        video.rate_num = num;
-        video.rate_den = den;
-        session.prepare_save((!name.is_empty()).then_some(name.as_str()));
-        if !name.is_empty() {
-            self.project_name = name;
-        }
-        let timeline_id = self.project().active_timeline_id.clone();
-        self.apply(Command::SetTimelineVideo { timeline_id, video });
-        self.dirty = true;
-        self.schedule_autosave();
         self.request_preview();
     }
 

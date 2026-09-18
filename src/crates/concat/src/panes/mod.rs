@@ -15,8 +15,11 @@
 
 pub mod captions;
 pub mod export;
+pub mod project;
+pub mod relink;
 pub mod settings;
 pub mod speech;
+pub mod start;
 
 /// One thing that happened, to one pane.
 #[derive(Clone, Debug)]
@@ -29,4 +32,10 @@ pub enum Msg {
     Captions(captions::CaptionsMsg),
     /// To the speech sheet.
     Speech(speech::SpeechMsg),
+    /// To the missing media dialog.
+    Relink(relink::RelinkMsg),
+    /// To the project sheet.
+    Project(project::ProjectMsg),
+    /// To the launch screen's form.
+    Start(start::StartMsg),
 }
