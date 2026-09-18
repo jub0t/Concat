@@ -1,0 +1,7 @@
+id = "concat.outline"
+name = "Outline"
+
+[style]
+fontSize = 0.11
+strokeWidth = 0.012
+shadow = false

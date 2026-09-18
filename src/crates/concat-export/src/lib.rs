@@ -37,6 +37,7 @@ use concat_core::shader::ShaderPass;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
+use concat_effects::manifest;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, VideoCodec,
@@ -435,165 +436,167 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
         }
     }
 
+    let catalogue = Catalogue::builtin();
     for cut in cuts {
-        match cut.kind.as_str() {
-            "cross-fade" | "push" | "zoom" | "wipe-left" | "wipe-right" => {
-                let (a_track, a_duration) = {
-                    let a = &clips[cut.outgoing];
-                    (a.track, a.duration)
-                };
+        // A kind this build does not know, or one whose package is not a
+        // transition, renders as a plain cut rather than failing the export
+        // - the same degrade a missing effect filter must NOT get, because
+        // there the user styled the picture.
+        let Some(package) = catalogue.get(&cut.kind) else {
+            continue;
+        };
+        let Some(transition) = &package.manifest.transition else {
+            continue;
+        };
+
+        if let Some(colour) = transition.fade {
+            if !bake_fades {
+                continue;
+            }
+            // Half the duration on each side of the cut, as fade filters at
+            // decode. Frame-based, because the decoder emits exactly one
+            // frame per output frame - so the fade lands on the same frames
+            // the timeline arithmetic says it covers. No overlap: the two
+            // clips fade independently to the same colour, not into each
+            // other.
+            let tag = if colour == manifest::Colour::White {
+                ":color=white"
+            } else {
+                ""
+            };
+            let half = cut.duration / 2.0;
+            {
+                let a = &mut clips[cut.outgoing];
+                let frames = ((half.min(a.duration) * fps).round() as i64).max(1);
+                let total = (a.duration * fps).round() as i64;
+                append_filter(
+                    &mut a.transition_chain,
+                    &format!(
+                        "fade=t=out:start_frame={}:nb_frames={frames}{tag}",
+                        (total - frames).max(0)
+                    ),
+                );
+            }
+            {
                 let b = &mut clips[cut.incoming];
+                let frames = ((half.min(b.duration) * fps).round() as i64).max(1);
+                append_filter(
+                    &mut b.transition_chain,
+                    &format!("fade=t=in:start_frame=0:nb_frames={frames}{tag}"),
+                );
+            }
+            continue;
+        }
 
-                // The incoming clip extends backwards over the outgoing one,
-                // showing the source it has *before* its in-point - the
-                // handle, exactly what a dissolve consumes in any editor. No
-                // handle, shorter dissolve: the duration clamps to what
-                // actually exists rather than freezing or inventing frames.
-                let mut d = cut.duration.min(a_duration).min(b.duration);
-                if b.kind != ClipKind::Image {
-                    d = d.min(b.source_start / b.speed.max(0.0625));
-                }
-                if d < frame {
-                    continue;
-                }
-                b.start -= d;
-                b.duration += d;
-                if b.kind != ClipKind::Image {
-                    b.source_start -= d * b.speed;
-                }
-                // Sound rides the picture: the pre-roll fades in rather than
-                // arriving at full level a dissolve early.
-                b.fade_in = b.fade_in.max(d);
-                b.track = a_track + 1;
+        // Every other shape is built on one overlap: the incoming clip
+        // extends backwards over the outgoing one by the transition's
+        // length, on the lane above, showing the handle before its
+        // in-point - exactly what a dissolve consumes in any editor. No
+        // handle, shorter dissolve: the duration clamps to what actually
+        // exists rather than freezing or inventing frames.
+        let (a_track, a_duration) = {
+            let a = &clips[cut.outgoing];
+            (a.track, a.duration)
+        };
+        let mut d = cut.duration.min(a_duration).min(clips[cut.incoming].duration);
+        if clips[cut.incoming].kind != ClipKind::Image {
+            let b = &clips[cut.incoming];
+            d = d.min(b.source_start / b.speed.max(0.0625));
+        }
+        if d < frame {
+            continue;
+        }
+        {
+            let b = &mut clips[cut.incoming];
+            b.start -= d;
+            b.duration += d;
+            if b.kind != ClipKind::Image {
+                b.source_start -= d * b.speed;
+            }
+            // Sound rides the picture: the pre-roll fades in rather than
+            // arriving at full level a dissolve early.
+            b.fade_in = b.fade_in.max(d);
+            b.track = a_track + 1;
+        }
 
-                // How the two blend across the overlap. A shape that cannot
-                // be applied - a clip the user has already keyed on the
-                // property the shape would ride - falls back to the dissolve
-                // rather than half-applying, so the cut still transitions.
-                let shaped = match cut.kind.as_str() {
-                    // The new picture slides in from the right and shoves the
-                    // old one out to the left, edge to edge: both ride the
-                    // same ease over the same seconds, which is what keeps
-                    // them glued.
-                    "push" => {
-                        rides(clips, cut.outgoing, cut.incoming, "offsetX")
-                            && ride(
-                                &mut clips[cut.incoming],
-                                "offsetX",
-                                1.0,
-                                0.0,
-                                d,
-                                true,
-                                EASE_IN_OUT,
-                            )
-                            && ride(
-                                &mut clips[cut.outgoing],
-                                "offsetX",
-                                0.0,
-                                -1.0,
-                                d,
-                                false,
-                                EASE_IN_OUT,
-                            )
-                    }
-                    // The old picture grows as it dissolves into the new one,
-                    // which settles from a little large to its own size.
-                    "zoom" => {
-                        rides(clips, cut.outgoing, cut.incoming, "scale")
-                            && ride(
-                                &mut clips[cut.incoming],
-                                "scale",
-                                1.25,
-                                1.0,
-                                d,
-                                true,
-                                EASE_OUT,
-                            )
-                            && ride(
-                                &mut clips[cut.outgoing],
-                                "scale",
-                                1.0,
-                                1.4,
-                                d,
-                                false,
-                                EASE_IN,
-                            )
-                            && {
-                                clips[cut.incoming].video_fade_in = d;
-                                true
-                            }
-                    }
-                    // A straight edge sweeps across and uncovers the new
-                    // picture behind it. Baked only where the frame count
-                    // means something; see the function's docs.
-                    "wipe-left" | "wipe-right" if bake_fades => {
-                        let frames = ((d * fps).round() as i64).max(1);
-                        // `N` counts the decoded frames from the clip's new,
-                        // earlier start, so the edge is at the left at 0 and
-                        // off the far side by `frames`; after that the filter
-                        // is switched off and the picture is whole.
-                        let uncovered = if cut.kind == "wipe-right" {
-                            format!("lt(X,W*(N+1)/{frames})")
-                        } else {
-                            format!("gte(X,W*(1-(N+1)/{frames}))")
-                        };
-                        append_filter(
-                            &mut clips[cut.incoming].transition_chain,
-                            &format!(
-                                "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':\
-                                 a='alpha(X,Y)*{uncovered}':enable='lt(n,{frames})'"
-                            ),
-                        );
-                        true
-                    }
-                    _ => false,
-                };
-                if !shaped {
-                    clips[cut.incoming].video_fade_in = d;
+        // How the two blend across the overlap. A shape that cannot be
+        // applied - a clip the user has already keyed on the property the
+        // shape would ride - falls back to the dissolve rather than
+        // half-applying, so the cut still transitions.
+        let shaped = if !transition.rides.is_empty() {
+            let mut ok = true;
+            let mut seen = std::collections::HashSet::new();
+            for ride_spec in &transition.rides {
+                if seen.insert(ride_spec.property.as_str()) {
+                    ok &= rides(clips, cut.outgoing, cut.incoming, &ride_spec.property);
                 }
             }
-            "fade-black" | "fade-white" if bake_fades => {
-                // Half the duration on each side of the cut, as fade filters
-                // at decode. Frame-based, because the decoder emits exactly
-                // one frame per output frame - so the fade lands on the same
-                // frames the timeline arithmetic says it covers.
-                let colour = if cut.kind == "fade-white" {
-                    ":color=white"
+            let applied = ok
+                && transition.rides.iter().all(|ride_spec| {
+                    let target = match ride_spec.side {
+                        manifest::Side::Incoming => cut.incoming,
+                        manifest::Side::Outgoing => cut.outgoing,
+                    };
+                    ride(
+                        &mut clips[target],
+                        &ride_spec.property,
+                        ride_spec.from,
+                        ride_spec.to,
+                        d,
+                        ride_spec.side == manifest::Side::Incoming,
+                        bezier(ride_spec.ease),
+                    )
+                });
+            if applied && transition.dissolve {
+                clips[cut.incoming].video_fade_in = d;
+            }
+            applied
+        } else if let Some(direction) = transition.wipe {
+            // A straight edge sweeps across and uncovers the new picture
+            // behind it. Baked only where the frame count means something;
+            // see the function's docs.
+            if bake_fades {
+                let frames = ((d * fps).round() as i64).max(1);
+                // `N` counts the decoded frames from the clip's new, earlier
+                // start, so the edge is at the left at 0 and off the far
+                // side by `frames`; after that the filter is switched off
+                // and the picture is whole.
+                let uncovered = if direction == manifest::Direction::Right {
+                    format!("lt(X,W*(N+1)/{frames})")
                 } else {
-                    ""
+                    format!("gte(X,W*(1-(N+1)/{frames}))")
                 };
-                let half = cut.duration / 2.0;
-                {
-                    let a = &mut clips[cut.outgoing];
-                    let frames = ((half.min(a.duration) * fps).round() as i64).max(1);
-                    let total = (a.duration * fps).round() as i64;
-                    append_filter(
-                        &mut a.transition_chain,
-                        &format!(
-                            "fade=t=out:start_frame={}:nb_frames={frames}{colour}",
-                            (total - frames).max(0)
-                        ),
-                    );
-                }
-                {
-                    let b = &mut clips[cut.incoming];
-                    let frames = ((half.min(b.duration) * fps).round() as i64).max(1);
-                    append_filter(
-                        &mut b.transition_chain,
-                        &format!("fade=t=in:start_frame=0:nb_frames={frames}{colour}"),
-                    );
-                }
+                append_filter(
+                    &mut clips[cut.incoming].transition_chain,
+                    &format!(
+                        "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':\
+                         a='alpha(X,Y)*{uncovered}':enable='lt(n,{frames})'"
+                    ),
+                );
+                true
+            } else {
+                false
             }
-            // A kind this build does not know renders as a plain cut rather
-            // than failing the export - the same degrade a missing effect
-            // filter must NOT get, because there the user styled the picture.
-            _ => {}
+        } else {
+            false
+        };
+        if !shaped {
+            clips[cut.incoming].video_fade_in = d;
         }
     }
 }
 
-/// The timing functions the transition shapes ride on, as `ExportKey` holds
-/// them: CSS `ease-in-out`, `ease-out` and `ease-in`.
+/// A ride's easing as the `[f64; 4]` cubic-bezier control points `ExportKey`
+/// holds: CSS `ease-in-out`, `ease-out`, `ease-in` and a straight line.
+fn bezier(ease: manifest::Ease) -> [f64; 4] {
+    match ease {
+        manifest::Ease::Linear => linear_ease(),
+        manifest::Ease::EaseIn => EASE_IN,
+        manifest::Ease::EaseOut => EASE_OUT,
+        manifest::Ease::EaseInOut => EASE_IN_OUT,
+    }
+}
+
 const EASE_IN_OUT: [f64; 4] = [0.42, 0.0, 0.58, 1.0];
 const EASE_OUT: [f64; 4] = [0.0, 0.0, 0.58, 1.0];
 const EASE_IN: [f64; 4] = [0.42, 0.0, 1.0, 1.0];

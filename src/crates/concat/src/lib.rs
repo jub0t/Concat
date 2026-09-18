@@ -141,6 +141,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
         editor.set_filter_groups(ModelRc::from(models.filter_groups.clone()));
         editor.set_audio_groups(ModelRc::from(models.audio_groups.clone()));
+        let transitions = app.global::<Transitions>();
+        transitions.set_basic(ModelRc::from(models.transitions_basic.clone()));
+        transitions.set_motion(ModelRc::from(models.transitions_motion.clone()));
         editor.set_applied_visual(ModelRc::from(models.applied_visual.clone()));
         editor.set_applied_audio(ModelRc::from(models.applied_audio.clone()));
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));

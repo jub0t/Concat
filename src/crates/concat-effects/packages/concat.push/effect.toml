@@ -1,0 +1,22 @@
+[effect]
+id = "concat.push"
+name = "Push"
+kind = "transition"
+category = "Motion"
+order = 2
+aliases = ["push"]
+description = "The incoming picture slides in from the right and shoves the outgoing one out to the left, edge to edge."
+
+[[transition.ride]]
+side = "incoming"
+property = "offsetX"
+from = 1.0
+to = 0.0
+ease = "ease-in-out"
+
+[[transition.ride]]
+side = "outgoing"
+property = "offsetX"
+from = 0.0
+to = -1.0
+ease = "ease-in-out"

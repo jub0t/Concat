@@ -1,0 +1,25 @@
+[effect]
+id = "concat.zoom"
+name = "Zoom"
+kind = "transition"
+category = "Motion"
+order = 3
+aliases = ["zoom"]
+description = "The outgoing picture grows as it dissolves into the incoming one, which settles from a little large to its own size."
+
+[transition]
+dissolve = true
+
+[[transition.ride]]
+side = "incoming"
+property = "scale"
+from = 1.25
+to = 1.0
+ease = "ease-out"
+
+[[transition.ride]]
+side = "outgoing"
+property = "scale"
+from = 1.0
+to = 1.4
+ease = "ease-in"

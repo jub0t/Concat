@@ -1,0 +1,6 @@
+id = "default"
+name = "Title"
+
+[style]
+content = "New title"
+fontWeight = 600

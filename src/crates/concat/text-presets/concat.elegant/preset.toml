@@ -1,0 +1,10 @@
+id = "concat.elegant"
+name = "Elegant"
+
+[style]
+fontFamily = "Synonym"
+fontSize = 0.08
+fontWeight = 400
+italic = true
+tracking = 0.01
+shadow = false

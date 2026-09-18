@@ -1,0 +1,11 @@
+[effect]
+id = "concat.fade-black"
+name = "Fade to Black"
+kind = "transition"
+category = "Basic"
+order = 1
+aliases = ["fade-black"]
+description = "The outgoing picture fades to black, and the incoming one fades up from it. No overlap: the two never composite together."
+
+[transition]
+fade = "black"

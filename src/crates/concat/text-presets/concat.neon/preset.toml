@@ -1,0 +1,8 @@
+id = "concat.neon"
+name = "Neon"
+
+[style]
+fontSize = 0.1
+color = "#c6f432"
+strokeColor = "#1c3b06"
+strokeWidth = 0.006

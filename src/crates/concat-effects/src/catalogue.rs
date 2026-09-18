@@ -166,7 +166,10 @@ impl Package {
             }
             (None, None) => None,
         };
-        if shader.is_none() && manifest.ffmpeg.is_none() && manifest.effect.kind != Kind::Audio {
+        if shader.is_none()
+            && manifest.ffmpeg.is_none()
+            && !matches!(manifest.effect.kind, Kind::Audio | Kind::Transition)
+        {
             return Err(invalid(
                 "the package has neither a shader nor a chain".to_owned(),
             ));

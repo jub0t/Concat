@@ -38,6 +38,10 @@ use concat_host::AppDirs;
 use concat_project::model::{TextAlign, TextStyle};
 use serde::Deserialize;
 
+mod builtins {
+    include!(concat!(env!("OUT_DIR"), "/text_presets.rs"));
+}
+
 /// One look a title can be given.
 pub struct TextPreset {
     /// Stable for ever; "default" is the plain title.
@@ -123,109 +127,21 @@ pub fn dir(dirs: &AppDirs) -> PathBuf {
     dirs.config.join("text-presets")
 }
 
-/// The presets that ship with the app.
+/// The presets that ship with the app, each a `text-presets/<id>/preset.toml`
+/// embedded at build time - the same folder-is-the-package convention
+/// `concat-effects` uses, so a built-in preset is source, not Rust. The
+/// plain title (`"default"`) is pinned first regardless of folder order: the
+/// Text page's first card is always the one with no look at all.
 pub fn builtin() -> Vec<TextPreset> {
-    let look = |id: &str, name: &str, style: TextStyle, offset_y: Option<f64>| TextPreset {
-        id: id.to_owned(),
-        name: name.to_owned(),
-        style,
-        offset_y,
-        font: None,
-    };
-    let neue = |content: &str, weight: f64, size: f64| TextStyle {
-        content: content.to_owned(),
-        font_family: "Helvetica Neue".to_owned(),
-        font_weight: weight,
-        font_size: size,
-        ..TextStyle::default()
-    };
-    vec![
-        look("default", "Title", neue("New title", 600.0, 0.09), None),
-        look(
-            "concat.headline",
-            "Headline",
-            TextStyle {
-                stroke_width: 0.008,
-                ..neue("Headline", 700.0, 0.12)
-            },
-            None,
-        ),
-        look(
-            "concat.subtitle",
-            "Subtitle",
-            TextStyle {
-                background: "#000000b3".to_owned(),
-                shadow: false,
-                ..neue("Subtitle", 500.0, 0.045)
-            },
-            Some(0.36),
-        ),
-        look(
-            "concat.lower-third",
-            "Lower third",
-            TextStyle {
-                color: "#10160a".to_owned(),
-                background: "#c6f432".to_owned(),
-                align: TextAlign::Left,
-                shadow: false,
-                ..neue("Name — Title", 600.0, 0.05)
-            },
-            Some(0.32),
-        ),
-        look(
-            "concat.caption",
-            "Caption",
-            TextStyle {
-                color: "#ffe14a".to_owned(),
-                stroke_width: 0.006,
-                ..neue("Caption", 600.0, 0.05)
-            },
-            Some(0.35),
-        ),
-        look(
-            "concat.elegant",
-            "Elegant",
-            TextStyle {
-                font_family: "Synonym".to_owned(),
-                italic: true,
-                tracking: 0.01,
-                shadow: false,
-                ..neue("Elegant", 400.0, 0.08)
-            },
-            None,
-        ),
-        look(
-            "concat.neon",
-            "Neon",
-            TextStyle {
-                color: "#c6f432".to_owned(),
-                stroke_color: "#1c3b06".to_owned(),
-                stroke_width: 0.006,
-                ..neue("Neon", 700.0, 0.1)
-            },
-            None,
-        ),
-        look(
-            "concat.outline",
-            "Outline",
-            TextStyle {
-                stroke_width: 0.012,
-                shadow: false,
-                ..neue("Outline", 700.0, 0.11)
-            },
-            None,
-        ),
-        look(
-            "concat.minimal",
-            "Minimal",
-            TextStyle {
-                tracking: 0.03,
-                shadow: false,
-                ..neue("Minimal", 400.0, 0.06)
-            },
-            None,
-        ),
-    ]
+    let mut presets: Vec<TextPreset> = builtins::BUILTIN_PRESET_SOURCES
+        .iter()
+        .filter_map(|(_folder, text)| parse(text, Path::new(".")))
+        .collect();
+    if let Some(index) = presets.iter().position(|preset| preset.id == "default") {
+        let default = presets.remove(index);
+        presets.insert(0, default);
+    }
+    presets
 }
 
 /// The presets in the user's folder. A file that does not parse is
@@ -258,7 +174,15 @@ pub fn user(dirs: &AppDirs) -> Vec<TextPreset> {
 
 fn read(path: &Path) -> Option<TextPreset> {
     let text = std::fs::read_to_string(path).ok()?;
-    let file: PresetFile = toml::from_str(&text).ok()?;
+    parse(&text, path.parent().unwrap_or(Path::new(".")))
+}
+
+/// Parses one preset file's text. `base` resolves its `font`, when it names
+/// one - the folder beside `preset.toml` for a file read off disk, or
+/// wherever a built-in's own family already ships from the app's compiled-in
+/// fonts, which is why none of the built-ins declare a `font` at all.
+fn parse(text: &str, base: &Path) -> Option<TextPreset> {
+    let file: PresetFile = toml::from_str(text).ok()?;
     let id = file.id.trim().to_owned();
     if id.is_empty() {
         return None;
@@ -266,7 +190,7 @@ fn read(path: &Path) -> Option<TextPreset> {
     let font = file
         .font
         .filter(|name| !name.trim().is_empty())
-        .map(|name| path.parent().unwrap_or(Path::new(".")).join(name.trim()));
+        .map(|name| base.join(name.trim()));
     Some(TextPreset {
         name: if file.name.trim().is_empty() {
             id.clone()

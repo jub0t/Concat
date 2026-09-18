@@ -6,6 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 description = "The Concat API: one dispatcher for projects, edits, media, effects, templates, exports and frames, which every transport - the command line, a daemon, a plugin - calls."
 
+[features]
+# Real GPU info in `hardware.profile`'s reply, at the cost of the wgpu tree.
+# Off by default like everywhere the engine touches a GPU; without it the
+# method still answers, with `gpu: null`.
+gpu = ["concat-host/gpu"]
+
 [dependencies]
 concat-project.workspace = true
 concat-effects.workspace = true

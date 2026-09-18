@@ -1,0 +1,9 @@
+id = "concat.subtitle"
+name = "Subtitle"
+offsetY = 0.36
+
+[style]
+fontSize = 0.045
+fontWeight = 500
+background = "#000000b3"
+shadow = false

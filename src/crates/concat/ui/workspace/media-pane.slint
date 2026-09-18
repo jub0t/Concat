@@ -746,7 +746,7 @@ component MediaGrid inherits Rectangle {
 // One entry of the transitions or effects catalogue. Display data only: the
 // id is what Rust is handed when a card is applied, and ids are stable
 // forever because project files store them.
-struct CatalogueItemData {
+export struct CatalogueItemData {
     id: string,
     label: string,
     /// False keeps the card browsable with a "Soon" badge, the honest version
@@ -760,6 +760,15 @@ struct CatalogueItemData {
     /// than fixed by the card, because a transition and an audio filter are
     /// both artless and are not the same thing.
     glyph: Glyph,
+}
+
+// The Transitions page's two shelves, from the catalogue's transition
+// packages - populated by Rust from `concat_effects::Catalogue`, the same
+// source `catalogue.list` reads, so a package dropped into the effects
+// folder shows up here without a line of Slint changing.
+export global Transitions {
+    in property <[CatalogueItemData]> basic;
+    in property <[CatalogueItemData]> motion;
 }
 
 // A catalogue card: preview tile, label under it, and the apply affordance —
@@ -1436,21 +1445,12 @@ export component MediaPane inherits Rectangle {
     // The catalogues. The ids are written into project files, so they are
     // stable forever - pick them like you mean them. The effect artwork is a
     // rendered preview, each effect's real FFmpeg chain run over one source
-    // still.
-    property <[CatalogueItemData]> transitions-basic: [
-        { id: "cross-fade", label: "Cross Fade", enabled: true, glyph: Glyph.transition },
-        { id: "fade-black", label: "Fade to Black", enabled: true, glyph: Glyph.transition },
-        { id: "fade-white", label: "Fade to White", enabled: true, glyph: Glyph.transition },
-    ];
-    // The engine resolves these in concat-export's `resolve_transitions`:
-    // the slides and the zoom as animation keys the monitor plays too, the
-    // wipes as a mask the export bakes and the monitor shows as a dissolve.
-    property <[CatalogueItemData]> transitions-motion: [
-        { id: "wipe-left", label: "Wipe Left", enabled: true, glyph: Glyph.transition },
-        { id: "wipe-right", label: "Wipe Right", enabled: true, glyph: Glyph.transition },
-        { id: "push", label: "Push", enabled: true, glyph: Glyph.transition },
-        { id: "zoom", label: "Zoom", enabled: true, glyph: Glyph.transition },
-    ];
+    // still. The transitions shelves are `Transitions.basic`/`.motion`,
+    // published by Rust from the same catalogue `catalogue.list` reads - see
+    // concat-export's `resolve_transitions` for how the engine plays them
+    // back: the slides and the zoom as animation keys the monitor plays too,
+    // the wipes as a mask the export bakes and the monitor shows as a
+    // dissolve.
 
     function narrow(to: MediaFilter) {
         root.filter = to;
@@ -1928,8 +1928,8 @@ export component MediaPane inherits Rectangle {
                     CatalogueGrid {
                         horizontal-stretch: 1;
                         items: root.transition-category == 0
-                            ? root.transitions-basic
-                            : root.transitions-motion;
+                            ? Transitions.basic
+                            : Transitions.motion;
                         applied(id, label) => { root.apply-transition(id); }
                     }
                 }
