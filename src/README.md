@@ -146,13 +146,17 @@ the number is JSON-RPC's, the name in `data` is the API's - `parse`,
 events follow, to every connected caller, each naming its job and project.
 
 `concat-cli serve` puts the same lines on a socket. It binds loopback unless
-told otherwise and refuses any other address without `--token` (or
-`CONCAT_API_TOKEN`), which a connection then presents as its first line,
-`{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":"..."}}`. There
-is no encryption; a bind off loopback belongs behind something that has it.
-With the `grpc` feature the same API is served over HTTP/2 from
-`crates/concat-server/proto/concat.proto`, a thin envelope carrying the
-same JSON, with the token as `authorization: Bearer ...` metadata.
+told otherwise, and every connection, loopback included, presents a token
+as its first line, `{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":"..."}}`:
+the one given with `--token` (or `CONCAT_API_TOKEN`), or else one minted
+at start and printed under the addresses, so only whoever started the
+server can hand it out. There is no encryption; a bind off loopback belongs
+behind something that has it. With the `grpc` feature the same API is
+served over HTTP/2 from `crates/concat-server/proto/concat.proto`, a thin
+envelope carrying the same JSON, with the token as `authorization: Bearer
+...` metadata. `version` is the call to make first: its reply's
+`capabilities` names what the build serves (`events`, `json-rpc`,
+`unix-socket`, `grpc`, `gpu`) before anything is asked of it.
 
 ## Reading this codebase cold
 

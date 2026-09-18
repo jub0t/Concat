@@ -10,9 +10,9 @@
 //! interleaves with a response half-written. The wire is exactly what
 //! `concat-cli api` reads and writes; see `concat_api::rpc`.
 //!
-//! When the server has a token, a connection's first line must be
-//! `{"jsonrpc": "2.0", "id": 1, "method": "auth", "params": {"token":
-//! "..."}}`. Anything else first is answered with an `unauthorized` error
+//! A connection's first line is `{"jsonrpc": "2.0", "id": 1, "method":
+//! "auth", "params": {"token": "..."}}`, with the server's token. Anything
+//! else first, or the wrong token, is answered with an `unauthorized` error
 //! and the connection is closed. `auth` is the transport's word, not the
 //! API's: it never reaches the hub.
 
@@ -27,13 +27,13 @@ use concat_api::rpc::{Call, Id, Message};
 use concat_api::{ApiError, Done, ErrorCode, Reply, Response};
 use serde_json::Value;
 
-use crate::{Connections, Hub};
+use crate::{Connections, Hub, token};
 
 /// Accepts JSON-RPC connections on `listener` until `stop` is set.
 pub(crate) fn serve_tcp(
     listener: TcpListener,
     hub: Hub,
-    token: Option<String>,
+    token: String,
     stop: Arc<AtomicBool>,
     connections: Connections,
 ) -> JoinHandle<()> {
@@ -75,7 +75,7 @@ pub(crate) fn serve_tcp(
 pub(crate) fn serve_unix(
     listener: std::os::unix::net::UnixListener,
     hub: Hub,
-    token: Option<String>,
+    token: String,
     stop: Arc<AtomicBool>,
     connections: Connections,
 ) -> JoinHandle<()> {
@@ -112,30 +112,23 @@ pub(crate) fn serve_unix(
 }
 
 /// One caller, start to end: the handshake, then a call per line.
-fn connection(
-    reader: impl BufRead,
-    writer: impl Write + Send + 'static,
-    hub: Hub,
-    token: Option<String>,
-) {
+fn connection(reader: impl BufRead, writer: impl Write + Send + 'static, hub: Hub, token: String) {
     let outbox = Outbox::start(writer);
     let mut lines = reader.lines().map_while(Result::ok);
 
-    if let Some(token) = token {
-        let Some(first) = lines.find(|line| !line.trim().is_empty()) else {
-            outbox.close();
-            return;
-        };
-        let (id, outcome) = handshake(&first, &token);
-        let ok = outcome.is_ok();
-        outbox.send(Message::Reply {
-            id,
-            response: outcome.into(),
-        });
-        if !ok {
-            outbox.close();
-            return;
-        }
+    let Some(first) = lines.find(|line| !line.trim().is_empty()) else {
+        outbox.close();
+        return;
+    };
+    let (id, outcome) = handshake(&first, &token);
+    let ok = outcome.is_ok();
+    outbox.send(Message::Reply {
+        id,
+        response: outcome.into(),
+    });
+    if !ok {
+        outbox.close();
+        return;
     }
 
     // Events reach this caller from here on: the outbox is shared with the
@@ -160,7 +153,8 @@ fn connection(
     outbox.close();
 }
 
-/// Reads the first line as the `auth` call and checks its token.
+/// Reads the first line as the `auth` call and checks its token, in
+/// constant time.
 fn handshake(line: &str, token: &str) -> (Option<Id>, Result<Reply, ApiError>) {
     let refuse = |id: Option<Id>, why: &str| {
         (
@@ -180,7 +174,7 @@ fn handshake(line: &str, token: &str) -> (Option<Id>, Result<Reply, ApiError>) {
         .and_then(|params| params.get("token"))
         .or_else(|| object.get("token"))
         .and_then(Value::as_str);
-    if presented == Some(token) {
+    if token::matches(presented.unwrap_or_default().as_bytes(), token.as_bytes()) {
         (id, Ok(Reply::Done(Done {})))
     } else {
         refuse(id, "wrong token")
@@ -247,7 +241,19 @@ mod tests {
     }
 
     impl Client {
+        /// A connection with the server's token presented, ready to call.
         fn connect(server: &crate::Server) -> Client {
+            let mut client = Client::reach(server);
+            let welcomed = client.ask(&format!(
+                r#"{{"jsonrpc":"2.0","id":0,"method":"auth","params":{{"token":"{}"}}}}"#,
+                server.token()
+            ));
+            assert_eq!(welcomed["result"], serde_json::json!({}), "{welcomed}");
+            client
+        }
+
+        /// A connection with nothing said yet.
+        fn reach(server: &crate::Server) -> Client {
             let stream =
                 TcpStream::connect(server.json_addr().expect("listening")).expect("connects");
             Client {
@@ -271,6 +277,11 @@ mod tests {
         let reply = client.ask(r#"{"jsonrpc":"2.0","id":41,"method":"version"}"#);
         assert_eq!(reply["id"], 41);
         assert_eq!(reply["result"]["apiVersion"], concat_api::API_VERSION);
+        assert_eq!(
+            reply["result"]["capabilities"],
+            serde_json::json!(["events", "json-rpc"]),
+            "the transport listening is named"
+        );
         let refused = client
             .ask(r#"{"jsonrpc":"2.0","id":42,"method":"project.get","params":{"path":"/none"}}"#);
         assert_eq!(refused["error"]["data"]["code"], "notOpen");
@@ -298,23 +309,42 @@ mod tests {
     #[test]
     fn a_token_is_presented_first_or_the_connection_ends() {
         let (server, _scratch) = server(Some("open sesame"));
-        let mut wrong = Client::connect(&server);
-        let refused = wrong.ask(r#"{"jsonrpc":"2.0","id":1,"method":"version"}"#);
+        let mut silent = Client::reach(&server);
+        let refused = silent.ask(r#"{"jsonrpc":"2.0","id":1,"method":"version"}"#);
         assert_eq!(refused["error"]["data"]["code"], "unauthorized");
         let mut after = String::new();
         assert_eq!(
-            wrong.reader.read_line(&mut after).expect("eof"),
+            silent.reader.read_line(&mut after).expect("eof"),
             0,
             "closed"
         );
 
-        let mut right = Client::connect(&server);
+        let mut wrong = Client::reach(&server);
+        let refused =
+            wrong.ask(r#"{"jsonrpc":"2.0","id":1,"method":"auth","params":{"token":"open"}}"#);
+        assert_eq!(refused["error"]["data"]["code"], "unauthorized");
+        assert_eq!(wrong.reader.read_line(&mut after).expect("eof"), 0);
+
+        let mut right = Client::reach(&server);
         let welcomed = right
             .ask(r#"{"jsonrpc":"2.0","id":1,"method":"auth","params":{"token":"open sesame"}}"#);
         assert_eq!(welcomed["result"], serde_json::json!({}));
         let reply = right.ask(r#"{"jsonrpc":"2.0","id":2,"method":"version"}"#);
         assert_eq!(reply["id"], 2);
         assert_eq!(server.connections(), 1);
+        server.stop();
+    }
+
+    #[test]
+    fn a_minted_token_is_required_on_loopback_too() {
+        let (server, _scratch) = server(None);
+        let mut silent = Client::reach(&server);
+        let refused = silent.ask(r#"{"jsonrpc":"2.0","id":1,"method":"version"}"#);
+        assert_eq!(refused["error"]["data"]["code"], "unauthorized");
+
+        let mut right = Client::connect(&server);
+        let reply = right.ask(r#"{"jsonrpc":"2.0","id":2,"method":"version"}"#);
+        assert_eq!(reply["result"]["apiVersion"], concat_api::API_VERSION);
         server.stop();
     }
 }

@@ -49,7 +49,10 @@ pub const API_VERSION: &str = "0.2";
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "method", rename_all_fields = "camelCase")]
 pub enum Request {
-    /// The API's version and the build behind it.
+    /// The API's version, the build behind it, and what that build
+    /// serves. The one method to call first: its reply's `capabilities`
+    /// names the transports and optional features this server has, so a
+    /// caller knows what to ask for before it asks.
     #[serde(rename = "version")]
     Version,
 
@@ -318,6 +321,14 @@ pub struct VersionInfo {
     pub concat: String,
     /// Where this machine keeps recents, templates and models.
     pub dirs: Dirs,
+    /// What this build serves, as names a caller tests for membership:
+    /// what the API itself provides in every build, `events`, and what
+    /// only some builds do, `gpu` when frames composite on one; then what
+    /// the transport around it adds, `json-rpc`, `unix-socket` and `grpc`
+    /// for each of the socket transports listening. A name absent from
+    /// the list is not served, whatever the build; a name added later is
+    /// not a version bump, so a caller ignores names it does not know.
+    pub capabilities: Vec<String>,
 }
 
 /// The app's directories, as paths.

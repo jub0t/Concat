@@ -61,6 +61,10 @@ const DEFAULT_CRF: u8 = 20;
 /// The x264 preset every export uses unless told otherwise.
 const DEFAULT_PRESET: &str = "medium";
 
+/// What every build of the API serves, before what is decided by the
+/// build or the embedder is added; see [`VersionInfo::capabilities`].
+const CAPABILITIES: &[&str] = &["events"];
+
 /// Where a job's events go. Called from the job's thread, so a transport
 /// that writes them to a caller locks its writer inside.
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
@@ -76,6 +80,8 @@ pub struct Api {
     exporter: Exporter,
     events: EventSink,
     jobs: Jobs,
+    /// [`VersionInfo::capabilities`], in the order they were added.
+    capabilities: Vec<String>,
 }
 
 impl Api {
@@ -97,12 +103,23 @@ impl Api {
             events,
             jobs: Jobs::default(),
             dirs,
+            capabilities: CAPABILITIES.iter().map(|name| (*name).to_owned()).collect(),
         }
     }
 
     /// The directories this API works under.
     pub fn dirs(&self) -> &AppDirs {
         &self.dirs
+    }
+
+    /// Adds a name to [`VersionInfo::capabilities`]: what the transport
+    /// or embedder around this API serves that the API cannot know of
+    /// itself, such as the sockets it is listening on. A name already
+    /// there is not repeated.
+    pub fn add_capability(&mut self, name: &str) {
+        if !self.capabilities.iter().any(|known| known == name) {
+            self.capabilities.push(name.to_owned());
+        }
     }
 
     /// The export slot, for an embedder that shares it with a window.
@@ -200,6 +217,13 @@ impl Api {
             api_version: API_VERSION.to_owned(),
             concat: env!("CARGO_PKG_VERSION").to_owned(),
             dirs: Dirs::from(&self.dirs),
+            capabilities: {
+                let mut capabilities = self.capabilities.clone();
+                if self.monitor.has_gpu() {
+                    capabilities.push("gpu".to_owned());
+                }
+                capabilities
+            },
         }
     }
 
@@ -770,6 +794,25 @@ mod tests {
             video: None,
         }));
         format!("{location}/{name}")
+    }
+
+    #[test]
+    fn version_names_what_the_build_serves() {
+        let (mut api, _scratch, _events) = api();
+        let base = api.version();
+        assert_eq!(base.api_version, API_VERSION);
+        assert_eq!(base.capabilities, vec!["events".to_owned()]);
+        assert!(!base.capabilities.iter().any(|name| name == "gpu"));
+
+        api.add_capability("json-rpc");
+        api.add_capability("json-rpc");
+        api.add_capability("grpc");
+        let served = serde_json::to_value(ok(api.dispatch(Request::Version))).expect("JSON");
+        assert_eq!(
+            served["capabilities"],
+            json!(["events", "json-rpc", "grpc"]),
+            "each name once, in the order added"
+        );
     }
 
     #[test]
