@@ -92,26 +92,16 @@ pub(crate) struct BuiltTimeline {
     pub(crate) tracks: HashMap<ClipId, usize>,
     /// The clip's pre-fit chain - its crop - where it has one.
     pub(crate) pre_chains: HashMap<ClipId, String>,
-    /// The clip's shader passes, on a GPU renderer.
-    pub(crate) passes: HashMap<ClipId, Vec<ShaderPass>>,
-    /// The clips whose chains ride: a knob with keys is worth something
-    /// different each frame, so their passes are built per frame from the
-    /// chain and the clip's span rather than read from `passes`.
-    pub(crate) riding: HashMap<ClipId, RidingChain>,
+    /// The clip's applied effects, on a GPU renderer: the passes are
+    /// resolved from them at each frame, because a knob with keys is worth
+    /// something different each frame and the resolution is cheap.
+    pub(crate) chains: HashMap<ClipId, Vec<AppliedFilter>>,
     /// The clip whose cutout is drawn tinted rather than cut, if one is.
     pub(crate) highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
     pub(crate) treatments: Vec<Treatment>,
     /// The clips whose background a mask takes away.
     pub(crate) cutouts: HashMap<ClipId, CutoutJob>,
-}
-
-/// A picture chain with keys on it, and where its clip sits, so a frame's
-/// passes can be built at the right point of the ride.
-pub(crate) struct RidingChain {
-    pub(crate) effects: Vec<AppliedFilter>,
-    pub(crate) start: f64,
-    pub(crate) duration: f64,
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
@@ -122,9 +112,10 @@ pub(crate) struct Treatment {
     pub(crate) end: Rational,
     pub(crate) track: usize,
     pub(crate) chain: String,
-    /// The layer's shader passes, when the renderer runs them; the chain is
-    /// then whatever the GPU cannot.
-    pub(crate) passes: Vec<ShaderPass>,
+    /// The layer's applied effects, when the renderer runs shaders; the
+    /// chain is then whatever the GPU cannot. Resolved to passes at each
+    /// frame, so a keyed knob rides.
+    pub(crate) effects: Vec<AppliedFilter>,
     pub(crate) strength: f32,
     pub(crate) ramp_in: f64,
     pub(crate) ramp_out: f64,
@@ -133,6 +124,17 @@ pub(crate) struct Treatment {
 impl Treatment {
     pub(crate) fn covers(&self, time: Rational) -> bool {
         self.start <= time && time < self.end
+    }
+
+    /// The shader passes at `time`, each keyed knob at its value there.
+    pub(crate) fn passes_at(&self, time: Rational) -> Vec<ShaderPass> {
+        let span = (self.end - self.start).as_f64();
+        let at = if span > 0.0 {
+            ((time - self.start).as_f64() / span).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        Catalogue::builtin().shader_passes_at(&self.effects, at)
     }
 
     /// How hard the treatment is applied at `time`: the strength, eased in
@@ -165,8 +167,7 @@ pub(crate) fn build_timeline(
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
-    let mut passes: HashMap<ClipId, Vec<ShaderPass>> = HashMap::new();
-    let mut riding: HashMap<ClipId, RidingChain> = HashMap::new();
+    let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
 
@@ -189,14 +190,18 @@ pub(crate) fn build_timeline(
         // stack, kept beside the timeline rather than in it.
         if clip.kind == ClipKind::Layer {
             let chain = full_chain(clip, gpu);
-            let layer_passes = if gpu { shader_passes(clip) } else { Vec::new() };
-            if !chain.is_empty() || !layer_passes.is_empty() {
+            let effects = if gpu {
+                shaded(&clip.effects)
+            } else {
+                Vec::new()
+            };
+            if !chain.is_empty() || !effects.is_empty() {
                 treatments.push(Treatment {
                     start,
                     end: start + duration,
                     track: clip.track,
                     chain,
-                    passes: layer_passes,
+                    effects,
                     strength: clip.opacity.clamp(0.0, 1.0) as f32,
                     ramp_in: clip.fade_in.max(0.0),
                     ramp_out: clip.fade_out.max(0.0),
@@ -247,23 +252,9 @@ pub(crate) fn build_timeline(
                 pre_chains.insert(id, pre);
             }
             if gpu {
-                let clip_passes = shader_passes(clip);
-                if !clip_passes.is_empty() {
-                    passes.insert(id, clip_passes);
-                }
-                if clip
-                    .effects
-                    .iter()
-                    .any(|link| link.enabled && !link.keys.is_empty())
-                {
-                    riding.insert(
-                        id,
-                        RidingChain {
-                            effects: clip.effects.clone(),
-                            start: clip.start,
-                            duration: clip.duration,
-                        },
-                    );
+                let effects = shaded(&clip.effects);
+                if !effects.is_empty() {
+                    chains.insert(id, effects);
                 }
             }
             if let Some(job) = CutoutJob::of(clip) {
@@ -283,8 +274,7 @@ pub(crate) fn build_timeline(
         tracks: tracks_of,
         treatments,
         pre_chains,
-        passes,
-        riding,
+        chains,
         cutouts,
         highlight,
     }
@@ -336,9 +326,20 @@ pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
     parts.join(",")
 }
 
-/// The clip's shader passes, for a renderer that runs them.
-pub(crate) fn shader_passes(clip: &ExportClip) -> Vec<ShaderPass> {
-    Catalogue::builtin().shader_passes(&clip.effects)
+/// The enabled entries of a chain whose package has a shader: the ones a
+/// renderer that runs shaders resolves to passes each frame.
+pub(crate) fn shaded(effects: &[AppliedFilter]) -> Vec<AppliedFilter> {
+    let catalogue = Catalogue::builtin();
+    effects
+        .iter()
+        .filter(|applied| {
+            applied.enabled
+                && catalogue
+                    .get(&applied.id)
+                    .is_some_and(|package| package.shader().is_some())
+        })
+        .cloned()
+        .collect()
 }
 
 /// The engine's keys for a flattened clip's animation, or None for none.

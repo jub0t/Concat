@@ -378,6 +378,7 @@ struct Slot {
 /// A package's shader, stitched, checked and laid out.
 #[derive(Clone, Debug)]
 pub struct Shader {
+    package: String,
     key: String,
     source: Arc<str>,
     slots: Vec<Slot>,
@@ -475,6 +476,7 @@ impl Shader {
         }
 
         Ok(Shader {
+            package: manifest.effect.id.clone(),
             key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
             source: Arc::from(source),
             slots,
@@ -542,7 +544,9 @@ impl Shader {
         bytes
     }
 
-    /// A pass over a layer with these values.
+    /// A pass over a layer with these values: the uniform buffer written
+    /// from them, and the values themselves for a renderer that reads by
+    /// name.
     pub fn pass(
         &self,
         values: &BTreeMap<String, f64>,
@@ -551,9 +555,11 @@ impl Shader {
         lut: Option<Arc<Lut>>,
     ) -> ShaderPass {
         ShaderPass {
+            package: self.package.clone(),
             key: self.key.clone(),
             source: Arc::clone(&self.source),
             params: self.params_bytes(values, params),
+            values: values.clone(),
             intensity,
             lut,
         }

@@ -24,7 +24,7 @@ pub mod chains;
 pub mod flatten;
 mod resolve;
 
-use resolve::{BuiltTimeline, RidingChain, Treatment, animation_of, build_timeline, quantise};
+use resolve::{BuiltTimeline, Treatment, animation_of, build_timeline, quantise};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -958,8 +958,7 @@ fn render_picture(
         tracks,
         treatments,
         pre_chains,
-        passes,
-        riding,
+        chains,
         cutouts,
         highlight: _,
     } = build_timeline(request, rate, visible, gpu);
@@ -994,7 +993,6 @@ fn render_picture(
         reporter.cancelled()?;
 
         let time = rate.time_of_frame(index);
-        let frame_seconds = time.as_f64();
         let plan = plan_frame(&timeline, time);
 
         let mut sources: Vec<Source<Frame>> = Vec::with_capacity(plan.layers.len());
@@ -1025,7 +1023,7 @@ fn render_picture(
                         transform: layer.transform,
                         track: tracks.get(&layer.clip).copied().unwrap_or(0),
                         blend: layer.blend,
-                        passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
+                        passes: passes_at(&chains, &timeline, layer.clip, time),
                     });
                 }
                 continue;
@@ -1098,7 +1096,7 @@ fn render_picture(
                     transform: layer.transform,
                     track: tracks.get(&layer.clip).copied().unwrap_or(0),
                     blend: layer.blend,
-                    passes: passes_at(&passes, &riding, layer.clip, frame_seconds),
+                    passes: passes_at(&chains, &timeline, layer.clip, time),
                 });
             }
         }
@@ -1148,23 +1146,22 @@ fn render_picture(
     encoder.finish().map_err(|error| error.to_string())
 }
 
-/// The shader passes for one clip at one frame: built for the instant when
-/// the chain rides, and the ones built once otherwise.
+/// The shader passes for one clip at one instant: every keyed knob at its
+/// value there, the rest at their settings, laid out as the uniforms the
+/// shaders read.
 fn passes_at(
-    passes: &HashMap<ClipId, Vec<ShaderPass>>,
-    riding: &HashMap<ClipId, RidingChain>,
+    chains: &HashMap<ClipId, Vec<AppliedFilter>>,
+    timeline: &Timeline,
     clip: ClipId,
-    seconds: f64,
+    time: Rational,
 ) -> Vec<ShaderPass> {
-    if let Some(chain) = riding.get(&clip) {
-        let at = if chain.duration > 0.0 {
-            ((seconds - chain.start) / chain.duration).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        return Catalogue::builtin().shader_passes_at(&chain.effects, at);
-    }
-    passes.get(&clip).cloned().unwrap_or_default()
+    let Some(effects) = chains.get(&clip) else {
+        return Vec::new();
+    };
+    let at = timeline
+        .clip(clip)
+        .map_or(0.0, |engine_clip| engine_clip.fraction_at(time));
+    Catalogue::builtin().shader_passes_at(effects, at)
 }
 
 /// `a` towards `b` by `amount`, per channel.
@@ -1205,12 +1202,17 @@ fn composite_treated(
     // pixel leaving the GPU, so long as none of them needs FFmpeg for
     // a package that has no shader.
     if live.iter().all(|treatment| treatment.chain.is_empty()) {
+        let resolved: Vec<(Vec<ShaderPass>, f32)> = live
+            .iter()
+            .map(|treatment| (treatment.passes_at(time), treatment.strength_at(time)))
+            .collect();
         let gpu: Vec<GpuTreatment<'_>> = live
             .iter()
-            .map(|treatment| GpuTreatment {
+            .zip(&resolved)
+            .map(|(treatment, (passes, strength))| GpuTreatment {
                 track: treatment.track,
-                passes: &treatment.passes,
-                strength: treatment.strength_at(time),
+                passes,
+                strength: *strength,
             })
             .collect();
         if let Some(frame) =
@@ -1237,11 +1239,12 @@ fn composite_treated(
         } else {
             // Shader passes run through the compositor over the ground as a
             // layer of its own; whatever is left for FFmpeg runs after.
-            let shaded = if treatment.passes.is_empty() {
+            let passes = treatment.passes_at(time);
+            let shaded = if passes.is_empty() {
                 below.clone()
             } else {
                 let ground = [Layer::new(&below)
-                    .with_passes(&treatment.passes)
+                    .with_passes(&passes)
                     .at_time(time.as_f64() as f32)];
                 compositor.composite(width, height, &ground)
             };
@@ -1313,6 +1316,8 @@ pub struct PreviewSources {
     height: u32,
     time: Rational,
     treatments: Vec<Treatment>,
+    /// Each treatment's passes resolved at `time`, by the same index.
+    treatment_passes: Vec<Vec<ShaderPass>>,
 }
 
 impl PreviewSources {
@@ -1375,20 +1380,24 @@ impl PreviewSources {
     /// for a package with no shader, and only [`PreviewSources::composite`]
     /// can draw the frame.
     pub fn live_treatments(&self) -> Option<Vec<GpuTreatment<'_>>> {
-        let mut live: Vec<&Treatment> = self
+        let mut live: Vec<(usize, &Treatment)> = self
             .treatments
             .iter()
-            .filter(|treatment| treatment.covers(self.time))
+            .enumerate()
+            .filter(|(_, treatment)| treatment.covers(self.time))
             .collect();
-        if live.iter().any(|treatment| !treatment.chain.is_empty()) {
+        if live
+            .iter()
+            .any(|(_, treatment)| !treatment.chain.is_empty())
+        {
             return None;
         }
-        live.sort_by_key(|treatment| treatment.track);
+        live.sort_by_key(|(_, treatment)| treatment.track);
         Some(
             live.iter()
-                .map(|treatment| GpuTreatment {
+                .map(|(index, treatment)| GpuTreatment {
                     track: treatment.track,
-                    passes: &treatment.passes,
+                    passes: &self.treatment_passes[*index],
                     strength: treatment.strength_at(self.time),
                 })
                 .collect(),
@@ -1450,14 +1459,12 @@ pub fn preview_sources_of(
         tracks,
         treatments,
         pre_chains,
-        passes,
-        riding,
+        chains,
         cutouts,
         highlight,
     } = &plan.built;
     let highlight = *highlight;
     let time = quantise(seconds, rate);
-    let frame_seconds = time.as_f64();
     let plan_at = plan_frame(timeline, time);
 
     let mut sources: Vec<Source<std::sync::Arc<Frame>>> = Vec::with_capacity(plan_at.layers.len());
@@ -1498,7 +1505,7 @@ pub fn preview_sources_of(
                     transform: layer.transform,
                     track: tracks.get(&layer.clip).copied().unwrap_or(0),
                     blend: layer.blend,
-                    passes: passes_at(passes, riding, layer.clip, frame_seconds),
+                    passes: passes_at(chains, timeline, layer.clip, time),
                 })
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -1521,6 +1528,10 @@ pub fn preview_sources_of(
         width: plan.width,
         height: plan.height,
         time,
+        treatment_passes: treatments
+            .iter()
+            .map(|treatment| treatment.passes_at(time))
+            .collect(),
         treatments: treatments.clone(),
     })
 }
@@ -1674,7 +1685,7 @@ mod tests {
             end: Rational::from_int(10),
             track: 1,
             chain: "negate".to_owned(),
-            passes: Vec::new(),
+            effects: Vec::new(),
             strength: 1.0,
             ramp_in: 0.0,
             ramp_out: 0.0,
