@@ -16,6 +16,7 @@
 pub mod captions;
 pub mod export;
 pub mod settings;
+pub mod speech;
 
 /// One thing that happened, to one pane.
 #[derive(Clone, Debug)]
@@ -26,4 +27,6 @@ pub enum Msg {
     Settings(settings::SettingsMsg),
     /// To the captions sheet.
     Captions(captions::CaptionsMsg),
+    /// To the speech sheet.
+    Speech(speech::SpeechMsg),
 }

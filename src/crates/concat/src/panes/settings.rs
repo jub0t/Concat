@@ -432,7 +432,7 @@ impl SettingsPane {
                 .collect();
         }
         if let Ok(status) = concat_speech::Speech::status(dirs) {
-            studio.speakers = status.voices.clone();
+            studio.speech.speakers = status.voices.clone();
             self.voices = status
                 .models
                 .iter()

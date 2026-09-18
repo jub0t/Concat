@@ -54,7 +54,6 @@ use crate::host::{
     window_start,
 };
 use crate::i18n::{self, t, tf};
-use crate::panes::captions::CHARS_PER_SECOND;
 use crate::panes::settings::installed;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
@@ -195,9 +194,6 @@ pub struct LibraryView {
 pub const SHELF_KINDS: [PackageKind; 3] =
     [PackageKind::Filter, PackageKind::Effect, PackageKind::Audio];
 
-/// The default Kokoro speaker: `af_heart`.
-const DEFAULT_VOICE: i32 = 3;
-
 /// The project sheet: the Details panel's Modify button, as a form.
 #[derive(Default)]
 pub struct ProjectSheet {
@@ -208,28 +204,6 @@ pub struct ProjectSheet {
     /// Row in `START_RATES`.
     pub rate: usize,
 }
-
-/// The speech sheet: a title's words, or any words, read aloud.
-#[derive(Default)]
-pub struct SpeechSheet {
-    pub open: bool,
-    /// The title the words came from, and where the sound lands. None
-    /// reads a script of its own at the playhead.
-    pub clip: Option<String>,
-    pub text: String,
-    /// Row in `Studio::speakers`.
-    pub voice: usize,
-    /// Row in the installed voice model list.
-    pub model: usize,
-    /// 0 slower, 1 natural, 2 faster.
-    pub pace: usize,
-    pub running: bool,
-    pub progress: f32,
-    pub message: String,
-}
-
-/// The paces the speech sheet offers, as the voice's rate multiplier.
-const PACES: [f32; 3] = [0.85, 1.0, 1.15];
 
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
@@ -735,9 +709,8 @@ pub struct Studio {
     pub drop: Option<DropPlan>,
     pub project_sheet: ProjectSheet,
     pub captions: crate::panes::captions::CaptionsPane,
-    pub speech: SpeechSheet,
+    pub speech: crate::panes::speech::SpeechPane,
     /// Every speaker the voice engine offers, in its own order.
-    pub speakers: Vec<concat_speech::tts::VoiceInfo>,
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
 
@@ -1366,8 +1339,7 @@ impl Studio {
             drop: None,
             project_sheet: ProjectSheet::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
-            speech: SpeechSheet::default(),
-            speakers: Vec::new(),
+            speech: crate::panes::speech::SpeechPane::default(),
             text_presets,
             languages,
             brush: 0,
@@ -5123,189 +5095,15 @@ impl Studio {
                 pane.update(msg, self);
                 self.captions = pane;
             }
+            crate::panes::Msg::Speech(msg) => {
+                let mut pane = std::mem::take(&mut self.speech);
+                pane.update(msg, self);
+                self.speech = pane;
+            }
         }
     }
 
     // ── speech ──
-
-    /// Opens the speech sheet: on the selected title's words when a title
-    /// is selected, else on a blank script to be read at the playhead. The
-    /// voice is the one chosen last time.
-    pub fn speech_open(&mut self) {
-        let title = self
-            .sole_selection()
-            .and_then(|id| self.clip(&id))
-            .filter(|clip| clip.kind == model::ClipKind::Text)
-            .cloned();
-        let installed = installed(&self.settings.voices);
-        let model = installed.iter().position(|model| model.active).unwrap_or(0);
-        let wanted = self.prefs.tts_voice.unwrap_or(DEFAULT_VOICE);
-        let voice = self
-            .speakers
-            .iter()
-            .position(|speaker| speaker.id == wanted)
-            .unwrap_or(0);
-        self.speech = SpeechSheet {
-            open: true,
-            clip: title.as_ref().map(|clip| clip.id.clone()),
-            text: title
-                .and_then(|clip| clip.text.map(|text| text.content))
-                .unwrap_or_default(),
-            voice,
-            model,
-            pace: 1,
-            ..SpeechSheet::default()
-        };
-    }
-
-    /// Reads the script: the WAV lands in the bin and on the timeline, at
-    /// the title's start or at the playhead.
-    pub fn speech_run(&mut self) {
-        let text = self.speech.text.trim().to_owned();
-        if text.is_empty() {
-            self.speech.message = t("Nothing to read yet");
-            return;
-        }
-        let Some(model) = installed(&self.settings.voices)
-            .get(self.speech.model)
-            .map(|model| model.id.clone())
-        else {
-            self.speech.message = t("Download a voice model in Settings › Speech first");
-            return;
-        };
-        let Some(voice) = self
-            .speakers
-            .get(self.speech.voice)
-            .map(|speaker| speaker.id)
-        else {
-            self.speech.message = t("No voice to read with");
-            return;
-        };
-        let Some(project) = self
-            .session
-            .as_ref()
-            .map(|session| session.path().to_owned())
-        else {
-            return;
-        };
-        // Remembered: the voice chosen is the voice wanted next time.
-        self.prefs.tts_voice = Some(voice);
-        self.prefs.save(&self.host.dirs);
-        let start = self
-            .speech
-            .clip
-            .as_ref()
-            .and_then(|id| self.clip(id))
-            .map(|clip| clip.start)
-            .unwrap_or(f64::from(self.playhead));
-        let request = concat_speech::tts::SpeakRequest {
-            model_id: model,
-            voice,
-            text,
-            speed: PACES[self.speech.pace.min(2)],
-            project,
-        };
-        let dirs = self.host.dirs.clone();
-        let speech = Arc::clone(&self.host.speech);
-        self.speech.running = true;
-        self.speech.progress = 0.0;
-        self.speech.message.clear();
-        spawn(
-            move || {
-                let spoken = speech.speak(&dirs, &request, |fraction| {
-                    on_ui(move |studio, _, _| {
-                        studio.speech.progress = fraction.clamp(0.0, 1.0);
-                    });
-                })?;
-                let summary = media::probe(&spoken.path)?;
-                Ok::<_, String>(summary)
-            },
-            move |studio, _, _, result| {
-                studio.speech.running = false;
-                match result {
-                    Ok(summary) => {
-                        let created = studio.apply(Command::AddMedia {
-                            item: summary.to_new_media(),
-                        });
-                        let media_id = created.or_else(|| {
-                            studio
-                                .project()
-                                .media
-                                .iter()
-                                .find(|item| item.path == summary.path)
-                                .map(|item| item.id.clone())
-                        });
-                        studio.speech.open = false;
-                        if let Some(media_id) = media_id {
-                            studio.apply(Command::AddClipAtFirstFree { media_id, start });
-                            studio.notify(&t("Voice added to the timeline"), false);
-                        }
-                    }
-                    Err(error) if error.contains("cancel") => studio.speech.open = false,
-                    Err(error) => studio.speech.message = error,
-                }
-            },
-        );
-    }
-
-    pub fn speech_cancel(&mut self) {
-        self.host.speech.cancel();
-        self.speech.running = false;
-        self.speech.open = false;
-    }
-
-    /// "af_heart" as a person would say it: the name, and the accent and
-    /// gender its prefix encodes.
-    fn voice_label(name: &str) -> (String, String) {
-        let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
-        let mut chars = rest.chars();
-        let title = match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        };
-        let accent = match prefix.chars().next() {
-            Some('a') => t("American"),
-            Some('b') => t("British"),
-            Some('e') => t("Spanish"),
-            Some('f') => t("French"),
-            Some('h') => t("Hindi"),
-            Some('i') => t("Italian"),
-            Some('j') => t("Japanese"),
-            Some('p') => t("Portuguese"),
-            Some('z') => t("Chinese"),
-            _ => String::new(),
-        };
-        let gender = match prefix.chars().nth(1) {
-            Some('f') => t("female"),
-            Some('m') => t("male"),
-            _ => String::new(),
-        };
-        let detail = [accent, gender]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        (title, detail)
-    }
-
-    /// What the sheet's script would take to say, for the line under it.
-    fn speech_estimate(&self) -> String {
-        let chars = self.speech.text.trim().chars().count();
-        if chars == 0 {
-            return t("Nothing to read yet");
-        }
-        let seconds = chars as f32 / CHARS_PER_SECOND / PACES[self.speech.pace.min(2)];
-        let whole = seconds.round() as i32;
-        let voice = self
-            .speakers
-            .get(self.speech.voice)
-            .map(|speaker| Self::voice_label(&speaker.name).0)
-            .unwrap_or_default();
-        tf(
-            "About {0}:{1} in {2} · {3} characters",
-            &[&(whole / 60), &format!("{:02}", whole % 60), &voice, &chars],
-        )
-    }
 
     /// Packs the open project into the template library.
     /// Where the user's own looks live: one package folder each.
@@ -6372,38 +6170,9 @@ impl Studio {
                 .map(|model| SharedString::from(model.name.as_str()))
                 .collect(),
         );
-        sync(
-            &models.speakers,
-            self.speakers
-                .iter()
-                .map(|speaker| Self::voice_label(&speaker.name).0.into())
-                .collect(),
-        );
-        sync(
-            &models.speaker_details,
-            self.speakers
-                .iter()
-                .map(|speaker| Self::voice_label(&speaker.name).1.into())
-                .collect(),
-        );
-        app.set_speech(SpeechSheetData {
-            open: self.speech.open,
-            text: self.speech.text.as_str().into(),
-            voice: self.speech.voice as i32,
-            model: self.speech.model as i32,
-            pace: self.speech.pace as i32,
-            running: self.speech.running,
-            progress: self.speech.progress,
-            ready: !voices.is_empty(),
-            placement: if self.speech.clip.is_some() {
-                "at the title"
-            } else {
-                "at the playhead"
-            }
-            .into(),
-            estimate: self.speech_estimate().into(),
-            message: self.speech.message.as_str().into(),
-        });
+        sync(&models.speakers, self.speech.speaker_rows());
+        sync(&models.speaker_details, self.speech.speaker_detail_rows());
+        app.set_speech(self.speech.data(self));
 
         let bar = self.menu_bar();
         app.set_app_menu_height(Self::menu_height(&bar));

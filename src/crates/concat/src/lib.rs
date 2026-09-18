@@ -54,6 +54,7 @@ use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
 use panes::settings::SettingsMsg;
+use panes::speech::SpeechMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -1063,7 +1064,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Captions(CaptionsMsg::Open));
     }));
     editor.on_speak(on_window!(|state| {
-        state.speech_open();
+        state.handle(Msg::Speech(SpeechMsg::Open));
     }));
 
     app.on_captions_closed(on_window!(|state| {
@@ -1088,25 +1089,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Captions(CaptionsMsg::Cancel));
     }));
     app.on_speech_closed(on_window!(|state| {
-        state.speech.open = false;
+        state.handle(Msg::Speech(SpeechMsg::Close));
     }));
     app.on_speech_text_edited(on_window!(|state, text: SharedString| {
-        state.speech.text = text.to_string();
+        state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
     }));
     app.on_speech_voice_changed(on_window!(|state, index: i32| {
-        state.speech.voice = index.max(0) as usize;
+        state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
     }));
     app.on_speech_model_changed(on_window!(|state, index: i32| {
-        state.speech.model = index.max(0) as usize;
+        state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
     }));
     app.on_speech_pace_changed(on_window!(|state, index: i32| {
-        state.speech.pace = (index.max(0) as usize).min(2);
+        state.handle(Msg::Speech(SpeechMsg::PaceChanged(index)));
     }));
     app.on_speech_begin(on_window!(|state| {
-        state.speech_run();
+        state.handle(Msg::Speech(SpeechMsg::Begin));
     }));
     app.on_speech_cancel(on_window!(|state| {
-        state.speech_cancel();
+        state.handle(Msg::Speech(SpeechMsg::Cancel));
     }));
 
     // ── the title-bar menus ──
@@ -1140,7 +1141,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         }
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
-                        "speech" => state.speech_open(),
+                        "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
                         "clear-cache" => state.clear_project_cache(),
                         "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
                         "close-project" => state.close_project(),
