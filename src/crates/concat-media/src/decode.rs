@@ -847,6 +847,7 @@ impl SeekableSource for Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encode::RateMode;
 
     #[test]
     fn options_build_up() {
@@ -933,6 +934,8 @@ mod tests {
             codec: VideoCodec::Hevc,
             preset: "ultrafast".to_owned(),
             crf: 20,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
             ten_bit: true,
             hardware: false,
         };

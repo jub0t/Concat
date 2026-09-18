@@ -26,7 +26,7 @@ pub mod samples;
 pub mod treat;
 
 pub use decode::{ColorSignal, DecodeOptions, Decoder, FrameSource, SeekableSource};
-pub use encode::{EncodeOptions, Encoder, FrameSink, VideoCodec, jpeg};
+pub use encode::{EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec, jpeg};
 pub use error::{Error, Result};
 pub use ffi::{init, linked_version};
 pub use hardware::{HwDevice, HwPolicy, hardware_decode, set_hardware_decode};

@@ -178,6 +178,9 @@ export component App inherits Window {
     callback export-quality-changed(index: int);
     callback export-codec-changed(index: int);
     callback export-ten-bit-changed(on: bool);
+    callback export-advanced-toggled(on: bool);
+    callback export-rate-mode-changed(index: int);
+    callback export-bitrate-changed(text: string);
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -466,6 +469,9 @@ export component App inherits Window {
         quality-changed(index) => { root.export-quality-changed(index); }
         codec-changed(index) => { root.export-codec-changed(index); }
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
+        advanced-toggled(on) => { root.export-advanced-toggled(on); }
+        rate-mode-changed(index) => { root.export-rate-mode-changed(index); }
+        bitrate-changed(text) => { root.export-bitrate-changed(text); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }

@@ -116,6 +116,35 @@ impl VideoCodec {
     }
 }
 
+/// How the encoder is told what rate to hold. VBR leaves the bitrate free
+/// and asks for a quality (the CRF); CBR pins one target, at the cost of
+/// some quality in the busy seconds. VBR is what every export used to be,
+/// and stays the default.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RateMode {
+    /// Quality first: the encoder picks a bitrate per frame. `bitrate_kbps`
+    /// is unused.
+    #[default]
+    Vbr,
+    /// Size first: `bitrate_kbps` is the target and the encoder keeps to it.
+    /// Only the soft encoders support it; hardware encoders fall back to
+    /// VBR because their rate control differs.
+    Cbr,
+}
+
+impl RateMode {
+    /// The name a document or a request stores.
+    pub fn name(self) -> &'static str {
+        match self {
+            RateMode::Vbr => "vbr",
+            RateMode::Cbr => "cbr",
+        }
+    }
+
+    /// Every mode, in the order a menu lists them.
+    pub const ALL: [RateMode; 2] = [RateMode::Vbr, RateMode::Cbr];
+}
+
 /// Encoder settings.
 #[derive(Clone, Debug)]
 pub struct EncodeOptions {
@@ -128,6 +157,13 @@ pub struct EncodeOptions {
     /// and a bigger file; the other encoders are handed their own
     /// equivalent.
     pub crf: u8,
+    /// VBR (the CRF carries the quality) or CBR (the bitrate is the
+    /// target). Default VBR, so an unchanged export means an unchanged
+    /// file.
+    pub rate_mode: RateMode,
+    /// Target bitrate in kilobits per second, used when `rate_mode` is
+    /// CBR. Zero means "not set" and the encoder falls back to VBR.
+    pub bitrate_kbps: u32,
     /// Ten bits a channel rather than eight: no banding in a sky or a
     /// gradient, at a few percent more file. H.264 at ten bits plays on
     /// less than HEVC or AV1 at ten bits do.
@@ -143,6 +179,8 @@ impl Default for EncodeOptions {
             codec: VideoCodec::H264,
             preset: "medium".to_owned(),
             crf: 18,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
             ten_bit: false,
             hardware: true,
         }
@@ -307,7 +345,37 @@ impl Encoder {
         }
 
         let crf = options.crf.to_string();
+        let cbr = options.rate_mode == RateMode::Cbr && options.bitrate_kbps > 0;
+        let bitrate = format!("{}k", options.bitrate_kbps);
+        // One second of VBV, not two. With a looser buffer x264 can stay
+        // well under b:v on calm content and never emit the padding that
+        // makes a CBR a CBR; `bufsize == bitrate` is where it starts
+        // holding the target.
+        let bufsize = format!("{}k", options.bitrate_kbps);
         let settings = match encoder_name {
+            // libx264 / libx265 both take -b:v, -minrate and -maxrate for
+            // CBR; VBR is the CRF that already shipped.
+            // Real CBR needs `nal-hrd=cbr` on x264, and `strict-cbr=1` on
+            // libx265. Without it x264 caps at maxrate but does not pad the
+            // output to b:v on content that does not need the bitrate, so an
+            // "8000k CBR" export of a calm clip comes out at whatever the
+            // content costs, not 8000k.
+            "libx264" if cbr => ffmpeg::dict! {
+                "preset" => options.preset.as_str(),
+                "b:v" => bitrate.as_str(),
+                "minrate" => bitrate.as_str(),
+                "maxrate" => bitrate.as_str(),
+                "bufsize" => bufsize.as_str(),
+                "x264-params" => "nal-hrd=cbr:force-cfr=1",
+            },
+            "libx265" if cbr => ffmpeg::dict! {
+                "preset" => options.preset.as_str(),
+                "b:v" => bitrate.as_str(),
+                "minrate" => bitrate.as_str(),
+                "maxrate" => bitrate.as_str(),
+                "bufsize" => bufsize.as_str(),
+                "x265-params" => "strict-cbr=1",
+            },
             "libx264" | "libx265" => ffmpeg::dict! {
                 "preset" => options.preset.as_str(),
                 "crf" => crf.as_str(),
@@ -643,6 +711,8 @@ mod tests {
                     codec,
                     preset: "ultrafast".to_owned(),
                     crf: 24,
+                    rate_mode: RateMode::Vbr,
+                    bitrate_kbps: 0,
                     ten_bit,
                     hardware: true,
                 };
