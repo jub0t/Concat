@@ -14,8 +14,8 @@
 //! call is handed to the [`Hub`] from a blocking task, the same way a
 //! JSON-RPC connection thread hands one over, and waits there.
 //!
-//! With a token, every call carries it as `authorization: Bearer ...`
-//! metadata; one without is `UNAUTHENTICATED`.
+//! Every call carries the server's token as `authorization: Bearer ...`
+//! metadata; one without it, or with another, is `UNAUTHENTICATED`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Status};
 
-use crate::Hub;
+use crate::{Hub, token};
 
 /// The generated messages and service.
 pub mod proto {
@@ -128,7 +128,7 @@ fn encode_event(event: &Event) -> proto::Event {
 pub(crate) fn serve(
     address: SocketAddr,
     hub: Hub,
-    token: Option<String>,
+    token: String,
     stop: Arc<AtomicBool>,
 ) -> Result<(SocketAddr, JoinHandle<()>), String> {
     let could_not =
@@ -173,22 +173,20 @@ pub(crate) fn serve(
     Ok((bound, thread))
 }
 
-/// The check every call passes through: the token as a bearer, when
-/// there is one.
-fn bearer(token: Option<String>) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {
-    let expected = token.map(|token| format!("Bearer {token}"));
-    move |request: Request<()>| match &expected {
-        None => Ok(request),
-        Some(expected) => {
-            let presented = request
-                .metadata()
-                .get("authorization")
-                .and_then(|value| value.to_str().ok());
-            if presented == Some(expected.as_str()) {
-                Ok(request)
-            } else {
-                Err(Status::unauthenticated("the token is missing or wrong"))
-            }
+/// The check every call passes through: the token as a bearer, compared
+/// in constant time.
+fn bearer(token: String) -> impl Fn(Request<()>) -> Result<Request<()>, Status> + Clone {
+    let expected = format!("Bearer {token}");
+    move |request: Request<()>| {
+        let presented = request
+            .metadata()
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if token::matches(presented.as_bytes(), expected.as_bytes()) {
+            Ok(request)
+        } else {
+            Err(Status::unauthenticated("the token is missing or wrong"))
         }
     }
 }
@@ -216,6 +214,16 @@ mod tests {
         (server, scratch)
     }
 
+    /// `request`, with `token` as its bearer.
+    fn with_bearer<T>(request: T, token: &str) -> Request<T> {
+        let mut request = Request::new(request);
+        request.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {token}").parse().expect("a value"),
+        );
+        request
+    }
+
     #[tokio::test]
     async fn a_call_answers_in_json_text_and_an_error_carries_its_code() {
         let (server, _scratch) = server(None);
@@ -224,10 +232,13 @@ mod tests {
             .await
             .expect("connects");
         let version = client
-            .call(proto::Request {
-                method: "version".to_owned(),
-                params: String::new(),
-            })
+            .call(with_bearer(
+                proto::Request {
+                    method: "version".to_owned(),
+                    params: String::new(),
+                },
+                server.token(),
+            ))
             .await
             .expect("answers")
             .into_inner();
@@ -236,12 +247,16 @@ mod tests {
         };
         let value: Value = serde_json::from_str(&text).expect("JSON");
         assert_eq!(value["apiVersion"], concat_api::API_VERSION);
+        assert_eq!(value["capabilities"], json!(["events", "grpc"]));
 
         let refused = client
-            .call(proto::Request {
-                method: "project.get".to_owned(),
-                params: r#"{"path":"/none"}"#.to_owned(),
-            })
+            .call(with_bearer(
+                proto::Request {
+                    method: "project.get".to_owned(),
+                    params: r#"{"path":"/none"}"#.to_owned(),
+                },
+                server.token(),
+            ))
             .await
             .expect("answers")
             .into_inner();
@@ -268,13 +283,18 @@ mod tests {
         };
         let refused = client.call(version()).await.expect_err("no token");
         assert_eq!(refused.code(), tonic::Code::Unauthenticated);
+        let refused = client
+            .call(with_bearer(version(), "open"))
+            .await
+            .expect_err("wrong token");
+        assert_eq!(refused.code(), tonic::Code::Unauthenticated);
 
-        let mut request = Request::new(version());
-        request.metadata_mut().insert(
-            "authorization",
-            "Bearer open sesame".parse().expect("a value"),
+        assert!(
+            client
+                .call(with_bearer(version(), "open sesame"))
+                .await
+                .is_ok()
         );
-        assert!(client.call(request).await.is_ok());
         drop(client);
         tokio::task::spawn_blocking(move || server.stop())
             .await
