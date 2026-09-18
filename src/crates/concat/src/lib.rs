@@ -52,6 +52,7 @@ use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
 use panes::Msg;
 use panes::export::ExportMsg;
+use panes::settings::SettingsMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -949,8 +950,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Export(ExportMsg::Open));
     }));
     app.on_open_settings(on_window!(|state| {
-        state.refresh_models();
-        state.settings.open = true;
+        state.handle(Msg::Settings(SettingsMsg::Open));
     }));
     // The theme is one bool on the Theme global, and every colour in the
     // tree is a binding away from it; it is also remembered.
@@ -968,7 +968,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Export(ExportMsg::Close));
     }));
     app.on_settings_closed(on_window!(|state| {
-        state.settings.open = false;
+        state.handle(Msg::Settings(SettingsMsg::Close));
     }));
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
@@ -1006,96 +1006,55 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── settings ──
     app.on_settings_page_changed(on_window!(|state, index: i32| {
-        state.settings.tab = index;
+        state.handle(Msg::Settings(SettingsMsg::PageChanged(index)));
     }));
     app.on_settings_show_log(on_window!(|state| {
-        // The file this run is writing, when there is one, so the manager
-        // opens with it selected; the folder when there is not, which is
-        // still where the previous runs are.
-        let target = concat_host::logs::current()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(|| concat_host::logs::folder(&state.host.dirs));
-        if let Err(error) = platform::reveal(&target.to_string_lossy()) {
-            state.notify(&i18n::tf("Could not show the log: {0}", &[&error]), true);
-        }
+        state.handle(Msg::Settings(SettingsMsg::ShowLog));
     }));
     app.on_settings_language_changed(on_window!(|state, index: i32| {
-        let index = index.max(0) as usize;
-        if let Some(language) = state.languages.get(index).cloned() {
-            state.settings.language = index;
-            state.prefs.locale = Some(language.code.clone());
-            // The words change on the publish that follows: Rust's on
-            // their way through `t`, the tree's through `I18n.lang`.
-            i18n::select(&language.code, &state.host.dirs);
-        }
-        state.prefs.save(&state.host.dirs);
+        state.handle(Msg::Settings(SettingsMsg::LanguageChanged(index)));
     }));
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
-        state.settings.playhead_stops = on;
-        state.prefs.playhead_stops_at_end = on;
-        state.prefs.save(&state.host.dirs);
-        // A playhead already out past the end comes back in when the
-        // switch goes on; seek does the clamp.
-        let at = state.playhead;
-        state.seek(at);
+        state.handle(Msg::Settings(SettingsMsg::PlayheadStopsChanged(on)));
     }));
     app.on_settings_custom_context_actions_changed(on_window!(|state, on: bool| {
-        state.settings.custom_context_actions = on;
-        state.prefs.custom_context_actions = on;
-        state.prefs.save(&state.host.dirs);
+        state.handle(Msg::Settings(SettingsMsg::CustomContextActionsChanged(on)));
     }));
-
     app.on_settings_download_source_changed(on_window!(|state, index: i32| {
-        use concat_host::models::SourcePreference;
-        let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
-        state.settings.download_source = index;
-        state.prefs.download_source = Some(SourcePreference::ALL[index].name().to_owned());
-        state.prefs.save(&state.host.dirs);
-        state.apply_download_source();
+        state.handle(Msg::Settings(SettingsMsg::DownloadSourceChanged(index)));
     }));
     app.on_settings_download_base_edited(on_window!(|state, text: SharedString| {
-        let base = text.trim().to_owned();
-        state.settings.download_base = base.clone();
-        state.prefs.download_base = (!base.is_empty()).then_some(base);
-        state.prefs.save(&state.host.dirs);
-        state.apply_download_source();
+        state.handle(Msg::Settings(SettingsMsg::DownloadBaseEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_enabled_changed(on_window!(|state, on: bool| {
-        state.prefs.server.enabled = on;
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerEnabledChanged(on)));
     }));
     app.on_settings_server_listen_edited(on_window!(|state, text: SharedString| {
-        let listen = text.trim().to_owned();
-        state.prefs.server.listen = if listen.is_empty() {
-            prefs::DEFAULT_LISTEN.to_owned()
-        } else {
-            listen
-        };
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerListenEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_token_edited(on_window!(|state, text: SharedString| {
-        state.prefs.server.token = text.trim().to_owned();
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerTokenEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_token_generated(on_window!(|state| {
-        state.prefs.server.token = Studio::new_token();
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
-        state.model_activate(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelActivated(id.to_string())));
     }));
     app.on_model_download(on_window!(|state, id: SharedString| {
-        state.model_download(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelDownload(id.to_string())));
     }));
     app.on_model_cancel(on_window!(|state, id: SharedString| {
-        state.model_cancel(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelCancel(id.to_string())));
     }));
     app.on_model_remove(on_window!(|state, id: SharedString| {
-        state.model_remove(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelRemove(id.to_string())));
     }));
 
     // ── the tray's sound and word tools ──
@@ -1183,10 +1142,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "template" => state.save_template(),
                         "speech" => state.speech_open(),
                         "clear-cache" => state.clear_project_cache(),
-                        "settings" => {
-                            state.refresh_models();
-                            state.settings.open = true;
-                        }
+                        "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
                         "close-project" => state.close_project(),
                         "undo" => state.undo(),
                         "redo" => state.redo(),

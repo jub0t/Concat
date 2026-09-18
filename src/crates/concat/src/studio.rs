@@ -54,6 +54,7 @@ use crate::host::{
     window_start,
 };
 use crate::i18n::{self, t, tf};
+use crate::panes::settings::installed;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
@@ -266,25 +267,6 @@ pub(crate) fn home_folder(name: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The settings sheet's state.
-#[derive(Default)]
-pub struct SettingsState {
-    pub open: bool,
-    pub tab: i32,
-    pub language: usize,
-    /// The switch that keeps the playhead inside the content.
-    pub playhead_stops: bool,
-    /// Show flip/reverse in clip context menu.
-    pub custom_context_actions: bool,
-    /// Index into `SourcePreference::ALL`: where model downloads look first.
-    pub download_source: usize,
-    /// The base URL of a custom download source.
-    pub download_base: String,
-    /// Why the server is not running when the switch is on: the bind that
-    /// failed. Empty while it runs, or is off.
-    pub server_error: String,
-}
-
 /// The missing media relink dialog state.
 #[derive(Default)]
 pub struct RelinkState {
@@ -299,21 +281,6 @@ pub struct ToastState {
     pub token: i32,
     pub message: String,
     pub failed: bool,
-}
-
-/// One downloadable model, as the settings sheet shows it.
-#[derive(Clone)]
-pub struct ModelState {
-    pub id: String,
-    pub name: String,
-    pub note: String,
-    pub megabytes: f32,
-    pub accuracy: i32,
-    pub installed: bool,
-    pub active: bool,
-    /// Megabytes fetched so far while a download runs.
-    pub fetched: Option<f32>,
-    pub unpacking: bool,
 }
 
 /// The form on the launch screen.
@@ -716,10 +683,8 @@ pub struct Studio {
 
     // ── the sheets and menus ──
     pub export: crate::panes::export::ExportPane,
-    pub settings: SettingsState,
+    pub settings: crate::panes::settings::SettingsPane,
     pub relink: RelinkState,
-    pub transcribers: Vec<ModelState>,
-    pub voices: Vec<ModelState>,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -1396,10 +1361,8 @@ impl Studio {
             preview_wanted: false,
             preview_failed: false,
             export: Default::default(),
-            settings: SettingsState::default(),
+            settings: crate::panes::settings::SettingsPane::default(),
             relink: RelinkState::default(),
-            transcribers: Vec::new(),
-            voices: Vec::new(),
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
@@ -1443,17 +1406,9 @@ impl Studio {
             pending_stroke: None,
             host,
         };
-        studio.settings.language = studio
-            .languages
-            .iter()
-            .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
-            .unwrap_or(0);
-        studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
-        studio.settings.download_source = studio.download_source().0;
-        studio.settings.download_base = studio.prefs.download_base.clone().unwrap_or_default();
-        studio.apply_download_source();
-        studio.apply_server();
-        studio.refresh_models();
+        studio.handle(crate::panes::Msg::Settings(
+            crate::panes::settings::SettingsMsg::Restore,
+        ));
         studio
     }
 
@@ -5186,194 +5141,21 @@ impl Studio {
                 pane.update(msg, self);
                 self.export = pane;
             }
+            crate::panes::Msg::Settings(msg) => {
+                let mut pane = std::mem::take(&mut self.settings);
+                pane.update(msg, self);
+                self.settings = pane;
+            }
         }
     }
 
     // ── speech ──
 
-    /// The settings sheet's two model lists, from what is on disk.
-    pub fn refresh_models(&mut self) {
-        let dirs = &self.host.dirs;
-        let downloading: HashMap<String, (Option<f32>, bool)> = self
-            .transcribers
-            .iter()
-            .chain(self.voices.iter())
-            .filter(|model| model.fetched.is_some())
-            .map(|model| (model.id.clone(), (model.fetched, model.unpacking)))
-            .collect();
-        let chosen_transcriber = self.prefs.transcriber_model.clone();
-        let chosen_voice = self.prefs.tts_model.clone();
-        if let Ok(status) = concat_speech::Transcriber::status(dirs) {
-            self.transcribers = status
-                .models
-                .iter()
-                .map(|model| {
-                    let (fetched, unpacking) =
-                        downloading.get(&model.id).copied().unwrap_or((None, false));
-                    ModelState {
-                        id: model.id.clone(),
-                        name: model.label.clone(),
-                        note: model.blurb.clone(),
-                        megabytes: model.size_bytes as f32 / 1_000_000.0,
-                        accuracy: if model.id.starts_with("tiny") {
-                            2
-                        } else if model.id.starts_with("base") {
-                            3
-                        } else {
-                            4
-                        },
-                        installed: model.downloaded,
-                        active: chosen_transcriber.as_deref() == Some(model.id.as_str()),
-                        fetched,
-                        unpacking,
-                    }
-                })
-                .collect();
-        }
-        if let Ok(status) = concat_speech::Speech::status(dirs) {
-            self.speakers = status.voices.clone();
-            self.voices = status
-                .models
-                .iter()
-                .map(|model| {
-                    let (fetched, unpacking) =
-                        downloading.get(&model.id).copied().unwrap_or((None, false));
-                    ModelState {
-                        id: model.id.clone(),
-                        name: model.label.clone(),
-                        note: model.blurb.clone(),
-                        megabytes: model.size_bytes as f32 / 1_000_000.0,
-                        accuracy: if model.id.contains("int8") { 4 } else { 5 },
-                        installed: model.downloaded,
-                        active: chosen_voice.as_deref() == Some(model.id.as_str()),
-                        fetched,
-                        unpacking,
-                    }
-                })
-                .collect();
-        }
-        // An engine with nothing chosen falls back to whatever is installed,
-        // rather than silently having no model at all.
-        for list in [&mut self.transcribers, &mut self.voices] {
-            if !list.iter().any(|model| model.active && model.installed)
-                && let Some(first) = list.iter_mut().find(|model| model.installed)
-            {
-                first.active = true;
-            }
-        }
-    }
-
-    fn is_transcriber(&self, id: &str) -> bool {
-        self.transcribers.iter().any(|model| model.id == id)
-    }
-
-    pub fn model_activate(&mut self, id: &str) {
-        if self.is_transcriber(id) {
-            self.prefs.transcriber_model = Some(id.to_owned());
-        } else {
-            self.prefs.tts_model = Some(id.to_owned());
-        }
-        self.prefs.save(&self.host.dirs);
-        self.refresh_models();
-    }
-
-    pub fn model_download(&mut self, id: &str) {
-        let transcriber = self.is_transcriber(id);
-        let list = if transcriber {
-            &mut self.transcribers
-        } else {
-            &mut self.voices
-        };
-        let Some(model) = list.iter_mut().find(|model| model.id == id) else {
-            return;
-        };
-        if model.installed || model.fetched.is_some() {
-            return;
-        }
-        model.fetched = Some(0.0);
-        let id = id.to_owned();
-        let dirs = self.host.dirs.clone();
-        let whisper = Arc::clone(&self.host.transcriber);
-        let kokoro = Arc::clone(&self.host.speech);
-        spawn(
-            move || {
-                let report = |progress: concat_speech::DownloadProgress| {
-                    on_ui(move |studio, _, _| {
-                        for list in [&mut studio.transcribers, &mut studio.voices] {
-                            if let Some(model) =
-                                list.iter_mut().find(|model| model.id == progress.id)
-                            {
-                                model.fetched = Some(progress.received as f32 / 1_000_000.0);
-                                model.unpacking = progress.unpacking;
-                                if progress.total > 0 {
-                                    model.megabytes = progress.total as f32 / 1_000_000.0;
-                                }
-                            }
-                        }
-                    });
-                };
-                let result = if transcriber {
-                    whisper.download_model(&dirs, &id, report)
-                } else {
-                    kokoro.download_model(&dirs, &id, report)
-                };
-                (id, result)
-            },
-            |studio, _, _, (id, result)| {
-                for list in [&mut studio.transcribers, &mut studio.voices] {
-                    if let Some(model) = list.iter_mut().find(|model| model.id == id) {
-                        model.fetched = None;
-                        model.unpacking = false;
-                    }
-                }
-                match result {
-                    Ok(()) => {
-                        studio.notify(&t("Model ready"), false);
-                        if studio.is_transcriber(&id) && studio.prefs.transcriber_model.is_none() {
-                            studio.prefs.transcriber_model = Some(id.clone());
-                        } else if !studio.is_transcriber(&id) && studio.prefs.tts_model.is_none() {
-                            studio.prefs.tts_model = Some(id.clone());
-                        }
-                        studio.prefs.save(&studio.host.dirs);
-                    }
-                    Err(error) => studio.notify(&error, true),
-                }
-                studio.refresh_models();
-            },
-        );
-    }
-
-    pub fn model_cancel(&mut self, id: &str) {
-        if self.is_transcriber(id) {
-            self.host.transcriber.cancel_download();
-        } else {
-            self.host.speech.cancel_download();
-        }
-    }
-
-    pub fn model_remove(&mut self, id: &str) {
-        let result = if self.is_transcriber(id) {
-            self.host.transcriber.delete_model(&self.host.dirs, id)
-        } else {
-            self.host.speech.delete_model(&self.host.dirs, id)
-        };
-        if let Err(error) = result {
-            self.notify(&error, true);
-        }
-        self.refresh_models();
-    }
-
-    /// The models of a kind that are on disk, in the settings' order: the
-    /// rows of a sheet's model list.
-    fn installed(models: &[ModelState]) -> Vec<&ModelState> {
-        models.iter().filter(|model| model.installed).collect()
-    }
-
     /// Opens the captions sheet with the chosen model already picked. What
     /// it captions is decided here, not asked: the selected clip's sound
     /// when one clip with sound is selected, and a script otherwise.
     pub fn captions_open(&mut self) {
-        let installed = Self::installed(&self.transcribers);
+        let installed = installed(&self.settings.transcribers);
         let model = installed.iter().position(|model| model.active).unwrap_or(0);
         let clip = self
             .sole_selection()
@@ -5466,7 +5248,7 @@ impl Studio {
             self.captions.message = t("This clip has no file to transcribe");
             return;
         };
-        let Some(model) = Self::installed(&self.transcribers)
+        let Some(model) = installed(&self.settings.transcribers)
             .get(self.captions.model)
             .map(|model| model.id.clone())
         else {
@@ -5545,7 +5327,7 @@ impl Studio {
             .and_then(|id| self.clip(&id))
             .filter(|clip| clip.kind == model::ClipKind::Text)
             .cloned();
-        let installed = Self::installed(&self.voices);
+        let installed = installed(&self.settings.voices);
         let model = installed.iter().position(|model| model.active).unwrap_or(0);
         let wanted = self.prefs.tts_voice.unwrap_or(DEFAULT_VOICE);
         let voice = self
@@ -5574,7 +5356,7 @@ impl Studio {
             self.speech.message = t("Nothing to read yet");
             return;
         }
-        let Some(model) = Self::installed(&self.voices)
+        let Some(model) = installed(&self.settings.voices)
             .get(self.speech.model)
             .map(|model| model.id.clone())
         else {
@@ -5805,99 +5587,6 @@ impl Studio {
         let out = self.dock_layout();
         sync(&models.seats, out.seats);
         sync(&models.dividers, out.dividers);
-    }
-
-    /// The remembered download source: its place in the menu, and itself.
-    pub fn download_source(&self) -> (usize, concat_host::models::SourcePreference) {
-        use concat_host::models::SourcePreference;
-        let preference =
-            SourcePreference::parse(self.prefs.download_source.as_deref().unwrap_or_default());
-        let index = SourcePreference::ALL
-            .iter()
-            .position(|candidate| *candidate == preference)
-            .unwrap_or(0);
-        (index, preference)
-    }
-
-    /// Starts or stops the API's server to match the preferences. A server
-    /// already running is stopped first, so an edited address or token
-    /// takes effect; a bind that fails turns the switch back off and says
-    /// why on the page.
-    pub fn apply_server(&mut self) {
-        if let Some(server) = self.host.server.take() {
-            server.stop();
-        }
-        self.settings.server_error.clear();
-        let prefs = &self.prefs.server;
-        if !prefs.enabled {
-            return;
-        }
-        let started = prefs
-            .listen
-            .trim()
-            .parse::<std::net::SocketAddr>()
-            .map_err(|_| {
-                tf(
-                    "{0} is not an address like 127.0.0.1:7420",
-                    &[&prefs.listen],
-                )
-            })
-            .and_then(|address| {
-                let config = concat_server::Config {
-                    json: Some(address),
-                    token: Some(prefs.token.clone()).filter(|token| !token.is_empty()),
-                    ..concat_server::Config::default()
-                };
-                concat_server::Server::start(config, concat_api::Api::new)
-            });
-        match started {
-            Ok(server) => self.host.server = Some(server),
-            Err(error) => {
-                self.prefs.server.enabled = false;
-                self.prefs.save(&self.host.dirs);
-                self.settings.server_error = error.clone();
-                self.notify(&error, true);
-            }
-        }
-    }
-
-    /// What the Remote page says under the switch.
-    fn server_status(&self) -> String {
-        match &self.host.server {
-            Some(server) => {
-                let address = server
-                    .json_addr()
-                    .map(|address| address.to_string())
-                    .unwrap_or_default();
-                tf(
-                    "Listening on {0} · {1} connected",
-                    &[&address, &server.connections()],
-                )
-            }
-            None if !self.settings.server_error.is_empty() => self.settings.server_error.clone(),
-            None => t("Off"),
-        }
-    }
-
-    /// A fresh token: 128 bits from the OS's randomness, as the standard
-    /// library hands it out through its hasher's seed, spelled in hex.
-    pub fn new_token() -> String {
-        use std::hash::{BuildHasher, Hasher};
-        let word = |salt: u64| {
-            let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-            hasher.write_u64(salt);
-            hasher.finish()
-        };
-        format!("{:016x}{:016x}", word(1), word(2))
-    }
-
-    /// Tells the downloaders where to look first, from the preferences.
-    pub fn apply_download_source(&self) {
-        let (_, preference) = self.download_source();
-        concat_host::models::set_preference(
-            preference,
-            self.prefs.download_base.as_deref().unwrap_or_default(),
-        );
     }
 
     /// Shows the compact dock, or the wide one, keeping whichever is put
@@ -6837,56 +6526,26 @@ impl Studio {
         editor.set_menu_token(self.menu_token);
 
         app.set_export(self.export.data(self));
-        app.set_settings(SettingsData {
-            open: self.settings.open,
-            tab: self.settings.tab,
-            language: self.settings.language as i32,
-            playhead_stops: self.settings.playhead_stops,
-            custom_context_actions: self.prefs.custom_context_actions,
-            download_source: self.settings.download_source as i32,
-            download_base: self.settings.download_base.as_str().into(),
-            server_enabled: self.prefs.server.enabled,
-            server_listen: self.prefs.server.listen.as_str().into(),
-            server_token: self.prefs.server.token.as_str().into(),
-            server_status: self.server_status().into(),
-            disk: {
-                let installed: Vec<&ModelState> = self
-                    .transcribers
+        app.set_settings(self.settings.data(self));
+        sync(&models.transcribers, self.settings.transcriber_rows());
+        sync(&models.voices, self.settings.voice_rows());
+        app.set_relink(RelinkData {
+            open: self.relink.open,
+            items: slint::ModelRc::new(VecModel::from(
+                self.relink
+                    .items
                     .iter()
-                    .chain(self.voices.iter())
-                    .filter(|model| model.installed)
-                    .collect();
-
-                let relink_data = RelinkData {
-                    open: self.relink.open,
-                    items: slint::ModelRc::new(VecModel::from(
-                        self.relink
-                            .items
-                            .iter()
-                            .map(|item| MissingMediaItem {
-                                id: item.id.clone().into(),
-                                name: item.name.clone().into(),
-                                path: item.path.clone().into(),
-                            })
-                            .collect::<Vec<_>>(),
-                    )),
-                };
-                app.set_relink(relink_data);
-                let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
-                tf(
-                    "{0} installed · {1} MB on disk",
-                    &[&installed.len(), &format!("{on_disk:.0}")],
-                )
-                .into()
-            },
-            version: env!("CARGO_PKG_VERSION").into(),
-            engine: format!("concat-engine · FFmpeg {}", concat_media::linked_version()).into(),
+                    .map(|item| MissingMediaItem {
+                        id: item.id.clone().into(),
+                        name: item.name.clone().into(),
+                        path: item.path.clone().into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )),
         });
-        sync(&models.transcribers, Self::model_rows(&self.transcribers));
-        sync(&models.voices, Self::model_rows(&self.voices));
 
         // The speech sheets, and the lists they choose from.
-        let transcribers = Self::installed(&self.transcribers);
+        let transcribers = installed(&self.settings.transcribers);
         sync(
             &models.caption_models,
             transcribers
@@ -6913,7 +6572,7 @@ impl Studio {
             ready: !transcribers.is_empty(),
             message: self.captions.message.as_str().into(),
         });
-        let voices = Self::installed(&self.voices);
+        let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
             voices
@@ -6970,41 +6629,6 @@ impl Studio {
             self.assign_media_rows();
             self.request_media_art();
         }
-    }
-
-    fn model_rows(models: &[ModelState]) -> Vec<ModelData> {
-        models
-            .iter()
-            .map(|model| {
-                let total = model.megabytes;
-                let fetched = model.fetched.unwrap_or(0.0);
-                ModelData {
-                    id: model.id.as_str().into(),
-                    name: model.name.as_str().into(),
-                    note: model.note.as_str().into(),
-                    size: format!("{total:.0} MB").into(),
-                    accuracy: model.accuracy,
-                    installed: model.installed,
-                    active: model.active && model.installed,
-                    downloading: model.fetched.is_some(),
-                    progress: if total > 0.0 {
-                        (fetched / total).min(1.0)
-                    } else {
-                        0.0
-                    },
-                    transferred: if model.unpacking {
-                        t("Unpacking…").into()
-                    } else {
-                        tf(
-                            "{0} MB of {1} MB",
-                            &[&format!("{fetched:.0}"), &format!("{total:.0}")],
-                        )
-                        .into()
-                    },
-                    eta: SharedString::new(),
-                }
-            })
-            .collect()
     }
 
     /// The right-click menu for the clip it was opened on.

@@ -14,10 +14,13 @@
 //! export sheet is the first, and the shape the rest follow.
 
 pub mod export;
+pub mod settings;
 
 /// One thing that happened, to one pane.
 #[derive(Clone, Debug)]
 pub enum Msg {
     /// To the export sheet.
     Export(export::ExportMsg),
+    /// To the settings sheet.
+    Settings(settings::SettingsMsg),
 }
