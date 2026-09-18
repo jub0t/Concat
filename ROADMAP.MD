@@ -6,7 +6,7 @@
 
 ### 🧱 Editor & Core Architecture
 
-* [ ] 🌟 **Concat API** — A stable API shared by the Concat UI, plugins, scripts, automation, and MCP integrations.
+* [x] 🌟 **Concat API** — A stable API shared by the Concat UI, plugins, scripts, automation, and MCP integrations.
 * [ ] 🌟 **Extensible Effects Runtime** — A scalable, data-driven system capable of supporting hundreds of effects, filters, transitions, and generators, including custom WGSL shaders.
 * [ ] **Hardware Analysis** — Detect device capabilities and performance tier so Concat can automatically choose appropriate playback, rendering, proxy, and processing settings.
 * [ ] **Customizable Workspace** — Allow panels to be moved, resized, docked, and rearranged similar to Blender and other professional creative tools.

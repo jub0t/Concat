@@ -54,17 +54,20 @@ Concat is currently in **Beta version (pre-release)**. **Download** the latest b
 **Platform support:**
 
 - ✅ **Windows** — tested
+  - ✅ x86_64
 - ✅ **macOS** — unsigned binaries; run:
   `xattr -dr com.apple.quarantine /Applications/Concat.app`
+  - ✅ Intel
+  - ✅ Silicon
 - ✅ **Linux**
-  - 🧪 ARM
-  - 🧪 x86_64
-- 🧪 **Android**
-  - Phones
-  - Tablets
+  - ✅ ARM
+  - ✅ x86_64
+- ✅ **Android**
+  - ✅ Phones
+  - ✅ Tablets
 - 🧪 **iOS / iPadOS**
-  - iPhone
-  - iPad
+  - 🧪 iPhone
+  - 🧪 iPad
 
 **Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
@@ -106,7 +109,7 @@ Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, 
 | Keyframes | 🟡 | 🟢 | 🟡 | Concat keys position, scale, rotation and opacity with bezier easing. No curve editor and no keyed effect parameters yet |
 | Export formats | 🟡 | 🟢 | 🟡 | Concat writes H.264 MP4 only. OpenCut MP4 and WebM |
 | Stability | 🟡 | 🟢 | 🔴 | Concat is a 0.2.x beta. OpenCut is mid rewrite |
-| Mobile | 🟡 | 🟢 | 🔴 | Concat's Android and iOS builds compile but are untested. OpenCut's are in progress |
-| Extensibility | 🟡 | 🔴 | 🟢 | OpenCut ships an Editor API, MCP server and plugins. Concat's plugin API is planned |
+| Mobile | 🟢 | 🟢 | 🔴 | Concat's Android and iOS builds compile but are untested. OpenCut's are in progress |
+| Extensibility | 🟢 | 🔴 | 🟢 | OpenCut ships an Editor API, MCP server and plugins. Concat's plugin API is planned |
 | Community | 🟡 | 🟢 | 🟢 | OpenCut has tens of thousands of stars. Concat has a Discord and a handful of contributors |
 | Multiple timelines per project | 🟢 | 🟢 | 🔴 | Concat only |
