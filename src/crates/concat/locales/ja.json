@@ -712,6 +712,5 @@
   "Tear": "ティア",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "SF の投影のような映像: 色相を青のグラデーションに置き換え、縁が光り、走査線が流れ、リフレッシュの帯が走り、ずれと粒子が乗ります。",
   "Token": "トークン",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "接続が最初の呼び出しの前に提示するもの。127.0.0.1 で空にすると、このマシン上の何でも入れます。",
   "{0} is not an address like 127.0.0.1:7420": "{0} は 127.0.0.1:7420 のようなアドレスではありません"
 }

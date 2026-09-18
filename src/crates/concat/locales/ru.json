@@ -712,6 +712,5 @@
   "Tear": "Разрыв",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "Изображение как фантастическая проекция: оттенок заменён синим градиентом, края светятся, строки развёртки плывут, проходит полоса обновления, разрывы и зерно.",
   "Token": "Токен",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "Что соединение должно предъявить перед первым вызовом. Пустое значение на 127.0.0.1 впускает всё с этого компьютера.",
   "{0} is not an address like 127.0.0.1:7420": "{0} — не адрес вида 127.0.0.1:7420"
 }

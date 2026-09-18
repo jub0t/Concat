@@ -712,6 +712,5 @@
   "Tear": "撕裂",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "把画面变成科幻投影：色相被换成蓝色渐变，边缘发光，扫描线漂移，刷新扫过，带有撕裂和颗粒。",
   "Token": "令牌",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "连接在首次调用前必须出示的内容。在 127.0.0.1 上留空则允许本机上的任何程序进入。",
   "{0} is not an address like 127.0.0.1:7420": "{0} 不是类似 127.0.0.1:7420 的地址"
 }

@@ -61,7 +61,8 @@ export struct SettingsData {
     server-enabled: bool,
     /// "127.0.0.1:7420"
     server-listen: string,
-    /// what a connection presents first; empty for none
+    /// what a connection presents first: the chosen one, or the one the
+    /// server made up when none was chosen
     server-token: string,
     /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
     server-status: string,
@@ -702,7 +703,7 @@ export component SettingsDialog inherits Modal {
 
                 DialogSection {
                     title: I18n.t("Token");
-                    hint: I18n.t("What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.");
+                    hint: I18n.t("What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.");
 
                     HorizontalLayout {
                         spacing: 6px;

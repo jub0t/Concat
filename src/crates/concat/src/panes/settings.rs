@@ -535,7 +535,12 @@ impl SettingsPane {
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,
             server_listen: studio.prefs.server.listen.as_str().into(),
-            server_token: studio.prefs.server.token.as_str().into(),
+            server_token: match &studio.host.server {
+                // A token the server minted for itself is shown where a
+                // chosen one would be typed: it is how a caller gets in.
+                Some(server) if studio.prefs.server.token.is_empty() => server.token().into(),
+                _ => studio.prefs.server.token.as_str().into(),
+            },
             server_status: self.server_status(studio).into(),
             disk: {
                 let on_disk: Vec<&ModelState> = installed(&self.transcribers)

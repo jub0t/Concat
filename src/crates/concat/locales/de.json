@@ -712,6 +712,5 @@
   "Tear": "Riss",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "Das Bild als Science-Fiction-Projektion: der Farbton weicht einem Blauverlauf, Kanten glühen, Scanlinien wandern, ein Bildwechsel fegt durch, Risse und Korn.",
   "Token": "Token",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "Was eine Verbindung vor ihrem ersten Aufruf vorzeigen muss. Leer auf 127.0.0.1 lässt alles auf diesem Rechner herein.",
   "{0} is not an address like 127.0.0.1:7420": "{0} ist keine Adresse wie 127.0.0.1:7420"
 }

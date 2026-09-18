@@ -712,6 +712,5 @@
   "Tear": "Déchirure",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "L'image en projection de science-fiction : sa teinte remplacée par une rampe bleue, des bords lumineux, des lignes de balayage qui dérivent, un balayage de rafraîchissement, des déchirures et du grain.",
   "Token": "Jeton",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "Ce qu'une connexion doit présenter avant son premier appel. Vide sur 127.0.0.1, tout ce qui tourne sur cette machine entre.",
   "{0} is not an address like 127.0.0.1:7420": "{0} n'est pas une adresse comme 127.0.0.1:7420"
 }
