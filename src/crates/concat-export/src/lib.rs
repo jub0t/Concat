@@ -39,7 +39,7 @@ use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, 
 use concat_effects::Catalogue;
 use concat_media::audio::{self, AudioClip};
 use concat_media::{
-    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, VideoCodec,
+    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
 };
 use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{
@@ -334,6 +334,14 @@ pub struct ExportRequest {
     /// Ten bits a channel rather than eight.
     #[serde(default)]
     pub ten_bit: bool,
+    /// VBR (the CRF carries the quality) or CBR (the bitrate is the
+    /// target). VBR when a request does not say.
+    #[serde(default, deserialize_with = "rate_mode_by_name")]
+    pub rate_mode: RateMode,
+    /// Target bitrate in kbps, used when `rate_mode` is CBR. Zero means
+    /// "not set" and the encoder falls back to VBR.
+    #[serde(default)]
+    pub bitrate_kbps: u32,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -347,6 +355,19 @@ fn codec_by_name<'de, D: serde::Deserializer<'de>>(
     VideoCodec::parse(&name).ok_or_else(|| {
         serde::de::Error::custom(format!("unknown codec {name:?}: h264, hevc or av1"))
     })
+}
+
+/// A rate mode named the way [`RateMode::name`] names it, refusing a name
+/// the engine does not know rather than quietly falling back to VBR.
+fn rate_mode_by_name<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<RateMode, D::Error> {
+    let name = String::deserialize(deserializer)?;
+    RateMode::ALL
+        .iter()
+        .find(|mode| mode.name() == name)
+        .copied()
+        .ok_or_else(|| serde::de::Error::custom(format!("unknown rate mode {name:?}: vbr or cbr")))
 }
 
 /// What the export loop calls to report and to ask "should I stop?".
@@ -973,6 +994,8 @@ fn render_picture(
             crf: request.crf,
             preset: request.preset.clone(),
             codec: request.codec,
+            rate_mode: request.rate_mode,
+            bitrate_kbps: request.bitrate_kbps,
             ten_bit: request.ten_bit,
             hardware: true,
         },
@@ -1568,6 +1591,8 @@ pub fn preview_plan(
         preset: String::new(),
         codec: VideoCodec::H264,
         ten_bit: false,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
         clips: Vec::new(),
     };
     PreviewPlan {

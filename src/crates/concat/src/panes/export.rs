@@ -38,6 +38,12 @@ pub enum ExportMsg {
     QualityChanged(i32),
     CodecChanged(i32),
     TenBitChanged(bool),
+    /// The Advanced section is opened or closed.
+    AdvancedToggled(bool),
+    /// VBR or CBR.
+    RateModeChanged(i32),
+    /// The target bitrate field: digits only, in kbps.
+    BitrateChanged(String),
     /// Back to the form after a finished or failed render.
     Again,
     /// Pick the destination folder.
@@ -68,6 +74,13 @@ pub struct ExportPane {
     /// Index into `VideoCodec::ALL`.
     pub codec: usize,
     pub ten_bit: bool,
+    /// The Advanced section is open: bitrate controls show, and the size
+    /// estimate reads the chosen bitrate.
+    pub advanced: bool,
+    /// Index into `RateMode::ALL`.
+    pub rate_mode: usize,
+    /// Target bitrate in kbps, used when `rate_mode` is CBR.
+    pub bitrate: u32,
     pub phase: ExportPhase,
     pub progress: f32,
     pub stage: String,
@@ -89,6 +102,9 @@ impl Default for ExportPane {
             quality: 1,
             codec: 0,
             ten_bit: false,
+            advanced: false,
+            rate_mode: 0,
+            bitrate: 8000,
             phase: ExportPhase::Idle,
             progress: 0.0,
             stage: String::new(),
@@ -120,6 +136,14 @@ impl ExportPane {
             ExportMsg::QualityChanged(index) => self.quality = (index.max(0) as usize).min(2),
             ExportMsg::CodecChanged(index) => self.codec = (index.max(0) as usize).min(2),
             ExportMsg::TenBitChanged(on) => self.ten_bit = on,
+            ExportMsg::AdvancedToggled(on) => self.advanced = on,
+            ExportMsg::RateModeChanged(index) => self.rate_mode = index.max(0) as usize,
+            ExportMsg::BitrateChanged(text) => {
+                let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+                if let Ok(value) = digits.parse::<u32>() {
+                    self.bitrate = value.clamp(100, 200_000);
+                }
+            }
             ExportMsg::Again => {
                 self.phase = ExportPhase::Idle;
                 self.progress = 0.0;
@@ -187,12 +211,18 @@ impl ExportPane {
         let (num, den) = EXPORT_RATES[self.rate.min(2)];
         let rate = num as f32 / den as f32;
         let pixels = (width as f32 * height as f32) / (1920.0 * 1080.0);
-        let video = EXPORT_TIERS[tier.min(2)]
-            * 1_000_000.0
-            * pixels
-            * (rate / 30.0)
-            * self.codec().size_factor()
-            * if self.ten_bit { 1.05 } else { 1.0 };
+        // In CBR the bitrate is the number, not the tier; the pixels, rate
+        // and codec factors no longer apply because the encoder is pinned.
+        let video = if self.advanced && self.rate_mode == 1 {
+            self.bitrate as f32 * 1000.0
+        } else {
+            EXPORT_TIERS[tier.min(2)]
+                * 1_000_000.0
+                * pixels
+                * (rate / 30.0)
+                * self.codec().size_factor()
+                * if self.ten_bit { 1.05 } else { 1.0 }
+        };
         (video + AUDIO_BPS) * studio.duration().max(1.0) / 8.0
     }
 
@@ -230,6 +260,16 @@ impl ExportPane {
             preset: "veryfast".into(),
             codec: self.codec(),
             ten_bit: self.ten_bit,
+            rate_mode: if self.advanced && self.rate_mode == 1 {
+                concat_media::RateMode::Cbr
+            } else {
+                concat_media::RateMode::Vbr
+            },
+            bitrate_kbps: if self.advanced && self.rate_mode == 1 {
+                self.bitrate
+            } else {
+                0
+            },
         };
         let (frame_w, frame_h) = studio.output_size();
         let titles = studio
@@ -311,6 +351,9 @@ impl ExportPane {
             quality: self.quality as i32,
             codec: self.codec as i32,
             ten_bit: self.ten_bit,
+            advanced: self.advanced,
+            rate_mode: self.rate_mode as i32,
+            bitrate: self.bitrate as i32,
             encoding: {
                 // "HEVC 10-bit · hardware": the standard, the depth when it
                 // is the deeper one, and whether the platform's own encoder

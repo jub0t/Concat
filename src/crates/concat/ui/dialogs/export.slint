@@ -34,6 +34,12 @@ export struct ExportData {
     /// index into the codec list: H.264, HEVC, AV1
     codec: int,
     ten-bit: bool,
+    /// The Advanced section is open: bitrate controls show.
+    advanced: bool,
+    /// 0 = VBR, 1 = CBR.
+    rate-mode: int,
+    /// Target bitrate in kbps, used when rate-mode is CBR.
+    bitrate: int,
     /// "HEVC 10-bit · hardware": what the file will be encoded as
     encoding: string,
     /// What each preset would weigh. Three strings rather than a list: a Slint
@@ -160,6 +166,9 @@ export component ExportDialog inherits Modal {
     callback quality-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
+    callback advanced-toggled(on: bool);
+    callback rate-mode-changed(index: int);
+    callback bitrate-changed(text: string);
     callback begin();
     callback cancel();
     callback reveal();
@@ -301,6 +310,38 @@ export component ExportDialog inherits Modal {
                     size: root.data.size-small;
                     current: root.data.quality == 2;
                     clicked => { root.quality-changed(2); }
+                }
+            }
+        }
+
+        if !root.running: DialogSection {
+            title: I18n.t("Advanced");
+
+            DialogRow {
+                label: I18n.t("Show advanced options");
+                Switch {
+                    checked: root.data.advanced;
+                    toggled(on) => { root.advanced-toggled(on); }
+                }
+            }
+        }
+
+        if !root.running && root.data.advanced: DialogSection {
+            title: I18n.t("Bitrate");
+
+            DialogRow {
+                label: I18n.t("Mode");
+                Select {
+                    current: root.data.rate-mode;
+                    options: [I18n.t("VBR"), I18n.t("CBR")];
+                    changed(index) => { root.rate-mode-changed(index); }
+                }
+            }
+            if root.data.rate-mode == 1: DialogRow {
+                label: I18n.t("Target bitrate");
+                Field {
+                    value: root.data.bitrate + " kbps";
+                    edited(text) => { root.bitrate-changed(text); }
                 }
             }
         }

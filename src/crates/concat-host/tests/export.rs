@@ -41,7 +41,7 @@ use concat_host::{media, projects};
 use concat_media::audio::{self as sound, AudioClip};
 use concat_media::{
     AudioDecoder, AudioOptions, DecodeOptions, Decoder, EncodeOptions, Encoder,
-    Error as MediaError, FrameSink, FrameSource, HwDevice, SampleFormat, VideoCodec,
+    Error as MediaError, FrameSink, FrameSource, HwDevice, RateMode, SampleFormat, VideoCodec,
 };
 use concat_project::animation;
 use concat_project::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
@@ -89,6 +89,8 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32) {
         codec: VideoCodec::H264,
         preset: "ultrafast".to_owned(),
         crf: 16,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
         ten_bit: false,
         hardware: false,
     };
@@ -496,6 +498,8 @@ impl Studio {
             preset: "ultrafast".to_owned(),
             codec: VideoCodec::H264,
             ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
         };
         let titles = self
             .titles
