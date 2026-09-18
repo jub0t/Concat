@@ -712,5 +712,6 @@
   "Tear": "Strappo",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "L'immagine come proiezione fantascientifica: la tinta sostituita da una rampa blu, bordi luminosi, linee di scansione alla deriva, una passata di aggiornamento, strappi e grana.",
   "Token": "Token",
-  "{0} is not an address like 127.0.0.1:7420": "{0} non è un indirizzo come 127.0.0.1:7420"
+  "{0} is not an address like 127.0.0.1:7420": "{0} non è un indirizzo come 127.0.0.1:7420",
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Ciò che una connessione deve presentare prima della prima chiamata. Se lasciato vuoto, il server ne inventa uno a ogni avvio e lo mostra qui."
 }

@@ -712,5 +712,6 @@
   "Tear": "Kidanje",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "Slika kao znanstvenofantastična projekcija: nijansa zamijenjena plavim prijelazom, rubovi svijetle, linije skeniranja plutaju, prolazi osvježavanje, kidanja i zrnatost.",
   "Token": "Token",
-  "{0} is not an address like 127.0.0.1:7420": "{0} nije adresa poput 127.0.0.1:7420"
+  "{0} is not an address like 127.0.0.1:7420": "{0} nije adresa poput 127.0.0.1:7420",
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Što veza mora predočiti prije prvog poziva. Ostane li prazno, poslužitelj ga sam smisli pri svakom pokretanju i prikaže ovdje."
 }
