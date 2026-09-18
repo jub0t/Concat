@@ -32,7 +32,6 @@ use std::sync::Arc;
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
 use concat_host::playback::ClipSpec;
-use concat_host::preview::FrameSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
@@ -557,19 +556,12 @@ pub struct Studio {
     pub snap: bool,
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     pub pan_mode: bool,
-    /// 0 Full, 1 Half, 2 Quarter of the output size, for the monitor.
-    pub quality: HashMap<String, usize>,
     pub playing: bool,
     transport: slint::Timer,
     /// One clip, held for Paste.
     pub clipboard: Option<Clip>,
-    /// The monitor's last frame, and whether another is wanted.
-    pub preview: slint::Image,
-    preview_busy: bool,
-    preview_wanted: bool,
-    /// Said once per session: a monitor that cannot decode says so, and
-    /// then stops repeating itself.
-    preview_failed: bool,
+    /// The monitor: its frame, and the requests for the next.
+    pub monitor: crate::panes::monitor::MonitorPane,
 
     // ── the sheets and menus ──
     pub export: crate::panes::export::ExportPane,
@@ -1228,14 +1220,10 @@ impl Studio {
             tool: TimelineTool::Select,
             snap: true,
             pan_mode: false,
-            quality: HashMap::new(),
             playing: false,
             transport: slint::Timer::default(),
             clipboard: None,
-            preview: slint::Image::default(),
-            preview_busy: false,
-            preview_wanted: false,
-            preview_failed: false,
+            monitor: crate::panes::monitor::MonitorPane::default(),
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
@@ -1319,21 +1307,9 @@ impl Studio {
     }
 
     /// The monitor's quality tier for the active timeline: 0 full, 1 half,
-    /// 2 quarter. Kept per timeline because the cost it trades against is
-    /// the timeline's frame - a 4K cut wants the quarter setting that a
-    /// 1080p cut beside it does not - and the trade is the window's, not
-    /// the document's, so it is remembered here and not saved.
+    /// 2 quarter; see `MonitorPane::quality_of`.
     pub fn quality_of(&self) -> usize {
-        self.quality
-            .get(&self.project().active_timeline_id)
-            .copied()
-            .unwrap_or(1)
-    }
-
-    /// Picks the monitor's quality tier for the active timeline.
-    pub fn set_quality(&mut self, index: usize) {
-        let id = self.project().active_timeline_id.clone();
-        self.quality.insert(id, index.min(2));
+        self.monitor.quality_of(self.project())
     }
 
     /// The track a row index names. Rows count from the top of the panel and
@@ -1620,29 +1596,25 @@ impl Studio {
 
     // ── the monitor ──
 
-    /// Asks the engine for the frame at the playhead, one at a time: a
-    /// request while one is out waits for it, and the newest wins.
+    /// Asks the monitor for the frame at the playhead; see
+    /// `MonitorPane`.
     pub fn request_preview(&mut self) {
-        /// A monitor frame on its way to the window.
-        enum Picture {
-            /// Decoded and placed, waiting to be drawn on the window's own
-            /// device - which happens back on this thread, never on the
-            /// worker that decoded it. See `Monitor::texture_of`.
-            Sources(concat_export::PreviewSources),
-            /// Raw RGBA, to be uploaded.
-            Pixels(Vec<u8>, u32, u32),
-        }
+        self.handle(crate::panes::Msg::Monitor(
+            crate::panes::monitor::MonitorMsg::Request,
+        ));
+    }
 
-        if self.on_start || self.session.is_none() {
-            return;
-        }
-        if self.preview_busy {
-            self.preview_wanted = true;
-            return;
-        }
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
+    /// What the monitor draws at the playhead: the document flattened with
+    /// its titles, plus the frame's own additions - a look being shown, a
+    /// cutout being painted - and the session's settings. None without a
+    /// project.
+    pub fn preview_clips(
+        &mut self,
+    ) -> Option<(
+        std::sync::Arc<Vec<concat_export::ExportClip>>,
+        concat_project::DocumentSettings,
+    )> {
+        let session = self.session.as_ref()?;
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
         // had it. Same flattening the session does for itself, project
@@ -1674,13 +1646,11 @@ impl Studio {
                 // per pointer step - and the blocks they report are scaled
                 // back up to the output's terms, which the stage measures
                 // in. Nothing is written until the change is committed.
-                let scale = match self.quality_of() {
-                    0 => 1.0,
-                    1 => 0.5,
-                    _ => 0.25,
-                };
-                let shown_w = ((f64::from(width) * scale).round() as u32).max(2) & !1;
-                let shown_h = ((f64::from(height) * scale).round() as u32).max(2) & !1;
+                let (shown_w, shown_h) = crate::panes::monitor::MonitorPane::frame_size(
+                    self.quality_of(),
+                    (width, height),
+                );
+                let scale = f64::from(shown_w) / f64::from(width);
                 let up = |px: u32| (f64::from(px) / scale).round() as u32;
                 let up_off = |px: i32| (f64::from(px) / scale).round() as i32;
                 for title in self
@@ -1718,13 +1688,6 @@ impl Studio {
         // The frame's own additions - a look being shown, a cutout being
         // painted - go on a copy, so the kept list stays the document's.
         let mut own: Option<Vec<concat_export::ExportClip>> = None;
-        let scale = match self.quality_of() {
-            0 => 1.0,
-            1 => 0.5,
-            _ => 0.25,
-        };
-        let width = ((f64::from(width) * scale).round() as u32).max(2) & !1;
-        let height = ((f64::from(height) * scale).round() as u32).max(2) & !1;
         // The look being shown before it is laid down goes into this
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
@@ -1768,79 +1731,7 @@ impl Studio {
             }
         }
         let clips = own.map(std::sync::Arc::new).unwrap_or(clips);
-        let spec = FrameSpec {
-            time: f64::from(self.playhead),
-            width,
-            height,
-        };
-        let settings = session.settings();
-        let monitor = self.host.monitor.clone();
-        self.preview_busy = true;
-        self.preview_wanted = false;
-        spawn(
-            move || {
-                // On the window's device the frame stays a texture; without
-                // one it comes back as pixels and is uploaded here.
-                let frame = if monitor.has_gpu() {
-                    monitor
-                        .frame_sources(std::sync::Arc::clone(&clips), &settings, spec)
-                        .map(Picture::Sources)
-                } else {
-                    monitor
-                        .frame(std::sync::Arc::clone(&clips), &settings, spec)
-                        .map(|bytes| Picture::Pixels(bytes, width, height))
-                };
-                // Decode-ahead for whatever comes next, on a worker of its
-                // own, so the frame goes to the window without waiting for
-                // it and the next frame can start meanwhile.
-                {
-                    let monitor = monitor.clone();
-                    let settings = settings.clone();
-                    crate::host::spawn_detached(move || {
-                        monitor.prefetch(clips, &settings, spec, 2)
-                    });
-                }
-                frame
-            },
-            move |studio, _, _, result| {
-                studio.preview_busy = false;
-                let picture = match result {
-                    // Drawn here and not on the worker: this is the event
-                    // loop, the one thread the window's renderer submits
-                    // from, and a second thread submitting beside it hangs
-                    // the GPU - see `Monitor::texture_of`.
-                    Ok(Picture::Sources(sources)) => studio
-                        .host
-                        .monitor
-                        .texture_of(&sources, spec)
-                        .and_then(|texture| {
-                            slint::Image::try_from(texture)
-                                .map_err(|error| format!("preview texture: {error}"))
-                        }),
-                    Ok(Picture::Pixels(bytes, width, height)) => {
-                        let buffer =
-                            slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                                &bytes, width, height,
-                            );
-                        Ok(slint::Image::from_rgba8(buffer))
-                    }
-                    Err(error) => Err(error),
-                };
-                match picture {
-                    Ok(image) => studio.preview = image,
-                    Err(error) => {
-                        log::warn!("preview: {error}");
-                        if !studio.preview_failed {
-                            studio.preview_failed = true;
-                            studio.notify(&tf("Preview failed: {0}", &[&error]), true);
-                        }
-                    }
-                }
-                if studio.preview_wanted {
-                    studio.request_preview();
-                }
-            },
-        );
+        Some((clips, session.settings()))
     }
 
     // ── playback ──
@@ -4614,7 +4505,9 @@ impl Studio {
                 self.playhead = 0.0;
                 self.scroll_left = 0.0;
                 self.on_start = false;
-                self.preview_failed = false;
+                self.handle(crate::panes::Msg::Monitor(
+                    crate::panes::monitor::MonitorMsg::Opened,
+                ));
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
                 self.audition = None;
@@ -4688,7 +4581,9 @@ impl Studio {
         self.dirty = false;
         self.selection.clear();
         self.gesture = Gesture::None;
-        self.preview = slint::Image::default();
+        self.handle(crate::panes::Msg::Monitor(
+            crate::panes::monitor::MonitorMsg::Closed,
+        ));
         self.host.monitor.clear();
         self.audition = None;
         self.revision += 1;
@@ -4773,6 +4668,11 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.media);
                 pane.update(msg, self);
                 self.media = pane;
+            }
+            crate::panes::Msg::Monitor(msg) => {
+                let mut pane = std::mem::take(&mut self.monitor);
+                pane.update(msg, self);
+                self.monitor = pane;
             }
         }
     }
@@ -5007,7 +4907,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
-        editor.set_preview_frame(self.preview.clone());
+        editor.set_preview_frame(self.monitor.image.clone());
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
         let (path, width, erase) = self.stroke_overlay();

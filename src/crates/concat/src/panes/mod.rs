@@ -16,6 +16,7 @@
 pub mod captions;
 pub mod export;
 pub mod media_bin;
+pub mod monitor;
 pub mod project;
 pub mod relink;
 pub mod settings;
@@ -23,7 +24,7 @@ pub mod speech;
 pub mod start;
 
 /// One thing that happened, to one pane.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Msg {
     /// To the export sheet.
     Export(export::ExportMsg),
@@ -41,4 +42,6 @@ pub enum Msg {
     Start(start::StartMsg),
     /// To the media bin.
     Media(media_bin::MediaMsg),
+    /// To the monitor.
+    Monitor(monitor::MonitorMsg),
 }

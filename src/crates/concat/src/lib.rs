@@ -54,6 +54,7 @@ use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
 use panes::media_bin::MediaMsg;
+use panes::monitor::MonitorMsg;
 use panes::project::ProjectMsg;
 use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
@@ -839,8 +840,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.set_output((index.max(0) as usize).min(OUTPUTS.len() - 1));
     }));
     editor.on_quality_changed(on_window!(|state, index: i32| {
-        state.set_quality(index.max(0) as usize);
-        state.request_preview();
+        state.handle(Msg::Monitor(MonitorMsg::QualityChanged(index)));
     }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
