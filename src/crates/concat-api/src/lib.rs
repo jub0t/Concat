@@ -925,6 +925,7 @@ mod tests {
                 media_id: "m999".to_owned(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             }),
         }));
         assert_eq!(refused.code, ErrorCode::Refused);

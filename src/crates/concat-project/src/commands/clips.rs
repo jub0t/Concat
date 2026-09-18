@@ -19,6 +19,7 @@ pub(super) fn apply(
             media_id,
             track_id,
             start,
+            ripple,
         } => {
             let media = project
                 .media_by_id(&media_id)
@@ -27,6 +28,9 @@ pub(super) fn apply(
             let timeline = project.active_mut();
             if timeline.track(&track_id).is_none() {
                 return Err(CommandError::TrackGone);
+            }
+            if ripple {
+                ripple_room_for(timeline, &track_id, start, &media);
             }
             let id = mint.next("c");
             timeline
@@ -486,6 +490,29 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
     let mut clip = Clip::blank(id, track_id, kind, media.name.clone(), start, duration);
     clip.media_id = media.id.clone();
     clip
+}
+
+/// Shifts every clip on `track_id` at or after `start` right by the
+/// duration the new clip will take, when the new clip would overlap
+/// something already there. A drop with room to spare changes nothing.
+fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &MediaItem) {
+    let duration = match media.kind {
+        MediaKind::Image => DEFAULT_IMAGE_DURATION,
+        _ => media.duration.unwrap_or(UNKNOWN_DURATION),
+    };
+    let end = start + duration;
+    let overlaps = timeline.clips.iter().any(|clip| {
+        clip.track_id == track_id && clip.start < end && start < clip.start + clip.duration
+    });
+    if !overlaps {
+        return;
+    }
+    for clip in timeline
+        .clips_mut()
+        .filter(|clip| clip.track_id == track_id && clip.start >= start)
+    {
+        clip.start += duration;
+    }
 }
 
 /// The lowest track with nothing occupying `[start, start + duration)`,

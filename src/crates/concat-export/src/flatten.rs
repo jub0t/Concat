@@ -271,6 +271,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 1.0,
+                ripple: false,
             })
             .expect("adds clip")
             .created_id

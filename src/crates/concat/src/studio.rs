@@ -2213,6 +2213,7 @@ impl Studio {
                 media_id: plan.media.clone(),
                 track_id,
                 start: f64::from(plan.start),
+                ripple: true,
             })
         };
         if let Some(id) = created {
@@ -4398,6 +4399,7 @@ impl Studio {
             media_id: source.media_id.clone(),
             track_id: source.track_id.clone(),
             start: (end - source.source_start / source.speed).max(0.0),
+            ripple: false,
         }) else {
             return;
         };

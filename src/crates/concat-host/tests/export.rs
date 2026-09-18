@@ -1005,11 +1005,13 @@ fn every_edit_still_exports() {
         media_id: aac,
         track_id: sound_track.clone(),
         start: 17.0,
+        ripple: false,
     });
     studio.apply(Command::AddClip {
         media_id: wav,
         track_id: sound_track.clone(),
         start: 23.0,
+        ripple: false,
     });
     let end = studio.end();
     let exported = studio.export("sound only clips");
