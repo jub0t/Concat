@@ -806,8 +806,24 @@ impl Command {
                 start,
                 duration,
                 offset_y,
+                style,
                 ..
-            } => bad([*start]) || bad(*duration) || bad(*offset_y),
+            } => {
+                bad([*start])
+                    || bad(*duration)
+                    || bad(*offset_y)
+                    || style.iter().any(|style| {
+                        bad([
+                            style.font_size,
+                            style.font_weight,
+                            style.opacity,
+                            style.stroke_width,
+                            style.line_height,
+                            style.tracking,
+                            style.max_width,
+                        ])
+                    })
+            }
             Command::AddLayerClip {
                 start, duration, ..
             } => bad([*start]) || bad(*duration),
@@ -845,6 +861,22 @@ impl Command {
                         .any(|crop| bad([crop.left, crop.top, crop.right, crop.bottom]))
                     || patch.filters.as_deref().is_some_and(bad_chain)
                     || patch.video_effects.as_deref().is_some_and(bad_chain)
+                    || patch
+                        .transition_in
+                        .iter()
+                        .flatten()
+                        .any(|tr| bad([tr.duration]))
+                    || patch.text.iter().flatten().any(|style| {
+                        bad([
+                            style.font_size,
+                            style.font_weight,
+                            style.opacity,
+                            style.stroke_width,
+                            style.line_height,
+                            style.tracking,
+                            style.max_width,
+                        ])
+                    })
             }
             Command::SetClipSpeed { speed, .. } => bad([*speed]),
             Command::SetClipTransform {
