@@ -9,9 +9,19 @@
 //! by duplicating and dropping, repeats a still forever, and stops after a
 //! frame budget. Every frame comes with its real presentation timestamp.
 //!
+//! The codec runs on the platform's video hardware when the reader's
+//! [`HwPolicy`] and the process-wide preference say so, and on the CPU
+//! otherwise; see [`crate::hardware`]. A frame decoded on the device is
+//! copied back before the filtergraph sees it, so everything from there on
+//! is the same path, and a device that fails at any point hands the reader
+//! to software from the frame it was at. The frames that come out are the
+//! same either way, in count, size and timing; only the pixels may differ
+//! by the rounding of a different colour conversion.
+//!
 //! ## On the unsafe in here
 //!
-//! There is none: the wrapper crate owns every pointer. What this module
+//! The wrapper crate owns every pointer, and the one raw write here is the
+//! threading setting the wrapper has no accessor for. What this module
 //! owns is the order things happen in.
 
 use std::path::{Path, PathBuf};
@@ -26,6 +36,7 @@ use ffmpeg_the_third::util::frame::video::Video;
 
 use crate::error::{Error, Result};
 use crate::ffi;
+use crate::hardware::{self, Device, HwDevice, HwPolicy};
 
 /// Anything that yields frames in order.
 ///
@@ -101,6 +112,13 @@ pub struct DecodeOptions {
     /// decoded frame. Never for anything a person will watch or export: the
     /// frame is near the instant, not at it.
     pub keyframes_only: bool,
+    /// Whether to decode on the platform's video hardware. The default
+    /// follows the process-wide preference, [`crate::set_hardware_decode`],
+    /// so the window's toggle reaches every reader without being passed
+    /// through each one; a reader can insist on software or on a device.
+    /// A device that fails is never an error: the reader carries on in
+    /// software. See [`crate::hardware`].
+    pub hardware: HwPolicy,
 }
 
 impl DecodeOptions {
@@ -151,6 +169,19 @@ impl DecodeOptions {
     /// Decodes keyframes only. See [`DecodeOptions::keyframes_only`].
     pub fn nearest_keyframes(mut self) -> Self {
         self.keyframes_only = true;
+        self
+    }
+
+    /// Decodes on `device`, whatever the preference says, and in software
+    /// if the device will not. See [`DecodeOptions::hardware`].
+    pub fn accelerated(mut self, device: HwDevice) -> Self {
+        self.hardware = HwPolicy::Device(device);
+        self
+    }
+
+    /// Decodes in software, whatever the preference says.
+    pub fn in_software(mut self) -> Self {
+        self.hardware = HwPolicy::Software;
         self
     }
 }
@@ -285,6 +316,15 @@ pub struct Decoder {
     /// Frames before this instant are decoded and discarded - the exact
     /// half of a seek, after the container landed on a keyframe.
     discard_before: Option<Rational>,
+    /// Frames at or before this instant are discarded too: where a reader
+    /// that moved to software mid-file picks up, after the frame the
+    /// device last gave it.
+    discard_through: Option<Rational>,
+    /// The device the codec is on and the pixel format its frames arrive
+    /// in, or `None` in software, which is also where a failed device ends.
+    hardware: Option<(HwDevice, Pixel)>,
+    /// The last picture's timestamp, for picking up in software after it.
+    last_pts: Option<Rational>,
     /// The output frame instant the pacer is at, when pacing.
     tick: u64,
     origin: Rational,
@@ -320,31 +360,25 @@ impl Decoder {
         let stream_index = stream.index();
         let time_base = stream.time_base();
         let rotation = ffi::rotation(&stream);
-        let parameters = stream.parameters();
-        let coded = (parameters.width(), parameters.height());
+        let coded = {
+            let parameters = stream.parameters();
+            (parameters.width(), parameters.height())
+        };
 
-        let mut context = ffmpeg::codec::Context::from_parameters(parameters)
-            .map_err(|error| ffi::fail("codec parameters", path, error))?;
-        // Every core. libavcodec's API opens a decoder on one thread unless
-        // told otherwise (the `ffmpeg` tool turns threads on for itself), and
-        // a seek decodes every frame from the keyframe before it: on one
-        // thread a 4K H.264 file decoded at about 87 frames a second, and a
-        // scrub waited 400 ms for its frame. Frame threads for that walk,
-        // slice threads for files cut into slices; zero lets the codec count.
-        // SAFETY: the context is not opened yet, which is when threading is
-        // set, and both fields are plain integers.
-        unsafe {
-            let raw = context.as_mut_ptr();
-            (*raw).thread_type = ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE;
-            (*raw).thread_count = 0;
-        }
-        let mut decoder = context
-            .decoder()
-            .video()
-            .map_err(|error| ffi::fail("open decoder", path, error))?;
-        if options.keyframes_only {
-            decoder.skip_frame(ffmpeg::Discard::NonKey);
-        }
+        // The device the policy asks for, if the process has one. A codec
+        // that will not open on it opens in software instead, and the
+        // reader is none the wiser past a line in the log.
+        let device = options.hardware.device().and_then(hardware::device);
+        let (decoder, accelerated) = match device {
+            Some(device) => match Self::open_codec(path, &stream, options, Some(&device)) {
+                Ok(opened) => opened,
+                Err(error) => {
+                    hardware::note_fallback(device.kind(), "open the decoder", &error.to_string());
+                    Self::open_codec(path, &stream, options, None)?
+                }
+            },
+            None => Self::open_codec(path, &stream, options, None)?,
+        };
         let color = ColorSignal {
             primaries: decoder.color_primaries(),
             transfer: decoder.color_transfer_characteristic(),
@@ -375,6 +409,9 @@ impl Decoder {
             height,
             graph: None,
             discard_before: None,
+            discard_through: None,
+            hardware: accelerated,
+            last_pts: None,
             tick: 0,
             origin: Rational::ZERO,
             current: None,
@@ -392,9 +429,88 @@ impl Decoder {
         Ok(this)
     }
 
+    /// Opens the stream's codec, on `device` where the codec can decode on
+    /// it. Gives back the opened decoder and, when it is on the device, the
+    /// device and the pixel format its frames arrive in.
+    fn open_codec(
+        path: &Path,
+        stream: &ffmpeg::format::stream::Stream<'_>,
+        options: &DecodeOptions,
+        device: Option<&Device>,
+    ) -> Result<(decoder::Video, Option<(HwDevice, Pixel)>)> {
+        let mut context = ffmpeg::codec::Context::from_parameters(stream.parameters())
+            .map_err(|error| ffi::fail("codec parameters", path, error))?;
+        // Every core. libavcodec's API opens a decoder on one thread unless
+        // told otherwise (the `ffmpeg` tool turns threads on for itself), and
+        // a seek decodes every frame from the keyframe before it: on one
+        // thread a 4K H.264 file decoded at about 87 frames a second, and a
+        // scrub waited 400 ms for its frame. Frame threads for that walk,
+        // slice threads for files cut into slices; zero lets the codec count.
+        // SAFETY: the context is not opened yet, which is when threading is
+        // set, and both fields are plain integers.
+        unsafe {
+            let raw = context.as_mut_ptr();
+            (*raw).thread_type = ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE;
+            (*raw).thread_count = 0;
+        }
+        let accelerated = device.and_then(|device| {
+            device
+                .attach(&mut context)
+                .map(|format| (device.kind(), format))
+        });
+        let mut decoder = context
+            .decoder()
+            .video()
+            .map_err(|error| ffi::fail("open decoder", path, error))?;
+        if options.keyframes_only {
+            decoder.skip_frame(ffmpeg::Discard::NonKey);
+        }
+        Ok((decoder, accelerated))
+    }
+
     /// How many frames have been produced so far.
     pub const fn produced(&self) -> u64 {
         self.produced
+    }
+
+    /// The device the codec is decoding on, or `None` in software: also
+    /// the answer once a device has failed and the reader has moved on
+    /// without it, or once the codec has shown, with its first frame, that
+    /// it declined the device for this stream.
+    pub fn hardware(&self) -> Option<HwDevice> {
+        self.hardware.map(|(device, _)| device)
+    }
+
+    /// Reopens the codec in software and carries on from `from`: the frame
+    /// at that instant is the next one out, or the one after it with
+    /// `after`. The pacer's state is kept, so what comes out is what would
+    /// have come out of the device. `None` starts over from the origin,
+    /// which is the best a stream with no timestamps allows.
+    fn resume_in_software(&mut self, from: Option<Rational>, after: bool) -> Result<()> {
+        let decoder = {
+            let stream = self
+                .input
+                .stream(self.stream)
+                .ok_or_else(|| Error::NoVideoStream {
+                    path: self.path.clone(),
+                })?;
+            Self::open_codec(&self.path, &stream, &self.options, None)?.0
+        };
+        let at = from.unwrap_or(self.origin);
+        let target = ffi::av_ticks(at);
+        self.input
+            .seek(target, ..=target)
+            .map_err(|error| ffi::fail("seek", &self.path, error))?;
+        self.decoder = decoder;
+        self.hardware = None;
+        if !self.options.keyframes_only {
+            if after {
+                self.discard_through = Some(at);
+            } else {
+                self.discard_before = Some(self.discard_before.map_or(at, |before| before.max(at)));
+            }
+        }
+        Ok(())
     }
 
     /// The container seek, and the state reset that goes with it.
@@ -408,6 +524,8 @@ impl Decoder {
         // wanted, and discarding up to the target would throw it away and
         // wait for the *next* keyframe, a whole group of pictures late.
         self.discard_before = (!self.options.keyframes_only).then_some(to);
+        self.discard_through = None;
+        self.last_pts = None;
         self.origin = to;
         self.tick = 0;
         self.current = None;
@@ -418,7 +536,8 @@ impl Decoder {
     }
 
     /// The next picture out of the codec, or `None` at the end of the file.
-    /// Frames before the discard point never come out of here.
+    /// Frames before the discard point never come out of here, and a frame
+    /// from the device is copied back to memory before it does.
     fn next_source(&mut self) -> Result<Option<Source>> {
         loop {
             let mut frame = Video::empty();
@@ -427,16 +546,58 @@ impl Decoder {
                     let pts = frame
                         .timestamp()
                         .and_then(|ticks| ffi::seconds(ticks, self.time_base));
+                    if let Some((device, format)) = self.hardware {
+                        if frame.format() == format {
+                            frame = match hardware::download(&frame) {
+                                Ok(copy) => copy,
+                                Err(error) => {
+                                    hardware::note_fallback(
+                                        device,
+                                        "copy a frame back",
+                                        &error.to_string(),
+                                    );
+                                    self.resume_in_software(pts, false)?;
+                                    continue;
+                                }
+                            };
+                        } else {
+                            // The codec set the device up for this stream
+                            // and the device said no, so the codec went on
+                            // in software by itself; the frames are fine.
+                            hardware::note_fallback(
+                                device,
+                                "take this stream",
+                                "the codec decoded it in software",
+                            );
+                            self.hardware = None;
+                        }
+                    }
                     if let (Some(before), Some(pts)) = (self.discard_before, pts)
                         && pts < before
                     {
                         continue;
                     }
+                    if let (Some(through), Some(pts)) = (self.discard_through, pts)
+                        && pts <= through
+                    {
+                        continue;
+                    }
                     self.discard_before = None;
+                    self.discard_through = None;
+                    self.last_pts = pts;
                     return Ok(Some(Source { frame, pts }));
                 }
                 Err(ffmpeg::Error::Eof) => return Ok(None),
                 Err(error) if ffi::is_again(&error) => {}
+                Err(error) if self.hardware.is_some() => {
+                    // The device choked on a picture it had accepted the
+                    // stream for. Software takes over after the last frame
+                    // the reader was given.
+                    let (device, _) = self.hardware.take().expect("checked");
+                    hardware::note_fallback(device, "decode a frame", &error.to_string());
+                    self.resume_in_software(self.last_pts, self.last_pts.is_some())?;
+                    continue;
+                }
                 Err(error) => return Err(ffi::fail("decode", &self.path, error)),
             }
 
@@ -453,6 +614,16 @@ impl Decoder {
                         match self.decoder.send_packet(&packet) {
                             Ok(()) => break,
                             Err(error) if ffi::is_again(&error) => break,
+                            Err(error) if self.hardware.is_some() => {
+                                let (device, _) = self.hardware.take().expect("checked");
+                                hardware::note_fallback(
+                                    device,
+                                    "take a packet",
+                                    &error.to_string(),
+                                );
+                                self.resume_in_software(self.last_pts, self.last_pts.is_some())?;
+                                break;
+                            }
                             Err(error) => return Err(ffi::fail("send packet", &self.path, error)),
                         }
                     }
@@ -890,5 +1061,202 @@ mod tests {
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
         assert!(Decoder::open("does-not-exist.mp4", &DecodeOptions::default()).is_err());
+    }
+
+    /// A thirty-frame H.264 file whose every frame is its own flat grey,
+    /// for telling frames apart.
+    fn grey_steps(name: &str) -> PathBuf {
+        use crate::{EncodeOptions, Encoder, FrameSink};
+        let path =
+            std::env::temp_dir().join(format!("concat-decode-{name}-{}.mp4", std::process::id()));
+        let mut encoder = Encoder::create(
+            &path,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                preset: "ultrafast".to_owned(),
+                ..EncodeOptions::default()
+            },
+        )
+        .expect("the linked FFmpeg encodes h264");
+        for index in 0..30u8 {
+            let pixels = [index * 8, index * 8, index * 8, 255].repeat(64 * 64);
+            let frame = Frame::from_rgba(64, 64, pixels).expect("a frame");
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        path
+    }
+
+    /// Every frame and its instant, to the end.
+    fn drain(decoder: &mut Decoder) -> Vec<(Option<Rational>, Frame)> {
+        let mut frames = Vec::new();
+        while let Some(frame) = decoder.next_frame().expect("decodes") {
+            frames.push((decoder.position(), frame));
+        }
+        frames
+    }
+
+    /// The largest difference between two frames, over every channel.
+    fn worst_difference(a: &Frame, b: &Frame) -> u32 {
+        a.pixels()
+            .iter()
+            .zip(b.pixels())
+            .map(|(a, b)| u32::from(a.abs_diff(*b)))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Insisting on software gives software, whatever the preference, and
+    /// the frames are the frames.
+    #[test]
+    fn software_is_software_whatever_the_preference() {
+        let path = grey_steps("software");
+        let mut decoder =
+            Decoder::open(&path, &DecodeOptions::default().in_software()).expect("opens");
+        assert_eq!(decoder.hardware(), None);
+        let frames = drain(&mut decoder);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(frames.len(), 30);
+        assert_eq!(decoder.hardware(), None);
+    }
+
+    /// The device decodes the same frames at the same instants as the CPU:
+    /// the same count, the same timestamps, and pixels within the rounding
+    /// of a different colour conversion. A seek on the device lands where
+    /// a seek on the CPU does. On a machine with the device, that is; on
+    /// one without, the reader opens in software and the file still
+    /// decodes whole.
+    #[test]
+    fn hardware_decode_matches_software_in_count_and_timing() {
+        let path = grey_steps("hardware");
+        let Some(device) = HwDevice::platform_default() else {
+            return;
+        };
+        let software = DecodeOptions::default().scaled_to(64, 64).in_software();
+        let hardware = DecodeOptions::default()
+            .scaled_to(64, 64)
+            .accelerated(device);
+
+        let mut cpu = Decoder::open(&path, &software).expect("opens in software");
+        let cpu_frames = drain(&mut cpu);
+        let mut gpu = Decoder::open(&path, &hardware).expect("opens on the device");
+        let gpu_frames = drain(&mut gpu);
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                gpu.hardware(),
+                Some(HwDevice::VideoToolbox),
+                "a Mac decodes H.264 on VideoToolbox"
+            );
+        }
+
+        assert_eq!(
+            gpu_frames.len(),
+            cpu_frames.len(),
+            "the same number of frames"
+        );
+        for (index, ((cpu_at, cpu_frame), (gpu_at, gpu_frame))) in
+            cpu_frames.iter().zip(&gpu_frames).enumerate()
+        {
+            assert_eq!(gpu_at, cpu_at, "frame {index} at the same instant");
+            assert_eq!(
+                (gpu_frame.width(), gpu_frame.height()),
+                (cpu_frame.width(), cpu_frame.height())
+            );
+            let difference = worst_difference(cpu_frame, gpu_frame);
+            assert!(
+                difference <= 8,
+                "frame {index} differs by {difference} levels between the device and the CPU"
+            );
+        }
+
+        // A seek on the device lands on the same frame as one on the CPU.
+        let mut sought = Decoder::open(&path, &hardware.clone().starting_at(Rational::new(1, 2)))
+            .expect("opens at half a second on the device");
+        let landed = sought.next_frame().expect("decodes").expect("a frame");
+        let _ = std::fs::remove_file(&path);
+        let (_, fifteenth) = &cpu_frames[15];
+        let difference = worst_difference(fifteenth, &landed);
+        assert!(
+            difference <= 8,
+            "the seek landed {difference} levels from frame 15"
+        );
+    }
+
+    /// The pacer sits on top of the device exactly as it does the CPU: a
+    /// file paced to twice its rate gives the same frames either way.
+    #[test]
+    fn a_paced_hardware_decode_matches_a_paced_software_one() {
+        let path = grey_steps("paced");
+        let Some(device) = HwDevice::platform_default() else {
+            return;
+        };
+        let rate = FrameRate::new(Rational::from_int(60));
+        let software = DecodeOptions::default()
+            .scaled_to(64, 64)
+            .at_rate(rate)
+            .in_software();
+        let hardware = DecodeOptions::default()
+            .scaled_to(64, 64)
+            .at_rate(rate)
+            .accelerated(device);
+        let cpu_frames = drain(&mut Decoder::open(&path, &software).expect("opens"));
+        let gpu_frames = drain(&mut Decoder::open(&path, &hardware).expect("opens"));
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            cpu_frames.len() >= 58,
+            "thirty frames at sixty a second: {}",
+            cpu_frames.len()
+        );
+        assert_eq!(gpu_frames.len(), cpu_frames.len());
+        for (index, ((cpu_at, cpu_frame), (gpu_at, gpu_frame))) in
+            cpu_frames.iter().zip(&gpu_frames).enumerate()
+        {
+            assert_eq!(gpu_at, cpu_at, "frame {index} at the same instant");
+            assert!(worst_difference(cpu_frame, gpu_frame) <= 8, "frame {index}");
+        }
+    }
+
+    /// A codec the device has no decoder for - a JPEG still, here - opens
+    /// in software straight away, with the device asked for, and decodes.
+    #[test]
+    fn a_codec_the_device_lacks_decodes_in_software() {
+        let path =
+            std::env::temp_dir().join(format!("concat-decode-jpeg-{}.jpg", std::process::id()));
+        let mut frame = Frame::black(64, 64);
+        frame.fill([200, 40, 40, 255]);
+        let bytes = crate::encode::jpeg(&frame, 90).expect("a jpeg");
+        std::fs::write(&path, bytes).expect("writes the still");
+        let device = HwDevice::platform_default().unwrap_or(HwDevice::VideoToolbox);
+        let mut decoder = Decoder::open(&path, &DecodeOptions::default().accelerated(device))
+            .expect("the still opens whatever the device says");
+        assert_eq!(
+            decoder.hardware(),
+            None,
+            "a JPEG is not the device's to decode"
+        );
+        let decoded = decoder.next_frame().expect("decodes").expect("the picture");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!((decoded.width(), decoded.height()), (64, 64));
+        let red = decoded.pixels()[0];
+        assert!(red > 150, "the picture came through: red {red}");
+    }
+
+    /// A device the linked FFmpeg does not carry is asked for and quietly
+    /// not used: the file decodes in software.
+    #[test]
+    fn a_device_the_library_lacks_means_software() {
+        let path = grey_steps("absent");
+        let absent = HwDevice::ALL
+            .into_iter()
+            .find(|device| !device.linked())
+            .unwrap_or(HwDevice::Vaapi);
+        let mut decoder =
+            Decoder::open(&path, &DecodeOptions::default().accelerated(absent)).expect("opens");
+        let frames = drain(&mut decoder);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(frames.len(), 30);
+        assert_ne!(decoder.hardware(), Some(absent));
     }
 }

@@ -18,6 +18,7 @@ pub mod decode;
 pub mod encode;
 pub mod error;
 mod ffi;
+pub mod hardware;
 pub mod peaks;
 pub mod pool;
 pub mod probe;
@@ -28,6 +29,7 @@ pub use decode::{ColorSignal, DecodeOptions, Decoder, FrameSource, SeekableSourc
 pub use encode::{EncodeOptions, Encoder, FrameSink, VideoCodec, jpeg};
 pub use error::{Error, Result};
 pub use ffi::{init, linked_version};
+pub use hardware::{HwDevice, HwPolicy, hardware_decode, set_hardware_decode};
 pub use peaks::Peaks;
 pub use pool::{FrameCache, ReaderPool};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};

@@ -15,6 +15,7 @@ concat-core.workspace = true
 # display-rotation side data is read from where 7.0 moved it.
 ffmpeg-the-third = "6"
 libc = "0.2"
+log = "0.4"
 thiserror.workspace = true
 
 [lints]
