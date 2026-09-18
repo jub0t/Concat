@@ -37,6 +37,11 @@ pub struct Preferences {
     /// Show flip horizontal, flip vertical, and reverse in the clip context
     /// menu. Keyboard shortcuts (H, J, R) are always available.
     pub custom_context_actions: bool,
+    /// Video decodes on the platform's own hardware where it has some:
+    /// VideoToolbox on a Mac. `None` is the platform's default, which is on
+    /// where the hardware path has been exercised (macOS and iOS) and off
+    /// elsewhere; see `Preferences::hardware_decode_on`.
+    pub hardware_decode: Option<bool>,
     /// Where model downloads look first: a `SourcePreference` by name.
     /// Absent is automatic.
     pub download_source: Option<String>,
@@ -45,6 +50,15 @@ pub struct Preferences {
     /// The Concat API on a socket while the window is open.
     #[serde(default)]
     pub server: ServerPrefs,
+}
+
+impl Preferences {
+    /// Whether video should decode on the hardware: the choice made, or
+    /// the platform's default when none was.
+    pub fn hardware_decode_on(&self) -> bool {
+        self.hardware_decode
+            .unwrap_or(cfg!(any(target_os = "macos", target_os = "ios")))
+    }
 }
 
 /// The Settings sheet's Remote page: whether the API is served while the

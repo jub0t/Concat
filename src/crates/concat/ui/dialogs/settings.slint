@@ -52,6 +52,11 @@ export struct SettingsData {
     playhead-stops: bool,
     /// show flip/reverse in clip context menu
     custom-context-actions: bool,
+    /// video decodes on the platform's own hardware
+    hardware-decode: bool,
+    /// this build and machine have hardware to decode on; off, the
+    /// switch is not shown
+    hardware-decode-offered: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -362,6 +367,7 @@ export component SettingsDialog inherits Modal {
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
+    callback hardware-decode-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
@@ -535,6 +541,33 @@ export component SettingsDialog inherits Modal {
                             Switch {
                                 checked: root.data.custom-context-actions;
                                 toggled(on) => { root.custom-context-actions-changed(on); }
+                            }
+                        }
+                    }
+                }
+
+                // The platform's own decoder, where the build has one.
+                if root.data.hardware-decode-offered: DialogSection {
+                    title: I18n.t("Decoding");
+                    hint: I18n.t("On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Decode on the hardware");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.hardware-decode;
+                                toggled(on) => { root.hardware-decode-changed(on); }
                             }
                         }
                     }

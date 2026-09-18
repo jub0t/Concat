@@ -713,5 +713,8 @@
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "Görüntü bilimkurgu projeksiyonu gibi: tonu mavi bir geçişle değiştirilir, kenarlar parlar, tarama çizgileri kayar, bir yenileme süpürmesi geçer, yırtılmalar ve gren.",
   "Token": "Belirteç",
   "{0} is not an address like 127.0.0.1:7420": "{0}, 127.0.0.1:7420 gibi bir adres değil",
-  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Bir bağlantının ilk çağrısından önce sunması gereken şey. Boş bırakılırsa sunucu her başlatıldığında bir tane uydurur ve burada gösterir."
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Bir bağlantının ilk çağrısından önce sunması gereken şey. Boş bırakılırsa sunucu her başlatıldığında bir tane uydurur ve burada gösterir.",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }

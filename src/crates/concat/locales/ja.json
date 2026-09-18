@@ -713,5 +713,8 @@
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "SF の投影のような映像: 色相を青のグラデーションに置き換え、縁が光り、走査線が流れ、リフレッシュの帯が走り、ずれと粒子が乗ります。",
   "Token": "トークン",
   "{0} is not an address like 127.0.0.1:7420": "{0} は 127.0.0.1:7420 のようなアドレスではありません",
-  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "接続が最初の呼び出しの前に提示するもの。空のままにすると、サーバーは起動のたびに自分で作り、ここに表示します。"
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "接続が最初の呼び出しの前に提示するもの。空のままにすると、サーバーは起動のたびに自分で作り、ここに表示します。",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }

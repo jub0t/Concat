@@ -713,5 +713,8 @@
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "L'image en projection de science-fiction : sa teinte remplacée par une rampe bleue, des bords lumineux, des lignes de balayage qui dérivent, un balayage de rafraîchissement, des déchirures et du grain.",
   "Token": "Jeton",
   "{0} is not an address like 127.0.0.1:7420": "{0} n'est pas une adresse comme 127.0.0.1:7420",
-  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Ce qu'une connexion doit présenter avant son premier appel. Laissé vide, le serveur en invente un à chaque démarrage et l'affiche ici."
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Ce qu'une connexion doit présenter avant son premier appel. Laissé vide, le serveur en invente un à chaque démarrage et l'affiche ici.",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }
