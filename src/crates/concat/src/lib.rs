@@ -53,6 +53,7 @@ use host::{Host, Shell, on_ui};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
+use panes::media_bin::MediaMsg;
 use panes::project::ProjectMsg;
 use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
@@ -93,7 +94,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         Shell::with(|shell, app| {
             {
                 let mut studio = shell.studio.borrow_mut();
-                studio.import(paths);
+                studio.handle(Msg::Media(MediaMsg::Import(paths)));
             }
             shell.studio.borrow_mut().refresh_art();
             shell.studio.borrow().publish(&app, &shell.models);
@@ -454,15 +455,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the bin ──
     editor.on_media_filter_changed(on_window!(|state, filter: MediaFilter| {
-        state.set_media_filter(filter);
+        state.handle(Msg::Media(MediaMsg::FilterChanged(filter)));
     }));
     editor.on_media_sort_changed(on_window!(|state, index: i32| {
-        // Slint hands indices over as i32; the sort is an index into a
-        // three-entry table, so clamp negatives to the default order.
-        state.set_media_sort(index.max(0) as usize);
+        state.handle(Msg::Media(MediaMsg::SortChanged(index)));
     }));
-    editor.on_media_select(on_window!(|state, id: i32, additive: bool| {
-        state.media_select(id, additive);
+    editor.on_media_select(on_window!(|state, row: i32, additive: bool| {
+        state.handle(Msg::Media(MediaMsg::Select { row, additive }));
     }));
     editor.on_media_band_selected(on_window!(
         |state,
@@ -472,14 +471,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
          from_row: i32,
          to_row: i32,
          additive: bool| {
-            state.media_band(columns, from_col, to_col, from_row, to_row, additive);
+            state.handle(Msg::Media(MediaMsg::Band {
+                columns,
+                from_col,
+                to_col,
+                from_row,
+                to_row,
+                additive,
+            }));
         }
     ));
-    editor.on_media_remove(on_window!(|state, id: i32| {
-        state.media_remove(id);
+    editor.on_media_remove(on_window!(|state, row: i32| {
+        state.handle(Msg::Media(MediaMsg::Remove(row)));
     }));
     editor.on_media_remove_selected(on_window!(|state| {
-        state.media_remove_selected();
+        state.handle(Msg::Media(MediaMsg::RemoveSelected));
     }));
     // Not through the handler macro: nothing here changes the state, and
     // the import is asynchronous - a phone's picker is another screen, and
@@ -499,7 +505,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
                     ],
                 )),
-                |paths| on_ui(move |studio, _, _| studio.import(paths)),
+                |paths| {
+                    on_ui(move |studio, _, _| studio.handle(Msg::Media(MediaMsg::Import(paths))))
+                },
             );
         });
     });
@@ -1122,7 +1130,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     let mut state = shell.studio.borrow_mut();
                     state.open_menu = -1;
                     match action.as_str() {
-                        "add-selected" => state.add_selected_media(),
+                        "add-selected" => state.handle(Msg::Media(MediaMsg::AddSelectedAtPlayhead)),
                         "open" => {
                             if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
                             {
@@ -1138,7 +1146,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         }
                         "import" => {
                             platform::pick_files_async(&i18n::t("Import media"), None, |paths| {
-                                on_ui(move |studio, _, _| studio.import(paths))
+                                on_ui(move |studio, _, _| {
+                                    studio.handle(Msg::Media(MediaMsg::Import(paths)))
+                                })
                             });
                         }
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
@@ -1150,9 +1160,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.snap = !state.snap,
-                        "sort-added" => state.set_media_sort(0),
-                        "sort-name" => state.set_media_sort(1),
-                        "sort-kind" => state.set_media_sort(2),
+                        "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
+                        "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),
+                        "sort-kind" => state.handle(Msg::Media(MediaMsg::SortChanged(2))),
                         "zoom-in" => {
                             state.seconds_per_pixel = (state.seconds_per_pixel / 1.4).max(0.000_5)
                         }

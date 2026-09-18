@@ -15,6 +15,7 @@
 
 pub mod captions;
 pub mod export;
+pub mod media_bin;
 pub mod project;
 pub mod relink;
 pub mod settings;
@@ -38,4 +39,6 @@ pub enum Msg {
     Project(project::ProjectMsg),
     /// To the launch screen's form.
     Start(start::StartMsg),
+    /// To the media bin.
+    Media(media_bin::MediaMsg),
 }

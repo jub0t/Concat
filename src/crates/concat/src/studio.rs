@@ -531,18 +531,9 @@ pub struct Studio {
     autosave: slint::Timer,
 
     // ── the bin ──
-    /// Slint's rows are integers; the document's ids are strings. Assigned
-    /// once per id and never reused, so a payload in flight names the row it
-    /// was dragged from.
-    media_rows: HashMap<String, i32>,
-    next_media_row: i32,
-    media_selected: HashSet<String>,
-    media_filter: MediaFilter,
-    /// 0 = Added, 1 = Name, 2 = Kind
-    media_sort: usize,
+    pub media: crate::panes::media_bin::MediaBin,
     /// Decoded art by media id, and the ids a worker is decoding for.
     pub peaks: HashMap<String, Arc<Peaks>>,
-    pub thumbs: HashMap<String, slint::Image>,
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
@@ -723,14 +714,6 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
         model::ClipKind::Layer => ClipKind::Filter,
-    }
-}
-
-fn media_kind_of(kind: model::MediaKind) -> MediaKind {
-    match kind {
-        model::MediaKind::Video => MediaKind::Video,
-        model::MediaKind::Audio => MediaKind::Audio,
-        model::MediaKind::Image => MediaKind::Image,
     }
 }
 
@@ -1229,13 +1212,8 @@ impl Studio {
             empty: Project::new(),
             dirty: false,
             autosave: slint::Timer::default(),
-            media_rows: HashMap::new(),
-            next_media_row: 1,
-            media_selected: HashSet::new(),
-            media_filter: MediaFilter::All,
-            media_sort: 0,
+            media: crate::panes::media_bin::MediaBin::default(),
             peaks: HashMap::new(),
-            thumbs: HashMap::new(),
             strips: HashMap::new(),
             windows: HashMap::new(),
             art_pending: HashSet::new(),
@@ -1927,152 +1905,12 @@ impl Studio {
 
     // ── the bin ──
 
-    /// Gives every media item the integer row Slint knows it by. New items
-    /// get the next number; nothing is ever renumbered.
+    /// Gives every media item the row Slint knows it by; see
+    /// `MediaBin::assign_rows`.
     fn assign_media_rows(&mut self) {
-        let ids: Vec<String> = self
-            .project()
-            .media
-            .iter()
-            .map(|item| item.id.clone())
-            .collect();
-        for id in ids {
-            if !self.media_rows.contains_key(&id) {
-                self.media_rows.insert(id, self.next_media_row);
-                self.next_media_row += 1;
-            }
-        }
-    }
-
-    pub fn media_by_row(&self, row: i32) -> Option<&model::MediaItem> {
-        let id = self.media_rows.iter().find(|(_, held)| **held == row)?.0;
-        self.project().media_by_id(id)
-    }
-
-    fn shows(filter: MediaFilter, kind: model::MediaKind) -> bool {
-        match filter {
-            MediaFilter::All => true,
-            MediaFilter::Video => kind == model::MediaKind::Video,
-            MediaFilter::Audio => kind == model::MediaKind::Audio,
-            MediaFilter::Images => kind == model::MediaKind::Image,
-        }
-    }
-
-    pub fn set_media_filter(&mut self, filter: MediaFilter) {
-        self.media_filter = filter;
-    }
-
-    pub fn set_media_sort(&mut self, sort: usize) {
-        self.media_sort = sort.min(2);
-    }
-
-    pub fn media_select(&mut self, row: i32, additive: bool) {
-        let Some(id) = self.media_by_row(row).map(|item| item.id.clone()) else {
-            return;
-        };
-        if additive {
-            if !self.media_selected.remove(&id) {
-                self.media_selected.insert(id);
-            }
-        } else {
-            self.media_selected.clear();
-            self.media_selected.insert(id);
-        }
-    }
-
-    /// A marquee closed over the grid, as the block of cells it caught. The
-    /// walk is over the filtered order, because that is what the grid was
-    /// laid out from.
-    pub fn media_band(
-        &mut self,
-        columns: i32,
-        from_col: i32,
-        to_col: i32,
-        from_row: i32,
-        to_row: i32,
-        additive: bool,
-    ) {
-        let filter = self.media_filter;
-        let mut cell = 0;
-        let mut next = if additive {
-            self.media_selected.clone()
-        } else {
-            HashSet::new()
-        };
-        for item in &self.project().media {
-            if !Self::shows(filter, item.kind) {
-                continue;
-            }
-            let (row, col) = (cell / columns.max(1), cell % columns.max(1));
-            if row >= from_row && row <= to_row && col >= from_col && col <= to_col {
-                next.insert(item.id.clone());
-            }
-            cell += 1;
-        }
-        self.media_selected = next;
-    }
-
-    pub fn media_remove(&mut self, row: i32) {
-        if let Some(id) = self.media_by_row(row).map(|item| item.id.clone()) {
-            self.media_selected.remove(&id);
-            self.apply(Command::RemoveMedia { media_id: id });
-        }
-    }
-
-    pub fn media_remove_selected(&mut self) {
-        let doomed: Vec<String> = self.media_selected.drain().collect();
-        if doomed.is_empty() {
-            return;
-        }
-        self.apply(Command::Batch {
-            commands: doomed
-                .into_iter()
-                .map(|media_id| Command::RemoveMedia { media_id })
-                .collect(),
-        });
-    }
-
-    /// Probes the files on a worker and adds what probed as media.
-    pub fn import(&mut self, paths: Vec<std::path::PathBuf>) {
-        if paths.is_empty() || self.session.is_none() {
-            return;
-        }
-        spawn(
-            move || {
-                paths
-                    .iter()
-                    .map(|path| media::probe(&path.to_string_lossy()))
-                    .collect::<Vec<_>>()
-            },
-            |studio, _, _, results| {
-                let mut commands = Vec::new();
-                let mut failures = Vec::new();
-                for result in results {
-                    match result {
-                        Ok(summary) => commands.push(Command::AddMedia {
-                            item: summary.to_new_media(),
-                        }),
-                        Err(error) => failures.push(error),
-                    }
-                }
-                let added = commands.len();
-                if !commands.is_empty() {
-                    studio.apply(Command::Batch { commands });
-                }
-                if let Some(error) = failures.first() {
-                    studio.notify(&crate::host::probe_error(error), true);
-                } else if added > 0 {
-                    studio.notify(
-                        &if added == 1 {
-                            t("Imported 1 file")
-                        } else {
-                            tf("Imported {0} files", &[&added])
-                        },
-                        false,
-                    );
-                }
-            },
-        );
+        let mut bin = std::mem::take(&mut self.media);
+        bin.assign_rows(self.project());
+        self.media = bin;
     }
 
     /// Decodes art for every media item that has none yet: its pictures
@@ -2103,7 +1941,8 @@ impl Studio {
             .filter(|item| !self.art_pending.contains(&item.id))
             .filter(|item| {
                 let needs_thumb = item.kind != model::MediaKind::Audio
-                    && (!self.thumbs.contains_key(&item.id) || !self.strips.contains_key(&item.id));
+                    && (!self.media.thumbs.contains_key(&item.id)
+                        || !self.strips.contains_key(&item.id));
                 let needs_peaks = (item.kind == model::MediaKind::Audio || item.has_audio)
                     && !self.peaks.contains_key(&item.id);
                 needs_thumb || needs_peaks
@@ -2175,12 +2014,12 @@ impl Studio {
             if stream.is_none() && kind != model::MediaKind::Audio {
                 let cached = cached_media_art(&project_path, &id, &path, kind);
                 if let Some(image) = cached.thumbnail {
-                    self.thumbs.insert(id.clone(), image);
+                    self.media.thumbs.insert(id.clone(), image);
                 }
                 if let Some(strip) = cached.strip {
                     self.strips.insert(id.clone(), strip.into());
                 }
-                pictures = !self.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
+                pictures = !self.media.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
             }
 
             let needs_peaks =
@@ -2202,7 +2041,7 @@ impl Studio {
                     let key = art_key(&art.id, art.stream);
                     studio.art_pending.remove(&key);
                     if let Some(frame) = art.thumbnail {
-                        studio.thumbs.insert(art.id.clone(), image_of(&frame));
+                        studio.media.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
                     if let Some((frame, frames)) = art.strip {
                         studio
@@ -2393,7 +2232,7 @@ impl Studio {
         let label = fields.next().unwrap_or(id);
         match sort {
             "media" => {
-                let item = self.media_by_row(id.parse().ok()?)?;
+                let item = self.media.by_row(self.project(), id.parse().ok()?)?;
                 Some(DropPlan {
                     kind: match item.kind {
                         model::MediaKind::Audio => ClipKind::Audio,
@@ -4770,7 +4609,7 @@ impl Studio {
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();
-                self.media_selected.clear();
+                self.media.selected.clear();
                 self.lane_view.clear();
                 self.playhead = 0.0;
                 self.scroll_left = 0.0;
@@ -4929,6 +4768,11 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.start);
                 pane.update(msg, self);
                 self.start = pane;
+            }
+            crate::panes::Msg::Media(msg) => {
+                let mut pane = std::mem::take(&mut self.media);
+                pane.update(msg, self);
+                self.media = pane;
             }
         }
     }
@@ -5835,57 +5679,8 @@ impl Studio {
         );
 
         // The bin.
-        let filter = self.media_filter;
         let items = &self.project().media;
-
-        // Grupiši po tipu (Video -> Audio -> Slike), pa abecedno po imenu
-        let mut visible: Vec<_> = items
-            .iter()
-            .filter(|item| Self::shows(filter, item.kind))
-            .collect();
-
-        match self.media_sort {
-            0 => { /* Added - no sorting, keep import order */ }
-            1 => visible.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-            2 => visible.sort_by(|a, b| {
-                let rank = |kind: model::MediaKind| match kind {
-                    model::MediaKind::Video => 0,
-                    model::MediaKind::Audio => 1,
-                    model::MediaKind::Image => 2,
-                };
-                rank(a.kind)
-                    .cmp(&rank(b.kind))
-                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-            }),
-            _ => {}
-        }
-
-        sync(
-            &models.media,
-            visible
-                .into_iter()
-                .map(|item| MediaItemData {
-                    id: *self.media_rows.get(&item.id).unwrap_or(&0),
-                    name: item.name.as_str().into(),
-                    kind: media_kind_of(item.kind),
-                    duration: item.duration.unwrap_or(0.0) as f32,
-                    format: std::path::Path::new(&item.path)
-                        .extension()
-                        .and_then(|extension| extension.to_str())
-                        .map(|extension| extension.to_ascii_lowercase())
-                        .unwrap_or_default()
-                        .into(),
-                    thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
-                    wave: match self.peaks.get(&item.id) {
-                        Some(peaks) if item.kind == model::MediaKind::Audio => {
-                            wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0).into()
-                        }
-                        _ => SharedString::new(),
-                    },
-                    selected: self.media_selected.contains(&item.id),
-                })
-                .collect(),
-        );
+        sync(&models.media, self.media.rows(self));
         editor.set_media_count_all(items.len() as i32);
         editor.set_media_count_video(
             items
@@ -5905,7 +5700,7 @@ impl Studio {
                 .filter(|item| item.kind == model::MediaKind::Image)
                 .count() as i32,
         );
-        editor.set_media_selected_count(self.media_selected.len() as i32);
+        editor.set_media_selected_count(self.media.selected.len() as i32);
         editor.set_importing(false);
 
         let (width, height) = self.output_size();
@@ -6150,7 +5945,7 @@ impl Studio {
         let (can_undo, can_redo) = self.session.as_ref().map_or((false, false), |session| {
             (session.can_undo(), session.can_redo())
         });
-        let has_selection_media = !self.media_selected.is_empty();
+        let has_selection_media = !self.media.selected.is_empty();
 
         match self.open_menu {
             0 => vec![
@@ -6240,29 +6035,14 @@ impl Studio {
                 row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
                 row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
                 rule(),
-                check("sort-added", "Sort by: Added", self.media_sort == 0),
-                check("sort-name", "Sort by: Name", self.media_sort == 1),
-                check("sort-kind", "Sort by: Type", self.media_sort == 2),
+                check("sort-added", "Sort by: Added", self.media.sort == 0),
+                check("sort-name", "Sort by: Name", self.media.sort == 1),
+                check("sort-kind", "Sort by: Type", self.media.sort == 2),
                 rule(),
                 row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
                 row("end", t("Go to end"), Glyph::SkipForward, "End", true),
             ],
             _ => Vec::new(),
-        }
-    }
-
-    /// Everything the media bin's selection would add at the playhead.
-    pub fn add_selected_media(&mut self) {
-        let ids: Vec<String> = self
-            .project()
-            .media
-            .iter()
-            .filter(|item| self.media_selected.contains(&item.id))
-            .map(|item| item.id.clone())
-            .collect();
-        let start = f64::from(self.playhead.max(0.0));
-        for media_id in ids {
-            self.apply(Command::AddClipAtFirstFree { media_id, start });
         }
     }
 
