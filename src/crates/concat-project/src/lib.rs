@@ -530,6 +530,42 @@ mod tests {
     }
 
     #[test]
+    fn nan_in_transition_or_text_patch_is_refused() {
+        let (mut editor, _, clip_id) = fixture();
+        let before = editor.project().clone();
+        // A transition whose duration is NaN must be caught.
+        let bad_transition = Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                transition_in: Some(Some(crate::model::Transition {
+                    id: "cross-fade".to_owned(),
+                    duration: f64::NAN,
+                })),
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            editor.apply(bad_transition).expect_err("refused"),
+            crate::CommandError::NotANumber
+        );
+        // A text style whose font_size is infinite must be caught.
+        let mut style = TextStyle::default();
+        style.font_size = f64::INFINITY;
+        let bad_text = Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                text: Some(Some(style)),
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            editor.apply(bad_text).expect_err("refused"),
+            crate::CommandError::NotANumber
+        );
+        assert_eq!(editor.project(), &before, "nothing changed");
+    }
+
+    #[test]
     fn a_document_from_a_newer_build_is_refused() {
         let (editor, _, _) = fixture();
         let mut document = editor.to_document(&settings());
