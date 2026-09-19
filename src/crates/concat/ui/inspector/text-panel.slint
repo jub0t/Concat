@@ -3,11 +3,13 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
 import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
+import { NumberField } from "../primitives/number-field.slint";
 import {
-    ColourField, HelpButton, InspectorFmt, Note, Param, ParamFormat, SwitchRow,
+    ColourField, HelpButton, InspectorFmt, Param, ParamFormat, SwitchRow,
 } from "controls.slint";
 import {
     ClipField, ClipTextField, SelectedClipData, TextAlignment,
@@ -20,9 +22,15 @@ import {
 // Offering those tabs would be offering panels that can only say "nothing
 // here", which is why the tab strip drops them rather than disabling them.
 //
-// Sizes and positions are fractions of the output frame, never points or
-// pixels: the frame can be any resolution, and a title dialled in at 1080p
-// should not move when the project is exported at 4K.
+// Five drawers, in the order a title is made: the words, their typography,
+// the stroke around them, the box they sit in, and where the box goes.
+//
+// The document keeps sizes as fractions of the output frame, never points
+// or pixels, so a title dialled in at 1080p does not move when the project
+// is exported at 4K. The box's width and height are the exception on
+// screen: they are shown and typed in pixels of the current frame, because
+// "400 wide" is a size a person can picture and "20.8%" is not - the
+// fraction is what is stored, still.
 export component TextPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
     /// The faces this build bundles.
@@ -38,23 +46,31 @@ export component TextPanel inherits VerticalLayout {
     property <float> size;
     property <float> alpha;
     property <float> stroke-width;
+    property <float> stroke-alpha;
     property <float> line-height;
     property <float> tracking;
-    property <float> text-width;
+    property <float> box-w;
+    property <float> box-h;
     property <float> offset-x;
     property <float> offset-y;
     property <int> weight-index;
     property <int> family-index;
 
     property <[float]> weights: [400, 500, 600, 700];
+    /// The label column of the rows whose label is two words.
+    property <length> label-w: 74px;
+    property <float> frame-w: Math.max(1, root.selected.frame-width);
+    property <float> frame-h: Math.max(1, root.selected.frame-height);
 
     function seed() {
         root.size = root.selected.font-size;
         root.alpha = root.selected.text-opacity;
         root.stroke-width = root.selected.stroke-width;
+        root.stroke-alpha = root.selected.stroke-opacity;
         root.line-height = root.selected.line-height;
         root.tracking = root.selected.tracking;
-        root.text-width = root.selected.text-width;
+        root.box-w = root.selected.text-width * root.frame-w;
+        root.box-h = root.selected.text-height * root.frame-h;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
         root.weight-index = root.selected.font-weight >= 700 ? 3
@@ -68,6 +84,10 @@ export component TextPanel inherits VerticalLayout {
     init => { root.seed(); }
     changed selected => { root.seed(); }
 
+    /// A box side in pixels: "auto" at zero, else the whole number.
+    pure function px(v: float) -> string {
+        return v <= 0 ? I18n.t("auto") : "\{Math.round(v)}";
+    }
 
     // ── content ──────────────────────────────────────────────────────────
     Section {
@@ -140,17 +160,23 @@ export component TextPanel inherits VerticalLayout {
         }
     }
 
-    // ── font ─────────────────────────────────────────────────────────────
+    // ── typography ───────────────────────────────────────────────────────
+    // The face, its weight and size, and its colour: one drawer, because
+    // they are one decision. A colour drawer apart from the font it colours
+    // was two places to look for how the words look.
     Section {
-        font := SectionHeader {
-            title: I18n.t("Font");
+        typography := SectionHeader {
+            title: I18n.t("Typography");
             collapsible: true;
             summary: root.selected.font-family + " · "
-                + InspectorFmt.format(ParamFormat.height, root.size);
+                + InspectorFmt.format(ParamFormat.height, root.size) + " · "
+                + root.selected.fill-hex;
         }
 
-        if font.open: SectionBody {
+        if typography.open: SectionBody {
         Row {
+            label: I18n.t("Font");
+            label-width: root.label-w;
             Select {
                 options: root.families;
                 current <=> root.family-index;
@@ -162,6 +188,8 @@ export component TextPanel inherits VerticalLayout {
         }
 
         Row {
+            label: I18n.t("Font Weight");
+            label-width: root.label-w;
             Select {
                 options: [I18n.t("Regular"), I18n.t("Medium"), I18n.t("SemiBold"), I18n.t("Bold")];
                 current <=> root.weight-index;
@@ -190,23 +218,14 @@ export component TextPanel inherits VerticalLayout {
             checked: root.selected.italic;
             toggled(on) => { root.set(ClipField.italic, on ? 1 : 0); root.commit(); }
         }
-        }
-    }
 
-    // ── colour ───────────────────────────────────────────────────────────
-    Section {
-        colour := SectionHeader {
-            title: I18n.t("Colour");
-            collapsible: true;
-            summary: root.selected.fill-hex + " · "
-                + InspectorFmt.format(ParamFormat.fraction, root.alpha);
-        }
-
-        if colour.open: SectionBody {
+        // The fill has no alpha of its own: the title's Opacity below is
+        // the one dial for how solid the words are.
         ColourField {
-            label: I18n.t("Fill");
+            label: I18n.t("Color");
             value: root.selected.fill;
             hex: root.selected.fill-hex;
+            alpha: false;
             changed(colour) => { root.set-colour(ClipTextField.color, colour); root.commit(); }
         }
 
@@ -248,9 +267,10 @@ export component TextPanel inherits VerticalLayout {
         }
 
         if root.selected.plated: ColourField {
-            label: I18n.t("Plate colour");
+            label: I18n.t("Plate color");
             value: root.selected.plate;
             hex: root.selected.plate-hex;
+            alpha: true;
             changed(shade) => {
                 root.set-colour(ClipTextField.background, shade);
                 root.commit();
@@ -259,16 +279,16 @@ export component TextPanel inherits VerticalLayout {
         }
     }
 
-    // ── outline ──────────────────────────────────────────────────────────
+    // ── stroke ───────────────────────────────────────────────────────────
     Section {
-        outline := SectionHeader {
-            title: I18n.t("Outline");
+        stroke := SectionHeader {
+            title: I18n.t("Stroke");
             collapsible: true;
             open: false;
             summary: InspectorFmt.format(ParamFormat.outline, root.stroke-width);
         }
 
-        if outline.open: SectionBody {
+        if stroke.open: SectionBody {
         Param {
             label: I18n.t("Width");
             value <=> root.stroke-width;
@@ -282,37 +302,92 @@ export component TextPanel inherits VerticalLayout {
             changed(v) => { root.set(ClipField.stroke-width, v); root.commit(); }
         }
 
-        // Only once there is an outline to colour: a swatch for a stroke of
-        // zero width sets something nobody can see.
+        // Only once there is a stroke to colour: a swatch for a stroke of
+        // zero width sets something nobody can see. The stroke's opacity is
+        // its colour's alpha - the picker's strip and this dial are one
+        // number - kept apart from the title's own Opacity so an outline
+        // can fade while the words stay solid.
         if root.selected.stroke-width > 0: ColourField {
-            label: I18n.t("Colour");
+            label: I18n.t("Color");
             value: root.selected.stroke;
             hex: root.selected.stroke-hex;
+            alpha: true;
             changed(shade) => {
                 root.set-colour(ClipTextField.stroke-color, shade);
                 root.commit();
             }
         }
+
+        if root.selected.stroke-width > 0: Param {
+            label: I18n.t("Opacity");
+            value <=> root.stroke-alpha;
+            minimum: 0;
+            maximum: 1;
+            step: 0.01;
+            default-value: 1;
+            fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
+            changed(v) => { root.set(ClipField.stroke-opacity, v); root.commit(); }
+        }
         }
     }
 
     // ── layout ───────────────────────────────────────────────────────────
+    // How the words fill their box, and how big the box is.
     Section {
         layout := SectionHeader {
             title: I18n.t("Layout");
             collapsible: true;
             summary: (root.selected.align == TextAlignment.right ? I18n.t("Right")
                 : root.selected.align == TextAlignment.center ? I18n.t("Center") : I18n.t("Left"))
-                + " · " + InspectorFmt.format(ParamFormat.rate, root.line-height);
+                + " · " + root.px(root.box-w) + " × " + root.px(root.box-h);
         }
 
         if layout.open: SectionBody {
         Row {
+            label: I18n.t("Text Align");
+            label-width: root.label-w;
             SegmentedControl {
                 options: [I18n.t("Left"), I18n.t("Center"), I18n.t("Right")];
+                icons: [Glyph.align-left, Glyph.align-center-x, Glyph.align-right];
                 current: root.selected.align == TextAlignment.right ? 2
                     : root.selected.align == TextAlignment.center ? 1 : 0;
                 changed(index) => { root.set(ClipField.align, index); root.commit(); }
+            }
+        }
+
+        // The box, in pixels of the frame. Zero is "auto": that side is
+        // sized by the words. The stage's grips pull the same two numbers;
+        // here they can be typed exactly.
+        Row {
+            label: I18n.t("Width");
+            label-width: root.label-w;
+            NumberField {
+                prefix: "W";
+                unit: "px";
+                value <=> root.box-w;
+                minimum: 0;
+                maximum: root.frame-w * 2;
+                step: 1;
+                format(v) => { return root.px(v); }
+                parse(t) => { return t.is-float() ? Math.max(0, t.to-float()) : 0; }
+                changed(v) => { root.set(ClipField.text-width, v / root.frame-w); root.commit(); }
+            }
+        }
+        Row {
+            label: I18n.t("Height");
+            label-width: root.label-w;
+            NumberField {
+                prefix: "H";
+                unit: "px";
+                value <=> root.box-h;
+                minimum: 0;
+                maximum: root.frame-h * 2;
+                step: 1;
+                format(v) => { return root.px(v); }
+                parse(t) => { return t.is-float() ? Math.max(0, t.to-float()) : 0; }
+                changed(v) => { root.set(ClipField.text-height, v / root.frame-h); root.commit(); }
             }
         }
 
@@ -339,21 +414,6 @@ export component TextPanel inherits VerticalLayout {
             unit: "%";
             unit-scale: 100;
             changed(v) => { root.set(ClipField.tracking, v); root.commit(); }
-        }
-
-        // Where the words wrap. Zero is no limit; the side grips on the
-        // stage set it by pulling the box's edge.
-        Param {
-            label: I18n.t("Max width");
-            value <=> root.text-width;
-            minimum: 0;
-            maximum: 1;
-            step: 0.01;
-            default-value: 0;
-            fmt: ParamFormat.fraction;
-            unit: "%";
-            unit-scale: 100;
-            changed(v) => { root.set(ClipField.text-width, v); root.commit(); }
         }
         }
     }

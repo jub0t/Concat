@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { ColorPicker } from "../primitives/color-picker.slint";
 import { ClipField, ClipKeyData, Keyframes } from "../timeline/model.slint";
 
 // The clip inspector's controls: a horizontal fader, the Param row that
@@ -777,22 +778,19 @@ export component SearchField inherits Rectangle {
 
 // A colour on a labelled row.
 //
-// Rather than fake an eyedropper and a wheel, the swatch opens a shelf of the
-// colours a title actually gets set to: the neutrals it is legible on, and
-// the kind hues already in the theme. The hex is shown beside it so a value
-// from outside the shelf is still readable rather than invisible.
+// The swatch opens the picker - the square, the strips, the hex, the
+// channels and the shelf, see primitives/color-picker.slint. The hex is
+// shown beside the swatch too, so the row can be read without opening it.
 export component ColourField inherits HorizontalLayout {
     in property <string> label;
     in property <color> value;
     /// The value spelled out, formatted by whoever owns it — Slint cannot
     /// print a colour.
     in property <string> hex;
+    /// The colour carries an alpha of its own; see ColorPicker.
+    in property <bool> alpha: false;
 
     callback changed(value: color);
-
-    /// The colours a title can be. In the theme rather than here, so a fork
-    /// that retones the window retones this with it — see `swatches`.
-    property <[color]> shelf: Theme.swatches;
 
     padding-left: Theme.pad;
     padding-right: Theme.pad;
@@ -823,12 +821,22 @@ export component ColourField inherits HorizontalLayout {
             width: 34px;
             height: 20px;
             border-radius: Theme.r-xs;
-            // The swatch sits on its own light-to-dark checker of one square,
-            // so a colour near the panel's own still has an edge.
-            background: Theme.fg-dim;
+            clip: true;
             border-width: 1px;
             border-color: touch.has-hover ? Theme.line-strong : Theme.line;
 
+            // A checker under a colour that can be see-through, so a faint
+            // plate looks faint rather than like the panel.
+            if root.alpha: Rectangle {
+                for cell in 15: Rectangle {
+                    x: Math.floor(cell / 3) * 7px;
+                    y: Math.mod(cell, 3) * 7px;
+                    width: 7px;
+                    height: 7px;
+                    background: Math.mod(cell + Math.floor(cell / 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
+                }
+            }
+            if !root.alpha: Rectangle { background: Theme.fg-dim; }
             Rectangle {
                 x: 1px;
                 y: 1px;
@@ -840,14 +848,13 @@ export component ColourField inherits HorizontalLayout {
 
             touch := TouchArea {
                 mouse-cursor: pointer;
-                clicked => { shelf.show(); }
+                clicked => { popup.show(); }
             }
 
-            shelf := PopupWindow {
-                x: -128px;
+            popup := PopupWindow {
+                x: swatch.width - 236px;
                 y: swatch.height + 4px;
-                width: 160px;
-                height: 92px;
+                width: 236px;
                 close-policy: close-on-click-outside;
 
                 Rectangle {
@@ -856,23 +863,10 @@ export component ColourField inherits HorizontalLayout {
                     border-color: Theme.line-strong;
                     border-radius: Theme.r;
 
-                    for entry[index] in root.shelf: Rectangle {
-                        x: 8px + Math.mod(index, 6) * 24px;
-                        y: 8px + Math.floor(index / 6) * 26px;
-                        width: 20px;
-                        height: 20px;
-                        border-radius: Theme.r-xs;
-                        background: entry;
-                        border-width: 1px;
-                        border-color: pick.has-hover ? Theme.fg : Theme.line;
-
-                        pick := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.changed(entry);
-                                shelf.close();
-                            }
-                        }
+                    ColorPicker {
+                        value: root.value;
+                        alpha: root.alpha;
+                        changed(next) => { root.changed(next); }
                     }
                 }
             }

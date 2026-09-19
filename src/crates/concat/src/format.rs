@@ -253,6 +253,40 @@ pub fn colour_of(hex: &str) -> slint::Color {
     }
 }
 
+/// What a person types into a colour field: `#rgb`, `#rgba`, `#rrggbb` or
+/// `#rrggbbaa`, the hash optional, case ignored. `None` for anything else,
+/// so the field can keep what it had rather than go black.
+pub fn parse_colour(text: &str) -> Option<slint::Color> {
+    let digits = text.trim().trim_start_matches('#');
+    if !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let nibble = |at: usize| u8::from_str_radix(digits.get(at..at + 1)?, 16).ok();
+    let byte = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
+    match digits.len() {
+        3 | 4 => {
+            let wide = |at: usize| nibble(at).map(|n| n * 17);
+            let alpha = if digits.len() == 4 { wide(3)? } else { 255 };
+            Some(slint::Color::from_argb_u8(
+                alpha,
+                wide(0)?,
+                wide(1)?,
+                wide(2)?,
+            ))
+        }
+        6 | 8 => {
+            let alpha = if digits.len() == 8 { byte(6)? } else { 255 };
+            Some(slint::Color::from_argb_u8(
+                alpha,
+                byte(0)?,
+                byte(2)?,
+                byte(4)?,
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// "#rrggbb" when opaque, else "#rrggbbaa" - at zero too. For a colour
 /// whose alpha is a dial of its own, like a stroke's: an opacity turned
 /// down to nothing must not take the colour with it, or turning it back
@@ -285,6 +319,37 @@ mod tests {
         assert_eq!(hex_with_alpha(lime), "#cbf53f");
         assert_eq!(hex_with_alpha(colour_of("")), "");
         assert_eq!(hex_with_alpha(colour_of("#000000cc")), "#000000cc");
+    }
+
+    #[test]
+    fn a_typed_colour_is_read_in_every_length_and_refused_otherwise() {
+        let lime = slint::Color::from_rgb_u8(0xcb, 0xf5, 0x3f);
+        assert_eq!(parse_colour("#cbf53f"), Some(lime));
+        assert_eq!(parse_colour("CBF53F"), Some(lime));
+        assert_eq!(parse_colour("  #cbf53f  "), Some(lime));
+        assert_eq!(
+            parse_colour("#fff"),
+            Some(slint::Color::from_rgb_u8(255, 255, 255))
+        );
+        assert_eq!(
+            parse_colour("#f008"),
+            Some(slint::Color::from_argb_u8(0x88, 255, 0, 0))
+        );
+        assert_eq!(
+            parse_colour("#00000000"),
+            Some(slint::Color::from_argb_u8(0, 0, 0, 0))
+        );
+        for junk in [
+            "", "#", "#12", "#12345", "#1234567", "#ggg", "red", "#cbf53f9",
+        ] {
+            assert_eq!(parse_colour(junk), None, "{junk:?}");
+        }
+        // A stroke at zero opacity keeps its colour spelled.
+        assert_eq!(
+            hex_rgba(slint::Color::from_argb_u8(0, 0xcb, 0xf5, 0x3f)),
+            "#cbf53f00"
+        );
+        assert_eq!(hex_rgba(lime), "#cbf53f");
     }
 
     #[test]

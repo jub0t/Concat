@@ -1222,6 +1222,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.global::<Fmt>()
         .on_parse_timecode(|text| format::parse_timecode(text.as_str()));
     app.global::<Fmt>().on_tick_interval(format::tick_interval);
+    app.global::<Fmt>().on_hex_of(|value, with_alpha| {
+        if with_alpha {
+            format::hex_rgba(value).into()
+        } else {
+            format::hex_of(value).into()
+        }
+    });
+    app.global::<Fmt>()
+        .on_color_of(|text, fallback| format::parse_colour(text.as_str()).unwrap_or(fallback));
     app.global::<Fmt>()
         .on_parse_frames(|text, rate| format::parse_frames(text.as_str(), rate));
 

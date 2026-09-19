@@ -1,0 +1,335 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { NumberField } from "number-field.slint";
+
+// A colour picker of the kind a grading suite has, and nothing less: a
+// saturation-value square under a hue strip, an alpha strip when the colour
+// has one, the hex to read and to type, the channels as fields you can
+// scrub, and the theme's shelf of swatches under it all.
+//
+// Hue, saturation and value are held apart from the colour, not recomputed
+// from it: a grey has no hue and black has no saturation either, and a
+// picker that read them back off the colour would throw the hue cursor to
+// zero every time the square was dragged to its edge. The colour is
+// composed from the three when they move, and they are re-read from the
+// colour only when something other than this picker changed it.
+export component ColorPicker inherits VerticalLayout {
+    /// The colour. The owner binds it; the picker reports every change and
+    /// re-reads it when it changes from outside.
+    in-out property <color> value;
+    /// The colour has an alpha of its own: show the strip and the field.
+    /// Off for a colour whose opacity is a dial elsewhere, like a title's
+    /// fill under the title's own Opacity.
+    in property <bool> alpha: true;
+    /// The shelf under the fields; the theme's by default.
+    in property <[color]> swatches: Theme.swatches;
+
+    /// Every change, as it happens: a drag on the square is many.
+    callback changed(value: color);
+
+    property <float> hue;
+    property <float> sat;
+    property <float> val;
+    property <float> alpha-v: 1;
+    /// What this picker last reported, so its own echo is told apart from
+    /// a change from outside.
+    property <color> emitted;
+
+    function seed() {
+        root.hue = root.value.to-hsv().hue;
+        root.sat = root.value.to-hsv().saturation;
+        root.val = root.value.to-hsv().value;
+        root.alpha-v = root.alpha ? root.value.to-hsv().alpha : 1;
+        root.sync();
+    }
+
+    /// The fields hold their own numbers once typed in, so they are told
+    /// rather than bound.
+    function sync() {
+        red.value = root.value.red;
+        green.value = root.value.green;
+        blue.value = root.value.blue;
+        alpha-field.value = Math.round(root.alpha-v * 100);
+        if (!hex.has-focus) {
+            hex.text = Fmt.hex-of(root.value, root.alpha);
+        }
+    }
+
+    function emit(next: color) {
+        root.emitted = next;
+        root.value = next;
+        root.sync();
+        root.changed(next);
+    }
+
+    function compose() {
+        root.emit(hsv(root.hue, root.sat, root.val, root.alpha ? root.alpha-v : 1));
+    }
+
+    /// A colour picked whole - a swatch, a typed hex, a channel field -
+    /// re-reads the dials from it.
+    function adopt(next: color) {
+        root.emit(next);
+        root.hue = next.to-hsv().hue;
+        root.sat = next.to-hsv().saturation;
+        root.val = next.to-hsv().value;
+        root.alpha-v = root.alpha ? next.to-hsv().alpha : 1;
+    }
+
+    init => { root.seed(); }
+    changed value => {
+        if (root.value != root.emitted) {
+            root.seed();
+        }
+    }
+
+    property <color> pure-hue: hsv(root.hue, 1, 1);
+    property <color> opaque: hsv(root.hue, root.sat, root.val);
+
+    padding: 10px;
+    spacing: 8px;
+    width: 236px;
+
+    // ── the square ──
+    square := Rectangle {
+        height: 140px;
+        border-radius: Theme.r-sm;
+        clip: true;
+        background: @linear-gradient(90deg, #ffffff 0%, root.pure-hue 100%);
+
+        Rectangle {
+            background: @linear-gradient(180deg, #00000000 0%, #000000 100%);
+        }
+
+        // The cursor: a ring with a dark edge, so it is found on white and
+        // on the colour alike.
+        Rectangle {
+            x: root.sat * square.width - self.width / 2;
+            y: (1 - root.val) * square.height - self.height / 2;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            border-width: 2px;
+            border-color: #ffffff;
+            background: root.opaque;
+
+            Rectangle {
+                x: -1px;
+                y: -1px;
+                width: parent.width + 2px;
+                height: parent.height + 2px;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #00000080;
+            }
+        }
+
+        TouchArea {
+            mouse-cursor: crosshair;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    || (event.kind == PointerEventKind.move && self.pressed)) {
+                    root.sat = Fmt.clamp(self.mouse-x / self.width, 0, 1);
+                    root.val = Fmt.clamp(1 - self.mouse-y / self.height, 0, 1);
+                    root.compose();
+                }
+            }
+        }
+    }
+
+    // ── the hue strip ──
+    hue-strip := Rectangle {
+        height: 12px;
+        border-radius: 6px;
+        background: @linear-gradient(90deg,
+            #ff0000 0%, #ffff00 16.667%, #00ff00 33.333%, #00ffff 50%,
+            #0000ff 66.667%, #ff00ff 83.333%, #ff0000 100%);
+
+        Rectangle {
+            x: root.hue / 360 * hue-strip.width - self.width / 2;
+            y: -2px;
+            width: 8px;
+            height: 16px;
+            border-radius: 4px;
+            border-width: 2px;
+            border-color: #ffffff;
+            background: root.pure-hue;
+        }
+
+        TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    || (event.kind == PointerEventKind.move && self.pressed)) {
+                    root.hue = Fmt.clamp(self.mouse-x / self.width, 0, 0.99999) * 360;
+                    root.compose();
+                }
+            }
+        }
+    }
+
+    // ── the alpha strip ──
+    if root.alpha: alpha-strip := Rectangle {
+        height: 12px;
+        border-radius: 6px;
+        clip: true;
+
+        // A checker under the ramp, so "clear" reads as clear rather than
+        // as the panel.
+        for cell in 58: Rectangle {
+            x: Math.floor(cell / 2) * 8px;
+            y: Math.mod(cell, 2) * 6px;
+            width: 8px;
+            height: 6px;
+            background: Math.mod(cell + Math.floor(cell / 2), 2) == 0 ? #c8c8c8 : #7a7a7a;
+        }
+        Rectangle {
+            background: @linear-gradient(90deg,
+                root.opaque.with-alpha(0) 0%, root.opaque 100%);
+        }
+
+        Rectangle {
+            x: root.alpha-v * parent.width - self.width / 2;
+            y: -2px;
+            width: 8px;
+            height: 16px;
+            border-radius: 4px;
+            border-width: 2px;
+            border-color: #ffffff;
+            background: root.opaque;
+        }
+
+        TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down
+                    || (event.kind == PointerEventKind.move && self.pressed)) {
+                    root.alpha-v = Fmt.clamp(self.mouse-x / self.width, 0, 1);
+                    root.compose();
+                }
+            }
+        }
+    }
+
+    // ── the readout: a swatch of the colour and its hex, typed or read ──
+    HorizontalLayout {
+        spacing: 8px;
+
+        Rectangle {
+            width: 36px;
+            height: Theme.h;
+            border-radius: Theme.r-sm;
+            clip: true;
+            border-width: 1px;
+            border-color: Theme.line;
+
+            for cell in 20: Rectangle {
+                x: Math.floor(cell / 4) * 8px;
+                y: Math.mod(cell, 4) * 7px;
+                width: 8px;
+                height: 7px;
+                background: Math.mod(cell + Math.floor(cell / 4), 2) == 0 ? #c8c8c8 : #7a7a7a;
+            }
+            Rectangle { background: root.value; }
+        }
+
+        Rectangle {
+            height: Theme.h;
+            horizontal-stretch: 1;
+            border-radius: Theme.r;
+            background: hex.has-focus ? Theme.field-hover : Theme.field;
+            border-width: 1px;
+            border-color: hex.has-focus ? Theme.accent : Colors.transparent;
+
+            hex := TextInput {
+                x: 10px;
+                width: parent.width - 20px;
+                height: parent.height;
+                color: Theme.fg;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                single-line: true;
+                selection-background-color: Theme.accent;
+                selection-foreground-color: Theme.on-accent;
+
+                accepted => { root.adopt(Fmt.color-of(self.text, root.value)); }
+                changed has-focus => {
+                    if (!self.has-focus) {
+                        root.adopt(Fmt.color-of(self.text, root.value));
+                    }
+                }
+            }
+        }
+    }
+
+    // ── the channels ──
+    HorizontalLayout {
+        spacing: 4px;
+
+        red := NumberField {
+            prefix: "R";
+            minimum: 0;
+            maximum: 255;
+            step: 1;
+            changed(v) => { root.adopt(rgb(v, root.value.green, root.value.blue).with-alpha(root.alpha-v)); }
+        }
+        green := NumberField {
+            prefix: "G";
+            minimum: 0;
+            maximum: 255;
+            step: 1;
+            changed(v) => { root.adopt(rgb(root.value.red, v, root.value.blue).with-alpha(root.alpha-v)); }
+        }
+        blue := NumberField {
+            prefix: "B";
+            minimum: 0;
+            maximum: 255;
+            step: 1;
+            changed(v) => { root.adopt(rgb(root.value.red, root.value.green, v).with-alpha(root.alpha-v)); }
+        }
+        alpha-field := NumberField {
+            visible: root.alpha;
+            width: root.alpha ? 58px : 0px;
+            prefix: "A";
+            suffix: "%";
+            minimum: 0;
+            maximum: 100;
+            step: 1;
+            changed(v) => {
+                root.alpha-v = v / 100;
+                root.compose();
+            }
+        }
+    }
+
+    // ── the shelf ──
+    Rectangle {
+        height: 1px;
+        background: Theme.line;
+    }
+    Rectangle {
+        height: Math.ceil(root.swatches.length / 8) * 26px - 4px;
+
+        for entry[index] in root.swatches: Rectangle {
+            x: Math.mod(index, 8) * 27px;
+            y: Math.floor(index / 8) * 26px;
+            width: 22px;
+            height: 22px;
+            border-radius: Theme.r-xs;
+            background: entry;
+            border-width: 1px;
+            border-color: pick.has-hover ? Theme.fg : Theme.line;
+
+            pick := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.adopt(root.alpha ? entry.with-alpha(root.alpha-v) : entry);
+                }
+            }
+        }
+    }
+}

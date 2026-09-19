@@ -5342,6 +5342,8 @@ impl Studio {
         });
         SelectedClipData {
             present: true,
+            frame_width: self.output_size().0 as i32,
+            frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
             name: clip.name.as_str().into(),
             kind: kind_of(clip),

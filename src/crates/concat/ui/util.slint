@@ -12,6 +12,13 @@ export struct Bezier {
 }
 
 export global Fmt {
+    /// A colour spelled as "#rrggbb", or "#rrggbbaa" when `with-alpha` and
+    /// it is not opaque. Slint cannot print a colour; Rust does.
+    pure callback hex-of(value: color, with-alpha: bool) -> string;
+    /// The colour a person typed - "#fff", "#cbf53f", "#000000cc", hash
+    /// optional - or `fallback` when it is not one.
+    pure callback color-of(text: string, fallback: color) -> color;
+
     public pure function clamp(v: float, lo: float, hi: float) -> float {
         return Math.max(lo, Math.min(hi, v));
     }

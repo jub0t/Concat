@@ -245,6 +245,9 @@ export enum ClipTextField {
 export struct SelectedClipData {
     present: bool,
     id: string,
+    /// the output frame's size, so a fraction can be shown in pixels
+    frame-width: int,
+    frame-height: int,
     name: string,
     kind: ClipKind,
     /// Seconds, and the ceiling on a fade: longer than half the clip and the
