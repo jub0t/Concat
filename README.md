@@ -25,6 +25,8 @@
 
 ---
 
+## About
+
 Concat is everything you use CapCut for. No watermarks. No paywalls. No subscriptions.
 
 It runs entirely on your machine, powered by a native Rust engine. Install it and start cutting. No account, no setup.
