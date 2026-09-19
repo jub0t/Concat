@@ -1322,6 +1322,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-perf"
+version = "0.2.2"
+dependencies = [
+ "concat-core",
+ "concat-effects",
+ "concat-export",
+ "concat-host",
+ "concat-media",
+ "concat-project",
+ "concat-render",
+]
+
+[[package]]
 name = "concat-project"
 version = "0.2.2"
 dependencies = [

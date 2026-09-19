@@ -119,6 +119,18 @@ activity's `android_main`, and `crates/concat/src/platform.rs` is where
 the three differ - how the backend is chosen, how files are picked, and
 whether there is a title strip to drag.
 
+## Measuring
+
+`cargo run -p concat-perf --release` prints a table of how fast the parts
+a person waits on are - planning a frame, an undo, opening a document,
+decoding, a scrub through the cache, compositing on the CPU and the GPU,
+an export - each against a budget, on synthetic media so the numbers are
+the machine's and the code's. `--check` fails the run when a scenario is
+outside its budget, which is what CI wants; `--quick` skips the media.
+The quick scenarios also run under `cargo test`, so a regression there
+stops the build. See `crates/concat-perf/src/main.rs` for what each
+number means and what is not measured.
+
 ## Driving Concat without the window
 
 Everything the window does to a project, a script can do through the Concat
