@@ -853,6 +853,7 @@ impl Command {
                             style.line_height,
                             style.tracking,
                             style.max_width,
+                            style.max_height,
                         ])
                     })
             }
@@ -907,6 +908,7 @@ impl Command {
                             style.line_height,
                             style.tracking,
                             style.max_width,
+                            style.max_height,
                         ])
                     })
             }

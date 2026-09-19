@@ -47,7 +47,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    colour_of, frames_timecode, hex_of, hex_with_alpha, wave_columns, wave_path, when_phrase,
+    colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, wave_columns, wave_path,
+    when_phrase,
 };
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
@@ -291,6 +292,16 @@ pub enum Gesture {
         clip: String,
         centre: (f64, f64),
         /// The title's turn, to project the pointer onto its axis.
+        rotation: f64,
+    },
+    /// The top or bottom grip on a title pulls the height of its box, on
+    /// the same terms as [`Gesture::TextWidth`] pulls the width. Before
+    /// this the two grips fell through to a stretch, and a caption pulled
+    /// to fit came out with its glyphs squashed.
+    /// https://github.com/jub0t/Concat/issues/119
+    TextHeight {
+        clip: String,
+        centre: (f64, f64),
         rotation: f64,
     },
     /// The rotation grip dragged: the picture turns by the angle the pointer
@@ -2815,6 +2826,7 @@ impl Studio {
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
+            | Gesture::TextHeight { .. }
             | Gesture::Paint { .. } => {}
         }
         self.gesture = gesture;
@@ -2881,6 +2893,7 @@ impl Studio {
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
+            | Gesture::TextHeight { .. }
             | Gesture::Paint { .. }) => {
                 self.gesture = other;
             }
@@ -3030,6 +3043,17 @@ impl Studio {
             ClipField::LineHeight => text.line_height = value.clamp(0.7, 2.5),
             ClipField::Tracking => text.tracking = value.clamp(-0.05, 0.3),
             ClipField::TextWidth => text.max_width = value.clamp(0.0, 2.0),
+            ClipField::TextHeight => text.max_height = value.clamp(0.0, 2.0),
+            // The stroke's opacity is its colour's alpha; see `hex_rgba`.
+            ClipField::StrokeOpacity => {
+                let edge = colour_of(&text.stroke_color);
+                text.stroke_color = hex_rgba(slint::Color::from_argb_u8(
+                    (value.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    edge.red(),
+                    edge.green(),
+                    edge.blue(),
+                ));
+            }
         }
         // A media clip has no text; the placeholder must not linger.
         if clip.kind != model::ClipKind::Text {
@@ -3083,7 +3107,7 @@ impl Studio {
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
             ClipTextField::Color => text.color = hex_of(value),
-            ClipTextField::StrokeColor => text.stroke_color = hex_of(value),
+            ClipTextField::StrokeColor => text.stroke_color = hex_rgba(value),
             ClipTextField::Background => text.background = hex_with_alpha(value),
             _ => {}
         }
@@ -3348,8 +3372,15 @@ impl Studio {
                 None => (clip.scale, clip.scale),
             }
         };
-        // Then pulled along each axis, as the compositor pulls it.
-        let (w, h) = (w * clip.stretch_x, h * clip.stretch_y);
+        // Then pulled along each axis, as the compositor pulls it - a
+        // picture, that is. A title's box is its style's, and the compositor
+        // never stretches one; see titles.rs.
+        // https://github.com/jub0t/Concat/issues/119
+        let (w, h) = if clip.kind == model::ClipKind::Text {
+            (w, h)
+        } else {
+            (w * clip.stretch_x, h * clip.stretch_y)
+        };
         // The placement at the playhead: the clip's own, moved by its
         // animation, so the box follows a slide or a spin.
         let base = concat_core::timeline::Transform {
@@ -3562,6 +3593,14 @@ impl Studio {
             // A title's side grips set where its words wrap, not how wide
             // its glyphs are; see `Gesture::TextWidth`.
             Gesture::TextWidth {
+                clip: id.to_owned(),
+                centre,
+                rotation: clip.rotation,
+            }
+        } else if (grip == 5 || grip == 7) && clip.kind == model::ClipKind::Text {
+            // And the top and bottom grips size its box, never its glyphs.
+            // https://github.com/jub0t/Concat/issues/119
+            Gesture::TextHeight {
                 clip: id.to_owned(),
                 centre,
                 rotation: clip.rotation,
@@ -3805,6 +3844,24 @@ impl Studio {
                 }
                 if let Some(clip) = self.echo_clip_mut(clip) {
                     clip.text.get_or_insert_with(TextStyle::default).max_width = next;
+                }
+            }
+            Gesture::TextHeight {
+                clip,
+                centre,
+                rotation,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                // The pointer's reach across the box's own axis.
+                let across = (-dx * sin + dy * cos).abs();
+                let mut next = (2.0 * across / f64::from(height)).clamp(0.03, 2.0);
+                if snap {
+                    next = (next * 20.0).round() / 20.0;
+                }
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    clip.text.get_or_insert_with(TextStyle::default).max_height = next;
                 }
             }
             Gesture::StageRotate {
@@ -5354,6 +5411,7 @@ impl Studio {
             stroke_width: text.stroke_width as f32,
             stroke,
             stroke_hex: hex_of(stroke).into(),
+            stroke_opacity: f32::from(stroke.alpha()) / 255.0,
             shadow: text.shadow,
             plate,
             plate_hex: hex_of(plate).into(),
@@ -5361,6 +5419,7 @@ impl Studio {
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
             text_width: text.max_width as f32,
+            text_height: text.max_height as f32,
             cutout: match &clip.cutout {
                 None => 0,
                 Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,

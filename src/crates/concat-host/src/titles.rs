@@ -155,8 +155,14 @@ impl Titles {
                     offset_x: clip.offset_x,
                     offset_y: clip.offset_y,
                     rotation: clip.rotation,
-                    stretch_x: clip.stretch_x,
-                    stretch_y: clip.stretch_y,
+                    // A title is never pulled along an axis: its box is
+                    // sized by the style, and its glyphs keep their shape.
+                    // 0.2.2's side grips wrote a stretch onto title clips
+                    // to make a long caption fit, and honouring it here
+                    // kept those captions squashed after the wrap arrived.
+                    // https://github.com/jub0t/Concat/issues/119
+                    stretch_x: 1.0,
+                    stretch_y: 1.0,
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: (clip.opacity * text.opacity).clamp(0.0, 1.0),
@@ -387,6 +393,7 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         background: style.background.clone(),
         line_height: style.line_height,
         max_width: style.max_width,
+        max_height: style.max_height,
         tracking: style.tracking,
     }
 }
@@ -403,6 +410,52 @@ mod tests {
             config: dir.join("config"),
             data: dir.join("data"),
         }
+    }
+
+    /// A title clip carrying a stretch - what 0.2.2's side grips wrote to
+    /// make a long caption fit - comes back unstretched: the words wrap
+    /// now, and a squashed glyph was never wanted.
+    /// https://github.com/jub0t/Concat/issues/119
+    #[test]
+    fn a_title_is_never_stretched_whatever_its_clip_says() {
+        let dirs = scratch();
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddTextClip {
+                above: false,
+                track_id: None,
+                start: 0.0,
+                style: None,
+                duration: Some(3.0),
+                offset_y: None,
+            })
+            .expect("a title is added")
+            .created_id
+            .expect("with an id");
+        editor
+            .apply(Command::SetClipTransform {
+                clip_id: id.clone(),
+                scale: Some(1.03),
+                offset_x: None,
+                offset_y: None,
+                rotation: None,
+                stretch_x: Some(0.46),
+                stretch_y: Some(2.2),
+            })
+            .expect("the stretch a 0.2.2 grip left behind");
+        let clip = editor.project().active().clip(&id).expect("kept");
+        assert_eq!(
+            (clip.stretch_x, clip.stretch_y),
+            (0.46, 2.2),
+            "it is on the clip"
+        );
+
+        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        assert_eq!((out[0].clip.stretch_x, out[0].clip.stretch_y), (1.0, 1.0));
+        assert_eq!(
+            out[0].clip.scale, 1.03,
+            "the scale is honoured; only the stretch is not"
+        );
     }
 
     /// A text clip comes back as an image clip on its own track, pointing

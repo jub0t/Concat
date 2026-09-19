@@ -253,6 +253,17 @@ pub fn colour_of(hex: &str) -> slint::Color {
     }
 }
 
+/// "#rrggbb" when opaque, else "#rrggbbaa" - at zero too. For a colour
+/// whose alpha is a dial of its own, like a stroke's: an opacity turned
+/// down to nothing must not take the colour with it, or turning it back
+/// up brings back black.
+pub fn hex_rgba(colour: slint::Color) -> String {
+    match colour.alpha() {
+        255 => hex_of(colour),
+        alpha => format!("{}{alpha:02x}", hex_of(colour)),
+    }
+}
+
 /// The inverse of [`colour_of`]: "#rrggbb", "#rrggbbaa" when translucent,
 /// and an empty string for fully transparent.
 pub fn hex_with_alpha(colour: slint::Color) -> String {

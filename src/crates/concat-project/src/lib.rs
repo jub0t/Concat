@@ -580,6 +580,28 @@ mod tests {
         }
     }
 
+    /// A document from before the box had a height reads as no height,
+    /// and a hand-edited one cannot make it negative or not a number.
+    /// https://github.com/jub0t/Concat/issues/119
+    #[test]
+    fn a_text_style_without_a_box_height_reads_as_the_words_own() {
+        let style: TextStyle =
+            serde_json::from_value(json!({ "content": "Hello" })).expect("parses");
+        assert_eq!(style.max_height, 0.0);
+        let odd = TextStyle {
+            max_height: -3.0,
+            ..TextStyle::default()
+        }
+        .tidy();
+        assert_eq!(odd.max_height, 0.0);
+        let nan = TextStyle {
+            max_height: f64::NAN,
+            ..TextStyle::default()
+        }
+        .tidy();
+        assert_eq!(nan.max_height, 0.0);
+    }
+
     #[test]
     fn a_new_project_has_one_timeline_and_four_lanes() {
         let editor = Editor::new();
