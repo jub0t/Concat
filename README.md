@@ -85,9 +85,11 @@ Optional models download from the settings panel on first use and then never nee
 ## Contribution
 
 > [!IMPORTANT]
-> The best way to contribute is to grab a build from the [Release](https://github.com/jub0t/Concat/releases) page and test the application to see where it breaks or how it can be improved.
-
-Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, layout, the checks to run, and how contributions are licensed. There is also [this Discussion announcement](https://github.com/jub0t/Concat/discussions/3). Read [ROADMAP.MD](./ROADMAP.MD) for future goals.
+> The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
+>
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. [ROADMAP.MD](./ROADMAP.MD) says where the project is going, and [this Discussion](https://github.com/jub0t/Concat/discussions/3) is where it was announced.
+> 
+> Contributors are free to claim a @Contributor role in the Discord server, just ask for it.
 
 ## Concat vs CapCut vs OpenCut
 
