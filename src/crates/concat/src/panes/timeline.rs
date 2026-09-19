@@ -52,6 +52,12 @@ pub enum TimelineMsg {
     SnapChanged(bool),
     /// The menu's Snap row: the other way round.
     SnapToggled,
+    /// The magnetic timeline, from the tray's button or the Settings
+    /// switch. A preference, not view state: it is remembered.
+    /// https://github.com/jub0t/Concat/issues/106
+    MagneticChanged(bool),
+    /// The menu's Magnetic row: the other way round.
+    MagneticToggled,
     /// The lanes scrolled sideways, to this many seconds from the start.
     Scrolled(f32),
     /// The wheel or a pinch: by a factor, about an instant; an anchor
@@ -108,6 +114,14 @@ impl TimelinePane {
             TimelineMsg::PanChanged(on) => self.pan_mode = on,
             TimelineMsg::SnapChanged(on) => self.snap = on,
             TimelineMsg::SnapToggled => self.snap = !self.snap,
+            TimelineMsg::MagneticChanged(on) => {
+                studio.prefs.magnetic = on;
+                studio.prefs.save(&studio.host.dirs);
+            }
+            TimelineMsg::MagneticToggled => {
+                studio.prefs.magnetic = !studio.prefs.magnetic;
+                studio.prefs.save(&studio.host.dirs);
+            }
             TimelineMsg::Scrolled(seconds) => self.scroll_left = seconds.max(0.0),
             TimelineMsg::Zoomed { factor, anchor } => self.zoom(factor, anchor),
             TimelineMsg::ZoomToFit(width) => {

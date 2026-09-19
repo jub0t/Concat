@@ -40,6 +40,8 @@ pub enum SettingsMsg {
     LanguageChanged(i32),
     PlayheadStopsChanged(bool),
     CustomContextActionsChanged(bool),
+    /// The magnetic timeline switch; the tray's button is the same fact.
+    MagneticChanged(bool),
     HardwareDecodeChanged(bool),
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
@@ -211,6 +213,10 @@ impl SettingsPane {
             SettingsMsg::CustomContextActionsChanged(on) => {
                 self.custom_context_actions = on;
                 studio.prefs.custom_context_actions = on;
+                studio.prefs.save(&studio.host.dirs);
+            }
+            SettingsMsg::MagneticChanged(on) => {
+                studio.prefs.magnetic = on;
                 studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::HardwareDecodeChanged(on) => {
@@ -546,6 +552,7 @@ impl SettingsPane {
             language: self.language as i32,
             playhead_stops: self.playhead_stops,
             custom_context_actions: self.custom_context_actions,
+            magnetic: studio.prefs.magnetic,
             hardware_decode: self.hardware_decode,
             hardware_decode_offered: concat_media::HwDevice::platform_default()
                 .is_some_and(concat_media::HwDevice::linked),

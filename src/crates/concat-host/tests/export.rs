@@ -664,6 +664,7 @@ fn every_edit_still_exports() {
         clip_id: tail.clone(),
         edge: TrimEdge::Start,
         delta: 0.5,
+        ripple: false,
     });
     let exported = studio.export("trimmed");
     exported.expect_black(2.25);
@@ -811,6 +812,7 @@ fn every_edit_still_exports() {
         clip_id: cam_clip.clone(),
         edge: TrimEdge::Start,
         delta: 1.0,
+        ripple: false,
     });
     for kind in [
         "cross-fade",
@@ -1150,6 +1152,7 @@ fn the_edges_export_too() {
         clip_id: clip.clone(),
         edge: TrimEdge::Start,
         delta: 4.0 - 1.0 / 30.0,
+        ripple: false,
     });
     let length = studio.clip(&clip).duration;
     assert!(
@@ -1176,6 +1179,7 @@ fn the_edges_export_too() {
         clip_id: clip.clone(),
         edge: TrimEdge::Start,
         delta: 3.0,
+        ripple: false,
     });
     studio.apply(Command::SetClipSpeed {
         clip_id: clip.clone(),

@@ -177,12 +177,19 @@ pub(super) fn apply(
             clip_id,
             edge,
             delta,
+            ripple,
         } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
             };
-            let applied = match edge {
+            let track_id = clip.track_id.clone();
+            let anchor = clip.start;
+            let old_end = clip.start + clip.duration;
+            // What the trim did, and what the lane behind it does about
+            // it when it is magnetic: `by` is how far the later clips
+            // move, `behind` where "later" begins.
+            let (applied, by, behind) = match edge {
                 TrimEdge::End => {
                     let duration = (clip.duration + delta).max(MIN_CLIP_DURATION);
                     let old = clip.duration;
@@ -190,7 +197,7 @@ pub(super) fn apply(
                     if applied {
                         clip.rewindow_keys(old, 0.0, duration);
                     }
-                    applied
+                    (applied, duration - old, old_end - JOIN_EPSILON)
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
@@ -203,7 +210,14 @@ pub(super) fn apply(
                         // The head cannot reach before the source begins.
                         shift = shift.max(-clip.source_start / clip.speed);
                     }
-                    let start = (clip.start + shift).max(0.0);
+                    // A magnetic head trim never moves the clip, so the
+                    // timeline's own start is no limit to it; a plain one
+                    // stops at zero.
+                    let start = if ripple {
+                        clip.start + shift
+                    } else {
+                        (clip.start + shift).max(0.0)
+                    };
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
                     let source_start = if clip.reverse {
@@ -219,9 +233,21 @@ pub(super) fn apply(
                     if applied {
                         clip.rewindow_keys(old, moved, old);
                     }
-                    applied
+                    if ripple {
+                        // The in-point moved; the clip stays put, and the
+                        // lane behind it closes by what came off the head.
+                        clip.start = anchor;
+                    }
+                    (applied, -moved, anchor + JOIN_EPSILON)
                 }
             };
+            if ripple && applied && by != 0.0 {
+                for other in timeline.clips_mut() {
+                    if other.id != clip_id && other.track_id == track_id && other.start >= behind {
+                        other.start = (other.start + by).max(0.0);
+                    }
+                }
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,

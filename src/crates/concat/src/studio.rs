@@ -2866,6 +2866,9 @@ impl Studio {
                             Edge::End => TrimEdge::End,
                         },
                         delta,
+                        // Magnetic: the lane closes behind the edge.
+                        // https://github.com/jub0t/Concat/issues/106
+                        ripple: self.prefs.magnetic,
                     });
                 }
             }
@@ -4227,9 +4230,11 @@ impl Studio {
         }
     }
 
-    /// Delete: the selection goes and the hole stays.
+    /// Delete: the selection goes, and the hole stays unless the timeline
+    /// is magnetic.
     pub fn delete_selected(&mut self) {
-        self.remove_selected(false);
+        let magnetic = self.prefs.magnetic;
+        self.remove_selected(magnetic);
     }
 
     /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
@@ -4432,6 +4437,7 @@ impl Studio {
                 clip_id: created.clone(),
                 edge: TrimEdge::Start,
                 delta: head,
+                ripple: false,
             });
         }
         let after_head = placed.duration - head.max(0.0);
@@ -4441,6 +4447,7 @@ impl Studio {
                 clip_id: created.clone(),
                 edge: TrimEdge::End,
                 delta: tail,
+                ripple: false,
             });
         }
         commands.push(Command::UpdateClip {
@@ -5003,6 +5010,7 @@ impl Studio {
         editor.set_frame_rate(self.frame_rate());
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
+        editor.set_magnetic(self.prefs.magnetic);
         editor.set_pan_mode(self.lanes.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
         let (sound_selected, title_selected) = self.sound_tools();
@@ -5995,6 +6003,17 @@ impl Studio {
                     checkable: true,
                     checked: self.lanes.snap,
                 },
+                MenuItemData {
+                    id: "magnetic".into(),
+                    label: t("Magnetic timeline").into(),
+                    kind: MenuRow::Action,
+                    glyph: Glyph::None,
+                    shortcut: "".into(),
+                    enabled: true,
+                    danger: false,
+                    checkable: true,
+                    checked: self.prefs.magnetic,
+                },
             ],
             2 => vec![
                 row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
@@ -6268,7 +6287,7 @@ impl Studio {
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
             "delete" | "ripple-delete" => {
-                let ripple = action == "ripple-delete";
+                let ripple = action == "ripple-delete" || self.prefs.magnetic;
                 if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
                     self.remove_selected(ripple);
                 } else {

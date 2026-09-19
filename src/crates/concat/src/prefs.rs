@@ -37,6 +37,11 @@ pub struct Preferences {
     /// Show flip horizontal, flip vertical, and reverse in the clip context
     /// menu. Keyboard shortcuts (H, J, R) are always available.
     pub custom_context_actions: bool,
+    /// The magnetic timeline: a delete and a trim close the gap they would
+    /// leave, on the lane they happen on. Off by default, because a gap is
+    /// sometimes the point; ⇧⌫ ripples either way.
+    /// https://github.com/jub0t/Concat/issues/106
+    pub magnetic: bool,
     /// Video decodes on the platform's own hardware where it has some:
     /// VideoToolbox on a Mac. `None` is the platform's default, which is on
     /// where the hardware path has been exercised (macOS and iOS) and off

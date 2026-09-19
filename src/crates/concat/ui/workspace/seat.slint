@@ -317,6 +317,7 @@ export component Seat inherits Rectangle {
             tab-moved(from, to) => { Editor.tab-moved(from, to); }
             tool-changed(tool) => { Editor.tool-changed(tool); }
             snap-changed(snap) => { Editor.snap-changed(snap); }
+            magnetic-changed(on) => { Editor.magnetic-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
             split => { Editor.split(); }
             merge => { Editor.merge(); }

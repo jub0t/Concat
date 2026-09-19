@@ -52,6 +52,8 @@ export struct SettingsData {
     playhead-stops: bool,
     /// show flip/reverse in clip context menu
     custom-context-actions: bool,
+    /// the magnetic timeline: deleting and trimming close the gap
+    magnetic: bool,
     /// video decodes on the platform's own hardware
     hardware-decode: bool,
     /// this build and machine have hardware to decode on; off, the
@@ -367,6 +369,7 @@ export component SettingsDialog inherits Modal {
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
+    callback magnetic-changed(on: bool);
     callback hardware-decode-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
@@ -486,6 +489,36 @@ export component SettingsDialog inherits Modal {
                         options: root.languages;
                         current: root.data.language;
                         changed(index) => { root.language-changed(index); }
+                    }
+                }
+
+                // Off, a delete leaves its hole and a trim moves one edge.
+                // On, the lane closes up behind either - the magnetic
+                // timeline of CapCut and the rest, asked for in
+                // https://github.com/jub0t/Concat/issues/106
+                DialogSection {
+                    title: I18n.t("Magnetic timeline");
+                    hint: I18n.t("On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Close gaps when deleting and trimming");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.magnetic;
+                                toggled(on) => { root.magnetic-changed(on); }
+                            }
+                        }
                     }
                 }
 

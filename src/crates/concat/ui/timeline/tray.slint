@@ -46,6 +46,7 @@ component Divider inherits Rectangle {
 export component TimelineTray inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
+    in property <bool> magnetic: false;
     in property <bool> pan-mode: false;
     in property <int> selected-count;
     /// Empty when the selection can be merged; otherwise why it cannot.
@@ -59,6 +60,7 @@ export component TimelineTray inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
     callback split();
     callback merge();
@@ -170,6 +172,16 @@ export component TimelineTray inherits Rectangle {
             icon-size: 16px;
             checked: root.snap;
             clicked => { root.snap-changed(!root.snap); }
+        }
+        // The magnetic timeline, beside the snap it is so often mistaken
+        // for: snap is where a drag lands, magnetic is that a delete or a
+        // trim leaves no hole. https://github.com/jub0t/Concat/issues/106
+        IconButton {
+            glyph: Glyph.fold;
+            label: I18n.t("Magnetic timeline: deleting and trimming close the gap");
+            icon-size: 16px;
+            checked: root.magnetic;
+            clicked => { root.magnetic-changed(!root.magnetic); }
         }
 
         Divider { }

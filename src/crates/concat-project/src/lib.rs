@@ -369,6 +369,217 @@ mod tests {
         }
     }
 
+    // ── magnetic trim: https://github.com/jub0t/Concat/issues/106 ──
+
+    fn trim(clip_id: &str, edge: TrimEdge, delta: f64, ripple: bool) -> Command {
+        Command::TrimClip {
+            clip_id: clip_id.to_owned(),
+            edge,
+            delta,
+            ripple,
+        }
+    }
+
+    #[test]
+    fn magnetic_tail_trim_moves_the_lane_behind_it_both_ways() {
+        let (mut editor, media_id, first) = fixture();
+        let (video, sound) = {
+            let tracks = &editor.project().active().tracks;
+            (tracks[0].id.clone(), tracks[1].id.clone())
+        };
+        let behind = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        let other = lane(&mut editor, &media_id, &sound, &[12.0]);
+
+        editor
+            .apply(trim(&first, TrimEdge::End, -2.0, true))
+            .expect("shortens");
+        assert_eq!(start_of(&editor, &behind[0]), 8.0, "closes up");
+        assert_eq!(
+            start_of(&editor, &behind[1]),
+            18.0,
+            "and the one behind that"
+        );
+        assert_eq!(start_of(&editor, &other[0]), 12.0, "another lane stays");
+
+        editor
+            .apply(trim(&first, TrimEdge::End, 3.0, true))
+            .expect("lengthens");
+        assert_eq!(start_of(&editor, &behind[0]), 11.0, "makes room");
+        assert_eq!(start_of(&editor, &behind[1]), 21.0);
+    }
+
+    #[test]
+    fn a_plain_trim_still_leaves_the_lane_alone() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::End, -2.0, false))
+            .expect("shortens");
+        assert_eq!(start_of(&editor, &behind[0]), 10.0);
+    }
+
+    #[test]
+    fn magnetic_head_trim_keeps_the_clip_where_it_was_and_closes_behind_it() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::Start, 2.0, true))
+            .expect("trims the head");
+        let clip = editor
+            .project()
+            .active()
+            .clip(&first)
+            .expect("kept")
+            .clone();
+        assert_eq!(clip.start, 0.0, "the clip does not move");
+        assert_eq!(clip.duration, 8.0);
+        assert_eq!(clip.source_start, 2.0, "the in-point does");
+        assert_eq!(start_of(&editor, &behind[0]), 8.0, "and the lane closes");
+    }
+
+    #[test]
+    fn a_plain_head_trim_moves_the_head_and_nothing_else() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::Start, 2.0, false))
+            .expect("trims the head");
+        assert_eq!(start_of(&editor, &first), 2.0);
+        assert_eq!(start_of(&editor, &behind[0]), 10.0);
+    }
+
+    #[test]
+    fn magnetic_head_trim_can_reach_back_only_as_far_as_the_source_and_moves_nothing_when_it_cannot()
+     {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        let before_can_undo = editor.can_undo();
+        // In-point at zero: there is nothing before it to restore.
+        let outcome = editor
+            .apply(trim(&first, TrimEdge::Start, -3.0, true))
+            .expect("tolerated");
+        assert!(!outcome.applied);
+        assert_eq!(start_of(&editor, &behind[0]), 10.0);
+        assert_eq!(editor.can_undo(), before_can_undo, "a no-op is not a step");
+    }
+
+    #[test]
+    fn magnetic_head_trim_restoring_source_pushes_the_lane_back() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::Start, 4.0, true))
+            .expect("cuts four off the head");
+        assert_eq!(start_of(&editor, &behind[0]), 6.0);
+        // Ask for five back: only four exist, so four come back.
+        editor
+            .apply(trim(&first, TrimEdge::Start, -5.0, true))
+            .expect("restores what there is");
+        let clip = editor
+            .project()
+            .active()
+            .clip(&first)
+            .expect("kept")
+            .clone();
+        assert_eq!(
+            clip.start, 0.0,
+            "a magnetic clip at zero still does not move"
+        );
+        assert_eq!(clip.source_start, 0.0);
+        assert_eq!(clip.duration, 10.0);
+        assert_eq!(
+            start_of(&editor, &behind[0]),
+            10.0,
+            "the lane went back by four"
+        );
+    }
+
+    #[test]
+    fn magnetic_trim_stops_at_the_minimum_and_the_lane_stays_touching() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::End, -100.0, true))
+            .expect("clamps");
+        let clip = editor
+            .project()
+            .active()
+            .clip(&first)
+            .expect("kept")
+            .clone();
+        assert!(
+            clip.duration > 0.0 && clip.duration < 1.0,
+            "floored at the minimum"
+        );
+        let gap = start_of(&editor, &behind[0]) - (clip.start + clip.duration);
+        assert!(
+            gap.abs() < 1e-9,
+            "the lane moved by the clamped amount, not the asked one: gap {gap}"
+        );
+    }
+
+    #[test]
+    fn magnetic_trim_leaves_a_clip_in_front_of_the_edge_alone() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // A clip behind the trimmed one, and one stacked before its tail
+        // on the same lane: a tail trim is about what is behind the tail.
+        let more = lane(&mut editor, &media_id, &video, &[10.0, 3.0]);
+        editor
+            .apply(trim(&first, TrimEdge::End, -2.0, true))
+            .expect("shortens");
+        assert_eq!(start_of(&editor, &more[0]), 8.0);
+        assert_eq!(
+            start_of(&editor, &more[1]),
+            3.0,
+            "in front of the edge; not moved"
+        );
+    }
+
+    #[test]
+    fn magnetic_trim_is_one_undo_step_that_puts_the_lane_back() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let behind = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(trim(&first, TrimEdge::Start, 2.0, true))
+            .expect("trims");
+        assert_eq!(start_of(&editor, &behind[0]), 8.0);
+        assert!(editor.undo());
+        assert_eq!(start_of(&editor, &behind[0]), 10.0);
+        let clip = editor
+            .project()
+            .active()
+            .clip(&first)
+            .expect("kept")
+            .clone();
+        assert_eq!(
+            (clip.start, clip.duration, clip.source_start),
+            (0.0, 10.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn a_trim_clip_document_without_the_ripple_field_still_parses_as_a_plain_trim() {
+        let command: Command = serde_json::from_value(json!({
+            "op": "trimClip",
+            "clipId": "c1",
+            "edge": "end",
+            "delta": -1.0
+        }))
+        .expect("the field is new; old callers do not send it");
+        match command {
+            Command::TrimClip { ripple, .. } => assert!(!ripple),
+            _ => panic!("not a trim"),
+        }
+    }
+
     #[test]
     fn a_new_project_has_one_timeline_and_four_lanes() {
         let editor = Editor::new();
@@ -616,6 +827,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 edge: TrimEdge::Start,
                 delta: 3.0,
+                ripple: false,
             })
             .expect("trims");
         let clip = &editor.project().active().clips[0];
@@ -646,6 +858,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 edge: TrimEdge::Start,
                 delta: -4.0,
+                ripple: false,
             })
             .expect("trims");
         let clip = &editor.project().active().clips[0];
@@ -735,6 +948,7 @@ mod tests {
                     clip_id: clip_id.clone(),
                     edge: TrimEdge::End,
                     delta: f64::NAN,
+                    ripple: false,
                 }],
             },
         ] {
@@ -1154,6 +1368,7 @@ mod tests {
                 clip_id: tail.id.clone(),
                 edge: TrimEdge::Start,
                 delta: 1.0,
+                ripple: false,
             })
             .expect("trims");
         let trimmed = editor
@@ -1177,6 +1392,7 @@ mod tests {
                 clip_id: tail.id.clone(),
                 edge: TrimEdge::Start,
                 delta: -1.0,
+                ripple: false,
             })
             .expect("trims back");
 
@@ -1206,6 +1422,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 edge: TrimEdge::End,
                 delta: 10.0,
+                ripple: false,
             })
             .expect("extends");
         let longer = editor
@@ -1371,6 +1588,7 @@ mod tests {
                 clip_id,
                 edge: TrimEdge::Start,
                 delta: 1.0,
+                ripple: false,
             })
             .expect("trims");
         let clip = &editor.project().active().clips[0];
@@ -1875,6 +2093,7 @@ mod tests {
                 clip_id,
                 edge: TrimEdge::Start,
                 delta: 2.0,
+                ripple: false,
             })
             .expect("trims");
         editor
@@ -2281,6 +2500,7 @@ mod tests {
                 clip_id: "nope".to_owned(),
                 edge: TrimEdge::End,
                 delta: 1.0,
+                ripple: false,
             })
             .expect("tolerated");
         assert!(!outcome.applied);
@@ -2356,6 +2576,7 @@ mod tests {
                         clip_id: "nope".to_owned(),
                         edge: TrimEdge::End,
                         delta: 1.0,
+                        ripple: false,
                     },
                 ],
             })
@@ -2450,6 +2671,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 edge: TrimEdge::End,
                 delta: -4.0,
+                ripple: false,
             })
             .expect("trims");
         let clip = editor.project().active().clip(&clip_id).expect("exists");
@@ -2464,6 +2686,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 edge: TrimEdge::End,
                 delta: -100.0,
+                ripple: false,
             })
             .expect("trims");
         assert_eq!(
@@ -2882,6 +3105,7 @@ mod tests {
                 clip_id: "c1".to_owned(),
                 edge: TrimEdge::End,
                 delta: -0.5,
+                ripple: false,
             },
             Command::SplitClips {
                 clip_ids: vec!["c1".to_owned()],

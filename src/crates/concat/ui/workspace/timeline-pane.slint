@@ -44,6 +44,7 @@ export component TimelinePane inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
     callback split();
     callback merge();
@@ -187,6 +188,7 @@ export component TimelinePane inherits Rectangle {
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
+            magnetic-changed(on) => { root.magnetic-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }
             split => { root.split(); }
             merge => { root.merge(); }

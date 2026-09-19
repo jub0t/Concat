@@ -629,6 +629,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_snap_changed(on_window!(|state, snap: bool| {
         state.handle(Msg::Timeline(TimelineMsg::SnapChanged(snap)));
     }));
+    editor.on_magnetic_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::MagneticChanged(on)));
+    }));
     editor.on_add_track(on_window!(|state| {
         state.apply(concat_project::Command::AddTrack);
     }));
@@ -924,7 +927,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.global::<Focus>()
         .on_release(|| Shell::with(|_, app| app.invoke_blur()));
     editor.on_shortcut(move |action: SharedString| match action.as_str() {
-        "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end" | "snap" => {
+        "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end" | "snap"
+        | "magnetic" => {
             Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));
         }
         _ => Shell::with(|shell, app| {
@@ -1035,6 +1039,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_settings_custom_context_actions_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::CustomContextActionsChanged(on)));
+    }));
+    app.on_settings_magnetic_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::MagneticChanged(on)));
     }));
     app.on_settings_hardware_decode_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::HardwareDecodeChanged(on)));
@@ -1169,6 +1176,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.handle(Msg::Timeline(TimelineMsg::SnapToggled)),
+                        "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
                         "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),
                         "sort-kind" => state.handle(Msg::Media(MediaMsg::SortChanged(2))),

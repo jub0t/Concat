@@ -461,6 +461,15 @@ pub enum Command {
         /// Signed seconds of timeline the edge moves: positive drags the
         /// head right (shortening) or the tail right (lengthening).
         delta: f64,
+        /// When true the lane closes up behind the trim - the magnetic
+        /// timeline. A tail trim moves every later clip on the track by
+        /// the change in length. A head trim keeps the clip where it was
+        /// (the in-point moves, the start does not) and moves every later
+        /// clip by what was cut or restored, so the trimmed clip and the
+        /// one behind it stay touching. False trims the clip alone.
+        /// https://github.com/jub0t/Concat/issues/106
+        #[serde(default)]
+        ripple: bool,
     },
     /// Cuts each named clip in two at one playhead time. The head keeps the
     /// id and the transition; the tail is minted fresh and stays
