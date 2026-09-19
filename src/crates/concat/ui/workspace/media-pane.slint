@@ -39,8 +39,6 @@ export struct TextPresetData {
     stroke: color,
     /// as a fraction of the frame; zero for none
     stroke-width: float,
-    /// the cap height as a fraction of the frame, for the sample's size
-    size: float,
     align: TextAlignment,
 }
 
@@ -1036,9 +1034,11 @@ component TextPage inherits Rectangle {
 }
 
 // One preset, as a card: the same "Aa" drawn in every look, on a dark
-// ground so a white title reads as it will on footage, with the plate
-// behind it when the look has one. The same two letters on every card so
-// the looks compare, the names being underneath.
+// square so a white title reads as it will on footage, with the plate
+// behind it when the look has one. The same two letters at the same size
+// on every card so the looks compare - a caption preset is small on the
+// frame, but its card is about its face and colours, not its size - the
+// names being underneath.
 component PresetCard inherits Rectangle {
     in property <TextPresetData> preset;
 
@@ -1046,9 +1046,9 @@ component PresetCard inherits Rectangle {
 
     opacity: drag.dragging ? 0.45 : 1.0;
 
-    /// The sample's size follows the preset's: the plain title's 9% of the
-    /// frame is 16px on a card, and the rest scale with it within reason.
-    property <length> sample-size: Fmt.clamp(root.preset.size / 0.09, 0.6, 1.6) * 16px;
+    /// One size for every sample, a good third of the tile: large enough
+    /// that a stroke and a face are told apart at a glance.
+    property <length> sample-size: root.width * 0.36;
 
     drag := DragArea {
         data: Payload.of("text:\{root.preset.id}:\{root.preset.name}");
@@ -1064,7 +1064,7 @@ component PresetCard inherits Rectangle {
 
             tile := Rectangle {
                 y: 0;
-                height: root.width * 9 / 16;
+                height: root.width;
                 border-radius: Theme.r;
                 background: Theme.sample-ground;
                 border-width: 1px;
@@ -1215,7 +1215,8 @@ component PresetGrid inherits Rectangle {
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px;
+    // A square tile, then the name under it.
+    property <length> card-h: root.card-w + 4px + 14px;
     property <int> rows: Math.ceil(root.items.length / root.cols);
 
     height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;

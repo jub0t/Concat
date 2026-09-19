@@ -5698,7 +5698,6 @@ impl Studio {
                         plated: plate.alpha() > 0,
                         stroke: colour_of(&preset.style.stroke_color),
                         stroke_width: preset.style.stroke_width as f32,
-                        size: preset.style.font_size as f32,
                         align: align_of(preset.style.align),
                     }
                 })
