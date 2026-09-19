@@ -106,11 +106,13 @@ export component TimelinePane inherits Rectangle {
     ///
     /// A lane has no name — it is untyped, and its place in the stack is the
     /// only handle anything needs on it — so the column is a strip of
-    /// switches. Five 26px slots at their widest (remove, row height, lock,
-    /// visibility, mute; remove only on hover), 1px between them and the
-    /// row's own 8px and 4px gutters come to 147px. The rest is the give
-    /// that keeps the switches off the scrollbar on the trailing edge.
-    in-out property <length> header-width: 156px;
+    /// switches. Five 26px slots at their widest (row height, lock,
+    /// visibility, mute against the leading edge; remove alone against the
+    /// trailing one, shown on hover), 1px between them and the row's own
+    /// 8px and 4px gutters come to 147px. The rest is the gap between the
+    /// two ends, which at the old 156px was nine pixels and read as one
+    /// crammed strip beside the lanes it labels.
+    in-out property <length> header-width: 188px;
     /// The switches and their gutters, and nothing spare: below this the row
     /// has nowhere left to take the squeeze from and the buttons overlap.
     in property <length> min-header: 150px;

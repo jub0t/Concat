@@ -148,29 +148,17 @@ component Header inherits Rectangle {
             spacing: 1px;
             // No `alignment: start` here. A start-aligned row gives every
             // child its preferred width and stops stretching altogether — and
-            // the name column's preferred width is nothing, so the label
-            // vanished and the lane read as a bare row of switches. The
-            // switches are start-aligned on the *cross* axis individually,
-            // which is the part that was actually wanted.
-
-            // The lanes are deliberately untyped and no longer named, so
-            // nothing goes here. It stays as the row's give: the switches
-            // stay against the trailing edge at every column width, and a
-            // narrow column takes the gap away from here rather than from
-            // them.
-            Rectangle { horizontal-stretch: 1; }
-
-            // Revealed on hover, and never on the last lane standing.
-            if root.removable && row.has-hover: VerticalLayout {
-                alignment: start;
-                IconButton {
-                    glyph: Glyph.close;
-                    label: I18n.t("Remove lane");
-                    icon-size: 11px;
-                    danger: true;
-                    clicked => { root.removed(); }
-                }
-            }
+            // the spacer's preferred width is nothing, so the two ends would
+            // collapse together. The switches are start-aligned on the
+            // *cross* axis individually, which is the part actually wanted.
+            //
+            // The lane's own switches - size, lock, visibility, mute - sit
+            // against the leading edge, and the one that takes the lane
+            // away sits alone against the trailing edge, with the row's
+            // give between them: a destructive button is kept apart from
+            // the ones pressed all day, the way a form keeps Delete away
+            // from Save. A narrow column takes the squeeze from the gap,
+            // not from either end.
 
             VerticalLayout {
                 alignment: start;
@@ -222,6 +210,23 @@ component Header inherits Rectangle {
                         root.flag-changed(root.track.visible, !root.track.muted,
                             root.track.locked);
                     }
+                }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            // Revealed on hover, and never on the last lane standing. The
+            // slot is always there, so the switches do not slide when the
+            // cross appears.
+            VerticalLayout {
+                alignment: start;
+                width: 26px;
+                if root.removable && row.has-hover: IconButton {
+                    glyph: Glyph.close;
+                    label: I18n.t("Remove lane");
+                    icon-size: 11px;
+                    danger: true;
+                    clicked => { root.removed(); }
                 }
             }
         }
