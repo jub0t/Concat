@@ -140,6 +140,13 @@ pub fn select_backend(
     // when the caption goes, so the edges still resize, and the undecorated
     // shadow keeps the DWM drop shadow the caption would otherwise have
     // taken with it.
+    //
+    // The attributes below are the window's first state; what keeps the
+    // decorations off is the Slint window's `no-frame` (app.slint), which
+    // the winit backend re-applies after the window is made. On Wayland
+    // without it GNOME's bar came back above the strip:
+    // https://github.com/jub0t/Concat/issues/97
+    // https://github.com/jub0t/Concat/issues/145
     #[cfg(target_os = "macos")]
     {
         use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
