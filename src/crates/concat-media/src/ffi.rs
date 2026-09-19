@@ -48,6 +48,17 @@ unsafe extern "C" fn relay(
     format: *const c_char,
     args: ffmpeg::sys::va_list,
 ) {
+    // The level set in `init` is applied by FFmpeg's *default* callback,
+    // not before the callback is called: a callback of our own is handed
+    // every message there is, the per-packet debug and trace lines of a
+    // decoder included, thousands a second under a scrub. They are
+    // dropped here before anything is formatted, as the default drops
+    // them - the first version of this relay formatted them all, and
+    // scrubbing crawled.
+    // SAFETY: reads a global integer.
+    if level > unsafe { ffmpeg::sys::av_log_get_level() } {
+        return;
+    }
     let mut line = [0 as c_char; 1024];
     let mut print_prefix: c_int = 1;
     // SAFETY: the buffer is ours and its length is passed with it; the
