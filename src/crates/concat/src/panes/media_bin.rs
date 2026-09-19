@@ -295,11 +295,12 @@ impl MediaBin {
         self.visible(studio.project())
             .into_iter()
             .map(|item| {
-                // A card is a couple of hundred pixels: a bar every few
-                // of them is all the detail it can show.
+                // A card is a couple of hundred pixels: sixty-four bars,
+                // each three quarters of its pitch, is what reads best at
+                // that size - fuller than a lane's candles, on purpose.
                 let wave = match studio.peaks.get(&item.id) {
                     Some(peaks) if item.kind == model::MediaKind::Audio => {
-                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64)
+                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64, 0.75)
                     }
                     _ => String::new(),
                 };

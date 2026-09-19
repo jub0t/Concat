@@ -172,6 +172,7 @@ pub fn wave_path(
     source_start: f32,
     duration: f32,
     columns: usize,
+    bar: f32,
 ) -> String {
     /// Fewest columns worth drawing, and the most: enough that a clip a
     /// screen wide reads a column a pixel, few enough that the string stays
@@ -189,8 +190,9 @@ pub fn wave_path(
     let mut path = String::with_capacity(columns * 56);
 
     // Each bar is the peak of everything under its pitch, drawn on the
-    // leading three quarters of it: the last quarter is the gap that
-    // makes it a bar and not a run of columns.
+    // leading `bar` of it: the rest is the gap that makes it a bar and
+    // not a run of columns.
+    let bar = bar.clamp(0.1, 1.0);
     let pitch = 1.0 / columns as f32;
     for column in 0..columns {
         let left = column as f32 * pitch;
@@ -198,7 +200,7 @@ pub fn wave_path(
             source_start + left * duration,
             source_start + (left + pitch) * duration,
         );
-        let right = left + pitch * WAVE_BAR;
+        let right = left + pitch * bar;
         let top = 1.0 - high.max(-low).clamp(0.0, 1.0).max(FLOOR);
         path.push_str(&format!(
             "M {left:.4} {top:.4} L {right:.4} {top:.4} \
@@ -208,15 +210,18 @@ pub fn wave_path(
     path
 }
 
-/// A bar's pitch on screen, in pixels: one bar, and the gap after it,
-/// every four. Fewer bars than pixels by that factor, and a rebuild, a
-/// parse and a tessellation a quarter the size: at a zoom where seconds
+/// A lane bar's pitch on screen, in pixels: one bar, and the gap after
+/// it, every three. Fewer bars than pixels by that factor, and a rebuild,
+/// a parse and a tessellation a third the size: at a zoom where seconds
 /// of audio sit under a pixel, a bar a pixel was work that drew nothing
-/// a bar every four does not.
-pub const WAVE_PITCH: f32 = 4.0;
+/// a bar every three does not.
+pub const WAVE_PITCH: f32 = 3.0;
 
-/// How much of a pitch the bar takes; the rest is the gap.
-pub const WAVE_BAR: f32 = 0.75;
+/// How much of a lane bar's pitch the bar takes; the rest is the gap.
+/// Two pixels of three: a thin candle with a pixel of air after it. The
+/// bin's cards, at a few dozen bars across, keep a fuller bar of their
+/// own; see `media_bin`.
+pub const WAVE_BAR: f32 = 2.0 / 3.0;
 
 /// How many bars a clip `seconds` long gets at `seconds_per_pixel`: one a
 /// [`WAVE_PITCH`], rounded up to the next sixteen so a zoom rebuilds the
@@ -378,32 +383,46 @@ mod tests {
             max: vec![0.5; 2000],
             buckets_per_second: 1000.0,
         });
-        let wave = wave_path(&peaks, 0.0, 2.0, 128);
+        let wave = wave_path(&peaks, 0.0, 2.0, 128, WAVE_BAR);
         assert_eq!(wave.matches('M').count(), 128);
         // A bar stands on the floor: its top is one less its height.
         assert!(
             wave.contains(" 0.5000 L") && wave.contains(" 1.0000 Z"),
             "half amplitude, floored: {wave}"
         );
-        assert!(wave_path(&peaks, 0.0, 0.0, 128).is_empty());
-        assert!(wave_path(&peaks, 0.0, f32::NAN, 128).is_empty());
+        assert!(wave_path(&peaks, 0.0, 0.0, 128, WAVE_BAR).is_empty());
+        assert!(wave_path(&peaks, 0.0, f32::NAN, 128, WAVE_BAR).is_empty());
         // The column count is held to what is worth drawing, either way.
-        assert_eq!(wave_path(&peaks, 0.0, 2.0, 0).matches('M').count(), 8);
         assert_eq!(
-            wave_path(&peaks, 0.0, 2.0, 1_000_000).matches('M').count(),
+            wave_path(&peaks, 0.0, 2.0, 0, WAVE_BAR)
+                .matches('M')
+                .count(),
+            8
+        );
+        assert_eq!(
+            wave_path(&peaks, 0.0, 2.0, 1_000_000, WAVE_BAR)
+                .matches('M')
+                .count(),
             512
         );
-        // A bar takes three quarters of its pitch; the rest is the gap.
-        let eight = wave_path(&peaks, 0.0, 2.0, 8);
+        // A bar takes `bar` of its pitch; the rest is the gap.
+        let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75);
         assert!(eight.contains("M 0.0000 0.5000 L 0.0938 0.5000"), "{eight}");
         assert!(eight.contains("M 0.1250 0.5000 L 0.2188 0.5000"), "{eight}");
+        let thin = wave_path(&peaks, 0.0, 2.0, 8, 0.5);
+        assert!(thin.contains("M 0.0000 0.5000 L 0.0625 0.5000"), "{thin}");
+        // Held to a sliver at the least, and never over the pitch.
+        let hair = wave_path(&peaks, 0.0, 2.0, 8, 0.0);
+        assert!(hair.contains("M 0.0000 0.5000 L 0.0125 0.5000"), "{hair}");
+        let solid = wave_path(&peaks, 0.0, 2.0, 8, 7.0);
+        assert!(solid.contains("M 0.0000 0.5000 L 0.1250 0.5000"), "{solid}");
         // Silence is a sliver on the floor, never a gap.
         let silence = concat_media::Pyramid::of(concat_media::Peaks {
             min: vec![0.0; 100],
             max: vec![0.0; 100],
             buckets_per_second: 100.0,
         });
-        let flat = wave_path(&silence, 0.0, 1.0, 10);
+        let flat = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR);
         assert_eq!(flat.matches('M').count(), 10);
         assert!(flat.contains(" 0.9760 L"), "{flat}");
     }
@@ -424,19 +443,19 @@ mod tests {
             buckets_per_second: 1000.0,
         });
         // A full-scale spike is a column whose bar reaches the top.
-        let fine = wave_path(&peaks, 0.0, 1.0, 1000);
+        let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR);
         assert_eq!(
             fine.matches(" 0.0000 L").count(),
             1,
             "one column carries the spike: {fine}"
         );
-        let coarse = wave_path(&peaks, 0.0, 1.0, 10);
+        let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR);
         assert_eq!(
             coarse.matches(" 0.0000 L").count(),
             1,
             "the spike survives the fold, in one column"
         );
-        let trimmed = wave_path(&peaks, 0.6, 0.4, 10);
+        let trimmed = wave_path(&peaks, 0.6, 0.4, 10, WAVE_BAR);
         assert!(
             !trimmed.contains(" 0.0000 L"),
             "a trim past the spike does not show it"
@@ -447,10 +466,10 @@ mod tests {
     fn bars_follow_the_zoom_in_steps_of_sixteen() {
         assert_eq!(
             wave_columns(10.0, 0.05),
-            64,
-            "200 px is 50 bars, rounds up to 64"
+            80,
+            "200 px is 67 bars, rounds up to 80"
         );
-        assert_eq!(wave_columns(10.0, 0.01), 256, "1000 px is 250 bars");
+        assert_eq!(wave_columns(10.0, 0.01), 336, "1000 px is 334 bars");
         assert_eq!(
             wave_columns(600.0, 0.01),
             512,

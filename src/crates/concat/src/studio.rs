@@ -47,8 +47,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, wave_columns, wave_path,
-    when_phrase,
+    WAVE_BAR, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, wave_columns,
+    wave_path, when_phrase,
 };
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
@@ -2127,7 +2127,7 @@ impl Studio {
         if let Some(cached) = self.waves.borrow().get(&key) {
             return cached.clone();
         }
-        let built = SharedString::from(wave_path(peaks, source_start, duration, columns));
+        let built = SharedString::from(wave_path(peaks, source_start, duration, columns, WAVE_BAR));
         self.waves.borrow_mut().insert(key, built.clone());
         built
     }
