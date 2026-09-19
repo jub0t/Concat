@@ -148,6 +148,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds")
             .created_id
@@ -1228,6 +1229,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds")
             .created_id
@@ -2377,6 +2379,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds");
 
@@ -2635,6 +2638,7 @@ mod tests {
                 media_id: "m1".to_owned(),
                 track_id: "T1".to_owned(),
                 start: 1.0,
+                ripple: false,
             },
             Command::AddClipAtFirstFree {
                 media_id: "m1".to_owned(),

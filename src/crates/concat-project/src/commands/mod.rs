@@ -270,6 +270,12 @@ pub enum Command {
         track_id: String,
         /// Timeline position in seconds, floored at 0.
         start: f64,
+        /// When true and the drop would overlap something on this track,
+        /// every clip at or after `start` is shifted right by the new
+        /// clip's duration, so the drop lands without covering anything.
+        /// False for programmatic adds, true for a drop from the bin.
+        #[serde(default)]
+        ripple: bool,
     },
     /// [`Command::AddClip`] without naming a lane: lands on the lowest
     /// track with nothing in the clip's span, falling back to the bottom
