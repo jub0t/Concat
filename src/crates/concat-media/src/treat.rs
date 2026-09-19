@@ -36,6 +36,47 @@ pub fn treat_to(frame: &Frame, width: u32, height: u32, chain: &str) -> Result<F
     if chain.trim().is_empty() && width == frame.width() && height == frame.height() {
         return Ok(frame.clone());
     }
+    let spec = if chain.trim().is_empty() {
+        format!("scale={width}:{height}:flags=bilinear,format=rgba")
+    } else {
+        format!("{chain},scale={width}:{height}:flags=bilinear,format=rgba")
+    };
+    run(frame, &spec)
+}
+
+/// Runs a source frame the way the decoder would have: `pre` in the
+/// picture's own pixels - the crop - then the fit to `width` by `height`,
+/// then `chain` at that size, then the guard scale that pins the size. The
+/// decoder's graph without the decoder, for a picture the reader pool
+/// holds untreated. Nothing to do at the same size returns a copy.
+pub fn fit(
+    frame: &Frame,
+    pre: Option<&str>,
+    width: u32,
+    height: u32,
+    chain: Option<&str>,
+) -> Result<Frame> {
+    let pre = pre.filter(|pre| !pre.trim().is_empty());
+    let chain = chain.filter(|chain| !chain.trim().is_empty());
+    if pre.is_none() && chain.is_none() && width == frame.width() && height == frame.height() {
+        return Ok(frame.clone());
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(pre) = pre {
+        parts.push(pre.to_owned());
+    }
+    parts.push(format!("scale={width}:{height}:flags=bilinear"));
+    if let Some(chain) = chain {
+        parts.push(chain.to_owned());
+        parts.push(format!("scale={width}:{height}:flags=bilinear"));
+    }
+    parts.push("format=rgba".to_owned());
+    run(frame, &parts.join(","))
+}
+
+/// One RGBA picture in, `spec` - a whole filtergraph, ending in the size
+/// and format the caller wants out - and one RGBA picture out.
+fn run(frame: &Frame, spec: &str) -> Result<Frame> {
     ffi::init();
     // The graph has no file behind it; errors name the layer instead.
     let path = Path::new("layer");
@@ -64,15 +105,10 @@ pub fn treat_to(frame: &Frame, width: u32, height: u32, chain: &str) -> Result<F
             "",
         )
         .map_err(|error| ffi::fail("buffer sink", path, error))?;
-    let spec = if chain.trim().is_empty() {
-        format!("scale={width}:{height}:flags=bilinear,format=rgba")
-    } else {
-        format!("{chain},scale={width}:{height}:flags=bilinear,format=rgba")
-    };
     graph
         .output("in", 0)
         .and_then(|parser| parser.input("out", 0))
-        .and_then(|parser| parser.parse(&spec))
+        .and_then(|parser| parser.parse(spec))
         .map_err(|error| ffi::fail("filter graph", path, error))?;
     graph
         .validate()
@@ -145,5 +181,30 @@ mod tests {
         assert_eq!(same.pixels(), frame.pixels());
         let pinned = treat(&frame, "scale=3:3").expect("scales then pins");
         assert_eq!((pinned.width(), pinned.height()), (6, 6));
+    }
+
+    /// A fit crops in the source's pixels, scales, and runs the chain at
+    /// the output size: the left half of a picture red on the left and
+    /// blue on the right, fitted to four across, is all red - and negated,
+    /// all cyan.
+    #[test]
+    fn a_fit_crops_then_scales_then_treats() {
+        let mut frame = Frame::black(8, 4);
+        for (index, pixel) in frame.pixels_mut().chunks_exact_mut(4).enumerate() {
+            let x = index % 8;
+            pixel.copy_from_slice(if x < 4 {
+                &[255, 0, 0, 255]
+            } else {
+                &[0, 0, 255, 255]
+            });
+        }
+        let crop = "crop=w=iw/2:h=ih:x=0:y=0";
+        let left = fit(&frame, Some(crop), 4, 4, None).expect("fits");
+        assert_eq!((left.width(), left.height()), (4, 4));
+        assert_eq!(left.pixel(3, 1), Some([255, 0, 0, 255]), "the left half only");
+        let negated = fit(&frame, Some(crop), 4, 4, Some("negate")).expect("fits and treats");
+        assert_eq!(negated.pixel(3, 1), Some([0, 255, 255, 255]));
+        let same = fit(&frame, None, 8, 4, None).expect("copies");
+        assert_eq!(same.pixels(), frame.pixels());
     }
 }

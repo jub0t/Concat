@@ -975,6 +975,7 @@ fn render_picture(
             codec: request.codec,
             ten_bit: request.ten_bit,
             hardware: true,
+            threads: 0,
         },
     )
     .map_err(|error| error.to_string())?;
