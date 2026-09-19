@@ -1882,6 +1882,7 @@ mod tests {
                 media_id,
                 track_id: video_track.clone(),
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds");
 
@@ -1962,6 +1963,7 @@ mod tests {
                 media_id,
                 track_id: video_track,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds");
 
@@ -2014,6 +2016,7 @@ mod tests {
                     media_id: media_id.clone(),
                     track_id: track_id.clone(),
                     start: 0.0,
+                    ripple: false,
                 })
                 .expect("adds");
         }
