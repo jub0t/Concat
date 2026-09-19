@@ -168,7 +168,7 @@ impl Pyramid {
     /// or a few and never a fraction of one. The finest when even it is
     /// coarser than the column.
     pub fn level_for(&self, seconds_per_column: f32) -> &Peaks {
-        if !(seconds_per_column > 0.0) {
+        if seconds_per_column.is_nan() || seconds_per_column <= 0.0 {
             return self.finest();
         }
         self.levels
@@ -335,8 +335,20 @@ mod tests {
         assert_eq!(half.min, vec![-0.9, -0.3, -0.5]);
         assert_eq!(half.max, vec![0.4, 0.8, 0.6]);
         assert_eq!(half.buckets_per_second, 500.0);
-        assert_eq!(fine.coarser(0).len(), 5, "a factor of nothing is the same shape");
-        assert!(Peaks { min: vec![], max: vec![], buckets_per_second: 1000.0 }.coarser(4).is_empty());
+        assert_eq!(
+            fine.coarser(0).len(),
+            5,
+            "a factor of nothing is the same shape"
+        );
+        assert!(
+            Peaks {
+                min: vec![],
+                max: vec![],
+                buckets_per_second: 1000.0
+            }
+            .coarser(4)
+            .is_empty()
+        );
     }
 
     #[test]
@@ -352,7 +364,11 @@ mod tests {
         // coarsest that still puts at least one bucket in it.
         assert_eq!(pyramid.level_for(0.001).buckets_per_second, 1000.0);
         let coarse = pyramid.level_for(1.0);
-        assert!(coarse.buckets_per_second <= 1000.0 / 64.0 + 1e-6, "{}", coarse.buckets_per_second);
+        assert!(
+            coarse.buckets_per_second <= 1000.0 / 64.0 + 1e-6,
+            "{}",
+            coarse.buckets_per_second
+        );
         assert!(coarse.buckets_per_second * 1.0 >= 1.0);
         // A column finer than the finest bucket still gets the finest.
         assert_eq!(pyramid.level_for(1e-9).buckets_per_second, 1000.0);

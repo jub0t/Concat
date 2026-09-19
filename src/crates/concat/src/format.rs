@@ -176,7 +176,7 @@ pub fn wave_path(
     /// rather than a gap in it.
     const FLOOR: f32 = 0.012;
 
-    if !(duration > 0.0) || peaks.finest().is_empty() {
+    if duration.is_nan() || duration <= 0.0 || peaks.finest().is_empty() {
         return String::new();
     }
     let columns = columns.clamp(*COLUMNS.start(), *COLUMNS.end());
@@ -187,7 +187,10 @@ pub fn wave_path(
     for column in 0..columns {
         let left = column as f32 / columns as f32;
         let right = (column + 1) as f32 / columns as f32;
-        let (low, high) = level.extremes(source_start + left * duration, source_start + right * duration);
+        let (low, high) = level.extremes(
+            source_start + left * duration,
+            source_start + right * duration,
+        );
         let amplitude = ((high.max(-low) * gain).clamp(0.0, 1.0) * 0.48).max(FLOOR);
         let (top, bottom) = (0.5 - amplitude, 0.5 + amplitude);
         path.push_str(&format!(
@@ -203,7 +206,8 @@ pub fn wave_path(
 /// at each step of that and not at every pixel, held to what `wave_path`
 /// draws.
 pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
-    if !(seconds > 0.0) || !(seconds_per_pixel > 0.0) {
+    if seconds.is_nan() || seconds <= 0.0 || seconds_per_pixel.is_nan() || seconds_per_pixel <= 0.0
+    {
         return 8;
     }
     let pixels = (seconds / seconds_per_pixel).ceil().max(1.0) as usize;
@@ -294,7 +298,12 @@ mod tests {
         assert!(wave_path(&peaks, 0.0, f32::NAN, 1.0, 128).is_empty());
         // The column count is held to what is worth drawing, either way.
         assert_eq!(wave_path(&peaks, 0.0, 2.0, 1.0, 0).matches('M').count(), 8);
-        assert_eq!(wave_path(&peaks, 0.0, 2.0, 1.0, 1_000_000).matches('M').count(), 2048);
+        assert_eq!(
+            wave_path(&peaks, 0.0, 2.0, 1.0, 1_000_000)
+                .matches('M')
+                .count(),
+            2048
+        );
     }
 
     /// A zoomed-in clip reads the fine buckets: a single loud millisecond
@@ -313,19 +322,38 @@ mod tests {
             buckets_per_second: 1000.0,
         });
         let fine = wave_path(&peaks, 0.0, 1.0, 1.0, 1000);
-        let tall: Vec<&str> = fine.split("Z ").filter(|bar| bar.contains(" 0.0200")).collect();
-        assert_eq!(tall.len(), 1, "one column carries the spike: {}", tall.len());
+        let tall: Vec<&str> = fine
+            .split("Z ")
+            .filter(|bar| bar.contains(" 0.0200"))
+            .collect();
+        assert_eq!(
+            tall.len(),
+            1,
+            "one column carries the spike: {}",
+            tall.len()
+        );
         let coarse = wave_path(&peaks, 0.0, 1.0, 1.0, 10);
-        assert_eq!(coarse.matches(" 0.0200").count(), 2, "the spike survives the fold at full height");
+        assert_eq!(
+            coarse.matches(" 0.0200").count(),
+            2,
+            "the spike survives the fold at full height"
+        );
         let trimmed = wave_path(&peaks, 0.6, 0.4, 1.0, 10);
-        assert!(!trimmed.contains(" 0.0200"), "a trim past the spike does not show it");
+        assert!(
+            !trimmed.contains(" 0.0200"),
+            "a trim past the spike does not show it"
+        );
     }
 
     #[test]
     fn columns_follow_the_zoom_in_steps_of_sixty_four() {
         assert_eq!(wave_columns(10.0, 0.05), 256, "200 px rounds up to 256");
         assert_eq!(wave_columns(10.0, 0.01), 1024);
-        assert_eq!(wave_columns(600.0, 0.01), 2048, "held to the most worth drawing");
+        assert_eq!(
+            wave_columns(600.0, 0.01),
+            2048,
+            "held to the most worth drawing"
+        );
         assert_eq!(wave_columns(0.1, 0.05), 64, "never under a step");
         assert_eq!(wave_columns(0.0, 0.05), 8);
         assert_eq!(wave_columns(f32::NAN, 0.05), 8);

@@ -68,6 +68,7 @@ fn main() {
         undo_200_edits(),
         document_round_trip(),
         publish_window_of_200(),
+        waveform_of_an_hour(),
     ];
     if !quick {
         let media = Media::synthesise();
@@ -299,6 +300,54 @@ fn publish_window_of_200() -> Measure {
         unit: "us",
         budget: Budget::AtMost(50.0),
         note: format!("{shown} of 200 published"),
+    }
+}
+
+/// Drawing an hour-long file's waveform across a screen: the pyramid hands
+/// the level that fits the column, so the path reads thousands of buckets
+/// and not millions, at every zoom.
+fn waveform_of_an_hour() -> Measure {
+    let buckets = 3600 * 1000;
+    let mut min = vec![-0.2f32; buckets];
+    let mut max = vec![0.2f32; buckets];
+    for index in (0..buckets).step_by(997) {
+        min[index] = -0.9;
+        max[index] = 0.9;
+    }
+    let started = Instant::now();
+    let pyramid = concat_media::Pyramid::of(concat_media::Peaks {
+        min,
+        max,
+        buckets_per_second: 1000.0,
+    });
+    let built = started.elapsed();
+    let rounds = 50;
+    let started = Instant::now();
+    let mut columns_read = 0;
+    for round in 0..rounds {
+        // Every zoom from the whole hour across the screen down to a
+        // second across it, each a column a pixel.
+        let seconds = 3600.0 / f64::from(1 << (round % 12)) as f32;
+        let level = pyramid.level_for(seconds / 2048.0);
+        for column in 0..2048 {
+            let from = column as f32 * seconds / 2048.0;
+            let (low, high) = level.extremes(from, from + seconds / 2048.0);
+            assert!(high >= 0.2 && low <= -0.2, "every column has sound in it");
+            columns_read += 1;
+        }
+    }
+    let micros = started.elapsed().as_secs_f64() * 1e6 / f64::from(rounds);
+    Measure {
+        name: "read an hour's waveform across 2048 columns",
+        value: micros,
+        unit: "us",
+        budget: Budget::AtMost(2000.0),
+        note: format!(
+            "{} levels built in {:.0} ms; {} columns read",
+            pyramid.depth(),
+            built.as_secs_f64() * 1e3,
+            columns_read / rounds
+        ),
     }
 }
 

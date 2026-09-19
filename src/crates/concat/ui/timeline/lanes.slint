@@ -153,6 +153,17 @@ component Clip inherits Rectangle {
     property <bool> marked: root.item.kind == ClipKind.filter;
     property <length> text-x: root.marked ? 22px : 7px;
     property <length> body-h: Math.max(0px, root.height - root.header-h);
+    /// The sound band at the foot of a video clip: its file's waveform
+    /// under its frames, a third of the body and never a sliver, and there
+    /// whether or not the file has sound - a silent file shows the empty
+    /// band, so a video that has gone quiet is tellable from one that
+    /// never spoke. https://github.com/jub0t/Concat/issues/137
+    property <bool> banded: root.item.kind == ClipKind.video;
+    property <length> band-h: root.banded
+        ? Math.clamp(root.body-h * 0.34, 8px, 24px)
+        : 0px;
+    /// What the frames get: the body less the band.
+    property <length> frames-h: Math.max(0px, root.body-h - root.band-h);
     /// A fade on a picture clip is shaded in a band at the foot instead of
     /// over the whole body: the fade is an *audio* property, and shading the
     /// picture would say it fades to black. Sound shades its whole body; a
@@ -191,12 +202,11 @@ component Clip inherits Rectangle {
         clip: true;
 
         // The audio envelope. The commands arrive normalised into a 1x1 box
-        // and `fit: fill` stretches that onto whatever width the clip has, so
-        // the shape survives a zoom without Rust rebuilding the string. The
-        // trade-off is per-pixel extremes when zoomed right in — there the
-        // envelope is a stretched shape rather than a fresh scan of the
-        // buckets.
-        if root.item.wave != "": Path {
+        // and `fit: fill` stretches that onto whatever width the clip has;
+        // Rust rebuilds the string with a column a pixel at each step of
+        // the zoom, from the peaks at the level that fits the column, so
+        // zooming in reveals the buckets rather than stretching a shape.
+        if root.item.wave != "" && !root.banded: Path {
             x: 0;
             y: 0;
             width: parent.width;
@@ -208,7 +218,7 @@ component Clip inherits Rectangle {
             fill: Theme.wave;
         }
 
-        if root.item.wave != "": Rectangle {
+        if root.item.wave != "" && !root.banded: Rectangle {
             x: 0;
             y: (parent.height - 1px) / 2;
             width: parent.width;
@@ -239,11 +249,11 @@ component Clip inherits Rectangle {
             x: 0;
             y: 0;
             width: parent.width;
-            height: parent.height;
+            height: root.banded ? root.frames-h : parent.height;
             clip: true;
 
             property <length> tile-w: Math.max(4px,
-                parent.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
+                self.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
             property <int> tiles: Math.min(400, Math.ceil(parent.width / self.tile-w));
 
             /// The fraction of the clip under the middle of tile `i`'s
@@ -276,10 +286,50 @@ component Clip inherits Rectangle {
         if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
             && root.item.strip.frames == 0 && root.width > 40px: Icon {
             x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+            y: ((root.banded ? root.frames-h : parent.height) - self.height) / 2;
             glyph: root.badge;
-            size: Math.min(22px, parent.height - 6px);
+            size: Math.min(22px, (root.banded ? root.frames-h : parent.height) - 6px);
             tint: root.mark.with-alpha(0.3);
+        }
+
+        // The sound band under a video's frames: a hairline off the frames,
+        // the waveform when the file has sound and its peaks have come, the
+        // centre line either way.
+        if root.banded && root.band-h > 0px: Rectangle {
+            x: 0;
+            y: root.frames-h;
+            width: parent.width;
+            height: root.band-h;
+            background: Theme.kind-audio-well.with-alpha(0.55);
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            if root.item.wave != "": Path {
+                x: 0;
+                y: 1px;
+                width: parent.width;
+                height: parent.height - 1px;
+                commands: root.item.wave;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.wave;
+            }
+
+            Rectangle {
+                x: 0;
+                y: (parent.height - 1px) / 2 + 0.5px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.wave-centre;
+            }
         }
 
         // The fade ramps, at the foot of the body.

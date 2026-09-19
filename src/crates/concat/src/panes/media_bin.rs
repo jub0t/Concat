@@ -309,7 +309,9 @@ impl MediaBin {
                 thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
                 wave: match studio.peaks.get(&item.id) {
                     Some(peaks) if item.kind == model::MediaKind::Audio => {
-                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0).into()
+                        // A card is a couple of hundred pixels: a column
+                        // each is all the detail it can show.
+                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0, 256).into()
                     }
                     _ => SharedString::new(),
                 },

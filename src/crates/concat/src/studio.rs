@@ -35,7 +35,7 @@ use concat_host::playback::ClipSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
-use concat_media::{Peaks, jpeg};
+use concat_media::{Pyramid, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -46,7 +46,9 @@ use slint::{Model, SharedString, VecModel};
 use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
-use crate::format::{colour_of, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase};
+use crate::format::{
+    colour_of, frames_timecode, hex_of, hex_with_alpha, wave_columns, wave_path, when_phrase,
+};
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
     image_of, media_art, on_ui, spawn, spawn_art, spawn_strip, strip_window, window_art,
@@ -515,7 +517,7 @@ pub struct Studio {
     // ── the bin ──
     pub media: crate::panes::media_bin::MediaBin,
     /// Decoded art by media id, and the ids a worker is decoding for.
-    pub peaks: HashMap<String, Arc<Peaks>>,
+    pub peaks: HashMap<String, Arc<Pyramid>>,
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
@@ -2086,8 +2088,14 @@ impl Studio {
 
     /// The memoised envelope for one clip, quantised to a thirtieth of a
     /// second so a trim revisits a handful of entries rather than minting
-    /// one per pointer event.
+    /// one per pointer event, and to a step of columns so a zoom rebuilds
+    /// it at each step of that and not at every pixel. A sound clip's
+    /// whole body, a picture clip's band under its frames; a picture that
+    /// is muted, or whose file has no sound, shows the empty band.
     fn wave(&self, clip: &Clip) -> SharedString {
+        if clip.muted == Some(true) {
+            return SharedString::new();
+        }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
@@ -2098,11 +2106,12 @@ impl Studio {
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
         let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
         let gain = clip.volume as f32;
-        let key = format!("{art}|{source_start:.3}|{duration:.3}|{gain:.3}");
+        let columns = wave_columns(clip.duration as f32, self.lanes.seconds_per_pixel);
+        let key = format!("{art}|{source_start:.3}|{duration:.3}|{gain:.3}|{columns}");
         if let Some(cached) = self.waves.borrow().get(&key) {
             return cached.clone();
         }
-        let built = SharedString::from(wave_path(peaks, source_start, duration, gain));
+        let built = SharedString::from(wave_path(peaks, source_start, duration, gain, columns));
         self.waves.borrow_mut().insert(key, built.clone());
         built
     }
@@ -4889,7 +4898,7 @@ impl Studio {
                         .map(|text| text.content.as_str())
                         .unwrap_or_default()
                         .into(),
-                    wave: if clip.kind == model::ClipKind::Audio {
+                    wave: if matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
                         self.wave(clip)
                     } else {
                         SharedString::new()
