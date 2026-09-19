@@ -4,6 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { Kbd } from "../primitives/kbd.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
@@ -42,6 +43,26 @@ export struct ModelData {
 export struct SystemFactData {
     label: string,
     value: string,
+}
+
+// A key and what it does, for a row of shortcuts.
+component Shortcut inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> label;
+
+    spacing: 6px;
+    alignment: start;
+
+    VerticalLayout {
+        alignment: center;
+        Kbd { key: root.key; }
+    }
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
 }
 
 export struct SettingsData {
@@ -558,7 +579,17 @@ export component SettingsDialog inherits Modal {
                 // On, it also shows Flip horizontal, Flip vertical, and Reverse.
                 DialogSection {
                     title: I18n.t("Timeline shortcuts");
-                    hint: I18n.t("H flips the selected clip horizontally, J vertically, R reverses it. Off, the keys do nothing.");
+                    hint: I18n.t("Off, the keys do nothing.");
+
+                    // The three keys, each as a keycap beside what it does.
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+
+                        Shortcut { key: "H"; label: I18n.t("Flip horizontally"); }
+                        Shortcut { key: "J"; label: I18n.t("Flip vertically"); }
+                        Shortcut { key: "R"; label: I18n.t("Reverse"); }
+                    }
 
                     HorizontalLayout {
                         spacing: 6px;

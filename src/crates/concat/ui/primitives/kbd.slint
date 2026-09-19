@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// A key, drawn as the cap on a keyboard: a small raised chip with a
+// heavier bottom edge, the key's name in the technical face. For text
+// that names a shortcut - "press H" - so the key reads as a key and not
+// as a letter that happens to be capitalised. Wide enough for a word
+// ("Shift", "⌘B") and never narrower than it is tall.
+export component Kbd inherits Rectangle {
+    in property <string> key;
+
+    width: Math.max(self.height, label.preferred-width + 12px);
+    height: 20px;
+    border-radius: Theme.r-xs;
+    background: Theme.field;
+    border-width: 1px;
+    border-color: Theme.line-strong;
+
+    // The cap's lip: a second line under the first, one pixel in.
+    Rectangle {
+        x: 1px;
+        y: parent.height - 3px;
+        width: parent.width - 2px;
+        height: 2px;
+        background: Theme.line-strong;
+        border-bottom-left-radius: Theme.r-xs - 1px;
+        border-bottom-right-radius: Theme.r-xs - 1px;
+    }
+
+    label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2 - 1px;
+        text: root.key;
+        color: Theme.fg;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
