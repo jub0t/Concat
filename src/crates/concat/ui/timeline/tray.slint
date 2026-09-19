@@ -9,8 +9,8 @@ import { TimelineTool } from "model.slint";
 
 // The timeline's tool tray.
 //
-// The tool set: add-track first, then pointer and razor, then the three
-// edit actions, then snapping, then the tools a clip's sound and words need
+// The tool set: add-track first, then the three edit actions, then
+// snapping, then the tools a clip's sound and words need
 // - captions, a spoken title, detaching the sound - and the view controls
 // pushed to the far end behind the timecode readout. The metrics: 40px
 // tall, 4px between buttons, an 18px hairline with 4px of air on each side
@@ -98,26 +98,12 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        IconButton {
-            glyph: Glyph.pointer;
-            label: I18n.t("Select (A or V)");
-            icon-size: 16px;
-            checked: root.tool == TimelineTool.select;
-            clicked => { root.tool-changed(TimelineTool.select); }
-        }
-        IconButton {
-            glyph: Glyph.razor;
-            label: I18n.t("Razor (B)");
-            icon-size: 16px;
-            checked: root.tool == TimelineTool.razor;
-            clicked => { root.tool-changed(TimelineTool.razor); }
-        }
-
-        Divider { }
-
+        // One way to cut: at the playhead. The razor that cut where you
+        // clicked is gone - two tools for one edit, and the playhead is
+        // already where you were looking.
         IconButton {
             glyph: Glyph.split;
-            label: I18n.t("Split at playhead (S, or ⌘B for every clip)");
+            label: I18n.t("Split at playhead (B, or ⌘B for every clip)");
             icon-size: 16px;
             clicked => { root.split(); }
         }

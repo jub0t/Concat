@@ -381,12 +381,11 @@ export component App inherits Window {
             if (event.modifiers.shift) {
                 return reject;
             }
-            if (event.text == "a" || event.text == "v") {
-                Editor.shortcut("tool-select");
-                return accept;
-            }
-            if (event.text == "b") { Editor.shortcut("tool-razor"); return accept; }
-            if (event.text == "s") { Editor.shortcut("split-selected"); return accept; }
+            // B splits the selected clips at the playhead, or every clip
+            // when nothing is selected; ⌘B above splits every clip either
+            // way. There was a razor tool on B and this split on S, and
+            // the two did the same thing by different pointers.
+            if (event.text == "b") { Editor.shortcut("split-selected"); return accept; }
             if (event.text == "n") { Editor.shortcut("snap"); return accept; }
             if (event.text == "m") { Editor.shortcut("mute"); return accept; }
             if (event.text == "h") { Editor.shortcut("flip-h"); return accept; }

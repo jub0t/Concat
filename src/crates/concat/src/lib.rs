@@ -711,16 +711,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.place(&plan);
         }
     }));
-    editor.on_razored(on_window!(|state, id: SharedString, seconds: f32| {
-        let Some(clip) = state.clip(id.as_str()).cloned() else {
-            return;
-        };
-        if state.locked(&clip.track_id) {
-            return;
-        }
-        state.selection = vec![id.to_string()];
-        state.split_at(seconds, true);
-    }));
     editor.on_band_selected(on_lanes!(
         |state, from: f32, to: f32, from_y: f32, to_y: f32, additive: bool| {
             let (from_row, to_row) = (state.row_at(from_y), state.row_at(to_y));

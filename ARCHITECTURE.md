@@ -210,8 +210,8 @@ sequenceDiagram
   duration of `update`, so it can be handed the rest of the window without
   borrowing itself twice; a result that arrives after its project closed is
   dropped in one place.
-- **What stays on the controller:** the gestures (a clip dragged, trimmed or
-  razored; a picture moved on the stage; a brush stroke), because one gesture
+- **What stays on the controller:** the gestures (a clip dragged or
+  trimmed; a picture moved on the stage; a brush stroke), because one gesture
   spans the lanes and the stage over an *echo* of the document, a clone the
   pointer mutates and commits as one command on release. Moving those is the
   next cut of `studio.rs`.

@@ -6314,15 +6314,6 @@ impl Studio {
                     }
                 }
             }
-            "tool-select" => self.lanes.tool = TimelineTool::Select,
-            // B toggles: pressing it with the razor up puts the pointer back.
-            "tool-razor" => {
-                self.lanes.tool = if self.lanes.tool == TimelineTool::Razor {
-                    TimelineTool::Select
-                } else {
-                    TimelineTool::Razor
-                };
-            }
             _ => {}
         }
     }

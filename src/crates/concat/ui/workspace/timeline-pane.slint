@@ -71,7 +71,6 @@ export component TimelinePane inherits Rectangle {
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
-    callback razored(id: string, seconds: float);
     in property <[MenuItemData]> menu-items;
     in property <length> menu-height;
     in property <int> menu-token;
@@ -268,7 +267,6 @@ export component TimelinePane inherits Rectangle {
                 clip-pressed(id, additive, edge) => { root.clip-pressed(id, additive, edge); }
                 clip-dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
                 clip-released => { root.clip-released(); }
-                razored(id, seconds) => { root.razored(id, seconds); }
                 menu-items: root.menu-items;
                 menu-height: root.menu-height;
                 menu-token: root.menu-token;

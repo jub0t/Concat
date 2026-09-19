@@ -15,12 +15,12 @@
 /// the way CapCut's filter bars do.
 export enum ClipKind { video, audio, image, text, filter }
 
-/// What a press on a clip means.
+/// What a press on a clip means. One tool since the razor went - a cut
+/// is made at the playhead, by B or the tray - and the type stays for the
+/// plumbing that carries it, and for the next tool.
 export enum TimelineTool {
     /// grab, move, trim, band-select
     select,
-    /// cut where you click, not where the playhead is
-    razor,
 }
 
 /// One tab. A project holds several timelines the way it holds sequences in
