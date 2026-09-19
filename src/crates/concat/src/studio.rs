@@ -2698,6 +2698,10 @@ impl Studio {
         if self.locked(&clip.track_id) {
             return;
         }
+        // Whatever the inspector still holds for the clip selected until
+        // now lands before the selection moves: a commit flushed after the
+        // change would look for it on the newly selected clip and lose it.
+        self.flush_commit();
         let already = self.selection.iter().any(|held| held == id);
         self.selection = if additive {
             if already {
@@ -2717,7 +2721,6 @@ impl Studio {
             vec![id.to_owned()]
         };
 
-        self.flush_commit();
         self.begin_echo();
         if edge >= 0 && self.selection.len() <= 1 {
             self.gesture = Gesture::Trim {
@@ -3093,6 +3096,14 @@ impl Studio {
         // painted in memory at the monitor's size, the way a grip drag is,
         // so the picture keeps up with the keystrokes while the commit
         // still lands once, on the way out of the field.
+        //
+        // Pending from the first keystroke, not from the field's blur: the
+        // echo is dropped by anything that changes the edit - a press on a
+        // clip, an undo, a command from the menu - and `flush_commit` only
+        // lands what is pending. Words typed and not yet blurred were on
+        // the echo alone, and went with it. Nothing starts the timer here;
+        // the blur does, and a flush before then lands them too.
+        self.commit_pending = true;
         self.request_preview();
     }
 
@@ -3504,6 +3515,11 @@ impl Studio {
             return;
         }
         let (x, y) = (f64::from(x), f64::from(y));
+        // As on the lanes: what the inspector holds for the current
+        // selection lands before the selection changes under it - and a
+        // press on the floor, which clears it, is the commonest way out of
+        // a title's text field.
+        self.flush_commit();
         let Some(id) = self.stage_hit(x, y) else {
             if !additive {
                 self.selection.clear();
@@ -3537,7 +3553,6 @@ impl Studio {
                 offset_y: clip.offset_y,
             })
             .collect();
-        self.flush_commit();
         self.begin_echo();
         self.stage_guides.clear();
         self.gesture = Gesture::StageMove {
@@ -4654,6 +4669,8 @@ impl Studio {
 
     /// Saves, then closes the session and returns to the launch screen.
     pub fn close_project(&mut self) {
+        // Words still being typed land in the save, not on the floor.
+        self.flush_commit();
         self.pause();
         self.host.cutouts.cancel();
         self.cutout_jobs.clear();
@@ -6323,6 +6340,7 @@ impl Studio {
             }
             "split" => {
                 let at = self.playhead;
+                self.flush_commit();
                 self.selection = vec![id.to_owned()];
                 self.split_at(at, true);
             }
@@ -6368,6 +6386,7 @@ impl Studio {
 
     /// Every clip on an unlocked lane.
     pub fn select_all(&mut self) {
+        self.flush_commit();
         self.selection = self
             .timeline()
             .clips
