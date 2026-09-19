@@ -262,6 +262,9 @@ export global Editor {
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
+    /// The lanes are this wide on screen now, in logical pixels: what
+    /// decides which clips are worth publishing.
+    callback lanes-resized(width: float);
     callback scrubbed(seconds: float);
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);

@@ -60,6 +60,7 @@ use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
+use panes::timeline::TimelineMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -606,13 +607,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the tray ──
     editor.on_tool_changed(on_window!(|state, tool: TimelineTool| {
-        state.tool = tool;
+        state.handle(Msg::Timeline(TimelineMsg::ToolChanged(tool)));
     }));
     editor.on_pan_changed(on_window!(|state, on: bool| {
-        state.pan_mode = on;
+        state.handle(Msg::Timeline(TimelineMsg::PanChanged(on)));
     }));
     editor.on_snap_changed(on_window!(|state, snap: bool| {
-        state.snap = snap;
+        state.handle(Msg::Timeline(TimelineMsg::SnapChanged(snap)));
     }));
     editor.on_add_track(on_window!(|state| {
         state.apply(concat_project::Command::AddTrack);
@@ -633,22 +634,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.seek(seconds.max(0.0));
     }));
     editor.on_scrolled(on_lanes!(|state, seconds: f32| {
-        state.scroll_left = seconds.max(0.0);
+        state.handle(Msg::Timeline(TimelineMsg::Scrolled(seconds)));
     }));
     editor.on_zoom(on_lanes!(|state, factor: f32, anchor: f32| {
-        let before = state.seconds_per_pixel;
-        let after = (before * factor).clamp(0.000_5, 1.5);
-        state.seconds_per_pixel = after;
-        if anchor >= 0.0 {
-            state.scroll_left = (anchor - (anchor - state.scroll_left) * (after / before)).max(0.0);
-        }
+        state.handle(Msg::Timeline(TimelineMsg::Zoomed { factor, anchor }));
     }));
     editor.on_zoom_to_fit(on_lanes!(|state, width: f32| {
-        let span = state.duration().max(1.0) * 1.05;
-        if width > 1.0 {
-            state.seconds_per_pixel = (span / width).clamp(0.000_5, 1.5);
-            state.scroll_left = 0.0;
-        }
+        state.handle(Msg::Timeline(TimelineMsg::ZoomToFit(width)));
+    }));
+    editor.on_lanes_resized(on_lanes!(|state, width: f32| {
+        state.handle(Msg::Timeline(TimelineMsg::Resized(width)));
     }));
 
     // ── lanes ──
@@ -1159,16 +1154,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "close-project" => state.close_project(),
                         "undo" => state.undo(),
                         "redo" => state.redo(),
-                        "snap" => state.snap = !state.snap,
+                        "snap" => state.handle(Msg::Timeline(TimelineMsg::SnapToggled)),
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
                         "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),
                         "sort-kind" => state.handle(Msg::Media(MediaMsg::SortChanged(2))),
-                        "zoom-in" => {
-                            state.seconds_per_pixel = (state.seconds_per_pixel / 1.4).max(0.000_5)
-                        }
-                        "zoom-out" => {
-                            state.seconds_per_pixel = (state.seconds_per_pixel * 1.4).min(1.5)
-                        }
+                        "zoom-in" => state.handle(Msg::Timeline(TimelineMsg::ZoomIn)),
+                        "zoom-out" => state.handle(Msg::Timeline(TimelineMsg::ZoomOut)),
                         "start" => {
                             state.pause();
                             state.seek(0.0);

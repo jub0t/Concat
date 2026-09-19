@@ -56,7 +56,10 @@ pub enum TimelineMsg {
     Scrolled(f32),
     /// The wheel or a pinch: by a factor, about an instant; an anchor
     /// below zero keeps the left edge where it is.
-    Zoomed { factor: f32, anchor: f32 },
+    Zoomed {
+        factor: f32,
+        anchor: f32,
+    },
     /// The whole cut across this many pixels.
     ZoomToFit(f32),
     ZoomIn,
@@ -134,8 +137,7 @@ impl TimelinePane {
         let after = (before * factor).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
         self.seconds_per_pixel = after;
         if anchor >= 0.0 {
-            self.scroll_left =
-                (anchor - (anchor - self.scroll_left) * (after / before)).max(0.0);
+            self.scroll_left = (anchor - (anchor - self.scroll_left) * (after / before)).max(0.0);
         }
     }
 
@@ -176,8 +178,11 @@ mod tests {
     #[test]
     fn the_span_is_a_screen_either_side_of_the_view() {
         // 1000 px at 0.05 s/px is a 50 s screen, looking at 100..150.
-        let span = pane(1000.0, 100.0, 0.05).published_span().expect("a span");
-        assert_eq!(span, (50.0, 250.0));
+        let (from, to) = pane(1000.0, 100.0, 0.05).published_span().expect("a span");
+        assert!(
+            (from - 50.0).abs() < 1e-3 && (to - 200.0).abs() < 1e-3,
+            "{from}..{to}"
+        );
         // Before the lanes have a width, everything is published.
         assert!(pane(0.0, 100.0, 0.05).published_span().is_none());
         assert!(pane(-5.0, 100.0, 0.05).published_span().is_none());

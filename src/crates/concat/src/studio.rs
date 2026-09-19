@@ -210,23 +210,6 @@ pub struct ToastState {
     pub failed: bool,
 }
 
-/// What the window knows about a lane that the document does not: whether
-/// it is locked, and how tall to draw it.
-#[derive(Clone, Copy)]
-pub struct LaneView {
-    pub locked: bool,
-    pub size: TrackSize,
-}
-
-impl Default for LaneView {
-    fn default() -> Self {
-        Self {
-            locked: false,
-            size: TrackSize::Auto,
-        }
-    }
-}
-
 /// Which edge of a clip a trim has hold of.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Edge {
@@ -547,15 +530,11 @@ pub struct Studio {
     waves: RefCell<HashMap<String, SharedString>>,
 
     // ── the view ──
-    pub lane_view: HashMap<String, LaneView>,
+    /// The timeline's view: scroll, zoom, tool, and what the lanes know
+    /// about a track that the document does not.
+    pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
     pub playhead: f32,
-    pub scroll_left: f32,
-    pub seconds_per_pixel: f32,
-    pub tool: TimelineTool,
-    pub snap: bool,
-    /// Hand tool: wheel and drag pan time instead of scrolling the stack.
-    pub pan_mode: bool,
     pub playing: bool,
     transport: slint::Timer,
     /// One clip, held for Paste.
@@ -1211,15 +1190,10 @@ impl Studio {
             art_pending: HashSet::new(),
             window_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
-            lane_view: HashMap::new(),
+            lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
             playhead: 0.0,
-            scroll_left: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
-            seconds_per_pixel: 0.05,
-            tool: TimelineTool::Select,
-            snap: true,
-            pan_mode: false,
             playing: false,
             transport: slint::Timer::default(),
             clipboard: None,
@@ -1334,11 +1308,15 @@ impl Studio {
     }
 
     pub fn locked(&self, track_id: &str) -> bool {
-        self.lane_view.get(track_id).is_some_and(|view| view.locked)
+        self.lanes
+            .lane_view
+            .get(track_id)
+            .is_some_and(|view| view.locked)
     }
 
     fn lane_size(&self, track_id: &str) -> TrackSize {
-        self.lane_view
+        self.lanes
+            .lane_view
             .get(track_id)
             .map_or(TrackSize::Auto, |view| view.size)
     }
@@ -1394,7 +1372,7 @@ impl Studio {
     /// Clip edges, the playhead and zero all pull, and the nearest inside
     /// the threshold wins.
     pub fn snapped(&self, time: f32, threshold: f32, exclude: &str) -> f32 {
-        if !self.snap {
+        if !self.lanes.snap {
             return time;
         }
         let mut best = time;
@@ -2183,7 +2161,7 @@ impl Studio {
             return None;
         }
         plan.start = self
-            .snapped(seconds.max(0.0), 8.0 * self.seconds_per_pixel, "")
+            .snapped(seconds.max(0.0), 8.0 * self.lanes.seconds_per_pixel, "")
             .max(0.0);
         Some(plan)
     }
@@ -2748,7 +2726,7 @@ impl Studio {
                     self.gesture = gesture;
                     return;
                 };
-                let threshold = 8.0 * self.seconds_per_pixel;
+                let threshold = 8.0 * self.lanes.seconds_per_pixel;
                 let snapped = self.snapped(anchor.start + seconds, threshold, primary);
                 let shift = snapped - anchor.start;
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
@@ -2782,7 +2760,7 @@ impl Studio {
             } => {
                 let (id, edge) = (clip.clone(), *edge);
                 let (start, duration, source_start) = (*start, *duration, *source_start);
-                let threshold = 8.0 * self.seconds_per_pixel;
+                let threshold = 8.0 * self.lanes.seconds_per_pixel;
                 let speed = self.clip(&id).map_or(1.0, |clip| clip.speed as f32);
                 if edge == Edge::Start {
                     // The head cannot pass the tail, and cannot pull material
@@ -3630,7 +3608,7 @@ impl Studio {
                     }
                 }
                 self.stage_guides.clear();
-                if self.snap {
+                if self.lanes.snap {
                     // The same pull on both axes, in frame pixels: a
                     // hundredth of the long side, which is about eight
                     // pixels on a stage of the size a laptop gives it.
@@ -3698,7 +3676,7 @@ impl Studio {
                     next = (next * 20.0).round() / 20.0;
                 }
                 self.stage_guides.clear();
-                if self.snap && *scale > 0.0 {
+                if self.lanes.snap && *scale > 0.0 {
                     // The edges pull to the same lines a move pulls to - the
                     // frame's, and every other picture's - but here the pull
                     // sets the size, not the place: the scale that lands the
@@ -4505,9 +4483,10 @@ impl Studio {
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();
                 self.media.selected.clear();
-                self.lane_view.clear();
                 self.playhead = 0.0;
-                self.scroll_left = 0.0;
+                self.handle(crate::panes::Msg::Timeline(
+                    crate::panes::timeline::TimelineMsg::Reset,
+                ));
                 self.on_start = false;
                 self.handle(crate::panes::Msg::Monitor(
                     crate::panes::monitor::MonitorMsg::Opened,
@@ -4677,6 +4656,11 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.monitor);
                 pane.update(msg, self);
                 self.monitor = pane;
+            }
+            crate::panes::Msg::Timeline(msg) => {
+                let mut pane = std::mem::take(&mut self.lanes);
+                pane.update(msg, self);
+                self.lanes = pane;
             }
         }
     }
@@ -4855,11 +4839,21 @@ impl Studio {
                 .collect(),
         );
 
+        // Only the clips near the view: what the lanes show plus a screen
+        // either side; see `TimelinePane::published_span`.
+        let span = self.lanes.published_span();
         sync(
             &models.clips,
             timeline
                 .clips
                 .iter()
+                .filter(|clip| {
+                    crate::panes::timeline::TimelinePane::shows(
+                        span,
+                        clip.start as f32,
+                        clip.duration as f32,
+                    )
+                })
                 .map(|clip| ClipData {
                     id: clip.id.as_str().into(),
                     name: clip.name.as_str().into(),
@@ -4964,12 +4958,12 @@ impl Studio {
             .unwrap_or(0);
         editor.set_timeline_current_tab(active as i32);
         editor.set_playhead(self.playhead);
-        editor.set_scroll_left(self.scroll_left);
-        editor.set_seconds_per_pixel(self.seconds_per_pixel);
+        editor.set_scroll_left(self.lanes.scroll_left);
+        editor.set_seconds_per_pixel(self.lanes.seconds_per_pixel);
         editor.set_frame_rate(self.frame_rate());
-        editor.set_tool(self.tool);
-        editor.set_snap(self.snap);
-        editor.set_pan_mode(self.pan_mode);
+        editor.set_tool(self.lanes.tool);
+        editor.set_snap(self.lanes.snap);
+        editor.set_pan_mode(self.lanes.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
         let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
@@ -5932,7 +5926,7 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: self.snap,
+                    checked: self.lanes.snap,
                 },
             ],
             2 => vec![
@@ -5971,7 +5965,7 @@ impl Studio {
                 value: muted,
             });
         }
-        let view = self.lane_view.entry(track.id.clone()).or_default();
+        let view = self.lanes.lane_view.entry(track.id.clone()).or_default();
         view.locked = locked;
         if locked {
             let doomed: Vec<String> = self
@@ -5996,7 +5990,7 @@ impl Studio {
 
     pub fn set_lane_size(&mut self, row: i32, size: TrackSize) {
         if let Some(id) = self.row_track(row).map(|track| track.id.clone()) {
-            self.lane_view.entry(id).or_default().size = size;
+            self.lanes.lane_view.entry(id).or_default().size = size;
         }
     }
 
@@ -6067,7 +6061,7 @@ impl Studio {
     }
 
     pub fn toggle_lock(&mut self, track_id: &str) {
-        let view = self.lane_view.entry(track_id.to_owned()).or_default();
+        let view = self.lanes.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
         if view.locked {
             let doomed: Vec<String> = self
@@ -6143,10 +6137,10 @@ impl Studio {
                     }
                 }
             }
-            "tool-select" => self.tool = TimelineTool::Select,
+            "tool-select" => self.lanes.tool = TimelineTool::Select,
             // B toggles: pressing it with the razor up puts the pointer back.
             "tool-razor" => {
-                self.tool = if self.tool == TimelineTool::Razor {
+                self.lanes.tool = if self.lanes.tool == TimelineTool::Razor {
                     TimelineTool::Select
                 } else {
                     TimelineTool::Razor

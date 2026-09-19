@@ -22,6 +22,7 @@ pub mod relink;
 pub mod settings;
 pub mod speech;
 pub mod start;
+pub mod timeline;
 
 /// One thing that happened, to one pane.
 #[derive(Debug)]
@@ -44,4 +45,6 @@ pub enum Msg {
     Media(media_bin::MediaMsg),
     /// To the monitor.
     Monitor(monitor::MonitorMsg),
+    /// To the timeline's view.
+    Timeline(timeline::TimelineMsg),
 }
