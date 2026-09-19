@@ -294,13 +294,15 @@ component Clip inherits Rectangle {
 
         // The sound band under a video's frames: a hairline off the frames,
         // the waveform when the file has sound and its peaks have come, the
-        // centre line either way.
+        // centre line either way. In the video's blue, well and wave both:
+        // the band is part of the video clip, and green would say there
+        // was a sound clip here.
         if root.banded && root.band-h > 0px: Rectangle {
             x: 0;
             y: root.frames-h;
             width: parent.width;
             height: root.band-h;
-            background: Theme.kind-audio-well.with-alpha(0.55);
+            background: Theme.kind-video-well.with-alpha(0.55);
             clip: true;
 
             Rectangle {
@@ -320,7 +322,7 @@ component Clip inherits Rectangle {
                 viewbox-width: 1;
                 viewbox-height: 1;
                 fit: fill;
-                fill: Theme.wave;
+                fill: Theme.wave-video;
             }
 
             Rectangle {
