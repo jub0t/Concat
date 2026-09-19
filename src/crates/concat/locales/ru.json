@@ -712,6 +712,9 @@
   "Tear": "Разрыв",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "Изображение как фантастическая проекция: оттенок заменён синим градиентом, края светятся, строки развёртки плывут, проходит полоса обновления, разрывы и зерно.",
   "Token": "Токен",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "Что соединение должно предъявить перед первым вызовом. Пустое значение на 127.0.0.1 впускает всё с этого компьютера.",
-  "{0} is not an address like 127.0.0.1:7420": "{0} — не адрес вида 127.0.0.1:7420"
+  "{0} is not an address like 127.0.0.1:7420": "{0} — не адрес вида 127.0.0.1:7420",
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Что соединение должно предъявить перед первым вызовом. Если оставить пустым, сервер сам придумает его при каждом запуске и покажет здесь.",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }

@@ -51,7 +51,16 @@ mod sysinfo;
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
 use panes::Msg;
+use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
+use panes::media_bin::MediaMsg;
+use panes::monitor::MonitorMsg;
+use panes::project::ProjectMsg;
+use panes::relink::RelinkMsg;
+use panes::settings::SettingsMsg;
+use panes::speech::SpeechMsg;
+use panes::start::StartMsg;
+use panes::timeline::TimelineMsg;
 use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
 use ui::*;
 
@@ -87,7 +96,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         Shell::with(|shell, app| {
             {
                 let mut studio = shell.studio.borrow_mut();
-                studio.import(paths);
+                studio.handle(Msg::Media(MediaMsg::Import(paths)));
             }
             shell.studio.borrow_mut().refresh_art();
             shell.studio.borrow().publish(&app, &shell.models);
@@ -317,36 +326,31 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the launch screen ──
     app.on_start_name_edited(on_window!(|state, name: SharedString| {
-        state.start.name = name.to_string();
+        state.handle(Msg::Start(StartMsg::NameEdited(name.to_string())));
     }));
     app.on_start_location_edited(on_window!(|state, path: SharedString| {
-        state.start.location = path.to_string();
+        state.handle(Msg::Start(StartMsg::LocationEdited(path.to_string())));
     }));
     app.on_start_resolution_changed(on_window!(|state, index: i32| {
-        state.start.resolution = (index.max(0) as usize).min(RESOLUTIONS.len() - 1);
+        state.handle(Msg::Start(StartMsg::ResolutionChanged(index)));
     }));
     app.on_start_rate_changed(on_window!(|state, index: i32| {
-        state.start.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+        state.handle(Msg::Start(StartMsg::RateChanged(index)));
     }));
     app.on_start_dismiss_error(on_window!(|state| {
-        state.start.error.clear();
+        state.handle(Msg::Start(StartMsg::DismissError));
     }));
     app.on_start_browse(on_window!(|state| {
-        if let Some(folder) = platform::pick_folder(
-            &i18n::t("Where should the project folder go?"),
-            &state.start.location,
-        ) {
-            state.start.location = folder.to_string_lossy().into_owned();
-        }
+        state.handle(Msg::Start(StartMsg::Browse));
     }));
     app.on_start_create(on_window!(|state| {
-        state.create_project();
+        state.handle(Msg::Start(StartMsg::Create));
     }));
     app.on_start_open_recent(on_window!(|state, path: SharedString| {
-        state.open_recent(path.as_str());
+        state.handle(Msg::Start(StartMsg::OpenRecent(path.to_string())));
     }));
     app.on_start_forget_recent(on_window!(|state, path: SharedString| {
-        state.forget_recent(path.as_str());
+        state.handle(Msg::Start(StartMsg::ForgetRecent(path.to_string())));
     }));
 
     // ── the workspace's arrangement ──
@@ -453,15 +457,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the bin ──
     editor.on_media_filter_changed(on_window!(|state, filter: MediaFilter| {
-        state.set_media_filter(filter);
+        state.handle(Msg::Media(MediaMsg::FilterChanged(filter)));
     }));
     editor.on_media_sort_changed(on_window!(|state, index: i32| {
-        // Slint hands indices over as i32; the sort is an index into a
-        // three-entry table, so clamp negatives to the default order.
-        state.set_media_sort(index.max(0) as usize);
+        state.handle(Msg::Media(MediaMsg::SortChanged(index)));
     }));
-    editor.on_media_select(on_window!(|state, id: i32, additive: bool| {
-        state.media_select(id, additive);
+    editor.on_media_select(on_window!(|state, row: i32, additive: bool| {
+        state.handle(Msg::Media(MediaMsg::Select { row, additive }));
     }));
     editor.on_media_band_selected(on_window!(
         |state,
@@ -471,14 +473,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
          from_row: i32,
          to_row: i32,
          additive: bool| {
-            state.media_band(columns, from_col, to_col, from_row, to_row, additive);
+            state.handle(Msg::Media(MediaMsg::Band {
+                columns,
+                from_col,
+                to_col,
+                from_row,
+                to_row,
+                additive,
+            }));
         }
     ));
-    editor.on_media_remove(on_window!(|state, id: i32| {
-        state.media_remove(id);
+    editor.on_media_remove(on_window!(|state, row: i32| {
+        state.handle(Msg::Media(MediaMsg::Remove(row)));
     }));
     editor.on_media_remove_selected(on_window!(|state| {
-        state.media_remove_selected();
+        state.handle(Msg::Media(MediaMsg::RemoveSelected));
     }));
     // Not through the handler macro: nothing here changes the state, and
     // the import is asynchronous - a phone's picker is another screen, and
@@ -498,7 +507,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
                     ],
                 )),
-                |paths| on_ui(move |studio, _, _| studio.import(paths)),
+                |paths| {
+                    on_ui(move |studio, _, _| studio.handle(Msg::Media(MediaMsg::Import(paths))))
+                },
             );
         });
     });
@@ -596,13 +607,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the tray ──
     editor.on_tool_changed(on_window!(|state, tool: TimelineTool| {
-        state.tool = tool;
+        state.handle(Msg::Timeline(TimelineMsg::ToolChanged(tool)));
     }));
     editor.on_pan_changed(on_window!(|state, on: bool| {
-        state.pan_mode = on;
+        state.handle(Msg::Timeline(TimelineMsg::PanChanged(on)));
     }));
     editor.on_snap_changed(on_window!(|state, snap: bool| {
-        state.snap = snap;
+        state.handle(Msg::Timeline(TimelineMsg::SnapChanged(snap)));
     }));
     editor.on_add_track(on_window!(|state| {
         state.apply(concat_project::Command::AddTrack);
@@ -623,22 +634,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.seek(seconds.max(0.0));
     }));
     editor.on_scrolled(on_lanes!(|state, seconds: f32| {
-        state.scroll_left = seconds.max(0.0);
+        state.handle(Msg::Timeline(TimelineMsg::Scrolled(seconds)));
     }));
     editor.on_zoom(on_lanes!(|state, factor: f32, anchor: f32| {
-        let before = state.seconds_per_pixel;
-        let after = (before * factor).clamp(0.000_5, 1.5);
-        state.seconds_per_pixel = after;
-        if anchor >= 0.0 {
-            state.scroll_left = (anchor - (anchor - state.scroll_left) * (after / before)).max(0.0);
-        }
+        state.handle(Msg::Timeline(TimelineMsg::Zoomed { factor, anchor }));
     }));
     editor.on_zoom_to_fit(on_lanes!(|state, width: f32| {
-        let span = state.duration().max(1.0) * 1.05;
-        if width > 1.0 {
-            state.seconds_per_pixel = (span / width).clamp(0.000_5, 1.5);
-            state.scroll_left = 0.0;
-        }
+        state.handle(Msg::Timeline(TimelineMsg::ZoomToFit(width)));
+    }));
+    editor.on_lanes_resized(on_lanes!(|state, width: f32| {
+        state.handle(Msg::Timeline(TimelineMsg::Resized(width)));
     }));
 
     // ── lanes ──
@@ -830,8 +835,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.set_output((index.max(0) as usize).min(OUTPUTS.len() - 1));
     }));
     editor.on_quality_changed(on_window!(|state, index: i32| {
-        state.set_quality(index.max(0) as usize);
-        state.request_preview();
+        state.handle(Msg::Monitor(MonitorMsg::QualityChanged(index)));
     }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
@@ -918,30 +922,29 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the project sheet ──
     editor.on_modify_project(on_window!(|state| {
-        state.project_sheet_open();
+        state.handle(Msg::Project(ProjectMsg::Open));
     }));
     app.on_project_closed(on_window!(|state| {
-        state.project_sheet.open = false;
+        state.handle(Msg::Project(ProjectMsg::Close));
     }));
     app.on_project_name_edited(on_window!(|state, name: SharedString| {
-        state.project_sheet.name = name.to_string();
+        state.handle(Msg::Project(ProjectMsg::NameEdited(name.to_string())));
     }));
     app.on_project_size_changed(on_window!(|state, index: i32| {
-        state.project_sheet.size = index;
+        state.handle(Msg::Project(ProjectMsg::SizeChanged(index)));
     }));
     app.on_project_rate_changed(on_window!(|state, index: i32| {
-        state.project_sheet.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+        state.handle(Msg::Project(ProjectMsg::RateChanged(index)));
     }));
     app.on_project_apply(on_window!(|state| {
-        state.project_apply();
+        state.handle(Msg::Project(ProjectMsg::Apply));
     }));
 
     app.on_relink_all(on_window!(|state| {
-        state.relink_all();
+        state.handle(Msg::Relink(RelinkMsg::RelinkAll));
     }));
-
     app.on_relink_dismiss(on_window!(|state| {
-        state.relink.open = false;
+        state.handle(Msg::Relink(RelinkMsg::Dismiss));
     }));
 
     // ── the dialogs ──
@@ -949,8 +952,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Export(ExportMsg::Open));
     }));
     app.on_open_settings(on_window!(|state| {
-        state.refresh_models();
-        state.settings.open = true;
+        state.handle(Msg::Settings(SettingsMsg::Open));
     }));
     // The theme is one bool on the Theme global, and every colour in the
     // tree is a binding away from it; it is also remembered.
@@ -968,7 +970,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Export(ExportMsg::Close));
     }));
     app.on_settings_closed(on_window!(|state| {
-        state.settings.open = false;
+        state.handle(Msg::Settings(SettingsMsg::Close));
     }));
     app.on_export_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Export(ExportMsg::NameEdited(name.to_string())));
@@ -1006,148 +1008,109 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── settings ──
     app.on_settings_page_changed(on_window!(|state, index: i32| {
-        state.settings.tab = index;
+        state.handle(Msg::Settings(SettingsMsg::PageChanged(index)));
     }));
     app.on_settings_show_log(on_window!(|state| {
-        // The file this run is writing, when there is one, so the manager
-        // opens with it selected; the folder when there is not, which is
-        // still where the previous runs are.
-        let target = concat_host::logs::current()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_else(|| concat_host::logs::folder(&state.host.dirs));
-        if let Err(error) = platform::reveal(&target.to_string_lossy()) {
-            state.notify(&i18n::tf("Could not show the log: {0}", &[&error]), true);
-        }
+        state.handle(Msg::Settings(SettingsMsg::ShowLog));
     }));
     app.on_settings_language_changed(on_window!(|state, index: i32| {
-        let index = index.max(0) as usize;
-        if let Some(language) = state.languages.get(index).cloned() {
-            state.settings.language = index;
-            state.prefs.locale = Some(language.code.clone());
-            // The words change on the publish that follows: Rust's on
-            // their way through `t`, the tree's through `I18n.lang`.
-            i18n::select(&language.code, &state.host.dirs);
-        }
-        state.prefs.save(&state.host.dirs);
+        state.handle(Msg::Settings(SettingsMsg::LanguageChanged(index)));
     }));
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
-        state.settings.playhead_stops = on;
-        state.prefs.playhead_stops_at_end = on;
-        state.prefs.save(&state.host.dirs);
-        // A playhead already out past the end comes back in when the
-        // switch goes on; seek does the clamp.
-        let at = state.playhead;
-        state.seek(at);
+        state.handle(Msg::Settings(SettingsMsg::PlayheadStopsChanged(on)));
     }));
     app.on_settings_custom_context_actions_changed(on_window!(|state, on: bool| {
-        state.settings.custom_context_actions = on;
-        state.prefs.custom_context_actions = on;
-        state.prefs.save(&state.host.dirs);
+        state.handle(Msg::Settings(SettingsMsg::CustomContextActionsChanged(on)));
     }));
-
+    app.on_settings_hardware_decode_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::HardwareDecodeChanged(on)));
+    }));
     app.on_settings_download_source_changed(on_window!(|state, index: i32| {
-        use concat_host::models::SourcePreference;
-        let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
-        state.settings.download_source = index;
-        state.prefs.download_source = Some(SourcePreference::ALL[index].name().to_owned());
-        state.prefs.save(&state.host.dirs);
-        state.apply_download_source();
+        state.handle(Msg::Settings(SettingsMsg::DownloadSourceChanged(index)));
     }));
     app.on_settings_download_base_edited(on_window!(|state, text: SharedString| {
-        let base = text.trim().to_owned();
-        state.settings.download_base = base.clone();
-        state.prefs.download_base = (!base.is_empty()).then_some(base);
-        state.prefs.save(&state.host.dirs);
-        state.apply_download_source();
+        state.handle(Msg::Settings(SettingsMsg::DownloadBaseEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_enabled_changed(on_window!(|state, on: bool| {
-        state.prefs.server.enabled = on;
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerEnabledChanged(on)));
     }));
     app.on_settings_server_listen_edited(on_window!(|state, text: SharedString| {
-        let listen = text.trim().to_owned();
-        state.prefs.server.listen = if listen.is_empty() {
-            prefs::DEFAULT_LISTEN.to_owned()
-        } else {
-            listen
-        };
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerListenEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_token_edited(on_window!(|state, text: SharedString| {
-        state.prefs.server.token = text.trim().to_owned();
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerTokenEdited(
+            text.to_string(),
+        )));
     }));
     app.on_settings_server_token_generated(on_window!(|state| {
-        state.prefs.server.token = Studio::new_token();
-        state.prefs.save(&state.host.dirs);
-        state.apply_server();
+        state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
     }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
-        state.model_activate(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelActivated(id.to_string())));
     }));
     app.on_model_download(on_window!(|state, id: SharedString| {
-        state.model_download(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelDownload(id.to_string())));
     }));
     app.on_model_cancel(on_window!(|state, id: SharedString| {
-        state.model_cancel(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelCancel(id.to_string())));
     }));
     app.on_model_remove(on_window!(|state, id: SharedString| {
-        state.model_remove(id.as_str());
+        state.handle(Msg::Settings(SettingsMsg::ModelRemove(id.to_string())));
     }));
 
     // ── the tray's sound and word tools ──
     editor.on_captions(on_window!(|state| {
-        state.captions_open();
+        state.handle(Msg::Captions(CaptionsMsg::Open));
     }));
     editor.on_speak(on_window!(|state| {
-        state.speech_open();
+        state.handle(Msg::Speech(SpeechMsg::Open));
     }));
 
     app.on_captions_closed(on_window!(|state| {
-        state.captions.open = false;
+        state.handle(Msg::Captions(CaptionsMsg::Close));
     }));
     app.on_captions_text_edited(on_window!(|state, text: SharedString| {
-        state.captions.text = text.to_string();
+        state.handle(Msg::Captions(CaptionsMsg::TextEdited(text.to_string())));
     }));
     app.on_captions_model_changed(on_window!(|state, index: i32| {
-        state.captions.model = index.max(0) as usize;
+        state.handle(Msg::Captions(CaptionsMsg::ModelChanged(index)));
     }));
     app.on_captions_placement_changed(on_window!(|state, index: i32| {
-        state.captions.placement = (index.max(0) as usize).min(2);
+        state.handle(Msg::Captions(CaptionsMsg::PlacementChanged(index)));
     }));
     app.on_captions_size_changed(on_window!(|state, index: i32| {
-        state.captions.size = (index.max(0) as usize).min(2);
+        state.handle(Msg::Captions(CaptionsMsg::SizeChanged(index)));
     }));
     app.on_captions_begin(on_window!(|state| {
-        state.captions_run();
+        state.handle(Msg::Captions(CaptionsMsg::Begin));
     }));
     app.on_captions_cancel(on_window!(|state| {
-        state.captions_cancel();
+        state.handle(Msg::Captions(CaptionsMsg::Cancel));
     }));
-
     app.on_speech_closed(on_window!(|state| {
-        state.speech.open = false;
+        state.handle(Msg::Speech(SpeechMsg::Close));
     }));
     app.on_speech_text_edited(on_window!(|state, text: SharedString| {
-        state.speech.text = text.to_string();
+        state.handle(Msg::Speech(SpeechMsg::TextEdited(text.to_string())));
     }));
     app.on_speech_voice_changed(on_window!(|state, index: i32| {
-        state.speech.voice = index.max(0) as usize;
+        state.handle(Msg::Speech(SpeechMsg::VoiceChanged(index)));
     }));
     app.on_speech_model_changed(on_window!(|state, index: i32| {
-        state.speech.model = index.max(0) as usize;
+        state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
     }));
     app.on_speech_pace_changed(on_window!(|state, index: i32| {
-        state.speech.pace = (index.max(0) as usize).min(2);
+        state.handle(Msg::Speech(SpeechMsg::PaceChanged(index)));
     }));
     app.on_speech_begin(on_window!(|state| {
-        state.speech_run();
+        state.handle(Msg::Speech(SpeechMsg::Begin));
     }));
     app.on_speech_cancel(on_window!(|state| {
-        state.speech_cancel();
+        state.handle(Msg::Speech(SpeechMsg::Cancel));
     }));
 
     // ── the title-bar menus ──
@@ -1162,13 +1125,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     let mut state = shell.studio.borrow_mut();
                     state.open_menu = -1;
                     match action.as_str() {
-                        "add-selected" => state.add_selected_media(),
+                        "add-selected" => state.handle(Msg::Media(MediaMsg::AddSelectedAtPlayhead)),
                         "open" => {
                             if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
                             {
                                 let concat_json = path.join("concat.json");
                                 if concat_json.exists() {
-                                    state.open_recent(&path.to_string_lossy());
+                                    state.handle(Msg::Start(StartMsg::OpenRecent(
+                                        path.to_string_lossy().into_owned(),
+                                    )));
                                 } else {
                                     state.notify("Not a valid project folder", true);
                                 }
@@ -1176,30 +1141,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         }
                         "import" => {
                             platform::pick_files_async(&i18n::t("Import media"), None, |paths| {
-                                on_ui(move |studio, _, _| studio.import(paths))
+                                on_ui(move |studio, _, _| {
+                                    studio.handle(Msg::Media(MediaMsg::Import(paths)))
+                                })
                             });
                         }
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
-                        "speech" => state.speech_open(),
+                        "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
                         "clear-cache" => state.clear_project_cache(),
-                        "settings" => {
-                            state.refresh_models();
-                            state.settings.open = true;
-                        }
+                        "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
                         "close-project" => state.close_project(),
                         "undo" => state.undo(),
                         "redo" => state.redo(),
-                        "snap" => state.snap = !state.snap,
-                        "sort-added" => state.set_media_sort(0),
-                        "sort-name" => state.set_media_sort(1),
-                        "sort-kind" => state.set_media_sort(2),
-                        "zoom-in" => {
-                            state.seconds_per_pixel = (state.seconds_per_pixel / 1.4).max(0.000_5)
-                        }
-                        "zoom-out" => {
-                            state.seconds_per_pixel = (state.seconds_per_pixel * 1.4).min(1.5)
-                        }
+                        "snap" => state.handle(Msg::Timeline(TimelineMsg::SnapToggled)),
+                        "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
+                        "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),
+                        "sort-kind" => state.handle(Msg::Media(MediaMsg::SortChanged(2))),
+                        "zoom-in" => state.handle(Msg::Timeline(TimelineMsg::ZoomIn)),
+                        "zoom-out" => state.handle(Msg::Timeline(TimelineMsg::ZoomOut)),
                         "start" => {
                             state.pause();
                             state.seek(0.0);

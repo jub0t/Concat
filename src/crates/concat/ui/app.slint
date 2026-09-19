@@ -190,6 +190,7 @@ export component App inherits Window {
     callback settings-theme-changed(dark: bool);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-custom-context-actions-changed(on: bool);
+    callback settings-hardware-decode-changed(on: bool);
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
     callback settings-server-enabled-changed(on: bool);
@@ -490,6 +491,7 @@ export component App inherits Window {
         theme-changed(dark) => { root.settings-theme-changed(dark); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         custom-context-actions-changed(on) => { root.settings-custom-context-actions-changed(on); }
+        hardware-decode-changed(on) => { root.settings-hardware-decode-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }
         server-enabled-changed(on) => { root.settings-server-enabled-changed(on); }

@@ -53,6 +53,7 @@ export component TimelinePane inherits Rectangle {
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
+    callback lanes-resized(width: float);
 
     // ── the grid ─────────────────────────────────────────────────────────
     in property <[TrackData]> tracks;
@@ -289,6 +290,10 @@ export component TimelinePane inherits Rectangle {
                         Math.min(root.overflow, root.at + pixels));
                 }
                 zoomed(factor, anchor) => { root.zoom(factor, anchor); }
+                // How wide the lanes are decides which clips Rust sends;
+                // reported as it changes, and once at first layout.
+                changed width => { root.lanes-resized(self.width / 1px); }
+                init => { root.lanes-resized(self.width / 1px); }
             }
         }
     }

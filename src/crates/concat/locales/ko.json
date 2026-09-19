@@ -712,6 +712,9 @@
   "Tear": "찢김",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "SF 영화의 투영처럼 보이는 화면: 색상은 파란 그라데이션으로 바뀌고, 가장자리가 빛나며, 주사선이 흐르고, 새로 고침 띠가 지나가며, 찢김과 입자가 더해집니다.",
   "Token": "토큰",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "연결이 첫 호출 전에 제시해야 하는 값입니다. 127.0.0.1에서 비워 두면 이 컴퓨터의 무엇이든 들어올 수 있습니다.",
-  "{0} is not an address like 127.0.0.1:7420": "{0}은(는) 127.0.0.1:7420 같은 주소가 아닙니다"
+  "{0} is not an address like 127.0.0.1:7420": "{0}은(는) 127.0.0.1:7420 같은 주소가 아닙니다",
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "연결이 첫 호출 전에 제시해야 하는 값입니다. 비워 두면 서버가 시작할 때마다 하나를 만들어 여기에 표시합니다.",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }

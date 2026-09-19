@@ -148,6 +148,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds")
             .created_id
@@ -526,6 +527,44 @@ mod tests {
                 crate::CommandError::NotANumber
             );
         }
+        assert_eq!(editor.project(), &before, "nothing changed");
+    }
+
+    #[test]
+    fn nan_in_transition_or_text_patch_is_refused() {
+        let (mut editor, _, clip_id) = fixture();
+        let before = editor.project().clone();
+        // A transition whose duration is NaN must be caught.
+        let bad_transition = Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                transition_in: Some(Some(crate::model::Transition {
+                    id: "cross-fade".to_owned(),
+                    duration: f64::NAN,
+                })),
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            editor.apply(bad_transition).expect_err("refused"),
+            crate::CommandError::NotANumber
+        );
+        // A text style whose font_size is infinite must be caught.
+        let style = TextStyle {
+            font_size: f64::INFINITY,
+            ..Default::default()
+        };
+        let bad_text = Command::UpdateClip {
+            clip_id: clip_id.clone(),
+            patch: ClipPatch {
+                text: Some(Some(style)),
+                ..Default::default()
+            },
+        };
+        assert_eq!(
+            editor.apply(bad_text).expect_err("refused"),
+            crate::CommandError::NotANumber
+        );
         assert_eq!(editor.project(), &before, "nothing changed");
     }
 
@@ -1190,6 +1229,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds")
             .created_id
@@ -1789,6 +1829,7 @@ mod tests {
         let mut editor = Editor::new();
         let clip_id = editor
             .apply(Command::AddTextClip {
+                above: false,
                 track_id: None,
                 start: 2.0,
                 style: Some(TextStyle {
@@ -1825,6 +1866,190 @@ mod tests {
         let document = editor.to_document(&settings());
         let restored = Editor::from_document(&document).expect("loads");
         assert_eq!(restored.project(), editor.project());
+    }
+
+    #[test]
+    fn a_caption_lands_above_the_highest_occupied_lane() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let video_track = editor.project().active().tracks[2].id.clone();
+        editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id: video_track.clone(),
+                start: 0.0,
+            })
+            .expect("adds");
+
+        let caption_id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "hi".to_owned(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(5.0),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+
+        let caption = editor.project().active().clip(&caption_id).expect("exists");
+        let tracks = &editor.project().active().tracks;
+        let caption_row = tracks
+            .iter()
+            .position(|t| t.id == caption.track_id)
+            .expect("row");
+        let video_row = tracks
+            .iter()
+            .position(|t| t.id == video_track)
+            .expect("row");
+        assert!(
+            caption_row > video_row,
+            "a caption must land above the video, not under it"
+        );
+    }
+
+    #[test]
+    fn a_caption_on_an_empty_timeline_lands_on_the_bottom_lane() {
+        let mut editor = Editor::new();
+        let caption_id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "hi".to_owned(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(5.0),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+
+        let caption = editor.project().active().clip(&caption_id).expect("exists");
+        let tracks = &editor.project().active().tracks;
+        let caption_row = tracks
+            .iter()
+            .position(|t| t.id == caption.track_id)
+            .expect("row");
+        assert_eq!(
+            caption_row, 0,
+            "with nothing occupied, the caption takes the bottom lane"
+        );
+    }
+
+    #[test]
+    fn a_plain_title_still_lands_on_the_first_free_lane_from_the_bottom() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let video_track = editor.project().active().tracks[2].id.clone();
+        editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id: video_track,
+                start: 0.0,
+            })
+            .expect("adds");
+
+        let title_id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: false,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "title".to_owned(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(5.0),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+
+        let title = editor.project().active().clip(&title_id).expect("exists");
+        let tracks = &editor.project().active().tracks;
+        let title_row = tracks
+            .iter()
+            .position(|t| t.id == title.track_id)
+            .expect("row");
+        assert_eq!(
+            title_row, 0,
+            "a plain title keeps the old bottom-first behaviour"
+        );
+    }
+
+    #[test]
+    fn a_caption_mints_a_new_lane_when_every_lane_above_is_taken() {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let track_ids: Vec<String> = editor
+            .project()
+            .active()
+            .tracks
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        for track_id in &track_ids {
+            editor
+                .apply(Command::AddClip {
+                    media_id: media_id.clone(),
+                    track_id: track_id.clone(),
+                    start: 0.0,
+                })
+                .expect("adds");
+        }
+
+        let caption_id = editor
+            .apply(Command::AddTextClip {
+                track_id: None,
+                above: true,
+                start: 0.0,
+                style: Some(TextStyle {
+                    content: "hi".to_owned(),
+                    ..TextStyle::default()
+                }),
+                duration: Some(5.0),
+                offset_y: None,
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+
+        let caption = editor.project().active().clip(&caption_id).expect("exists");
+        let tracks = &editor.project().active().tracks;
+        assert_eq!(
+            tracks.len(),
+            track_ids.len() + 1,
+            "one lane was minted at the top for the caption"
+        );
+        let caption_row = tracks
+            .iter()
+            .position(|t| t.id == caption.track_id)
+            .expect("row");
+        assert_eq!(
+            caption_row,
+            track_ids.len(),
+            "the caption sits on the newly minted top lane"
+        );
     }
 
     #[test]
@@ -2154,6 +2379,7 @@ mod tests {
                 media_id: media_id.clone(),
                 track_id,
                 start: 0.0,
+                ripple: false,
             })
             .expect("adds");
 
@@ -2348,6 +2574,7 @@ mod tests {
 
         let clip_id = editor
             .apply(Command::AddTextClip {
+                above: false,
                 track_id: None,
                 start: 0.0,
                 style: Some(TextStyle {
@@ -2411,12 +2638,14 @@ mod tests {
                 media_id: "m1".to_owned(),
                 track_id: "T1".to_owned(),
                 start: 1.0,
+                ripple: false,
             },
             Command::AddClipAtFirstFree {
                 media_id: "m1".to_owned(),
                 start: 2.0,
             },
             Command::AddTextClip {
+                above: false,
                 track_id: Some("T1".to_owned()),
                 start: 0.0,
                 style: Some(TextStyle::default()),

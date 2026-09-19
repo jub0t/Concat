@@ -52,6 +52,11 @@ export struct SettingsData {
     playhead-stops: bool,
     /// show flip/reverse in clip context menu
     custom-context-actions: bool,
+    /// video decodes on the platform's own hardware
+    hardware-decode: bool,
+    /// this build and machine have hardware to decode on; off, the
+    /// switch is not shown
+    hardware-decode-offered: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -61,7 +66,8 @@ export struct SettingsData {
     server-enabled: bool,
     /// "127.0.0.1:7420"
     server-listen: string,
-    /// what a connection presents first; empty for none
+    /// what a connection presents first: the chosen one, or the one the
+    /// server made up when none was chosen
     server-token: string,
     /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
     server-status: string,
@@ -361,6 +367,7 @@ export component SettingsDialog inherits Modal {
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
+    callback hardware-decode-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
@@ -539,6 +546,33 @@ export component SettingsDialog inherits Modal {
                     }
                 }
 
+                // The platform's own decoder, where the build has one.
+                if root.data.hardware-decode-offered: DialogSection {
+                    title: I18n.t("Decoding");
+                    hint: I18n.t("On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Decode on the hardware");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.hardware-decode;
+                                toggled(on) => { root.hardware-decode-changed(on); }
+                            }
+                        }
+                    }
+                }
+
                 // The models are open weights from elsewhere, mirrored so
                 // they stay reachable; where a download looks first is a
                 // matter of where you are. Every source is still tried.
@@ -702,7 +736,7 @@ export component SettingsDialog inherits Modal {
 
                 DialogSection {
                     title: I18n.t("Token");
-                    hint: I18n.t("What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.");
+                    hint: I18n.t("What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.");
 
                     HorizontalLayout {
                         spacing: 6px;
