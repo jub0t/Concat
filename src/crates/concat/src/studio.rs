@@ -2095,8 +2095,8 @@ impl Studio {
     /// one per pointer event.
     fn wave(&self, clip: &Clip) -> SharedString {
         // The stream this clip plays; its peaks come when they are decoded,
-        // and until then the lane is bare rather than showing another
-        // track's shape.
+        // and until then its envelope stays empty rather than showing
+        // another track's shape.
         let art = art_key(&clip.media_id, clip.audio_stream);
         let Some(peaks) = self.peaks.get(&art) else {
             return SharedString::new();
@@ -4875,10 +4875,10 @@ impl Studio {
                         .map(|text| text.content.as_str())
                         .unwrap_or_default()
                         .into(),
-                    wave: if clip.kind == model::ClipKind::Audio {
-                        self.wave(clip)
-                    } else {
-                        SharedString::new()
+                    wave: match clip.kind {
+                        model::ClipKind::Audio => self.wave(clip),
+                        model::ClipKind::Video if clip.muted != Some(true) => self.wave(clip),
+                        _ => SharedString::new(),
                     },
                     strip: self.strip_of(clip),
                 })

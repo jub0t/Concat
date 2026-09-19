@@ -53,8 +53,7 @@ global Paint {
 // The fade ramps over one region of a clip. The shaded wedge is the part
 // being taken away and the bright line is the envelope itself - the shape
 // every editor draws, because it reads as "this much is being attenuated".
-// Drawn at the foot of a picture clip's body, over the whole of a sound's,
-// and over the whole bar of a filter layer, which is all bar.
+// Drawn over a video's waveform row and over the whole body of an audio clip.
 component Ramps inherits Rectangle {
     in property <float> fade-in;
     in property <float> fade-out;
@@ -117,6 +116,29 @@ component Ramps inherits Rectangle {
     }
 }
 
+// One clip's audio envelope. A flat centre line is the zero waveform, so a
+// video with no audio keeps the same row and geometry as one with sound.
+component Waveform inherits Rectangle {
+    in property <string> commands;
+
+    if root.commands != "": Path {
+        width: parent.width;
+        height: parent.height;
+        commands: root.commands;
+        viewbox-width: 1;
+        viewbox-height: 1;
+        fit: fill;
+        fill: Theme.wave;
+    }
+
+    Rectangle {
+        y: (parent.height - 1px) / 2;
+        width: parent.width;
+        height: 1px;
+        background: Theme.wave-centre;
+    }
+}
+
 // ── one clip ─────────────────────────────────────────────────────────────────
 
 component Clip inherits Rectangle {
@@ -153,12 +175,16 @@ component Clip inherits Rectangle {
     property <bool> marked: root.item.kind == ClipKind.filter;
     property <length> text-x: root.marked ? 22px : 7px;
     property <length> body-h: Math.max(0px, root.height - root.header-h);
-    /// A fade on a picture clip is shaded in a band at the foot instead of
-    /// over the whole body: the fade is an *audio* property, and shading the
-    /// picture would say it fades to black. Sound shades its whole body; a
-    /// filter layer's ramp is the whole layer coming up, and it shades its
-    /// whole bar.
-    property <length> fade-h: root.item.kind == ClipKind.audio ? root.body-h : root.body-h * 0.45;
+    /// Footage keeps a 22px row for its sound, with 1px of breathing room
+    /// above and below the envelope. A still uses its whole body for its picture.
+    property <length> video-wave-h: root.item.kind == ClipKind.video ? 22px : 0px;
+    property <length> video-wave-padding-y: root.item.kind == ClipKind.video ? 1px : 0px;
+    property <length> video-wave-content-h: root.video-wave-h - 2 * root.video-wave-padding-y;
+    property <length> preview-h: Math.max(0px, root.body-h - root.video-wave-h);
+    /// Audio fades shade the waveform, never the picture above it. A filter
+    /// layer draws its ramps separately in the header, so it needs no body height.
+    property <length> fade-h: root.item.kind == ClipKind.audio ? root.body-h
+        : root.item.kind == ClipKind.video ? root.video-wave-content-h : 0px;
 
     /// -1 body, 0 leading edge, 1 trailing edge
     property <int> edge-at: touch.mouse-x < root.edge-grab ? 0
@@ -190,33 +216,7 @@ component Clip inherits Rectangle {
         height: root.body-h;
         clip: true;
 
-        // The audio envelope. The commands arrive normalised into a 1x1 box
-        // and `fit: fill` stretches that onto whatever width the clip has, so
-        // the shape survives a zoom without Rust rebuilding the string. The
-        // trade-off is per-pixel extremes when zoomed right in — there the
-        // envelope is a stretched shape rather than a fresh scan of the
-        // buckets.
-        if root.item.wave != "": Path {
-            x: 0;
-            y: 0;
-            width: parent.width;
-            height: parent.height;
-            commands: root.item.wave;
-            viewbox-width: 1;
-            viewbox-height: 1;
-            fit: fill;
-            fill: Theme.wave;
-        }
-
-        if root.item.wave != "": Rectangle {
-            x: 0;
-            y: (parent.height - 1px) / 2;
-            width: parent.width;
-            height: 1px;
-            background: Theme.wave-centre;
-        }
-
-        // The filmstrip. Tiles are the strip's frames at the body's height,
+        // The filmstrip. Tiles are the strip's frames at the preview's height,
         // and each tile shows the frame under the midpoint of as much of it
         // as is in the clip: the clip covers `span` of the footage from
         // `start`, so a tile a fraction f along the clip wants the frame at
@@ -239,7 +239,7 @@ component Clip inherits Rectangle {
             x: 0;
             y: 0;
             width: parent.width;
-            height: parent.height;
+            height: root.preview-h;
             clip: true;
 
             property <length> tile-w: Math.max(4px,
@@ -274,20 +274,37 @@ component Clip inherits Rectangle {
         // way a bin card does — faint and large, so it reads as a placeholder
         // and not as a badge.
         if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
-            && root.item.strip.frames == 0 && root.width > 40px: Icon {
+            && root.item.strip.frames == 0 && root.width > 40px
+            && root.preview-h > 6px: Icon {
             x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+            y: (root.preview-h - self.height) / 2;
             glyph: root.badge;
-            size: Math.min(22px, parent.height - 6px);
+            size: Math.min(22px, root.preview-h - 6px);
             tint: root.mark.with-alpha(0.3);
+        }
+
+        // Sound clips devote their whole body to the waveform. Footage keeps
+        // one row at the foot, exactly as tall as its title strip; the row is
+        // still present as a zero line when the file has no audio.
+        if root.item.kind == ClipKind.audio: Waveform {
+            width: parent.width;
+            height: parent.height;
+            commands: root.item.wave;
+        }
+
+        if root.item.kind == ClipKind.video: Waveform {
+            y: root.preview-h + root.video-wave-padding-y;
+            width: parent.width;
+            height: root.video-wave-content-h;
+            commands: root.item.wave;
         }
 
         // The fade ramps, at the foot of the body.
         Ramps {
             x: 0;
-            y: 0;
+            y: root.video-wave-padding-y;
             width: parent.width;
-            height: parent.height;
+            height: parent.height - 2 * root.video-wave-padding-y;
             fade-in: root.item.fade-in;
             fade-out: root.item.fade-out;
             px-per-second: root.px-per-second;
