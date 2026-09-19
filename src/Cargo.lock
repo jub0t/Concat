@@ -1337,6 +1337,7 @@ version = "0.2.2"
 dependencies = [
  "concat-core",
  "concat-effects",
+ "log",
  "pollster",
  "wgpu",
 ]

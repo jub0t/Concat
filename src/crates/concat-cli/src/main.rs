@@ -25,7 +25,7 @@ use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, ReaderPool,
 };
-use concat_render::{Compositor, CpuCompositor, Layer, plan_frame};
+use concat_render::{Compositor, CpuCompositor, plan_frame};
 
 #[derive(Parser)]
 #[command(name = "concat-cli", version, about = "Concat engine command line")]
@@ -314,33 +314,23 @@ fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(
     println!("rendering {frames} frames at {width}x{height} {rate}");
 
     for index in 0..frames {
-        let plan = plan_frame(&timeline, rate.time_of_frame(index as i64));
-
-        let composed = if plan.is_empty() {
-            // A gap in the timeline is black, not an error.
-            compositor.composite(width, height, &[])
-        } else {
-            let mut sources = Vec::with_capacity(plan.layers.len());
-            for layer in &plan.layers {
-                let frame = pool.frame_at(
-                    &layer.media,
-                    layer.source_time,
-                    width,
-                    height,
-                    false,
-                    None,
-                    None,
-                )?;
-                sources.push((frame, layer.opacity));
-            }
-            let layers: Vec<Layer<'_>> = sources
-                .iter()
-                .map(|(frame, opacity)| {
-                    Layer::new(frame).with_opacity(opacity * fade_in(index, fade))
-                })
-                .collect();
-            compositor.composite(width, height, &layers)
-        };
+        let mut plan = plan_frame(&timeline, rate.time_of_frame(index as i64));
+        // The plan says what is on screen; the pool fills in the pictures.
+        // A gap in the timeline is a plan with no layers, and black.
+        for layer in &mut plan.layers {
+            let frame = pool.frame_at(
+                &layer.media,
+                layer.source_time,
+                width,
+                height,
+                false,
+                None,
+                None,
+            )?;
+            layer.source = Some(frame);
+            layer.opacity *= fade_in(index, fade);
+        }
+        let composed = compositor.render(&plan);
 
         encoder.write_frame(&composed)?;
     }

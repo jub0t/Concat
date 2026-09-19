@@ -43,7 +43,7 @@ use concat_media::{
 };
 use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{
-    Compositor, CpuCompositor, Layer, Placement, Treatment as GpuTreatment, plan_frame,
+    Compositor, CpuCompositor, FramePlan, PlannedLayer, PlannedTreatment, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -885,48 +885,30 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
         .collect()
 }
 
-/// One decoded picture on its way to the compositor, with everything the
-/// layer it becomes needs. Generic over how the frame is held: owned in the
-/// export, shared out of the reader pool in the monitor.
-struct Source<F> {
-    frame: F,
-    opacity: f32,
-    transform: Transform,
+/// The plan's layer for one clip at one instant, filled in: the picture
+/// decoded, its effects resolved, on its track. The crop, the flips and
+/// the transition fades come baked from the decoder's chain, and the
+/// cutout has already cut the picture, so the layer carries none of
+/// them; moving those into the plan is the next step, and the plan has
+/// the fields for it.
+fn filled(
+    layer: &PlannedLayer,
+    frame: std::sync::Arc<Frame>,
     track: usize,
-    blend: concat_core::timeline::Blend,
-    passes: Vec<ShaderPass>,
+    effects: Vec<ShaderPass>,
+) -> PlannedLayer {
+    PlannedLayer {
+        source: Some(frame),
+        track,
+        effects,
+        ..layer.clone()
+    }
 }
 
-/// The fraction-to-pixel placement of one composited layer: fitted and
-/// centred is the base, the clip's transform moves it from there. The one
-/// definition the exporter and the preview share - these two paths must
-/// never place a picture differently, or the paused truth lies about the
-/// file.
-fn place_layer<'a>(
-    frame: &'a Frame,
-    opacity: f32,
-    transform: &Transform,
-    width: u32,
-    height: u32,
-) -> Layer<'a> {
-    let x = (i64::from(width) - i64::from(frame.width())) / 2;
-    let y = (i64::from(height) - i64::from(frame.height())) / 2;
-    let placement = if transform.is_identity() {
-        Placement::IDENTITY
-    } else {
-        Placement {
-            scale: transform.scale as f32,
-            rotation: transform.rotation.to_radians() as f32,
-            translate_x: (transform.offset_x * f64::from(width)) as f32,
-            translate_y: (transform.offset_y * f64::from(height)) as f32,
-            stretch_x: transform.stretch_x as f32,
-            stretch_y: transform.stretch_y as f32,
-        }
-    };
-    Layer::new(frame)
-        .at(x as i32, y as i32)
-        .with_opacity(opacity)
-        .with_placement(placement)
+/// A stack already drawn, as a layer over the whole frame on the lowest
+/// track: texel for pixel, since it is the frame's own size.
+fn ground_layer(ground: Frame) -> PlannedLayer {
+    PlannedLayer::picture(concat_render::detached_clip(), std::sync::Arc::new(ground))
 }
 
 /// The best compositor this machine offers: the GPU when the `gpu` feature is
@@ -996,7 +978,7 @@ fn render_picture(
         let time = rate.time_of_frame(index);
         let plan = plan_frame(&timeline, time);
 
-        let mut sources: Vec<Source<Frame>> = Vec::with_capacity(plan.layers.len());
+        let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan.layers.len());
         for layer in &plan.layers {
             if !layer.paced {
                 let (decode_width, decode_height) = decode_sizes
@@ -1017,15 +999,13 @@ fn render_picture(
                     let frame = cutouts
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
-                        .unwrap_or_else(|| frame.as_ref().clone());
-                    sources.push(Source {
+                        .map_or(frame, std::sync::Arc::new);
+                    layers.push(filled(
+                        layer,
                         frame,
-                        opacity: layer.opacity,
-                        transform: layer.transform,
-                        track: tracks.get(&layer.clip).copied().unwrap_or(0),
-                        blend: layer.blend,
-                        passes: passes_at(&chains, &timeline, layer.clip, time),
-                    });
+                        tracks.get(&layer.clip).copied().unwrap_or(0),
+                        passes_at(&chains, &timeline, layer.clip, time),
+                    ));
                 }
                 continue;
             }
@@ -1091,43 +1071,24 @@ fn render_picture(
                     Some(cut) => cut,
                     None => frame,
                 };
-                sources.push(Source {
-                    frame,
-                    opacity: layer.opacity,
-                    transform: layer.transform,
-                    track: tracks.get(&layer.clip).copied().unwrap_or(0),
-                    blend: layer.blend,
-                    passes: passes_at(&chains, &timeline, layer.clip, time),
-                });
+                layers.push(filled(
+                    layer,
+                    std::sync::Arc::new(frame),
+                    tracks.get(&layer.clip).copied().unwrap_or(0),
+                    passes_at(&chains, &timeline, layer.clip, time),
+                ));
             }
         }
 
-        let seconds = time.as_f64() as f32;
-        let layers: Vec<(Layer<'_>, usize)> = sources
-            .iter()
-            .map(|source| {
-                (
-                    place_layer(
-                        &source.frame,
-                        source.opacity,
-                        &source.transform,
-                        request.width,
-                        request.height,
-                    )
-                    .with_blend(source.blend)
-                    .with_passes(&source.passes)
-                    .at_time(seconds),
-                    source.track,
-                )
-            })
-            .collect();
-
         let composed = composite_treated(
             &mut *compositor,
-            request.width,
-            request.height,
-            time,
-            &layers,
+            FramePlan {
+                time,
+                width: request.width,
+                height: request.height,
+                layers,
+                treatments: Vec::new(),
+            },
             &treatments,
         );
         encoder
@@ -1176,63 +1137,59 @@ fn mix(a: &Frame, b: &Frame, amount: f32) -> Frame {
     out
 }
 
-/// Composites `sources` - each placed layer with the track it came from,
-/// bottom-most first - with every treatment live at `time` applied to the
-/// stack beneath its track. Without a live treatment this is one composite;
-/// with one, the stack is drawn up to the treatment's track, run through its
-/// chain, blended back by its strength, and used as the ground for the rest.
+/// Draws `plan` with every treatment live at its instant applied to the
+/// stack beneath its track. A treatment that is shaders alone goes into
+/// the plan, and either compositor applies it where it draws; one that
+/// needs FFmpeg for a package with no shader cannot, so the stack is
+/// drawn up to its track, run through its chain here, blended back by
+/// its strength, and used as the ground for the rest.
 fn composite_treated(
     compositor: &mut dyn Compositor,
-    width: u32,
-    height: u32,
-    time: Rational,
-    sources: &[(Layer<'_>, usize)],
+    mut plan: FramePlan,
     treatments: &[Treatment],
 ) -> Frame {
+    let time = plan.time;
     let mut live: Vec<&Treatment> = treatments
         .iter()
         .filter(|treatment| treatment.covers(time))
         .collect();
     if live.is_empty() {
-        let layers: Vec<Layer<'_>> = sources.iter().map(|(layer, _)| *layer).collect();
-        return compositor.composite(width, height, &layers);
+        plan.treatments.clear();
+        return compositor.render(&plan);
     }
     live.sort_by_key(|treatment| treatment.track);
-
-    // A compositor that runs passes applies every treatment without a
-    // pixel leaving the GPU, so long as none of them needs FFmpeg for
-    // a package that has no shader.
     if live.iter().all(|treatment| treatment.chain.is_empty()) {
-        let resolved: Vec<(Vec<ShaderPass>, f32)> = live
+        plan.treatments = live
             .iter()
-            .map(|treatment| (treatment.passes_at(time), treatment.strength_at(time)))
-            .collect();
-        let gpu: Vec<GpuTreatment<'_>> = live
-            .iter()
-            .zip(&resolved)
-            .map(|(treatment, (passes, strength))| GpuTreatment {
+            .map(|treatment| PlannedTreatment {
                 track: treatment.track,
-                passes,
-                strength: *strength,
+                effects: treatment.passes_at(time),
+                strength: treatment.strength_at(time),
             })
             .collect();
-        if let Some(frame) =
-            compositor.composite_treated(width, height, time.as_f64() as f32, sources, &gpu)
-        {
-            return frame;
-        }
+        return compositor.render(&plan);
     }
 
+    let (width, height) = (plan.width, plan.height);
+    let stage = |layers: Vec<PlannedLayer>| FramePlan {
+        time,
+        width,
+        height,
+        layers,
+        treatments: Vec::new(),
+    };
+    let layers = std::mem::take(&mut plan.layers);
     let mut ground: Option<Frame> = None;
     let mut next = 0;
     for treatment in live {
         let below = {
-            let mut layers: Vec<Layer<'_>> = ground.as_ref().map(Layer::new).into_iter().collect();
-            while next < sources.len() && sources[next].1 < treatment.track {
-                layers.push(sources[next].0);
+            let mut stack: Vec<PlannedLayer> =
+                ground.take().map(ground_layer).into_iter().collect();
+            while next < layers.len() && layers[next].track < treatment.track {
+                stack.push(layers[next].clone());
                 next += 1;
             }
-            compositor.composite(width, height, &layers)
+            compositor.render(&stage(stack))
         };
         let strength = treatment.strength_at(time);
         let treated = if strength <= 0.0 {
@@ -1244,10 +1201,9 @@ fn composite_treated(
             let shaded = if passes.is_empty() {
                 below.clone()
             } else {
-                let ground = [Layer::new(&below)
-                    .with_passes(&passes)
-                    .at_time(time.as_f64() as f32)];
-                compositor.composite(width, height, &ground)
+                let mut layer = ground_layer(below.clone());
+                layer.effects = passes;
+                compositor.render(&stage(vec![layer]))
             };
             let result = if treatment.chain.is_empty() {
                 Ok(shaded)
@@ -1265,9 +1221,9 @@ fn composite_treated(
         };
         ground = Some(treated);
     }
-    let mut layers: Vec<Layer<'_>> = ground.as_ref().map(Layer::new).into_iter().collect();
-    layers.extend(sources[next..].iter().map(|(layer, _)| *layer));
-    compositor.composite(width, height, &layers)
+    let mut stack: Vec<PlannedLayer> = ground.map(ground_layer).into_iter().collect();
+    stack.extend(layers.into_iter().skip(next));
+    compositor.render(&stage(stack))
 }
 
 /// One paused-monitor frame: the same clip list the exporter takes, one
@@ -1308,129 +1264,40 @@ pub fn preview_frame(
     Ok(sources.composite(&mut CpuCompositor).into_pixels())
 }
 
-/// The decoded pictures under the playhead and where each goes: what a
-/// compositor needs to draw the paused monitor's frame, decoded but not yet
-/// drawn, so a caller with a GPU can draw them where they are shown.
+/// The paused monitor's frame, described but not yet drawn: the plan
+/// with every picture decoded and placed, so a caller with a GPU can draw
+/// it where it is shown.
 pub struct PreviewSources {
-    sources: Vec<Source<std::sync::Arc<Frame>>>,
-    width: u32,
-    height: u32,
-    time: Rational,
+    plan: FramePlan,
     treatments: Vec<Treatment>,
-    /// Each treatment's passes resolved at `time`, by the same index.
-    treatment_passes: Vec<Vec<ShaderPass>>,
 }
 
 impl PreviewSources {
-    /// The layers, placed the exporter's way, bottom-most first. Bare: a
-    /// caller drawing these itself is skipping the treatments, so check
-    /// [`PreviewSources::has_treatments`] first.
-    pub fn layers(&self) -> Vec<Layer<'_>> {
-        let seconds = self.time.as_f64() as f32;
-        self.sources
-            .iter()
-            .map(|source| {
-                place_layer(
-                    source.frame.as_ref(),
-                    source.opacity,
-                    &source.transform,
-                    self.width,
-                    self.height,
-                )
-                .with_blend(source.blend)
-                .with_passes(&source.passes)
-                .at_time(seconds)
-            })
-            .collect()
+    /// The frame's description, with every treatment that is shaders
+    /// alone already in it; a compositor draws this and nothing else. A
+    /// treatment that needs FFmpeg is not in it: see
+    /// [`PreviewSources::needs_cpu`].
+    pub fn plan(&self) -> &FramePlan {
+        &self.plan
     }
 
-    /// Whether a layer clip is live at this instant, in which case the frame
-    /// cannot be drawn from `layers` alone: see [`PreviewSources::composite`].
-    pub fn has_treatments(&self) -> bool {
+    /// Whether a live treatment needs FFmpeg for a package with no
+    /// shader, in which case the frame can only be drawn whole through
+    /// [`PreviewSources::composite`].
+    pub fn needs_cpu(&self) -> bool {
         self.treatments
             .iter()
-            .any(|treatment| treatment.covers(self.time))
+            .any(|treatment| treatment.covers(self.plan.time) && !treatment.chain.is_empty())
     }
 
-    /// The layers as [`PreviewSources::layers`] gives them, each with the
-    /// track it came from, for a compositor applying treatments itself.
-    pub fn placed(&self) -> Vec<(Layer<'_>, usize)> {
-        let seconds = self.seconds();
-        self.sources
-            .iter()
-            .map(|source| {
-                (
-                    place_layer(
-                        source.frame.as_ref(),
-                        source.opacity,
-                        &source.transform,
-                        self.width,
-                        self.height,
-                    )
-                    .with_blend(source.blend)
-                    .with_passes(&source.passes)
-                    .at_time(seconds),
-                    source.track,
-                )
-            })
-            .collect()
-    }
-
-    /// The treatments live at this instant, in ascending track order, as
-    /// a GPU compositor takes them - or None when one of them needs FFmpeg
-    /// for a package with no shader, and only [`PreviewSources::composite`]
-    /// can draw the frame.
-    pub fn live_treatments(&self) -> Option<Vec<GpuTreatment<'_>>> {
-        let mut live: Vec<(usize, &Treatment)> = self
-            .treatments
-            .iter()
-            .enumerate()
-            .filter(|(_, treatment)| treatment.covers(self.time))
-            .collect();
-        if live
-            .iter()
-            .any(|(_, treatment)| !treatment.chain.is_empty())
-        {
-            return None;
-        }
-        live.sort_by_key(|(_, treatment)| treatment.track);
-        Some(
-            live.iter()
-                .map(|(index, treatment)| GpuTreatment {
-                    track: treatment.track,
-                    passes: &self.treatment_passes[*index],
-                    strength: treatment.strength_at(self.time),
-                })
-                .collect(),
-        )
-    }
-
-    /// The instant, in seconds, for passes that move.
+    /// The instant, in seconds.
     pub fn seconds(&self) -> f32 {
-        self.time.as_f64() as f32
+        self.plan.seconds()
     }
 
-    /// The frame, treatments included, drawn with `compositor`.
+    /// The frame, drawn by `compositor`, every treatment applied.
     pub fn composite(&self, compositor: &mut dyn Compositor) -> Frame {
-        let placed = self.placed();
-        composite_treated(
-            compositor,
-            self.width,
-            self.height,
-            self.time,
-            &placed,
-            &self.treatments,
-        )
-    }
-
-    /// The output width the layers were placed for.
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    /// The output height the layers were placed for.
-    pub fn height(&self) -> u32 {
-        self.height
+        composite_treated(compositor, self.plan.clone(), &self.treatments)
     }
 }
 
@@ -1492,7 +1359,7 @@ pub fn preview_sources_of(
     let time = quantise(seconds, rate);
     let plan_at = plan_frame(timeline, time);
 
-    let mut sources: Vec<Source<std::sync::Arc<Frame>>> = Vec::with_capacity(plan_at.layers.len());
+    let mut layers: Vec<PlannedLayer> = Vec::with_capacity(plan_at.layers.len());
     let mut failures: Vec<String> = Vec::new();
     for layer in &plan_at.layers {
         let (decode_width, decode_height) = decode_sizes
@@ -1524,14 +1391,12 @@ pub fn preview_sources_of(
                     Some(drawn) => std::sync::Arc::new(drawn),
                     None => frame,
                 };
-                sources.push(Source {
+                layers.push(filled(
+                    layer,
                     frame,
-                    opacity: layer.opacity,
-                    transform: layer.transform,
-                    track: tracks.get(&layer.clip).copied().unwrap_or(0),
-                    blend: layer.blend,
-                    passes: passes_at(chains, timeline, layer.clip, time),
-                })
+                    tracks.get(&layer.clip).copied().unwrap_or(0),
+                    passes_at(chains, timeline, layer.clip, time),
+                ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
         }
@@ -1541,22 +1406,42 @@ pub fn preview_sources_of(
     // frame: compositing zero sources yields opaque black, and the caller
     // would draw that "truth" over its own perfectly good approximation. An
     // *empty plan* still composites - a gap in the timeline really is black.
-    if sources.is_empty() && !plan_at.layers.is_empty() {
+    if layers.is_empty() && !plan_at.layers.is_empty() {
         return Err(format!(
             "no layer decoded for the paused preview: {}",
             failures.join(" / ")
         ));
     }
 
-    Ok(PreviewSources {
-        sources,
+    let mut frame_plan = FramePlan {
+        time,
         width: plan.width,
         height: plan.height,
-        time,
-        treatment_passes: treatments
+        layers,
+        treatments: Vec::new(),
+    };
+    // Every treatment that is shaders alone goes into the plan now, so a
+    // caller drawing the plan itself has them; see
+    // `PreviewSources::needs_cpu` for the one kind that cannot.
+    let live: Vec<&Treatment> = treatments
+        .iter()
+        .filter(|treatment| treatment.covers(time))
+        .collect();
+    if live.iter().all(|treatment| treatment.chain.is_empty()) {
+        frame_plan.treatments = live
             .iter()
-            .map(|treatment| treatment.passes_at(time))
-            .collect(),
+            .map(|treatment| PlannedTreatment {
+                track: treatment.track,
+                effects: treatment.passes_at(time),
+                strength: treatment.strength_at(time),
+            })
+            .collect();
+        frame_plan
+            .treatments
+            .sort_by_key(|treatment| treatment.track);
+    }
+    Ok(PreviewSources {
+        plan: frame_plan,
         treatments: treatments.clone(),
     })
 }
@@ -1728,7 +1613,28 @@ mod tests {
         // track 2 at the top-left.
         let red = solid(8, 8, [255, 0, 0, 255]);
         let blue = solid(2, 2, [0, 0, 255, 255]);
-        let sources = [(Layer::new(&red), 0usize), (Layer::new(&blue), 2usize)];
+        let stack = |time: Rational| {
+            let ground = ground_layer(red.clone());
+            let mut top = PlannedLayer::picture(
+                concat_render::detached_clip(),
+                std::sync::Arc::new(blue.clone()),
+            );
+            top.track = 2;
+            // Centred at (4, 4) by the fit; three pixels up and left puts
+            // it in the corner.
+            top.transform = Transform {
+                offset_x: -3.0 / 8.0,
+                offset_y: -3.0 / 8.0,
+                ..Transform::default()
+            };
+            FramePlan {
+                time,
+                width: 8,
+                height: 8,
+                layers: vec![ground, top],
+                treatments: Vec::new(),
+            }
+        };
         let negate = Treatment {
             start: Rational::ZERO,
             end: Rational::from_int(10),
@@ -1742,10 +1648,7 @@ mod tests {
         let mut compositor = CpuCompositor;
         let out = composite_treated(
             &mut compositor,
-            8,
-            8,
-            Rational::from_int(1),
-            &sources,
+            stack(Rational::from_int(1)),
             std::slice::from_ref(&negate),
         );
         // Red negated is cyan where nothing sits on top...
@@ -1759,27 +1662,13 @@ mod tests {
             strength: 0.5,
             ..negate.clone()
         };
-        let out = composite_treated(
-            &mut compositor,
-            8,
-            8,
-            Rational::from_int(1),
-            &sources,
-            &[half],
-        );
+        let out = composite_treated(&mut compositor, stack(Rational::from_int(1)), &[half]);
         let pixel = &out.pixels()[(7 * 8 + 7) * 4..(7 * 8 + 7) * 4 + 3];
         assert!(pixel[0] > 120 && pixel[0] < 136, "{pixel:?}");
         assert!(pixel[1] > 120 && pixel[1] < 136, "{pixel:?}");
 
         // Outside its span the treatment does nothing.
-        let out = composite_treated(
-            &mut compositor,
-            8,
-            8,
-            Rational::from_int(20),
-            &sources,
-            &[negate],
-        );
+        let out = composite_treated(&mut compositor, stack(Rational::from_int(20)), &[negate]);
         assert_eq!(at_of(&out, 7, 7), [255, 0, 0]);
         fn at_of(frame: &Frame, x: usize, y: usize) -> [u8; 3] {
             let p = &frame.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];

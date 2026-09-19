@@ -160,30 +160,21 @@ impl Monitor {
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
-        if sources.has_treatments() {
-            // A layer whose look is a shader is applied where the stack is
-            // drawn, on the GPU; only a layer that needs FFmpeg for a
-            // package with no shader takes the frame through the CPU.
-            if let Some(treatments) = sources.live_treatments() {
-                let layers = sources.placed();
-                return gpu
-                    .composite_texture_treated(
-                        spec.width,
-                        spec.height,
-                        sources.seconds(),
-                        &layers,
-                        &treatments,
-                    )
-                    .ok_or_else(|| "the GPU device was lost".to_owned());
-            }
+        if sources.needs_cpu() {
+            // A layer that needs FFmpeg for a package with no shader takes
+            // the frame through the CPU; the picture then goes up as one
+            // layer of its own.
             let frame = sources.composite(&mut *gpu);
-            let layers = [concat_render::Layer::new(&frame)];
+            let mut plan = concat_render::FramePlan::empty(spec.width, spec.height);
+            plan.layers.push(concat_render::PlannedLayer::picture(
+                concat_render::detached_clip(),
+                Arc::new(frame),
+            ));
             return gpu
-                .composite_texture(spec.width, spec.height, &layers)
+                .render_texture(&plan)
                 .ok_or_else(|| "the GPU device was lost".to_owned());
         }
-        let layers = sources.layers();
-        gpu.composite_texture(spec.width, spec.height, &layers)
+        gpu.render_texture(sources.plan())
             .ok_or_else(|| "the GPU device was lost".to_owned())
     }
 
