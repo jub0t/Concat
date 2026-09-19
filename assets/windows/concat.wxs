@@ -2,15 +2,15 @@
 <!--
   Concat's Windows Installer package, the .msi beside the Inno Setup .exe.
 
-  Built by build-app.yml with WiX from the very folder the zip is made of,
-  so the two installers and the zip ship the same files. The .exe is the
+  Built by build-app.yml with WiX from the staged folder the .exe is made
+  of, so the two installers ship the same files. The .exe is the
   one a person double-clicks; this is the one an administrator deploys -
   Group Policy, Intune, winget - and it installs for the machine, into
   Program Files, with a Start menu entry and a clean uninstall. Handed in:
 
-    wix build -arch x64 -d Version=0.2.2 -d Root=C:\...\Concat
-              -d Stage=C:\...\stage\Concat-0.2.2-windows-x86_64
-              -o stage\Concat-0.2.2-windows-x86_64.msi assets\windows\concat.wxs
+    wix build -arch x64 -d Version=0.2.3 -d Root=C:\...\Concat
+              -d Stage=C:\...\stage\Concat-0.2.3-windows-x86_64
+              -o stage\Concat-0.2.3-windows-x86_64.msi assets\windows\concat.wxs
 
   Root is the repository: WiX resolves a source path against where it is
   run from, not against this file.

@@ -1,8 +1,7 @@
 name: CI
 
-# The engine's tests and lints on every push and pull request. A green run
-# on main is what nightly.yml waits for before it builds the app for every
-# platform; see that file and release.yml for the bundles.
+# The engine's tests and lints on every push and pull request. The bundles
+# are built by release.yml, on a tag; see that file.
 on:
   push:
     branches: [main]

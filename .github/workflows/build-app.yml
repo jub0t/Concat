@@ -5,12 +5,15 @@ name: Build app
 # architecture so nothing is cross-compiled, and uploads one artifact per
 # target:
 #
-#   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat.dmg
-#   Linux    x86_64                  aarch64            -> Concat-*.tar.gz
-#   Windows  x86_64                  aarch64            -> Concat-*.zip
+#   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
+#   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage
+#   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
 #
-# Reusable: nightly.yml calls it on every push to main, release.yml on every
-# tag. It is the one place the build environment is described:
+# Installers and binaries only: the program is not shipped as an archive
+# of a folder to unpack, so what a person downloads is what they run.
+#
+# Reusable: release.yml calls it on every tag. It is the one place the
+# build environment is described:
 #
 # - The engine links FFmpeg and compiles whisper.cpp in, so a build needs the
 #   FFmpeg 7+ development libraries (headers and import libraries), cmake, a
@@ -546,14 +549,13 @@ jobs:
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
-          (cd stage && tar -czf "$name.tar.gz" "$name")
 
-      # The same folder three more ways. A .deb and an .rpm, from one
-      # description in assets/linux/nfpm.yaml: the program whole under
-      # /opt/concat, a launcher on the path, a desktop entry and an icon.
-      # And an AppImage: the folder as an AppDir, one file that runs on
-      # any distribution with the toolkit installed, which every desktop
-      # has. Both from the folder the tarball was made of - see issue #83.
+      # The folder three ways. A .deb and an .rpm, from one description in
+      # assets/linux/nfpm.yaml: the program whole under /opt/concat, a
+      # launcher on the path, a desktop entry and an icon. And an AppImage:
+      # the folder as an AppDir, one file that runs on any distribution
+      # with the toolkit installed, which every desktop has. All three from
+      # the one staged folder, so they ship the same files - see issue #83.
       - name: Package (Linux)
         if: matrix.platform == 'linux'
         env:
@@ -621,9 +623,9 @@ jobs:
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md "stage\$name\"
-          # The installer, from the same folder, before it is zipped away:
-          # Inno Setup, which the x64 image carries and the ARM image is
-          # given. See assets/windows/concat.iss.
+          # The installer, from that folder: Inno Setup, which the x64
+          # image carries and the ARM image is given. See
+          # assets/windows/concat.iss.
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
             Write-Host "Installing Inno Setup"
@@ -643,7 +645,7 @@ jobs:
             -o "stage\$name.msi" assets\windows\concat.wxs
           if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
-          Compress-Archive -Path "stage\$name" -DestinationPath "stage\$name.zip"
+          # The folder itself is not published: the two installers are.
           Remove-Item -Recurse -Force "stage\$name"
 
       - uses: actions/upload-artifact@v7
