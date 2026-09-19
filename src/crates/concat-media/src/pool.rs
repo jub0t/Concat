@@ -849,14 +849,25 @@ impl ReaderPool {
         // Stops at end of stream too: a clip trimmed past its media's end,
         // where the last real frame is the honest answer.
         let mut latest: Option<Arc<Frame>> = None;
+        let mut reached = i64::MIN;
         while let Some((index, frame)) = reader.next_frame(rate)? {
             Self::count(&self.counters.decoded);
             let frame = Arc::new(frame);
             remember(index, Arc::clone(&frame));
             latest = Some(frame);
+            reached = index;
             if index >= target {
                 break;
             }
+        }
+        // The stream ended short of the target: the last frame is the
+        // answer, and it is remembered under the index asked for, so a
+        // container that claims a frame more than it holds does not cost a
+        // seek and a walk every time the end is asked for.
+        if reached < target
+            && let Some(frame) = &latest
+        {
+            remember(target, Arc::clone(frame));
         }
 
         // Nothing at all means the seek itself landed past the end of the
@@ -1318,6 +1329,24 @@ pub(crate) mod tests {
         assert_eq!(again.source_hits, route.len() as u64, "{again:?}");
         assert_eq!(plain_again, plain);
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A container that claims one frame more than it holds: the request
+    /// for that frame gets the last real one, and asking again costs a
+    /// lookup, not another seek and walk from the keyframe.
+    #[test]
+    fn a_request_past_the_last_frame_is_remembered_under_its_index() {
+        let path = counting_video("past-end", 32, 30);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 1);
+        let rate = FrameRate::THIRTY;
+        // Straight to the end and past it, twice over.
+        let past = FrameRequest::new(&path, rate.time_of_frame(200), 32, 32);
+        let first = pool.frame(&past).expect("the last frame stands in");
+        let before = pool.stats();
+        let again = pool.frame(&past).expect("still");
+        assert!(Arc::ptr_eq(&first, &again), "the same remembered frame");
+        assert_eq!(pool.stats().since(before).decoded, 0, "no second walk");
         let _ = std::fs::remove_file(&path);
     }
 
