@@ -41,7 +41,7 @@ use concat_host::{media, projects};
 use concat_media::audio::{self as sound, AudioClip};
 use concat_media::{
     AudioDecoder, AudioOptions, DecodeOptions, Decoder, EncodeOptions, Encoder,
-    Error as MediaError, FrameSink, FrameSource, SampleFormat, VideoCodec,
+    Error as MediaError, FrameSink, FrameSource, HwDevice, SampleFormat, VideoCodec,
 };
 use concat_project::animation;
 use concat_project::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
@@ -91,6 +91,7 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32) {
         crf: 16,
         ten_bit: false,
         hardware: false,
+        threads: 0,
     };
     let mut encoder =
         Encoder::create(path, WIDTH, HEIGHT, rate, &options).expect("the linked FFmpeg encodes");
@@ -968,6 +969,7 @@ fn every_edit_still_exports() {
     let exported = studio.export("layer");
     exported.expect_length(end);
     studio.apply(Command::AddTextClip {
+        above: false,
         track_id: None,
         start: 3.0,
         style: Some(TextStyle {
@@ -1005,11 +1007,13 @@ fn every_edit_still_exports() {
         media_id: aac,
         track_id: sound_track.clone(),
         start: 17.0,
+        ripple: false,
     });
     studio.apply(Command::AddClip {
         media_id: wav,
         track_id: sound_track.clone(),
         start: 23.0,
+        ripple: false,
     });
     let end = studio.end();
     let exported = studio.export("sound only clips");
@@ -1189,4 +1193,72 @@ fn the_edges_export_too() {
     exported.expect_second(start + 0.5, 3);
     exported.expect_second(end - 0.5, 3);
     exported.expect_tone(start + 4.0);
+}
+
+/// Hardware decode preferred, the way the settings toggle leaves it: the
+/// export decodes its sources on the platform's device where there is one
+/// and reads the same picture and sound back. The preference is the
+/// process's, so the other scenarios running alongside share it for the
+/// moment, and must not mind.
+#[test]
+fn an_export_decodes_on_the_hardware_when_preferred() {
+    struct Preferred;
+    impl Drop for Preferred {
+        fn drop(&mut self) {
+            concat_media::set_hardware_decode(false);
+        }
+    }
+    let _preferred = Preferred;
+    concat_media::set_hardware_decode(true);
+    assert_eq!(
+        concat_media::hardware_decode(),
+        HwDevice::platform_default().is_some(),
+        "on where the platform has a device, off where it has none"
+    );
+
+    let scratch = Scratch::new("hardware");
+    let sources = Sources::make(scratch.path());
+    // A reader opened the way the engine opens them follows the preference
+    // onto the device, on a machine that has one.
+    let mut reader = Decoder::open(&sources.peek, &DecodeOptions::default()).expect("opens");
+    reader.next_frame().expect("decodes").expect("a frame");
+    assert_eq!(reader.hardware(), HwDevice::platform_default());
+    drop(reader);
+    let mut studio = Studio::new(scratch.path(), "Hardware", video(WIDTH, HEIGHT, 30, 1));
+    let peek = studio.import(&sources.peek);
+    let cam = studio.import(&sources.cam);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: peek,
+        start: 0.0,
+    });
+    let clip = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id: cam,
+            start: 6.0,
+        })
+        .expect("the clip has an id");
+    // A retimed clip on the device: the pacing sits on top of it exactly
+    // as it does the CPU.
+    studio.apply(Command::SetClipSpeed {
+        clip_id: clip.clone(),
+        speed: 2.0,
+    });
+    let start = studio.clip(&clip).start;
+    let end = studio.end();
+    assert!(
+        (end - start - 2.0).abs() < 1e-6,
+        "four seconds at double is two: {start} to {end}"
+    );
+
+    for (num, den) in [(30, 1), (60000, 1001)] {
+        let exported = studio.export_at(&format!("hardware at {num}/{den}"), Some((num, den)));
+        exported.expect_length(end);
+        exported.expect_sound(end);
+        exported.expect_second(0.5, 0);
+        exported.expect_second(5.9, 5);
+        exported.expect_second(start + 0.25, 0);
+        exported.expect_second(start + 1.75, 3);
+        exported.expect_tone(5.5);
+        exported.expect_quiet(4.5);
+    }
 }

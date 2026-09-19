@@ -712,6 +712,9 @@
   "Tear": "Rasgo",
   "The picture as a sci-fi projection: its hue thrown away for a blue ramp, edges glowing, scan lines drifting, a refresh sweep, tears and grain.": "A imagem como uma projeção de ficção científica: o matiz trocado por uma rampa azul, bordas brilhando, linhas de varredura à deriva, uma varredura de atualização, rasgos e granulação.",
   "Token": "Token",
-  "What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.": "O que uma conexão precisa apresentar antes da primeira chamada. Vazio em 127.0.0.1 deixa entrar qualquer coisa desta máquina.",
-  "{0} is not an address like 127.0.0.1:7420": "{0} não é um endereço como 127.0.0.1:7420"
+  "{0} is not an address like 127.0.0.1:7420": "{0} não é um endereço como 127.0.0.1:7420",
+  "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "O que uma conexão precisa apresentar antes da primeira chamada. Se ficar vazio, o servidor inventa um a cada início e o mostra aqui.",
+  "Decode on the hardware": "Decode on the hardware",
+  "Decoding": "Decoding",
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
 }

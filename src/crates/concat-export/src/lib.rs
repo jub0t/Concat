@@ -974,6 +974,7 @@ fn render_picture(
             codec: request.codec,
             ten_bit: request.ten_bit,
             hardware: true,
+            threads: 0,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -1441,14 +1442,38 @@ pub fn preview_sources(
     request: &PreviewFrameRequest,
     gpu: bool,
 ) -> Result<PreviewSources, String> {
-    preview_sources_of(pool, &preview_timeline(request, gpu), request.time)
+    preview_sources_of(pool, &preview_timeline(request, gpu), request.time, false)
 }
 
-/// [`preview_sources`] for one instant of a plan already built.
+/// The pool's request for one planned layer: the source frame at the
+/// level that covers the output, cropped, fitted and run through its
+/// chain on the way out, so the cached picture is the file's and no knob
+/// invalidates it. `proxy` reads the file's stand-in where it has one:
+/// for a picture that is moving, never for the paused monitor.
+fn frame_request(
+    plan: &PreviewPlan,
+    layer: &concat_render::PlannedLayer,
+    (width, height): (u32, u32),
+    chain: Option<&str>,
+    pre: Option<&str>,
+    still: bool,
+    proxy: bool,
+) -> concat_media::FrameRequest {
+    concat_media::FrameRequest::new(&layer.media, layer.source_time, width, height)
+        .covering(plan.width.max(width), plan.height.max(height))
+        .as_still(still)
+        .prefiltered(pre)
+        .filtered(chain)
+        .from_proxy(proxy)
+}
+
+/// [`preview_sources`] for one instant of a plan already built. With
+/// `proxy`, a file with a stand-in is read from it.
 pub fn preview_sources_of(
     pool: &concat_media::ReaderPool,
     plan: &PreviewPlan,
     seconds: f64,
+    proxy: bool,
 ) -> Result<PreviewSources, String> {
     let rate = plan.rate;
     let BuiltTimeline {
@@ -1478,15 +1503,15 @@ pub fn preview_sources_of(
         let pre = pre_chains.get(&layer.clip).map(String::as_str);
         // A source that fails to decode contributes nothing rather than
         // blanking the monitor - same grace the exporter extends.
-        match pool.frame_at(
-            std::path::Path::new(&layer.media),
-            layer.source_time,
-            decode_width,
-            decode_height,
-            stills.contains(&layer.clip),
+        match pool.frame(&frame_request(
+            plan,
+            layer,
+            (decode_width, decode_height),
             chain,
             pre,
-        ) {
+            stills.contains(&layer.clip),
+            proxy,
+        )) {
             Ok(frame) => {
                 let highlighted = highlight == Some(layer.clip);
                 let frame = match cutouts.get(&layer.clip).and_then(|job| {
@@ -1621,13 +1646,31 @@ pub fn preview_prefetch(
     preview_prefetch_of(pool, &preview_timeline(request, gpu), request.time, frames);
 }
 
-/// [`preview_prefetch`] from a plan already built.
+/// [`preview_prefetch`] from a plan already built: every frame of the
+/// next `frames` instants pulled through the pool, here and now.
 pub fn preview_prefetch_of(
     pool: &concat_media::ReaderPool,
     plan: &PreviewPlan,
     seconds: f64,
     frames: u32,
 ) {
+    for moment in preview_moments(plan, seconds, frames, false) {
+        for request in &moment.frames {
+            let _ = pool.frame(request);
+        }
+    }
+}
+
+/// The instants after `seconds` and the frames each is made of, as a
+/// prefetcher takes them: the next `frames` output instants of `plan`,
+/// nearest first, with every visible layer's request at each. Nothing is
+/// decoded here; see `concat_media::Prefetcher::advance`.
+pub fn preview_moments(
+    plan: &PreviewPlan,
+    seconds: f64,
+    frames: u32,
+    proxy: bool,
+) -> Vec<concat_media::Moment> {
     let rate = plan.rate;
     let BuiltTimeline {
         timeline,
@@ -1638,28 +1681,34 @@ pub fn preview_prefetch_of(
         ..
     } = &plan.built;
     let fps = rate.fps().as_f64();
-
-    for ahead in 0..frames {
-        let time = seconds + f64::from(ahead) / fps;
-        let plan_at = plan_frame(timeline, quantise(time, rate));
-        for layer in &plan_at.layers {
-            let (decode_width, decode_height) = decode_sizes
-                .get(&layer.clip)
-                .copied()
-                .unwrap_or((plan.width, plan.height));
-            let chain = filter_chains.get(&layer.clip).map(String::as_str);
-            let pre = pre_chains.get(&layer.clip).map(String::as_str);
-            let _ = pool.frame_at(
-                std::path::Path::new(&layer.media),
-                layer.source_time,
-                decode_width,
-                decode_height,
-                stills.contains(&layer.clip),
-                chain,
-                pre,
-            );
-        }
-    }
+    (1..=frames)
+        .map(|ahead| {
+            let time = seconds + f64::from(ahead) / fps;
+            let plan_at = plan_frame(timeline, quantise(time, rate));
+            concat_media::Moment {
+                time,
+                frames: plan_at
+                    .layers
+                    .iter()
+                    .map(|layer| {
+                        let size = decode_sizes
+                            .get(&layer.clip)
+                            .copied()
+                            .unwrap_or((plan.width, plan.height));
+                        frame_request(
+                            plan,
+                            layer,
+                            size,
+                            filter_chains.get(&layer.clip).map(String::as_str),
+                            pre_chains.get(&layer.clip).map(String::as_str),
+                            stills.contains(&layer.clip),
+                            proxy,
+                        )
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

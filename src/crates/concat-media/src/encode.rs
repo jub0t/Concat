@@ -135,6 +135,10 @@ pub struct EncodeOptions {
     /// Let the platform's hardware encoder lead where there is one; see
     /// [`VideoCodec::encoders`].
     pub hardware: bool,
+    /// Threads the encoder may use, or zero to let it count the cores.
+    /// Zero for an export; a few for a proxy written while the editor is
+    /// in use.
+    pub threads: u16,
 }
 
 impl Default for EncodeOptions {
@@ -145,6 +149,7 @@ impl Default for EncodeOptions {
             crf: 18,
             ten_bit: false,
             hardware: true,
+            threads: 0,
         }
     }
 }
@@ -295,12 +300,15 @@ impl Encoder {
         video.set_colorspace(matrix);
         video.set_color_range(ffmpeg::color::Range::MPEG);
         // SAFETY: `video` owns a live AVCodecContext; primaries and
-        // transfer have no setter in the bindings, and both are plain
+        // transfer have no setter in the bindings, and all three are plain
         // fields the encoder reads at open.
         unsafe {
             let context = video.as_mut_ptr();
             (*context).color_primaries = primaries.into();
             (*context).color_trc = transfer.into();
+            if options.threads > 0 {
+                (*context).thread_count = i32::from(options.threads);
+            }
         }
         if global_header {
             video.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
@@ -645,6 +653,7 @@ mod tests {
                     crf: 24,
                     ten_bit,
                     hardware: true,
+                    threads: 0,
                 };
                 let mut encoder = Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
                     .unwrap_or_else(|error| panic!("{} {ten_bit}: {error}", codec.label()));

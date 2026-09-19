@@ -305,6 +305,7 @@ mod tests {
         let mut editor = Editor::new();
         let id = editor
             .apply(Command::AddTextClip {
+                above: false,
                 track_id: None,
                 start: 0.0,
                 style: None,

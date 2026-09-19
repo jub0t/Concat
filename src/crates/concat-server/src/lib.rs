@@ -21,13 +21,19 @@
 //! it asked for.
 //!
 //! The API reads and writes whatever paths it is given, so a server is a
-//! door into the machine. It binds loopback unless told otherwise, and it
-//! refuses to bind anything else without a token every connection must
-//! present before its first call. There is no encryption: a bind off
-//! loopback belongs behind something that provides it.
+//! door into the machine. Every connection presents a token before its
+//! first call, loopback included: another user's process on the same
+//! machine reaches 127.0.0.1 as easily as this one does. A server given
+//! no token mints one, 128 bits from the operating system's randomness,
+//! that only the process that started it knows; [`Server::token`] is how
+//! that process passes it on, to a page or a terminal. The token is
+//! compared in constant time, whichever transport carries it. There is
+//! no encryption: a bind off loopback belongs behind something that
+//! provides it.
 
 mod hub;
 pub mod json;
+mod token;
 
 #[cfg(feature = "grpc")]
 pub mod grpc;
@@ -52,25 +58,17 @@ pub struct Config {
     pub socket: Option<PathBuf>,
     /// A TCP address for gRPC. Needs the `grpc` feature.
     pub grpc: Option<SocketAddr>,
-    /// What a connection presents before its first call. Required for
-    /// any address that is not loopback.
+    /// What every connection presents before its first call. `None` or
+    /// empty means the server mints one at start, which only the process
+    /// that started it can learn, through [`Server::token`]; that is the
+    /// point, and it is why a bind off loopback needs no token set here
+    /// to be safe to make.
     pub token: Option<String>,
 }
 
 impl Config {
-    /// Refuses a configuration that would open the machine: a TCP bind
-    /// off loopback with no token.
+    /// Refuses a configuration this build or platform cannot serve.
     pub fn check(&self) -> Result<(), String> {
-        for (what, address) in [("JSON-RPC", self.json), ("gRPC", self.grpc)] {
-            if let Some(address) = address
-                && !address.ip().is_loopback()
-                && self.token.as_deref().is_none_or(str::is_empty)
-            {
-                return Err(format!(
-                    "{what} on {address} is reachable from other machines: set a token, or bind 127.0.0.1"
-                ));
-            }
-        }
         #[cfg(not(unix))]
         if self.socket.is_some() {
             return Err("a Unix socket needs a Unix".to_owned());
@@ -92,6 +90,7 @@ pub struct Server {
     json: Option<SocketAddr>,
     socket: Option<PathBuf>,
     grpc: Option<SocketAddr>,
+    token: String,
     stop: Arc<AtomicBool>,
     listeners: Vec<JoinHandle<()>>,
     connections: Connections,
@@ -103,13 +102,33 @@ pub(crate) type Connections = Arc<Mutex<Vec<Box<dyn Fn() + Send>>>>;
 
 impl Server {
     /// Binds every address in `config` and starts serving. `make` builds
-    /// the API on the hub's thread, given the sink its jobs report through.
+    /// the API on the hub's thread, given the sink its jobs report through;
+    /// the transports listening are added to what its `version` reports.
+    /// With no token in `config`, one is minted; [`Server::token`] is it.
     pub fn start(
         config: Config,
         make: impl FnOnce(EventSink) -> Result<Api, String> + Send + 'static,
     ) -> Result<Server, String> {
         config.check()?;
-        let (hub, dispatcher) = Hub::start(make)?;
+        let token = match config.token.filter(|token| !token.is_empty()) {
+            Some(token) => token,
+            None => token::mint()?,
+        };
+        let transports: Vec<&str> = [
+            config.json.map(|_| "json-rpc"),
+            config.socket.as_ref().map(|_| "unix-socket"),
+            config.grpc.map(|_| "grpc"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let (hub, dispatcher) = Hub::start(move |events| {
+            let mut api = make(events)?;
+            for transport in transports {
+                api.add_capability(transport);
+            }
+            Ok(api)
+        })?;
         let stop = Arc::new(AtomicBool::new(false));
         let connections: Connections = Arc::new(Mutex::new(Vec::new()));
         let mut server = Server {
@@ -118,11 +137,11 @@ impl Server {
             json: None,
             socket: None,
             grpc: None,
+            token,
             stop: Arc::clone(&stop),
             listeners: Vec::new(),
             connections: Arc::clone(&connections),
         };
-        let token = config.token.filter(|token| !token.is_empty());
 
         if let Some(address) = config.json {
             let listener = TcpListener::bind(address)
@@ -135,7 +154,7 @@ impl Server {
             server.listeners.push(json::serve_tcp(
                 listener,
                 server.hub.clone(),
-                token.clone(),
+                server.token.clone(),
                 Arc::clone(&stop),
                 Arc::clone(&connections),
             ));
@@ -149,7 +168,7 @@ impl Server {
             server.listeners.push(json::serve_unix(
                 listener,
                 server.hub.clone(),
-                token.clone(),
+                server.token.clone(),
                 Arc::clone(&stop),
                 Arc::clone(&connections),
             ));
@@ -158,8 +177,12 @@ impl Server {
 
         #[cfg(feature = "grpc")]
         if let Some(address) = config.grpc {
-            let (bound, thread) =
-                grpc::serve(address, server.hub.clone(), token, Arc::clone(&stop))?;
+            let (bound, thread) = grpc::serve(
+                address,
+                server.hub.clone(),
+                server.token.clone(),
+                Arc::clone(&stop),
+            )?;
             server.grpc = Some(bound);
             server.listeners.push(thread);
         }
@@ -185,6 +208,13 @@ impl Server {
     /// The gRPC address bound, port resolved.
     pub fn grpc_addr(&self) -> Option<SocketAddr> {
         self.grpc
+    }
+
+    /// The token every connection presents: the one configured, or the
+    /// one minted because none was. Whoever started the server shows or
+    /// prints this so a caller can present it.
+    pub fn token(&self) -> &str {
+        &self.token
     }
 
     /// How many callers are connected.
@@ -262,22 +292,15 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_bind_off_loopback_needs_a_token() {
-        let open = Config {
-            json: Some("0.0.0.0:0".parse().expect("an address")),
-            ..Config::default()
-        };
-        assert!(open.check().is_err());
-        let closed = Config {
-            token: Some("s".to_owned()),
-            ..open.clone()
-        };
-        assert!(closed.check().is_ok());
-        let local = Config {
-            json: Some("127.0.0.1:0".parse().expect("an address")),
-            ..Config::default()
-        };
-        assert!(local.check().is_ok());
+    fn a_server_keeps_the_token_it_is_given_and_mints_one_otherwise() {
+        let (given, _scratch) = server(Some("open sesame"));
+        assert_eq!(given.token(), "open sesame");
+        let (minted, _scratch) = server(None);
+        assert_eq!(minted.token().len(), 32);
+        assert!(minted.token().bytes().all(|byte| byte.is_ascii_hexdigit()));
+        let (empty, _scratch) = server(Some(""));
+        assert_eq!(empty.token().len(), 32, "an empty token is no token");
+        assert_ne!(empty.token(), minted.token());
     }
 
     #[test]

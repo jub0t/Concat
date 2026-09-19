@@ -326,6 +326,7 @@ export component Seat inherits Rectangle {
             add-track => { Editor.add-track(); }
             zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }
+            lanes-resized(width) => { Editor.lanes-resized(width); }
             floor-pressed => { Editor.blur(); }
             scrubbed(seconds) => {
                 Editor.blur();
