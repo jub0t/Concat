@@ -232,7 +232,10 @@ pub fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
 /// timeline zoom, which is enough that the drawn shape does not visibly
 /// change as you zoom in a step or two, without storing the whole decoded
 /// file.
-pub const PEAKS_BUCKETS_PER_SECOND: u32 = 200;
+/// A thousand a second: a bucket is a millisecond, forty-eight samples,
+/// which is what a clip a screen wide at the closest zoom needs, and the
+/// pyramid folds it down for every wider view. See `concat_media::Pyramid`.
+pub const PEAKS_BUCKETS_PER_SECOND: u32 = 1000;
 
 /// Waveform peaks for one media file: engine-decoded, project-cached.
 ///

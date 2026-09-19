@@ -523,7 +523,7 @@ pub struct MediaArt {
     /// image: a Slint image cannot cross a thread, and this is made on one.
     pub thumbnail: Option<concat_core::frame::Frame>,
     /// The waveform, for anything with sound.
-    pub peaks: Option<Arc<concat_media::Peaks>>,
+    pub peaks: Option<Arc<concat_media::Pyramid>>,
     /// Frames sampled evenly across the footage, side by side in one
     /// picture, and how many there are. A still is a strip of one.
     pub strip: Option<(concat_core::frame::Frame, u32)>,
@@ -558,7 +558,7 @@ pub fn media_art(
             thumbnail: None,
             peaks: media::peaks(&path, stream, Some(&project))
                 .ok()
-                .map(Arc::new),
+                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks))),
             strip: None,
         };
     }
@@ -576,7 +576,11 @@ pub fn media_art(
         None
     };
     let peaks = (kind == MediaKind::Audio || has_audio)
-        .then(|| media::peaks(&path, None, Some(&project)).ok().map(Arc::new))
+        .then(|| {
+            media::peaks(&path, None, Some(&project))
+                .ok()
+                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks)))
+        })
         .flatten();
     // The filmstrip reads the proxy where the file has one: the tiles are
     // small, and a 4K file's frames cost more than they show.

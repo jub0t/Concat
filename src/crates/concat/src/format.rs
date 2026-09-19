@@ -149,54 +149,45 @@ pub fn hex_of(colour: slint::Color) -> String {
     )
 }
 
-/// The audio envelope, as SVG path commands in a 1x1 box.
+/// A waveform as SVG path commands in a 1x1 box: one column per slot, each
+/// a bar from the slot's lowest sample to its highest, mirrored about the
+/// middle. Mirrored because that is what a waveform looks like; a bar
+/// from the axis up is the rounded shape that reads as a graph of
+/// something rather than as audio.
 ///
-/// Columns, not a curve. Each column is one rectangle, from the lowest to the
-/// highest peak under it, so the waveform is a stepped silhouette with a flat
-/// top on every column. Drawing the same peaks as a polyline gives a smooth,
-/// rounded shape that reads as a graph of something rather than as audio.
-///
-/// Built from the engine's real peaks: each column takes the extremes of
-/// the buckets that fall under it, so a trim shows the material it kept.
-/// Normalised rather than drawn in pixels so a zoom costs nothing: the Path
-/// that renders it stretches the box onto the clip's current width.
+/// Built from the engine's real peaks at the level that fits the column:
+/// each column takes the extremes of the buckets under it, so a trim shows
+/// the material it kept and a zoom shows the buckets it reveals. `columns`
+/// is how many the drawing has room for - the clip's width in pixels, held
+/// to a few thousand - and the path is normalised so the Path that renders
+/// it stretches the box onto the clip's current width.
 pub fn wave_path(
-    peaks: &concat_media::Peaks,
+    peaks: &concat_media::Pyramid,
     source_start: f32,
     duration: f32,
     gain: f32,
+    columns: usize,
 ) -> String {
-    /// Columns across the clip. Enough that the steps read as columns and
-    /// not as a bar chart, few enough that the string stays a few kilobytes.
-    const COLUMNS: usize = 128;
+    /// Fewest columns worth drawing, and the most: enough that a clip a
+    /// screen wide reads a column a pixel, few enough that the string stays
+    /// under a few hundred kilobytes.
+    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=2048;
     /// Silence still draws a sliver: a hairline through the middle of a clip
     /// rather than a gap in it.
     const FLOOR: f32 = 0.012;
 
-    if duration <= 0.0 || peaks.min.is_empty() || peaks.buckets_per_second <= 0.0 {
+    if !(duration > 0.0) || peaks.finest().is_empty() {
         return String::new();
     }
+    let columns = columns.clamp(*COLUMNS.start(), *COLUMNS.end());
     let gain = gain.max(0.0);
-    let count = peaks.min.len().min(peaks.max.len());
-    let per_second = peaks.buckets_per_second;
-    let mut path = String::with_capacity(COLUMNS * 56);
+    let level = peaks.level_for(duration / columns as f32);
+    let mut path = String::with_capacity(columns * 56);
 
-    for column in 0..COLUMNS {
-        let left = column as f32 / COLUMNS as f32;
-        let right = (column + 1) as f32 / COLUMNS as f32;
-        let from = ((source_start + left * duration) * per_second)
-            .floor()
-            .max(0.0) as usize;
-        let to = ((source_start + right * duration) * per_second)
-            .ceil()
-            .max(0.0) as usize;
-        let (mut low, mut high) = (0.0f32, 0.0f32);
-        for index in from..to.min(count).max(from) {
-            if index < count {
-                low = low.min(peaks.min[index]);
-                high = high.max(peaks.max[index]);
-            }
-        }
+    for column in 0..columns {
+        let left = column as f32 / columns as f32;
+        let right = (column + 1) as f32 / columns as f32;
+        let (low, high) = level.extremes(source_start + left * duration, source_start + right * duration);
         let amplitude = ((high.max(-low) * gain).clamp(0.0, 1.0) * 0.48).max(FLOOR);
         let (top, bottom) = (0.5 - amplitude, 0.5 + amplitude);
         path.push_str(&format!(
@@ -205,6 +196,18 @@ pub fn wave_path(
         ));
     }
     path
+}
+
+/// How many columns a clip `seconds` long gets at `seconds_per_pixel`: one
+/// a pixel, rounded up to the next sixty-four so a zoom rebuilds the path
+/// at each step of that and not at every pixel, held to what `wave_path`
+/// draws.
+pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
+    if !(seconds > 0.0) || !(seconds_per_pixel > 0.0) {
+        return 8;
+    }
+    let pixels = (seconds / seconds_per_pixel).ceil().max(1.0) as usize;
+    pixels.div_ceil(64).max(1).saturating_mul(64).clamp(8, 2048)
 }
 
 /// A moment in the past, in the words a recents row wants: "just now",
@@ -271,13 +274,13 @@ mod tests {
 
     #[test]
     fn a_waveform_has_one_column_per_slot_and_follows_the_gain() {
-        let peaks = concat_media::Peaks {
-            min: vec![-0.5; 400],
-            max: vec![0.5; 400],
-            buckets_per_second: 200.0,
-        };
-        let loud = wave_path(&peaks, 0.0, 2.0, 1.0);
-        let quiet = wave_path(&peaks, 0.0, 2.0, 0.25);
+        let peaks = concat_media::Pyramid::of(concat_media::Peaks {
+            min: vec![-0.5; 2000],
+            max: vec![0.5; 2000],
+            buckets_per_second: 1000.0,
+        });
+        let loud = wave_path(&peaks, 0.0, 2.0, 1.0, 128);
+        let quiet = wave_path(&peaks, 0.0, 2.0, 0.25, 128);
         assert_eq!(loud.matches('M').count(), 128);
         assert!(
             loud.contains("0.2600"),
@@ -287,7 +290,46 @@ mod tests {
             quiet.contains("0.4400"),
             "an eighth at a quarter gain: {quiet}"
         );
-        assert!(wave_path(&peaks, 0.0, 0.0, 1.0).is_empty());
+        assert!(wave_path(&peaks, 0.0, 0.0, 1.0, 128).is_empty());
+        assert!(wave_path(&peaks, 0.0, f32::NAN, 1.0, 128).is_empty());
+        // The column count is held to what is worth drawing, either way.
+        assert_eq!(wave_path(&peaks, 0.0, 2.0, 1.0, 0).matches('M').count(), 8);
+        assert_eq!(wave_path(&peaks, 0.0, 2.0, 1.0, 1_000_000).matches('M').count(), 2048);
+    }
+
+    /// A zoomed-in clip reads the fine buckets: a single loud millisecond
+    /// shows in one column at a column a millisecond, and is folded into
+    /// its neighbours' column, still at full height, when a column is a
+    /// tenth of a second.
+    #[test]
+    fn zooming_in_reveals_the_fine_buckets_and_never_loses_a_peak() {
+        let mut min = vec![0.0; 1000];
+        let mut max = vec![0.0; 1000];
+        min[500] = -1.0;
+        max[500] = 1.0;
+        let peaks = concat_media::Pyramid::of(concat_media::Peaks {
+            min,
+            max,
+            buckets_per_second: 1000.0,
+        });
+        let fine = wave_path(&peaks, 0.0, 1.0, 1.0, 1000);
+        let tall: Vec<&str> = fine.split("Z ").filter(|bar| bar.contains(" 0.0200")).collect();
+        assert_eq!(tall.len(), 1, "one column carries the spike: {}", tall.len());
+        let coarse = wave_path(&peaks, 0.0, 1.0, 1.0, 10);
+        assert_eq!(coarse.matches(" 0.0200").count(), 2, "the spike survives the fold at full height");
+        let trimmed = wave_path(&peaks, 0.6, 0.4, 1.0, 10);
+        assert!(!trimmed.contains(" 0.0200"), "a trim past the spike does not show it");
+    }
+
+    #[test]
+    fn columns_follow_the_zoom_in_steps_of_sixty_four() {
+        assert_eq!(wave_columns(10.0, 0.05), 256, "200 px rounds up to 256");
+        assert_eq!(wave_columns(10.0, 0.01), 1024);
+        assert_eq!(wave_columns(600.0, 0.01), 2048, "held to the most worth drawing");
+        assert_eq!(wave_columns(0.1, 0.05), 64, "never under a step");
+        assert_eq!(wave_columns(0.0, 0.05), 8);
+        assert_eq!(wave_columns(f32::NAN, 0.05), 8);
+        assert_eq!(wave_columns(10.0, 0.0), 8);
     }
 
     #[test]

@@ -31,7 +31,7 @@ pub use encode::{EncodeOptions, Encoder, FrameSink, VideoCodec, jpeg};
 pub use error::{Error, Result};
 pub use ffi::{init, linked_version};
 pub use hardware::{HwDevice, HwPolicy, hardware_decode, set_hardware_decode};
-pub use peaks::Peaks;
+pub use peaks::{Peaks, Pyramid};
 pub use pool::{CacheStats, FrameCache, FrameRequest, ReaderPool};
 pub use prefetch::{Cursor, Direction, Moment, Prefetcher, Priority};
 pub use probe::{AudioStream, MediaInfo, VideoStream, probe};
