@@ -84,6 +84,20 @@ pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
     }
 }
 
+/// Says why the window could not start, somewhere the user will see it.
+///
+/// [`run`] returns its failure, and a desktop binary's `main` returns that
+/// to the runtime, which prints it on standard error and exits 1 - exactly
+/// what a packaged GUI build has no console for. Each entry point calls
+/// this on the error before letting it go, so the reason is in the log and
+/// in a dialog, not only in a console that was never there.
+/// https://github.com/jub0t/Concat/issues/135
+pub fn report_startup_failure(error: &slint::PlatformError) {
+    let error = error.to_string();
+    log::error!("could not start: {error}");
+    platform::report_startup_failure(&error);
+}
+
 /// Builds the window, binds it to the engine, and runs it until it closes.
 pub fn run() -> Result<(), slint::PlatformError> {
     // The shell doesn't exist yet - it needs the window the backend is about
