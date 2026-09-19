@@ -30,6 +30,18 @@ pub fn init() {
     });
 }
 
+/// The `va_list` a log callback is handed, spelt as the bindings spell it
+/// in a parameter. On x86_64's System V ABI - Linux, and Intel Macs - C's
+/// `va_list` is an array of one `__va_list_tag`, and an array in a
+/// parameter position decays to a pointer, so there bindgen's `va_list`
+/// alias (the array) and the callback's parameter (the pointer) are two
+/// types, and `relay` must be declared with the second to be the callback
+/// at all. Everywhere else the alias is the parameter's type too.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+type VaList = *mut ffmpeg::sys::__va_list_tag;
+#[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+type VaList = ffmpeg::sys::va_list;
+
 /// FFmpeg's log, through the `log` facade instead of standard error.
 ///
 /// Left to itself FFmpeg prints on stderr, which a packaged GUI build has
@@ -46,7 +58,7 @@ unsafe extern "C" fn relay(
     context: *mut c_void,
     level: c_int,
     format: *const c_char,
-    args: ffmpeg::sys::va_list,
+    args: VaList,
 ) {
     // The level set in `init` is applied by FFmpeg's *default* callback,
     // not before the callback is called: a callback of our own is handed
