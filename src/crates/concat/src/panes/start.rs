@@ -128,6 +128,7 @@ impl StartPane {
             resolution: self.resolution as i32,
             rate: self.rate as i32,
             size_readout: format!("{width} x {height}").into(),
+            frame_aspect: width as f32 / height.max(1) as f32,
             rate_readout: format!("{num}/{den} fps").into(),
             busy: self.busy,
             error: self.error.as_str().into(),
