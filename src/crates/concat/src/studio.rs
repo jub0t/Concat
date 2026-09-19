@@ -4227,7 +4227,19 @@ impl Studio {
         }
     }
 
+    /// Delete: the selection goes and the hole stays.
     pub fn delete_selected(&mut self) {
+        self.remove_selected(false);
+    }
+
+    /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
+    /// it, so a rough cut needs no dragging-left after every deletion.
+    /// https://github.com/jub0t/Concat/issues/106
+    pub fn ripple_delete_selected(&mut self) {
+        self.remove_selected(true);
+    }
+
+    fn remove_selected(&mut self, ripple: bool) {
         let doomed: Vec<String> = self
             .selection
             .iter()
@@ -4238,7 +4250,10 @@ impl Studio {
             .cloned()
             .collect();
         if !doomed.is_empty() {
-            self.apply(Command::RemoveClips { clip_ids: doomed });
+            self.apply(Command::RemoveClips {
+                clip_ids: doomed,
+                ripple,
+            });
         }
         self.selection.clear();
     }
@@ -5819,6 +5834,17 @@ impl Studio {
             checkable: false,
             checked: false,
         });
+        rows.push(MenuItemData {
+            id: "ripple-delete".into(),
+            label: t("Ripple delete").into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::Trash,
+            shortcut: "⇧⌫".into(),
+            enabled: !locked,
+            danger: true,
+            checkable: false,
+            checked: false,
+        });
         rows
     }
 
@@ -5936,6 +5962,22 @@ impl Studio {
                     kind: MenuRow::Action,
                     glyph: Glyph::Trash,
                     shortcut: "⌫".into(),
+                    enabled: selected > 0,
+                    danger: true,
+                    checkable: false,
+                    checked: false,
+                },
+                MenuItemData {
+                    id: "ripple-delete".into(),
+                    label: if selected > 1 {
+                        tf("Ripple delete {0} clips", &[&selected])
+                    } else {
+                        t("Ripple delete")
+                    }
+                    .into(),
+                    kind: MenuRow::Action,
+                    glyph: Glyph::Trash,
+                    shortcut: "⇧⌫".into(),
                     enabled: selected > 0,
                     danger: true,
                     checkable: false,
@@ -6137,6 +6179,8 @@ impl Studio {
                 self.split_at(at, true);
             }
             "select-all" => self.select_all(),
+            // ⇧⌫, from the key table; plain ⌫ comes in as its own callback.
+            "ripple-delete" => self.ripple_delete_selected(),
             "copy" | "duplicate" | "mute" => {
                 if let Some(id) = self.sole_selection() {
                     self.clip_action(&id, action);
@@ -6223,12 +6267,14 @@ impl Studio {
             "lock" => self.toggle_lock(&clip.track_id),
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
-            "delete" => {
+            "delete" | "ripple-delete" => {
+                let ripple = action == "ripple-delete";
                 if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
-                    self.delete_selected();
+                    self.remove_selected(ripple);
                 } else {
                     self.apply(Command::RemoveClips {
                         clip_ids: vec![id.to_owned()],
+                        ripple,
                     });
                 }
                 self.menu_target = None;

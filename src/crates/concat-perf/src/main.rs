@@ -66,6 +66,7 @@ fn main() {
     let mut results = vec![
         plan_200_clips(),
         undo_200_edits(),
+        ripple_delete_of_200(),
         document_round_trip(),
         publish_window_of_200(),
         waveform_of_an_hour(),
@@ -141,6 +142,78 @@ fn timeline_of(clips: usize, tracks: usize) -> Timeline {
             .expect("the track exists");
     }
     timeline
+}
+
+/// Ripple-deleting every other clip of a four-hundred-clip cut, on four
+/// lanes: the gap-closing walks every survivor against every removed span
+/// on its lane, and a rough cut does this after every single deletion.
+/// https://github.com/jub0t/Concat/issues/106
+fn ripple_delete_of_200() -> Measure {
+    let mut editor = Editor::new();
+    let media_id = editor
+        .apply(Command::AddMedia {
+            item: concat_project::commands::NewMedia {
+                path: "/perf/ripple.mp4".to_owned(),
+                name: "ripple.mp4".to_owned(),
+                duration: Some(1.0),
+                kind: concat_project::model::MediaKind::Video,
+                width: Some(1920),
+                height: Some(1080),
+                frame_rate: Some(30.0),
+                frame_rate_fraction: Some("30/1".to_owned()),
+                video_codec: Some("h264".to_owned()),
+                audio_codec: None,
+                has_audio: false,
+                audio_tracks: Vec::new(),
+            },
+        })
+        .expect("adds media")
+        .created_id
+        .expect("a media id");
+    let tracks: Vec<String> = editor
+        .project()
+        .active()
+        .tracks
+        .iter()
+        .map(|track| track.id.clone())
+        .collect();
+    let mut ids = Vec::with_capacity(400);
+    for index in 0..400usize {
+        let id = editor
+            .apply(Command::AddClip {
+                media_id: media_id.clone(),
+                track_id: tracks[index % tracks.len()].clone(),
+                start: (index / tracks.len()) as f64,
+                ripple: false,
+            })
+            .expect("adds a clip")
+            .created_id
+            .expect("a clip id");
+        ids.push(id);
+    }
+    let doomed: Vec<String> = ids.iter().step_by(2).cloned().collect();
+    let started = Instant::now();
+    editor
+        .apply(Command::RemoveClips {
+            clip_ids: doomed,
+            ripple: true,
+        })
+        .expect("removes");
+    let millis = started.elapsed().as_secs_f64() * 1e3;
+    let last = editor
+        .project()
+        .active()
+        .clips
+        .iter()
+        .map(|clip| clip.start + clip.duration)
+        .fold(0.0_f64, f64::max);
+    Measure {
+        name: "ripple delete of 200 clips out of 400",
+        value: millis,
+        unit: "ms",
+        budget: Budget::AtMost(20.0),
+        note: format!("the cut ends at {last}s, was 100s"),
+    }
 }
 
 /// Planning one frame of a two-hundred-clip cut: microseconds, and the

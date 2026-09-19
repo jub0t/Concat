@@ -156,6 +156,219 @@ mod tests {
         (editor, media_id, clip_id)
     }
 
+    /// Clips of `media_id`, ten seconds each, at these starts on this
+    /// track, in this order. The ids come back in the same order.
+    fn lane(editor: &mut Editor, media_id: &str, track_id: &str, starts: &[f64]) -> Vec<String> {
+        starts
+            .iter()
+            .map(|start| {
+                editor
+                    .apply(Command::AddClip {
+                        media_id: media_id.to_owned(),
+                        track_id: track_id.to_owned(),
+                        start: *start,
+                        ripple: false,
+                    })
+                    .expect("adds")
+                    .created_id
+                    .expect("id")
+            })
+            .collect()
+    }
+
+    fn start_of(editor: &Editor, clip_id: &str) -> f64 {
+        editor
+            .project()
+            .active()
+            .clip(clip_id)
+            .expect("the clip is still there")
+            .start
+    }
+
+    // ── ripple delete: https://github.com/jub0t/Concat/issues/106 ──
+
+    #[test]
+    fn ripple_delete_closes_the_gap_on_its_own_track_only() {
+        let (mut editor, media_id, first) = fixture();
+        let (video, sound) = {
+            let tracks = &editor.project().active().tracks;
+            (tracks[0].id.clone(), tracks[1].id.clone())
+        };
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        let other = lane(&mut editor, &media_id, &sound, &[15.0]);
+
+        let outcome = editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![rest[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert!(outcome.applied);
+        assert!(editor.project().active().clip(&rest[0]).is_none());
+        assert_eq!(start_of(&editor, &first), 0.0, "what was in front stays");
+        assert_eq!(
+            start_of(&editor, &rest[1]),
+            10.0,
+            "what was behind closes up"
+        );
+        assert_eq!(
+            start_of(&editor, &other[0]),
+            15.0,
+            "another lane is none of this deletion's business"
+        );
+    }
+
+    #[test]
+    fn a_plain_delete_still_leaves_the_hole() {
+        let (mut editor, media_id, _) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![rest[0].clone()],
+                ripple: false,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &rest[1]), 20.0);
+    }
+
+    #[test]
+    fn ripple_delete_of_several_clips_moves_each_survivor_by_what_was_before_it() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0, 30.0]);
+        // The first and the third go: the second moves by one span, the
+        // fourth by two.
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![first, rest[1].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &rest[0]), 0.0);
+        assert_eq!(start_of(&editor, &rest[2]), 10.0);
+        assert_eq!(editor.project().active().clips.len(), 2);
+    }
+
+    #[test]
+    fn ripple_delete_counts_overlapping_spans_once() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // Two doomed clips sharing five seconds - [0, 10) and [5, 15) -
+        // and a survivor at twenty. Their union is fifteen, so it lands at
+        // five; their sum is twenty, which would send it to zero. Away
+        // from zero on purpose: the floor there would hide the difference.
+        let more = lane(&mut editor, &media_id, &video, &[5.0, 20.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![first, more[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &more[1]), 5.0);
+    }
+
+    #[test]
+    fn ripple_delete_of_a_span_reaching_past_a_survivor_pulls_only_up_to_it() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // A doomed clip at [10, 20) with a survivor stacked inside its span
+        // at fourteen: the survivor moves by the four seconds of span in
+        // front of it, to ten, not by the whole ten, which would put it at
+        // four - in front of where the doomed clip began.
+        let more = lane(&mut editor, &media_id, &video, &[10.0, 14.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![more[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &first), 0.0);
+        assert_eq!(start_of(&editor, &more[1]), 10.0);
+    }
+
+    #[test]
+    fn ripple_delete_leaves_a_clip_stacked_at_the_same_start_alone() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let twin = lane(&mut editor, &media_id, &video, &[0.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![first],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(
+            start_of(&editor, &twin[0]),
+            0.0,
+            "nothing was in front of it"
+        );
+    }
+
+    #[test]
+    fn ripple_delete_of_unknown_ids_moves_nothing_and_records_nothing() {
+        let (mut editor, media_id, _) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &video, &[10.0]);
+        let before_can_undo = editor.can_undo();
+        let outcome = editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec!["nobody".to_owned()],
+                ripple: true,
+            })
+            .expect("tolerated");
+        assert!(!outcome.applied);
+        assert_eq!(start_of(&editor, &rest[0]), 10.0);
+        assert_eq!(editor.can_undo(), before_can_undo);
+    }
+
+    #[test]
+    fn ripple_delete_is_one_undo_step_that_puts_everything_back() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &video, &[10.0, 20.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![first.clone(), rest[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert_eq!(start_of(&editor, &rest[1]), 0.0);
+        assert!(editor.undo());
+        assert_eq!(start_of(&editor, &first), 0.0);
+        assert_eq!(start_of(&editor, &rest[0]), 10.0);
+        assert_eq!(start_of(&editor, &rest[1]), 20.0);
+        assert!(editor.redo());
+        assert_eq!(start_of(&editor, &rest[1]), 0.0);
+    }
+
+    #[test]
+    fn ripple_delete_of_everything_on_a_lane_is_just_a_delete() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![first, rest[0].clone()],
+                ripple: true,
+            })
+            .expect("removes");
+        assert!(editor.project().active().clips.is_empty());
+    }
+
+    #[test]
+    fn a_remove_clips_document_without_the_ripple_field_still_parses_as_a_plain_delete() {
+        let command: Command = serde_json::from_value(json!({
+            "op": "removeClips",
+            "clipIds": ["c1"]
+        }))
+        .expect("the field is new; old callers do not send it");
+        match command {
+            Command::RemoveClips { ripple, .. } => assert!(!ripple),
+            _ => panic!("not a remove"),
+        }
+    }
+
     #[test]
     fn a_new_project_has_one_timeline_and_four_lanes() {
         let editor = Editor::new();
@@ -460,7 +673,10 @@ mod tests {
             .collect();
         assert_eq!(sound.len(), 1);
         editor
-            .apply(Command::RemoveClips { clip_ids: sound })
+            .apply(Command::RemoveClips {
+                clip_ids: sound,
+                ripple: false,
+            })
             .expect("removes");
         assert_eq!(
             editor
@@ -2676,6 +2892,7 @@ mod tests {
             },
             Command::RemoveClips {
                 clip_ids: vec!["c1".to_owned()],
+                ripple: false,
             },
             Command::UpdateClip {
                 clip_id: "c1".to_owned(),

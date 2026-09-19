@@ -685,6 +685,7 @@ fn every_edit_still_exports() {
     exported.expect_tone(2.75);
 
     studio.apply(Command::RemoveClips {
+        ripple: false,
         clip_ids: vec![peek_clip.clone()],
     });
     let exported = studio.export("head removed");

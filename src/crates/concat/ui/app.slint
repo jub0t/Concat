@@ -355,8 +355,15 @@ export component App inherits Window {
                 return reject;
             }
             if (event.text == Key.Space) { Editor.play-toggled(); return accept; }
+            // Shift closes the gap the deletion leaves - the ripple delete
+            // of every other editor, on the key they all use for it.
+            // https://github.com/jub0t/Concat/issues/106
             if (event.text == Key.Delete || event.text == Key.Backspace) {
-                Editor.delete-selected();
+                if (event.modifiers.shift) {
+                    Editor.shortcut("ripple-delete");
+                } else {
+                    Editor.delete-selected();
+                }
                 return accept;
             }
             if (event.text == Key.Home) { Editor.shortcut("start"); return accept; }

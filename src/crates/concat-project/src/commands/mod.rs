@@ -503,6 +503,15 @@ pub enum Command {
     RemoveClips {
         /// The clips to delete.
         clip_ids: Vec<String>,
+        /// When true the deletion leaves no gap: on each track, every clip
+        /// that starts after a removed span moves left by the length of the
+        /// removed spans before it. A track the deletion never touched
+        /// stays where it is, so a picture going from one lane does not
+        /// pull the sound on another - CapCut's magnetic track, which is
+        /// what was asked for. False leaves the hole.
+        /// https://github.com/jub0t/Concat/issues/106
+        #[serde(default)]
+        ripple: bool,
     },
     /// Applies a [`ClipPatch`]: only the fields present change, with the
     /// clamps documented on the patch. An unknown clip is a no-op.

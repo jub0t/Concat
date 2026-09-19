@@ -472,14 +472,31 @@ pub(super) fn apply(
             })
         }
 
-        Command::RemoveClips { clip_ids } => {
+        Command::RemoveClips { clip_ids, ripple } => {
             let timeline = project.active_mut();
             let doomed: HashSet<&str> = clip_ids.iter().map(String::as_str).collect();
+            // The spans going, per track, taken before they are gone: the
+            // ripple closes exactly these.
+            let removed: Vec<(String, f64, f64)> = timeline
+                .clips
+                .iter()
+                .filter(|clip| doomed.contains(clip.id.as_str()))
+                .map(|clip| {
+                    (
+                        clip.track_id.clone(),
+                        clip.start,
+                        clip.start + clip.duration,
+                    )
+                })
+                .collect();
             let clip_count = timeline.clips.len();
             timeline
                 .clips
                 .retain(|clip| !doomed.contains(clip.id.as_str()));
             let applied = timeline.clips.len() != clip_count;
+            if ripple && applied {
+                close_gaps(timeline, &removed);
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -492,6 +509,41 @@ pub(super) fn apply(
 
 /// How far apart two clips may sit and still count as touching, in seconds.
 const JOIN_EPSILON: f64 = 1e-6;
+
+/// The ripple of a delete: pulls every clip that sits after a removed
+/// span left by the length of the removed spans before it, on that clip's
+/// own track. Spans that overlap count once - a clip behind two doomed
+/// clips that shared five seconds moves by their union, not their sum, or
+/// it would land in front of what was in front of it. A span reaching past
+/// the clip's start counts only up to it, and nothing is pulled before
+/// zero.
+/// https://github.com/jub0t/Concat/issues/106
+fn close_gaps(timeline: &mut Timeline, removed: &[(String, f64, f64)]) {
+    for clip in timeline.clips_mut() {
+        let mut spans: Vec<(f64, f64)> = removed
+            .iter()
+            .filter(|(track, start, _)| *track == clip.track_id && *start < clip.start)
+            .map(|(_, start, end)| (*start, end.min(clip.start)))
+            .collect();
+        if spans.is_empty() {
+            continue;
+        }
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut gap = 0.0;
+        let (mut from, mut to) = spans[0];
+        for (start, end) in spans.into_iter().skip(1) {
+            if start <= to {
+                to = to.max(end);
+            } else {
+                gap += to - from;
+                from = start;
+                to = end;
+            }
+        }
+        gap += to - from;
+        clip.start = (clip.start - gap).max(0.0);
+    }
+}
 
 fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> Clip {
     let kind = match media.kind {
