@@ -177,7 +177,7 @@ pub fn wave_path(
     /// Fewest columns worth drawing, and the most: enough that a clip a
     /// screen wide reads a column a pixel, few enough that the string stays
     /// under a few hundred kilobytes.
-    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=512;
+    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=4096;
     /// Silence still draws a sliver: a hairline along the floor of a clip
     /// rather than a gap in it.
     const FLOOR: f32 = 0.024;
@@ -223,11 +223,12 @@ pub const WAVE_PITCH: f32 = 3.0;
 /// own; see `media_bin`.
 pub const WAVE_BAR: f32 = 2.0 / 3.0;
 
-/// How many bars a clip `seconds` long gets at `seconds_per_pixel`: one a
+/// How many bars a span of `seconds` gets at `seconds_per_pixel`: one a
 /// [`WAVE_PITCH`], rounded up to the next sixteen so a zoom rebuilds the
 /// path at each step of that and not at every pixel, held to what
-/// `wave_path` draws - past the cap a bar is a little wider than its
-/// pitch, on a clip already wider than a screen.
+/// `wave_path` draws. The span is the window of a clip on screen (see
+/// `Studio::wave`), so the cap is a screen's worth and a bar is never
+/// stretched past its pitch.
 pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
     if seconds.is_nan() || seconds <= 0.0 || seconds_per_pixel.is_nan() || seconds_per_pixel <= 0.0
     {
@@ -235,7 +236,7 @@ pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
     }
     let pixels = (seconds / seconds_per_pixel).ceil().max(1.0);
     let bars = (pixels / WAVE_PITCH).ceil() as usize;
-    bars.div_ceil(16).max(1).saturating_mul(16).clamp(8, 512)
+    bars.div_ceil(16).max(1).saturating_mul(16).clamp(8, 4096)
 }
 
 /// A moment in the past, in the words a recents row wants: "just now",
@@ -403,7 +404,7 @@ mod tests {
             wave_path(&peaks, 0.0, 2.0, 1_000_000, WAVE_BAR)
                 .matches('M')
                 .count(),
-            512
+            4096
         );
         // A bar takes `bar` of its pitch; the rest is the gap.
         let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75);
@@ -472,7 +473,7 @@ mod tests {
         assert_eq!(wave_columns(10.0, 0.01), 336, "1000 px is 334 bars");
         assert_eq!(
             wave_columns(600.0, 0.01),
-            512,
+            4096,
             "held to the most worth drawing"
         );
         assert_eq!(wave_columns(0.1, 0.05), 16, "never under a step");

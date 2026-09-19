@@ -213,9 +213,9 @@ component Clip inherits Rectangle {
         // is at unity and the clip's volume scales its height here, so a
         // volume drag moves the picture without a new path from Rust.
         if root.item.wave != "" && !root.banded: Wave {
-            x: 0;
+            x: root.item.wave-from * parent.width;
             y: 0;
-            width: parent.width;
+            width: root.item.wave-span * parent.width;
             height: parent.height;
             commands: root.item.wave;
             gain: root.item.volume;
@@ -319,9 +319,9 @@ component Clip inherits Rectangle {
             }
 
             if root.item.wave != "": Wave {
-                x: 0;
+                x: root.item.wave-from * parent.width;
                 y: 1px;
-                width: parent.width;
+                width: root.item.wave-span * parent.width;
                 height: parent.height - 1px;
                 commands: root.item.wave;
                 gain: root.item.volume;

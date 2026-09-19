@@ -112,6 +112,10 @@ export struct ClipData {
     /// that draws it is `fit: fill`, which stretches the box onto whatever
     /// width the clip currently has. Built once in Rust, where the peaks are.
     wave: string,
+    /// Where on the clip `wave` sits: its start and its length as fractions
+    /// of the clip's, since only the window on screen is built.
+    wave-from: float,
+    wave-span: float,
     /// The frames a picture clip tiles along its body; `frames` is 0 when
     /// there are none yet.
     strip: StripData,

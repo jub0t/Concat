@@ -47,8 +47,8 @@ use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
 use crate::format::{
-    WAVE_BAR, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha, wave_columns,
-    wave_path, when_phrase,
+    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
+    wave_columns, wave_path, when_phrase,
 };
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
@@ -2109,27 +2109,71 @@ impl Studio {
     ///
     /// At unity: the clip's volume scales the drawing in the lane, so a
     /// volume drag never comes here - see `format::wave_path`.
-    fn wave(&self, clip: &Clip) -> SharedString {
+    ///
+    /// Only the window of the clip that is on screen, and a screen either
+    /// side of it, is built: what comes back is the path and where it
+    /// sits on the clip, as fractions of the clip's length. A clip zoomed
+    /// in far enough to be wider than the screen many times over would
+    /// otherwise spread its bars across all of that width - a bar the
+    /// width of a finger - or want tens of thousands of them. This way a
+    /// bar is one pitch on screen at every zoom, and the count is bounded
+    /// by the screen, not the clip. The window is quantised to strides
+    /// of sixty-four bars, so a scroll rebuilds at each stride and not at
+    /// every pixel, and the cache holds a few hundred windows before it
+    /// is emptied.
+    fn wave(&self, clip: &Clip) -> (SharedString, f32, f32) {
         if clip.muted == Some(true) {
-            return SharedString::new();
+            return Default::default();
         }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
         let art = art_key(&clip.media_id, clip.audio_stream);
         let Some(peaks) = self.peaks.get(&art) else {
-            return SharedString::new();
+            return Default::default();
         };
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
         let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
-        let columns = wave_columns(clip.duration as f32, self.lanes.seconds_per_pixel);
-        let key = format!("{art}|{source_start:.3}|{duration:.3}|{columns}");
-        if let Some(cached) = self.waves.borrow().get(&key) {
-            return cached.clone();
+        if duration <= 0.0 {
+            return Default::default();
         }
-        let built = SharedString::from(wave_path(peaks, source_start, duration, columns, WAVE_BAR));
-        self.waves.borrow_mut().insert(key, built.clone());
-        built
+        let seconds_per_pixel = self.lanes.seconds_per_pixel;
+        let stride = (WAVE_PITCH * seconds_per_pixel * 64.0).max(1.0 / WAVE_STEPS);
+        let (from, to) = match self.lanes.published_span() {
+            Some((left, right)) => {
+                let from = (left - clip.start as f32).max(0.0);
+                let to = (right - clip.start as f32).min(duration);
+                if to > from {
+                    (
+                        (from / stride).floor() * stride,
+                        ((to / stride).ceil() * stride).min(duration),
+                    )
+                } else {
+                    (0.0, duration)
+                }
+            }
+            None => (0.0, duration),
+        };
+        let window = to - from;
+        let columns = wave_columns(window, seconds_per_pixel);
+        let placed = (from / duration, window / duration);
+        let key = format!("{art}|{source_start:.3}|{from:.3}|{window:.3}|{columns}");
+        if let Some(cached) = self.waves.borrow().get(&key) {
+            return (cached.clone(), placed.0, placed.1);
+        }
+        let built = SharedString::from(wave_path(
+            peaks,
+            source_start + from,
+            window,
+            columns,
+            WAVE_BAR,
+        ));
+        let mut waves = self.waves.borrow_mut();
+        if waves.len() >= 512 {
+            waves.clear();
+        }
+        waves.insert(key, built.clone());
+        (built, placed.0, placed.1)
     }
 
     // ── placing things ──
@@ -5006,7 +5050,9 @@ impl Studio {
                             .map(|text| text.content.as_str())
                             .unwrap_or_default()
                             .into(),
-                        wave,
+                        wave: wave.0,
+                        wave_from: wave.1,
+                        wave_span: wave.2,
                         strip: self.strip_of(clip),
                     }
                 })
