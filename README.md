@@ -91,25 +91,18 @@ Optional models download from the settings panel on first use and then never nee
 > 
 > Contributors are free to claim a `@Contributor` role in the Discord server, just ask for it.
 
-## Concat vs CapCut vs OpenCut
+## Contributors
 
-🟢 strong · 🟡 partial or with strings attached · 🔴 weak or missing
+<a href="https://github.com/jub0t/Concat/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
+</a>
 
-| | Concat | CapCut | OpenCut | Notes |
-|---|:---:|:---:|:---:|---|
-| Performance | 🟢 | 🟢 | 🟡 | Concat and CapCut are native. OpenCut runs on WebAssembly FFmpeg in a browser |
-| Price | 🟢 | 🟡 | 🟢 | CapCut is free until Pro effects, 4K or AI tools, then $9.99 to $19.99 a month |
-| Watermark | 🟢 | 🟡 | 🟢 | CapCut stamps exports that use Pro assets |
-| Privacy | 🟢 | 🔴 | 🟢 | Concat sends nothing anywhere. CapCut's terms grant ByteDance a perpetual licence to uploads |
-| Offline | 🟢 | 🟡 | 🟡 | Concat's captions, speech, cutout and export all run on device. CapCut's best features are cloud |
-| Open source | 🟢 | 🔴 | 🟢 | Concat AGPL, OpenCut MIT, CapCut closed |
-| 4K export | 🟢 | 🟡 | 🟡 | CapCut caps free at 1080p. OpenCut depends on the browser |
-| Effects and templates | 🟡 | 🟢 | 🔴 | CapCut has thousands. Concat has a few dozen. OpenCut has a basic set |
-| AI tools | 🟡 | 🟢 | 🟡 | CapCut has tracking, reframe, avatars. Concat has local captions, speech and person cutout |
-| Keyframes | 🟡 | 🟢 | 🟡 | Concat keys position, scale, rotation and opacity with bezier easing. No curve editor and no keyed effect parameters yet |
-| Export formats | 🟡 | 🟢 | 🟡 | Concat writes H.264 MP4 only. OpenCut MP4 and WebM |
-| Stability | 🟡 | 🟢 | 🔴 | Concat is a 0.2.x beta. OpenCut is mid rewrite |
-| Mobile | 🟢 | 🟢 | 🔴 | Concat's Android and iOS builds compile but are untested. OpenCut's are in progress |
-| Extensibility | 🟢 | 🔴 | 🟢 | OpenCut ships an Editor API, MCP server and plugins. Concat's plugin API is planned |
-| Community | 🟡 | 🟢 | 🟢 | OpenCut has tens of thousands of stars. Concat has a Discord and a handful of contributors |
-| Multiple timelines per project | 🟢 | 🟢 | 🔴 | Concat only |
+## ⭐ Star History
+
+<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&logscale&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&logscale&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&logscale&legend=top-left" />
+ </picture>
+</a>
