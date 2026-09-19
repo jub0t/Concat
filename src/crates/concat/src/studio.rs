@@ -4694,9 +4694,9 @@ impl Studio {
             self.posters_pending.insert(path.clone());
             spawn(
                 move || {
-                    let cached = std::path::Path::new(&path)
-                        .join("cache")
-                        .join("preview.jpg");
+                    let cached = media::poster_cache(&path);
+                    // A project with no poster - nothing on it, or nothing
+                    // but black - keeps the film mark; see `poster_frame`.
                     let made = media::poster_frame(&path).is_ok();
                     (path, made.then_some(cached))
                 },
