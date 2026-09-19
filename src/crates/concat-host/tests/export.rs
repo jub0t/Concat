@@ -968,6 +968,7 @@ fn every_edit_still_exports() {
     let exported = studio.export("layer");
     exported.expect_length(end);
     studio.apply(Command::AddTextClip {
+        above: false,
         track_id: None,
         start: 3.0,
         style: Some(TextStyle {

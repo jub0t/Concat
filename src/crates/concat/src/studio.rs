@@ -2274,6 +2274,7 @@ impl Studio {
             style: Some(style),
             duration: Some(duration),
             offset_y,
+            above: false,
         };
         match font {
             Some((family, path)) => self.apply(Command::Batch {
@@ -4383,6 +4384,7 @@ impl Studio {
         let end = source.start + source.duration;
         if source.kind == model::ClipKind::Text {
             let created = self.apply(Command::AddTextClip {
+                above: false,
                 track_id: Some(source.track_id.clone()),
                 start: end,
                 style: source.text.clone(),

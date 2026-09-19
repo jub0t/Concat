@@ -350,6 +350,7 @@ mod tests {
         editor
             .apply(Command::AddTextClip {
                 track_id,
+                above: false,
                 start: 0.0,
                 style: None,
                 duration: None,
