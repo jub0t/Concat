@@ -626,8 +626,26 @@ impl ReaderPool {
     /// reads, its facts, and the key of the frame at the level that covers
     /// the request.
     fn locate(&self, request: &FrameRequest) -> Result<(Arc<MediaFacts>, SourceKey)> {
-        let path = self.path_for(request);
-        let facts = self.facts_for(&path, request.still)?;
+        let mut path = self.path_for(request);
+        let facts = match self.facts_for(&path, request.still) {
+            Ok(facts) => facts,
+            // A proxy that cannot be read - the cache cleared under the
+            // pool, a folder moved - is forgotten, and the original read
+            // instead: a stand-in that has gone is not a missing picture.
+            Err(error) if path != request.path => {
+                log::warn!(
+                    "{}: proxy {} unreadable ({error}); reading the original",
+                    request.path.display(),
+                    path.display()
+                );
+                if let Ok(mut proxies) = self.proxies.lock() {
+                    proxies.remove(&request.path);
+                }
+                path = request.path.clone();
+                self.facts_for(&path, request.still)?
+            }
+            Err(error) => return Err(error),
+        };
         let index = facts.index_at(request.time);
         // A still is cut to the size asked for: one decode, kept, and the
         // levels of a photograph are not worth a photograph's worth of
@@ -785,9 +803,7 @@ impl ReaderPool {
         // A still held in memory has no file to open: it is cut to the
         // level asked for, here, and kept like any frame.
         if let Some(source) = self.held_still(path) {
-            let frame = Arc::new(crate::treat::treat_to(
-                &source, key.width, key.height, "",
-            )?);
+            let frame = Arc::new(crate::treat::treat_to(&source, key.width, key.height, "")?);
             self.remember_source(key.clone(), Arc::clone(&frame));
             return Ok(frame);
         }
@@ -1148,13 +1164,16 @@ pub(crate) mod tests {
     /// channel encodes the frame index (x2 to survive compression
     /// rounding).
     pub(crate) fn counting_video(name: &str, size: u32, frames: u32) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "concat-pool-{name}-{}.mp4",
-            std::process::id()
-        ));
-        let mut encoder =
-            Encoder::create(&path, size, size, FrameRate::THIRTY, &EncodeOptions::default())
-                .expect("the linked FFmpeg encodes h264");
+        let path =
+            std::env::temp_dir().join(format!("concat-pool-{name}-{}.mp4", std::process::id()));
+        let mut encoder = Encoder::create(
+            &path,
+            size,
+            size,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        )
+        .expect("the linked FFmpeg encodes h264");
         for index in 0..frames {
             let mut frame = Frame::black(size, size);
             frame.fill([(index * 2).min(255) as u8, 40, 40, 255]);
@@ -1299,6 +1318,30 @@ pub(crate) mod tests {
         assert_eq!(again.source_hits, route.len() as u64, "{again:?}");
         assert_eq!(plain_again, plain);
 
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A proxy that has gone from disk is forgotten on the first request
+    /// that asks for it, and the original serves the frame.
+    #[test]
+    fn a_proxy_that_vanished_falls_back_to_the_original() {
+        let path = counting_video("proxy-gone", 32, 10);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 2);
+        let gone =
+            std::env::temp_dir().join(format!("concat-no-such-proxy-{}.mp4", std::process::id()));
+        pool.adopt_proxy(&path, gone.clone());
+        assert_eq!(pool.proxy_of(&path), Some(gone));
+        let frame = pool
+            .frame(
+                &FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(3), 32, 32)
+                    .from_proxy(true),
+            )
+            .expect("the original serves the frame");
+        assert_eq!((frame.width(), frame.height()), (32, 32));
+        assert!(
+            pool.proxy_of(&path).is_none(),
+            "the dead proxy is forgotten"
+        );
         let _ = std::fs::remove_file(&path);
     }
 

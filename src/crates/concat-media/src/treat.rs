@@ -201,7 +201,11 @@ mod tests {
         let crop = "crop=w=iw/2:h=ih:x=0:y=0";
         let left = fit(&frame, Some(crop), 4, 4, None).expect("fits");
         assert_eq!((left.width(), left.height()), (4, 4));
-        assert_eq!(left.pixel(3, 1), Some([255, 0, 0, 255]), "the left half only");
+        assert_eq!(
+            left.pixel(3, 1),
+            Some([255, 0, 0, 255]),
+            "the left half only"
+        );
         let negated = fit(&frame, Some(crop), 4, 4, Some("negate")).expect("fits and treats");
         assert_eq!(negated.pixel(3, 1), Some([0, 255, 255, 255]));
         let same = fit(&frame, None, 8, 4, None).expect("copies");

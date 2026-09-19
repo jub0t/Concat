@@ -292,6 +292,14 @@ impl Prefetcher {
         lock(&self.shared.pinned).len()
     }
 
+    /// The instants held ahead, in timeline seconds, in no order.
+    pub fn held_instants(&self) -> Vec<f64> {
+        lock(&self.shared.pinned)
+            .iter()
+            .map(|(time, _)| *time)
+            .collect()
+    }
+
     /// Blocks until every queued job has run. For tests and for a caller
     /// that must know the pool is warm; the window never waits here.
     pub fn drain(&self) {
@@ -362,7 +370,9 @@ fn work(lane: &Lane) {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
@@ -451,6 +461,72 @@ mod tests {
         assert_eq!(most.load(Ordering::SeqCst), 1, "artwork ran one at a time");
     }
 
+    /// A cursor that turns round keeps what is now ahead of it and lets
+    /// go of what is now behind: shuttling back over a play does not
+    /// throw the frames just played away, and does not hold what lies
+    /// the other way.
+    #[test]
+    fn a_reversed_cursor_keeps_what_is_ahead_of_it_now() {
+        let path = crate::pool::tests::counting_video("prefetch-reverse", 32, 90);
+        let pool = Arc::new(ReaderPool::new(64 * 1024 * 1024, 2));
+        let prefetcher = Prefetcher::new(Arc::clone(&pool), 1);
+        let rate = FrameRate::THIRTY;
+        let fps = rate.fps().as_f64();
+        let moment = |index: i64| Moment {
+            time: index as f64 / fps,
+            frames: vec![FrameRequest::new(&path, rate.time_of_frame(index), 16, 16)],
+        };
+        prefetcher.advance(
+            Cursor {
+                time: 10.0 / fps,
+                direction: Direction::Forward,
+                rate: 1.0,
+            },
+            1.0 / fps,
+            (11..19).map(moment).collect(),
+        );
+        prefetcher.drain();
+        assert_eq!(prefetcher.held_ahead(), 8);
+        // Turned round at 14: 15.. are behind it now and go; 11..=14 stay
+        // (14 within a frame's slack), and 13 down to 6 are asked for.
+        prefetcher.advance(
+            Cursor {
+                time: 14.0 / fps,
+                direction: Direction::Backward,
+                rate: -1.0,
+            },
+            1.0 / fps,
+            (6..14).rev().map(moment).collect(),
+        );
+        prefetcher.drain();
+        let held = prefetcher.held_instants();
+        let slack = 1.0 / fps + 1e-6;
+        assert!(
+            held.iter().all(|time| *time <= 14.0 / fps + slack),
+            "held behind a backward cursor: {held:?}"
+        );
+        assert!(held.len() >= 8, "the way back is decoded: {held:?}");
+        // Nothing the cursor has behind it is ever queued again: an
+        // instant past it is skipped, not decoded.
+        let before = pool.stats();
+        prefetcher.advance(
+            Cursor {
+                time: 5.0 / fps,
+                direction: Direction::Backward,
+                rate: -1.0,
+            },
+            1.0 / fps,
+            vec![moment(30)],
+        );
+        prefetcher.drain();
+        assert_eq!(
+            pool.stats().since(before).decoded,
+            0,
+            "30 is behind a backward cursor at 5"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// The cursor's instants are decoded ahead into the pool, held until
     /// passed, and a moved cursor drops what it has passed.
     #[test]
@@ -464,12 +540,7 @@ mod tests {
             (from + 1..from + 1 + i64::from(AHEAD))
                 .map(|index| Moment {
                     time: index as f64 / fps,
-                    frames: vec![FrameRequest::new(
-                        &path,
-                        rate.time_of_frame(index),
-                        16,
-                        16,
-                    )],
+                    frames: vec![FrameRequest::new(&path, rate.time_of_frame(index), 16, 16)],
                 })
                 .collect()
         };

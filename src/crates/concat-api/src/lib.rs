@@ -502,6 +502,7 @@ impl Api {
                     time,
                     width,
                     height,
+                    moving: false,
                 },
             )
             .map_err(ApiError::failed)?;

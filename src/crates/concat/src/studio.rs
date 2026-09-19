@@ -49,8 +49,8 @@ use crate::dock::{
 use crate::format::{colour_of, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase};
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
-    image_of, media_art, on_ui, spawn, spawn_art, strip_window, window_art, window_span,
-    window_start,
+    image_of, media_art, on_ui, spawn, spawn_art, spawn_strip, strip_window, window_art,
+    window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::panes::settings::installed;
@@ -1791,6 +1791,22 @@ impl Studio {
             return;
         };
         let project_path = session.path().to_owned();
+        // A file larger than HD gets a proxy for playback and the
+        // filmstrips, written once on the scheduler's proxy lane; see
+        // concat_host::proxy.
+        for item in &self.project().media {
+            if item.kind == model::MediaKind::Video
+                && !item.placeholder
+                && let (Some(width), Some(height)) = (item.width, item.height)
+            {
+                concat_host::proxy::ensure(
+                    std::path::Path::new(&project_path),
+                    &item.path,
+                    width,
+                    height,
+                );
+            }
+        }
         /// One job: the art key it fills, and what to decode.
         struct Want {
             key: String,
@@ -2000,7 +2016,7 @@ impl Studio {
             }
             self.window_pending.insert(key);
             let project = project_path.clone();
-            spawn_art(
+            spawn_strip(
                 move || window_art(id, path, project, level, cell, duration),
                 |studio, _, _, art: WindowArt| {
                     let key = window_key(&art.id, art.level, art.cell);
