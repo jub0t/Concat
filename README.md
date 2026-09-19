@@ -89,7 +89,7 @@ Optional models download from the settings panel on first use and then never nee
 >
 > Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. [ROADMAP.MD](./ROADMAP.MD) says where the project is going, and [this Discussion](https://github.com/jub0t/Concat/discussions/3) is where it was announced.
 > 
-> Contributors are free to claim a @Contributor role in the Discord server, just ask for it.
+> Contributors are free to claim a `@Contributor` role in the Discord server, just ask for it.
 
 ## Concat vs CapCut vs OpenCut
 
