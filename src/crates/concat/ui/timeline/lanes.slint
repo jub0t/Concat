@@ -160,7 +160,7 @@ component Clip inherits Rectangle {
     /// never spoke. https://github.com/jub0t/Concat/issues/137
     property <bool> banded: root.item.kind == ClipKind.video;
     property <length> band-h: root.banded
-        ? Math.clamp(root.body-h * 0.34, 8px, 24px)
+        ? Math.clamp(root.body-h * 0.34, 8px, 30px)
         : 0px;
     /// What the frames get: the body less the band.
     property <length> frames-h: Math.max(0px, root.body-h - root.band-h);

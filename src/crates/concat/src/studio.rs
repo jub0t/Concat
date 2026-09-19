@@ -79,10 +79,13 @@ pub const MIN_DURATION: f32 = 1.0 / 60.0;
 ///
 /// Picture gets the tallest because a filmstrip is the one thing that needs
 /// the room; sound the middle, where an envelope still has shape. The ladder
-/// is what `TrackSize::Auto` picks from - see `lane_height`.
-const LANE_LARGE: f32 = 80.0;
-const LANE_MEDIUM: f32 = 60.0;
-const LANE_SMALL: f32 = 40.0;
+/// is what `TrackSize::Auto` picks from - see `lane_height`. Raised from
+/// 80/60/40: with the name strip and the sound band taken off, a video's
+/// frames had under forty pixels and a waveform under thirty, and both
+/// read as crammed.
+const LANE_LARGE: f32 = 108.0;
+const LANE_MEDIUM: f32 = 80.0;
+const LANE_SMALL: f32 = 44.0;
 
 /// How long a title runs when it is placed: long enough to read, short
 /// enough that trimming it is a nudge rather than a fight.
