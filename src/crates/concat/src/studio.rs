@@ -543,7 +543,7 @@ pub struct Studio {
     window_pending: HashSet<String>,
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
-    waves: RefCell<HashMap<String, SharedString>>,
+    waves: RefCell<HashMap<String, (SharedString, SharedString)>>,
 
     // ── the view ──
     /// The timeline's view: scroll, zoom, tool, and what the lanes know
@@ -2106,16 +2106,19 @@ impl Studio {
     /// it at each step of that and not at every pixel. A sound clip's
     /// whole body, a picture clip's band under its frames; a picture that
     /// is muted, or whose file has no sound, shows the empty band.
-    fn wave(&self, clip: &Clip) -> SharedString {
+    ///
+    /// Two paths: the bars, and the part of each bar over the hot line -
+    /// see `format::wave_path`.
+    fn wave(&self, clip: &Clip) -> (SharedString, SharedString) {
         if clip.muted == Some(true) {
-            return SharedString::new();
+            return Default::default();
         }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
         let art = art_key(&clip.media_id, clip.audio_stream);
         let Some(peaks) = self.peaks.get(&art) else {
-            return SharedString::new();
+            return Default::default();
         };
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
         let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
@@ -2125,7 +2128,8 @@ impl Studio {
         if let Some(cached) = self.waves.borrow().get(&key) {
             return cached.clone();
         }
-        let built = SharedString::from(wave_path(peaks, source_start, duration, gain, columns));
+        let wave = wave_path(peaks, source_start, duration, gain, columns);
+        let built = (SharedString::from(wave.body), SharedString::from(wave.hot));
         self.waves.borrow_mut().insert(key, built.clone());
         built
     }
@@ -4978,31 +4982,36 @@ impl Studio {
                         clip.duration as f32,
                     )
                 })
-                .map(|clip| ClipData {
-                    id: clip.id.as_str().into(),
-                    name: clip.name.as_str().into(),
-                    kind: kind_of(clip),
-                    row: self.row_of(&clip.track_id),
-                    start: clip.start as f32,
-                    duration: clip.duration as f32,
-                    selected: self.selection.iter().any(|id| id == &clip.id),
-                    fx: clip.video_effects.iter().any(|effect| effect.enabled),
-                    transition_in: clip.transition_in.is_some(),
-                    fade_in: clip.fade_in as f32,
-                    fade_out: clip.fade_out as f32,
-                    volume: clip.volume as f32,
-                    text_body: clip
-                        .text
-                        .as_ref()
-                        .map(|text| text.content.as_str())
-                        .unwrap_or_default()
-                        .into(),
-                    wave: if matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
-                        self.wave(clip)
-                    } else {
-                        SharedString::new()
-                    },
-                    strip: self.strip_of(clip),
+                .map(|clip| {
+                    let wave =
+                        if matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
+                            self.wave(clip)
+                        } else {
+                            Default::default()
+                        };
+                    ClipData {
+                        id: clip.id.as_str().into(),
+                        name: clip.name.as_str().into(),
+                        kind: kind_of(clip),
+                        row: self.row_of(&clip.track_id),
+                        start: clip.start as f32,
+                        duration: clip.duration as f32,
+                        selected: self.selection.iter().any(|id| id == &clip.id),
+                        fx: clip.video_effects.iter().any(|effect| effect.enabled),
+                        transition_in: clip.transition_in.is_some(),
+                        fade_in: clip.fade_in as f32,
+                        fade_out: clip.fade_out as f32,
+                        volume: clip.volume as f32,
+                        text_body: clip
+                            .text
+                            .as_ref()
+                            .map(|text| text.content.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        wave: wave.0,
+                        wave_hot: wave.1,
+                        strip: self.strip_of(clip),
+                    }
                 })
                 .collect(),
         );

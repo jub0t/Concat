@@ -61,6 +61,8 @@ export struct MediaItemData {
     /// Same shape, same source and same normalisation as a timeline clip's:
     /// a file should look like itself wherever it is drawn.
     wave: string,
+    /// The part over the hot line, as on a clip.
+    wave-hot: string,
     selected: bool,
 }
 
@@ -488,6 +490,17 @@ component MediaCard inherits Rectangle {
                     viewbox-height: 1;
                     fit: fill;
                     fill: root.mark;
+                }
+                if root.item.wave-hot != "": Path {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    commands: root.item.wave-hot;
+                    viewbox-width: 1;
+                    viewbox-height: 1;
+                    fit: fill;
+                    fill: Theme.wave-hot;
                 }
 
                 // What everything else shows before its artwork exists. Large and

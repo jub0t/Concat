@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
 use concat_project::model::{self, MediaItem, Project};
-use slint::SharedString;
 
 use crate::format::wave_path;
 use crate::host::{probe_error, spawn};
@@ -295,27 +294,31 @@ impl MediaBin {
     pub fn rows(&self, studio: &Studio) -> Vec<MediaItemData> {
         self.visible(studio.project())
             .into_iter()
-            .map(|item| MediaItemData {
-                id: *self.rows.get(&item.id).unwrap_or(&0),
-                name: item.name.as_str().into(),
-                kind: media_kind_of(item.kind),
-                duration: item.duration.unwrap_or(0.0) as f32,
-                format: std::path::Path::new(&item.path)
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .map(|extension| extension.to_ascii_lowercase())
-                    .unwrap_or_default()
-                    .into(),
-                thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
-                wave: match studio.peaks.get(&item.id) {
+            .map(|item| {
+                // A card is a couple of hundred pixels: a column each is
+                // all the detail it can show.
+                let wave = match studio.peaks.get(&item.id) {
                     Some(peaks) if item.kind == model::MediaKind::Audio => {
-                        // A card is a couple of hundred pixels: a column
-                        // each is all the detail it can show.
-                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0, 256).into()
+                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0, 256)
                     }
-                    _ => SharedString::new(),
-                },
-                selected: self.selected.contains(&item.id),
+                    _ => Default::default(),
+                };
+                MediaItemData {
+                    id: *self.rows.get(&item.id).unwrap_or(&0),
+                    name: item.name.as_str().into(),
+                    kind: media_kind_of(item.kind),
+                    duration: item.duration.unwrap_or(0.0) as f32,
+                    format: std::path::Path::new(&item.path)
+                        .extension()
+                        .and_then(|extension| extension.to_str())
+                        .map(|extension| extension.to_ascii_lowercase())
+                        .unwrap_or_default()
+                        .into(),
+                    thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
+                    wave: wave.body.as_str().into(),
+                    wave_hot: wave.hot.as_str().into(),
+                    selected: self.selected.contains(&item.id),
+                }
             })
             .collect()
     }

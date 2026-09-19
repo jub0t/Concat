@@ -206,6 +206,10 @@ component Clip inherits Rectangle {
         // Rust rebuilds the string with a column a pixel at each step of
         // the zoom, from the peaks at the level that fits the column, so
         // zooming in reveals the buckets rather than stretching a shape.
+        // The bars stand on the clip's floor, as tall as the level under
+        // them, and the part of a bar over the hot line is drawn again in
+        // the hot colour on top: a level meter laid along the clip, so a
+        // stretch that is too loud is seen without being heard.
         if root.item.wave != "" && !root.banded: Path {
             x: 0;
             y: 0;
@@ -217,10 +221,22 @@ component Clip inherits Rectangle {
             fit: fill;
             fill: Theme.wave;
         }
+        if root.item.wave-hot != "" && !root.banded: Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            commands: root.item.wave-hot;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.wave-hot;
+        }
 
+        // The floor the bars stand on.
         if root.item.wave != "" && !root.banded: Rectangle {
             x: 0;
-            y: (parent.height - 1px) / 2;
+            y: parent.height - 1px;
             width: parent.width;
             height: 1px;
             background: Theme.wave-centre;
@@ -324,10 +340,22 @@ component Clip inherits Rectangle {
                 fit: fill;
                 fill: Theme.wave-video;
             }
+            if root.item.wave-hot != "": Path {
+                x: 0;
+                y: 1px;
+                width: parent.width;
+                height: parent.height - 1px;
+                commands: root.item.wave-hot;
+                viewbox-width: 1;
+                viewbox-height: 1;
+                fit: fill;
+                fill: Theme.wave-hot;
+            }
 
+            // The floor the bars stand on.
             Rectangle {
                 x: 0;
-                y: (parent.height - 1px) / 2 + 0.5px;
+                y: parent.height - 1px;
                 width: parent.width;
                 height: 1px;
                 background: Theme.wave-centre;

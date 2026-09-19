@@ -112,6 +112,9 @@ export struct ClipData {
     /// that draws it is `fit: fill`, which stretches the box onto whatever
     /// width the clip currently has. Built once in Rust, where the peaks are.
     wave: string,
+    /// The part of each bar over the hot line, on the same terms, drawn
+    /// over `wave` in the hot colour; empty when no bar reaches it.
+    wave-hot: string,
     /// The frames a picture clip tiles along its body; `frames` is 0 when
     /// there are none yet.
     strip: StripData,
