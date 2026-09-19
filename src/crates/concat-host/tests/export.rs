@@ -91,6 +91,7 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32) {
         crf: 16,
         ten_bit: false,
         hardware: false,
+        threads: 0,
     };
     let mut encoder =
         Encoder::create(path, WIDTH, HEIGHT, rate, &options).expect("the linked FFmpeg encodes");

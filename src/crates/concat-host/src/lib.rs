@@ -29,6 +29,7 @@ pub mod models;
 pub mod playback;
 pub mod preview;
 pub mod projects;
+pub mod proxy;
 pub mod session;
 pub mod templates;
 pub mod titles;
@@ -40,3 +41,18 @@ pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use session::{EditorView, Session, SettingsView};
 pub use titles::{TitleClip, Titles};
+
+/// The one scheduler every decode for the screen goes through: the
+/// monitor's frames and the frames ahead of the playhead first, then
+/// filmstrips, the bin's artwork and proxies in turn, on a few threads
+/// with one always kept clear of the background work. Owns the reader
+/// pool the monitors read; see `concat_media::Prefetcher`.
+pub fn scheduler() -> &'static std::sync::Arc<concat_media::Prefetcher> {
+    static SCHEDULER: std::sync::OnceLock<std::sync::Arc<concat_media::Prefetcher>> =
+        std::sync::OnceLock::new();
+    SCHEDULER.get_or_init(|| {
+        std::sync::Arc::new(concat_media::Prefetcher::with_defaults(
+            std::sync::Arc::new(concat_media::ReaderPool::with_defaults()),
+        ))
+    })
+}

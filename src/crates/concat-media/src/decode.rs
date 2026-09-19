@@ -112,6 +112,12 @@ pub struct DecodeOptions {
     /// decoded frame. Never for anything a person will watch or export: the
     /// frame is near the instant, not at it.
     pub keyframes_only: bool,
+    /// Threads the codec may use, or zero to let it count the cores.
+    ///
+    /// Zero for anything a person is waiting on: a scrub wants its frame
+    /// on every core. A few for a proxy being written in the background,
+    /// where the whole point is that the machine stays usable meanwhile.
+    pub threads: u16,
     /// Whether to decode on the platform's video hardware. The default
     /// follows the process-wide preference, [`crate::set_hardware_decode`],
     /// so the window's toggle reaches every reader without being passed
@@ -169,6 +175,12 @@ impl DecodeOptions {
     /// Decodes keyframes only. See [`DecodeOptions::keyframes_only`].
     pub fn nearest_keyframes(mut self) -> Self {
         self.keyframes_only = true;
+        self
+    }
+
+    /// Limits the codec to `threads`. See [`DecodeOptions::threads`].
+    pub fn threaded(mut self, threads: u16) -> Self {
+        self.threads = threads;
         self
     }
 
@@ -445,13 +457,14 @@ impl Decoder {
         // a seek decodes every frame from the keyframe before it: on one
         // thread a 4K H.264 file decoded at about 87 frames a second, and a
         // scrub waited 400 ms for its frame. Frame threads for that walk,
-        // slice threads for files cut into slices; zero lets the codec count.
+        // slice threads for files cut into slices; zero lets the codec
+        // count, and a caller working in the background says how many.
         // SAFETY: the context is not opened yet, which is when threading is
         // set, and both fields are plain integers.
         unsafe {
             let raw = context.as_mut_ptr();
             (*raw).thread_type = ffmpeg::sys::FF_THREAD_FRAME | ffmpeg::sys::FF_THREAD_SLICE;
-            (*raw).thread_count = 0;
+            (*raw).thread_count = i32::from(options.threads);
         }
         let accelerated = device.and_then(|device| {
             device
@@ -935,6 +948,7 @@ mod tests {
             crf: 20,
             ten_bit: true,
             hardware: false,
+            threads: 0,
         };
         let mut encoder = Encoder::create_tagged(
             &path,

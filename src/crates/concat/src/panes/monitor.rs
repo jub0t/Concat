@@ -182,6 +182,7 @@ impl MonitorPane {
             time: f64::from(studio.playhead),
             width,
             height,
+            moving: studio.playing,
         };
         let monitor = studio.host.monitor.clone();
         self.busy = true;
