@@ -46,7 +46,10 @@ pub enum SettingsMsg {
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
     ServerEnabledChanged(bool),
-    ServerListenEdited(String),
+    /// The address half of where the server listens; the port is its own
+    /// field, so a person types "127.0.0.1" and "7420" and never a colon.
+    ServerHostEdited(String),
+    ServerPortEdited(i32),
     ServerTokenEdited(String),
     ServerTokenGenerated,
     /// Make this the model the engine uses.
@@ -248,13 +251,15 @@ impl SettingsPane {
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
-            SettingsMsg::ServerListenEdited(text) => {
-                let listen = text.trim().to_owned();
-                studio.prefs.server.listen = if listen.is_empty() {
-                    prefs::DEFAULT_LISTEN.to_owned()
-                } else {
-                    listen
-                };
+            SettingsMsg::ServerHostEdited(text) => {
+                let (_, port) = split_listen(&studio.prefs.server.listen);
+                studio.prefs.server.listen = join_listen(&text, port);
+                studio.prefs.save(&studio.host.dirs);
+                self.apply_server(studio);
+            }
+            SettingsMsg::ServerPortEdited(port) => {
+                let (host, _) = split_listen(&studio.prefs.server.listen);
+                studio.prefs.server.listen = join_listen(&host, port.clamp(0, 65535) as u16);
                 studio.prefs.save(&studio.host.dirs);
                 self.apply_server(studio);
             }
@@ -559,7 +564,8 @@ impl SettingsPane {
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,
-            server_listen: studio.prefs.server.listen.as_str().into(),
+            server_host: split_listen(&studio.prefs.server.listen).0.into(),
+            server_port: i32::from(split_listen(&studio.prefs.server.listen).1),
             server_token: match &studio.host.server {
                 // A token the server minted for itself is shown where a
                 // chosen one would be typed: it is how a caller gets in.
@@ -645,5 +651,109 @@ mod tests {
         let list = [model("a", true), model("b", false), model("c", true)];
         let ids: Vec<&str> = installed(&list).iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["a", "c"]);
+    }
+}
+
+/// The listen address as its two halves: the host and the port. The
+/// stored form is one string, "127.0.0.1:7420", because that is what the
+/// server binds and the CLI takes; the sheet shows and edits the halves.
+/// A bracketed IPv6 host keeps its brackets. An address with no port, or
+/// a port that is not a number, gets the default port; an empty host gets
+/// loopback.
+pub fn split_listen(listen: &str) -> (String, u16) {
+    let (default_host, default_port) =
+        split_once_port(prefs::DEFAULT_LISTEN).unwrap_or(("127.0.0.1", 7420));
+    let (host, port) = split_once_port(listen.trim()).unwrap_or((listen.trim(), default_port));
+    let host = host.trim();
+    (
+        if host.is_empty() {
+            default_host.to_owned()
+        } else {
+            host.to_owned()
+        },
+        port,
+    )
+}
+
+/// `host:port` when the port parses, else `None`.
+fn split_once_port(listen: &str) -> Option<(&str, u16)> {
+    let (host, port) = listen.rsplit_once(':')?;
+    // "::1" with no brackets is all colons; only a bracketed IPv6 host, or
+    // a plain host, has a port after its last colon.
+    if host.contains(':') && !host.ends_with(']') {
+        return None;
+    }
+    Some((host, port.trim().parse().ok()?))
+}
+
+/// The inverse of [`split_listen`]: the one string the server binds.
+pub fn join_listen(host: &str, port: u16) -> String {
+    let host = host.trim();
+    let host = if host.is_empty() {
+        split_listen(prefs::DEFAULT_LISTEN).0
+    } else if host.contains(':') && !host.starts_with('[') {
+        // A bare IPv6 address needs its brackets to take a port.
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    format!("{host}:{port}")
+}
+
+#[cfg(test)]
+mod listen_tests {
+    use super::*;
+
+    #[test]
+    fn a_listen_address_splits_into_host_and_port_and_joins_back() {
+        assert_eq!(
+            split_listen("127.0.0.1:7420"),
+            ("127.0.0.1".to_owned(), 7420)
+        );
+        assert_eq!(split_listen("0.0.0.0:80"), ("0.0.0.0".to_owned(), 80));
+        assert_eq!(split_listen("[::1]:7420"), ("[::1]".to_owned(), 7420));
+        assert_eq!(
+            split_listen("  10.0.0.5 : 9000 "),
+            ("10.0.0.5".to_owned(), 9000)
+        );
+        assert_eq!(join_listen("127.0.0.1", 7420), "127.0.0.1:7420");
+        assert_eq!(join_listen("[::1]", 1), "[::1]:1");
+        assert_eq!(
+            join_listen("::1", 7420),
+            "[::1]:7420",
+            "brackets are put on"
+        );
+        for listen in ["127.0.0.1:7420", "[::1]:7420", "0.0.0.0:65535"] {
+            let (host, port) = split_listen(listen);
+            assert_eq!(join_listen(&host, port), listen);
+        }
+    }
+
+    #[test]
+    fn a_missing_or_bad_half_gets_the_default() {
+        assert_eq!(
+            split_listen("192.168.1.9"),
+            ("192.168.1.9".to_owned(), 7420)
+        );
+        assert_eq!(
+            split_listen("192.168.1.9:"),
+            ("192.168.1.9".to_owned(), 7420)
+        );
+        assert_eq!(
+            split_listen("192.168.1.9:abc"),
+            ("192.168.1.9".to_owned(), 7420)
+        );
+        assert_eq!(
+            split_listen("192.168.1.9:70000"),
+            ("192.168.1.9".to_owned(), 7420)
+        );
+        assert_eq!(split_listen(":9000"), ("127.0.0.1".to_owned(), 9000));
+        assert_eq!(split_listen(""), ("127.0.0.1".to_owned(), 7420));
+        assert_eq!(
+            split_listen("::1"),
+            ("::1".to_owned(), 7420),
+            "bare IPv6 is a host"
+        );
+        assert_eq!(join_listen("", 9000), "127.0.0.1:9000");
     }
 }

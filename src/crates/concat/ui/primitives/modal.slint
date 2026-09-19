@@ -476,6 +476,10 @@ export component Field inherits Rectangle {
     in property <string> placeholder;
     /// numbers, paths and names read better in the technical face
     in property <bool> technical;
+    /// The corners, a side at a time, so two fields can be joined into
+    /// one control with a square seam between them.
+    in property <length> radius-left: Theme.r;
+    in property <length> radius-right: Theme.r;
 
     callback edited(text: string);
 
@@ -486,7 +490,10 @@ export component Field inherits Rectangle {
     min-height: 28px;
     max-height: 28px;
     horizontal-stretch: 1;
-    border-radius: Theme.r;
+    border-top-left-radius: root.radius-left;
+    border-bottom-left-radius: root.radius-left;
+    border-top-right-radius: root.radius-right;
+    border-bottom-right-radius: root.radius-right;
     background: input.has-focus ? Theme.field
         : touch.has-hover ? Theme.field-hover
         : Theme.field;

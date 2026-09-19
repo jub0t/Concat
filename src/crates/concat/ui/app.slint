@@ -202,7 +202,8 @@ export component App inherits Window {
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
     callback settings-server-enabled-changed(on: bool);
-    callback settings-server-listen-edited(text: string);
+    callback settings-server-host-edited(text: string);
+    callback settings-server-port-edited(port: int);
     callback settings-server-token-edited(text: string);
     callback settings-server-token-generated();
     callback model-activated(id: string);
@@ -510,7 +511,8 @@ export component App inherits Window {
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }
         server-enabled-changed(on) => { root.settings-server-enabled-changed(on); }
-        server-listen-edited(text) => { root.settings-server-listen-edited(text); }
+        server-host-edited(text) => { root.settings-server-host-edited(text); }
+        server-port-edited(port) => { root.settings-server-port-edited(port); }
         server-token-edited(text) => { root.settings-server-token-edited(text); }
         server-token-generated => { root.settings-server-token-generated(); }
         model-activated(id) => { root.model-activated(id); }

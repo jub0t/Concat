@@ -1047,10 +1047,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_settings_server_enabled_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::ServerEnabledChanged(on)));
     }));
-    app.on_settings_server_listen_edited(on_window!(|state, text: SharedString| {
-        state.handle(Msg::Settings(SettingsMsg::ServerListenEdited(
+    app.on_settings_server_host_edited(on_window!(|state, text: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::ServerHostEdited(
             text.to_string(),
         )));
+    }));
+    app.on_settings_server_port_edited(on_window!(|state, port: i32| {
+        state.handle(Msg::Settings(SettingsMsg::ServerPortEdited(port)));
     }));
     app.on_settings_server_token_edited(on_window!(|state, text: SharedString| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenEdited(
