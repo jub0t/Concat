@@ -543,7 +543,7 @@ pub struct Studio {
     window_pending: HashSet<String>,
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
-    waves: RefCell<HashMap<String, (SharedString, SharedString)>>,
+    waves: RefCell<HashMap<String, SharedString>>,
 
     // ── the view ──
     /// The timeline's view: scroll, zoom, tool, and what the lanes know
@@ -2107,29 +2107,27 @@ impl Studio {
     /// whole body, a picture clip's band under its frames; a picture that
     /// is muted, or whose file has no sound, shows the empty band.
     ///
-    /// Two paths: the bars, and the part of each bar over the hot line -
-    /// see `format::wave_path`.
-    fn wave(&self, clip: &Clip) -> (SharedString, SharedString) {
+    /// At unity: the clip's volume scales the drawing in the lane, so a
+    /// volume drag never comes here - see `format::wave_path`.
+    fn wave(&self, clip: &Clip) -> SharedString {
         if clip.muted == Some(true) {
-            return Default::default();
+            return SharedString::new();
         }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
         let art = art_key(&clip.media_id, clip.audio_stream);
         let Some(peaks) = self.peaks.get(&art) else {
-            return Default::default();
+            return SharedString::new();
         };
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
         let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
-        let gain = clip.volume as f32;
         let columns = wave_columns(clip.duration as f32, self.lanes.seconds_per_pixel);
-        let key = format!("{art}|{source_start:.3}|{duration:.3}|{gain:.3}|{columns}");
+        let key = format!("{art}|{source_start:.3}|{duration:.3}|{columns}");
         if let Some(cached) = self.waves.borrow().get(&key) {
             return cached.clone();
         }
-        let wave = wave_path(peaks, source_start, duration, gain, columns);
-        let built = (SharedString::from(wave.body), SharedString::from(wave.hot));
+        let built = SharedString::from(wave_path(peaks, source_start, duration, columns));
         self.waves.borrow_mut().insert(key, built.clone());
         built
     }
@@ -5008,8 +5006,7 @@ impl Studio {
                             .map(|text| text.content.as_str())
                             .unwrap_or_default()
                             .into(),
-                        wave: wave.0,
-                        wave_hot: wave.1,
+                        wave,
                         strip: self.strip_of(clip),
                     }
                 })

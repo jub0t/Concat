@@ -295,13 +295,13 @@ impl MediaBin {
         self.visible(studio.project())
             .into_iter()
             .map(|item| {
-                // A card is a couple of hundred pixels: a column each is
-                // all the detail it can show.
+                // A card is a couple of hundred pixels: a bar every few
+                // of them is all the detail it can show.
                 let wave = match studio.peaks.get(&item.id) {
                     Some(peaks) if item.kind == model::MediaKind::Audio => {
-                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0, 256)
+                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64)
                     }
-                    _ => Default::default(),
+                    _ => String::new(),
                 };
                 MediaItemData {
                     id: *self.rows.get(&item.id).unwrap_or(&0),
@@ -315,8 +315,7 @@ impl MediaBin {
                         .unwrap_or_default()
                         .into(),
                     thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
-                    wave: wave.body.as_str().into(),
-                    wave_hot: wave.hot.as_str().into(),
+                    wave: wave.as_str().into(),
                     selected: self.selected.contains(&item.id),
                 }
             })

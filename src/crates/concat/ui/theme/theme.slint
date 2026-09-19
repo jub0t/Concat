@@ -158,6 +158,11 @@ export global Theme {
     out property <color> wave: dark ? Dark.wave : Light.wave;
     out property <color> wave-video: dark ? Dark.wave-video : Light.wave-video;
     out property <color> wave-hot: dark ? Dark.wave-hot : Light.wave-hot;
+    /// Where a waveform's bar goes hot: the peak level, as a fraction of
+    /// full scale, above which the part of the bar over it is drawn in
+    /// `wave-hot`. -6 dBFS: a mix that keeps its peaks under it has
+    /// headroom, one that crosses it often is on its way to clipping.
+    out property <float> wave-hot-line: 0.5012;
 
     // clip ink
     out property <color> clip-ink: dark ? Dark.clip-ink : Light.clip-ink;

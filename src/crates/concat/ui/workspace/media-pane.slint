@@ -10,6 +10,7 @@ import { TextAlignment } from "../timeline/model.slint";
 import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
 import { Select } from "../primitives/select.slint";
+import { Wave } from "../primitives/wave.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -61,8 +62,6 @@ export struct MediaItemData {
     /// Same shape, same source and same normalisation as a timeline clip's:
     /// a file should look like itself wherever it is drawn.
     wave: string,
-    /// The part over the hot line, as on a clip.
-    wave-hot: string,
     selected: bool,
 }
 
@@ -480,27 +479,13 @@ component MediaCard inherits Rectangle {
                 // them already say "this is an audio file", so there is no mark on
                 // top of them — a badge over a waveform is the same fact twice,
                 // and the one that costs the tile its whole middle.
-                if root.item.wave != "": Path {
+                if root.item.wave != "": Wave {
                     x: 0;
                     y: 0;
                     width: parent.width;
                     height: parent.height;
                     commands: root.item.wave;
-                    viewbox-width: 1;
-                    viewbox-height: 1;
-                    fit: fill;
-                    fill: root.mark;
-                }
-                if root.item.wave-hot != "": Path {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
-                    height: parent.height;
-                    commands: root.item.wave-hot;
-                    viewbox-width: 1;
-                    viewbox-height: 1;
-                    fit: fill;
-                    fill: Theme.wave-hot;
+                    tint: root.mark;
                 }
 
                 // What everything else shows before its artwork exists. Large and

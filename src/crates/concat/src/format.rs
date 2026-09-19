@@ -149,97 +149,88 @@ pub fn hex_of(colour: slint::Color) -> String {
     )
 }
 
-/// Where a bar goes hot: the peak level, as a fraction of full scale,
-/// above which the part of the bar that is over it is drawn in the hot
-/// colour. -6 dBFS. A mix that keeps its peaks under this has headroom; one
-/// that crosses it often is on its way to clipping, which is the thing a
-/// glance at the lane should catch.
-pub const WAVE_HOT: f32 = 0.5012;
-
-/// A drawn waveform: two sets of SVG path commands in a 1x1 box, drawn on
-/// top of each other. See [`wave_path`].
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Wave {
-    /// Every column's bar, from the floor up to its peak or to
-    /// [`WAVE_HOT`], whichever is lower.
-    pub body: String,
-    /// The part of each bar over [`WAVE_HOT`], for the columns that reach
-    /// it; empty when none does.
-    pub hot: String,
-}
-
 /// A waveform as SVG path commands in a 1x1 box: one column per slot, each
 /// a bar standing on the floor, as tall as the loudest sample under it.
 /// A level meter laid along the clip rather than the mirrored fish of a
-/// waveform: the height of a bar is a level, read from one edge, and the
-/// part of it above [`WAVE_HOT`] is a second path so it can be drawn in a
-/// colour that says so.
+/// waveform: the height of a bar is a level, read from one edge.
+///
+/// Drawn at unity gain, always. The clip's volume is applied where the
+/// path is drawn, as a scale on its height, so a drag on the volume knob
+/// moves the picture without asking for a new path: at two thousand bars
+/// a rebuild, a parse and a tessellation per knob tick was the lag in the
+/// lane. The part of a bar over the hot line is drawn there too, as the
+/// same bars again in the hot colour, clipped to the band above the line.
 ///
 /// Built from the engine's real peaks at the level that fits the column:
 /// each column takes the extremes of the buckets under it, so a trim shows
 /// the material it kept and a zoom shows the buckets it reveals. `columns`
 /// is how many the drawing has room for - the clip's width in pixels, held
-/// to a few thousand - and the paths are normalised so the Path that
-/// renders them stretches the box onto the clip's current width.
+/// to a few thousand - and the path is normalised so the Path that renders
+/// it stretches the box onto the clip's current width.
 pub fn wave_path(
     peaks: &concat_media::Pyramid,
     source_start: f32,
     duration: f32,
-    gain: f32,
     columns: usize,
-) -> Wave {
+) -> String {
     /// Fewest columns worth drawing, and the most: enough that a clip a
     /// screen wide reads a column a pixel, few enough that the string stays
     /// under a few hundred kilobytes.
-    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=2048;
+    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=512;
     /// Silence still draws a sliver: a hairline along the floor of a clip
     /// rather than a gap in it.
     const FLOOR: f32 = 0.024;
 
     if duration.is_nan() || duration <= 0.0 || peaks.finest().is_empty() {
-        return Wave::default();
+        return String::new();
     }
     let columns = columns.clamp(*COLUMNS.start(), *COLUMNS.end());
-    let gain = gain.max(0.0);
     let level = peaks.level_for(duration / columns as f32);
-    let mut body = String::with_capacity(columns * 56);
-    let mut hot = String::new();
+    let mut path = String::with_capacity(columns * 56);
 
+    // Each bar is the peak of everything under its pitch, drawn on the
+    // leading three quarters of it: the last quarter is the gap that
+    // makes it a bar and not a run of columns.
+    let pitch = 1.0 / columns as f32;
     for column in 0..columns {
-        let left = column as f32 / columns as f32;
-        let right = (column + 1) as f32 / columns as f32;
+        let left = column as f32 * pitch;
         let (low, high) = level.extremes(
             source_start + left * duration,
-            source_start + right * duration,
+            source_start + (left + pitch) * duration,
         );
-        let amplitude = (high.max(-low) * gain).clamp(0.0, 1.0).max(FLOOR);
-        let top = 1.0 - amplitude.min(WAVE_HOT);
-        body.push_str(&format!(
+        let right = left + pitch * WAVE_BAR;
+        let top = 1.0 - high.max(-low).clamp(0.0, 1.0).max(FLOOR);
+        path.push_str(&format!(
             "M {left:.4} {top:.4} L {right:.4} {top:.4} \
              L {right:.4} 1.0000 L {left:.4} 1.0000 Z "
         ));
-        if amplitude > WAVE_HOT {
-            let (peak, limit) = (1.0 - amplitude, 1.0 - WAVE_HOT);
-            hot.push_str(&format!(
-                "M {left:.4} {peak:.4} L {right:.4} {peak:.4} \
-                 L {right:.4} {limit:.4} L {left:.4} {limit:.4} Z "
-            ));
-        }
     }
-    Wave { body, hot }
+    path
 }
 
-/// How many columns a clip `seconds` long gets at `seconds_per_pixel`: one
-/// a pixel, rounded up to the next sixty-four so a zoom rebuilds the path
-/// at each step of that and not at every pixel, held to what `wave_path`
-/// draws.
+/// A bar's pitch on screen, in pixels: one bar, and the gap after it,
+/// every four. Fewer bars than pixels by that factor, and a rebuild, a
+/// parse and a tessellation a quarter the size: at a zoom where seconds
+/// of audio sit under a pixel, a bar a pixel was work that drew nothing
+/// a bar every four does not.
+pub const WAVE_PITCH: f32 = 4.0;
+
+/// How much of a pitch the bar takes; the rest is the gap.
+pub const WAVE_BAR: f32 = 0.75;
+
+/// How many bars a clip `seconds` long gets at `seconds_per_pixel`: one a
+/// [`WAVE_PITCH`], rounded up to the next sixteen so a zoom rebuilds the
+/// path at each step of that and not at every pixel, held to what
+/// `wave_path` draws - past the cap a bar is a little wider than its
+/// pitch, on a clip already wider than a screen.
 pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
     if seconds.is_nan() || seconds <= 0.0 || seconds_per_pixel.is_nan() || seconds_per_pixel <= 0.0
     {
         return 8;
     }
-    let pixels = (seconds / seconds_per_pixel).ceil().max(1.0) as usize;
-    pixels.div_ceil(64).max(1).saturating_mul(64).clamp(8, 2048)
+    let pixels = (seconds / seconds_per_pixel).ceil().max(1.0);
+    let bars = (pixels / WAVE_PITCH).ceil() as usize;
+    bars.div_ceil(16).max(1).saturating_mul(16).clamp(8, 512)
 }
 
 /// A moment in the past, in the words a recents row wants: "just now",
@@ -381,84 +372,40 @@ mod tests {
     }
 
     #[test]
-    fn a_waveform_has_one_column_per_slot_and_follows_the_gain() {
+    fn a_waveform_has_one_floored_bar_per_column() {
         let peaks = concat_media::Pyramid::of(concat_media::Peaks {
             min: vec![-0.5; 2000],
             max: vec![0.5; 2000],
             buckets_per_second: 1000.0,
         });
-        let loud = wave_path(&peaks, 0.0, 2.0, 1.0, 128);
-        let quiet = wave_path(&peaks, 0.0, 2.0, 0.25, 128);
-        assert_eq!(loud.body.matches('M').count(), 128);
+        let wave = wave_path(&peaks, 0.0, 2.0, 128);
+        assert_eq!(wave.matches('M').count(), 128);
         // A bar stands on the floor: its top is one less its height.
         assert!(
-            loud.body.contains(" 0.5000 L") && loud.body.contains(" 1.0000 Z"),
-            "half amplitude at unity gain, floored: {}",
-            loud.body
+            wave.contains(" 0.5000 L") && wave.contains(" 1.0000 Z"),
+            "half amplitude, floored: {wave}"
         );
-        assert!(loud.hot.is_empty(), "half scale is under the hot line");
-        assert!(
-            quiet.body.contains(" 0.8750 L"),
-            "an eighth at a quarter gain: {}",
-            quiet.body
-        );
-        assert_eq!(wave_path(&peaks, 0.0, 0.0, 1.0, 128), Wave::default());
-        assert_eq!(wave_path(&peaks, 0.0, f32::NAN, 1.0, 128), Wave::default());
+        assert!(wave_path(&peaks, 0.0, 0.0, 128).is_empty());
+        assert!(wave_path(&peaks, 0.0, f32::NAN, 128).is_empty());
         // The column count is held to what is worth drawing, either way.
+        assert_eq!(wave_path(&peaks, 0.0, 2.0, 0).matches('M').count(), 8);
         assert_eq!(
-            wave_path(&peaks, 0.0, 2.0, 1.0, 0)
-                .body
-                .matches('M')
-                .count(),
-            8
+            wave_path(&peaks, 0.0, 2.0, 1_000_000).matches('M').count(),
+            512
         );
-        assert_eq!(
-            wave_path(&peaks, 0.0, 2.0, 1.0, 1_000_000)
-                .body
-                .matches('M')
-                .count(),
-            2048
-        );
-    }
-
-    /// A bar over the hot line is two bars: the body stops at the line,
-    /// and the hot path carries what is over it, and nothing else. A bar
-    /// under it has no hot part; a gain can push it over.
-    #[test]
-    fn only_the_part_of_a_bar_over_the_hot_line_goes_hot() {
-        let peaks = concat_media::Pyramid::of(concat_media::Peaks {
-            min: vec![-0.8; 1000],
-            max: vec![0.8; 1000],
-            buckets_per_second: 1000.0,
+        // A bar takes three quarters of its pitch; the rest is the gap.
+        let eight = wave_path(&peaks, 0.0, 2.0, 8);
+        assert!(eight.contains("M 0.0000 0.5000 L 0.0938 0.5000"), "{eight}");
+        assert!(eight.contains("M 0.1250 0.5000 L 0.2188 0.5000"), "{eight}");
+        // Silence is a sliver on the floor, never a gap.
+        let silence = concat_media::Pyramid::of(concat_media::Peaks {
+            min: vec![0.0; 100],
+            max: vec![0.0; 100],
+            buckets_per_second: 100.0,
         });
-        let wave = wave_path(&peaks, 0.0, 1.0, 1.0, 10);
-        let limit = format!("{:.4}", 1.0 - WAVE_HOT);
-        assert!(
-            wave.body.contains(&format!(" {limit} L")),
-            "the body stops at the line: {}",
-            wave.body
-        );
-        assert!(
-            !wave.body.contains(" 0.2000 "),
-            "and never reaches the peak"
-        );
-        assert_eq!(wave.hot.matches('M').count(), 10, "every column is over");
-        assert!(
-            wave.hot.contains(" 0.2000 L") && wave.hot.contains(&format!(" {limit} Z")),
-            "the hot part runs from the peak down to the line: {}",
-            wave.hot
-        );
-
-        let under = wave_path(&peaks, 0.0, 1.0, 0.5, 10);
-        assert!(under.hot.is_empty(), "at half gain nothing is over");
-        assert!(under.body.contains(" 0.6000 L"), "{}", under.body);
-        let pushed = wave_path(&peaks, 0.0, 1.0, 2.0, 10);
-        assert_eq!(
-            pushed.hot.matches('M').count(),
-            10,
-            "a gain can push it over"
-        );
-        assert!(pushed.hot.contains(" 0.0000 L"), "clamped at full scale");
+        let flat = wave_path(&silence, 0.0, 1.0, 10);
+        assert_eq!(flat.matches('M').count(), 10);
+        assert!(flat.contains(" 0.9760 L"), "{flat}");
     }
 
     /// A zoomed-in clip reads the fine buckets: a single loud millisecond
@@ -476,39 +423,40 @@ mod tests {
             max,
             buckets_per_second: 1000.0,
         });
-        // A full-scale spike is a column whose hot part reaches the top.
-        let fine = wave_path(&peaks, 0.0, 1.0, 1.0, 1000);
+        // A full-scale spike is a column whose bar reaches the top.
+        let fine = wave_path(&peaks, 0.0, 1.0, 1000);
         assert_eq!(
-            fine.hot.matches('M').count(),
+            fine.matches(" 0.0000 L").count(),
             1,
-            "one column carries the spike: {}",
-            fine.hot
+            "one column carries the spike: {fine}"
         );
-        assert!(fine.hot.contains(" 0.0000 L"), "at full height");
-        let coarse = wave_path(&peaks, 0.0, 1.0, 1.0, 10);
+        let coarse = wave_path(&peaks, 0.0, 1.0, 10);
         assert_eq!(
-            coarse.hot.matches('M').count(),
+            coarse.matches(" 0.0000 L").count(),
             1,
             "the spike survives the fold, in one column"
         );
-        assert!(coarse.hot.contains(" 0.0000 L"), "at full height");
-        let trimmed = wave_path(&peaks, 0.6, 0.4, 1.0, 10);
+        let trimmed = wave_path(&peaks, 0.6, 0.4, 10);
         assert!(
-            trimmed.hot.is_empty(),
+            !trimmed.contains(" 0.0000 L"),
             "a trim past the spike does not show it"
         );
     }
 
     #[test]
-    fn columns_follow_the_zoom_in_steps_of_sixty_four() {
-        assert_eq!(wave_columns(10.0, 0.05), 256, "200 px rounds up to 256");
-        assert_eq!(wave_columns(10.0, 0.01), 1024);
+    fn bars_follow_the_zoom_in_steps_of_sixteen() {
+        assert_eq!(
+            wave_columns(10.0, 0.05),
+            64,
+            "200 px is 50 bars, rounds up to 64"
+        );
+        assert_eq!(wave_columns(10.0, 0.01), 256, "1000 px is 250 bars");
         assert_eq!(
             wave_columns(600.0, 0.01),
-            2048,
+            512,
             "held to the most worth drawing"
         );
-        assert_eq!(wave_columns(0.1, 0.05), 64, "never under a step");
+        assert_eq!(wave_columns(0.1, 0.05), 16, "never under a step");
         assert_eq!(wave_columns(0.0, 0.05), 8);
         assert_eq!(wave_columns(f32::NAN, 0.05), 8);
         assert_eq!(wave_columns(10.0, 0.0), 8);

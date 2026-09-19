@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { Wave } from "../primitives/wave.slint";
 import { Theme } from "../theme/theme.slint";
 import { Fmt, Payload } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -208,28 +209,17 @@ component Clip inherits Rectangle {
         // The bars stand on the clip's floor, as tall as the level under
         // them, and the part of a bar over the hot line is drawn again in
         // the hot colour on top: a level meter laid along the clip, so a
-        // stretch that is too loud is seen without being heard.
-        if root.item.wave != "" && !root.banded: Path {
+        // stretch that is too loud is seen without being heard. The path
+        // is at unity and the clip's volume scales its height here, so a
+        // volume drag moves the picture without a new path from Rust.
+        if root.item.wave != "" && !root.banded: Wave {
             x: 0;
             y: 0;
             width: parent.width;
             height: parent.height;
             commands: root.item.wave;
-            viewbox-width: 1;
-            viewbox-height: 1;
-            fit: fill;
-            fill: Theme.wave;
-        }
-        if root.item.wave-hot != "" && !root.banded: Path {
-            x: 0;
-            y: 0;
-            width: parent.width;
-            height: parent.height;
-            commands: root.item.wave-hot;
-            viewbox-width: 1;
-            viewbox-height: 1;
-            fit: fill;
-            fill: Theme.wave-hot;
+            gain: root.item.volume;
+            tint: Theme.wave;
         }
 
         // The floor the bars stand on.
@@ -328,27 +318,14 @@ component Clip inherits Rectangle {
                 background: Theme.line;
             }
 
-            if root.item.wave != "": Path {
+            if root.item.wave != "": Wave {
                 x: 0;
                 y: 1px;
                 width: parent.width;
                 height: parent.height - 1px;
                 commands: root.item.wave;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                fill: Theme.wave-video;
-            }
-            if root.item.wave-hot != "": Path {
-                x: 0;
-                y: 1px;
-                width: parent.width;
-                height: parent.height - 1px;
-                commands: root.item.wave-hot;
-                viewbox-width: 1;
-                viewbox-height: 1;
-                fit: fill;
-                fill: Theme.wave-hot;
+                gain: root.item.volume;
+                tint: Theme.wave-video;
             }
 
             // The floor the bars stand on.
