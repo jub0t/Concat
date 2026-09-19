@@ -702,7 +702,7 @@ fn align_of(align: TextAlign) -> TextAlignment {
 fn new_title_style() -> TextStyle {
     TextStyle {
         content: "New title".to_owned(),
-        font_family: "Helvetica Neue".to_owned(),
+        font_family: "Hanken Grotesk".to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
     }

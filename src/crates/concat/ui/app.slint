@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// Helvetica Neue is bundled rather than assumed: a desktop binary should look
-// the same on a machine that has never installed it. One file per weight the
-// design uses — Roman for body, Medium for titles, Bold for the page heading.
+// Hanken Grotesk is bundled rather than assumed: a desktop binary should look
+// the same on a machine that has never installed it. It is published as one
+// variable font, which Slint cannot load, so these are the static instances
+// at the weights the design uses - Regular for body, Medium for titles,
+// SemiBold and Bold for the headings, Italic for the one look that asks for
+// it. The files live with the title painter (concat-text/fonts), which
+// embeds the same five so a title is set in the face the interface is.
+// Licensed under the SIL Open Font License; see LICENSE-HankenGrotesk.txt.
 import { I18n } from "i18n.slint";
-import "fonts/HelveticaNeue-Roman.otf";
-import "fonts/HelveticaNeue-Medium.otf";
-import "fonts/HelveticaNeue-Bold.otf";
-
-// Synonym, the interface's text face. It is published as one variable font,
-// which Slint cannot load, so these are static instances cut from it at the
-// three weights the theme uses. Licensed under the ITF Free Font License — see
-// fonts/LICENSE-Synonym.
-import "fonts/Synonym-Regular.ttf";
-import "fonts/Synonym-Medium.ttf";
-import "fonts/Synonym-SemiBold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Regular.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Medium.ttf";
+import "../../concat-text/fonts/HankenGrotesk-SemiBold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Bold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Italic.ttf";
 
 import { Theme } from "theme/theme.slint";
 import { Bezier, Curves, Fmt, Focus, Payload } from "util.slint";

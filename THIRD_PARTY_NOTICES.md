@@ -57,19 +57,19 @@ resolved set of any given build.
 
 ## Fonts
 
-The window embeds its fonts into the binary
-(`src/crates/concat/build.rs`, `EmbedResourcesKind::EmbedFiles`), so a
-distributed binary carries them and their licences travel with it. Full texts
-are in `src/crates/concat/ui/fonts/`.
+The window and the title painter embed the interface's font into the binary
+(`src/crates/concat/build.rs`, `EmbedResourcesKind::EmbedFiles`, and
+`include_bytes!` in `concat-text`), so a distributed binary carries it and its
+licence travels with it. The files and the full licence text are in
+`src/crates/concat-text/fonts/`.
 
-- **Helvetica Neue** — Copyright (c) 1981, 1997 Linotype-Hell AG. Neue
-  Helvetica is a Monotype typeface, used under the licence held for it; the
-  Roman, Medium and Bold faces are embedded.
-- **Synonym** — ITF Free Font License 2.0, Indian Type Foundry, distributed
-  via https://www.fontshare.com. See `ui/fonts/LICENSE-Synonym.txt`.
+- **Hanken Grotesk** — Copyright 2021 The Hanken Grotesk Project Authors
+  (https://github.com/marcologous/hanken-grotesk), SIL Open Font License
+  1.1. The Regular, Medium, SemiBold, Bold and Italic static instances are
+  embedded. See `fonts/LICENSE-HankenGrotesk.txt`.
 
-Neither licence permits selling the fonts on their own; shipping the `fonts/`
-directory as it stands satisfies both.
+The licence does not permit selling the font on its own; shipping the
+`fonts/` directory as it stands satisfies it.
 
 ## sherpa-onnx and Kokoro voices
 

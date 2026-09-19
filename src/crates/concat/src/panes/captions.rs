@@ -280,7 +280,7 @@ fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Co
         start,
         style: Some(TextStyle {
             content: text,
-            font_family: "Helvetica Neue".to_owned(),
+            font_family: "Hanken Grotesk".to_owned(),
             font_size,
             font_weight: 600.0,
             ..TextStyle::default()

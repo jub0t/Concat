@@ -168,11 +168,32 @@ impl Default for Fonts {
     }
 }
 
+/// The face this build bundles, at the weights the interface uses, so a
+/// title is set in the face the window is on a machine that has never
+/// installed it. The window embeds the same five files (concat/ui/app.slint).
+/// Licensed under the SIL Open Font License; see fonts/LICENSE-HankenGrotesk.txt.
+pub const BUNDLED_FAMILY: &str = "Hanken Grotesk";
+const BUNDLED: [&[u8]; 5] = [
+    include_bytes!("../fonts/HankenGrotesk-Regular.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Medium.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-SemiBold.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Bold.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Italic.ttf"),
+];
+
+/// Faces that used to be bundled and no longer are: a document that names
+/// one is painted in the bundled face, not in whatever the system offers
+/// for a name it does not know.
+const RETIRED: [&str; 2] = ["Helvetica Neue", "Synonym"];
+
 impl Fonts {
-    /// The system's fonts.
+    /// The bundled face and the system's fonts.
     pub fn new() -> Fonts {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        for face in BUNDLED {
+            db.load_font_data(face.to_vec());
+        }
         Fonts { db }
     }
 
@@ -185,11 +206,14 @@ impl Fonts {
     /// The best face for a style: the named family at the nearest weight and
     /// slant, then any sans-serif, then anything at all.
     fn pick(&self, style: &TitleStyle) -> Result<Vec<u8>, Error> {
-        let family = style
+        let mut family = style
             .font_family
             .trim()
             .trim_matches('"')
             .trim_matches('\'');
+        if RETIRED.contains(&family) {
+            family = BUNDLED_FAMILY;
+        }
         let weight = fontdb::Weight(style.font_weight.clamp(100.0, 900.0).round() as u16);
         let slant = if style.italic {
             fontdb::Style::Italic
@@ -745,6 +769,39 @@ mod tests {
         assert_eq!(colour("#00ff0080"), Some(Color::from_rgba8(0, 255, 0, 128)));
         assert_eq!(colour(""), None);
         assert_eq!(colour("red"), None);
+    }
+
+    /// The bundled face answers by name at every weight the interface uses,
+    /// upright and italic, and a document that names a retired face gets it
+    /// too rather than whatever the system has.
+    #[test]
+    fn the_bundled_face_is_always_there_and_the_retired_names_reach_it() {
+        let fonts = Fonts::new();
+        let style = |family: &str, weight: f64, italic: bool| TitleStyle {
+            font_family: family.to_owned(),
+            font_weight: weight,
+            italic,
+            ..style("words")
+        };
+        for weight in [400.0, 500.0, 600.0, 700.0] {
+            fonts
+                .pick(&style(BUNDLED_FAMILY, weight, false))
+                .unwrap_or_else(|_| panic!("{BUNDLED_FAMILY} at {weight}"));
+        }
+        fonts
+            .pick(&style(BUNDLED_FAMILY, 400.0, true))
+            .expect("the italic");
+        let bundled = fonts
+            .pick(&style(BUNDLED_FAMILY, 700.0, false))
+            .expect("bold");
+        for retired in RETIRED {
+            let picked = fonts.pick(&style(retired, 700.0, false)).expect("a face");
+            assert_eq!(picked, bundled, "{retired} is painted in the bundled face");
+        }
+        let quoted = fonts
+            .pick(&style("\"Hanken Grotesk\"", 700.0, false))
+            .expect("quotes stripped");
+        assert_eq!(quoted, bundled);
     }
 
     /// A missing family falls back to a system face and still paints words.

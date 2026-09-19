@@ -26,7 +26,7 @@ import {
 export component TextPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
     /// The faces this build bundles.
-    in property <[string]> families: ["Helvetica Neue", "Synonym"];
+    in property <[string]> families: ["Hanken Grotesk"];
 
     callback set(field: ClipField, value: float);
     callback set-text(field: ClipTextField, value: string);
@@ -60,7 +60,9 @@ export component TextPanel inherits VerticalLayout {
         root.weight-index = root.selected.font-weight >= 700 ? 3
             : root.selected.font-weight >= 600 ? 2
             : root.selected.font-weight >= 500 ? 1 : 0;
-        root.family-index = root.selected.font-family == "Synonym" ? 1 : 0;
+        // One bundled face; a title from an older document that named a
+        // retired one is painted in it too, so it is that row as well.
+        root.family-index = 0;
     }
 
     init => { root.seed(); }
