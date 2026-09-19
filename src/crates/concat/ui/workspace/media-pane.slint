@@ -98,13 +98,14 @@ component LibraryTab inherits Rectangle {
 
     animate tint { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
-    // Two lines in the 32px a chip gets inside the strip: 13px of mark, 2px of
-    // air, then the label at fs-sm. The strip stays at 44px so the three pane
-    // headers keep one edge across the window (see PaneHeader), which is why
-    // the numbers are this tight and not looser.
+    // Two lines in the 40px a chip gets inside the strip: 13px of mark, 2px of
+    // air, then the label at fs-sm, with 6px above and below so the two
+    // lines sit in the chip rather than against its edges. The strip is 52px
+    // so the three pane headers keep one edge across the window (see
+    // PaneHeader).
     VerticalLayout {
-        padding-top: 2px;
-        padding-bottom: 2px;
+        padding-top: 6px;
+        padding-bottom: 6px;
         padding-left: 6px;
         padding-right: 6px;
         spacing: 2px;
@@ -1462,7 +1463,7 @@ export component MediaPane inherits Rectangle {
         // which is why the hairline is a child of this row and not a border on
         // the pill below it.
         Rectangle {
-            height: 44px;
+            height: 52px;
 
             Rectangle {
                 y: parent.height - 1px;
@@ -1472,9 +1473,9 @@ export component MediaPane inherits Rectangle {
 
             HorizontalLayout {
                 // 4px above and below, not the 8px at the sides: the chips
-                // carry a mark over their label now, and those two lines need
-                // the room within the 44px the strip shares with the other
-                // panes' headers.
+                // carry a mark over their label and their own air around
+                // both, and those need the room within the 52px the strip
+                // shares with the other panes' headers.
                 padding-top: 4px;
                 padding-bottom: 4px;
                 padding-left: 8px;

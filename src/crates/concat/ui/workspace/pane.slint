@@ -38,13 +38,13 @@ export component Pane inherits Rectangle {
 export component PaneHeader inherits Rectangle {
     in property <string> title;
 
-    // 44px, which is the library pane's tab strip — the tallest of the three
+    // 52px, which is the library pane's tab strip — the tallest of the three
     // top bars, because that one has a row of chips in it and the other two
     // have a line of text. One height across all three is worth more than
     // each pane's own minimum: the three panes sit side by side, and a header
     // that steps down twice across the top of the window reads as three
     // panels bolted together rather than as one shell.
-    height: 44px;
+    height: 52px;
 
     // Hairline on the bottom edge rather than a border on the body, so the
     // line runs the full width of the pane and not the width of the content.
