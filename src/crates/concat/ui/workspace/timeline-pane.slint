@@ -44,6 +44,7 @@ export component TimelinePane inherits Rectangle {
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
     callback split();
     callback merge();
@@ -53,6 +54,7 @@ export component TimelinePane inherits Rectangle {
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
+    callback lanes-resized(width: float);
 
     // ── the grid ─────────────────────────────────────────────────────────
     in property <[TrackData]> tracks;
@@ -69,7 +71,6 @@ export component TimelinePane inherits Rectangle {
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
-    callback razored(id: string, seconds: float);
     in property <[MenuItemData]> menu-items;
     in property <length> menu-height;
     in property <int> menu-token;
@@ -104,11 +105,13 @@ export component TimelinePane inherits Rectangle {
     ///
     /// A lane has no name — it is untyped, and its place in the stack is the
     /// only handle anything needs on it — so the column is a strip of
-    /// switches. Five 26px slots at their widest (remove, row height, lock,
-    /// visibility, mute; remove only on hover), 1px between them and the
-    /// row's own 8px and 4px gutters come to 147px. The rest is the give
-    /// that keeps the switches off the scrollbar on the trailing edge.
-    in-out property <length> header-width: 156px;
+    /// switches. Five 26px slots at their widest (row height, lock,
+    /// visibility, mute against the leading edge; remove alone against the
+    /// trailing one, shown on hover), 1px between them and the row's own
+    /// 8px and 4px gutters come to 147px. The rest is the gap between the
+    /// two ends, which at the old 156px was nine pixels and read as one
+    /// crammed strip beside the lanes it labels.
+    in-out property <length> header-width: 188px;
     /// The switches and their gutters, and nothing spare: below this the row
     /// has nowhere left to take the squeeze from and the buttons overlap.
     in property <length> min-header: 150px;
@@ -186,6 +189,7 @@ export component TimelinePane inherits Rectangle {
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
+            magnetic-changed(on) => { root.magnetic-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }
             split => { root.split(); }
             merge => { root.merge(); }
@@ -263,7 +267,6 @@ export component TimelinePane inherits Rectangle {
                 clip-pressed(id, additive, edge) => { root.clip-pressed(id, additive, edge); }
                 clip-dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
                 clip-released => { root.clip-released(); }
-                razored(id, seconds) => { root.razored(id, seconds); }
                 menu-items: root.menu-items;
                 menu-height: root.menu-height;
                 menu-token: root.menu-token;
@@ -289,6 +292,10 @@ export component TimelinePane inherits Rectangle {
                         Math.min(root.overflow, root.at + pixels));
                 }
                 zoomed(factor, anchor) => { root.zoom(factor, anchor); }
+                // How wide the lanes are decides which clips Rust sends;
+                // reported as it changes, and once at first layout.
+                changed width => { root.lanes-resized(self.width / 1px); }
+                init => { root.lanes-resized(self.width / 1px); }
             }
         }
     }

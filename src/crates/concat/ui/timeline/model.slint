@@ -15,12 +15,12 @@
 /// the way CapCut's filter bars do.
 export enum ClipKind { video, audio, image, text, filter }
 
-/// What a press on a clip means.
+/// What a press on a clip means. One tool since the razor went - a cut
+/// is made at the playhead, by B or the tray - and the type stays for the
+/// plumbing that carries it, and for the next tool.
 export enum TimelineTool {
     /// grab, move, trim, band-select
     select,
-    /// cut where you click, not where the playhead is
-    razor,
 }
 
 /// One tab. A project holds several timelines the way it holds sequences in
@@ -114,6 +114,10 @@ export struct ClipData {
     /// that draws it is `fit: fill`, which stretches the box onto whatever
     /// width the clip currently has. Built once in Rust, where the peaks are.
     wave: string,
+    /// Where on the clip `wave` sits: its start and its length as fractions
+    /// of the clip's, since only the window on screen is built.
+    wave-from: float,
+    wave-span: float,
     /// The frames a picture clip tiles along its body; `frames` is 0 when
     /// there are none yet.
     strip: StripData,
@@ -156,7 +160,8 @@ export enum ClipField {
     anim-in, anim-out, anim-combo, anim-loop, anim-in-duration, anim-out-duration, anim-loop-duration,
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
     font-size, font-weight, italic, text-opacity, align,
-    stroke-width, shadow, line-height, tracking, text-width,
+    stroke-width, shadow, line-height, tracking, text-width, text-height,
+    stroke-opacity,
     cutout-feather,
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
@@ -246,6 +251,9 @@ export enum ClipTextField {
 export struct SelectedClipData {
     present: bool,
     id: string,
+    /// the output frame's size, so a fraction can be shown in pixels
+    frame-width: int,
+    frame-height: int,
     name: string,
     kind: ClipKind,
     /// Seconds, and the ceiling on a fade: longer than half the clip and the
@@ -331,6 +339,8 @@ export struct SelectedClipData {
     stroke-width: float,
     stroke: color,
     stroke-hex: string,
+    /// the stroke colour's alpha, 0..1, as its own dial
+    stroke-opacity: float,
     shadow: bool,
     /// the plate behind the words; fully transparent means no plate
     plate: color,
@@ -341,6 +351,8 @@ export struct SelectedClipData {
     /// the widest a line runs before wrapping, as a fraction of the frame;
     /// zero for no limit
     text-width: float,
+    /// the box's height as a fraction of the frame's; zero is the words' own
+    text-height: float,
 }
 
 /// One picture under the playhead, as the monitor places it.

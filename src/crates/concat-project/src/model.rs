@@ -884,8 +884,17 @@ pub struct TextStyle {
     pub tracking: f64,
     /// The widest a line may run, as a fraction of frame width, before its
     /// words wrap onto the next; the stage's side grips set it. Zero - the
-    /// default - is no limit: a line is as long as its words.
+    /// default - is no limit: a line is as long as its words. With a limit
+    /// the block is a box exactly that wide, plate included, and the lines
+    /// align inside it.
     pub max_width: f64,
+    /// The box's height as a fraction of frame height; the stage's top and
+    /// bottom grips set it, and the inspector's Height field. Zero - the
+    /// default - is the words' own height. With a height the block is a
+    /// box exactly that tall, the words centred in it, so a lower third
+    /// can be a band of a fixed size whatever is written on it.
+    /// https://github.com/jub0t/Concat/issues/119
+    pub max_height: f64,
 }
 
 impl TextStyle {
@@ -904,6 +913,7 @@ impl TextStyle {
         self.line_height = finite(self.line_height, base.line_height).max(0.5);
         self.tracking = finite(self.tracking, base.tracking);
         self.max_width = finite(self.max_width, base.max_width).max(0.0);
+        self.max_height = finite(self.max_height, base.max_height).max(0.0);
         self
     }
 }
@@ -926,6 +936,7 @@ impl Default for TextStyle {
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,
+            max_height: 0.0,
         }
     }
 }

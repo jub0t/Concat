@@ -19,6 +19,8 @@ wgpu = ["gpu"]
 
 [dependencies]
 concat-core.workspace = true
+# The CPU compositor says, once, when it draws a package untreated.
+log = "0.4"
 wgpu = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }
 

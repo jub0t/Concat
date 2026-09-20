@@ -98,8 +98,25 @@ pub fn select_backend(
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
     let gpu = Gpu::acquire();
-    if gpu.is_none() {
-        log::warn!("no GPU adapter; the monitor composites on the CPU");
+    match &gpu {
+        None => log::warn!("no GPU adapter; the monitor composites on the CPU"),
+        // A software adapter is refused by Slint's selector unless this
+        // variable says otherwise: it enumerates the adapters on the instance
+        // it was handed, finds none that is a GPU, and `select` fails with
+        // "no GPU-backed WGPU adapter is available". From a double-clicked
+        // GUI build that failure went to a console nobody could see, and the
+        // app just never appeared. Setting it here is what the reporter did
+        // by hand, and the window, the editing and the export all worked on
+        // WARP - so the app does it for them and says so in the log.
+        // https://github.com/jub0t/Concat/issues/135
+        Some(gpu) if gpu.is_software() => {
+            log::warn!("the GPU adapter is a software rasteriser; the window will render slowly");
+            // SAFETY: the process is single-threaded at this point - the
+            // backend, the engine's threads and the window all come after
+            // this function - so nothing reads the environment concurrently.
+            unsafe { std::env::set_var("SLINT_WGPU_CPU", "1") };
+        }
+        Some(_) => {}
     }
 
     let mut selector = slint::BackendSelector::new()
@@ -140,6 +157,13 @@ pub fn select_backend(
     // when the caption goes, so the edges still resize, and the undecorated
     // shadow keeps the DWM drop shadow the caption would otherwise have
     // taken with it.
+    //
+    // The attributes below are the window's first state; what keeps the
+    // decorations off is the Slint window's `no-frame` (app.slint), which
+    // the winit backend re-applies after the window is made. On Wayland
+    // without it GNOME's bar came back above the strip:
+    // https://github.com/jub0t/Concat/issues/97
+    // https://github.com/jub0t/Concat/issues/145
     #[cfg(target_os = "macos")]
     {
         use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
@@ -166,6 +190,30 @@ pub fn select_backend(
     }
     selector.select()?;
     Ok(gpu)
+}
+
+/// Tells the user the window could not start, in a dialog of the platform's
+/// own, because the console the error would otherwise go to is not one a
+/// double-clicked build has: on Windows a GUI subsystem binary has no
+/// standard error, and the app was exiting with the reason written to
+/// nowhere. The log file is named so the reader has something to attach.
+/// https://github.com/jub0t/Concat/issues/135
+pub fn report_startup_failure(error: &str) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let mut description = format!("Concat could not start.\n\n{error}");
+        if let Some(path) = concat_host::logs::current() {
+            description.push_str(&format!("\n\nLog: {}", path.display()));
+        }
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Concat")
+            .set_description(description)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let _ = error;
 }
 
 /// Whether the strip should draw its own window buttons: everywhere the

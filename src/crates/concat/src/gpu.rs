@@ -14,6 +14,19 @@
 //! is carried and never opened there; see platform.rs.
 #![cfg_attr(target_os = "android", allow(dead_code))]
 
+use std::sync::OnceLock;
+
+/// The adapter this run opened, as one line for Settings > About: name,
+/// backend, and whether it is a software rasteriser. Written once by
+/// [`Gpu::acquire`], because the adapter itself is moved into the monitor
+/// before the About sheet is built.
+static ADAPTER: OnceLock<String> = OnceLock::new();
+
+/// What [`Gpu::acquire`] found, or `None` when it found nothing.
+pub fn adapter_description() -> Option<&'static str> {
+    ADAPTER.get().map(String::as_str)
+}
+
 /// The shared device and what it was created from.
 #[derive(Clone)]
 pub struct Gpu {
@@ -51,6 +64,26 @@ impl Gpu {
             ..Default::default()
         }))
         .ok()?;
+        // This is not always a GPU. wgpu ranks a CPU adapter last but never
+        // leaves it out, so on a machine whose hardware it will not drive -
+        // its D3D12 backend wants resource binding tier 2, which Intel's
+        // Broadwell-era chips do not have - the adapter that comes back is
+        // WARP, Windows' software rasteriser. The window still opens on it;
+        // see `is_software` and platform.rs for what that changes.
+        // https://github.com/jub0t/Concat/issues/135
+        let info = adapter.get_info();
+        log::info!(
+            "GPU adapter: {} ({:?}, {:?}, driver {})",
+            info.name,
+            info.device_type,
+            info.backend,
+            info.driver_info
+        );
+        let _ = ADAPTER.set(if info.device_type == wgpu::DeviceType::Cpu {
+            format!("{} · {} · software rasteriser", info.name, info.backend)
+        } else {
+            format!("{} · {}", info.name, info.backend)
+        });
         // The adapter's own limits, not `Limits::default()`: the defaults are
         // the downlevel floor every GL-class device can meet, and their
         // `max_texture_dimension_2d` is 8192 whatever the machine can do -
@@ -70,6 +103,13 @@ impl Gpu {
             device,
             queue,
         })
+    }
+
+    /// Whether the adapter is a software rasteriser - WARP on Windows,
+    /// llvmpipe on Linux - rather than a GPU. Everything still draws, only
+    /// slower, and the sysinfo sheet says so.
+    pub fn is_software(&self) -> bool {
+        self.adapter.get_info().device_type == wgpu::DeviceType::Cpu
     }
 
     /// The device as Slint takes it.

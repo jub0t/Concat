@@ -19,6 +19,7 @@ pub(super) fn apply(
             media_id,
             track_id,
             start,
+            ripple,
         } => {
             let media = project
                 .media_by_id(&media_id)
@@ -27,6 +28,9 @@ pub(super) fn apply(
             let timeline = project.active_mut();
             if timeline.track(&track_id).is_none() {
                 return Err(CommandError::TrackGone);
+            }
+            if ripple {
+                ripple_room_for(timeline, &track_id, start, &media);
             }
             let id = mint.next("c");
             timeline
@@ -66,6 +70,7 @@ pub(super) fn apply(
             style,
             duration,
             offset_y,
+            above,
         } => {
             let style = style.unwrap_or_default();
             let duration = duration
@@ -75,6 +80,21 @@ pub(super) fn apply(
             let track_id = match track_id {
                 Some(id) if timeline.track(&id).is_some() => id,
                 Some(_) => return Err(CommandError::TrackGone),
+                None if above => match first_free_track_above(timeline, start, duration) {
+                    Some(id) => id,
+                    None => {
+                        // Every lane above the video is taken: mint one at
+                        // the top for the caption to land on.
+                        let id = mint.next("t");
+                        timeline.tracks.push(Track {
+                            id: id.clone(),
+                            visible: true,
+                            muted: false,
+                            extra: Default::default(),
+                        });
+                        id
+                    }
+                },
                 None => {
                     first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
                 }
@@ -157,12 +177,19 @@ pub(super) fn apply(
             clip_id,
             edge,
             delta,
+            ripple,
         } => {
             let timeline = project.active_mut();
             let Some(clip) = timeline.clip_mut(&clip_id) else {
                 return Ok(Outcome::default());
             };
-            let applied = match edge {
+            let track_id = clip.track_id.clone();
+            let anchor = clip.start;
+            let old_end = clip.start + clip.duration;
+            // What the trim did, and what the lane behind it does about
+            // it when it is magnetic: `by` is how far the later clips
+            // move, `behind` where "later" begins.
+            let (applied, by, behind) = match edge {
                 TrimEdge::End => {
                     let duration = (clip.duration + delta).max(MIN_CLIP_DURATION);
                     let old = clip.duration;
@@ -170,7 +197,7 @@ pub(super) fn apply(
                     if applied {
                         clip.rewindow_keys(old, 0.0, duration);
                     }
-                    applied
+                    (applied, duration - old, old_end - JOIN_EPSILON)
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
@@ -183,7 +210,14 @@ pub(super) fn apply(
                         // The head cannot reach before the source begins.
                         shift = shift.max(-clip.source_start / clip.speed);
                     }
-                    let start = (clip.start + shift).max(0.0);
+                    // A magnetic head trim never moves the clip, so the
+                    // timeline's own start is no limit to it; a plain one
+                    // stops at zero.
+                    let start = if ripple {
+                        clip.start + shift
+                    } else {
+                        (clip.start + shift).max(0.0)
+                    };
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
                     let source_start = if clip.reverse {
@@ -199,9 +233,21 @@ pub(super) fn apply(
                     if applied {
                         clip.rewindow_keys(old, moved, old);
                     }
-                    applied
+                    if ripple {
+                        // The in-point moved; the clip stays put, and the
+                        // lane behind it closes by what came off the head.
+                        clip.start = anchor;
+                    }
+                    (applied, -moved, anchor + JOIN_EPSILON)
                 }
             };
+            if ripple && applied && by != 0.0 {
+                for other in timeline.clips_mut() {
+                    if other.id != clip_id && other.track_id == track_id && other.start >= behind {
+                        other.start = (other.start + by).max(0.0);
+                    }
+                }
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -452,14 +498,31 @@ pub(super) fn apply(
             })
         }
 
-        Command::RemoveClips { clip_ids } => {
+        Command::RemoveClips { clip_ids, ripple } => {
             let timeline = project.active_mut();
             let doomed: HashSet<&str> = clip_ids.iter().map(String::as_str).collect();
+            // The spans going, per track, taken before they are gone: the
+            // ripple closes exactly these.
+            let removed: Vec<(String, f64, f64)> = timeline
+                .clips
+                .iter()
+                .filter(|clip| doomed.contains(clip.id.as_str()))
+                .map(|clip| {
+                    (
+                        clip.track_id.clone(),
+                        clip.start,
+                        clip.start + clip.duration,
+                    )
+                })
+                .collect();
             let clip_count = timeline.clips.len();
             timeline
                 .clips
                 .retain(|clip| !doomed.contains(clip.id.as_str()));
             let applied = timeline.clips.len() != clip_count;
+            if ripple && applied {
+                close_gaps(timeline, &removed);
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,
@@ -472,6 +535,41 @@ pub(super) fn apply(
 
 /// How far apart two clips may sit and still count as touching, in seconds.
 const JOIN_EPSILON: f64 = 1e-6;
+
+/// The ripple of a delete: pulls every clip that sits after a removed
+/// span left by the length of the removed spans before it, on that clip's
+/// own track. Spans that overlap count once - a clip behind two doomed
+/// clips that shared five seconds moves by their union, not their sum, or
+/// it would land in front of what was in front of it. A span reaching past
+/// the clip's start counts only up to it, and nothing is pulled before
+/// zero.
+/// https://github.com/jub0t/Concat/issues/106
+fn close_gaps(timeline: &mut Timeline, removed: &[(String, f64, f64)]) {
+    for clip in timeline.clips_mut() {
+        let mut spans: Vec<(f64, f64)> = removed
+            .iter()
+            .filter(|(track, start, _)| *track == clip.track_id && *start < clip.start)
+            .map(|(_, start, end)| (*start, end.min(clip.start)))
+            .collect();
+        if spans.is_empty() {
+            continue;
+        }
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut gap = 0.0;
+        let (mut from, mut to) = spans[0];
+        for (start, end) in spans.into_iter().skip(1) {
+            if start <= to {
+                to = to.max(end);
+            } else {
+                gap += to - from;
+                from = start;
+                to = end;
+            }
+        }
+        gap += to - from;
+        clip.start = (clip.start - gap).max(0.0);
+    }
+}
 
 fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> Clip {
     let kind = match media.kind {
@@ -488,6 +586,29 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
     clip
 }
 
+/// Shifts every clip on `track_id` at or after `start` right by the
+/// duration the new clip will take, when the new clip would overlap
+/// something already there. A drop with room to spare changes nothing.
+fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &MediaItem) {
+    let duration = match media.kind {
+        MediaKind::Image => DEFAULT_IMAGE_DURATION,
+        _ => media.duration.unwrap_or(UNKNOWN_DURATION),
+    };
+    let end = start + duration;
+    let overlaps = timeline.clips.iter().any(|clip| {
+        clip.track_id == track_id && clip.start < end && start < clip.start + clip.duration
+    });
+    if !overlaps {
+        return;
+    }
+    for clip in timeline
+        .clips_mut()
+        .filter(|clip| clip.track_id == track_id && clip.start >= start)
+    {
+        clip.start += duration;
+    }
+}
+
 /// The lowest track with nothing occupying `[start, start + duration)`,
 /// falling back to the bottom track.
 fn first_free_track(timeline: &Timeline, start: f64, duration: f64) -> Option<String> {
@@ -501,6 +622,36 @@ fn first_free_track(timeline: &Timeline, start: f64, duration: f64) -> Option<St
             })
         })
         .or(timeline.tracks.first())
+        .map(|track| track.id.clone())
+}
+
+/// First free lane *above* the highest one occupied over `[start, start +
+/// duration)`. `None` when every lane above is taken, which is the caller's
+/// cue to mint a new one at the top.
+///
+/// Captions go through this so they sit over the video, not under it. The
+/// plain `first_free_track` still walks from the bottom, which is what a
+/// title added by hand wants.
+fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Option<String> {
+    let end = start + duration;
+    let occupied = |track_id: &str| {
+        timeline.clips.iter().any(|clip| {
+            clip.track_id == track_id && clip.start < end && start < clip.start + clip.duration
+        })
+    };
+    let floor = timeline
+        .tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, track)| occupied(&track.id))
+        .map(|(row, _)| row + 1)
+        .max()
+        .unwrap_or(0);
+    timeline
+        .tracks
+        .iter()
+        .skip(floor)
+        .find(|track| !occupied(&track.id))
         .map(|track| track.id.clone())
 }
 

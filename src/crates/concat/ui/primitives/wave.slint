@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+
+// A waveform drawn: the bars in `tint`, scaled by `gain` from the floor
+// up, and the part of them over the hot line drawn again in the hot colour
+// - the same path, clipped to the band above the line. The path is at
+// unity (see `format::wave_path`), so the gain is a layout property here
+// and a volume drag costs no rebuild; a gain over one pushes the bars past
+// the top and the box clips them, which is what full scale looks like.
+export component Wave inherits Rectangle {
+    in property <string> commands;
+    in property <float> gain: 1;
+    in property <brush> tint;
+
+    property <length> bars-h: root.height * Math.max(0, root.gain);
+
+    clip: true;
+
+    Path {
+        x: 0;
+        y: root.height - root.bars-h;
+        width: root.width;
+        height: root.bars-h;
+        commands: root.commands;
+        viewbox-width: 1;
+        viewbox-height: 1;
+        fit: fill;
+        fill: root.tint;
+    }
+
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height * (1 - Theme.wave-hot-line);
+        clip: true;
+
+        Path {
+            x: 0;
+            y: root.height - root.bars-h;
+            width: root.width;
+            height: root.bars-h;
+            commands: root.commands;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            fill: Theme.wave-hot;
+        }
+    }
+}
+

@@ -296,8 +296,8 @@ export component ConfigPane inherits Rectangle {
     Pane {
         // ── details ──────────────────────────────────────────────────────
         if !root.has-selection: Rectangle {
-            // The same 44px as the panes either side of it; see PaneHeader.
-            height: 44px;
+            // The same 52px as the panes either side of it; see PaneHeader.
+            height: 52px;
 
             Rectangle {
                 x: 0;
@@ -421,7 +421,7 @@ export component ConfigPane inherits Rectangle {
         if root.has-selection: Rectangle {
             // Matched to the Details bar above, or the top of the column
             // would jump by four pixels every time a clip was selected.
-            height: 44px;
+            height: 52px;
 
             Rectangle {
                 x: 0;

@@ -12,14 +12,25 @@
 //! uniform buffer as it is, because the catalogue already laid the bytes
 //! out the way the shader's `Params` struct wants them.
 //!
+//! The parameters are uniforms, never strings: a knob with keys is worth
+//! something different each frame, and the catalogue resolves it to the
+//! value for the frame and writes the buffer. The same resolved values
+//! ride along by name in `values`, for a renderer that runs the package
+//! through a kernel of its own rather than the shader - the CPU reference
+//! - so both read one resolution of the clip's settings.
+//!
 //! It lives here, in the crate every other one can see, so the catalogue
 //! that builds it and the compositor that runs it need not know each other.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// One fragment pass over a layer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ShaderPass {
+    /// The package's id, `author.name`: what a renderer without a shader
+    /// stage keys its own kernel for the package by.
+    pub package: String,
     /// What to cache the compiled pipeline under: the package's id and
     /// version, so a package that changes its shader gets a new pipeline
     /// and one that only changes its knobs keeps the old.
@@ -30,6 +41,9 @@ pub struct ShaderPass {
     /// The `Params` uniform, laid out to the struct's offsets. Sixteen bytes
     /// at least, so an empty struct still has a buffer.
     pub params: Vec<u8>,
+    /// The same values by the manifest's keys, every declared parameter
+    /// present, resolved for the frame: what `params` was written from.
+    pub values: BTreeMap<String, f64>,
     /// How much of the result to keep over the untouched layer, `0..=1`. A
     /// look at half strength is half the look; an effect is always one.
     pub intensity: f32,

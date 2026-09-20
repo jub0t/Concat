@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
 import { FocusRing } from "focus-ring.slint";
 
 // Single-select tab row with a thumb that slides to the active segment.
@@ -10,6 +11,11 @@ import { FocusRing } from "focus-ring.slint";
 // from the count rather than measured from the buttons.
 export component SegmentedControl inherits Rectangle {
     in property <[string]> options;
+    /// A glyph per option, in the same order. A segment with one wears it
+    /// in place of its word - three alignments are three marks, not three
+    /// words - and the word stays as its accessible name. Shorter than
+    /// `options` is fine; a segment past the end keeps its word.
+    in property <[Glyph]> icons;
     in-out property <int> current;
     in property <bool> enabled: true;
 
@@ -81,7 +87,7 @@ export component SegmentedControl inherits Rectangle {
         // The segment's whole box, so the label can centre in it; see the
         // note on IconButton's text in panel.slint for why a Text needs to
         // be handed one.
-        Text {
+        if index >= root.icons.length: Text {
             x: 0;
             y: 0;
             width: parent.width;
@@ -94,6 +100,13 @@ export component SegmentedControl inherits Rectangle {
             overflow: elide;
 
             animate color { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+        }
+        if index < root.icons.length: Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            glyph: root.icons[index];
+            size: 14px;
+            tint: (index == root.current || segment.has-hover) ? Theme.fg : Theme.fg-muted;
         }
 
         segment := TouchArea {

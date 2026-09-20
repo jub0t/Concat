@@ -7,21 +7,31 @@
 //!
 //! 1. [`plan`] answers "what is on screen at this instant, from where, and how
 //!    strongly". It touches no pixels and does no IO, so it is fast, exactly
-//!    testable, and identical for the CPU and GPU backends.
-//! 2. [`compositor`] takes that plan plus the decoded pixels and blends them.
+//!    testable, and identical for the CPU and GPU backends. The executor
+//!    fills the plan out with the decoded pictures and everything the
+//!    model has no field for, and a [`FramePlan`] is then the whole
+//!    description of the frame.
+//! 2. [`compositor`] takes that plan and nothing else, and draws it.
 //!
 //! Only step 2 is backend-specific. The CPU compositor is the reference
-//! implementation; the GPU one exists to be fast and must match it.
+//! implementation; the GPU one exists to be fast and must match it, which
+//! the parity suite holds it to.
 
 pub mod compositor;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod kernels;
+pub mod metrics;
 pub mod plan;
 
-pub use compositor::{Compositor, CpuCompositor, Layer, Placement, Treatment};
+pub use compositor::{Compositor, CpuCompositor};
 #[cfg(feature = "gpu")]
 pub use gpu::WgpuCompositor;
-pub use plan::{FramePlan, PlannedLayer, plan_frame};
+pub use metrics::ssim;
+pub use plan::{
+    Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, detached_clip,
+    plan_frame,
+};
 /// The wgpu the compositor is built on, for callers that share its device.
 #[cfg(feature = "gpu")]
 pub use wgpu;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The notes for a release or a nightly, from the commits it is made of.
+# The notes for a release, from the commits it is made of.
 #
-# Usage: release-notes.sh <since-ref> <until-ref> <title> [nightly]
+# Usage: release-notes.sh <since-ref> <until-ref> <title>
 #
 # Writes markdown to stdout: what changed, as the subjects of the commits
 # between the two refs; how to install each bundle; the checksum file; the
@@ -27,7 +27,6 @@ set -euo pipefail
 since="$1"
 until="$2"
 title="$3"
-kind="${4:-release}"
 
 # A conventional-commit type, with its optional (scope) and breaking `!`.
 type='^[a-z]+(\([^)]*\))?!?: '
@@ -45,11 +44,7 @@ changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
 
 echo "## $title"
 echo
-if [ "$kind" = "nightly" ]; then
-  echo "The newest main, rebuilt on every push. For a release, see the tagged ones."
-else
-  echo "A self-contained build for every platform Concat ships on."
-fi
+echo "A self-contained build for every platform Concat ships on."
 echo
 if [ -n "$changes" ]; then
   echo "### What changed"
@@ -63,8 +58,8 @@ cat <<'EOF'
 | | Apple silicon | Intel / x86_64 | arm64 |
 |---|---|---|---|
 | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
-| Windows | | `windows-x86_64.zip` | `windows-aarch64.zip` |
-| Linux | | `linux-x86_64.tar.gz` | `linux-aarch64.tar.gz` |
+| Windows | | `windows-x86_64-setup.exe`, `.msi` | `windows-aarch64-setup.exe`, `.msi` |
+| Linux | | `linux-x86_64.deb`, `.rpm`, `.AppImage` | `linux-aarch64.deb`, `.rpm`, `.AppImage` |
 | Android | | | `android-arm64.apk` |
 | iOS / iPadOS | | | `ios-arm64.ipa` |
 
@@ -72,10 +67,11 @@ Every bundle runs with nothing else installed.
 
 - **macOS**: open the `.dmg` and drag Concat to Applications. If macOS says
   the app cannot be checked, right-click it and choose Open once.
-- **Windows**: unzip and run `concat.exe`. The FFmpeg libraries beside it
-  stay beside it.
-- **Linux**: `tar xzf` the archive and run `./concat` from the folder;
-  `concat.desktop` is there for a launcher.
+- **Windows**: run the `-setup.exe`; it puts Concat in the Start menu and
+  can take it out again. The `.msi` is the same program for an
+  administrator to deploy, machine-wide.
+- **Linux**: install the `.deb` or the `.rpm` with your package manager,
+  or `chmod +x` the `.AppImage` and run it; no install needed.
 - **Android**: open the `.apk` on the phone and allow the install from
   this source; Android 8.0 or newer, 64-bit.
 - **iOS / iPadOS**: sideload the `.ipa` with AltStore, Sideloadly or

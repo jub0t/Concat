@@ -12,9 +12,8 @@
 //! which is why it can live in a plain `RefCell` with no lock.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::Arc;
 
 use concat_host::export::Exporter;
 pub use concat_host::media::{strip_window, window_span, window_start};
@@ -197,68 +196,33 @@ fn deliver<T: Send + 'static>(
     });
 }
 
-/// The bin's artwork lane: its own few threads, taking jobs off one queue.
-///
-/// Not the shared workers. Those are the monitor's: a frame, its prefetch,
-/// and one more, and an import of twenty files asks for twenty thumbnails,
-/// twenty filmstrips and twenty waveforms at once - on the shared workers
-/// the monitor would wait behind all of it, and as one thread per job it
-/// was every core at a hundred percent until the bin had its pictures, the
-/// machine unusable for a minute (#52). The artwork is decoration; it can
-/// arrive a few files at a time. So it queues here, on threads the monitor
-/// never needs, and only [`art_workers`] decoders ever run together,
-/// whatever the size of the import.
-struct ArtLane {
-    queue: Mutex<VecDeque<Box<dyn FnOnce() + Send>>>,
-    ready: Condvar,
-}
-
-/// How many artwork decoders run at once: a quarter of the machine's
-/// threads, one at least and three at most. A decoder is single-threaded,
-/// so this is roughly the share of the machine the bin's pictures may take
-/// while the window, playback and the monitor keep the rest.
-fn art_workers() -> usize {
-    std::thread::available_parallelism().map_or(1, |threads| (threads.get() / 4).clamp(1, 3))
-}
-
-/// Like [`spawn`], on the artwork lane: `work` waits its turn behind the
-/// other artwork rather than starting a thread of its own.
+/// Like [`spawn`], on the engine's scheduler at the artwork priority:
+/// `work` waits its turn behind the monitor's frames, the frames ahead of
+/// the playhead and the filmstrips, and only a few artwork jobs ever run
+/// together, whatever the size of the import (#52). See
+/// `concat_host::scheduler`.
 pub fn spawn_art<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    static LANE: OnceLock<Arc<ArtLane>> = OnceLock::new();
-    let lane = LANE.get_or_init(|| {
-        let lane = Arc::new(ArtLane {
-            queue: Mutex::new(VecDeque::new()),
-            ready: Condvar::new(),
-        });
-        for index in 0..art_workers() {
-            let lane = Arc::clone(&lane);
-            let _ = std::thread::Builder::new()
-                .name(format!("media-art-{index}"))
-                .spawn(move || {
-                    loop {
-                        let job = {
-                            let mut queue = lane.queue.lock().unwrap_or_else(|e| e.into_inner());
-                            loop {
-                                if let Some(job) = queue.pop_front() {
-                                    break job;
-                                }
-                                queue = lane.ready.wait(queue).unwrap_or_else(|e| e.into_inner());
-                            }
-                        };
-                        job();
-                    }
-                });
-        }
-        lane
-    });
-    lane.queue
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push_back(Box::new(move || deliver(work(), then)));
-    lane.ready.notify_one();
+    spawn_at(concat_media::Priority::Artwork, work, then);
+}
+
+/// Like [`spawn_art`], at the filmstrip priority: the lanes' pictures
+/// come before the bin's, after the monitor's.
+pub fn spawn_strip<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    spawn_at(concat_media::Priority::Filmstrip, work, then);
+}
+
+fn spawn_at<T: Send + 'static>(
+    priority: concat_media::Priority,
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    concat_host::scheduler().submit(priority, move || deliver(work(), then));
 }
 
 /// Runs `body` on the event-loop thread from anywhere, with a full publish
@@ -559,7 +523,7 @@ pub struct MediaArt {
     /// image: a Slint image cannot cross a thread, and this is made on one.
     pub thumbnail: Option<concat_core::frame::Frame>,
     /// The waveform, for anything with sound.
-    pub peaks: Option<Arc<concat_media::Peaks>>,
+    pub peaks: Option<Arc<concat_media::Pyramid>>,
     /// Frames sampled evenly across the footage, side by side in one
     /// picture, and how many there are. A still is a strip of one.
     pub strip: Option<(concat_core::frame::Frame, u32)>,
@@ -594,7 +558,7 @@ pub fn media_art(
             thumbnail: None,
             peaks: media::peaks(&path, stream, Some(&project))
                 .ok()
-                .map(Arc::new),
+                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks))),
             strip: None,
         };
     }
@@ -612,11 +576,20 @@ pub fn media_art(
         None
     };
     let peaks = (kind == MediaKind::Audio || has_audio)
-        .then(|| media::peaks(&path, None, Some(&project)).ok().map(Arc::new))
+        .then(|| {
+            media::peaks(&path, None, Some(&project))
+                .ok()
+                .map(|peaks| Arc::new(concat_media::Pyramid::of(peaks)))
+        })
         .flatten();
+    // The filmstrip reads the proxy where the file has one: the tiles are
+    // small, and a 4K file's frames cost more than they show.
+    let strip_source = concat_host::proxy::existing(std::path::Path::new(&project), &path)
+        .map(|proxy| proxy.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.clone());
     let strip = if pictures {
         match kind {
-            MediaKind::Video => media::filmstrip(&path, STRIP_FRAMES, STRIP_HEIGHT)
+            MediaKind::Video => media::filmstrip(&strip_source, STRIP_FRAMES, STRIP_HEIGHT)
                 .ok()
                 .map(|frame| (frame, STRIP_FRAMES)),
             MediaKind::Image => thumbnail.clone().map(|frame| (frame, 1)),

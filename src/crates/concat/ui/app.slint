@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// Helvetica Neue is bundled rather than assumed: a desktop binary should look
-// the same on a machine that has never installed it. One file per weight the
-// design uses — Roman for body, Medium for titles, Bold for the page heading.
+// Hanken Grotesk is bundled rather than assumed: a desktop binary should look
+// the same on a machine that has never installed it. It is published as one
+// variable font, which Slint cannot load, so these are the static instances
+// at the weights the design uses - Regular for body, Medium for titles,
+// SemiBold and Bold for the headings, Italic for the one look that asks for
+// it. The files live with the title painter (concat-text/fonts), which
+// embeds the same five so a title is set in the face the interface is.
+// Licensed under the SIL Open Font License; see LICENSE-HankenGrotesk.txt.
 import { I18n } from "i18n.slint";
-import "fonts/HelveticaNeue-Roman.otf";
-import "fonts/HelveticaNeue-Medium.otf";
-import "fonts/HelveticaNeue-Bold.otf";
-
-// Synonym, the interface's text face. It is published as one variable font,
-// which Slint cannot load, so these are static instances cut from it at the
-// three weights the theme uses. Licensed under the ITF Free Font License — see
-// fonts/LICENSE-Synonym.
-import "fonts/Synonym-Regular.ttf";
-import "fonts/Synonym-Medium.ttf";
-import "fonts/Synonym-SemiBold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Regular.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Medium.ttf";
+import "../../concat-text/fonts/HankenGrotesk-SemiBold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Bold.ttf";
+import "../../concat-text/fonts/HankenGrotesk-Italic.ttf";
 
 import { Theme } from "theme/theme.slint";
 import { Bezier, Curves, Fmt, Focus, Payload } from "util.slint";
@@ -61,6 +60,14 @@ export {
 
 export component App inherits Window {
     title: "Concat";
+    // Where the strip carries its own window buttons the platform's
+    // decorations are not wanted, and this is the property Slint keeps
+    // them off with: the winit backend re-applies `no-frame` to the
+    // window after it is made, over whatever the attributes asked for, so
+    // a hook alone left GNOME drawing its bar above ours:
+    // https://github.com/jub0t/Concat/issues/97
+    // https://github.com/jub0t/Concat/issues/145
+    no-frame: root.own-window-buttons;
     background: Theme.page;
     default-font-family: Theme.font;
     default-font-size: Theme.fs;
@@ -178,6 +185,9 @@ export component App inherits Window {
     callback export-quality-changed(index: int);
     callback export-codec-changed(index: int);
     callback export-ten-bit-changed(on: bool);
+    callback export-advanced-toggled(on: bool);
+    callback export-rate-mode-changed(index: int);
+    callback export-bitrate-changed(text: string);
     callback export-start();
     callback export-cancel();
     callback export-reveal();
@@ -190,10 +200,13 @@ export component App inherits Window {
     callback settings-theme-changed(dark: bool);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-custom-context-actions-changed(on: bool);
+    callback settings-magnetic-changed(on: bool);
+    callback settings-hardware-decode-changed(on: bool);
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
     callback settings-server-enabled-changed(on: bool);
-    callback settings-server-listen-edited(text: string);
+    callback settings-server-host-edited(text: string);
+    callback settings-server-port-edited(port: int);
     callback settings-server-token-edited(text: string);
     callback settings-server-token-generated();
     callback model-activated(id: string);
@@ -347,8 +360,15 @@ export component App inherits Window {
                 return reject;
             }
             if (event.text == Key.Space) { Editor.play-toggled(); return accept; }
+            // Shift closes the gap the deletion leaves - the ripple delete
+            // of every other editor, on the key they all use for it.
+            // https://github.com/jub0t/Concat/issues/106
             if (event.text == Key.Delete || event.text == Key.Backspace) {
-                Editor.delete-selected();
+                if (event.modifiers.shift) {
+                    Editor.shortcut("ripple-delete");
+                } else {
+                    Editor.delete-selected();
+                }
                 return accept;
             }
             if (event.text == Key.Home) { Editor.shortcut("start"); return accept; }
@@ -365,12 +385,11 @@ export component App inherits Window {
             if (event.modifiers.shift) {
                 return reject;
             }
-            if (event.text == "a" || event.text == "v") {
-                Editor.shortcut("tool-select");
-                return accept;
-            }
-            if (event.text == "b") { Editor.shortcut("tool-razor"); return accept; }
-            if (event.text == "s") { Editor.shortcut("split-selected"); return accept; }
+            // B splits the selected clips at the playhead, or every clip
+            // when nothing is selected; ⌘B above splits every clip either
+            // way. There was a razor tool on B and this split on S, and
+            // the two did the same thing by different pointers.
+            if (event.text == "b") { Editor.shortcut("split-selected"); return accept; }
             if (event.text == "n") { Editor.shortcut("snap"); return accept; }
             if (event.text == "m") { Editor.shortcut("mute"); return accept; }
             if (event.text == "h") { Editor.shortcut("flip-h"); return accept; }
@@ -465,6 +484,9 @@ export component App inherits Window {
         quality-changed(index) => { root.export-quality-changed(index); }
         codec-changed(index) => { root.export-codec-changed(index); }
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
+        advanced-toggled(on) => { root.export-advanced-toggled(on); }
+        rate-mode-changed(index) => { root.export-rate-mode-changed(index); }
+        bitrate-changed(text) => { root.export-bitrate-changed(text); }
         begin => { root.export-start(); }
         cancel => { root.export-cancel(); }
         reveal => { root.export-reveal(); }
@@ -490,10 +512,13 @@ export component App inherits Window {
         theme-changed(dark) => { root.settings-theme-changed(dark); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         custom-context-actions-changed(on) => { root.settings-custom-context-actions-changed(on); }
+        magnetic-changed(on) => { root.settings-magnetic-changed(on); }
+        hardware-decode-changed(on) => { root.settings-hardware-decode-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }
         server-enabled-changed(on) => { root.settings-server-enabled-changed(on); }
-        server-listen-edited(text) => { root.settings-server-listen-edited(text); }
+        server-host-edited(text) => { root.settings-server-host-edited(text); }
+        server-port-edited(port) => { root.settings-server-port-edited(port); }
         server-token-edited(text) => { root.settings-server-token-edited(text); }
         server-token-generated => { root.settings-server-token-generated(); }
         model-activated(id) => { root.model-activated(id); }

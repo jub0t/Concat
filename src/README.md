@@ -119,6 +119,18 @@ activity's `android_main`, and `crates/concat/src/platform.rs` is where
 the three differ - how the backend is chosen, how files are picked, and
 whether there is a title strip to drag.
 
+## Measuring
+
+`cargo run -p concat-perf --release` prints a table of how fast the parts
+a person waits on are - planning a frame, an undo, opening a document,
+decoding, a scrub through the cache, compositing on the CPU and the GPU,
+an export - each against a budget, on synthetic media so the numbers are
+the machine's and the code's. `--check` fails the run when a scenario is
+outside its budget, which is what CI wants; `--quick` skips the media.
+The quick scenarios also run under `cargo test`, so a regression there
+stops the build. See `crates/concat-perf/src/main.rs` for what each
+number means and what is not measured.
+
 ## Driving Concat without the window
 
 Everything the window does to a project, a script can do through the Concat
@@ -146,13 +158,17 @@ the number is JSON-RPC's, the name in `data` is the API's - `parse`,
 events follow, to every connected caller, each naming its job and project.
 
 `concat-cli serve` puts the same lines on a socket. It binds loopback unless
-told otherwise and refuses any other address without `--token` (or
-`CONCAT_API_TOKEN`), which a connection then presents as its first line,
-`{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":"..."}}`. There
-is no encryption; a bind off loopback belongs behind something that has it.
-With the `grpc` feature the same API is served over HTTP/2 from
-`crates/concat-server/proto/concat.proto`, a thin envelope carrying the
-same JSON, with the token as `authorization: Bearer ...` metadata.
+told otherwise, and every connection, loopback included, presents a token
+as its first line, `{"jsonrpc":"2.0","id":0,"method":"auth","params":{"token":"..."}}`:
+the one given with `--token` (or `CONCAT_API_TOKEN`), or else one minted
+at start and printed under the addresses, so only whoever started the
+server can hand it out. There is no encryption; a bind off loopback belongs
+behind something that has it. With the `grpc` feature the same API is
+served over HTTP/2 from `crates/concat-server/proto/concat.proto`, a thin
+envelope carrying the same JSON, with the token as `authorization: Bearer
+...` metadata. `version` is the call to make first: its reply's
+`capabilities` names what the build serves (`events`, `json-rpc`,
+`unix-socket`, `grpc`, `gpu`) before anything is asked of it.
 
 ## Reading this codebase cold
 

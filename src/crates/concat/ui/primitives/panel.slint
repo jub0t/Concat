@@ -161,6 +161,10 @@ export component SectionBody inherits VerticalLayout {
 // width evenly, which is what gives paired fields (X/Y, W/H) equal columns.
 export component Row inherits HorizontalLayout {
     in property <string> label;
+    /// The label's column. The default fits "Horizontal"; a row whose label
+    /// is two words - "Font Weight", "Text Align" - asks for more, and its
+    /// siblings in the section ask for the same so the controls line up.
+    in property <length> label-width: Theme.label-w;
 
     padding-left: Theme.pad;
     padding-right: Theme.pad;
@@ -168,7 +172,7 @@ export component Row inherits HorizontalLayout {
     min-height: Theme.h;
 
     if root.label != "": Text {
-        width: Theme.label-w;
+        width: root.label-width;
         text: root.label;
         color: Theme.fg-muted;
         font-size: Theme.fs;

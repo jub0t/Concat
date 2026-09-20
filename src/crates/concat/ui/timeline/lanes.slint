@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { Wave } from "../primitives/wave.slint";
 import { Theme } from "../theme/theme.slint";
 import { Fmt, Payload } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
@@ -133,7 +134,6 @@ component Clip inherits Rectangle {
     /// reached is a question only the side holding the heights can answer.
     callback dragged(seconds: float, pixels: length);
     callback released();
-    callback razored(seconds: float);
     callback context-requested();
 
     property <color> mark: Paint.mark(root.item.kind);
@@ -153,6 +153,17 @@ component Clip inherits Rectangle {
     property <bool> marked: root.item.kind == ClipKind.filter;
     property <length> text-x: root.marked ? 22px : 7px;
     property <length> body-h: Math.max(0px, root.height - root.header-h);
+    /// The sound band at the foot of a video clip: its file's waveform
+    /// under its frames, a third of the body and never a sliver, and there
+    /// whether or not the file has sound - a silent file shows the empty
+    /// band, so a video that has gone quiet is tellable from one that
+    /// never spoke. https://github.com/jub0t/Concat/issues/137
+    property <bool> banded: root.item.kind == ClipKind.video;
+    property <length> band-h: root.banded
+        ? Math.clamp(root.body-h * 0.34, 8px, 30px)
+        : 0px;
+    /// What the frames get: the body less the band.
+    property <length> frames-h: Math.max(0px, root.body-h - root.band-h);
     /// A fade on a picture clip is shaded in a band at the foot instead of
     /// over the whole body: the fade is an *audio* property, and shading the
     /// picture would say it fades to black. Sound shades its whole body; a
@@ -217,26 +228,30 @@ component Clip inherits Rectangle {
         clip: true;
 
         // The audio envelope. The commands arrive normalised into a 1x1 box
-        // and `fit: fill` stretches that onto whatever width the clip has, so
-        // the shape survives a zoom without Rust rebuilding the string. The
-        // trade-off is per-pixel extremes when zoomed right in — there the
-        // envelope is a stretched shape rather than a fresh scan of the
-        // buckets.
-        if root.item.wave != "": Path {
-            x: 0;
+        // and `fit: fill` stretches that onto whatever width the clip has;
+        // Rust rebuilds the string with a column a pixel at each step of
+        // the zoom, from the peaks at the level that fits the column, so
+        // zooming in reveals the buckets rather than stretching a shape.
+        // The bars stand on the clip's floor, as tall as the level under
+        // them, and the part of a bar over the hot line is drawn again in
+        // the hot colour on top: a level meter laid along the clip, so a
+        // stretch that is too loud is seen without being heard. The path
+        // is at unity and the clip's volume scales its height here, so a
+        // volume drag moves the picture without a new path from Rust.
+        if root.item.wave != "" && !root.banded: Wave {
+            x: root.item.wave-from * parent.width;
             y: 0;
-            width: parent.width;
+            width: root.item.wave-span * parent.width;
             height: parent.height;
             commands: root.item.wave;
-            viewbox-width: 1;
-            viewbox-height: 1;
-            fit: fill;
-            fill: Theme.wave;
+            gain: root.item.volume;
+            tint: Theme.wave;
         }
 
-        if root.item.wave != "": Rectangle {
+        // The floor the bars stand on.
+        if root.item.wave != "" && !root.banded: Rectangle {
             x: 0;
-            y: (parent.height - 1px) / 2;
+            y: parent.height - 1px;
             width: parent.width;
             height: 1px;
             background: Theme.wave-centre;
@@ -265,11 +280,11 @@ component Clip inherits Rectangle {
             x: 0;
             y: 0;
             width: parent.width;
-            height: parent.height;
+            height: root.banded ? root.frames-h : parent.height;
             clip: true;
 
             property <length> tile-w: Math.max(4px,
-                parent.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
+                self.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
             property <int> tiles: Math.min(400, Math.ceil(parent.width / self.tile-w));
 
             /// The fraction of the clip under the middle of tile `i`'s
@@ -302,10 +317,51 @@ component Clip inherits Rectangle {
         if (root.item.kind == ClipKind.video || root.item.kind == ClipKind.image)
             && root.item.strip.frames == 0 && root.width > 40px: Icon {
             x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
+            y: ((root.banded ? root.frames-h : parent.height) - self.height) / 2;
             glyph: root.badge;
-            size: Math.min(22px, parent.height - 6px);
+            size: Math.min(22px, (root.banded ? root.frames-h : parent.height) - 6px);
             tint: root.mark.with-alpha(0.3);
+        }
+
+        // The sound band under a video's frames: a hairline off the frames,
+        // the waveform when the file has sound and its peaks have come, the
+        // centre line either way. In the video's blue, well and wave both:
+        // the band is part of the video clip, and green would say there
+        // was a sound clip here.
+        if root.banded && root.band-h > 0px: Rectangle {
+            x: 0;
+            y: root.frames-h;
+            width: parent.width;
+            height: root.band-h;
+            background: Theme.kind-video-well.with-alpha(0.55);
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            if root.item.wave != "": Wave {
+                x: root.item.wave-from * parent.width;
+                y: 1px;
+                width: root.item.wave-span * parent.width;
+                height: parent.height - 1px;
+                commands: root.item.wave;
+                gain: root.item.volume;
+                tint: Theme.wave-video;
+            }
+
+            // The floor the bars stand on.
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.wave-centre;
+            }
         }
 
         // The fade ramps, at the foot of the body.
@@ -436,9 +492,7 @@ component Clip inherits Rectangle {
     // the same fix, as the workspace splitters.
     touch := TouchArea {
         enabled: !root.locked;
-        mouse-cursor: root.tool == TimelineTool.razor ? MouseCursor.crosshair
-            : root.edge-at >= 0 ? MouseCursor.ew-resize
-            : MouseCursor.grab;
+        mouse-cursor: root.edge-at >= 0 ? MouseCursor.ew-resize : MouseCursor.grab;
 
         pointer-event(event) => {
             // The right button opens the menu and does nothing else — it must
@@ -455,11 +509,6 @@ component Clip inherits Rectangle {
             }
             if (event.kind == PointerEventKind.down
                 && event.button == PointerEventButton.left) {
-                if (root.tool == TimelineTool.razor) {
-                    // The razor cuts where you click, not at the playhead.
-                    root.razored(self.mouse-x / root.px-per-second);
-                    return;
-                }
                 self.origin-x = self.absolute-position.x + self.mouse-x;
                 self.origin-y = self.absolute-position.y + self.mouse-y;
                 root.pressed(event.modifiers.shift || event.modifiers.control
@@ -829,7 +878,6 @@ export component Lanes inherits Rectangle {
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
-    callback razored(id: string, seconds: float);
     /// Right-click on a clip. The caller fills the menu and bumps `menu-token`;
     /// where it opens is decided here, because only this side knows where the
     /// pointer was.
@@ -1045,7 +1093,6 @@ export component Lanes inherits Rectangle {
             pressed(additive, edge) => { root.clip-pressed(entry.id, additive, edge); }
             dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
             released => { root.clip-released(); }
-            razored(seconds) => { root.razored(entry.id, entry.start + seconds); }
             context-requested => {
                 // Captured before the round trip: by the time the items come
                 // back the pointer may have moved, and a menu that opens away
@@ -1151,20 +1198,6 @@ export component Lanes inherits Rectangle {
                     overflow: elide;
                 }
             }
-        }
-
-        // ── the razor guide ──────────────────────────────────────────────
-        //
-        // Follows the pointer so the cut is visible before it is made. The
-        // outer TouchArea is hovered even while the pointer is over a clip,
-        // which is what keeps the guide alive across one.
-        if root.tool == TimelineTool.razor && wheel.has-hover: Rectangle {
-            x: wheel.mouse-x;
-            y: root.ruler-height;
-            width: 1px;
-            height: root.lanes-h;
-            background: Theme.fg;
-            opacity: 0.5;
         }
 
         // ── the ruler ────────────────────────────────────────────────────

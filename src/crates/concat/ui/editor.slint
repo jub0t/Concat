@@ -235,6 +235,10 @@ export global Editor {
     in-out property <[ClipData]> clips;
     in-out property <TimelineTool> tool;
     in-out property <bool> snap;
+    /// The magnetic timeline: a delete or a trim closes the gap it would
+    /// leave. A remembered preference, which Rust owns; the tray's button
+    /// and the Settings switch both show it.
+    in-out property <bool> magnetic;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
     in-out property <int> selected-count;
@@ -255,6 +259,7 @@ export global Editor {
     callback tab-added();
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
+    callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
     callback split();
     callback merge();
@@ -267,11 +272,13 @@ export global Editor {
     callback add-track();
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
+    /// The lanes are this wide on screen now, in logical pixels: what
+    /// decides which clips are worth publishing.
+    callback lanes-resized(width: float);
     callback scrubbed(seconds: float);
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
-    callback razored(id: string, seconds: float);
     in-out property <[MenuItemData]> menu-items;
     in-out property <length> menu-height;
     in-out property <int> menu-token;

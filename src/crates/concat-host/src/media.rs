@@ -232,7 +232,10 @@ pub fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
 /// timeline zoom, which is enough that the drawn shape does not visibly
 /// change as you zoom in a step or two, without storing the whole decoded
 /// file.
-pub const PEAKS_BUCKETS_PER_SECOND: u32 = 200;
+/// A thousand a second: a bucket is a millisecond, forty-eight samples,
+/// which is what a clip a screen wide at the closest zoom needs, and the
+/// pyramid folds it down for every wider view. See `concat_media::Pyramid`.
+pub const PEAKS_BUCKETS_PER_SECOND: u32 = 1000;
 
 /// Waveform peaks for one media file: engine-decoded, project-cached.
 ///
@@ -621,17 +624,29 @@ mod window_tests {
     }
 }
 
+/// Where a project's poster is cached. Under a name of its own rather than
+/// the old `preview.jpg`, because a poster made before the black check
+/// below could be a black frame, and this way one is never read back.
+pub fn poster_cache(project: &str) -> PathBuf {
+    Path::new(project).join("cache").join("poster.jpg")
+}
+
 /// A small poster frame for one project, as a JPEG, for the launch screen's
 /// recents.
 ///
-/// Grabbed from the earliest visible clip of the project's active timeline
-/// and cached as `cache/preview.jpg` in the project folder; the cache is
-/// fresh as long as it is newer than the manifest, so an edited project gets
-/// a new poster on its next appearance and an untouched one costs a stat.
+/// Grabbed from the earliest clips with a picture on the project's active
+/// timeline, and never black: a video's first frame is so often a black
+/// leader or the foot of a fade that the launch screen was a column of
+/// dead squares. Several moments of each clip are tried, earliest clip
+/// first, and the first frame with light in it is the poster; when every
+/// one is dark the project has no poster, and the screen shows its film
+/// mark instead of a black square. Cached in the project folder, fresh as
+/// long as it is newer than the manifest, so an edited project gets a new
+/// poster on its next appearance and an untouched one costs a stat.
 pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
     let root = Path::new(project);
     let manifest = projects::manifest_path(root);
-    let cached = root.join("cache").join("preview.jpg");
+    let cached = poster_cache(project);
 
     let fresh = match (std::fs::metadata(&cached), std::fs::metadata(&manifest)) {
         (Ok(cache), Ok(source)) => match (cache.modified(), source.modified()) {
@@ -644,22 +659,61 @@ pub fn poster_frame(project: &str) -> Result<Vec<u8>, String> {
         return Ok(bytes);
     }
 
-    let (media_path, source_start, is_still) = poster_source(project)?;
-    let frame = still_at(&media_path, if is_still { 0.0 } else { source_start }, 480)?;
+    let mut failure = None;
+    let mut frame = None;
+    for (media_path, seconds) in poster_moments(project)? {
+        match still_at(&media_path, seconds, 480) {
+            Ok(candidate) if !is_dead(&candidate) => {
+                frame = Some(candidate);
+                break;
+            }
+            Ok(_) => failure = Some(format!("{media_path} at {seconds:.2}s is black")),
+            Err(error) => failure = Some(error),
+        }
+    }
+    let Some(frame) = frame else {
+        return Err(failure.unwrap_or_else(|| "nothing on the timeline to preview".to_owned()));
+    };
     let bytes = concat_media::jpeg(&frame, 4).map_err(describe)?;
 
     // Best effort: a failed cache write only means regenerating next launch.
     if let Some(parent) = cached.parent() {
         let _ = std::fs::create_dir_all(parent);
         let _ = std::fs::write(&cached, &bytes);
+        // The poster from before the black check, no longer read.
+        let _ = std::fs::remove_file(parent.join("preview.jpg"));
     }
     Ok(bytes)
 }
 
-/// Which frame of which file is a project's poster: the earliest clip with
-/// a picture on the active timeline - exactly the frame the user last saw
-/// open.
-fn poster_source(project: &str) -> Result<(String, f64, bool), String> {
+/// Below this mean brightness, out of 255, a frame is a black one: a
+/// leader, the foot of a fade, a lens cap. A night scene is well above it.
+const DEAD_BELOW: u32 = 10;
+
+/// Whether a frame is black, or as near as makes no poster. The mean of
+/// each pixel's brightest channel, over every fourth pixel: enough of the
+/// picture to tell a leader from a dark scene, and cheap on a 480-wide
+/// still.
+pub fn is_dead(frame: &Frame) -> bool {
+    let pixels = frame.pixels();
+    if pixels.len() < 4 {
+        return true;
+    }
+    let mut total = 0u64;
+    let mut count = 0u64;
+    for pixel in pixels.chunks_exact(4).step_by(4) {
+        total += u64::from(pixel[0].max(pixel[1]).max(pixel[2]));
+        count += 1;
+    }
+    count == 0 || total / count < u64::from(DEAD_BELOW)
+}
+
+/// The moments to try for a project's poster, in order: for each clip
+/// with a picture on the active timeline, earliest first, its in-point,
+/// then a second in (or a quarter of the way, on a short clip), then its
+/// middle. A still is one moment. Capped, so a timeline of black clips
+/// does not cost a launch a hundred decodes.
+fn poster_moments(project: &str) -> Result<Vec<(String, f64)>, String> {
     let manifest = projects::manifest_path(Path::new(project));
     let text = std::fs::read_to_string(&manifest)
         .map_err(|error| format!("could not read {}: {error}", manifest.display()))?;
@@ -682,30 +736,43 @@ fn poster_source(project: &str) -> Result<(String, f64, bool), String> {
     };
 
     use concat_project::model::ClipKind;
-    let mut poster: Option<(f64, String, f64, bool)> = None;
-    for clip in &timeline.clips {
-        if clip.kind != ClipKind::Video && clip.kind != ClipKind::Image {
-            continue;
-        }
-        if poster
-            .as_ref()
-            .is_some_and(|(best, ..)| *best <= clip.start)
-        {
-            continue;
-        }
+    let mut clips: Vec<_> = timeline
+        .clips
+        .iter()
+        .filter(|clip| clip.kind == ClipKind::Video || clip.kind == ClipKind::Image)
+        .collect();
+    clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+
+    const MOST: usize = 12;
+    let mut moments = Vec::new();
+    for clip in clips {
         let Some(media) = project.media.iter().find(|item| item.id == clip.media_id) else {
             continue;
         };
-        poster = Some((
-            clip.start,
-            media.path.clone(),
-            clip.source_start,
-            clip.kind == ClipKind::Image,
-        ));
+        if clip.kind == ClipKind::Image {
+            moments.push((media.path.clone(), 0.0));
+        } else {
+            // The source the clip covers, at its speed: the moments are
+            // inside what the timeline shows, not past it.
+            let span = (clip.duration * clip.speed.max(0.0)).max(0.0);
+            let head = clip.source_start.max(0.0);
+            let mut at = vec![head];
+            if span > 0.0 {
+                at.push(head + span.min(4.0) * 0.25);
+                at.push(head + span * 0.5);
+            }
+            at.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+            moments.extend(at.into_iter().map(|seconds| (media.path.clone(), seconds)));
+        }
+        if moments.len() >= MOST {
+            moments.truncate(MOST);
+            break;
+        }
     }
-    poster
-        .map(|(_, path, source_start, still)| (path, source_start, still))
-        .ok_or_else(|| "nothing on the timeline to preview".to_owned())
+    if moments.is_empty() {
+        return Err("nothing on the timeline to preview".to_owned());
+    }
+    Ok(moments)
 }
 
 /// One frame of `path` at `seconds`, scaled to `width` across with the
@@ -829,11 +896,11 @@ mod tests {
         assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(
             peaks_key("/a.mp4", None),
-            format!("{:016x}-b200.peaks", fnv1a(b"/a.mp4"))
+            format!("{:016x}-b1000.peaks", fnv1a(b"/a.mp4"))
         );
         assert_eq!(
             peaks_key("/a.mp4", Some(2)),
-            format!("{:016x}-s2-b200.peaks", fnv1a(b"/a.mp4"))
+            format!("{:016x}-s2-b1000.peaks", fnv1a(b"/a.mp4"))
         );
     }
 
@@ -870,5 +937,132 @@ mod tests {
         let poster = still_at(&path.to_string_lossy(), 1.0, 32).expect("still");
         assert_eq!(poster.width(), 32);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A black frame is dead, a dark scene is not, and a frame with a
+    /// bright corner on a black ground is not either.
+    #[test]
+    fn a_dead_frame_is_one_with_no_light_in_it() {
+        assert!(is_dead(&Frame::black(64, 32)));
+        let mut leader = Frame::black(64, 32);
+        leader.fill([6, 6, 6, 255]);
+        assert!(is_dead(&leader), "a leader is never quite zero");
+        let mut night = Frame::black(64, 32);
+        night.fill([0, 0, 24, 255]);
+        assert!(!is_dead(&night), "a night scene has light in it");
+        let mut corner = Frame::black(64, 32);
+        for y in 0..16 {
+            for x in 0..32 {
+                corner.pixels_mut()[((y * 64 + x) * 4)..((y * 64 + x) * 4 + 3)]
+                    .copy_from_slice(&[200, 200, 200]);
+            }
+        }
+        assert!(!is_dead(&corner), "a quarter of the frame lit is a picture");
+        assert!(is_dead(&Frame::black(0, 0)), "nothing at all is dead");
+    }
+
+    /// A project whose first clip opens on a black leader gets a poster
+    /// from further in, not the leader; a project of black alone gets no
+    /// poster rather than a black one, and nothing black is cached.
+    #[test]
+    fn a_poster_is_never_a_black_frame() {
+        use concat_core::time::FrameRate;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+        use concat_project::{Command, DocumentSettings, Editor, commands::NewMedia};
+
+        let scratch =
+            std::env::temp_dir().join(format!("concat-poster-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir");
+
+        // Two seconds black, then two seconds of red.
+        let leader = scratch.join("leader.mp4");
+        let mut encoder = Encoder::create(
+            &leader,
+            64,
+            32,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        )
+        .expect("encodes");
+        for index in 0..120u32 {
+            let mut frame = Frame::black(64, 32);
+            if index >= 60 {
+                frame.fill([220, 30, 30, 255]);
+            }
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        // And four seconds of nothing.
+        let dark = scratch.join("dark.mp4");
+        let mut encoder =
+            Encoder::create(&dark, 64, 32, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("encodes");
+        for _ in 0..120u32 {
+            encoder.write_frame(&Frame::black(64, 32)).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let project_with = |name: &str, file: &Path| -> String {
+            let mut editor = Editor::new();
+            let media_id = editor
+                .apply(Command::AddMedia {
+                    item: NewMedia {
+                        path: file.to_string_lossy().into_owned(),
+                        name: "clip.mp4".to_owned(),
+                        duration: Some(4.0),
+                        kind: concat_project::model::MediaKind::Video,
+                        width: Some(64),
+                        height: Some(32),
+                        frame_rate: Some(30.0),
+                        frame_rate_fraction: Some("30/1".to_owned()),
+                        video_codec: Some("h264".to_owned()),
+                        audio_codec: None,
+                        has_audio: false,
+                        audio_tracks: Vec::new(),
+                    },
+                })
+                .expect("adds")
+                .created_id
+                .expect("id");
+            editor
+                .apply(Command::AddClipAtFirstFree {
+                    media_id,
+                    start: 0.0,
+                })
+                .expect("places");
+            let settings = DocumentSettings {
+                name: name.to_owned(),
+                width: 64,
+                height: 32,
+                rate_num: 30,
+                rate_den: 1,
+            };
+            let document = concat_project::to_document(&settings, editor.project());
+            let root = scratch.join(name);
+            projects::save(&root.to_string_lossy(), &document).expect("saves");
+            root.to_string_lossy().into_owned()
+        };
+
+        let lit = project_with("lit", &leader);
+        let bytes = poster_frame(&lit).expect("a poster from past the leader");
+        let poster = still_at(&poster_cache(&lit).to_string_lossy(), 0.0, 64).expect("reads back");
+        assert!(!is_dead(&poster), "the cached poster has light in it");
+        let middle = poster.pixel(32, 16).expect("in bounds");
+        assert!(
+            middle[0] > 150 && middle[1] < 90,
+            "red, from past the leader: {middle:?}"
+        );
+        assert!(!bytes.is_empty());
+
+        let black = project_with("black", &dark);
+        let refused = poster_frame(&black).expect_err("no poster for a black project");
+        assert!(refused.contains("black"), "{refused}");
+        assert!(
+            !poster_cache(&black).is_file(),
+            "and nothing black was cached"
+        );
+
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }

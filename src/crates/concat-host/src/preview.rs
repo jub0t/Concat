@@ -32,6 +32,10 @@ pub struct FrameSpec {
     pub width: u32,
     /// Preview frame height in pixels.
     pub height: u32,
+    /// The picture is moving - playing - rather than paused or scrubbed:
+    /// what reads a file's proxy where it has one, and tells the
+    /// scheduler which way to decode ahead.
+    pub moving: bool,
 }
 
 /// The reader pool behind the monitor, shareable across threads.
@@ -70,7 +74,7 @@ impl Monitor {
     /// A monitor with the engine's default pool budget.
     pub fn new() -> Self {
         Self {
-            pool: Arc::new(concat_media::ReaderPool::with_defaults()),
+            pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
             #[cfg(feature = "gpu")]
             gpu: None,
@@ -83,7 +87,7 @@ impl Monitor {
     #[cfg(feature = "gpu")]
     pub fn with_gpu(device: wgpu::Device, queue: wgpu::Queue) -> Self {
         Self {
-            pool: Arc::new(concat_media::ReaderPool::with_defaults()),
+            pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
             gpu: Some(Arc::new(Mutex::new(
                 concat_render::WgpuCompositor::with_device(device, queue),
@@ -124,7 +128,7 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<concat_export::PreviewSources, String> {
         let plan = self.plan_for(clips, settings, spec, true);
-        concat_export::preview_sources_of(&self.pool, &plan, spec.time)
+        concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)
     }
 
     /// Draws [`Monitor::frame_sources`] into a texture on the device this
@@ -156,30 +160,21 @@ impl Monitor {
             .as_ref()
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
-        if sources.has_treatments() {
-            // A layer whose look is a shader is applied where the stack is
-            // drawn, on the GPU; only a layer that needs FFmpeg for a
-            // package with no shader takes the frame through the CPU.
-            if let Some(treatments) = sources.live_treatments() {
-                let layers = sources.placed();
-                return gpu
-                    .composite_texture_treated(
-                        spec.width,
-                        spec.height,
-                        sources.seconds(),
-                        &layers,
-                        &treatments,
-                    )
-                    .ok_or_else(|| "the GPU device was lost".to_owned());
-            }
+        if sources.needs_cpu() {
+            // A layer that needs FFmpeg for a package with no shader takes
+            // the frame through the CPU; the picture then goes up as one
+            // layer of its own.
             let frame = sources.composite(&mut *gpu);
-            let layers = [concat_render::Layer::new(&frame)];
+            let mut plan = concat_render::FramePlan::empty(spec.width, spec.height);
+            plan.layers.push(concat_render::PlannedLayer::picture(
+                concat_render::detached_clip(),
+                Arc::new(frame),
+            ));
             return gpu
-                .composite_texture(spec.width, spec.height, &layers)
+                .render_texture(&plan)
                 .ok_or_else(|| "the GPU device was lost".to_owned());
         }
-        let layers = sources.layers();
-        gpu.composite_texture(spec.width, spec.height, &layers)
+        gpu.render_texture(sources.plan())
             .ok_or_else(|| "the GPU device was lost".to_owned())
     }
 
@@ -235,16 +230,18 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
         let plan = self.plan_for(clips, settings, spec, false);
-        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time)?;
+        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)?;
         Ok(sources
             .composite(&mut concat_render::CpuCompositor)
             .into_pixels())
     }
 
-    /// Decode-ahead for the playback stream: warms the pool for the next
-    /// `frames` instants after `spec.time`, so the following [`Monitor::frame`]
-    /// pulls are cache hits instead of decode waits. Clamped, so a confused
-    /// caller cannot park the pool's mutex on a long decode march.
+    /// Decode-ahead for the playback stream: hands the scheduler the next
+    /// `frames` instants after `spec.time`, so the following
+    /// [`Monitor::frame`] pulls are cache hits instead of decode waits.
+    /// Clamped, so a confused caller cannot queue a long decode march. A
+    /// moving picture reads proxies, the way [`Monitor::frame`] does for
+    /// it, so what is decoded ahead is what will be asked for.
     pub fn prefetch(
         &self,
         clips: Arc<Vec<ExportClip>>,
@@ -253,7 +250,17 @@ impl Monitor {
         frames: u32,
     ) {
         let plan = self.plan_for(clips, settings, spec, self.has_gpu());
-        concat_export::preview_prefetch_of(&self.pool, &plan, spec.time, frames.min(8));
+        let moments = concat_export::preview_moments(&plan, spec.time, frames.min(8), spec.moving);
+        let fps = (settings.rate_num as f64 / settings.rate_den.max(1) as f64).max(1.0);
+        crate::scheduler().advance(
+            concat_media::Cursor {
+                time: spec.time,
+                direction: concat_media::Direction::Forward,
+                rate: if spec.moving { 1.0 } else { 0.0 },
+            },
+            1.0 / fps,
+            moments,
+        );
     }
 
     /// Forgets every cached frame, reader and plan, for when the project

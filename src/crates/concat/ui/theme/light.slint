@@ -118,8 +118,9 @@ export global Light {
     // that `clip-ink` — white, on the mark, in both themes — still holds.
     out property <color> kind-video: #306cc1;
     out property <color> kind-video-well: #deebfe;
-    out property <color> kind-audio: #977811;
-    out property <color> kind-audio-well: #fdf5d8;
+    // Green, a step off the accent, dark enough for white ink on it.
+    out property <color> kind-audio: #1f8a4b;
+    out property <color> kind-audio-well: #e0f5e8;
     out property <color> kind-image: #8a58b3;
     out property <color> kind-image-well: #f4e8fe;
     out property <color> kind-text: #bb538c;
@@ -145,7 +146,9 @@ export global Light {
     out property <color> playhead: #d70015;
     // Drawn on the audio clip's own light ground, so it is a *darker* wash of
     // the kind's hue — the dark palette's light one would vanish into it.
-    out property <color> wave: #b06a12b3;          // 0.7 alpha
+    out property <color> wave: #16703bb3;          // 0.7 alpha
+    out property <color> wave-video: #255a9eb3;    // 0.7 alpha, the video's blue
+    out property <color> wave-hot: #e07b00d9;      // 0.85 alpha, the part over the hot line
 
     // clip ink
     //

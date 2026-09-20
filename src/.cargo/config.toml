@@ -4,10 +4,15 @@
 # at an unpacked shared build. Set those in your own environment, never
 # here - a machine path committed to this file breaks every other checkout.
 
-# No incremental caches. They are a speed-up for the second build of one
-# crate and a tax on the disk for everything else: a session of edits across
-# the workspace leaves tens of gigabytes of them behind. The shipping builds
-# run on GitHub Actions; a machine here needs `cargo check` and the tests of
-# the crates it is changing, and those are quick without.
-[build]
-incremental = false
+# No incremental caches for the dev and test profiles: they are a speed-up
+# for the second build of one crate and a tax on the disk for everything
+# else, and a session of edits across the workspace leaves tens of
+# gigabytes of them behind. That is set per profile in Cargo.toml rather
+# than as `build.incremental` here, because the config key overrides every
+# profile - it was silently switching off the `quick` profile's
+# incremental, which is the one build that wants it.
+
+# `cargo dev`: the window, built to try a change in. See `[profile.quick]`
+# in Cargo.toml for what it is and why it is quick.
+[alias]
+dev = "run --bin concat --profile quick"

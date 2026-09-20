@@ -32,19 +32,29 @@ use concat_core::frame::Frame;
 use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
-use crate::compositor::{Compositor, CpuCompositor, Layer, Treatment};
+use crate::compositor::{Compositor, CpuCompositor};
+use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
 
 /// Bytes per row must be a multiple of this for a texture-to-buffer copy.
 const ROW_ALIGN: usize = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
 
-/// One vertex of a layer quad: clip-space position, texel coordinates, and
-/// the layer's opacity riding along so no uniforms are needed.
+/// One vertex of a layer quad: clip-space position, the texel it samples,
+/// and everything that weighs the pixel riding along - the opacity, the
+/// fades folded into a scale and an offset of the colour, the wipes as
+/// two edges, and where on the picture the pixel is - so no uniforms are
+/// needed and one draw call is one layer.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Vertex {
     position: [f32; 2],
     uv: [f32; 2],
     opacity: f32,
+    scale: f32,
+    offset: [f32; 3],
+    edges: [f32; 2],
+    /// `0..1` across the picture as it is seen: what the mask is sampled
+    /// at and what the wipes measure.
+    pic: [f32; 2],
 }
 
 /// Vertex data as raw bytes. `Vertex` is `repr(C)` and all `f32`, so its byte
@@ -65,12 +75,20 @@ struct VsIn {
     @location(0) position: vec2<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) opacity: f32,
+    @location(3) scale: f32,
+    @location(4) offset: vec3<f32>,
+    @location(5) edges: vec2<f32>,
+    @location(6) pic: vec2<f32>,
 }
 
 struct VsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) opacity: f32,
+    @location(2) scale: f32,
+    @location(3) offset: vec3<f32>,
+    @location(4) edges: vec2<f32>,
+    @location(5) pic: vec2<f32>,
 }
 
 @vertex
@@ -79,19 +97,31 @@ fn vs_main(in: VsIn) -> VsOut {
     out.position = vec4<f32>(in.position, 0.0, 1.0);
     out.uv = in.uv;
     out.opacity = in.opacity;
+    out.scale = in.scale;
+    out.offset = in.offset;
+    out.edges = in.edges;
+    out.pic = in.pic;
     return out;
 }
 
 @group(0) @binding(0) var layer_texture: texture_2d<f32>;
 @group(0) @binding(1) var layer_sampler: sampler;
+@group(1) @binding(0) var mask_texture: texture_2d<f32>;
+@group(1) @binding(1) var mask_sampler: sampler;
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let colour = textureSample(layer_texture, layer_sampler, in.uv);
-    let alpha = colour.a * in.opacity;
+    let mask = textureSample(mask_texture, mask_sampler, in.pic);
+    // The wipes: a pixel past the moving edge is not drawn at all.
+    let kept = select(0.0, 1.0, in.pic.x < in.edges.x && in.pic.x >= in.edges.y);
+    let alpha = colour.a * in.opacity * mask.a * kept;
+    // The fades: the colour scaled and offset, the same line the CPU
+    // reference computes.
+    let shaded = colour.rgb * in.scale + in.offset;
     // Premultiplied output; the pipeline blends ONE / ONE_MINUS_SRC_ALPHA,
     // which together is the same source-over the CPU path computes.
-    return vec4<f32>(colour.rgb * alpha, alpha);
+    return vec4<f32>(shaded * alpha, alpha);
 }
 "#;
 
@@ -104,9 +134,15 @@ struct CompiledShader {
     bind_group: wgpu::BindGroup,
 }
 
-/// One draw of a composite: the pooled texture's size and index, and how
-/// it meets the ground.
-type Draw = (u32, u32, usize, Blend);
+/// One draw of a composite: the pooled texture drawn, how it meets the
+/// ground, and the pooled texture masking it - the one white pixel for a
+/// layer without a mask.
+struct Draw {
+    size: (u32, u32),
+    texture: usize,
+    blend: Blend,
+    mask: (u32, u32, usize),
+}
 
 /// A cached layer texture and its bind group, reusable for any layer of the
 /// same size.
@@ -179,6 +215,8 @@ pub struct WgpuCompositor {
     idle: HashMap<(u32, u32), u32>,
     target: Option<Target>,
     presentable: Option<Presentable>,
+    /// A one-pixel opaque white picture: the mask of a layer without one.
+    white: Frame,
     /// Set when a readback fails - a lost or reset device. The compositor
     /// then answers every composite from the CPU reference instead: slower,
     /// always correct, and never a panic in the middle of an export.
@@ -329,14 +367,19 @@ impl WgpuCompositor {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("concat compositor"),
-            bind_group_layouts: &[Some(&bind_layout)],
+            // Group 0 is the layer, group 1 its mask: the same shape, a
+            // texture and a sampler.
+            bind_group_layouts: &[Some(&bind_layout), Some(&bind_layout)],
             immediate_size: 0,
         });
 
         let vertex_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32],
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x2, 1 => Float32x2, 2 => Float32, 3 => Float32,
+                4 => Float32x3, 5 => Float32x2, 6 => Float32x2
+            ],
         };
 
         // ONE / ONE_MINUS_SRC_ALPHA over premultiplied shader output is
@@ -451,6 +494,11 @@ impl WgpuCompositor {
             target: None,
             presentable: None,
             idle: HashMap::new(),
+            white: {
+                let mut white = Frame::transparent(1, 1);
+                white.fill([255, 255, 255, 255]);
+                white
+            },
             dead: false,
         }
     }
@@ -501,70 +549,220 @@ impl WgpuCompositor {
         texture
     }
 
-    /// Uploads every visible layer and writes its quad; the draws, in order.
-    fn prepare(
-        &mut self,
-        width: u32,
-        height: u32,
-        layers: &[Layer<'_>],
-    ) -> Vec<(u32, u32, usize, Blend)> {
+    /// Every layer of `plan` uploaded, treated and placed, with every
+    /// treatment applied over the stack beneath its track without a pixel
+    /// leaving the GPU: the stack below a treatment is drawn into a pooled
+    /// texture, the passes run over that, and the result, blended back
+    /// over the untreated stack by the strength, becomes the ground the
+    /// rest is drawn on. What comes back are the draws and quads for the
+    /// final render, into whichever target the caller wants.
+    fn prepare(&mut self, plan: &FramePlan) -> (Vec<Draw>, Vec<Vertex>) {
         self.used.values_mut().for_each(|used| *used = 0);
-        let mut draws: Vec<(u32, u32, usize, Blend)> = Vec::with_capacity(layers.len());
-        let mut vertices: Vec<Vertex> = Vec::with_capacity(layers.len() * 6);
-        for layer in layers {
-            self.push_layer(&mut draws, &mut vertices, width, height, layer);
+        let (width, height) = (plan.width, plan.height);
+        let seconds = plan.seconds();
+        let mut treatments: Vec<&PlannedTreatment> = plan.treatments.iter().collect();
+        treatments.sort_by_key(|treatment| treatment.track);
+        let mut ground: Option<usize> = None;
+        let mut next = 0;
+        for treatment in treatments {
+            let mut draws = Vec::new();
+            let mut vertices = Vec::new();
+            if let Some(index) = ground {
+                self.push_pooled(&mut draws, &mut vertices, width, height, index, 1.0);
+            }
+            while next < plan.layers.len() && plan.layers[next].track < treatment.track {
+                self.push_layer(&mut draws, &mut vertices, plan, &plan.layers[next]);
+                next += 1;
+            }
+            let below = self.render_pooled(width, height, &draws, &vertices, wgpu::Color::BLACK);
+            let strength = treatment.strength.clamp(0.0, 1.0);
+            if strength <= 0.0 || treatment.effects.is_empty() {
+                ground = Some(below);
+                continue;
+            }
+            let treated = self.run_passes(width, height, below, &treatment.effects, seconds);
+            ground = Some(if strength >= 1.0 {
+                treated
+            } else {
+                let mut draws = Vec::new();
+                let mut vertices = Vec::new();
+                self.push_pooled(&mut draws, &mut vertices, width, height, below, 1.0);
+                self.push_pooled(&mut draws, &mut vertices, width, height, treated, strength);
+                self.render_pooled(width, height, &draws, &vertices, wgpu::Color::BLACK)
+            });
         }
-        self.write_vertices(&vertices);
-        draws
+        let mut draws = Vec::new();
+        let mut vertices = Vec::new();
+        if let Some(index) = ground {
+            self.push_pooled(&mut draws, &mut vertices, width, height, index, 1.0);
+        }
+        for layer in &plan.layers[next..] {
+            self.push_layer(&mut draws, &mut vertices, plan, layer);
+        }
+        (draws, vertices)
     }
 
-    /// One layer's draw: its pixels uploaded, its passes run, its quad
-    /// placed in an output `width` by `height`.
+    /// One layer's draw: its picture uploaded, made and treated, its quad
+    /// placed. The picture the quad samples is the source itself, with the
+    /// crop and the flips folded into the texel coordinates, unless the
+    /// effects have to see it cropped, flipped and fitted first - then it
+    /// is made at its fitted size the way the CPU reference makes it, and
+    /// the effects run over that.
     fn push_layer(
         &mut self,
-        draws: &mut Vec<(u32, u32, usize, Blend)>,
+        draws: &mut Vec<Draw>,
         vertices: &mut Vec<Vertex>,
-        width: u32,
-        height: u32,
-        layer: &Layer<'_>,
+        plan: &FramePlan,
+        layer: &PlannedLayer,
     ) {
-        if layer.opacity <= 0.0 {
+        let opacity = layer.weight();
+        if opacity <= 0.0 {
             return;
         }
-        let mut index = self.upload(layer.frame);
-        if !layer.passes.is_empty() {
-            index = self.run_passes(
-                layer.frame.width(),
-                layer.frame.height(),
-                index,
-                layer.passes,
-                layer.time,
+        let Some(source) = &layer.source else {
+            return;
+        };
+        let geometry = layer.geometry(source, plan.width, plan.height);
+        let seconds = plan.seconds();
+        let (size, texture, uvs, flips) = if layer.needs_preparing(&geometry) {
+            let uploaded = self.upload(source);
+            let made = self.make_picture(
+                uploaded,
+                (source.width(), source.height()),
+                &geometry,
+                layer.flip_h,
+                layer.flip_v,
             );
-        }
-        draws.push((
-            layer.frame.width(),
-            layer.frame.height(),
-            index,
-            layer.blend,
+            let treated = self.run_passes(
+                geometry.fitted.0,
+                geometry.fitted.1,
+                made,
+                &layer.effects,
+                seconds,
+            );
+            (
+                geometry.fitted,
+                treated,
+                geometry.prepared(),
+                (false, false),
+            )
+        } else {
+            let mut index = self.upload(source);
+            if !layer.effects.is_empty() {
+                index = self.run_passes(
+                    source.width(),
+                    source.height(),
+                    index,
+                    &layer.effects,
+                    seconds,
+                );
+            }
+            (
+                (source.width(), source.height()),
+                index,
+                geometry,
+                (layer.flip_h, layer.flip_v),
+            )
+        };
+        let mask = self.mask_of(layer.mask.as_deref());
+        draws.push(Draw {
+            size,
+            texture,
+            blend: layer.blend,
+            mask,
+        });
+        vertices.extend_from_slice(&Self::quad(
+            &geometry,
+            &uvs,
+            flips,
+            opacity,
+            layer.shading(),
+            plan.width,
+            plan.height,
         ));
-        vertices.extend_from_slice(&Self::quad(layer, width, height));
+    }
+
+    /// The mask a draw binds: the layer's, uploaded, or the one white
+    /// pixel for a layer without one.
+    fn mask_of(&mut self, mask: Option<&Frame>) -> (u32, u32, usize) {
+        match mask {
+            Some(mask) => (mask.width(), mask.height(), self.upload(mask)),
+            None => {
+                let white = self.white.clone();
+                (1, 1, self.upload(&white))
+            }
+        }
+    }
+
+    /// The source through its crop, flips and fit, drawn into a pooled
+    /// texture of the fitted size over nothing: the picture as it will be
+    /// seen, for the effects to run over. `source` is the pooled index of
+    /// the upload.
+    fn make_picture(
+        &mut self,
+        source: usize,
+        source_size: (u32, u32),
+        geometry: &Geometry,
+        flip_h: bool,
+        flip_v: bool,
+    ) -> usize {
+        let (width, height) = geometry.fitted;
+        let mask = self.mask_of(None);
+        let draws = vec![Draw {
+            size: source_size,
+            texture: source,
+            blend: Blend::Normal,
+            mask,
+        }];
+        let corner = |x: f32, y: f32, u: f32, v: f32| {
+            let (su, sv) = geometry.uv_of(u, v, flip_h, flip_v);
+            Vertex {
+                position: [x, y],
+                uv: [su, sv],
+                opacity: 1.0,
+                scale: 1.0,
+                offset: [0.0; 3],
+                edges: [2.0, -1.0],
+                pic: [u, v],
+            }
+        };
+        let vertices = [
+            corner(-1.0, 1.0, 0.0, 0.0),
+            corner(1.0, 1.0, 1.0, 0.0),
+            corner(-1.0, -1.0, 0.0, 1.0),
+            corner(1.0, 1.0, 1.0, 0.0),
+            corner(1.0, -1.0, 1.0, 1.0),
+            corner(-1.0, -1.0, 0.0, 1.0),
+        ];
+        self.render_pooled(width, height, &draws, &vertices, wgpu::Color::TRANSPARENT)
     }
 
     /// A draw of a pooled texture the size of the output, over the whole
     /// of it: how a stack already drawn is used as the ground for more.
     fn push_pooled(
-        draws: &mut Vec<(u32, u32, usize, Blend)>,
+        &mut self,
+        draws: &mut Vec<Draw>,
         vertices: &mut Vec<Vertex>,
         width: u32,
         height: u32,
         index: usize,
         opacity: f32,
     ) {
-        draws.push((width, height, index, Blend::Normal));
+        let mask = self.mask_of(None);
+        draws.push(Draw {
+            size: (width, height),
+            texture: index,
+            blend: Blend::Normal,
+            mask,
+        });
         let corner = |x: f32, y: f32, u: f32, v: f32| Vertex {
             position: [x, y],
             uv: [u, v],
             opacity: opacity.clamp(0.0, 1.0),
+            scale: 1.0,
+            offset: [0.0; 3],
+            edges: [2.0, -1.0],
+            pic: [u, v],
         };
         vertices.extend_from_slice(&[
             corner(-1.0, 1.0, 0.0, 0.0),
@@ -594,110 +792,101 @@ impl WgpuCompositor {
         }
     }
 
-    /// Renders `draws` into a fresh pooled texture of the output size and
-    /// returns its index: a stack drawn so far, kept on the GPU as the
-    /// ground for a treatment or for the layers above it.
+    /// Renders `draws` into a fresh pooled texture of `width` by `height`
+    /// over `clear`, and returns its index: a stack drawn so far, kept on
+    /// the GPU as the ground for a treatment or for the layers above it,
+    /// or a picture made for its effects.
     fn render_pooled(
         &mut self,
         width: u32,
         height: u32,
-        draws: &[(u32, u32, usize, Blend)],
+        draws: &[Draw],
         vertices: &[Vertex],
+        clear: wgpu::Color,
     ) -> usize {
         let target = self.claim(width, height);
         self.write_vertices(vertices);
         let view = self.pool[&(width, height)][target]
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, draws);
+        let encoder = self.encode(&view, draws, clear);
         self.queue.submit([encoder.finish()]);
         target
     }
 
-    /// The draws of a treated frame, every treatment applied over the
-    /// stack beneath its track without a pixel leaving the GPU: the stack
-    /// below is drawn into a pooled texture, the passes run over that, and
-    /// the result, blended back over the untreated stack by the strength,
-    /// becomes the ground the rest is drawn on. What comes back are the
-    /// draws for the final render, into whichever target the caller wants.
-    fn prepare_treated(
-        &mut self,
-        width: u32,
-        height: u32,
-        time: f32,
-        layers: &[(Layer<'_>, usize)],
-        treatments: &[Treatment<'_>],
-    ) -> (Vec<Draw>, Vec<Vertex>) {
-        self.used.values_mut().for_each(|used| *used = 0);
-        let mut ground: Option<usize> = None;
-        let mut next = 0;
-        for treatment in treatments {
-            let mut draws = Vec::new();
-            let mut vertices = Vec::new();
-            if let Some(index) = ground {
-                Self::push_pooled(&mut draws, &mut vertices, width, height, index, 1.0);
-            }
-            while next < layers.len() && layers[next].1 < treatment.track {
-                self.push_layer(&mut draws, &mut vertices, width, height, &layers[next].0);
-                next += 1;
-            }
-            let below = self.render_pooled(width, height, &draws, &vertices);
-            let strength = treatment.strength.clamp(0.0, 1.0);
-            if strength <= 0.0 || treatment.passes.is_empty() {
-                ground = Some(below);
-                continue;
-            }
-            let treated = self.run_passes(width, height, below, treatment.passes, time);
-            ground = Some(if strength >= 1.0 {
-                treated
-            } else {
-                let mut draws = Vec::new();
-                let mut vertices = Vec::new();
-                Self::push_pooled(&mut draws, &mut vertices, width, height, below, 1.0);
-                Self::push_pooled(&mut draws, &mut vertices, width, height, treated, strength);
-                self.render_pooled(width, height, &draws, &vertices)
-            });
-        }
-        let mut draws = Vec::new();
-        let mut vertices = Vec::new();
-        if let Some(index) = ground {
-            Self::push_pooled(&mut draws, &mut vertices, width, height, index, 1.0);
-        }
-        for (layer, _) in &layers[next..] {
-            self.push_layer(&mut draws, &mut vertices, width, height, layer);
-        }
-        (draws, vertices)
-    }
-
-    /// [`WgpuCompositor::composite_texture`] with treatments; see
-    /// [`Treatment`] and `prepare_treated`.
-    pub fn composite_texture_treated(
-        &mut self,
-        width: u32,
-        height: u32,
-        time: f32,
-        layers: &[(Layer<'_>, usize)],
-        treatments: &[Treatment<'_>],
-    ) -> Option<wgpu::Texture> {
+    /// Draws `plan` into a texture that stays on the GPU, and hands it
+    /// back: `Rgba8Unorm`, bindable and renderable, exactly the plan's
+    /// size. The texture is one of a small ring, so the caller may keep
+    /// showing the previous one while this draws. `None` when the device
+    /// is dead; the caller then falls back to [`Compositor::render`] on a
+    /// CPU compositor.
+    pub fn render_texture(&mut self, plan: &FramePlan) -> Option<wgpu::Texture> {
         if self.dead {
             return None;
         }
-        let (draws, vertices) = self.prepare_treated(width, height, time, layers, treatments);
+        let (draws, vertices) = self.prepare(plan);
         self.write_vertices(&vertices);
-        let texture = self.presentable(width, height);
+        let texture = self.presentable(plan.width, plan.height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &draws);
+        let encoder = self.encode(&view, &draws, wgpu::Color::BLACK);
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(texture)
     }
 
-    /// The render pass: every draw over black into `view`. Returns the
+    /// Runs `pass` once over a sixteen-pixel-square picture and waits at
+    /// most `timeout` for the device: what a community package has to
+    /// survive before it is enabled. A pass the driver refuses is an
+    /// error; a pass that does not finish in time is an error too, and
+    /// this compositor is dead from then on, since a device mid-hang
+    /// cannot be trusted with the next frame.
+    pub fn trial(&mut self, pass: &ShaderPass, timeout: std::time::Duration) -> Result<(), String> {
+        if self.dead {
+            return Err("the GPU device is dead".to_owned());
+        }
+        let mut picture = Frame::transparent(16, 16);
+        picture.fill([128, 96, 64, 255]);
+        let mut layer =
+            PlannedLayer::picture(crate::plan::detached_clip(), std::sync::Arc::new(picture));
+        layer.effects = vec![pass.clone()];
+        let plan = FramePlan {
+            layers: vec![layer],
+            ..FramePlan::empty(16, 16)
+        };
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (draws, vertices) = self.prepare(&plan);
+        self.write_vertices(&vertices);
+        let texture = self.presentable(16, 16);
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder = self.encode(&view, &draws, wgpu::Color::BLACK);
+        self.queue.submit([encoder.finish()]);
+        let waited = self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(timeout),
+        });
+        let refused = pollster::block_on(scope.pop());
+        self.retire();
+        if let Some(error) = refused {
+            return Err(format!("the driver refused the pass: {error}"));
+        }
+        match waited {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                self.dead = true;
+                Err(format!(
+                    "the pass did not finish within {timeout:?}: {error}"
+                ))
+            }
+        }
+    }
+
+    /// The render pass: every draw over `clear` into `view`. Returns the
     /// encoder so the caller can add a readback before submitting.
     fn encode(
         &self,
         view: &wgpu::TextureView,
-        draws: &[(u32, u32, usize, Blend)],
+        draws: &[Draw],
+        clear: wgpu::Color,
     ) -> wgpu::CommandEncoder {
         let mut encoder = self
             .device
@@ -712,7 +901,7 @@ impl WgpuCompositor {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(clear),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -722,15 +911,16 @@ impl WgpuCompositor {
                 multiview_mask: None,
             });
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (draw, (layer_width, layer_height, pooled, blend)) in draws.iter().enumerate() {
+            for (index, draw) in draws.iter().enumerate() {
                 let which = Blend::ALL
                     .iter()
-                    .position(|mode| mode == blend)
+                    .position(|mode| *mode == draw.blend)
                     .unwrap_or(0);
                 pass.set_pipeline(&self.pipelines[which]);
-                let bind_group = &self.pool[&(*layer_width, *layer_height)][*pooled].bind_group;
-                pass.set_bind_group(0, bind_group, &[]);
-                let first = (draw * 6) as u32;
+                pass.set_bind_group(0, &self.pool[&draw.size][draw.texture].bind_group, &[]);
+                let (mask_w, mask_h, mask) = draw.mask;
+                pass.set_bind_group(1, &self.pool[&(mask_w, mask_h)][mask].bind_group, &[]);
+                let first = (index * 6) as u32;
                 pass.draw(first..first + 6, 0..1);
             }
         }
@@ -756,30 +946,6 @@ impl WgpuCompositor {
             self.used.remove(&key);
             self.idle.remove(&key);
         }
-    }
-
-    /// Composites `layers` into a texture that stays on the GPU, and hands
-    /// it back: `Rgba8Unorm`, bindable and renderable, exactly `width` by
-    /// `height`. The texture is one of a small ring, so the caller may keep
-    /// showing the previous one while this draws. `None` when the device is
-    /// dead; the caller then falls back to [`Compositor::composite`] on a
-    /// CPU compositor.
-    pub fn composite_texture(
-        &mut self,
-        width: u32,
-        height: u32,
-        layers: &[Layer<'_>],
-    ) -> Option<wgpu::Texture> {
-        if self.dead {
-            return None;
-        }
-        let draws = self.prepare(width, height, layers);
-        let texture = self.presentable(width, height);
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &draws);
-        self.queue.submit([encoder.finish()]);
-        self.retire();
-        Some(texture)
     }
 
     /// The reusable render target for this output size.
@@ -1327,35 +1493,43 @@ impl WgpuCompositor {
         current
     }
 
-    /// The six vertices of one layer's quad, transformed the same way the CPU
-    /// path's inverse map is derived: scale, then clockwise rotation, about
-    /// the layer's centre, then translation.
-    fn quad(layer: &Layer<'_>, out_width: u32, out_height: u32) -> [Vertex; 6] {
-        let placement = layer.placement;
-        let width = layer.frame.width() as f32;
-        let height = layer.frame.height() as f32;
-
-        let centre_x = layer.x as f32 + width / 2.0 + placement.translate_x;
-        let centre_y = layer.y as f32 + height / 2.0 + placement.translate_y;
-        let (sin, cos) = placement.rotation.sin_cos();
-        let scale_x = (placement.scale * placement.stretch_x).max(1e-6);
-        let scale_y = (placement.scale * placement.stretch_y).max(1e-6);
+    /// The six vertices of one layer's quad: the fitted picture scaled,
+    /// turned about its centre and moved as the geometry says, the forward
+    /// form of the CPU path's inverse map, sampling `uvs` through the
+    /// flips, weighed by the opacity and the shading.
+    fn quad(
+        geometry: &Geometry,
+        uvs: &Geometry,
+        (flip_h, flip_v): (bool, bool),
+        opacity: f32,
+        shading: Shading,
+        out_width: u32,
+        out_height: u32,
+    ) -> [Vertex; 6] {
+        let (fitted_w, fitted_h) = (geometry.fitted.0 as f32, geometry.fitted.1 as f32);
+        let (centre_x, centre_y) = geometry.centre;
+        let (sin, cos) = geometry.rotation.sin_cos();
+        let (scale_x, scale_y) = geometry.scale;
 
         let corner = |sx: f32, sy: f32, u: f32, v: f32| {
-            // Source-space offset from centre, scaled per axis, then rotated
-            // clockwise in y-down coordinates - the forward form of the CPU
-            // inverse map.
-            let dx = sx * width / 2.0 * scale_x;
-            let dy = sy * height / 2.0 * scale_y;
+            // Picture-space offset from the centre, scaled per axis, then
+            // rotated clockwise in y-down coordinates.
+            let dx = sx * fitted_w / 2.0 * scale_x;
+            let dy = sy * fitted_h / 2.0 * scale_y;
             let px = centre_x + dx * cos - dy * sin;
             let py = centre_y + dx * sin + dy * cos;
+            let (tu, tv) = uvs.uv_of(u, v, flip_h, flip_v);
             Vertex {
                 position: [
                     px / out_width as f32 * 2.0 - 1.0,
                     1.0 - py / out_height as f32 * 2.0,
                 ],
-                uv: [u, v],
-                opacity: layer.opacity.clamp(0.0, 1.0),
+                uv: [tu, tv],
+                opacity,
+                scale: shading.scale,
+                offset: shading.offset,
+                edges: [shading.left_edge, shading.right_edge],
+                pic: [u, v],
             }
         };
 
@@ -1424,41 +1598,21 @@ impl WgpuCompositor {
 }
 
 impl Compositor for WgpuCompositor {
-    fn composite(&mut self, width: u32, height: u32, layers: &[Layer<'_>]) -> Frame {
+    fn render(&mut self, plan: &FramePlan) -> Frame {
         // A dead device never comes back for this instance; the CPU
         // reference is the same pixels, slower - never a mid-export panic.
         if self.dead {
-            return CpuCompositor.composite(width, height, layers);
+            return CpuCompositor.render(plan);
         }
-
-        let draws = self.prepare(width, height, layers);
-        match self.render_and_read(width, height, &draws) {
+        let (draws, vertices) = self.prepare(plan);
+        self.write_vertices(&vertices);
+        match self.render_and_read(plan.width, plan.height, &draws) {
             Some(frame) => frame,
             None => {
                 self.dead = true;
-                CpuCompositor.composite(width, height, layers)
+                CpuCompositor.render(plan)
             }
         }
-    }
-
-    fn composite_treated(
-        &mut self,
-        width: u32,
-        height: u32,
-        time: f32,
-        layers: &[(Layer<'_>, usize)],
-        treatments: &[Treatment<'_>],
-    ) -> Option<Frame> {
-        if self.dead {
-            return None;
-        }
-        let (draws, vertices) = self.prepare_treated(width, height, time, layers, treatments);
-        self.write_vertices(&vertices);
-        let frame = self.render_and_read(width, height, &draws);
-        if frame.is_none() {
-            self.dead = true;
-        }
-        frame
     }
 
     fn combine(
@@ -1585,18 +1739,13 @@ impl Compositor for WgpuCompositor {
 impl WgpuCompositor {
     /// Draws into the readback target and copies it out: one submit, one
     /// wait. `None` when the device did not deliver the pixels.
-    fn render_and_read(
-        &mut self,
-        width: u32,
-        height: u32,
-        draws: &[(u32, u32, usize, Blend)],
-    ) -> Option<Frame> {
+    fn render_and_read(&mut self, width: u32, height: u32, draws: &[Draw]) -> Option<Frame> {
         self.target(width, height);
         let target = self.target.as_ref().expect("just ensured");
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.encode(&view, draws);
+        let mut encoder = self.encode(&view, draws, wgpu::Color::BLACK);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,
@@ -1625,345 +1774,4 @@ impl WgpuCompositor {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::CpuCompositor;
-    use crate::compositor::Placement;
-
-    /// A pass runs over the layer before it is placed: an invert shader
-    /// over a red frame composites cyan, and at half intensity the mix.
-    #[test]
-    fn a_pass_treats_the_layer_before_it_is_placed() {
-        let Some(mut gpu) = gpu() else { return };
-        let manifest = concat_effects::Manifest::parse(
-            "[effect]\nid = \"test.invert\"\nname = \"Invert\"\nkind = \"filter\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
-        )
-        .expect("a manifest");
-        let shader = concat_effects::Shader::compile(
-            &manifest,
-            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }",
-        )
-        .expect("compiles");
-        let red = {
-            let mut frame = Frame::black(4, 4);
-            for pixel in frame.pixels_mut().chunks_exact_mut(4) {
-                pixel.copy_from_slice(&[255, 0, 0, 255]);
-            }
-            frame
-        };
-        let full = [shader.pass(&Default::default(), &[], 1.0, None, None)];
-        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&full)]);
-        assert_eq!(&out.pixels()[..3], &[0, 255, 255]);
-        let half = [shader.pass(&Default::default(), &[], 0.5, None, None)];
-        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&half)]);
-        let p = &out.pixels()[..3];
-        assert!(
-            p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
-            "{p:?}"
-        );
-    }
-
-    /// A pass reads its table through `lut()`: a table that answers green
-    /// to every colour turns a red frame green, and a pass without one is
-    /// handed the identity and changes nothing.
-    #[test]
-    fn a_pass_samples_its_table_and_the_identity_without_one() {
-        let Some(mut gpu) = gpu() else { return };
-        let manifest = concat_effects::Manifest::parse(
-            "[effect]\nid = \"test.table\"\nname = \"Table\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
-        )
-        .expect("a manifest");
-        let shader = concat_effects::Shader::compile(
-            &manifest,
-            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(lut(c.rgb), c.a); }",
-        )
-        .expect("compiles");
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let green = Lut::from_rgb(2, &[0.0, 1.0, 0.0].repeat(8)).expect("a table");
-        let tabled = [shader.pass(
-            &Default::default(),
-            &[],
-            1.0,
-            Some(std::sync::Arc::new(green)),
-            None,
-        )];
-        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&tabled)]);
-        assert_eq!(&out.pixels()[..3], &[0, 255, 0]);
-        let plain = [shader.pass(&Default::default(), &[], 1.0, None, None)];
-        let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&plain)]);
-        assert_eq!(&out.pixels()[..3], &[255, 0, 0]);
-    }
-
-    /// A pass reads its title's reveal map through `reveal_order()`: the
-    /// first word's half of the canvas reads 0, the second word's half
-    /// reads 1, and a pass without one - the common case, any pass over
-    /// anything that is not a title - reads the identity, 0 everywhere.
-    #[test]
-    fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
-        let Some(mut gpu) = gpu() else { return };
-        let manifest = concat_effects::Manifest::parse(
-            "[effect]\nid = \"test.reveal\"\nname = \"Reveal\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
-        )
-        .expect("a manifest");
-        let shader = concat_effects::Shader::compile(
-            &manifest,
-            "fn effect(uv: vec2<f32>) -> vec4<f32> { let r = reveal_order(uv); return vec4<f32>(r, r, r, 1.0); }",
-        )
-        .expect("compiles");
-        let source = solid(4, 4, [0, 0, 0, 255]);
-        let map = std::sync::Arc::new(RevealMap::from_rects(4, 4, &[(0, 0, 2, 4), (2, 0, 2, 4)]));
-        let passes = [shader.pass(&Default::default(), &[], 1.0, None, Some(map))];
-        let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&passes)]);
-        let pixels = out.pixels();
-        assert_eq!(pixels[0], 0, "{:?}", &pixels[..4]);
-        assert_eq!(pixels[2 * 4], 255, "{:?}", &pixels[8..12]);
-
-        let identity = [shader.pass(&Default::default(), &[], 1.0, None, None)];
-        let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&identity)]);
-        assert_eq!(&out.pixels()[..4], &[0, 0, 0, 255]);
-    }
-
-    /// A treatment runs its passes over the stack beneath its track and
-    /// nothing above it, blended back by its strength, without the frame
-    /// leaving the GPU: an invert over a red ground under a blue quarter
-    /// turns the ground cyan and leaves the blue alone.
-    #[test]
-    fn a_treatment_treats_the_stack_beneath_its_track_only() {
-        let Some(mut gpu) = gpu() else { return };
-        let manifest = concat_effects::Manifest::parse(
-            "[effect]\nid = \"test.invert2\"\nname = \"Invert\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
-        )
-        .expect("a manifest");
-        let shader = concat_effects::Shader::compile(
-            &manifest,
-            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }",
-        )
-        .expect("compiles");
-        let passes = [shader.pass(&Default::default(), &[], 1.0, None, None)];
-        let red = solid(8, 8, [255, 0, 0, 255]);
-        let blue = solid(4, 4, [0, 0, 255, 255]);
-        let layers = [(Layer::new(&red), 0), (Layer::new(&blue), 2)];
-        let full = [Treatment {
-            track: 1,
-            passes: &passes,
-            strength: 1.0,
-        }];
-        let out = gpu
-            .composite_treated(8, 8, 0.0, &layers, &full)
-            .expect("drawn");
-        // Top-left is under the blue quarter; bottom-right is treated ground.
-        assert_eq!(&out.pixels()[..3], &[0, 0, 255]);
-        let last = out.pixels().len() - 4;
-        assert_eq!(&out.pixels()[last..last + 3], &[0, 255, 255]);
-        let half = [Treatment {
-            track: 1,
-            passes: &passes,
-            strength: 0.5,
-        }];
-        let out = gpu
-            .composite_treated(8, 8, 0.0, &layers, &half)
-            .expect("drawn");
-        let p = &out.pixels()[last..last + 3];
-        assert!(
-            p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
-            "{p:?}"
-        );
-    }
-
-    /// A transition combines its two inputs through its shader: a trivial
-    /// dissolve over two solid colours must equal `from` at progress 0, `to`
-    /// at progress 1, and the exact half-and-half mix at progress 0.5. The
-    /// golden every packaged transition's own shader is measured against.
-    #[test]
-    fn a_transition_combines_its_two_inputs_by_progress() {
-        let Some(mut gpu) = gpu() else { return };
-        let manifest = concat_effects::Manifest::parse(
-            "[effect]\nid = \"test.dissolve\"\nname = \"Dissolve\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n",
-        )
-        .expect("a manifest");
-        let shader = concat_effects::TransitionShader::compile(
-            &manifest,
-            "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> { return mix(from_at(uv), to_at(uv), progress); }",
-        )
-        .expect("compiles");
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let blue = solid(4, 4, [0, 0, 255, 255]);
-
-        let mut at = |progress: f32| {
-            let pass = shader.pass(&Default::default(), &[], progress, None);
-            gpu.combine(4, 4, 0.0, &red, &blue, &pass)
-                .expect("a GPU combine")
-        };
-        assert_eq!(&at(0.0).pixels()[..3], &[255, 0, 0], "all outgoing at 0");
-        assert_eq!(&at(1.0).pixels()[..3], &[0, 0, 255], "all incoming at 1");
-        assert_eq!(&at(0.5).pixels()[..3], &[128, 0, 128], "the exact half mix");
-    }
-
-    /// Every packaged effect and filter with a shader actually renders on
-    /// the GPU at its default settings - naga's validation at load catches
-    /// a broken shader's syntax and types, but only a real pipeline creation
-    /// and draw catches a binding or layout mistake.
-    #[test]
-    fn every_shader_package_renders_at_its_defaults() {
-        let Some(mut gpu) = gpu() else { return };
-        let source = solid(4, 4, [200, 120, 60, 255]);
-        let catalogue = concat_effects::Catalogue::builtin();
-        for package in catalogue.packages() {
-            let Some(shader) = package.shader() else { continue };
-            let values = package.resolve(&Default::default());
-            let pass = shader.pass(
-                &values,
-                &package.manifest.params,
-                1.0,
-                package.lut().cloned(),
-                None,
-            );
-            let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&[pass])]);
-            assert_eq!(out.pixels().len(), 4 * 4 * 4, "{}", package.id());
-        }
-    }
-
-    /// Every packaged transition's pipeline actually creates and runs on the
-    /// GPU, across its whole progress range - naga's validation at load
-    /// catches a broken shader's syntax and types, but only a real pipeline
-    /// creation catches a binding or layout mistake.
-    #[test]
-    fn every_packaged_transition_combines_across_its_progress_range() {
-        let Some(mut gpu) = gpu() else { return };
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let blue = solid(4, 4, [0, 0, 255, 255]);
-        let catalogue = concat_effects::Catalogue::builtin();
-        for package in catalogue.packages() {
-            if package.kind() != concat_effects::Kind::Transition {
-                continue;
-            }
-            for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
-                let pass = catalogue
-                    .transition_pass(package.id(), &Default::default(), progress)
-                    .unwrap_or_else(|| panic!("{} has no transition pass", package.id()));
-                gpu.combine(4, 4, 0.0, &red, &blue, &pass).unwrap_or_else(|| {
-                    panic!("{} failed to combine at progress {progress}", package.id())
-                });
-            }
-        }
-    }
-
-    fn gpu() -> Option<WgpuCompositor> {
-        let compositor = WgpuCompositor::new();
-        if compositor.is_none() {
-            eprintln!("no usable GPU adapter; skipping");
-        }
-        compositor
-    }
-
-    fn solid(width: u32, height: u32, rgba: [u8; 4]) -> Frame {
-        let mut frame = Frame::transparent(width, height);
-        frame.fill(rgba);
-        frame
-    }
-
-    /// Both backends composite the same layers; every pixel must agree within
-    /// `tolerance` per channel. The CPU path is the reference.
-    fn assert_matches_cpu(width: u32, height: u32, layers: &[Layer<'_>], tolerance: i32) {
-        let Some(mut gpu) = gpu() else { return };
-        let expected = CpuCompositor.composite(width, height, layers);
-        let actual = gpu.composite(width, height, layers);
-
-        for y in 0..height {
-            for x in 0..width {
-                let want = expected.pixel(x, y).expect("in bounds");
-                let got = actual.pixel(x, y).expect("in bounds");
-                for channel in 0..4 {
-                    let difference = (i32::from(want[channel]) - i32::from(got[channel])).abs();
-                    assert!(
-                        difference <= tolerance,
-                        "({x},{y}) channel {channel}: cpu {want:?} vs gpu {got:?}",
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn empty_output_is_opaque_black() {
-        let Some(mut gpu) = gpu() else { return };
-        let frame = gpu.composite(4, 4, &[]);
-        assert_eq!(frame.pixel(0, 0), Some([0, 0, 0, 255]));
-        assert_eq!(frame.pixel(3, 3), Some([0, 0, 0, 255]));
-    }
-
-    #[test]
-    fn plain_layers_match_the_cpu_reference() {
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let blue = solid(2, 2, [0, 0, 255, 255]);
-        let layers = [Layer::new(&red), Layer::new(&blue).at(1, 1)];
-        assert_matches_cpu(4, 4, &layers, 1);
-    }
-
-    #[test]
-    fn opacity_blending_matches_the_cpu_reference() {
-        let white = solid(4, 4, [255, 255, 255, 255]);
-        let half_alpha = solid(4, 4, [40, 200, 90, 128]);
-        let layers = [
-            Layer::new(&white).with_opacity(0.5),
-            Layer::new(&half_alpha).with_opacity(0.7),
-        ];
-        assert_matches_cpu(4, 4, &layers, 2);
-    }
-
-    #[test]
-    fn offset_layers_clip_like_the_cpu_reference() {
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let layers = [Layer::new(&red).at(-2, 3)];
-        assert_matches_cpu(6, 6, &layers, 1);
-    }
-
-    #[test]
-    fn scaling_matches_the_cpu_reference_away_from_edges() {
-        let Some(mut gpu) = gpu() else { return };
-        let red = solid(4, 4, [255, 0, 0, 255]);
-        let placement = Placement {
-            scale: 2.0,
-            ..Placement::IDENTITY
-        };
-        let layers = [Layer::new(&red).at(2, 2).with_placement(placement)];
-
-        // Interior pixels are unambiguous; the half-pixel border where the two
-        // backends rasterise differently is not asserted.
-        let frame = gpu.composite(8, 8, &layers);
-        for (x, y) in [(1, 1), (4, 4), (6, 6)] {
-            assert_eq!(frame.pixel(x, y), Some([255, 0, 0, 255]), "at ({x},{y})");
-        }
-        assert_eq!(
-            CpuCompositor.composite(8, 8, &layers).pixel(4, 4),
-            Some([255, 0, 0, 255])
-        );
-    }
-
-    #[test]
-    fn a_half_turn_swaps_the_ends() {
-        let Some(mut gpu) = gpu() else { return };
-        let mut strip = Frame::transparent(2, 1);
-        strip.set_pixel(0, 0, [255, 0, 0, 255]);
-        strip.set_pixel(1, 0, [0, 0, 255, 255]);
-        let placement = Placement {
-            rotation: std::f32::consts::PI,
-            ..Placement::IDENTITY
-        };
-        let frame = gpu.composite(2, 1, &[Layer::new(&strip).with_placement(placement)]);
-        assert_eq!(frame.pixel(0, 0), Some([0, 0, 255, 255]));
-        assert_eq!(frame.pixel(1, 0), Some([255, 0, 0, 255]));
-    }
-
-    #[test]
-    fn output_size_changes_are_handled() {
-        let Some(mut gpu) = gpu() else { return };
-        let red = solid(2, 2, [255, 0, 0, 255]);
-        // 3 wide: an unpadded row is 12 bytes, so this exercises row padding.
-        let small = gpu.composite(3, 2, &[Layer::new(&red)]);
-        assert_eq!(small.pixel(1, 1), Some([255, 0, 0, 255]));
-        let large = gpu.composite(16, 8, &[Layer::new(&red).at(14, 6)]);
-        assert_eq!(large.pixel(15, 7), Some([255, 0, 0, 255]));
-        assert_eq!(large.pixel(0, 0), Some([0, 0, 0, 255]));
-    }
-}
+mod tests;

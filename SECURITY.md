@@ -39,10 +39,11 @@ Concat runs entirely on your machine. Reports we care about most:
 - A downloaded model or its mirror being swapped for something else
   without the digest check catching it.
 - The API server (`concat-cli serve`, or Settings › Remote) accepting a
-  call it should have refused: a missing or wrong token, or a bind off
-  loopback with no token.
+  call it should have refused: a missing or wrong token, on any address,
+  or a server that started with no token at all.
 
 By design, and not a vulnerability: the API server does whatever the
 person who started it can do on that machine, and it is not encrypted.
-Binding it to anything other than 127.0.0.1 requires a token and should
-sit behind something that provides transport security.
+Every connection presents a token, minted when none was set; binding to
+anything other than 127.0.0.1 should sit behind something that provides
+transport security.

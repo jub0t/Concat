@@ -84,6 +84,7 @@ struct PresetStyle {
     line_height: Option<f64>,
     tracking: Option<f64>,
     max_width: Option<f64>,
+    max_height: Option<f64>,
 }
 
 impl PresetStyle {
@@ -93,7 +94,7 @@ impl PresetStyle {
             content: self.content.unwrap_or_else(|| name.to_owned()),
             font_family: self
                 .font_family
-                .unwrap_or_else(|| "Helvetica Neue".to_owned()),
+                .unwrap_or_else(|| "Hanken Grotesk".to_owned()),
             font_size: self.font_size.unwrap_or(base.font_size).clamp(0.005, 1.0),
             font_weight: self
                 .font_weight
@@ -114,6 +115,7 @@ impl PresetStyle {
             line_height: self.line_height.unwrap_or(base.line_height).max(0.5),
             tracking: self.tracking.unwrap_or(0.0),
             max_width: self.max_width.unwrap_or(0.0).max(0.0),
+            max_height: self.max_height.unwrap_or(0.0).max(0.0),
         }
     }
 }
@@ -134,7 +136,7 @@ pub fn builtin() -> Vec<TextPreset> {
     };
     let neue = |content: &str, weight: f64, size: f64| TextStyle {
         content: content.to_owned(),
-        font_family: "Helvetica Neue".to_owned(),
+        font_family: "Hanken Grotesk".to_owned(),
         font_weight: weight,
         font_size: size,
         ..TextStyle::default()
@@ -186,7 +188,6 @@ pub fn builtin() -> Vec<TextPreset> {
             "concat.elegant",
             "Elegant",
             TextStyle {
-                font_family: "Synonym".to_owned(),
                 italic: true,
                 tracking: 0.01,
                 shadow: false,

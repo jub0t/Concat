@@ -24,6 +24,9 @@ grpc = [
 [dependencies]
 concat-api.workspace = true
 serde_json.workspace = true
+# A token minted when none was given: 128 bits the operating system
+# hands out, so the server is never open to whoever reaches the socket.
+getrandom = "0.3"
 tonic = { version = "0.14", optional = true }
 tonic-prost = { version = "0.14", optional = true }
 prost = { version = "0.14", optional = true }

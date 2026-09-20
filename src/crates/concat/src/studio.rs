@@ -32,11 +32,10 @@ use std::sync::Arc;
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
 use concat_host::playback::ClipSpec;
-use concat_host::preview::FrameSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
-use concat_media::{Peaks, jpeg};
+use concat_media::{Pyramid, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -47,13 +46,17 @@ use slint::{Model, SharedString, VecModel};
 use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
 };
-use crate::format::{colour_of, frames_timecode, hex_of, hex_with_alpha, wave_path, when_phrase};
+use crate::format::{
+    WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
+    wave_columns, wave_path, when_phrase,
+};
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
-    image_of, media_art, on_ui, spawn, spawn_art, strip_window, window_art, window_span,
-    window_start,
+    image_of, media_art, on_ui, spawn, spawn_art, spawn_strip, strip_window, window_art,
+    window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
+use crate::panes::settings::installed;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
@@ -76,10 +79,13 @@ pub const MIN_DURATION: f32 = 1.0 / 60.0;
 ///
 /// Picture gets the tallest because a filmstrip is the one thing that needs
 /// the room; sound the middle, where an envelope still has shape. The ladder
-/// is what `TrackSize::Auto` picks from - see `lane_height`.
-const LANE_LARGE: f32 = 80.0;
-const LANE_MEDIUM: f32 = 60.0;
-const LANE_SMALL: f32 = 40.0;
+/// is what `TrackSize::Auto` picks from - see `lane_height`. Raised from
+/// 80/60/40: with the name strip and the sound band taken off, a video's
+/// frames had under forty pixels and a waveform under thirty, and both
+/// read as crammed.
+const LANE_LARGE: f32 = 108.0;
+const LANE_MEDIUM: f32 = 80.0;
+const LANE_SMALL: f32 = 44.0;
 
 /// How long a title runs when it is placed: long enough to read, short
 /// enough that trimming it is a nudge rather than a fight.
@@ -200,103 +206,12 @@ pub const SHELF_KINDS: [PackageKind; 4] = [
     PackageKind::Transition,
 ];
 
-/// The default Kokoro speaker: `af_heart`.
-const DEFAULT_VOICE: i32 = 3;
-
-/// The project sheet: the Details panel's Modify button, as a form.
-#[derive(Default)]
-pub struct ProjectSheet {
-    pub open: bool,
-    pub name: String,
-    /// Row in `OUTPUTS`, or -1 for a frame the list does not carry.
-    pub size: i32,
-    /// Row in `START_RATES`.
-    pub rate: usize,
-}
-
-/// The captions sheet: the tray's Captions tool, as a form and then as a
-/// progress report.
-#[derive(Default)]
-pub struct CaptionsSheet {
-    pub open: bool,
-    /// The clip being transcribed: the one selected when the sheet opened,
-    /// when it had sound. None, and the sheet is a script instead.
-    pub clip: Option<String>,
-    /// The script's words.
-    pub text: String,
-    /// Row in the installed transcriber list.
-    pub model: usize,
-    /// 0 bottom, 1 centre, 2 top.
-    pub placement: usize,
-    /// 0 small, 1 medium, 2 large.
-    pub size: usize,
-    pub running: bool,
-    pub progress: f32,
-    /// Why the last run failed, when it did.
-    pub message: String,
-}
-
-/// The speech sheet: a title's words, or any words, read aloud.
-#[derive(Default)]
-pub struct SpeechSheet {
-    pub open: bool,
-    /// The title the words came from, and where the sound lands. None
-    /// reads a script of its own at the playhead.
-    pub clip: Option<String>,
-    pub text: String,
-    /// Row in `Studio::speakers`.
-    pub voice: usize,
-    /// Row in the installed voice model list.
-    pub model: usize,
-    /// 0 slower, 1 natural, 2 faster.
-    pub pace: usize,
-    pub running: bool,
-    pub progress: f32,
-    pub message: String,
-}
-
-/// The paces the speech sheet offers, as the voice's rate multiplier.
-const PACES: [f32; 3] = [0.85, 1.0, 1.15];
-/// Where a caption sits, by the sheet's row: a frame-height fraction from
-/// the centre, positive down. Bottom, centre, top.
-const CAPTION_OFFSETS: [f64; 3] = [0.35, 0.0, -0.35];
-/// A caption's cap height by the sheet's row, as a fraction of the frame.
-const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
-/// A rough speaking rate, for the estimate under the script.
-const CHARS_PER_SECOND: f32 = 14.0;
-
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
 pub(crate) fn home_folder(name: &str) -> String {
     std::env::var("HOME")
         .map(|home| format!("{home}/{name}"))
         .unwrap_or_default()
-}
-
-/// The settings sheet's state.
-#[derive(Default)]
-pub struct SettingsState {
-    pub open: bool,
-    pub tab: i32,
-    pub language: usize,
-    /// The switch that keeps the playhead inside the content.
-    pub playhead_stops: bool,
-    /// Show flip/reverse in clip context menu.
-    pub custom_context_actions: bool,
-    /// Index into `SourcePreference::ALL`: where model downloads look first.
-    pub download_source: usize,
-    /// The base URL of a custom download source.
-    pub download_base: String,
-    /// Why the server is not running when the switch is on: the bind that
-    /// failed. Empty while it runs, or is off.
-    pub server_error: String,
-}
-
-/// The missing media relink dialog state.
-#[derive(Default)]
-pub struct RelinkState {
-    pub open: bool,
-    pub items: Vec<concat_project::model::MissingMedia>,
 }
 
 /// The bottom-right notice: one at a time. The token is what the panel
@@ -306,67 +221,6 @@ pub struct ToastState {
     pub token: i32,
     pub message: String,
     pub failed: bool,
-}
-
-/// One downloadable model, as the settings sheet shows it.
-#[derive(Clone)]
-pub struct ModelState {
-    pub id: String,
-    pub name: String,
-    pub note: String,
-    pub megabytes: f32,
-    pub accuracy: i32,
-    pub installed: bool,
-    pub active: bool,
-    /// Megabytes fetched so far while a download runs.
-    pub fetched: Option<f32>,
-    pub unpacking: bool,
-}
-
-/// The form on the launch screen.
-pub struct StartState {
-    pub name: String,
-    pub location: String,
-    pub resolution: usize,
-    pub rate: usize,
-    pub busy: bool,
-    pub error: String,
-}
-
-impl Default for StartState {
-    fn default() -> Self {
-        Self {
-            name: "Untitled project".into(),
-            // A phone has no desk: its projects live at the top of the
-            // folder the file manager shows for the app.
-            location: home_folder(if cfg!(target_os = "android") {
-                "Concat"
-            } else {
-                "Desktop/Concat"
-            }),
-            resolution: 0,
-            rate: 3,
-            busy: false,
-            error: String::new(),
-        }
-    }
-}
-
-/// What the window knows about a lane that the document does not: whether
-/// it is locked, and how tall to draw it.
-#[derive(Clone, Copy)]
-pub struct LaneView {
-    pub locked: bool,
-    pub size: TrackSize,
-}
-
-impl Default for LaneView {
-    fn default() -> Self {
-        Self {
-            locked: false,
-            size: TrackSize::Auto,
-        }
-    }
 }
 
 /// Which edge of a clip a trim has hold of.
@@ -453,6 +307,16 @@ pub enum Gesture {
         clip: String,
         centre: (f64, f64),
         /// The title's turn, to project the pointer onto its axis.
+        rotation: f64,
+    },
+    /// The top or bottom grip on a title pulls the height of its box, on
+    /// the same terms as [`Gesture::TextWidth`] pulls the width. Before
+    /// this the two grips fell through to a stretch, and a caption pulled
+    /// to fit came out with its glyphs squashed.
+    /// https://github.com/jub0t/Concat/issues/119
+    TextHeight {
+        clip: String,
+        centre: (f64, f64),
         rotation: f64,
     },
     /// The rotation grip dragged: the picture turns by the angle the pointer
@@ -681,18 +545,9 @@ pub struct Studio {
     autosave: slint::Timer,
 
     // ── the bin ──
-    /// Slint's rows are integers; the document's ids are strings. Assigned
-    /// once per id and never reused, so a payload in flight names the row it
-    /// was dragged from.
-    media_rows: HashMap<String, i32>,
-    next_media_row: i32,
-    media_selected: HashSet<String>,
-    media_filter: MediaFilter,
-    /// 0 = Added, 1 = Name, 2 = Kind
-    media_sort: usize,
+    pub media: crate::panes::media_bin::MediaBin,
     /// Decoded art by media id, and the ids a worker is decoding for.
-    pub peaks: HashMap<String, Arc<Peaks>>,
-    pub thumbs: HashMap<String, slint::Image>,
+    pub peaks: HashMap<String, Arc<Pyramid>>,
     /// Filmstrips by media id: the picture, how many frames are in it, one
     /// frame's width and the strip's height, in the picture's own pixels.
     pub strips: HashMap<String, Strip>,
@@ -707,35 +562,22 @@ pub struct Studio {
     waves: RefCell<HashMap<String, SharedString>>,
 
     // ── the view ──
-    pub lane_view: HashMap<String, LaneView>,
+    /// The timeline's view: scroll, zoom, tool, and what the lanes know
+    /// about a track that the document does not.
+    pub lanes: crate::panes::timeline::TimelinePane,
     pub selection: Vec<String>,
     pub playhead: f32,
-    pub scroll_left: f32,
-    pub seconds_per_pixel: f32,
-    pub tool: TimelineTool,
-    pub snap: bool,
-    /// Hand tool: wheel and drag pan time instead of scrolling the stack.
-    pub pan_mode: bool,
-    /// 0 Full, 1 Half, 2 Quarter of the output size, for the monitor.
-    pub quality: HashMap<String, usize>,
     pub playing: bool,
     transport: slint::Timer,
     /// One clip, held for Paste.
     pub clipboard: Option<Clip>,
-    /// The monitor's last frame, and whether another is wanted.
-    pub preview: slint::Image,
-    preview_busy: bool,
-    preview_wanted: bool,
-    /// Said once per session: a monitor that cannot decode says so, and
-    /// then stops repeating itself.
-    preview_failed: bool,
+    /// The monitor: its frame, and the requests for the next.
+    pub monitor: crate::panes::monitor::MonitorPane,
 
     // ── the sheets and menus ──
     pub export: crate::panes::export::ExportPane,
-    pub settings: SettingsState,
-    pub relink: RelinkState,
-    pub transcribers: Vec<ModelState>,
-    pub voices: Vec<ModelState>,
+    pub settings: crate::panes::settings::SettingsPane,
+    pub relink: crate::panes::relink::RelinkPane,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -744,7 +586,7 @@ pub struct Studio {
 
     // ── the launch screen ──
     pub on_start: bool,
-    pub start: StartState,
+    pub start: crate::panes::start::StartPane,
     pub recents: Vec<ProjectInfo>,
     pub posters: HashMap<String, slint::Image>,
     posters_pending: HashSet<String>,
@@ -812,11 +654,10 @@ pub struct Studio {
     #[allow(clippy::type_complexity)]
     pub title_blocks: HashMap<String, ((u32, u32), (i32, i32))>,
     pub drop: Option<DropPlan>,
-    pub project_sheet: ProjectSheet,
-    pub captions: CaptionsSheet,
-    pub speech: SpeechSheet,
+    pub project_sheet: crate::panes::project::ProjectPane,
+    pub captions: crate::panes::captions::CaptionsPane,
+    pub speech: crate::panes::speech::SpeechPane,
     /// Every speaker the voice engine offers, in its own order.
-    pub speakers: Vec<concat_speech::tts::VoiceInfo>,
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
 
@@ -879,14 +720,6 @@ fn kind_of(clip: &Clip) -> ClipKind {
     }
 }
 
-fn media_kind_of(kind: model::MediaKind) -> MediaKind {
-    match kind {
-        model::MediaKind::Video => MediaKind::Video,
-        model::MediaKind::Audio => MediaKind::Audio,
-        model::MediaKind::Image => MediaKind::Image,
-    }
-}
-
 fn align_of(align: TextAlign) -> TextAlignment {
     match align {
         TextAlign::Left => TextAlignment::Left,
@@ -899,7 +732,7 @@ fn align_of(align: TextAlign) -> TextAlignment {
 fn new_title_style() -> TextStyle {
     TextStyle {
         content: "New title".to_owned(),
-        font_family: "Helvetica Neue".to_owned(),
+        font_family: "Hanken Grotesk".to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
     }
@@ -1386,47 +1219,31 @@ impl Studio {
             empty: Project::new(),
             dirty: false,
             autosave: slint::Timer::default(),
-            media_rows: HashMap::new(),
-            next_media_row: 1,
-            media_selected: HashSet::new(),
-            media_filter: MediaFilter::All,
-            media_sort: 0,
+            media: crate::panes::media_bin::MediaBin::default(),
             peaks: HashMap::new(),
-            thumbs: HashMap::new(),
             strips: HashMap::new(),
             windows: HashMap::new(),
             art_pending: HashSet::new(),
             window_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
-            lane_view: HashMap::new(),
+            lanes: crate::panes::timeline::TimelinePane::default(),
             selection: Vec::new(),
             playhead: 0.0,
-            scroll_left: 0.0,
             // ~20px a second: a ten-second cut fits a pane at its default width.
-            seconds_per_pixel: 0.05,
-            tool: TimelineTool::Select,
-            snap: true,
-            pan_mode: false,
-            quality: HashMap::new(),
             playing: false,
             transport: slint::Timer::default(),
             clipboard: None,
-            preview: slint::Image::default(),
-            preview_busy: false,
-            preview_wanted: false,
-            preview_failed: false,
+            monitor: crate::panes::monitor::MonitorPane::default(),
             export: Default::default(),
-            settings: SettingsState::default(),
-            relink: RelinkState::default(),
-            transcribers: Vec::new(),
-            voices: Vec::new(),
+            settings: crate::panes::settings::SettingsPane::default(),
+            relink: crate::panes::relink::RelinkPane::default(),
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
             menu_token: 0,
             toast: ToastState::default(),
             on_start: true,
-            start: StartState::default(),
+            start: crate::panes::start::StartPane::default(),
             recents,
             posters: HashMap::new(),
             posters_pending: HashSet::new(),
@@ -1449,10 +1266,9 @@ impl Studio {
             last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
-            project_sheet: ProjectSheet::default(),
-            captions: CaptionsSheet::default(),
-            speech: SpeechSheet::default(),
-            speakers: Vec::new(),
+            project_sheet: crate::panes::project::ProjectPane::default(),
+            captions: crate::panes::captions::CaptionsPane::default(),
+            speech: crate::panes::speech::SpeechPane::default(),
             text_presets,
             languages,
             brush: 0,
@@ -1463,19 +1279,13 @@ impl Studio {
             pending_stroke: None,
             host,
         };
-        studio.settings.language = studio
-            .languages
-            .iter()
-            .position(|language| Some(language.code.as_str()) == studio.prefs.locale.as_deref())
-            .unwrap_or(0);
-        studio.settings.playhead_stops = studio.prefs.playhead_stops_at_end;
-        studio.settings.download_source = studio.download_source().0;
-        studio.settings.download_base = studio.prefs.download_base.clone().unwrap_or_default();
-        studio.apply_download_source();
-        studio.apply_server();
+        studio.handle(crate::panes::Msg::Settings(
+            crate::panes::settings::SettingsMsg::Restore,
+        ));
+        // The effects shelf starts on "All", not whatever a stale default
+        // would leave it on.
         studio.library[1].category = "All".to_owned();
         studio.library[1].group = -1;
-        studio.refresh_models();
         studio
     }
 
@@ -1511,21 +1321,9 @@ impl Studio {
     }
 
     /// The monitor's quality tier for the active timeline: 0 full, 1 half,
-    /// 2 quarter. Kept per timeline because the cost it trades against is
-    /// the timeline's frame - a 4K cut wants the quarter setting that a
-    /// 1080p cut beside it does not - and the trade is the window's, not
-    /// the document's, so it is remembered here and not saved.
+    /// 2 quarter; see `MonitorPane::quality_of`.
     pub fn quality_of(&self) -> usize {
-        self.quality
-            .get(&self.project().active_timeline_id)
-            .copied()
-            .unwrap_or(1)
-    }
-
-    /// Picks the monitor's quality tier for the active timeline.
-    pub fn set_quality(&mut self, index: usize) {
-        let id = self.project().active_timeline_id.clone();
-        self.quality.insert(id, index.min(2));
+        self.monitor.quality_of(self.project())
     }
 
     /// The track a row index names. Rows count from the top of the panel and
@@ -1550,11 +1348,15 @@ impl Studio {
     }
 
     pub fn locked(&self, track_id: &str) -> bool {
-        self.lane_view.get(track_id).is_some_and(|view| view.locked)
+        self.lanes
+            .lane_view
+            .get(track_id)
+            .is_some_and(|view| view.locked)
     }
 
     fn lane_size(&self, track_id: &str) -> TrackSize {
-        self.lane_view
+        self.lanes
+            .lane_view
             .get(track_id)
             .map_or(TrackSize::Auto, |view| view.size)
     }
@@ -1610,7 +1412,7 @@ impl Studio {
     /// Clip edges, the playhead and zero all pull, and the nearest inside
     /// the threshold wins.
     pub fn snapped(&self, time: f32, threshold: f32, exclude: &str) -> f32 {
-        if !self.snap {
+        if !self.lanes.snap {
             return time;
         }
         let mut best = time;
@@ -1812,29 +1614,25 @@ impl Studio {
 
     // ── the monitor ──
 
-    /// Asks the engine for the frame at the playhead, one at a time: a
-    /// request while one is out waits for it, and the newest wins.
+    /// Asks the monitor for the frame at the playhead; see
+    /// `MonitorPane`.
     pub fn request_preview(&mut self) {
-        /// A monitor frame on its way to the window.
-        enum Picture {
-            /// Decoded and placed, waiting to be drawn on the window's own
-            /// device - which happens back on this thread, never on the
-            /// worker that decoded it. See `Monitor::texture_of`.
-            Sources(concat_export::PreviewSources),
-            /// Raw RGBA, to be uploaded.
-            Pixels(Vec<u8>, u32, u32),
-        }
+        self.handle(crate::panes::Msg::Monitor(
+            crate::panes::monitor::MonitorMsg::Request,
+        ));
+    }
 
-        if self.on_start || self.session.is_none() {
-            return;
-        }
-        if self.preview_busy {
-            self.preview_wanted = true;
-            return;
-        }
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
+    /// What the monitor draws at the playhead: the document flattened with
+    /// its titles, plus the frame's own additions - a look being shown, a
+    /// cutout being painted - and the session's settings. None without a
+    /// project.
+    pub fn preview_clips(
+        &mut self,
+    ) -> Option<(
+        std::sync::Arc<Vec<concat_export::ExportClip>>,
+        concat_project::DocumentSettings,
+    )> {
+        let session = self.session.as_ref()?;
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
         // had it. Same flattening the session does for itself, project
@@ -1866,13 +1664,11 @@ impl Studio {
                 // per pointer step - and the blocks they report are scaled
                 // back up to the output's terms, which the stage measures
                 // in. Nothing is written until the change is committed.
-                let scale = match self.quality_of() {
-                    0 => 1.0,
-                    1 => 0.5,
-                    _ => 0.25,
-                };
-                let shown_w = ((f64::from(width) * scale).round() as u32).max(2) & !1;
-                let shown_h = ((f64::from(height) * scale).round() as u32).max(2) & !1;
+                let (shown_w, shown_h) = crate::panes::monitor::MonitorPane::frame_size(
+                    self.quality_of(),
+                    (width, height),
+                );
+                let scale = f64::from(shown_w) / f64::from(width);
                 let up = |px: u32| (f64::from(px) / scale).round() as u32;
                 let up_off = |px: i32| (f64::from(px) / scale).round() as i32;
                 for title in self
@@ -1910,13 +1706,6 @@ impl Studio {
         // The frame's own additions - a look being shown, a cutout being
         // painted - go on a copy, so the kept list stays the document's.
         let mut own: Option<Vec<concat_export::ExportClip>> = None;
-        let scale = match self.quality_of() {
-            0 => 1.0,
-            1 => 0.5,
-            _ => 0.25,
-        };
-        let width = ((f64::from(width) * scale).round() as u32).max(2) & !1;
-        let height = ((f64::from(height) * scale).round() as u32).max(2) & !1;
         // The look being shown before it is laid down goes into this
         // frame only, as the layer it would be: over every track, the
         // whole way along, at full strength. The timeline is as it was.
@@ -1960,79 +1749,7 @@ impl Studio {
             }
         }
         let clips = own.map(std::sync::Arc::new).unwrap_or(clips);
-        let spec = FrameSpec {
-            time: f64::from(self.playhead),
-            width,
-            height,
-        };
-        let settings = session.settings();
-        let monitor = self.host.monitor.clone();
-        self.preview_busy = true;
-        self.preview_wanted = false;
-        spawn(
-            move || {
-                // On the window's device the frame stays a texture; without
-                // one it comes back as pixels and is uploaded here.
-                let frame = if monitor.has_gpu() {
-                    monitor
-                        .frame_sources(std::sync::Arc::clone(&clips), &settings, spec)
-                        .map(Picture::Sources)
-                } else {
-                    monitor
-                        .frame(std::sync::Arc::clone(&clips), &settings, spec)
-                        .map(|bytes| Picture::Pixels(bytes, width, height))
-                };
-                // Decode-ahead for whatever comes next, on a worker of its
-                // own, so the frame goes to the window without waiting for
-                // it and the next frame can start meanwhile.
-                {
-                    let monitor = monitor.clone();
-                    let settings = settings.clone();
-                    crate::host::spawn_detached(move || {
-                        monitor.prefetch(clips, &settings, spec, 2)
-                    });
-                }
-                frame
-            },
-            move |studio, _, _, result| {
-                studio.preview_busy = false;
-                let picture = match result {
-                    // Drawn here and not on the worker: this is the event
-                    // loop, the one thread the window's renderer submits
-                    // from, and a second thread submitting beside it hangs
-                    // the GPU - see `Monitor::texture_of`.
-                    Ok(Picture::Sources(sources)) => studio
-                        .host
-                        .monitor
-                        .texture_of(&sources, spec)
-                        .and_then(|texture| {
-                            slint::Image::try_from(texture)
-                                .map_err(|error| format!("preview texture: {error}"))
-                        }),
-                    Ok(Picture::Pixels(bytes, width, height)) => {
-                        let buffer =
-                            slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                                &bytes, width, height,
-                            );
-                        Ok(slint::Image::from_rgba8(buffer))
-                    }
-                    Err(error) => Err(error),
-                };
-                match picture {
-                    Ok(image) => studio.preview = image,
-                    Err(error) => {
-                        log::warn!("preview: {error}");
-                        if !studio.preview_failed {
-                            studio.preview_failed = true;
-                            studio.notify(&tf("Preview failed: {0}", &[&error]), true);
-                        }
-                    }
-                }
-                if studio.preview_wanted {
-                    studio.request_preview();
-                }
-            },
-        );
+        Some((clips, session.settings()))
     }
 
     // ── playback ──
@@ -2097,163 +1814,39 @@ impl Studio {
 
     // ── the bin ──
 
-    /// Gives every media item the integer row Slint knows it by. New items
-    /// get the next number; nothing is ever renumbered.
+    /// Gives every media item the row Slint knows it by; see
+    /// `MediaBin::assign_rows`.
     fn assign_media_rows(&mut self) {
-        let ids: Vec<String> = self
-            .project()
-            .media
-            .iter()
-            .map(|item| item.id.clone())
-            .collect();
-        for id in ids {
-            if !self.media_rows.contains_key(&id) {
-                self.media_rows.insert(id, self.next_media_row);
-                self.next_media_row += 1;
-            }
-        }
-    }
-
-    pub fn media_by_row(&self, row: i32) -> Option<&model::MediaItem> {
-        let id = self.media_rows.iter().find(|(_, held)| **held == row)?.0;
-        self.project().media_by_id(id)
-    }
-
-    fn shows(filter: MediaFilter, kind: model::MediaKind) -> bool {
-        match filter {
-            MediaFilter::All => true,
-            MediaFilter::Video => kind == model::MediaKind::Video,
-            MediaFilter::Audio => kind == model::MediaKind::Audio,
-            MediaFilter::Images => kind == model::MediaKind::Image,
-        }
-    }
-
-    pub fn set_media_filter(&mut self, filter: MediaFilter) {
-        self.media_filter = filter;
-    }
-
-    pub fn set_media_sort(&mut self, sort: usize) {
-        self.media_sort = sort.min(2);
-    }
-
-    pub fn media_select(&mut self, row: i32, additive: bool) {
-        let Some(id) = self.media_by_row(row).map(|item| item.id.clone()) else {
-            return;
-        };
-        if additive {
-            if !self.media_selected.remove(&id) {
-                self.media_selected.insert(id);
-            }
-        } else {
-            self.media_selected.clear();
-            self.media_selected.insert(id);
-        }
-    }
-
-    /// A marquee closed over the grid, as the block of cells it caught. The
-    /// walk is over the filtered order, because that is what the grid was
-    /// laid out from.
-    pub fn media_band(
-        &mut self,
-        columns: i32,
-        from_col: i32,
-        to_col: i32,
-        from_row: i32,
-        to_row: i32,
-        additive: bool,
-    ) {
-        let filter = self.media_filter;
-        let mut cell = 0;
-        let mut next = if additive {
-            self.media_selected.clone()
-        } else {
-            HashSet::new()
-        };
-        for item in &self.project().media {
-            if !Self::shows(filter, item.kind) {
-                continue;
-            }
-            let (row, col) = (cell / columns.max(1), cell % columns.max(1));
-            if row >= from_row && row <= to_row && col >= from_col && col <= to_col {
-                next.insert(item.id.clone());
-            }
-            cell += 1;
-        }
-        self.media_selected = next;
-    }
-
-    pub fn media_remove(&mut self, row: i32) {
-        if let Some(id) = self.media_by_row(row).map(|item| item.id.clone()) {
-            self.media_selected.remove(&id);
-            self.apply(Command::RemoveMedia { media_id: id });
-        }
-    }
-
-    pub fn media_remove_selected(&mut self) {
-        let doomed: Vec<String> = self.media_selected.drain().collect();
-        if doomed.is_empty() {
-            return;
-        }
-        self.apply(Command::Batch {
-            commands: doomed
-                .into_iter()
-                .map(|media_id| Command::RemoveMedia { media_id })
-                .collect(),
-        });
-    }
-
-    /// Probes the files on a worker and adds what probed as media.
-    pub fn import(&mut self, paths: Vec<std::path::PathBuf>) {
-        if paths.is_empty() || self.session.is_none() {
-            return;
-        }
-        spawn(
-            move || {
-                paths
-                    .iter()
-                    .map(|path| media::probe(&path.to_string_lossy()))
-                    .collect::<Vec<_>>()
-            },
-            |studio, _, _, results| {
-                let mut commands = Vec::new();
-                let mut failures = Vec::new();
-                for result in results {
-                    match result {
-                        Ok(summary) => commands.push(Command::AddMedia {
-                            item: summary.to_new_media(),
-                        }),
-                        Err(error) => failures.push(error),
-                    }
-                }
-                let added = commands.len();
-                if !commands.is_empty() {
-                    studio.apply(Command::Batch { commands });
-                }
-                if let Some(error) = failures.first() {
-                    studio.notify(&crate::host::probe_error(error), true);
-                } else if added > 0 {
-                    studio.notify(
-                        &if added == 1 {
-                            t("Imported 1 file")
-                        } else {
-                            tf("Imported {0} files", &[&added])
-                        },
-                        false,
-                    );
-                }
-            },
-        );
+        let mut bin = std::mem::take(&mut self.media);
+        bin.assign_rows(self.project());
+        self.media = bin;
     }
 
     /// Decodes art for every media item that has none yet: its pictures
     /// and the waveform of its default audio stream - and, for every clip
     /// that plays another of its media's streams, that stream's waveform
     /// too, so a lane shows the sound it will make.
-    fn request_media_art(&mut self) {
+    pub(crate) fn request_media_art(&mut self) {
         let Some(session) = self.session.as_ref() else {
             return;
         };
         let project_path = session.path().to_owned();
+        // A file larger than HD gets a proxy for playback and the
+        // filmstrips, written once on the scheduler's proxy lane; see
+        // concat_host::proxy.
+        for item in &self.project().media {
+            if item.kind == model::MediaKind::Video
+                && !item.placeholder
+                && let (Some(width), Some(height)) = (item.width, item.height)
+            {
+                concat_host::proxy::ensure(
+                    std::path::Path::new(&project_path),
+                    &item.path,
+                    width,
+                    height,
+                );
+            }
+        }
         /// One job: the art key it fills, and what to decode.
         struct Want {
             key: String,
@@ -2273,7 +1866,8 @@ impl Studio {
             .filter(|item| !self.art_pending.contains(&item.id))
             .filter(|item| {
                 let needs_thumb = item.kind != model::MediaKind::Audio
-                    && (!self.thumbs.contains_key(&item.id) || !self.strips.contains_key(&item.id));
+                    && (!self.media.thumbs.contains_key(&item.id)
+                        || !self.strips.contains_key(&item.id));
                 let needs_peaks = (item.kind == model::MediaKind::Audio || item.has_audio)
                     && !self.peaks.contains_key(&item.id);
                 needs_thumb || needs_peaks
@@ -2345,12 +1939,12 @@ impl Studio {
             if stream.is_none() && kind != model::MediaKind::Audio {
                 let cached = cached_media_art(&project_path, &id, &path, kind);
                 if let Some(image) = cached.thumbnail {
-                    self.thumbs.insert(id.clone(), image);
+                    self.media.thumbs.insert(id.clone(), image);
                 }
                 if let Some(strip) = cached.strip {
                     self.strips.insert(id.clone(), strip.into());
                 }
-                pictures = !self.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
+                pictures = !self.media.thumbs.contains_key(&id) || !self.strips.contains_key(&id);
             }
 
             let needs_peaks =
@@ -2372,7 +1966,7 @@ impl Studio {
                     let key = art_key(&art.id, art.stream);
                     studio.art_pending.remove(&key);
                     if let Some(frame) = art.thumbnail {
-                        studio.thumbs.insert(art.id.clone(), image_of(&frame));
+                        studio.media.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
                     if let Some((frame, frames)) = art.strip {
                         studio
@@ -2462,7 +2056,7 @@ impl Studio {
             }
             self.window_pending.insert(key);
             let project = project_path.clone();
-            spawn_art(
+            spawn_strip(
                 move || window_art(id, path, project, level, cell, duration),
                 |studio, _, _, art: WindowArt| {
                     let key = window_key(&art.id, art.level, art.cell);
@@ -2532,25 +2126,78 @@ impl Studio {
 
     /// The memoised envelope for one clip, quantised to a thirtieth of a
     /// second so a trim revisits a handful of entries rather than minting
-    /// one per pointer event.
-    fn wave(&self, clip: &Clip) -> SharedString {
+    /// one per pointer event, and to a step of columns so a zoom rebuilds
+    /// it at each step of that and not at every pixel. A sound clip's
+    /// whole body, a picture clip's band under its frames; a picture that
+    /// is muted, or whose file has no sound, shows the empty band.
+    ///
+    /// At unity: the clip's volume scales the drawing in the lane, so a
+    /// volume drag never comes here - see `format::wave_path`.
+    ///
+    /// Only the window of the clip that is on screen, and a screen either
+    /// side of it, is built: what comes back is the path and where it
+    /// sits on the clip, as fractions of the clip's length. A clip zoomed
+    /// in far enough to be wider than the screen many times over would
+    /// otherwise spread its bars across all of that width - a bar the
+    /// width of a finger - or want tens of thousands of them. This way a
+    /// bar is one pitch on screen at every zoom, and the count is bounded
+    /// by the screen, not the clip. The window is quantised to strides
+    /// of sixty-four bars, so a scroll rebuilds at each stride and not at
+    /// every pixel, and the cache holds a few hundred windows before it
+    /// is emptied.
+    fn wave(&self, clip: &Clip) -> (SharedString, f32, f32) {
+        if clip.muted == Some(true) {
+            return Default::default();
+        }
         // The stream this clip plays; its peaks come when they are decoded,
         // and until then the lane is bare rather than showing another
         // track's shape.
         let art = art_key(&clip.media_id, clip.audio_stream);
         let Some(peaks) = self.peaks.get(&art) else {
-            return SharedString::new();
+            return Default::default();
         };
         let step = |seconds: f32| (seconds * WAVE_STEPS).round() / WAVE_STEPS;
         let (source_start, duration) = (step(clip.source_start as f32), step(clip.duration as f32));
-        let gain = clip.volume as f32;
-        let key = format!("{art}|{source_start:.3}|{duration:.3}|{gain:.3}");
-        if let Some(cached) = self.waves.borrow().get(&key) {
-            return cached.clone();
+        if duration <= 0.0 {
+            return Default::default();
         }
-        let built = SharedString::from(wave_path(peaks, source_start, duration, gain));
-        self.waves.borrow_mut().insert(key, built.clone());
-        built
+        let seconds_per_pixel = self.lanes.seconds_per_pixel;
+        let stride = (WAVE_PITCH * seconds_per_pixel * 64.0).max(1.0 / WAVE_STEPS);
+        let (from, to) = match self.lanes.published_span() {
+            Some((left, right)) => {
+                let from = (left - clip.start as f32).max(0.0);
+                let to = (right - clip.start as f32).min(duration);
+                if to > from {
+                    (
+                        (from / stride).floor() * stride,
+                        ((to / stride).ceil() * stride).min(duration),
+                    )
+                } else {
+                    (0.0, duration)
+                }
+            }
+            None => (0.0, duration),
+        };
+        let window = to - from;
+        let columns = wave_columns(window, seconds_per_pixel);
+        let placed = (from / duration, window / duration);
+        let key = format!("{art}|{source_start:.3}|{from:.3}|{window:.3}|{columns}");
+        if let Some(cached) = self.waves.borrow().get(&key) {
+            return (cached.clone(), placed.0, placed.1);
+        }
+        let built = SharedString::from(wave_path(
+            peaks,
+            source_start + from,
+            window,
+            columns,
+            WAVE_BAR,
+        ));
+        let mut waves = self.waves.borrow_mut();
+        if waves.len() >= 512 {
+            waves.clear();
+        }
+        waves.insert(key, built.clone());
+        (built, placed.0, placed.1)
     }
 
     // ── placing things ──
@@ -2563,7 +2210,7 @@ impl Studio {
         let label = fields.next().unwrap_or(id);
         match sort {
             "media" => {
-                let item = self.media_by_row(id.parse().ok()?)?;
+                let item = self.media.by_row(self.project(), id.parse().ok()?)?;
                 Some(DropPlan {
                     kind: match item.kind {
                         model::MediaKind::Audio => ClipKind::Audio,
@@ -2623,7 +2270,7 @@ impl Studio {
             return None;
         }
         plan.start = self
-            .snapped(seconds.max(0.0), 8.0 * self.seconds_per_pixel, "")
+            .snapped(seconds.max(0.0), 8.0 * self.lanes.seconds_per_pixel, "")
             .max(0.0);
         Some(plan)
     }
@@ -2653,6 +2300,7 @@ impl Studio {
                 media_id: plan.media.clone(),
                 track_id,
                 start: f64::from(plan.start),
+                ripple: true,
             })
         };
         if let Some(id) = created {
@@ -2714,6 +2362,7 @@ impl Studio {
             style: Some(style),
             duration: Some(duration),
             offset_y,
+            above: false,
         };
         match font {
             Some((family, path)) => self.apply(Command::Batch {
@@ -3223,6 +2872,10 @@ impl Studio {
         if self.locked(&clip.track_id) {
             return;
         }
+        // Whatever the inspector still holds for the clip selected until
+        // now lands before the selection moves: a commit flushed after the
+        // change would look for it on the newly selected clip and lose it.
+        self.flush_commit();
         let already = self.selection.iter().any(|held| held == id);
         self.selection = if additive {
             if already {
@@ -3242,7 +2895,6 @@ impl Studio {
             vec![id.to_owned()]
         };
 
-        self.flush_commit();
         self.begin_echo();
         if edge == 2 && self.selection.len() <= 1 {
             if let Some(transition) = clip.transition_in.as_ref() {
@@ -3299,7 +2951,7 @@ impl Studio {
                     self.gesture = gesture;
                     return;
                 };
-                let threshold = 8.0 * self.seconds_per_pixel;
+                let threshold = 8.0 * self.lanes.seconds_per_pixel;
                 let snapped = self.snapped(anchor.start + seconds, threshold, primary);
                 let shift = snapped - anchor.start;
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
@@ -3333,7 +2985,7 @@ impl Studio {
             } => {
                 let (id, edge) = (clip.clone(), *edge);
                 let (start, duration, source_start) = (*start, *duration, *source_start);
-                let threshold = 8.0 * self.seconds_per_pixel;
+                let threshold = 8.0 * self.lanes.seconds_per_pixel;
                 let speed = self.clip(&id).map_or(1.0, |clip| clip.speed as f32);
                 if edge == Edge::Start {
                     // The head cannot pass the tail, and cannot pull material
@@ -3380,6 +3032,7 @@ impl Studio {
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
+            | Gesture::TextHeight { .. }
             | Gesture::Paint { .. } => {}
         }
         self.gesture = gesture;
@@ -3431,6 +3084,9 @@ impl Studio {
                             Edge::End => TrimEdge::End,
                         },
                         delta,
+                        // Magnetic: the lane closes behind the edge.
+                        // https://github.com/jub0t/Concat/issues/106
+                        ripple: self.prefs.magnetic,
                     });
                 }
             }
@@ -3455,6 +3111,7 @@ impl Studio {
             | Gesture::StageRotate { .. }
             | Gesture::StageStretch { .. }
             | Gesture::TextWidth { .. }
+            | Gesture::TextHeight { .. }
             | Gesture::Paint { .. }) => {
                 self.gesture = other;
             }
@@ -3615,6 +3272,17 @@ impl Studio {
             ClipField::LineHeight => text.line_height = value.clamp(0.7, 2.5),
             ClipField::Tracking => text.tracking = value.clamp(-0.05, 0.3),
             ClipField::TextWidth => text.max_width = value.clamp(0.0, 2.0),
+            ClipField::TextHeight => text.max_height = value.clamp(0.0, 2.0),
+            // The stroke's opacity is its colour's alpha; see `hex_rgba`.
+            ClipField::StrokeOpacity => {
+                let edge = colour_of(&text.stroke_color);
+                text.stroke_color = hex_rgba(slint::Color::from_argb_u8(
+                    (value.clamp(0.0, 1.0) * 255.0).round() as u8,
+                    edge.red(),
+                    edge.green(),
+                    edge.blue(),
+                ));
+            }
         }
         // A media clip has no text; the placeholder must not linger.
         if clip.kind != model::ClipKind::Text {
@@ -3651,6 +3319,14 @@ impl Studio {
         // painted in memory at the monitor's size, the way a grip drag is,
         // so the picture keeps up with the keystrokes while the commit
         // still lands once, on the way out of the field.
+        //
+        // Pending from the first keystroke, not from the field's blur: the
+        // echo is dropped by anything that changes the edit - a press on a
+        // clip, an undo, a command from the menu - and `flush_commit` only
+        // lands what is pending. Words typed and not yet blurred were on
+        // the echo alone, and went with it. Nothing starts the timer here;
+        // the blur does, and a flush before then lands them too.
+        self.commit_pending = true;
         self.request_preview();
     }
 
@@ -3668,7 +3344,7 @@ impl Studio {
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
             ClipTextField::Color => text.color = hex_of(value),
-            ClipTextField::StrokeColor => text.stroke_color = hex_of(value),
+            ClipTextField::StrokeColor => text.stroke_color = hex_rgba(value),
             ClipTextField::Background => text.background = hex_with_alpha(value),
             _ => {}
         }
@@ -3938,8 +3614,15 @@ impl Studio {
                 None => (clip.scale, clip.scale),
             }
         };
-        // Then pulled along each axis, as the compositor pulls it.
-        let (w, h) = (w * clip.stretch_x, h * clip.stretch_y);
+        // Then pulled along each axis, as the compositor pulls it - a
+        // picture, that is. A title's box is its style's, and the compositor
+        // never stretches one; see titles.rs.
+        // https://github.com/jub0t/Concat/issues/119
+        let (w, h) = if clip.kind == model::ClipKind::Text {
+            (w, h)
+        } else {
+            (w * clip.stretch_x, h * clip.stretch_y)
+        };
         // The placement at the playhead: the clip's own, moved by its
         // animation, so the box follows a slide or a spin.
         let base = concat_core::timeline::Transform {
@@ -4060,6 +3743,11 @@ impl Studio {
             return;
         }
         let (x, y) = (f64::from(x), f64::from(y));
+        // As on the lanes: what the inspector holds for the current
+        // selection lands before the selection changes under it - and a
+        // press on the floor, which clears it, is the commonest way out of
+        // a title's text field.
+        self.flush_commit();
         let Some(id) = self.stage_hit(x, y) else {
             if !additive {
                 self.selection.clear();
@@ -4093,7 +3781,6 @@ impl Studio {
                 offset_y: clip.offset_y,
             })
             .collect();
-        self.flush_commit();
         self.begin_echo();
         self.stage_guides.clear();
         self.gesture = Gesture::StageMove {
@@ -4152,6 +3839,14 @@ impl Studio {
             // A title's side grips set where its words wrap, not how wide
             // its glyphs are; see `Gesture::TextWidth`.
             Gesture::TextWidth {
+                clip: id.to_owned(),
+                centre,
+                rotation: clip.rotation,
+            }
+        } else if (grip == 5 || grip == 7) && clip.kind == model::ClipKind::Text {
+            // And the top and bottom grips size its box, never its glyphs.
+            // https://github.com/jub0t/Concat/issues/119
+            Gesture::TextHeight {
                 clip: id.to_owned(),
                 centre,
                 rotation: clip.rotation,
@@ -4226,7 +3921,7 @@ impl Studio {
                     }
                 }
                 self.stage_guides.clear();
-                if self.snap {
+                if self.lanes.snap {
                     // The same pull on both axes, in frame pixels: a
                     // hundredth of the long side, which is about eight
                     // pixels on a stage of the size a laptop gives it.
@@ -4294,7 +3989,7 @@ impl Studio {
                     next = (next * 20.0).round() / 20.0;
                 }
                 self.stage_guides.clear();
-                if self.snap && *scale > 0.0 {
+                if self.lanes.snap && *scale > 0.0 {
                     // The edges pull to the same lines a move pulls to - the
                     // frame's, and every other picture's - but here the pull
                     // sets the size, not the place: the scale that lands the
@@ -4395,6 +4090,24 @@ impl Studio {
                 }
                 if let Some(clip) = self.echo_clip_mut(clip) {
                     clip.text.get_or_insert_with(TextStyle::default).max_width = next;
+                }
+            }
+            Gesture::TextHeight {
+                clip,
+                centre,
+                rotation,
+            } => {
+                let dx = x * f64::from(width) - centre.0;
+                let dy = y * f64::from(height) - centre.1;
+                let (sin, cos) = rotation.to_radians().sin_cos();
+                // The pointer's reach across the box's own axis.
+                let across = (-dx * sin + dy * cos).abs();
+                let mut next = (2.0 * across / f64::from(height)).clamp(0.03, 2.0);
+                if snap {
+                    next = (next * 20.0).round() / 20.0;
+                }
+                if let Some(clip) = self.echo_clip_mut(clip) {
+                    clip.text.get_or_insert_with(TextStyle::default).max_height = next;
                 }
             }
             Gesture::StageRotate {
@@ -4820,7 +4533,21 @@ impl Studio {
         }
     }
 
+    /// Delete: the selection goes, and the hole stays unless the timeline
+    /// is magnetic.
     pub fn delete_selected(&mut self) {
+        let magnetic = self.prefs.magnetic;
+        self.remove_selected(magnetic);
+    }
+
+    /// Ripple delete (⇧⌫): the selection goes and each lane closes behind
+    /// it, so a rough cut needs no dragging-left after every deletion.
+    /// https://github.com/jub0t/Concat/issues/106
+    pub fn ripple_delete_selected(&mut self) {
+        self.remove_selected(true);
+    }
+
+    fn remove_selected(&mut self, ripple: bool) {
         let doomed: Vec<String> = self
             .selection
             .iter()
@@ -4831,7 +4558,10 @@ impl Studio {
             .cloned()
             .collect();
         if !doomed.is_empty() {
-            self.apply(Command::RemoveClips { clip_ids: doomed });
+            self.apply(Command::RemoveClips {
+                clip_ids: doomed,
+                ripple,
+            });
         }
         self.selection.clear();
     }
@@ -4981,6 +4711,7 @@ impl Studio {
         let end = source.start + source.duration;
         if source.kind == model::ClipKind::Text {
             let created = self.apply(Command::AddTextClip {
+                above: false,
                 track_id: Some(source.track_id.clone()),
                 start: end,
                 style: source.text.clone(),
@@ -4996,6 +4727,7 @@ impl Studio {
             media_id: source.media_id.clone(),
             track_id: source.track_id.clone(),
             start: (end - source.source_start / source.speed).max(0.0),
+            ripple: false,
         }) else {
             return;
         };
@@ -5008,6 +4740,7 @@ impl Studio {
                 clip_id: created.clone(),
                 edge: TrimEdge::Start,
                 delta: head,
+                ripple: false,
             });
         }
         let after_head = placed.duration - head.max(0.0);
@@ -5017,6 +4750,7 @@ impl Studio {
                 clip_id: created.clone(),
                 edge: TrimEdge::End,
                 delta: tail,
+                ripple: false,
             });
         }
         commands.push(Command::UpdateClip {
@@ -5070,7 +4804,7 @@ impl Studio {
     /// Whether the clip has sound to transcribe: an audio clip, or a video
     /// clip whose file carries an audio stream. A silent video is not a
     /// sound source, however much it looks like one.
-    fn clip_has_sound(&self, clip: &Clip) -> bool {
+    pub(crate) fn clip_has_sound(&self, clip: &Clip) -> bool {
         match clip.kind {
             model::ClipKind::Audio => true,
             model::ClipKind::Video => self
@@ -5083,8 +4817,9 @@ impl Studio {
 
     // ── projects ──
 
-    /// Opens a project as the session and leaves the launch screen.
-    pub fn open_project(&mut self, info: ProjectInfo) {
+    /// Opens a project as the session and leaves the launch screen, or
+    /// says why it could not.
+    pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
@@ -5097,14 +4832,15 @@ impl Studio {
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();
-                self.media_selected.clear();
-                self.lane_view.clear();
+                self.media.selected.clear();
                 self.playhead = 0.0;
-                self.scroll_left = 0.0;
+                self.handle(crate::panes::Msg::Timeline(
+                    crate::panes::timeline::TimelineMsg::Reset,
+                ));
                 self.on_start = false;
-                self.preview_failed = false;
-                self.start.busy = false;
-                self.start.error.clear();
+                self.handle(crate::panes::Msg::Monitor(
+                    crate::panes::monitor::MonitorMsg::Opened,
+                ));
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
                 self.audition = None;
@@ -5131,144 +4867,14 @@ impl Studio {
                             }
                         }
 
-                        // Open relink dialog
-                        self.relink.open = true;
-                        self.relink.items = missing;
+                        self.handle(crate::panes::Msg::Relink(
+                            crate::panes::relink::RelinkMsg::Show(missing),
+                        ));
                     }
                 }
+                Ok(())
             }
-            Err(error) => {
-                self.start.busy = false;
-                self.start.error = error;
-            }
-        }
-    }
-
-    /// Relinks missing media by searching a folder (recursively) for files
-    /// whose basename matches. The user picks one folder; each missing item
-    /// looks for its own filename inside it. Successful relinks go through
-    /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
-    pub fn relink_all(&mut self) {
-        use concat_project::commands::Command;
-
-        let Some(folder) = crate::platform::pick_folder(
-            &crate::i18n::t("Select folder containing media files"),
-            "",
-        ) else {
-            return;
-        };
-
-        // Snapshot the missing list now: as relinks land the list shrinks,
-        // and we want a stable target for the toast count.
-        let items: Vec<(String, String)> = self
-            .relink
-            .items
-            .iter()
-            .map(|m| (m.id.clone(), m.path.clone()))
-            .collect();
-        let total = items.len();
-        if total == 0 {
-            self.relink.open = false;
-            return;
-        }
-
-        // Build a basename -> full path index of every file under the folder
-        // so the per-item lookup is O(1) rather than a walk each time.
-        let mut index: std::collections::HashMap<String, std::path::PathBuf> =
-            std::collections::HashMap::new();
-        let mut stack = vec![folder.clone()];
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    // First match wins: if the user has duplicates, the one
-                    // closest to the root is the most likely correct copy.
-                    index.entry(name.to_owned()).or_insert(path);
-                }
-            }
-        }
-
-        let Some(session) = self.session.as_mut() else {
-            return;
-        };
-
-        let mut relinked = 0usize;
-        let mut commands: Vec<Command> = Vec::new();
-        for (id, path) in items {
-            let Some(basename) = std::path::Path::new(&path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(|s| s.to_owned())
-            else {
-                continue;
-            };
-            if let Some(found) = index.get(&basename) {
-                commands.push(Command::UpdateMediaPath {
-                    media_id: id,
-                    new_path: found.to_string_lossy().to_string(),
-                });
-                relinked += 1;
-            }
-        }
-
-        if !commands.is_empty() {
-            if let Err(error) = session.apply(Command::Batch { commands }) {
-                self.notify(&format!("Relink failed: {error}"), true);
-                return;
-            }
-            self.dirty = true;
-            self.revision += 1;
-        }
-
-        // Re-check what is still missing: the dialog updates to the
-        // remainder (often empty, in which case it closes).
-        let remaining = session.project().missing_media();
-        if remaining.is_empty() {
-            self.relink.open = false;
-            self.relink.items.clear();
-        } else {
-            self.relink.items = remaining;
-        }
-
-        self.notify(
-            &format!(
-                "Relinked {relinked} of {total} file{}",
-                if total == 1 { "" } else { "s" }
-            ),
-            false,
-        );
-        self.request_media_art();
-        self.request_preview();
-    }
-
-    pub fn create_project(&mut self) {
-        let name = self.start.name.trim().to_owned();
-        let name = if name.is_empty() {
-            "Untitled project".to_owned()
-        } else {
-            name
-        };
-        let (_, width, height) = RESOLUTIONS[self.start.resolution.min(RESOLUTIONS.len() - 1)];
-        let (_, num, den) = START_RATES[self.start.rate.min(START_RATES.len() - 1)];
-        if self.start.location.trim().is_empty() {
-            self.start.error = t("Choose where the project folder should go");
-            return;
-        }
-        match projects::create(&self.start.location, &name, width, height, num, den) {
-            Ok(info) => self.open_project(info),
-            Err(error) => self.start.error = error,
-        }
-    }
-
-    pub fn open_recent(&mut self, path: &str) {
-        match projects::open(path) {
-            Ok(info) => self.open_project(info),
-            Err(error) => self.start.error = error,
+            Err(error) => Err(error),
         }
     }
 
@@ -5289,15 +4895,10 @@ impl Studio {
         self.request_preview();
     }
 
-    pub fn forget_recent(&mut self, path: &str) {
-        if let Err(error) = projects::forget(&self.host.dirs.config, path) {
-            self.start.error = error;
-        }
-        self.recents = projects::list(&self.host.dirs.config);
-    }
-
     /// Saves, then closes the session and returns to the launch screen.
     pub fn close_project(&mut self) {
+        // Words still being typed land in the save, not on the floor.
+        self.flush_commit();
         self.pause();
         self.host.cutouts.cancel();
         self.cutout_jobs.clear();
@@ -5315,7 +4916,9 @@ impl Studio {
         self.dirty = false;
         self.selection.clear();
         self.gesture = Gesture::None;
-        self.preview = slint::Image::default();
+        self.handle(crate::panes::Msg::Monitor(
+            crate::panes::monitor::MonitorMsg::Closed,
+        ));
         self.host.monitor.clear();
         self.audition = None;
         self.revision += 1;
@@ -5339,9 +4942,9 @@ impl Studio {
             self.posters_pending.insert(path.clone());
             spawn(
                 move || {
-                    let cached = std::path::Path::new(&path)
-                        .join("cache")
-                        .join("preview.jpg");
+                    let cached = media::poster_cache(&path);
+                    // A project with no poster - nothing on it, or nothing
+                    // but black - keeps the film mark; see `poster_frame`.
                     let made = media::poster_frame(&path).is_ok();
                     (path, made.then_some(cached))
                 },
@@ -5366,534 +4969,55 @@ impl Studio {
                 pane.update(msg, self);
                 self.export = pane;
             }
-        }
-    }
-
-    // ── speech ──
-
-    /// The settings sheet's two model lists, from what is on disk.
-    pub fn refresh_models(&mut self) {
-        let dirs = &self.host.dirs;
-        let downloading: HashMap<String, (Option<f32>, bool)> = self
-            .transcribers
-            .iter()
-            .chain(self.voices.iter())
-            .filter(|model| model.fetched.is_some())
-            .map(|model| (model.id.clone(), (model.fetched, model.unpacking)))
-            .collect();
-        let chosen_transcriber = self.prefs.transcriber_model.clone();
-        let chosen_voice = self.prefs.tts_model.clone();
-        if let Ok(status) = concat_speech::Transcriber::status(dirs) {
-            self.transcribers = status
-                .models
-                .iter()
-                .map(|model| {
-                    let (fetched, unpacking) =
-                        downloading.get(&model.id).copied().unwrap_or((None, false));
-                    ModelState {
-                        id: model.id.clone(),
-                        name: model.label.clone(),
-                        note: model.blurb.clone(),
-                        megabytes: model.size_bytes as f32 / 1_000_000.0,
-                        accuracy: if model.id.starts_with("tiny") {
-                            2
-                        } else if model.id.starts_with("base") {
-                            3
-                        } else {
-                            4
-                        },
-                        installed: model.downloaded,
-                        active: chosen_transcriber.as_deref() == Some(model.id.as_str()),
-                        fetched,
-                        unpacking,
-                    }
-                })
-                .collect();
-        }
-        if let Ok(status) = concat_speech::Speech::status(dirs) {
-            self.speakers = status.voices.clone();
-            self.voices = status
-                .models
-                .iter()
-                .map(|model| {
-                    let (fetched, unpacking) =
-                        downloading.get(&model.id).copied().unwrap_or((None, false));
-                    ModelState {
-                        id: model.id.clone(),
-                        name: model.label.clone(),
-                        note: model.blurb.clone(),
-                        megabytes: model.size_bytes as f32 / 1_000_000.0,
-                        accuracy: if model.id.contains("int8") { 4 } else { 5 },
-                        installed: model.downloaded,
-                        active: chosen_voice.as_deref() == Some(model.id.as_str()),
-                        fetched,
-                        unpacking,
-                    }
-                })
-                .collect();
-        }
-        // An engine with nothing chosen falls back to whatever is installed,
-        // rather than silently having no model at all.
-        for list in [&mut self.transcribers, &mut self.voices] {
-            if !list.iter().any(|model| model.active && model.installed)
-                && let Some(first) = list.iter_mut().find(|model| model.installed)
-            {
-                first.active = true;
+            crate::panes::Msg::Settings(msg) => {
+                let mut pane = std::mem::take(&mut self.settings);
+                pane.update(msg, self);
+                self.settings = pane;
+            }
+            crate::panes::Msg::Captions(msg) => {
+                let mut pane = std::mem::take(&mut self.captions);
+                pane.update(msg, self);
+                self.captions = pane;
+            }
+            crate::panes::Msg::Speech(msg) => {
+                let mut pane = std::mem::take(&mut self.speech);
+                pane.update(msg, self);
+                self.speech = pane;
+            }
+            crate::panes::Msg::Relink(msg) => {
+                let mut pane = std::mem::take(&mut self.relink);
+                pane.update(msg, self);
+                self.relink = pane;
+            }
+            crate::panes::Msg::Project(msg) => {
+                let mut pane = std::mem::take(&mut self.project_sheet);
+                pane.update(msg, self);
+                self.project_sheet = pane;
+            }
+            crate::panes::Msg::Start(msg) => {
+                let mut pane = std::mem::take(&mut self.start);
+                pane.update(msg, self);
+                self.start = pane;
+            }
+            crate::panes::Msg::Media(msg) => {
+                let mut pane = std::mem::take(&mut self.media);
+                pane.update(msg, self);
+                self.media = pane;
+            }
+            crate::panes::Msg::Monitor(msg) => {
+                let mut pane = std::mem::take(&mut self.monitor);
+                pane.update(msg, self);
+                self.monitor = pane;
+            }
+            crate::panes::Msg::Timeline(msg) => {
+                let mut pane = std::mem::take(&mut self.lanes);
+                pane.update(msg, self);
+                self.lanes = pane;
             }
         }
     }
 
-    fn is_transcriber(&self, id: &str) -> bool {
-        self.transcribers.iter().any(|model| model.id == id)
-    }
-
-    pub fn model_activate(&mut self, id: &str) {
-        if self.is_transcriber(id) {
-            self.prefs.transcriber_model = Some(id.to_owned());
-        } else {
-            self.prefs.tts_model = Some(id.to_owned());
-        }
-        self.prefs.save(&self.host.dirs);
-        self.refresh_models();
-    }
-
-    pub fn model_download(&mut self, id: &str) {
-        let transcriber = self.is_transcriber(id);
-        let list = if transcriber {
-            &mut self.transcribers
-        } else {
-            &mut self.voices
-        };
-        let Some(model) = list.iter_mut().find(|model| model.id == id) else {
-            return;
-        };
-        if model.installed || model.fetched.is_some() {
-            return;
-        }
-        model.fetched = Some(0.0);
-        let id = id.to_owned();
-        let dirs = self.host.dirs.clone();
-        let whisper = Arc::clone(&self.host.transcriber);
-        let kokoro = Arc::clone(&self.host.speech);
-        spawn(
-            move || {
-                let report = |progress: concat_speech::DownloadProgress| {
-                    on_ui(move |studio, _, _| {
-                        for list in [&mut studio.transcribers, &mut studio.voices] {
-                            if let Some(model) =
-                                list.iter_mut().find(|model| model.id == progress.id)
-                            {
-                                model.fetched = Some(progress.received as f32 / 1_000_000.0);
-                                model.unpacking = progress.unpacking;
-                                if progress.total > 0 {
-                                    model.megabytes = progress.total as f32 / 1_000_000.0;
-                                }
-                            }
-                        }
-                    });
-                };
-                let result = if transcriber {
-                    whisper.download_model(&dirs, &id, report)
-                } else {
-                    kokoro.download_model(&dirs, &id, report)
-                };
-                (id, result)
-            },
-            |studio, _, _, (id, result)| {
-                for list in [&mut studio.transcribers, &mut studio.voices] {
-                    if let Some(model) = list.iter_mut().find(|model| model.id == id) {
-                        model.fetched = None;
-                        model.unpacking = false;
-                    }
-                }
-                match result {
-                    Ok(()) => {
-                        studio.notify(&t("Model ready"), false);
-                        if studio.is_transcriber(&id) && studio.prefs.transcriber_model.is_none() {
-                            studio.prefs.transcriber_model = Some(id.clone());
-                        } else if !studio.is_transcriber(&id) && studio.prefs.tts_model.is_none() {
-                            studio.prefs.tts_model = Some(id.clone());
-                        }
-                        studio.prefs.save(&studio.host.dirs);
-                    }
-                    Err(error) => studio.notify(&error, true),
-                }
-                studio.refresh_models();
-            },
-        );
-    }
-
-    pub fn model_cancel(&mut self, id: &str) {
-        if self.is_transcriber(id) {
-            self.host.transcriber.cancel_download();
-        } else {
-            self.host.speech.cancel_download();
-        }
-    }
-
-    pub fn model_remove(&mut self, id: &str) {
-        let result = if self.is_transcriber(id) {
-            self.host.transcriber.delete_model(&self.host.dirs, id)
-        } else {
-            self.host.speech.delete_model(&self.host.dirs, id)
-        };
-        if let Err(error) = result {
-            self.notify(&error, true);
-        }
-        self.refresh_models();
-    }
-
-    /// The models of a kind that are on disk, in the settings' order: the
-    /// rows of a sheet's model list.
-    fn installed(models: &[ModelState]) -> Vec<&ModelState> {
-        models.iter().filter(|model| model.installed).collect()
-    }
-
-    /// Opens the captions sheet with the chosen model already picked. What
-    /// it captions is decided here, not asked: the selected clip's sound
-    /// when one clip with sound is selected, and a script otherwise.
-    pub fn captions_open(&mut self) {
-        let installed = Self::installed(&self.transcribers);
-        let model = installed.iter().position(|model| model.active).unwrap_or(0);
-        let clip = self
-            .sole_selection()
-            .and_then(|id| self.clip(&id))
-            .filter(|clip| self.clip_has_sound(clip))
-            .map(|clip| clip.id.clone());
-        self.captions = CaptionsSheet {
-            open: true,
-            clip,
-            model,
-            placement: 0,
-            size: 1,
-            ..CaptionsSheet::default()
-        };
-    }
-
-    /// Runs the pass the sheet describes: the sound through the
-    /// transcriber, or the script cut into lines. Either lands as one batch
-    /// of title clips - one undo step.
-    pub fn captions_run(&mut self) {
-        if self.captions.clip.is_some() {
-            self.captions_from_sound();
-        } else {
-            self.captions_from_script();
-        }
-    }
-
-    /// A caption's look, by the sheet's rows: where it sits and its size.
-    fn caption_look(&self) -> (f64, f64) {
-        (
-            CAPTION_OFFSETS[self.captions.placement.min(2)],
-            CAPTION_SIZES[self.captions.size.min(2)],
-        )
-    }
-
-    fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Command {
-        let (offset_y, font_size) = look;
-        Command::AddTextClip {
-            track_id: None,
-            start,
-            style: Some(TextStyle {
-                content: text,
-                font_family: "Helvetica Neue".to_owned(),
-                font_size,
-                font_weight: 600.0,
-                ..TextStyle::default()
-            }),
-            duration: Some(duration),
-            offset_y: Some(offset_y),
-        }
-    }
-
-    /// The script as titles, one after another from the playhead.
-    fn captions_from_script(&mut self) {
-        let lines = script_captions(&self.captions.text);
-        if lines.is_empty() {
-            self.captions.message = t("Nothing to caption yet");
-            return;
-        }
-        let look = self.caption_look();
-        let mut at = f64::from(self.playhead);
-        let commands: Vec<Command> = lines
-            .into_iter()
-            .map(|(text, seconds)| {
-                let command = Self::caption_clip(text, at, seconds, look);
-                at += seconds;
-                command
-            })
-            .collect();
-        let count = commands.len();
-        self.captions.open = false;
-        self.apply(Command::Batch { commands });
-        self.notify(&tf("Added {0} captions", &[&count]), false);
-    }
-
-    /// The sheet's clip through the transcriber on a worker, reporting into
-    /// the sheet as it goes.
-    fn captions_from_sound(&mut self) {
-        let Some(clip) = self
-            .captions
-            .clip
-            .as_ref()
-            .and_then(|id| self.clip(id))
-            .cloned()
-        else {
-            self.captions.message = t("The clip is no longer on the timeline");
-            return;
-        };
-        let Some(media) = self.project().media_by_id(&clip.media_id).cloned() else {
-            self.captions.message = t("This clip has no file to transcribe");
-            return;
-        };
-        let Some(model) = Self::installed(&self.transcribers)
-            .get(self.captions.model)
-            .map(|model| model.id.clone())
-        else {
-            self.captions.message =
-                t("Download a transcriber model in Settings › Transcriber first");
-            return;
-        };
-        let request = concat_speech::transcribe::TranscribeRequest {
-            path: media.path.clone(),
-            audio_stream: clip.audio_stream,
-            source_start: clip.source_start,
-            window: clip.duration * clip.speed,
-            model_id: model,
-        };
-        let look = self.caption_look();
-        let dirs = self.host.dirs.clone();
-        let transcriber = Arc::clone(&self.host.transcriber);
-        self.captions.running = true;
-        self.captions.progress = 0.0;
-        self.captions.message.clear();
-        spawn(
-            move || {
-                transcriber.transcribe(&dirs, &request, |percent| {
-                    on_ui(move |studio, _, _| {
-                        studio.captions.progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
-                    });
-                })
-            },
-            move |studio, _, _, result| {
-                studio.captions.running = false;
-                match result {
-                    Ok(segments) => {
-                        let commands: Vec<Command> = segments
-                            .into_iter()
-                            .filter_map(|segment| {
-                                let text = segment.text.trim().to_owned();
-                                (!text.is_empty()).then(|| {
-                                    Self::caption_clip(
-                                        text,
-                                        clip.start + segment.start / clip.speed,
-                                        ((segment.end - segment.start) / clip.speed).max(0.2),
-                                        look,
-                                    )
-                                })
-                            })
-                            .collect();
-                        let count = commands.len();
-                        studio.captions.open = false;
-                        if count == 0 {
-                            studio.notify(&t("Nothing was said in that clip"), true);
-                        } else {
-                            studio.apply(Command::Batch { commands });
-                            studio.notify(&tf("Added {0} captions", &[&count]), false);
-                        }
-                    }
-                    // Asked for: the sheet is already on its way down.
-                    Err(error) if error.contains("cancel") => studio.captions.open = false,
-                    Err(error) => studio.captions.message = error,
-                }
-            },
-        );
-    }
-
-    pub fn captions_cancel(&mut self) {
-        self.host.transcriber.cancel();
-        self.captions.running = false;
-        self.captions.open = false;
-    }
-
-    /// Opens the speech sheet: on the selected title's words when a title
-    /// is selected, else on a blank script to be read at the playhead. The
-    /// voice is the one chosen last time.
-    pub fn speech_open(&mut self) {
-        let title = self
-            .sole_selection()
-            .and_then(|id| self.clip(&id))
-            .filter(|clip| clip.kind == model::ClipKind::Text)
-            .cloned();
-        let installed = Self::installed(&self.voices);
-        let model = installed.iter().position(|model| model.active).unwrap_or(0);
-        let wanted = self.prefs.tts_voice.unwrap_or(DEFAULT_VOICE);
-        let voice = self
-            .speakers
-            .iter()
-            .position(|speaker| speaker.id == wanted)
-            .unwrap_or(0);
-        self.speech = SpeechSheet {
-            open: true,
-            clip: title.as_ref().map(|clip| clip.id.clone()),
-            text: title
-                .and_then(|clip| clip.text.map(|text| text.content))
-                .unwrap_or_default(),
-            voice,
-            model,
-            pace: 1,
-            ..SpeechSheet::default()
-        };
-    }
-
-    /// Reads the script: the WAV lands in the bin and on the timeline, at
-    /// the title's start or at the playhead.
-    pub fn speech_run(&mut self) {
-        let text = self.speech.text.trim().to_owned();
-        if text.is_empty() {
-            self.speech.message = t("Nothing to read yet");
-            return;
-        }
-        let Some(model) = Self::installed(&self.voices)
-            .get(self.speech.model)
-            .map(|model| model.id.clone())
-        else {
-            self.speech.message = t("Download a voice model in Settings › Speech first");
-            return;
-        };
-        let Some(voice) = self
-            .speakers
-            .get(self.speech.voice)
-            .map(|speaker| speaker.id)
-        else {
-            self.speech.message = t("No voice to read with");
-            return;
-        };
-        let Some(project) = self
-            .session
-            .as_ref()
-            .map(|session| session.path().to_owned())
-        else {
-            return;
-        };
-        // Remembered: the voice chosen is the voice wanted next time.
-        self.prefs.tts_voice = Some(voice);
-        self.prefs.save(&self.host.dirs);
-        let start = self
-            .speech
-            .clip
-            .as_ref()
-            .and_then(|id| self.clip(id))
-            .map(|clip| clip.start)
-            .unwrap_or(f64::from(self.playhead));
-        let request = concat_speech::tts::SpeakRequest {
-            model_id: model,
-            voice,
-            text,
-            speed: PACES[self.speech.pace.min(2)],
-            project,
-        };
-        let dirs = self.host.dirs.clone();
-        let speech = Arc::clone(&self.host.speech);
-        self.speech.running = true;
-        self.speech.progress = 0.0;
-        self.speech.message.clear();
-        spawn(
-            move || {
-                let spoken = speech.speak(&dirs, &request, |fraction| {
-                    on_ui(move |studio, _, _| {
-                        studio.speech.progress = fraction.clamp(0.0, 1.0);
-                    });
-                })?;
-                let summary = media::probe(&spoken.path)?;
-                Ok::<_, String>(summary)
-            },
-            move |studio, _, _, result| {
-                studio.speech.running = false;
-                match result {
-                    Ok(summary) => {
-                        let created = studio.apply(Command::AddMedia {
-                            item: summary.to_new_media(),
-                        });
-                        let media_id = created.or_else(|| {
-                            studio
-                                .project()
-                                .media
-                                .iter()
-                                .find(|item| item.path == summary.path)
-                                .map(|item| item.id.clone())
-                        });
-                        studio.speech.open = false;
-                        if let Some(media_id) = media_id {
-                            studio.apply(Command::AddClipAtFirstFree { media_id, start });
-                            studio.notify(&t("Voice added to the timeline"), false);
-                        }
-                    }
-                    Err(error) if error.contains("cancel") => studio.speech.open = false,
-                    Err(error) => studio.speech.message = error,
-                }
-            },
-        );
-    }
-
-    pub fn speech_cancel(&mut self) {
-        self.host.speech.cancel();
-        self.speech.running = false;
-        self.speech.open = false;
-    }
-
-    /// "af_heart" as a person would say it: the name, and the accent and
-    /// gender its prefix encodes.
-    fn voice_label(name: &str) -> (String, String) {
-        let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
-        let mut chars = rest.chars();
-        let title = match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        };
-        let accent = match prefix.chars().next() {
-            Some('a') => t("American"),
-            Some('b') => t("British"),
-            Some('e') => t("Spanish"),
-            Some('f') => t("French"),
-            Some('h') => t("Hindi"),
-            Some('i') => t("Italian"),
-            Some('j') => t("Japanese"),
-            Some('p') => t("Portuguese"),
-            Some('z') => t("Chinese"),
-            _ => String::new(),
-        };
-        let gender = match prefix.chars().nth(1) {
-            Some('f') => t("female"),
-            Some('m') => t("male"),
-            _ => String::new(),
-        };
-        let detail = [accent, gender]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        (title, detail)
-    }
-
-    /// What the sheet's script would take to say, for the line under it.
-    fn speech_estimate(&self) -> String {
-        let chars = self.speech.text.trim().chars().count();
-        if chars == 0 {
-            return t("Nothing to read yet");
-        }
-        let seconds = chars as f32 / CHARS_PER_SECOND / PACES[self.speech.pace.min(2)];
-        let whole = seconds.round() as i32;
-        let voice = self
-            .speakers
-            .get(self.speech.voice)
-            .map(|speaker| Self::voice_label(&speaker.name).0)
-            .unwrap_or_default();
-        tf(
-            "About {0}:{1} in {2} · {3} characters",
-            &[&(whole / 60), &format!("{:02}", whole % 60), &voice, &chars],
-        )
-    }
+    // ── speech ──
 
     /// Packs the open project into the template library.
     /// Where the user's own looks live: one package folder each.
@@ -5987,99 +5111,6 @@ impl Studio {
         sync(&models.dividers, out.dividers);
     }
 
-    /// The remembered download source: its place in the menu, and itself.
-    pub fn download_source(&self) -> (usize, concat_host::models::SourcePreference) {
-        use concat_host::models::SourcePreference;
-        let preference =
-            SourcePreference::parse(self.prefs.download_source.as_deref().unwrap_or_default());
-        let index = SourcePreference::ALL
-            .iter()
-            .position(|candidate| *candidate == preference)
-            .unwrap_or(0);
-        (index, preference)
-    }
-
-    /// Starts or stops the API's server to match the preferences. A server
-    /// already running is stopped first, so an edited address or token
-    /// takes effect; a bind that fails turns the switch back off and says
-    /// why on the page.
-    pub fn apply_server(&mut self) {
-        if let Some(server) = self.host.server.take() {
-            server.stop();
-        }
-        self.settings.server_error.clear();
-        let prefs = &self.prefs.server;
-        if !prefs.enabled {
-            return;
-        }
-        let started = prefs
-            .listen
-            .trim()
-            .parse::<std::net::SocketAddr>()
-            .map_err(|_| {
-                tf(
-                    "{0} is not an address like 127.0.0.1:7420",
-                    &[&prefs.listen],
-                )
-            })
-            .and_then(|address| {
-                let config = concat_server::Config {
-                    json: Some(address),
-                    token: Some(prefs.token.clone()).filter(|token| !token.is_empty()),
-                    ..concat_server::Config::default()
-                };
-                concat_server::Server::start(config, concat_api::Api::new)
-            });
-        match started {
-            Ok(server) => self.host.server = Some(server),
-            Err(error) => {
-                self.prefs.server.enabled = false;
-                self.prefs.save(&self.host.dirs);
-                self.settings.server_error = error.clone();
-                self.notify(&error, true);
-            }
-        }
-    }
-
-    /// What the Remote page says under the switch.
-    fn server_status(&self) -> String {
-        match &self.host.server {
-            Some(server) => {
-                let address = server
-                    .json_addr()
-                    .map(|address| address.to_string())
-                    .unwrap_or_default();
-                tf(
-                    "Listening on {0} · {1} connected",
-                    &[&address, &server.connections()],
-                )
-            }
-            None if !self.settings.server_error.is_empty() => self.settings.server_error.clone(),
-            None => t("Off"),
-        }
-    }
-
-    /// A fresh token: 128 bits from the OS's randomness, as the standard
-    /// library hands it out through its hasher's seed, spelled in hex.
-    pub fn new_token() -> String {
-        use std::hash::{BuildHasher, Hasher};
-        let word = |salt: u64| {
-            let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-            hasher.write_u64(salt);
-            hasher.finish()
-        };
-        format!("{:016x}{:016x}", word(1), word(2))
-    }
-
-    /// Tells the downloaders where to look first, from the preferences.
-    pub fn apply_download_source(&self) {
-        let (_, preference) = self.download_source();
-        concat_host::models::set_preference(
-            preference,
-            self.prefs.download_base.as_deref().unwrap_or_default(),
-        );
-    }
-
     /// Shows the compact dock, or the wide one, keeping whichever is put
     /// away whole; see `COMPACT_WIDTH`.
     pub fn set_compact(&mut self, compact: bool) {
@@ -6160,40 +5191,56 @@ impl Studio {
                 .collect(),
         );
 
+        // Only the clips near the view: what the lanes show plus a screen
+        // either side; see `TimelinePane::published_span`.
+        let span = self.lanes.published_span();
         sync(
             &models.clips,
             timeline
                 .clips
                 .iter()
-                .map(|clip| ClipData {
-                    id: clip.id.as_str().into(),
-                    name: clip.name.as_str().into(),
-                    kind: kind_of(clip),
-                    row: self.row_of(&clip.track_id),
-                    start: clip.start as f32,
-                    duration: clip.duration as f32,
-                    selected: self.selection.iter().any(|id| id == &clip.id),
-                    fx: clip.video_effects.iter().any(|effect| effect.enabled),
-                    transition_duration: clip
-                        .transition_in
-                        .as_ref()
-                        .map(|transition| transition.duration as f32)
-                        .unwrap_or(0.0),
-                    fade_in: clip.fade_in as f32,
-                    fade_out: clip.fade_out as f32,
-                    volume: clip.volume as f32,
-                    text_body: clip
-                        .text
-                        .as_ref()
-                        .map(|text| text.content.as_str())
-                        .unwrap_or_default()
-                        .into(),
-                    wave: if clip.kind == model::ClipKind::Audio {
-                        self.wave(clip)
-                    } else {
-                        SharedString::new()
-                    },
-                    strip: self.strip_of(clip),
+                .filter(|clip| {
+                    crate::panes::timeline::TimelinePane::shows(
+                        span,
+                        clip.start as f32,
+                        clip.duration as f32,
+                    )
+                })
+                .map(|clip| {
+                    let wave =
+                        if matches!(clip.kind, model::ClipKind::Audio | model::ClipKind::Video) {
+                            self.wave(clip)
+                        } else {
+                            Default::default()
+                        };
+                    ClipData {
+                        id: clip.id.as_str().into(),
+                        name: clip.name.as_str().into(),
+                        kind: kind_of(clip),
+                        row: self.row_of(&clip.track_id),
+                        start: clip.start as f32,
+                        duration: clip.duration as f32,
+                        selected: self.selection.iter().any(|id| id == &clip.id),
+                        fx: clip.video_effects.iter().any(|effect| effect.enabled),
+                        transition_duration: clip
+                            .transition_in
+                            .as_ref()
+                            .map(|transition| transition.duration as f32)
+                            .unwrap_or(0.0),
+                        fade_in: clip.fade_in as f32,
+                        fade_out: clip.fade_out as f32,
+                        volume: clip.volume as f32,
+                        text_body: clip
+                            .text
+                            .as_ref()
+                            .map(|text| text.content.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        wave: wave.0,
+                        wave_from: wave.1,
+                        wave_span: wave.2,
+                        strip: self.strip_of(clip),
+                    }
                 })
                 .collect(),
         );
@@ -6220,7 +5267,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
-        editor.set_preview_frame(self.preview.clone());
+        editor.set_preview_frame(self.monitor.image.clone());
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
         let (path, width, erase) = self.stroke_overlay();
@@ -6273,12 +5320,13 @@ impl Studio {
             .unwrap_or(0);
         editor.set_timeline_current_tab(active as i32);
         editor.set_playhead(self.playhead);
-        editor.set_scroll_left(self.scroll_left);
-        editor.set_seconds_per_pixel(self.seconds_per_pixel);
+        editor.set_scroll_left(self.lanes.scroll_left);
+        editor.set_seconds_per_pixel(self.lanes.seconds_per_pixel);
         editor.set_frame_rate(self.frame_rate());
-        editor.set_tool(self.tool);
-        editor.set_snap(self.snap);
-        editor.set_pan_mode(self.pan_mode);
+        editor.set_tool(self.lanes.tool);
+        editor.set_snap(self.lanes.snap);
+        editor.set_magnetic(self.prefs.magnetic);
+        editor.set_pan_mode(self.lanes.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
         let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
@@ -6562,6 +5610,8 @@ impl Studio {
         });
         SelectedClipData {
             present: true,
+            frame_width: self.output_size().0 as i32,
+            frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
             name: clip.name.as_str().into(),
             kind: kind_of(clip),
@@ -6658,6 +5708,7 @@ impl Studio {
             stroke_width: text.stroke_width as f32,
             stroke,
             stroke_hex: hex_of(stroke).into(),
+            stroke_opacity: f32::from(stroke.alpha()) / 255.0,
             shadow: text.shadow,
             plate,
             plate_hex: hex_of(plate).into(),
@@ -6665,6 +5716,7 @@ impl Studio {
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
             text_width: text.max_width as f32,
+            text_height: text.max_height as f32,
             cutout: match &clip.cutout {
                 None => 0,
                 Some(cutout) if cutout.mode == model::CutoutMode::Auto => 1,
@@ -6887,18 +5939,7 @@ impl Studio {
             message: self.toast.message.as_str().into(),
             failed: self.toast.failed,
         });
-        let (_, width, height) = RESOLUTIONS[self.start.resolution.min(RESOLUTIONS.len() - 1)];
-        let (_, num, den) = START_RATES[self.start.rate.min(START_RATES.len() - 1)];
-        app.set_start(StartData {
-            name: self.start.name.as_str().into(),
-            location: self.start.location.as_str().into(),
-            resolution: self.start.resolution as i32,
-            rate: self.start.rate as i32,
-            size_readout: format!("{width} x {height}").into(),
-            rate_readout: format!("{num}/{den} fps").into(),
-            busy: self.start.busy,
-            error: self.start.error.as_str().into(),
-        });
+        app.set_start(self.start.data());
         sync(
             &models.recents,
             self.recents
@@ -6937,7 +5978,6 @@ impl Studio {
                         plated: plate.alpha() > 0,
                         stroke: colour_of(&preset.style.stroke_color),
                         stroke_width: preset.style.stroke_width as f32,
-                        size: preset.style.font_size as f32,
                         align: align_of(preset.style.align),
                     }
                 })
@@ -6945,57 +5985,8 @@ impl Studio {
         );
 
         // The bin.
-        let filter = self.media_filter;
         let items = &self.project().media;
-
-        // Grupiši po tipu (Video -> Audio -> Slike), pa abecedno po imenu
-        let mut visible: Vec<_> = items
-            .iter()
-            .filter(|item| Self::shows(filter, item.kind))
-            .collect();
-
-        match self.media_sort {
-            0 => { /* Added - no sorting, keep import order */ }
-            1 => visible.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-            2 => visible.sort_by(|a, b| {
-                let rank = |kind: model::MediaKind| match kind {
-                    model::MediaKind::Video => 0,
-                    model::MediaKind::Audio => 1,
-                    model::MediaKind::Image => 2,
-                };
-                rank(a.kind)
-                    .cmp(&rank(b.kind))
-                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-            }),
-            _ => {}
-        }
-
-        sync(
-            &models.media,
-            visible
-                .into_iter()
-                .map(|item| MediaItemData {
-                    id: *self.media_rows.get(&item.id).unwrap_or(&0),
-                    name: item.name.as_str().into(),
-                    kind: media_kind_of(item.kind),
-                    duration: item.duration.unwrap_or(0.0) as f32,
-                    format: std::path::Path::new(&item.path)
-                        .extension()
-                        .and_then(|extension| extension.to_str())
-                        .map(|extension| extension.to_ascii_lowercase())
-                        .unwrap_or_default()
-                        .into(),
-                    thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
-                    wave: match self.peaks.get(&item.id) {
-                        Some(peaks) if item.kind == model::MediaKind::Audio => {
-                            wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 1.0).into()
-                        }
-                        _ => SharedString::new(),
-                    },
-                    selected: self.media_selected.contains(&item.id),
-                })
-                .collect(),
-        );
+        sync(&models.media, self.media.rows(self));
         editor.set_media_count_all(items.len() as i32);
         editor.set_media_count_video(
             items
@@ -7015,7 +6006,7 @@ impl Studio {
                 .filter(|item| item.kind == model::MediaKind::Image)
                 .count() as i32,
         );
-        editor.set_media_selected_count(self.media_selected.len() as i32);
+        editor.set_media_selected_count(self.media.selected.len() as i32);
         editor.set_importing(false);
 
         let (width, height) = self.output_size();
@@ -7048,14 +6039,7 @@ impl Studio {
         editor.set_count_media(self.project().media.len() as i32);
         editor.set_count_tracks(self.timeline().tracks.len() as i32);
         editor.set_count_clips(self.timeline().clips.len() as i32);
-        app.set_project_sheet(ProjectSheetData {
-            open: self.project_sheet.open,
-            name: self.project_sheet.name.as_str().into(),
-            folder,
-            timeline: timeline_name,
-            size: self.project_sheet.size,
-            rate: self.project_sheet.rate as i32,
-        });
+        app.set_project_sheet(self.project_sheet.data(self));
 
         let rows = self.menu();
         editor.set_menu_height(Self::menu_height(&rows));
@@ -7063,56 +6047,13 @@ impl Studio {
         editor.set_menu_token(self.menu_token);
 
         app.set_export(self.export.data(self));
-        app.set_settings(SettingsData {
-            open: self.settings.open,
-            tab: self.settings.tab,
-            language: self.settings.language as i32,
-            playhead_stops: self.settings.playhead_stops,
-            custom_context_actions: self.prefs.custom_context_actions,
-            download_source: self.settings.download_source as i32,
-            download_base: self.settings.download_base.as_str().into(),
-            server_enabled: self.prefs.server.enabled,
-            server_listen: self.prefs.server.listen.as_str().into(),
-            server_token: self.prefs.server.token.as_str().into(),
-            server_status: self.server_status().into(),
-            disk: {
-                let installed: Vec<&ModelState> = self
-                    .transcribers
-                    .iter()
-                    .chain(self.voices.iter())
-                    .filter(|model| model.installed)
-                    .collect();
-
-                let relink_data = RelinkData {
-                    open: self.relink.open,
-                    items: slint::ModelRc::new(VecModel::from(
-                        self.relink
-                            .items
-                            .iter()
-                            .map(|item| MissingMediaItem {
-                                id: item.id.clone().into(),
-                                name: item.name.clone().into(),
-                                path: item.path.clone().into(),
-                            })
-                            .collect::<Vec<_>>(),
-                    )),
-                };
-                app.set_relink(relink_data);
-                let on_disk: f32 = installed.iter().map(|model| model.megabytes).sum();
-                tf(
-                    "{0} installed · {1} MB on disk",
-                    &[&installed.len(), &format!("{on_disk:.0}")],
-                )
-                .into()
-            },
-            version: env!("CARGO_PKG_VERSION").into(),
-            engine: format!("concat-engine · FFmpeg {}", concat_media::linked_version()).into(),
-        });
-        sync(&models.transcribers, Self::model_rows(&self.transcribers));
-        sync(&models.voices, Self::model_rows(&self.voices));
+        app.set_settings(self.settings.data(self));
+        sync(&models.transcribers, self.settings.transcriber_rows());
+        sync(&models.voices, self.settings.voice_rows());
+        app.set_relink(self.relink.data());
 
         // The speech sheets, and the lists they choose from.
-        let transcribers = Self::installed(&self.transcribers);
+        let transcribers = installed(&self.settings.transcribers);
         sync(
             &models.caption_models,
             transcribers
@@ -7120,26 +6061,8 @@ impl Studio {
                 .map(|model| SharedString::from(model.name.as_str()))
                 .collect(),
         );
-        app.set_captions(CaptionsSheetData {
-            open: self.captions.open,
-            from_sound: self.captions.clip.is_some(),
-            subject: self
-                .captions
-                .clip
-                .as_ref()
-                .and_then(|id| self.clip(id))
-                .map(|clip| SharedString::from(clip.name.as_str()))
-                .unwrap_or_else(|| t("at the playhead").into()),
-            text: self.captions.text.as_str().into(),
-            model: self.captions.model as i32,
-            placement: self.captions.placement as i32,
-            size: self.captions.size as i32,
-            running: self.captions.running,
-            progress: self.captions.progress,
-            ready: !transcribers.is_empty(),
-            message: self.captions.message.as_str().into(),
-        });
-        let voices = Self::installed(&self.voices);
+        app.set_captions(self.captions.data(self));
+        let voices = installed(&self.settings.voices);
         sync(
             &models.speech_models,
             voices
@@ -7147,38 +6070,9 @@ impl Studio {
                 .map(|model| SharedString::from(model.name.as_str()))
                 .collect(),
         );
-        sync(
-            &models.speakers,
-            self.speakers
-                .iter()
-                .map(|speaker| Self::voice_label(&speaker.name).0.into())
-                .collect(),
-        );
-        sync(
-            &models.speaker_details,
-            self.speakers
-                .iter()
-                .map(|speaker| Self::voice_label(&speaker.name).1.into())
-                .collect(),
-        );
-        app.set_speech(SpeechSheetData {
-            open: self.speech.open,
-            text: self.speech.text.as_str().into(),
-            voice: self.speech.voice as i32,
-            model: self.speech.model as i32,
-            pace: self.speech.pace as i32,
-            running: self.speech.running,
-            progress: self.speech.progress,
-            ready: !voices.is_empty(),
-            placement: if self.speech.clip.is_some() {
-                "at the title"
-            } else {
-                "at the playhead"
-            }
-            .into(),
-            estimate: self.speech_estimate().into(),
-            message: self.speech.message.as_str().into(),
-        });
+        sync(&models.speakers, self.speech.speaker_rows());
+        sync(&models.speaker_details, self.speech.speaker_detail_rows());
+        app.set_speech(self.speech.data(self));
 
         let bar = self.menu_bar();
         app.set_app_menu_height(Self::menu_height(&bar));
@@ -7196,41 +6090,6 @@ impl Studio {
             self.assign_media_rows();
             self.request_media_art();
         }
-    }
-
-    fn model_rows(models: &[ModelState]) -> Vec<ModelData> {
-        models
-            .iter()
-            .map(|model| {
-                let total = model.megabytes;
-                let fetched = model.fetched.unwrap_or(0.0);
-                ModelData {
-                    id: model.id.as_str().into(),
-                    name: model.name.as_str().into(),
-                    note: model.note.as_str().into(),
-                    size: format!("{total:.0} MB").into(),
-                    accuracy: model.accuracy,
-                    installed: model.installed,
-                    active: model.active && model.installed,
-                    downloading: model.fetched.is_some(),
-                    progress: if total > 0.0 {
-                        (fetched / total).min(1.0)
-                    } else {
-                        0.0
-                    },
-                    transferred: if model.unpacking {
-                        t("Unpacking…").into()
-                    } else {
-                        tf(
-                            "{0} MB of {1} MB",
-                            &[&format!("{fetched:.0}"), &format!("{total:.0}")],
-                        )
-                        .into()
-                    },
-                    eta: SharedString::new(),
-                }
-            })
-            .collect()
     }
 
     /// The right-click menu for the clip it was opened on.
@@ -7343,6 +6202,17 @@ impl Studio {
             checkable: false,
             checked: false,
         });
+        rows.push(MenuItemData {
+            id: "ripple-delete".into(),
+            label: t("Ripple delete").into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::Trash,
+            shortcut: "⇧⌫".into(),
+            enabled: !locked,
+            danger: true,
+            checkable: false,
+            checked: false,
+        });
         rows
     }
 
@@ -7392,7 +6262,7 @@ impl Studio {
         let (can_undo, can_redo) = self.session.as_ref().map_or((false, false), |session| {
             (session.can_undo(), session.can_redo())
         });
-        let has_selection_media = !self.media_selected.is_empty();
+        let has_selection_media = !self.media.selected.is_empty();
 
         match self.open_menu {
             0 => vec![
@@ -7465,6 +6335,22 @@ impl Studio {
                     checkable: false,
                     checked: false,
                 },
+                MenuItemData {
+                    id: "ripple-delete".into(),
+                    label: if selected > 1 {
+                        tf("Ripple delete {0} clips", &[&selected])
+                    } else {
+                        t("Ripple delete")
+                    }
+                    .into(),
+                    kind: MenuRow::Action,
+                    glyph: Glyph::Trash,
+                    shortcut: "⇧⌫".into(),
+                    enabled: selected > 0,
+                    danger: true,
+                    checkable: false,
+                    checked: false,
+                },
                 rule(),
                 MenuItemData {
                     id: "snap".into(),
@@ -7475,36 +6361,32 @@ impl Studio {
                     enabled: true,
                     danger: false,
                     checkable: true,
-                    checked: self.snap,
+                    checked: self.lanes.snap,
+                },
+                MenuItemData {
+                    id: "magnetic".into(),
+                    label: t("Magnetic timeline").into(),
+                    kind: MenuRow::Action,
+                    glyph: Glyph::None,
+                    shortcut: "".into(),
+                    enabled: true,
+                    danger: false,
+                    checkable: true,
+                    checked: self.prefs.magnetic,
                 },
             ],
             2 => vec![
                 row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
                 row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
                 rule(),
-                check("sort-added", "Sort by: Added", self.media_sort == 0),
-                check("sort-name", "Sort by: Name", self.media_sort == 1),
-                check("sort-kind", "Sort by: Type", self.media_sort == 2),
+                check("sort-added", "Sort by: Added", self.media.sort == 0),
+                check("sort-name", "Sort by: Name", self.media.sort == 1),
+                check("sort-kind", "Sort by: Type", self.media.sort == 2),
                 rule(),
                 row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
                 row("end", t("Go to end"), Glyph::SkipForward, "End", true),
             ],
             _ => Vec::new(),
-        }
-    }
-
-    /// Everything the media bin's selection would add at the playhead.
-    pub fn add_selected_media(&mut self) {
-        let ids: Vec<String> = self
-            .project()
-            .media
-            .iter()
-            .filter(|item| self.media_selected.contains(&item.id))
-            .map(|item| item.id.clone())
-            .collect();
-        let start = f64::from(self.playhead.max(0.0));
-        for media_id in ids {
-            self.apply(Command::AddClipAtFirstFree { media_id, start });
         }
     }
 
@@ -7529,7 +6411,7 @@ impl Studio {
                 value: muted,
             });
         }
-        let view = self.lane_view.entry(track.id.clone()).or_default();
+        let view = self.lanes.lane_view.entry(track.id.clone()).or_default();
         view.locked = locked;
         if locked {
             let doomed: Vec<String> = self
@@ -7554,7 +6436,7 @@ impl Studio {
 
     pub fn set_lane_size(&mut self, row: i32, size: TrackSize) {
         if let Some(id) = self.row_track(row).map(|track| track.id.clone()) {
-            self.lane_view.entry(id).or_default().size = size;
+            self.lanes.lane_view.entry(id).or_default().size = size;
         }
     }
 
@@ -7625,7 +6507,7 @@ impl Studio {
     }
 
     pub fn toggle_lock(&mut self, track_id: &str) {
-        let view = self.lane_view.entry(track_id.to_owned()).or_default();
+        let view = self.lanes.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
         if view.locked {
             let doomed: Vec<String> = self
@@ -7656,59 +6538,6 @@ impl Studio {
         self.request_preview();
     }
 
-    // ── the project sheet ──
-
-    /// Opens the sheet on the project and its active timeline as they stand.
-    pub fn project_sheet_open(&mut self) {
-        let (width, height) = self.output_size();
-        let video = self.project().active().video;
-        let (num, den) = (video.rate_num, video.rate_den);
-        self.project_sheet = ProjectSheet {
-            open: true,
-            name: self.project_name.clone(),
-            size: OUTPUTS
-                .iter()
-                .position(|size| *size == (width as i32, height as i32))
-                .map_or(-1, |index| index as i32),
-            rate: START_RATES
-                .iter()
-                .position(|(_, n, d)| (*n, *d) == (num, den))
-                .unwrap_or(3),
-        };
-    }
-
-    /// Applies the sheet and closes it. The name is the project's; the frame
-    /// and the rate are the active timeline's, and go as one edit so an undo
-    /// takes both back together. The frame goes the way the monitor's picker
-    /// sends it, so the two cannot disagree about what a size means.
-    pub fn project_apply(&mut self) {
-        let sheet = std::mem::take(&mut self.project_sheet);
-        let name = sheet.name.trim().to_owned();
-        let size = usize::try_from(sheet.size)
-            .ok()
-            .and_then(|index| OUTPUTS.get(index).copied());
-        let (_, num, den) = START_RATES[sheet.rate.min(START_RATES.len() - 1)];
-        let Some(session) = self.session.as_mut() else {
-            return;
-        };
-        let mut video = session.video();
-        if let Some((width, height)) = size {
-            video.width = width as u32;
-            video.height = height as u32;
-        }
-        video.rate_num = num;
-        video.rate_den = den;
-        session.prepare_save((!name.is_empty()).then_some(name.as_str()));
-        if !name.is_empty() {
-            self.project_name = name;
-        }
-        let timeline_id = self.project().active_timeline_id.clone();
-        self.apply(Command::SetTimelineVideo { timeline_id, video });
-        self.dirty = true;
-        self.schedule_autosave();
-        self.request_preview();
-    }
-
     // ── the keyboard, and the menu's verbs ──
 
     /// A chord from the window's key table; see `Editor.shortcut`. The view
@@ -7729,6 +6558,8 @@ impl Studio {
                 self.split_at(at, true);
             }
             "select-all" => self.select_all(),
+            // ⇧⌫, from the key table; plain ⌫ comes in as its own callback.
+            "ripple-delete" => self.ripple_delete_selected(),
             "copy" | "duplicate" | "mute" => {
                 if let Some(id) = self.sole_selection() {
                     self.clip_action(&id, action);
@@ -7753,15 +6584,6 @@ impl Studio {
                         self.duplicate(&source);
                     }
                 }
-            }
-            "tool-select" => self.tool = TimelineTool::Select,
-            // B toggles: pressing it with the razor up puts the pointer back.
-            "tool-razor" => {
-                self.tool = if self.tool == TimelineTool::Razor {
-                    TimelineTool::Select
-                } else {
-                    TimelineTool::Razor
-                };
             }
             _ => {}
         }
@@ -7788,6 +6610,7 @@ impl Studio {
             }
             "split" => {
                 let at = self.playhead;
+                self.flush_commit();
                 self.selection = vec![id.to_owned()];
                 self.split_at(at, true);
             }
@@ -7815,12 +6638,14 @@ impl Studio {
             "lock" => self.toggle_lock(&clip.track_id),
             // A clip that is part of the selection takes the selection with
             // it: Delete on one of five selected clips means the five.
-            "delete" => {
+            "delete" | "ripple-delete" => {
+                let ripple = action == "ripple-delete" || self.prefs.magnetic;
                 if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
-                    self.delete_selected();
+                    self.remove_selected(ripple);
                 } else {
                     self.apply(Command::RemoveClips {
                         clip_ids: vec![id.to_owned()],
+                        ripple,
                     });
                 }
                 self.menu_target = None;
@@ -7831,6 +6656,7 @@ impl Studio {
 
     /// Every clip on an unlocked lane.
     pub fn select_all(&mut self) {
+        self.flush_commit();
         self.selection = self
             .timeline()
             .clips
@@ -7862,130 +6688,9 @@ impl Studio {
     }
 }
 
-/// Longest a caption line gets before it is wrapped: about what two lines
-/// of broadcast subtitle hold, and what a reader takes in at a glance.
-const CAPTION_CHARS: usize = 42;
-
-/// A script as caption lines, each with how long it stays up: a line's
-/// reading time at [`CHARS_PER_SECOND`], held to one second at least so
-/// a short word is not a flicker, and seven at most so a long line does
-/// not hang. A line break in the script is a break the author asked for;
-/// within a paragraph a sentence is a caption, and a long sentence wraps
-/// at its words.
-fn script_captions(text: &str) -> Vec<(String, f64)> {
-    text.lines()
-        .flat_map(sentences)
-        .flat_map(|sentence| wrap_caption(&sentence))
-        .map(|line| {
-            let seconds =
-                (line.chars().count() as f64 / f64::from(CHARS_PER_SECOND)).clamp(1.0, 7.0);
-            (line, seconds)
-        })
-        .collect()
-}
-
-/// A paragraph's sentences. A full stop, question or exclamation mark ends
-/// one when it is followed by space or by the end - so "3.5" and "e.g." hold
-/// together - and the CJK marks end one on their own.
-fn sentences(paragraph: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
-    let mut chars = paragraph.chars().peekable();
-    while let Some(ch) = chars.next() {
-        current.push(ch);
-        let ends = match ch {
-            '。' | '！' | '？' => true,
-            '.' | '!' | '?' => chars.peek().is_none_or(|next| next.is_whitespace()),
-            _ => false,
-        };
-        if ends {
-            let sentence = current.trim();
-            if !sentence.is_empty() {
-                out.push(sentence.to_owned());
-            }
-            current.clear();
-        }
-    }
-    let rest = current.trim();
-    if !rest.is_empty() {
-        out.push(rest.to_owned());
-    }
-    out
-}
-
-/// A sentence in lines of at most [`CAPTION_CHARS`], broken between words;
-/// a word longer than a line, or a run of CJK with no spaces, is broken
-/// where it must be.
-fn wrap_caption(sentence: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut line = String::new();
-    let mut line_chars = 0;
-    for word in sentence.split_whitespace() {
-        let word_chars = word.chars().count();
-        if line_chars > 0 && line_chars + 1 + word_chars > CAPTION_CHARS {
-            lines.push(std::mem::take(&mut line));
-            line_chars = 0;
-        }
-        if word_chars > CAPTION_CHARS {
-            let mut piece = String::new();
-            for ch in word.chars() {
-                piece.push(ch);
-                if piece.chars().count() == CAPTION_CHARS {
-                    lines.push(std::mem::take(&mut piece));
-                }
-            }
-            line = piece;
-            line_chars = line.chars().count();
-            continue;
-        }
-        if line_chars > 0 {
-            line.push(' ');
-            line_chars += 1;
-        }
-        line.push_str(word);
-        line_chars += word_chars;
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
-    lines
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Footprint, Studio, script_captions};
-
-    /// A script becomes one caption per sentence, a hand line break is
-    /// kept, a long sentence wraps at its words, and each line is held for
-    /// its reading time within one to seven seconds.
-    #[test]
-    fn a_script_is_cut_into_readable_lines() {
-        let lines = script_captions(
-            "Hello there. This is version 3.5, mind!\n\nA sentence that runs on for far \
-             longer than a caption line has any business running on for. Ok?",
-        );
-        let text: Vec<&str> = lines.iter().map(|(line, _)| line.as_str()).collect();
-        assert_eq!(
-            text,
-            [
-                "Hello there.",
-                "This is version 3.5, mind!",
-                "A sentence that runs on for far longer",
-                "than a caption line has any business",
-                "running on for.",
-                "Ok?",
-            ]
-        );
-        assert!(
-            lines
-                .iter()
-                .all(|(_, seconds)| (1.0..=7.0).contains(seconds))
-        );
-        assert_eq!(lines[0].1, 1.0);
-        assert!(lines[2].1 > lines[0].1);
-        assert!(script_captions("  \n ").is_empty());
-        assert_eq!(script_captions("你好。再见！").len(), 2);
-    }
+    use super::{Footprint, Studio};
 
     const FRAME: (u32, u32) = (1920, 1080);
 

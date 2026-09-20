@@ -270,6 +270,12 @@ pub enum Command {
         track_id: String,
         /// Timeline position in seconds, floored at 0.
         start: f64,
+        /// When true and the drop would overlap something on this track,
+        /// every clip at or after `start` is shifted right by the new
+        /// clip's duration, so the drop lands without covering anything.
+        /// False for programmatic adds, true for a drop from the bin.
+        #[serde(default)]
+        ripple: bool,
     },
     /// [`Command::AddClip`] without naming a lane: lands on the lowest
     /// track with nothing in the clip's span, falling back to the bottom
@@ -286,6 +292,14 @@ pub enum Command {
         /// The lane to place it on. None picks the first free track like
         /// [`Command::AddClipAtFirstFree`]; naming a vanished track errs.
         track_id: Option<String>,
+        /// When `track_id` is None and this is true, the clip lands on the
+        /// first free lane *above* the highest one occupied over its span,
+        /// minting a new lane at the top when every one above is taken. Set
+        /// by the caption run so captions sit over the video rather than
+        /// under it; a plain title leaves it false and keeps the old
+        /// bottom-first behaviour. Ignored when `track_id` names a track.
+        #[serde(default)]
+        above: bool,
         /// Timeline position in seconds, floored at 0.
         start: f64,
         /// The words and their look. None means [`TextStyle::default`].
@@ -447,6 +461,15 @@ pub enum Command {
         /// Signed seconds of timeline the edge moves: positive drags the
         /// head right (shortening) or the tail right (lengthening).
         delta: f64,
+        /// When true the lane closes up behind the trim - the magnetic
+        /// timeline. A tail trim moves every later clip on the track by
+        /// the change in length. A head trim keeps the clip where it was
+        /// (the in-point moves, the start does not) and moves every later
+        /// clip by what was cut or restored, so the trimmed clip and the
+        /// one behind it stay touching. False trims the clip alone.
+        /// https://github.com/jub0t/Concat/issues/106
+        #[serde(default)]
+        ripple: bool,
     },
     /// Cuts each named clip in two at one playhead time. The head keeps the
     /// id and the transition; the tail is minted fresh and stays
@@ -489,6 +512,15 @@ pub enum Command {
     RemoveClips {
         /// The clips to delete.
         clip_ids: Vec<String>,
+        /// When true the deletion leaves no gap: on each track, every clip
+        /// that starts after a removed span moves left by the length of the
+        /// removed spans before it. A track the deletion never touched
+        /// stays where it is, so a picture going from one lane does not
+        /// pull the sound on another - CapCut's magnetic track, which is
+        /// what was asked for. False leaves the hole.
+        /// https://github.com/jub0t/Concat/issues/106
+        #[serde(default)]
+        ripple: bool,
     },
     /// Applies a [`ClipPatch`]: only the fields present change, with the
     /// clamps documented on the patch. An unknown clip is a no-op.
@@ -806,8 +838,25 @@ impl Command {
                 start,
                 duration,
                 offset_y,
+                style,
                 ..
-            } => bad([*start]) || bad(*duration) || bad(*offset_y),
+            } => {
+                bad([*start])
+                    || bad(*duration)
+                    || bad(*offset_y)
+                    || style.iter().any(|style| {
+                        bad([
+                            style.font_size,
+                            style.font_weight,
+                            style.opacity,
+                            style.stroke_width,
+                            style.line_height,
+                            style.tracking,
+                            style.max_width,
+                            style.max_height,
+                        ])
+                    })
+            }
             Command::AddLayerClip {
                 start, duration, ..
             } => bad([*start]) || bad(*duration),
@@ -845,6 +894,23 @@ impl Command {
                         .any(|crop| bad([crop.left, crop.top, crop.right, crop.bottom]))
                     || patch.filters.as_deref().is_some_and(bad_chain)
                     || patch.video_effects.as_deref().is_some_and(bad_chain)
+                    || patch
+                        .transition_in
+                        .iter()
+                        .flatten()
+                        .any(|tr| bad([tr.duration]))
+                    || patch.text.iter().flatten().any(|style| {
+                        bad([
+                            style.font_size,
+                            style.font_weight,
+                            style.opacity,
+                            style.stroke_width,
+                            style.line_height,
+                            style.tracking,
+                            style.max_width,
+                            style.max_height,
+                        ])
+                    })
             }
             Command::SetClipSpeed { speed, .. } => bad([*speed]),
             Command::SetClipTransform {

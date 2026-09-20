@@ -10,6 +10,7 @@ import { TextAlignment } from "../timeline/model.slint";
 import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
 import { Select } from "../primitives/select.slint";
+import { Wave } from "../primitives/wave.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -39,8 +40,6 @@ export struct TextPresetData {
     stroke: color,
     /// as a fraction of the frame; zero for none
     stroke-width: float,
-    /// the cap height as a fraction of the frame, for the sample's size
-    size: float,
     align: TextAlignment,
 }
 
@@ -98,13 +97,14 @@ component LibraryTab inherits Rectangle {
 
     animate tint { duration: 140ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
-    // Two lines in the 32px a chip gets inside the strip: 13px of mark, 2px of
-    // air, then the label at fs-sm. The strip stays at 44px so the three pane
-    // headers keep one edge across the window (see PaneHeader), which is why
-    // the numbers are this tight and not looser.
+    // Two lines in the 40px a chip gets inside the strip: 13px of mark, 2px of
+    // air, then the label at fs-sm, with 6px above and below so the two
+    // lines sit in the chip rather than against its edges. The strip is 52px
+    // so the three pane headers keep one edge across the window (see
+    // PaneHeader).
     VerticalLayout {
-        padding-top: 2px;
-        padding-bottom: 2px;
+        padding-top: 6px;
+        padding-bottom: 6px;
         padding-left: 6px;
         padding-right: 6px;
         spacing: 2px;
@@ -479,16 +479,13 @@ component MediaCard inherits Rectangle {
                 // them already say "this is an audio file", so there is no mark on
                 // top of them — a badge over a waveform is the same fact twice,
                 // and the one that costs the tile its whole middle.
-                if root.item.wave != "": Path {
+                if root.item.wave != "": Wave {
                     x: 0;
                     y: 0;
                     width: parent.width;
                     height: parent.height;
                     commands: root.item.wave;
-                    viewbox-width: 1;
-                    viewbox-height: 1;
-                    fit: fill;
-                    fill: root.mark;
+                    tint: root.mark;
                 }
 
                 // What everything else shows before its artwork exists. Large and
@@ -1031,9 +1028,11 @@ component TextPage inherits Rectangle {
 }
 
 // One preset, as a card: the same "Aa" drawn in every look, on a dark
-// ground so a white title reads as it will on footage, with the plate
-// behind it when the look has one. The same two letters on every card so
-// the looks compare, the names being underneath.
+// square so a white title reads as it will on footage, with the plate
+// behind it when the look has one. The same two letters at the same size
+// on every card so the looks compare - a caption preset is small on the
+// frame, but its card is about its face and colours, not its size - the
+// names being underneath.
 component PresetCard inherits Rectangle {
     in property <TextPresetData> preset;
 
@@ -1041,9 +1040,9 @@ component PresetCard inherits Rectangle {
 
     opacity: drag.dragging ? 0.45 : 1.0;
 
-    /// The sample's size follows the preset's: the plain title's 9% of the
-    /// frame is 16px on a card, and the rest scale with it within reason.
-    property <length> sample-size: Fmt.clamp(root.preset.size / 0.09, 0.6, 1.6) * 16px;
+    /// One size for every sample, a good third of the tile: large enough
+    /// that a stroke and a face are told apart at a glance.
+    property <length> sample-size: root.width * 0.36;
 
     drag := DragArea {
         data: Payload.of("text:\{root.preset.id}:\{root.preset.name}");
@@ -1059,7 +1058,7 @@ component PresetCard inherits Rectangle {
 
             tile := Rectangle {
                 y: 0;
-                height: root.width * 9 / 16;
+                height: root.width;
                 border-radius: Theme.r;
                 background: Theme.sample-ground;
                 border-width: 1px;
@@ -1302,7 +1301,8 @@ component PresetGrid inherits Rectangle {
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px;
+    // A square tile, then the name under it.
+    property <length> card-h: root.card-w + 4px + 14px;
     property <int> rows: Math.ceil(root.items.length / root.cols);
 
     height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
@@ -1622,7 +1622,7 @@ export component MediaPane inherits Rectangle {
         // which is why the hairline is a child of this row and not a border on
         // the pill below it.
         Rectangle {
-            height: 44px;
+            height: 52px;
 
             Rectangle {
                 y: parent.height - 1px;
@@ -1632,9 +1632,9 @@ export component MediaPane inherits Rectangle {
 
             HorizontalLayout {
                 // 4px above and below, not the 8px at the sides: the chips
-                // carry a mark over their label now, and those two lines need
-                // the room within the 44px the strip shares with the other
-                // panes' headers.
+                // carry a mark over their label and their own air around
+                // both, and those need the room within the 52px the strip
+                // shares with the other panes' headers.
                 padding-top: 4px;
                 padding-bottom: 4px;
                 padding-left: 8px;

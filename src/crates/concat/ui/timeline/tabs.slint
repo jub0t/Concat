@@ -13,9 +13,8 @@ import { TimelineTabData } from "model.slint";
 // Click switches, double-click renames in place committing on blur, and the
 // close button asks: deleting a timeline throws away every clip on it, so
 // this strip never deletes directly. The shape: a squared-off tab whose active
-// state is a raised ground plus a 2px accent bar on its *top* edge, inset from
-// the corners. The bar sits away from the content it opens onto, so it reads
-// as a label on the tab and not as an underline on the panel.
+// state is the raised ground alone - it once wore an accent bar on its top
+// edge as well, which was one more lime line in a window that had enough.
 //
 // Tabs drag to reorder. A lifted tab carries its index the way a bin card
 // carries its row, and the tab it is let go over says which side of itself
@@ -59,14 +58,6 @@ component Tab inherits Rectangle {
         width: parent.width;
         height: Theme.r-sm;
         background: parent.background;
-    }
-
-    if root.current: Rectangle {
-        x: 6px;
-        y: 0;
-        width: parent.width - 12px;
-        height: 2px;
-        background: Theme.accent;
     }
 
     // Everything sits inside the hover target, so the close button revealed on

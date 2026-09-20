@@ -389,6 +389,7 @@ struct Slot {
 /// A package's shader, stitched, checked and laid out.
 #[derive(Clone, Debug)]
 pub struct Shader {
+    package: String,
     key: String,
     source: Arc<str>,
     slots: Vec<Slot>,
@@ -403,6 +404,7 @@ impl Shader {
     pub fn compile(manifest: &Manifest, body: &str) -> Result<Shader, String> {
         let (source, slots, span) = stitch(manifest, body, Entry::Effect, PRELUDE, POSTLUDE)?;
         Ok(Shader {
+            package: manifest.effect.id.clone(),
             key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
             source,
             slots,
@@ -422,7 +424,9 @@ impl Shader {
         lay_params(&self.slots, self.span, values, params)
     }
 
-    /// A pass over a layer with these values.
+    /// A pass over a layer with these values: the uniform buffer written
+    /// from them, and the values themselves for a renderer that reads by
+    /// name.
     pub fn pass(
         &self,
         values: &BTreeMap<String, f64>,
@@ -432,14 +436,107 @@ impl Shader {
         reveal_map: Option<Arc<RevealMap>>,
     ) -> ShaderPass {
         ShaderPass {
+            package: self.package.clone(),
             key: self.key.clone(),
             source: Arc::clone(&self.source),
             params: self.params_bytes(values, params),
+            values: values.clone(),
             intensity,
             lut,
             reveal_map,
         }
     }
+}
+
+/// The bindings a prelude declares, and the only ones a package may use.
+/// The union of both contracts: an effect's layer at group 0 (0,0)-(0,1)
+/// and a transition's two pictures at group 0 (0,0)-(0,3); the frame block
+/// and parameters at group 1; the look-up table at group 2; an effect's
+/// reveal map at group 3 - a transition has no group 3, so nothing there
+/// ever validates against a transition's module.
+const BINDINGS: [(u32, u32); 10] = [
+    (0, 0),
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (1, 0),
+    (1, 1),
+    (2, 0),
+    (2, 1),
+    (3, 0),
+    (3, 1),
+];
+
+/// What a package may not do, however well it parses: bind anything the
+/// host did not declare, or loop without an end. A community shader runs
+/// on the person's GPU with the host's rights, and a loop with no bound
+/// hangs the device for every process on the machine; a binding the host
+/// does not know is one it cannot serve. Caught at load, where a broken
+/// package is a load error and not a black frame.
+fn budget(module: &naga::Module) -> Result<(), String> {
+    for (_, global) in module.global_variables.iter() {
+        if let Some(binding) = &global.binding
+            && !BINDINGS.contains(&(binding.group, binding.binding))
+        {
+            return Err(format!(
+                "the shader binds @group({}) @binding({}), which the host does not provide",
+                binding.group, binding.binding
+            ));
+        }
+    }
+    for (_, function) in module.functions.iter() {
+        bounded(&function.body)?;
+    }
+    for entry in &module.entry_points {
+        bounded(&entry.function.body)?;
+    }
+    Ok(())
+}
+
+/// Every loop in `block` has a way out: a `break` in its body or a
+/// `break if` in its continuing block.
+fn bounded(block: &naga::Block) -> Result<(), String> {
+    for statement in block.iter() {
+        match statement {
+            naga::Statement::Loop {
+                body,
+                continuing,
+                break_if,
+            } => {
+                if break_if.is_none() && !breaks(body) {
+                    return Err(
+                        "the shader has a loop with no break: it would never end".to_owned()
+                    );
+                }
+                bounded(body)?;
+                bounded(continuing)?;
+            }
+            naga::Statement::Block(inner) => bounded(inner)?,
+            naga::Statement::If { accept, reject, .. } => {
+                bounded(accept)?;
+                bounded(reject)?;
+            }
+            naga::Statement::Switch { cases, .. } => {
+                for case in cases {
+                    bounded(&case.body)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Whether `block` breaks out of the loop it is the body of, at any
+/// depth short of a nested loop, whose breaks are its own.
+fn breaks(block: &naga::Block) -> bool {
+    block.iter().any(|statement| match statement {
+        naga::Statement::Break => true,
+        naga::Statement::Block(inner) => breaks(inner),
+        naga::Statement::If { accept, reject, .. } => breaks(accept) || breaks(reject),
+        naga::Statement::Switch { cases, .. } => cases.iter().any(|case| breaks(&case.body)),
+        _ => false,
+    })
 }
 
 fn is_f32(scalar: &naga::Scalar) -> bool {
@@ -518,6 +615,7 @@ fn stitch(
     {
         return Err(format!("the shader declares no `{}`", entry.signature()));
     }
+    budget(&module)?;
 
     let (members, span) = module
         .types
@@ -857,6 +955,43 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         )
         .expect("compiles");
         assert_eq!(shader.params_bytes(&BTreeMap::new(), &[]).len(), 16);
+    }
+
+    /// A community shader may not bind what the host did not declare,
+    /// and may not loop without an end: both are refused at load, before
+    /// the package can reach a device. A loop with a way out is fine.
+    #[test]
+    fn a_hostile_shader_is_refused_at_load() {
+        let manifest = manifest("");
+        let unbounded = Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { var c = sample(uv); loop { c.r = c.r * 0.5; } return c; }",
+        );
+        assert!(
+            unbounded.unwrap_err().contains("no break"),
+            "an endless loop"
+        );
+        let nested = Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { var c = sample(uv); for (var i = 0; i < 4; i++) { loop { c.r = c.r * 0.5; } } return c; }",
+        );
+        assert!(
+            nested.unwrap_err().contains("no break"),
+            "an endless loop inside a bounded one"
+        );
+        let extra = Shader::compile(
+            &manifest,
+            "@group(4) @binding(0) var other: texture_2d<f32>;\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv) + textureSample(other, source_sampler, uv); }",
+        );
+        assert!(
+            extra.unwrap_err().contains("@group(4)"),
+            "a binding the host does not provide"
+        );
+        let bounded = Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { var c = sample(uv); var i = 0; loop { i++; if (i > 3) { break; } c.r = c.r * 0.5; } for (var j = 0; j < 2; j++) { c.g = c.g * 0.5; } return c; }",
+        );
+        assert!(bounded.is_ok(), "{:?}", bounded.err());
     }
 
     #[test]

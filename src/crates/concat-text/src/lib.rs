@@ -82,8 +82,14 @@ pub struct TitleStyle {
     /// Extra advance after every glyph, as a fraction of frame height.
     pub tracking: f64,
     /// The widest a line may run, as a fraction of frame width, before its
-    /// words wrap; zero for no limit.
+    /// words wrap; zero for no limit. With a limit the block is a box that
+    /// wide - a word no line can hold still widens it - and the lines
+    /// align inside the box rather than against each other.
     pub max_width: f64,
+    /// The box's height as a fraction of frame height; zero for the words'
+    /// own. With a height the block is a box that tall, at least, and the
+    /// words sit centred in it.
+    pub max_height: f64,
 }
 
 /// One word's box in canvas pixels, top-left origin, in reading order
@@ -190,11 +196,32 @@ impl Default for Fonts {
     }
 }
 
+/// The face this build bundles, at the weights the interface uses, so a
+/// title is set in the face the window is on a machine that has never
+/// installed it. The window embeds the same five files (concat/ui/app.slint).
+/// Licensed under the SIL Open Font License; see fonts/LICENSE-HankenGrotesk.txt.
+pub const BUNDLED_FAMILY: &str = "Hanken Grotesk";
+const BUNDLED: [&[u8]; 5] = [
+    include_bytes!("../fonts/HankenGrotesk-Regular.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Medium.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-SemiBold.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Bold.ttf"),
+    include_bytes!("../fonts/HankenGrotesk-Italic.ttf"),
+];
+
+/// Faces that used to be bundled and no longer are: a document that names
+/// one is painted in the bundled face, not in whatever the system offers
+/// for a name it does not know.
+const RETIRED: [&str; 2] = ["Helvetica Neue", "Synonym"];
+
 impl Fonts {
-    /// The system's fonts.
+    /// The bundled face and the system's fonts.
     pub fn new() -> Fonts {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        for face in BUNDLED {
+            db.load_font_data(face.to_vec());
+        }
         Fonts { db }
     }
 
@@ -207,11 +234,14 @@ impl Fonts {
     /// The best face for a style: the named family at the nearest weight and
     /// slant, then any sans-serif, then anything at all.
     fn pick(&self, style: &TitleStyle) -> Result<Vec<u8>, Error> {
-        let family = style
+        let mut family = style
             .font_family
             .trim()
             .trim_matches('"')
             .trim_matches('\'');
+        if RETIRED.contains(&family) {
+            family = BUNDLED_FAMILY;
+        }
         let weight = fontdb::Weight(style.font_weight.clamp(100.0, 900.0).round() as u16);
         let slant = if style.italic {
             fontdb::Style::Italic
@@ -557,23 +587,44 @@ fn paint(
         .flat_map(|line| wrap_line(&face, line, em, tracking, max_w))
         .collect();
     let rows = lines.len().max(1);
-    let block_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
-    let block_h = (rows as f32 - 1.0) * pitch + ascent + descent;
-    if block_w <= 0.0 || lines.is_empty() {
+    let words_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
+    let words_h = (rows as f32 - 1.0) * pitch + ascent + descent;
+    if words_w <= 0.0 || lines.is_empty() {
         // Nothing to paint: an empty, valid canvas.
         return Ok((canvas, (0, 0, 0, 0), Vec::new()));
     }
 
+    // The box the words sit in. Sized by the style where the style says,
+    // and by the words where it does not; never smaller than the words,
+    // so a word no line can hold is still whole. A sized axis is exact -
+    // a box asked for at 400 by 120 is 400 by 120, plate and all - so the
+    // plate's air is only added on an axis the words size themselves.
+    let max_h = (style.max_height as f32) * frame_h;
+    let box_w = if max_w > 0.0 {
+        max_w.max(words_w)
+    } else {
+        words_w
+    };
+    let box_h = if max_h > 0.0 {
+        max_h.max(words_h)
+    } else {
+        words_h
+    };
     // The plate's padding is part of the block: it is what a monitor should
     // outline, and what the title's neighbours should keep clear of.
     let plate = colour(&style.background);
-    let (pad_x, pad_y) = if plate.is_some() {
-        (em * 0.35, em * 0.2)
+    let pad_x = if plate.is_some() && max_w <= 0.0 {
+        em * 0.35
     } else {
-        (0.0, 0.0)
+        0.0
     };
-    let outer_w = block_w + 2.0 * pad_x;
-    let outer_h = block_h + 2.0 * pad_y;
+    let pad_y = if plate.is_some() && max_h <= 0.0 {
+        em * 0.2
+    } else {
+        0.0
+    };
+    let outer_w = box_w + 2.0 * pad_x;
+    let outer_h = box_h + 2.0 * pad_y;
     // The anchor is the canvas's centre - where the clip's position lands -
     // and the alignment says which edge of the block sits on it, plate and
     // all. Growing words then push the far edge and leave the anchored one
@@ -585,11 +636,12 @@ fn paint(
         Align::Right => anchor_x - outer_w,
     };
     let left = outer_left + pad_x;
-    let top = (frame_h - outer_h) / 2.0 + pad_y;
+    // The words are centred in a box taller than they are.
+    let top = (frame_h - outer_h) / 2.0 + pad_y + (box_h - words_h) / 2.0;
     let block_dx = (outer_left + outer_w / 2.0 - anchor_x).round() as i32;
 
     // One path for all the words, placed. Each line is aligned within the
-    // block's width and sits on its own baseline. A word's box rides the
+    // box's width and sits on its own baseline. A word's box rides the
     // same indent and baseline, in reading order.
     let mut words = PathBuilder::new();
     let mut word_rects = Vec::new();
@@ -597,8 +649,8 @@ fn paint(
         let Some(path) = &line.path else { continue };
         let indent = match style.align {
             Align::Left => 0.0,
-            Align::Center => (block_w - line.width) / 2.0,
-            Align::Right => block_w - line.width,
+            Align::Center => (box_w - line.width) / 2.0,
+            Align::Right => box_w - line.width,
         };
         let baseline = top + ascent + row as f32 * pitch;
         let placed = path
@@ -629,9 +681,9 @@ fn paint(
         ..Paint::default()
     };
 
-    // The plate, first and under everything.
+    // The plate, first and under everything: the whole box.
     if let Some(fill) = plate
-        && let Some(rect) = Rect::from_xywh(left - pad_x, top - pad_y, outer_w, outer_h)
+        && let Some(rect) = Rect::from_xywh(outer_left, (frame_h - outer_h) / 2.0, outer_w, outer_h)
     {
         paint.set_color(fill);
         let radius = em * 0.15;
@@ -745,6 +797,7 @@ mod tests {
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,
+            max_height: 0.0,
         }
     }
 
@@ -821,12 +874,144 @@ mod tests {
         (left, right)
     }
 
+    /// The topmost and bottommost rows holding any paint.
+    fn painted_rows(png: &[u8]) -> (u32, u32) {
+        let pixmap = Pixmap::decode_png(png).expect("our own PNG decodes");
+        let width = pixmap.width();
+        let mut top = pixmap.height();
+        let mut bottom = 0;
+        for (index, pixel) in pixmap.pixels().iter().enumerate() {
+            if pixel.alpha() > 0 {
+                let y = index as u32 / width;
+                top = top.min(y);
+                bottom = bottom.max(y);
+            }
+        }
+        (top, bottom)
+    }
+
+    // ── the box: https://github.com/jub0t/Concat/issues/119 ──
+
+    /// A box sized by the style is exactly that size, plate and all, and
+    /// the words sit centred inside it.
+    #[test]
+    fn a_sized_box_is_exactly_that_size_with_the_words_centred_in_it() {
+        let fonts = Fonts::new();
+        let mut plated = style("hi");
+        plated.max_width = 0.5;
+        plated.max_height = 0.4;
+        plated.background = "#000000ff".to_owned();
+        plated.shadow = false;
+        let rendered = render(&fonts, &plated, 640, 360).expect("renders");
+        assert_eq!((rendered.block_width, rendered.block_height), (320, 144));
+        // The plate is the box: half the frame wide, centred, no air added.
+        let (left, right) = painted_span(&rendered.png);
+        assert_eq!((left, right), (160, 479), "the plate's columns");
+        let (top, bottom) = painted_rows(&rendered.png);
+        assert_eq!((top, bottom), (108, 251), "the plate's rows");
+
+        // Without the plate the box is the same size, and the words are in
+        // the middle of it: narrower than it, and centred on its centre.
+        let mut bare = plated.clone();
+        bare.background = String::new();
+        let rendered = render(&fonts, &bare, 640, 360).expect("renders");
+        assert_eq!((rendered.block_width, rendered.block_height), (320, 144));
+        let (left, right) = painted_span(&rendered.png);
+        assert!(
+            left > 160 && right < 479,
+            "{left}..{right} is inside the box"
+        );
+        let (top, bottom) = painted_rows(&rendered.png);
+        let middle = f64::from(top + bottom) / 2.0;
+        assert!(
+            (middle - 180.0).abs() < 8.0,
+            "the words are centred in the box: rows {top}..{bottom}"
+        );
+        assert!(top > 108 && bottom < 251, "and inside it");
+    }
+
+    /// A box narrower or shorter than the words grows to hold them: a word
+    /// no line can hold is never cut, and never overflows the plate.
+    #[test]
+    fn a_box_smaller_than_the_words_grows_to_hold_them() {
+        let fonts = Fonts::new();
+        let mut tiny = style("unbreakable");
+        tiny.max_width = 0.01;
+        tiny.max_height = 0.01;
+        tiny.background = "#000000ff".to_owned();
+        tiny.shadow = false;
+        let rendered = render(&fonts, &tiny, 640, 360).expect("renders");
+        assert!(rendered.block_width > 6, "{}", rendered.block_width);
+        assert!(rendered.block_height > 4, "{}", rendered.block_height);
+        let (left, right) = painted_span(&rendered.png);
+        assert!(
+            right - left <= rendered.block_width,
+            "nothing paints outside the box: {left}..{right} in {}",
+            rendered.block_width
+        );
+    }
+
+    /// A left-aligned box keeps its left edge on the anchor whatever its
+    /// width, and a right-aligned one its right edge: sizing the box must
+    /// not walk the words.
+    #[test]
+    fn a_sized_box_keeps_its_anchored_edge() {
+        let fonts = Fonts::new();
+        for (align, dx) in [(Align::Left, 160), (Align::Right, -160)] {
+            let mut sized = style("hi");
+            sized.align = align;
+            sized.max_width = 0.5;
+            sized.shadow = false;
+            let rendered = render(&fonts, &sized, 640, 360).expect("renders");
+            assert_eq!(rendered.block_width, 320);
+            assert_eq!(rendered.block_dx, dx, "{align:?}");
+            let (left, right) = painted_span(&rendered.png);
+            match align {
+                Align::Left => assert!(left >= 320 && right < 640, "{left}..{right}"),
+                _ => assert!(right <= 320 && left > 0, "{left}..{right}"),
+            }
+        }
+    }
+
     #[test]
     fn colours_parse_both_lengths() {
         assert_eq!(colour("#ff0000"), Some(Color::from_rgba8(255, 0, 0, 255)));
         assert_eq!(colour("#00ff0080"), Some(Color::from_rgba8(0, 255, 0, 128)));
         assert_eq!(colour(""), None);
         assert_eq!(colour("red"), None);
+    }
+
+    /// The bundled face answers by name at every weight the interface uses,
+    /// upright and italic, and a document that names a retired face gets it
+    /// too rather than whatever the system has.
+    #[test]
+    fn the_bundled_face_is_always_there_and_the_retired_names_reach_it() {
+        let fonts = Fonts::new();
+        let style = |family: &str, weight: f64, italic: bool| TitleStyle {
+            font_family: family.to_owned(),
+            font_weight: weight,
+            italic,
+            ..style("words")
+        };
+        for weight in [400.0, 500.0, 600.0, 700.0] {
+            fonts
+                .pick(&style(BUNDLED_FAMILY, weight, false))
+                .unwrap_or_else(|_| panic!("{BUNDLED_FAMILY} at {weight}"));
+        }
+        fonts
+            .pick(&style(BUNDLED_FAMILY, 400.0, true))
+            .expect("the italic");
+        let bundled = fonts
+            .pick(&style(BUNDLED_FAMILY, 700.0, false))
+            .expect("bold");
+        for retired in RETIRED {
+            let picked = fonts.pick(&style(retired, 700.0, false)).expect("a face");
+            assert_eq!(picked, bundled, "{retired} is painted in the bundled face");
+        }
+        let quoted = fonts
+            .pick(&style("\"Hanken Grotesk\"", 700.0, false))
+            .expect("quotes stripped");
+        assert_eq!(quoted, bundled);
     }
 
     /// A missing family falls back to a system face and still paints words.

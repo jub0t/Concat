@@ -11,5 +11,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // A desktop's console is its standard error, which a packaged build
     // has wired to nowhere; hence the file underneath it.
     concat::open_logging(None);
-    concat::run()
+    // A failure here is the one this binary would otherwise swallow: with
+    // no console, the runtime's "Error: ..." on standard error is lost.
+    // https://github.com/jub0t/Concat/issues/135
+    concat::run().inspect_err(concat::report_startup_failure)
 }

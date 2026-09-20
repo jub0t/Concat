@@ -3,6 +3,8 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { Kbd } from "../primitives/kbd.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
@@ -43,6 +45,26 @@ export struct SystemFactData {
     value: string,
 }
 
+// A key and what it does, for a row of shortcuts.
+component Shortcut inherits HorizontalLayout {
+    in property <string> key;
+    in property <string> label;
+
+    spacing: 6px;
+    alignment: start;
+
+    VerticalLayout {
+        alignment: center;
+        Kbd { key: root.key; }
+    }
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+}
+
 export struct SettingsData {
     open: bool,
     /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About
@@ -52,6 +74,13 @@ export struct SettingsData {
     playhead-stops: bool,
     /// show flip/reverse in clip context menu
     custom-context-actions: bool,
+    /// the magnetic timeline: deleting and trimming close the gap
+    magnetic: bool,
+    /// video decodes on the platform's own hardware
+    hardware-decode: bool,
+    /// this build and machine have hardware to decode on; off, the
+    /// switch is not shown
+    hardware-decode-offered: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -59,9 +88,11 @@ export struct SettingsData {
     download-base: string,
     /// the Concat API served on a socket while the window is open
     server-enabled: bool,
-    /// "127.0.0.1:7420"
-    server-listen: string,
-    /// what a connection presents first; empty for none
+    /// the two halves of "127.0.0.1:7420"
+    server-host: string,
+    server-port: int,
+    /// what a connection presents first: the chosen one, or the one the
+    /// server made up when none was chosen
     server-token: string,
     /// "Listening on 127.0.0.1:7420 · 1 connected", "Off", or why not
     server-status: string,
@@ -361,10 +392,13 @@ export component SettingsDialog inherits Modal {
     callback theme-changed(dark: bool);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
+    callback magnetic-changed(on: bool);
+    callback hardware-decode-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
-    callback server-listen-edited(text: string);
+    callback server-host-edited(text: string);
+    callback server-port-edited(port: int);
     callback server-token-edited(text: string);
     /// A fresh random token, in place of whatever is there.
     callback server-token-generated();
@@ -482,6 +516,36 @@ export component SettingsDialog inherits Modal {
                     }
                 }
 
+                // Off, a delete leaves its hole and a trim moves one edge.
+                // On, the lane closes up behind either - the magnetic
+                // timeline of CapCut and the rest, asked for in
+                // https://github.com/jub0t/Concat/issues/106
+                DialogSection {
+                    title: I18n.t("Magnetic timeline");
+                    hint: I18n.t("On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Close gaps when deleting and trimming");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.magnetic;
+                                toggled(on) => { root.magnetic-changed(on); }
+                            }
+                        }
+                    }
+                }
+
                 // Off, the playhead goes wherever the ruler is clicked, past
                 // the last clip included, so a clip can be placed out there.
                 // On, it stops where the content does.
@@ -515,7 +579,17 @@ export component SettingsDialog inherits Modal {
                 // On, it also shows Flip horizontal, Flip vertical, and Reverse.
                 DialogSection {
                     title: I18n.t("Timeline shortcuts");
-                    hint: I18n.t("H flips the selected clip horizontally, J vertically, R reverses it. Off, the keys do nothing.");
+                    hint: I18n.t("Off, the keys do nothing.");
+
+                    // The three keys, each as a keycap beside what it does.
+                    HorizontalLayout {
+                        spacing: 16px;
+                        alignment: start;
+
+                        Shortcut { key: "H"; label: I18n.t("Flip horizontally"); }
+                        Shortcut { key: "J"; label: I18n.t("Flip vertically"); }
+                        Shortcut { key: "R"; label: I18n.t("Reverse"); }
+                    }
 
                     HorizontalLayout {
                         spacing: 6px;
@@ -534,6 +608,33 @@ export component SettingsDialog inherits Modal {
                             Switch {
                                 checked: root.data.custom-context-actions;
                                 toggled(on) => { root.custom-context-actions-changed(on); }
+                            }
+                        }
+                    }
+                }
+
+                // The platform's own decoder, where the build has one.
+                if root.data.hardware-decode-offered: DialogSection {
+                    title: I18n.t("Decoding");
+                    hint: I18n.t("On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Decode on the hardware");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.hardware-decode;
+                                toggled(on) => { root.hardware-decode-changed(on); }
                             }
                         }
                     }
@@ -692,17 +793,53 @@ export component SettingsDialog inherits Modal {
                     title: I18n.t("Address");
                     hint: I18n.t("127.0.0.1 is this machine only. Any other address is reachable from the network, needs a token, and is still not encrypted.");
 
-                    Field {
-                        value: root.data.server-listen;
-                        placeholder: "127.0.0.1:7420";
-                        technical: true;
-                        edited(text) => { root.server-listen-edited(text); }
+                    // One control in two halves: the address, a fixed
+                    // colon nobody has to type, and the port as a number
+                    // held to what a port can be.
+                    HorizontalLayout {
+                        spacing: 0;
+
+                        Field {
+                            value: root.data.server-host;
+                            placeholder: "127.0.0.1";
+                            technical: true;
+                            radius-right: 0px;
+                            edited(text) => { root.server-host-edited(text); }
+                        }
+
+                        Rectangle {
+                            width: 18px;
+                            min-height: 28px;
+                            max-height: 28px;
+                            background: Theme.well;
+
+                            Text {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                text: ":";
+                                color: Theme.fg-dim;
+                                font-family: Theme.font-technical;
+                                font-size: Theme.fs;
+                            }
+                        }
+
+                        NumberField {
+                            width: 76px;
+                            horizontal-stretch: 0;
+                            radius-left: 0px;
+                            value: root.data.server-port;
+                            minimum: 0;
+                            maximum: 65535;
+                            step: 1;
+                            precision: 0;
+                            changed(port) => { root.server-port-edited(port); }
+                        }
                     }
                 }
 
                 DialogSection {
                     title: I18n.t("Token");
-                    hint: I18n.t("What a connection must present before its first call. Empty on 127.0.0.1 lets anything on this machine in.");
+                    hint: I18n.t("What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.");
 
                     HorizontalLayout {
                         spacing: 6px;

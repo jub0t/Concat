@@ -11,7 +11,7 @@ fn main() {
     // `EmbedFiles` keeps each file exactly as it is — a PNG stays compressed,
     // a TTF stays a TTF — and hands it to the renderer from memory instead of
     // opening it. What that buys is a startup that touches no files and a
-    // binary that is the whole application: six font faces, a logo and twenty
+    // binary that is the whole application: five font faces, a logo and twenty
     // effect previews travel inside it, so there is no directory to ship
     // beside it and no path to get wrong.
     //

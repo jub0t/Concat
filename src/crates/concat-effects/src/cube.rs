@@ -11,6 +11,10 @@
 
 use concat_core::Lut;
 
+/// Texels a side the largest table may have: 65 is the largest anyone
+/// ships, and a 3D texture past it is memory a look does not need.
+pub const LARGEST_TABLE: u32 = 65;
+
 /// Parses the text of a `.cube` file into a table.
 pub fn parse(text: &str) -> Result<Lut, String> {
     let mut size: Option<u32> = None;
@@ -82,12 +86,32 @@ pub fn parse(text: &str) -> Result<Lut, String> {
             *value = (*value - domain_min[channel]) / span;
         }
     }
+    if size > LARGEST_TABLE {
+        return Err(format!(
+            "a table {size} a side is larger than the {LARGEST_TABLE} the renderer uploads"
+        ));
+    }
     Lut::from_rgb(size, &rgb).ok_or_else(|| "the table did not fit".to_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A table larger than the renderer uploads is refused at load, with
+    /// its size in the message, rather than becoming a texture the
+    /// device may not have room for.
+    #[test]
+    fn a_table_past_the_budget_is_refused() {
+        let size = LARGEST_TABLE + 1;
+        let mut text = format!("LUT_3D_SIZE {size}\n");
+        for _ in 0..size * size * size {
+            text.push_str("0 0 0\n");
+        }
+        let error = parse(&text).expect_err("too large");
+        assert!(error.contains(&size.to_string()), "{error}");
+        assert!(parse(&identity(2)).is_ok());
+    }
 
     fn identity(n: u32) -> String {
         let mut text = format!("TITLE \"id\"\nLUT_3D_SIZE {n}\n# rows\n");

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 rust-version = "1.93"
 license = "AGPL-3.0-or-later"  # + plugin exception, see LICENSE-EXCEPTIONS.md
@@ -52,7 +52,8 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
-# For trying a change in the window: `cargo run --profile quick -p concat`.
+# For trying a change in the window: `cargo dev` (an alias for
+# `cargo run --bin concat --profile quick`, see .cargo/config.toml).
 # Optimised enough that video plays as it would in release, without the
 # thin LTO and single codegen unit that make a release rebuild a
 # minutes-long relink. Incremental, so a change in one crate is seconds.
@@ -61,6 +62,23 @@ inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
+
+# The window's own crate unoptimised. It is where every edit lands, and
+# most of it is the Slint compiler's output: one enormous module that the
+# front end takes fifty-odd seconds to check and that LLVM then took two
+# minutes over at level 3 - and, measured, the same two minutes at level
+# 1, since the time is a few huge generated functions and not the level.
+# At 0 that is ten seconds. With the profile's incremental honoured (see
+# .cargo/config.toml) a Rust edit rebuilds in twenty seconds and a .slint
+# edit in twenty-five, from three minutes twenty. The engine crates keep
+# the profile's level 3: decoding and compositing are theirs, and they
+# only rebuild when they change. What this crate does itself - publish the
+# lanes, run the panes, format a waveform - is light enough that nothing
+# on screen tells the difference; if something ever does, the shipping
+# build is `--profile app`.
+[profile.quick.package.concat]
+opt-level = 0
+codegen-units = 256
 
 # The shipping build of the editor window: `cargo build --profile app -p concat`.
 #
@@ -101,3 +119,11 @@ strip = "symbols"
 # the rest of the engine is being debugged.
 [profile.dev.package."*"]
 opt-level = 2
+
+# No incremental caches for the everyday check-and-test builds; see
+# .cargo/config.toml for why it is said here and not there.
+[profile.dev]
+incremental = false
+
+[profile.test]
+incremental = false

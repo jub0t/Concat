@@ -28,6 +28,7 @@ const PEAK_RATE: u32 = 48_000;
 /// flat 0/0 pair, and a bucket's minimum can never sit above the axis.
 /// That is the shape the timeline has always drawn, and the on-disk caches
 /// already hold it.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Peaks {
     /// The lowest sample in each bucket, in [-1, 0].
     pub min: Vec<f32>,
@@ -77,6 +78,109 @@ impl Peaks {
             max: floats(8 + count * 4),
             buckets_per_second,
         })
+    }
+}
+
+impl Peaks {
+    /// How many buckets there are.
+    pub fn len(&self) -> usize {
+        self.min.len().min(self.max.len())
+    }
+
+    /// Whether there are none.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The same waveform at `factor` buckets to one: each new bucket takes
+    /// the extremes of the buckets it folds, so nothing quieter or louder
+    /// than the fine shape appears at the coarse one. A trailing partial
+    /// group still counts.
+    pub fn coarser(&self, factor: usize) -> Peaks {
+        let factor = factor.max(1);
+        let count = self.len();
+        let groups = count.div_ceil(factor);
+        let mut min = Vec::with_capacity(groups);
+        let mut max = Vec::with_capacity(groups);
+        for group in 0..groups {
+            let from = group * factor;
+            let to = (from + factor).min(count);
+            min.push(self.min[from..to].iter().copied().fold(0.0, f32::min));
+            max.push(self.max[from..to].iter().copied().fold(0.0, f32::max));
+        }
+        Peaks {
+            min,
+            max,
+            buckets_per_second: self.buckets_per_second / factor as f32,
+        }
+    }
+
+    /// The extremes over the buckets covering `from` to `to` seconds of the
+    /// file, `(low, high)` with low at or below zero and high at or above
+    /// it. Past the end, or an empty span, is silence.
+    pub fn extremes(&self, from: f32, to: f32) -> (f32, f32) {
+        let count = self.len();
+        if count == 0 || to <= from || self.buckets_per_second <= 0.0 {
+            return (0.0, 0.0);
+        }
+        let first = ((from * self.buckets_per_second).floor().max(0.0) as usize).min(count);
+        let last = ((to * self.buckets_per_second).ceil().max(0.0) as usize).min(count);
+        let (mut low, mut high) = (0.0f32, 0.0f32);
+        for index in first..last.max(first) {
+            low = low.min(self.min[index]);
+            high = high.max(self.max[index]);
+        }
+        (low, high)
+    }
+}
+
+/// A waveform at every resolution a drawing could want: the file's peaks
+/// as extracted, then halved again and again until a level is a handful of
+/// buckets. A drawing asks for the level whose buckets are about the size
+/// of its columns, so a clip drawn across two thousand pixels reads two
+/// thousand buckets and not two million, and a clip drawn across twenty
+/// reads twenty - the same extremes either way, since every level is the
+/// fold of the one beneath.
+#[derive(Clone, Debug)]
+pub struct Pyramid {
+    /// Finest first.
+    levels: Vec<Peaks>,
+}
+
+impl Pyramid {
+    /// Every level, from `finest` down to a few buckets.
+    pub fn of(finest: Peaks) -> Pyramid {
+        let mut levels = vec![finest];
+        while levels.last().is_some_and(|level| level.len() > 64) {
+            let coarser = levels.last().expect("just checked").coarser(2);
+            levels.push(coarser);
+        }
+        Pyramid { levels }
+    }
+
+    /// The peaks as extracted.
+    pub fn finest(&self) -> &Peaks {
+        &self.levels[0]
+    }
+
+    /// The level to draw a column of `seconds` from: the coarsest whose
+    /// buckets are no larger than the column, so a column reads one bucket
+    /// or a few and never a fraction of one. The finest when even it is
+    /// coarser than the column.
+    pub fn level_for(&self, seconds_per_column: f32) -> &Peaks {
+        if seconds_per_column.is_nan() || seconds_per_column <= 0.0 {
+            return self.finest();
+        }
+        self.levels
+            .iter()
+            .rev()
+            .find(|level| level.buckets_per_second * seconds_per_column >= 1.0)
+            .unwrap_or_else(|| self.finest())
+    }
+
+    /// How many levels there are.
+    pub fn depth(&self) -> usize {
+        self.levels.len()
     }
 }
 
@@ -218,5 +322,64 @@ mod tests {
         assert_eq!(back.min, peaks.min);
         assert_eq!(back.max, peaks.max);
         assert!(Peaks::decode(&bytes[..10]).is_none());
+    }
+
+    #[test]
+    fn a_coarser_level_keeps_the_extremes_and_the_tail() {
+        let fine = Peaks {
+            min: vec![-0.1, -0.9, -0.2, -0.3, -0.5],
+            max: vec![0.4, 0.2, 0.8, 0.1, 0.6],
+            buckets_per_second: 1000.0,
+        };
+        let half = fine.coarser(2);
+        assert_eq!(half.min, vec![-0.9, -0.3, -0.5]);
+        assert_eq!(half.max, vec![0.4, 0.8, 0.6]);
+        assert_eq!(half.buckets_per_second, 500.0);
+        assert_eq!(
+            fine.coarser(0).len(),
+            5,
+            "a factor of nothing is the same shape"
+        );
+        assert!(
+            Peaks {
+                min: vec![],
+                max: vec![],
+                buckets_per_second: 1000.0
+            }
+            .coarser(4)
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_pyramid_hands_out_the_level_that_fits_the_column() {
+        let fine = Peaks {
+            min: vec![-0.5; 4096],
+            max: vec![0.5; 4096],
+            buckets_per_second: 1000.0,
+        };
+        let pyramid = Pyramid::of(fine);
+        assert_eq!(pyramid.depth(), 7, "4096 halves to 64 in six steps");
+        // A column of one millisecond reads the finest; of a second, the
+        // coarsest that still puts at least one bucket in it.
+        assert_eq!(pyramid.level_for(0.001).buckets_per_second, 1000.0);
+        let coarse = pyramid.level_for(1.0);
+        assert!(
+            coarse.buckets_per_second <= 1000.0 / 64.0 + 1e-6,
+            "{}",
+            coarse.buckets_per_second
+        );
+        assert!(coarse.buckets_per_second * 1.0 >= 1.0);
+        // A column finer than the finest bucket still gets the finest.
+        assert_eq!(pyramid.level_for(1e-9).buckets_per_second, 1000.0);
+        assert_eq!(pyramid.level_for(f32::NAN).buckets_per_second, 1000.0);
+        assert_eq!(pyramid.level_for(-1.0).buckets_per_second, 1000.0);
+        // Every level says the same about the whole file.
+        let (low, high) = pyramid.finest().extremes(0.0, 4.096);
+        let (clow, chigh) = coarse.extremes(0.0, 4.096);
+        assert_eq!((low, high), (clow, chigh));
+        // Past the end is silence, not a panic.
+        assert_eq!(coarse.extremes(100.0, 200.0), (0.0, 0.0));
+        assert_eq!(coarse.extremes(2.0, 1.0), (0.0, 0.0));
     }
 }

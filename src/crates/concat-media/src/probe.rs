@@ -182,13 +182,30 @@ fn rational(value: ffmpeg::Rational) -> Option<Rational> {
         .then(|| Rational::new(i64::from(value.numerator()), i64::from(value.denominator())))
 }
 
-/// `avg_frame_rate` is 0/0 for streams with no constant rate, in which case
-/// `r_frame_rate` carries the best guess FFmpeg has.
+/// The rate a stream's frames are indexed by.
+///
+/// `avg_frame_rate` is the frame count over the duration, and on a short
+/// or oddly-closed file it is off by a fraction - ninety frames over
+/// eighty-nine thirtieths is 30.34 - which puts every frame on a boundary
+/// a third of a frame early and leaves holes where an index is skipped.
+/// `r_frame_rate` is the rate the timestamps are on. So a constant-rate
+/// stream, where the two agree within two percent, takes the base rate
+/// exactly; a stream with no constant rate takes the average, since its
+/// base rate is whatever the timestamps' common denominator happens to
+/// be and can be absurd. `avg_frame_rate` is 0/0 for such a stream with
+/// no average either, in which case the base rate is the best guess left.
 fn pick_rate(average: Option<Rational>, guess: Option<Rational>) -> Option<Rational> {
-    [average, guess]
-        .into_iter()
-        .flatten()
-        .find(|rate| !rate.is_zero() && !rate.is_negative())
+    let usable =
+        |rate: &Option<Rational>| rate.filter(|rate| !rate.is_zero() && !rate.is_negative());
+    match (usable(&average), usable(&guess)) {
+        (Some(average), Some(base)) => {
+            let (a, b) = (average.as_f64(), base.as_f64());
+            let close = ((a - b) / b).abs() <= 0.02;
+            Some(if close { base } else { average })
+        }
+        (Some(average), None) => Some(average),
+        (None, base) => base,
+    }
 }
 
 #[cfg(test)]
@@ -204,6 +221,24 @@ mod tests {
         assert_eq!(
             pick_rate(Some(Rational::new(30000, 1001)), pal),
             Some(Rational::new(30000, 1001))
+        );
+    }
+
+    /// A short constant-rate file whose average is skewed by its length
+    /// takes the base rate exactly; a stream whose average is nothing
+    /// like its base rate is variable, and keeps the average.
+    #[test]
+    fn a_constant_rate_stream_takes_its_base_rate_exactly() {
+        let skewed = Some(Rational::new(2700, 89));
+        let thirty = Some(Rational::from_int(30));
+        assert_eq!(pick_rate(skewed, thirty), thirty);
+        let ntsc = Some(Rational::new(30000, 1001));
+        assert_eq!(pick_rate(Some(Rational::new(29970, 1000)), ntsc), ntsc);
+        // Variable: the base rate is the timestamps' denominator, not a rate.
+        let variable = Some(Rational::new(24, 1));
+        assert_eq!(
+            pick_rate(variable, Some(Rational::from_int(1000))),
+            variable
         );
     }
 

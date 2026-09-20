@@ -36,6 +36,9 @@ export component NumberField inherits Rectangle {
     in property <bool> keyframe;
     in-out property <bool> keyframed;
     in property <bool> enabled: true;
+    /// The corners, a side at a time; see Field.
+    in property <length> radius-left: Theme.r;
+    in property <length> radius-right: Theme.r;
 
     callback changed(value: float);
     callback keyframe-toggled(on: bool);
@@ -58,7 +61,10 @@ export component NumberField inherits Rectangle {
     height: Theme.h;
     min-width: 44px;
     horizontal-stretch: 1;
-    border-radius: Theme.r;
+    border-top-left-radius: root.radius-left;
+    border-bottom-left-radius: root.radius-left;
+    border-top-right-radius: root.radius-right;
+    border-bottom-right-radius: root.radius-right;
     // The unit segment is square-cornered; the field's own radius cuts it.
     clip: root.unit != "";
     opacity: root.enabled ? 1.0 : 0.45;

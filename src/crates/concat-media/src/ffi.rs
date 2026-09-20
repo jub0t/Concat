@@ -11,6 +11,7 @@ use std::sync::Once;
 
 use concat_core::time::Rational;
 use ffmpeg_the_third as ffmpeg;
+use libc::{c_char, c_int, c_void};
 
 use crate::error::Error;
 
@@ -20,11 +21,88 @@ pub fn init() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let _ = ffmpeg::init();
-        // Errors only: a GUI has no terminal, and FFmpeg's warnings are
-        // noise about files we are about to describe precisely in our own
-        // error messages.
-        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Error);
+        // Warnings and up are formatted; where they go is `relay`'s
+        // business, and by default that is nowhere a person sees.
+        ffmpeg::util::log::set_level(ffmpeg::util::log::Level::Warning);
+        // SAFETY: `relay` has the signature av_log_set_callback wants and
+        // is `extern "C"`; it stays valid for the life of the process.
+        unsafe { ffmpeg::sys::av_log_set_callback(Some(relay)) };
     });
+}
+
+/// The `va_list` a log callback is handed, spelt as the bindings spell it
+/// in a parameter. On x86_64's System V ABI - Linux, and Intel Macs - C's
+/// `va_list` is an array of one `__va_list_tag`, and an array in a
+/// parameter position decays to a pointer, so there bindgen's `va_list`
+/// alias (the array) and the callback's parameter (the pointer) are two
+/// types, and `relay` must be declared with the second to be the callback
+/// at all. Everywhere else the alias is the parameter's type too.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+type VaList = *mut ffmpeg::sys::__va_list_tag;
+#[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+type VaList = ffmpeg::sys::va_list;
+
+/// FFmpeg's log, through the `log` facade instead of standard error.
+///
+/// Left to itself FFmpeg prints on stderr, which a packaged GUI build has
+/// wired to nowhere and a terminal run has wired to the person's screen:
+/// a seek into long-GOP H.264 prints "mmco: unref short failure" once per
+/// reference frame it cannot find, at FFmpeg's *error* level, twenty lines
+/// for a scrub, about a picture that then decodes fine. Those are not
+/// errors anyone acts on; the failures that matter come back through
+/// `Result`s and are described precisely there. So a panic or a fatal
+/// line is an error, and everything else is debug - off the console and
+/// out of the file by default, and in the file the one time somebody
+/// raises the level to read what FFmpeg saw.
+unsafe extern "C" fn relay(
+    context: *mut c_void,
+    level: c_int,
+    format: *const c_char,
+    args: VaList,
+) {
+    // The level set in `init` is applied by FFmpeg's *default* callback,
+    // not before the callback is called: a callback of our own is handed
+    // every message there is, the per-packet debug and trace lines of a
+    // decoder included, thousands a second under a scrub. They are
+    // dropped here before anything is formatted, as the default drops
+    // them - the first version of this relay formatted them all, and
+    // scrubbing crawled.
+    // SAFETY: reads a global integer.
+    if level > unsafe { ffmpeg::sys::av_log_get_level() } {
+        return;
+    }
+    let mut line = [0 as c_char; 1024];
+    let mut print_prefix: c_int = 1;
+    // SAFETY: the buffer is ours and its length is passed with it; the
+    // context, format and arguments are what FFmpeg handed this callback
+    // for exactly this call, and the formatter consumes the va_list once.
+    let written = unsafe {
+        ffmpeg::sys::av_log_format_line2(
+            context,
+            level,
+            format,
+            args,
+            line.as_mut_ptr(),
+            line.len() as c_int,
+            &mut print_prefix,
+        )
+    };
+    if written <= 0 {
+        return;
+    }
+    line[line.len() - 1] = 0;
+    // SAFETY: NUL-terminated by the formatter, and by the line above if the
+    // message was longer than the buffer.
+    let text = unsafe { CStr::from_ptr(line.as_ptr()) }.to_string_lossy();
+    let text = text.trim_end();
+    if text.is_empty() {
+        return;
+    }
+    if level <= ffmpeg::sys::AV_LOG_FATAL {
+        log::error!(target: "ffmpeg", "{text}");
+    } else {
+        log::debug!(target: "ffmpeg", "{text}");
+    }
 }
 
 /// The version of FFmpeg this binary is linked against.

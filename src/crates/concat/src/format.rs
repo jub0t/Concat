@@ -149,62 +149,94 @@ pub fn hex_of(colour: slint::Color) -> String {
     )
 }
 
-/// The audio envelope, as SVG path commands in a 1x1 box.
+/// A waveform as SVG path commands in a 1x1 box: one column per slot, each
+/// a bar standing on the floor, as tall as the loudest sample under it.
+/// A level meter laid along the clip rather than the mirrored fish of a
+/// waveform: the height of a bar is a level, read from one edge.
 ///
-/// Columns, not a curve. Each column is one rectangle, from the lowest to the
-/// highest peak under it, so the waveform is a stepped silhouette with a flat
-/// top on every column. Drawing the same peaks as a polyline gives a smooth,
-/// rounded shape that reads as a graph of something rather than as audio.
+/// Drawn at unity gain, always. The clip's volume is applied where the
+/// path is drawn, as a scale on its height, so a drag on the volume knob
+/// moves the picture without asking for a new path: at two thousand bars
+/// a rebuild, a parse and a tessellation per knob tick was the lag in the
+/// lane. The part of a bar over the hot line is drawn there too, as the
+/// same bars again in the hot colour, clipped to the band above the line.
 ///
-/// Built from the engine's real peaks: each column takes the extremes of
-/// the buckets that fall under it, so a trim shows the material it kept.
-/// Normalised rather than drawn in pixels so a zoom costs nothing: the Path
-/// that renders it stretches the box onto the clip's current width.
+/// Built from the engine's real peaks at the level that fits the column:
+/// each column takes the extremes of the buckets under it, so a trim shows
+/// the material it kept and a zoom shows the buckets it reveals. `columns`
+/// is how many the drawing has room for - the clip's width in pixels, held
+/// to a few thousand - and the path is normalised so the Path that renders
+/// it stretches the box onto the clip's current width.
 pub fn wave_path(
-    peaks: &concat_media::Peaks,
+    peaks: &concat_media::Pyramid,
     source_start: f32,
     duration: f32,
-    gain: f32,
+    columns: usize,
+    bar: f32,
 ) -> String {
-    /// Columns across the clip. Enough that the steps read as columns and
-    /// not as a bar chart, few enough that the string stays a few kilobytes.
-    const COLUMNS: usize = 128;
-    /// Silence still draws a sliver: a hairline through the middle of a clip
+    /// Fewest columns worth drawing, and the most: enough that a clip a
+    /// screen wide reads a column a pixel, few enough that the string stays
+    /// under a few hundred kilobytes.
+    const COLUMNS: std::ops::RangeInclusive<usize> = 8..=4096;
+    /// Silence still draws a sliver: a hairline along the floor of a clip
     /// rather than a gap in it.
-    const FLOOR: f32 = 0.012;
+    const FLOOR: f32 = 0.024;
 
-    if duration <= 0.0 || peaks.min.is_empty() || peaks.buckets_per_second <= 0.0 {
+    if duration.is_nan() || duration <= 0.0 || peaks.finest().is_empty() {
         return String::new();
     }
-    let gain = gain.max(0.0);
-    let count = peaks.min.len().min(peaks.max.len());
-    let per_second = peaks.buckets_per_second;
-    let mut path = String::with_capacity(COLUMNS * 56);
+    let columns = columns.clamp(*COLUMNS.start(), *COLUMNS.end());
+    let level = peaks.level_for(duration / columns as f32);
+    let mut path = String::with_capacity(columns * 56);
 
-    for column in 0..COLUMNS {
-        let left = column as f32 / COLUMNS as f32;
-        let right = (column + 1) as f32 / COLUMNS as f32;
-        let from = ((source_start + left * duration) * per_second)
-            .floor()
-            .max(0.0) as usize;
-        let to = ((source_start + right * duration) * per_second)
-            .ceil()
-            .max(0.0) as usize;
-        let (mut low, mut high) = (0.0f32, 0.0f32);
-        for index in from..to.min(count).max(from) {
-            if index < count {
-                low = low.min(peaks.min[index]);
-                high = high.max(peaks.max[index]);
-            }
-        }
-        let amplitude = ((high.max(-low) * gain).clamp(0.0, 1.0) * 0.48).max(FLOOR);
-        let (top, bottom) = (0.5 - amplitude, 0.5 + amplitude);
+    // Each bar is the peak of everything under its pitch, drawn on the
+    // leading `bar` of it: the rest is the gap that makes it a bar and
+    // not a run of columns.
+    let bar = bar.clamp(0.1, 1.0);
+    let pitch = 1.0 / columns as f32;
+    for column in 0..columns {
+        let left = column as f32 * pitch;
+        let (low, high) = level.extremes(
+            source_start + left * duration,
+            source_start + (left + pitch) * duration,
+        );
+        let right = left + pitch * bar;
+        let top = 1.0 - high.max(-low).clamp(0.0, 1.0).max(FLOOR);
         path.push_str(&format!(
             "M {left:.4} {top:.4} L {right:.4} {top:.4} \
-             L {right:.4} {bottom:.4} L {left:.4} {bottom:.4} Z "
+             L {right:.4} 1.0000 L {left:.4} 1.0000 Z "
         ));
     }
     path
+}
+
+/// A lane bar's pitch on screen, in pixels: one bar, and the gap after
+/// it, every three. Fewer bars than pixels by that factor, and a rebuild,
+/// a parse and a tessellation a third the size: at a zoom where seconds
+/// of audio sit under a pixel, a bar a pixel was work that drew nothing
+/// a bar every three does not.
+pub const WAVE_PITCH: f32 = 3.0;
+
+/// How much of a lane bar's pitch the bar takes; the rest is the gap.
+/// Two pixels of three: a thin candle with a pixel of air after it. The
+/// bin's cards, at a few dozen bars across, keep a fuller bar of their
+/// own; see `media_bin`.
+pub const WAVE_BAR: f32 = 2.0 / 3.0;
+
+/// How many bars a span of `seconds` gets at `seconds_per_pixel`: one a
+/// [`WAVE_PITCH`], rounded up to the next sixteen so a zoom rebuilds the
+/// path at each step of that and not at every pixel, held to what
+/// `wave_path` draws. The span is the window of a clip on screen (see
+/// `Studio::wave`), so the cap is a screen's worth and a bar is never
+/// stretched past its pitch.
+pub fn wave_columns(seconds: f32, seconds_per_pixel: f32) -> usize {
+    if seconds.is_nan() || seconds <= 0.0 || seconds_per_pixel.is_nan() || seconds_per_pixel <= 0.0
+    {
+        return 8;
+    }
+    let pixels = (seconds / seconds_per_pixel).ceil().max(1.0);
+    let bars = (pixels / WAVE_PITCH).ceil() as usize;
+    bars.div_ceil(16).max(1).saturating_mul(16).clamp(8, 4096)
 }
 
 /// A moment in the past, in the words a recents row wants: "just now",
@@ -246,6 +278,51 @@ pub fn colour_of(hex: &str) -> slint::Color {
     }
 }
 
+/// What a person types into a colour field: `#rgb`, `#rgba`, `#rrggbb` or
+/// `#rrggbbaa`, the hash optional, case ignored. `None` for anything else,
+/// so the field can keep what it had rather than go black.
+pub fn parse_colour(text: &str) -> Option<slint::Color> {
+    let digits = text.trim().trim_start_matches('#');
+    if !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let nibble = |at: usize| u8::from_str_radix(digits.get(at..at + 1)?, 16).ok();
+    let byte = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
+    match digits.len() {
+        3 | 4 => {
+            let wide = |at: usize| nibble(at).map(|n| n * 17);
+            let alpha = if digits.len() == 4 { wide(3)? } else { 255 };
+            Some(slint::Color::from_argb_u8(
+                alpha,
+                wide(0)?,
+                wide(1)?,
+                wide(2)?,
+            ))
+        }
+        6 | 8 => {
+            let alpha = if digits.len() == 8 { byte(6)? } else { 255 };
+            Some(slint::Color::from_argb_u8(
+                alpha,
+                byte(0)?,
+                byte(2)?,
+                byte(4)?,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// "#rrggbb" when opaque, else "#rrggbbaa" - at zero too. For a colour
+/// whose alpha is a dial of its own, like a stroke's: an opacity turned
+/// down to nothing must not take the colour with it, or turning it back
+/// up brings back black.
+pub fn hex_rgba(colour: slint::Color) -> String {
+    match colour.alpha() {
+        255 => hex_of(colour),
+        alpha => format!("{}{alpha:02x}", hex_of(colour)),
+    }
+}
+
 /// The inverse of [`colour_of`]: "#rrggbb", "#rrggbbaa" when translucent,
 /// and an empty string for fully transparent.
 pub fn hex_with_alpha(colour: slint::Color) -> String {
@@ -270,24 +347,139 @@ mod tests {
     }
 
     #[test]
-    fn a_waveform_has_one_column_per_slot_and_follows_the_gain() {
-        let peaks = concat_media::Peaks {
-            min: vec![-0.5; 400],
-            max: vec![0.5; 400],
-            buckets_per_second: 200.0,
-        };
-        let loud = wave_path(&peaks, 0.0, 2.0, 1.0);
-        let quiet = wave_path(&peaks, 0.0, 2.0, 0.25);
-        assert_eq!(loud.matches('M').count(), 128);
-        assert!(
-            loud.contains("0.2600"),
-            "half amplitude at unity gain: {loud}"
+    fn a_typed_colour_is_read_in_every_length_and_refused_otherwise() {
+        let lime = slint::Color::from_rgb_u8(0xcb, 0xf5, 0x3f);
+        assert_eq!(parse_colour("#cbf53f"), Some(lime));
+        assert_eq!(parse_colour("CBF53F"), Some(lime));
+        assert_eq!(parse_colour("  #cbf53f  "), Some(lime));
+        assert_eq!(
+            parse_colour("#fff"),
+            Some(slint::Color::from_rgb_u8(255, 255, 255))
         );
-        assert!(
-            quiet.contains("0.4400"),
-            "an eighth at a quarter gain: {quiet}"
+        assert_eq!(
+            parse_colour("#f008"),
+            Some(slint::Color::from_argb_u8(0x88, 255, 0, 0))
         );
-        assert!(wave_path(&peaks, 0.0, 0.0, 1.0).is_empty());
+        assert_eq!(
+            parse_colour("#00000000"),
+            Some(slint::Color::from_argb_u8(0, 0, 0, 0))
+        );
+        for junk in [
+            "", "#", "#12", "#12345", "#1234567", "#ggg", "red", "#cbf53f9",
+        ] {
+            assert_eq!(parse_colour(junk), None, "{junk:?}");
+        }
+        // A stroke at zero opacity keeps its colour spelled.
+        assert_eq!(
+            hex_rgba(slint::Color::from_argb_u8(0, 0xcb, 0xf5, 0x3f)),
+            "#cbf53f00"
+        );
+        assert_eq!(hex_rgba(lime), "#cbf53f");
+    }
+
+    #[test]
+    fn a_waveform_has_one_floored_bar_per_column() {
+        let peaks = concat_media::Pyramid::of(concat_media::Peaks {
+            min: vec![-0.5; 2000],
+            max: vec![0.5; 2000],
+            buckets_per_second: 1000.0,
+        });
+        let wave = wave_path(&peaks, 0.0, 2.0, 128, WAVE_BAR);
+        assert_eq!(wave.matches('M').count(), 128);
+        // A bar stands on the floor: its top is one less its height.
+        assert!(
+            wave.contains(" 0.5000 L") && wave.contains(" 1.0000 Z"),
+            "half amplitude, floored: {wave}"
+        );
+        assert!(wave_path(&peaks, 0.0, 0.0, 128, WAVE_BAR).is_empty());
+        assert!(wave_path(&peaks, 0.0, f32::NAN, 128, WAVE_BAR).is_empty());
+        // The column count is held to what is worth drawing, either way.
+        assert_eq!(
+            wave_path(&peaks, 0.0, 2.0, 0, WAVE_BAR)
+                .matches('M')
+                .count(),
+            8
+        );
+        assert_eq!(
+            wave_path(&peaks, 0.0, 2.0, 1_000_000, WAVE_BAR)
+                .matches('M')
+                .count(),
+            4096
+        );
+        // A bar takes `bar` of its pitch; the rest is the gap.
+        let eight = wave_path(&peaks, 0.0, 2.0, 8, 0.75);
+        assert!(eight.contains("M 0.0000 0.5000 L 0.0938 0.5000"), "{eight}");
+        assert!(eight.contains("M 0.1250 0.5000 L 0.2188 0.5000"), "{eight}");
+        let thin = wave_path(&peaks, 0.0, 2.0, 8, 0.5);
+        assert!(thin.contains("M 0.0000 0.5000 L 0.0625 0.5000"), "{thin}");
+        // Held to a sliver at the least, and never over the pitch.
+        let hair = wave_path(&peaks, 0.0, 2.0, 8, 0.0);
+        assert!(hair.contains("M 0.0000 0.5000 L 0.0125 0.5000"), "{hair}");
+        let solid = wave_path(&peaks, 0.0, 2.0, 8, 7.0);
+        assert!(solid.contains("M 0.0000 0.5000 L 0.1250 0.5000"), "{solid}");
+        // Silence is a sliver on the floor, never a gap.
+        let silence = concat_media::Pyramid::of(concat_media::Peaks {
+            min: vec![0.0; 100],
+            max: vec![0.0; 100],
+            buckets_per_second: 100.0,
+        });
+        let flat = wave_path(&silence, 0.0, 1.0, 10, WAVE_BAR);
+        assert_eq!(flat.matches('M').count(), 10);
+        assert!(flat.contains(" 0.9760 L"), "{flat}");
+    }
+
+    /// A zoomed-in clip reads the fine buckets: a single loud millisecond
+    /// shows in one column at a column a millisecond, and is folded into
+    /// its neighbours' column, still at full height, when a column is a
+    /// tenth of a second.
+    #[test]
+    fn zooming_in_reveals_the_fine_buckets_and_never_loses_a_peak() {
+        let mut min = vec![0.0; 1000];
+        let mut max = vec![0.0; 1000];
+        min[500] = -1.0;
+        max[500] = 1.0;
+        let peaks = concat_media::Pyramid::of(concat_media::Peaks {
+            min,
+            max,
+            buckets_per_second: 1000.0,
+        });
+        // A full-scale spike is a column whose bar reaches the top.
+        let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR);
+        assert_eq!(
+            fine.matches(" 0.0000 L").count(),
+            1,
+            "one column carries the spike: {fine}"
+        );
+        let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR);
+        assert_eq!(
+            coarse.matches(" 0.0000 L").count(),
+            1,
+            "the spike survives the fold, in one column"
+        );
+        let trimmed = wave_path(&peaks, 0.6, 0.4, 10, WAVE_BAR);
+        assert!(
+            !trimmed.contains(" 0.0000 L"),
+            "a trim past the spike does not show it"
+        );
+    }
+
+    #[test]
+    fn bars_follow_the_zoom_in_steps_of_sixteen() {
+        assert_eq!(
+            wave_columns(10.0, 0.05),
+            80,
+            "200 px is 67 bars, rounds up to 80"
+        );
+        assert_eq!(wave_columns(10.0, 0.01), 336, "1000 px is 334 bars");
+        assert_eq!(
+            wave_columns(600.0, 0.01),
+            4096,
+            "held to the most worth drawing"
+        );
+        assert_eq!(wave_columns(0.1, 0.05), 16, "never under a step");
+        assert_eq!(wave_columns(0.0, 0.05), 8);
+        assert_eq!(wave_columns(f32::NAN, 0.05), 8);
+        assert_eq!(wave_columns(10.0, 0.0), 8);
     }
 
     #[test]

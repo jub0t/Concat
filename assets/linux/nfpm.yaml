@@ -1,7 +1,7 @@
 # Concat's Linux packages: one description for the .deb and the .rpm.
 #
-# Built by build-app.yml with nfpm from the very folder the tarball is
-# made of, so every Linux bundle ships the same files. The program lives
+# Built by build-app.yml with nfpm from the staged folder the AppImage is
+# also made of, so every Linux bundle ships the same files. The program lives
 # whole under /opt/concat - the binary finds its libraries in lib/ beside
 # itself, by rpath, and nothing else on the system has to line up - with
 # a launcher on the path, a desktop entry and an icon where the desktop
@@ -9,8 +9,8 @@
 # environment; the files are named relative to the staged folder, which
 # is where nfpm is run from:
 #
-#   cd stage/Concat-0.2.2-linux-x86_64
-#   VERSION=0.2.2 NFPM_ARCH=amd64 nfpm package -f ../../assets/linux/nfpm.yaml -p deb -t ..
+#   cd stage/Concat-0.2.3-linux-x86_64
+#   VERSION=0.2.3 NFPM_ARCH=amd64 nfpm package -f ../../assets/linux/nfpm.yaml -p deb -t ..
 name: concat
 arch: ${NFPM_ARCH}
 platform: linux

@@ -1,0 +1,20 @@
+[package]
+name = "concat-perf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "How fast the parts that matter are, and where they fall short."
+publish = false
+
+[dependencies]
+concat-core.workspace = true
+concat-project.workspace = true
+concat-effects.workspace = true
+concat-render = { workspace = true, features = ["gpu"] }
+concat-media.workspace = true
+concat-export.workspace = true
+concat-host.workspace = true
+
+[lints]
+workspace = true
