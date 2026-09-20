@@ -661,17 +661,30 @@ export component Lanes inherits Rectangle {
                     root.seconds-at(self.mouse-x));
                 return EventResult.accept;
             }
-            // A trackpad's horizontal axis always pans time. Shift does the
-            // same for a wheel, which has no horizontal axis of its own.
-            // Everything else scrolls the stack, which is what a plain wheel
-            // means in every other list.
-            if (event.delta-x != 0px || event.modifiers.shift) {
+            // A trackpad's horizontal axis pans time, and its vertical axis
+            // scrolls the stack, which is what a plain wheel means in every
+            // other list. Shift turns a wheel's one axis into the pan, since
+            // a wheel has no horizontal axis of its own.
+            //
+            // Both axes out of the one event, not whichever showed up. A
+            // two-finger swipe is never exactly vertical, and the old rule
+            // sent the whole event sideways on any x at all, so most of a
+            // vertical swipe's y was thrown away: the stack crept and
+            // stuttered while the ruler twitched underneath it. A diagonal
+            // swipe now moves diagonally, the way it does on a page.
+            if (event.modifiers.shift) {
                 root.scrolled(Math.max(0, root.scroll-left
                     - (event.delta-x != 0px ? event.delta-x : event.delta-y)
                         / root.px-per-second));
                 return EventResult.accept;
             }
-            root.track-scrolled(-event.delta-y);
+            if (event.delta-x != 0px) {
+                root.scrolled(Math.max(0, root.scroll-left
+                    - event.delta-x / root.px-per-second));
+            }
+            if (event.delta-y != 0px) {
+                root.track-scrolled(-event.delta-y);
+            }
             return EventResult.accept;
         }
 
