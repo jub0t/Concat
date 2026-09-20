@@ -496,6 +496,15 @@ impl Encoder {
             match self.encoder.receive_packet(&mut packet) {
                 Ok(()) => {
                     packet.set_stream(0);
+                    // This encoder accepts exactly one CFR frame per
+                    // time-base tick. Some codecs leave packet duration
+                    // unset; without it MP4 ends its edit list at the
+                    // final frame's start and marks that frame discard.
+                    // The muxer can infer earlier durations from the next
+                    // packet, but there is no next packet for the last.
+                    if packet.duration() <= 0 {
+                        packet.set_duration(1);
+                    }
                     packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
                     packet
                         .write_interleaved(&mut self.output)
@@ -765,5 +774,57 @@ mod tests {
         encoder.finish().expect("finishes");
         assert!(std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 0));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn every_encoded_frame_is_read_back_at_integer_and_fractional_rates() {
+        use crate::{DecodeOptions, Decoder, FrameSource};
+
+        // Medium also exercises delayed / reordered B-frames; a single
+        // frame has no following timestamp to infer any duration from.
+        for preset in ["ultrafast", "medium"] {
+            for (num, den, expected) in [
+                (25, 1, 1),
+                (25, 1, 150),
+                (30000, 1001, 180),
+                (60000, 1001, 360),
+            ] {
+                let path = std::env::temp_dir().join(format!(
+                    "concat-encode-frame-count-{preset}-{num}-{den}-{expected}-{}.mp4",
+                    std::process::id()
+                ));
+                let options = EncodeOptions {
+                    preset: preset.to_owned(),
+                    hardware: false,
+                    ..EncodeOptions::default()
+                };
+                let rate = FrameRate::new(concat_core::time::Rational::new(num, den));
+                let mut encoder = Encoder::create(&path, 64, 48, rate, &options).expect("encoder");
+                for _ in 0..expected {
+                    encoder.write_frame(&Frame::black(64, 48)).expect("writes");
+                }
+                encoder.finish().expect("finishes");
+                drop(encoder);
+                let mut decoder = Decoder::open(&path, &DecodeOptions::default().in_software())
+                    .expect("opens video");
+                let mut frames = 0;
+                while decoder.next_frame().expect("decodes").is_some() {
+                    frames += 1;
+                }
+                drop(decoder);
+                let input = ffmpeg::format::input(&path).expect("opens stream metadata");
+                let stream = input.stream(0).expect("video stream");
+                let time_base = stream.time_base();
+                let duration = stream.duration() as f64 * f64::from(time_base.numerator())
+                    / f64::from(time_base.denominator());
+                assert!(
+                    (duration - f64::from(expected) / rate.fps().as_f64()).abs() < 1e-6,
+                    "stream duration includes the last frame at {num}/{den} with {preset}: {duration}"
+                );
+                assert_eq!(frames, expected, "round-trip at {num}/{den} with {preset}");
+                drop(input);
+                let _ = std::fs::remove_file(&path);
+            }
+        }
     }
 }

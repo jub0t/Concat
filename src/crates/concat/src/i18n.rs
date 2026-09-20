@@ -232,27 +232,55 @@ mod tests {
     }
 
     #[test]
-    fn every_shipped_locale_parses_names_itself_and_keys_off_the_inventory() {
+    fn every_shipped_locale_is_complete_and_preserves_placeholders() {
         let inventory = inventory();
         assert!(inventory.len() > 100, "the inventory is missing");
         for (code, text) in BUILT_IN {
             let (name, strings) = parse(text).unwrap_or_else(|| panic!("{code}.json parses"));
             assert!(!name.is_empty(), "{code}.json names its language");
-            for key in strings.keys() {
+            let mut missing: Vec<_> = inventory
+                .keys()
+                .filter(|key| !strings.contains_key(*key))
+                .collect();
+            missing.sort();
+            assert!(missing.is_empty(), "{code}.json is missing {missing:?}");
+            for (key, translated) in &strings {
                 assert!(
                     inventory.contains_key(key),
                     "{code}.json translates {key:?}, which nothing asks for"
                 );
+                assert!(
+                    !translated.trim().is_empty(),
+                    "{code}.json leaves {key:?} blank"
+                );
+                assert_eq!(
+                    placeholders(key),
+                    placeholders(translated),
+                    "{code}.json must preserve the placeholders in {key:?}"
+                );
             }
-            if code != ENGLISH {
-                // A shipped translation covers the inventory: a missing
-                // line would read in English in the middle of a page.
-                let missing: Vec<&String> = inventory
-                    .keys()
-                    .filter(|key| !strings.contains_key(*key))
-                    .collect();
-                assert!(missing.is_empty(), "{code}.json lacks {missing:?}");
-            }
+        }
+    }
+
+    fn placeholders(text: &str) -> Vec<&str> {
+        let mut slots: Vec<_> = text
+            .split('{')
+            .skip(1)
+            .filter_map(|tail| tail.split_once('}').map(|(slot, _)| slot))
+            .filter(|slot| !slot.is_empty() && slot.bytes().all(|byte| byte.is_ascii_digit()))
+            .collect();
+        slots.sort_unstable();
+        slots
+    }
+
+    #[test]
+    fn every_mask_shape_name_is_a_translation_key() {
+        let inventory = inventory();
+        for shape in concat_project::model::MaskShape::ALL {
+            assert!(
+                inventory.contains_key(shape.name()),
+                "mask shape {shape:?} has no translation key"
+            );
         }
     }
 

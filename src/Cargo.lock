@@ -1286,6 +1286,7 @@ dependencies = [
  "concat-media",
  "concat-project",
  "concat-render",
+ "concat-text",
  "concat-vision",
  "serde",
 ]

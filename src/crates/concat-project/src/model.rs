@@ -154,6 +154,10 @@ fn is_unity(value: &f64) -> bool {
     *value == 1.0
 }
 
+fn finite_or(value: f64, fallback: f64) -> f64 {
+    if value.is_finite() { value } else { fallback }
+}
+
 fn is_false(value: &bool) -> bool {
     !value
 }
@@ -456,6 +460,515 @@ pub enum BrushTool {
     SmartEraser,
     /// Removes everything under the stroke.
     Eraser,
+}
+
+/// A geometric or hand-authored alpha mask attached to a picture clip.
+///
+/// Coordinates are relative to the original source picture rather than the
+/// output frame. A decoded pixel is mapped back through crop and flip before
+/// the mask is sampled, so painting and rendered coverage stay aligned.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipMask {
+    /// Stable identity used by the inspector and namespaced keyframe tracks.
+    pub id: String,
+    /// The analytic or authored geometry this mask uses.
+    pub shape: MaskShape,
+    /// Whether this mask participates while the clip-level switch is on.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Keeps everything outside the shape instead of everything inside it.
+    #[serde(default)]
+    pub inverted: bool,
+    /// Centre offset: -1 is the leading/top edge, 0 is centred, 1 the
+    /// trailing/bottom edge.
+    #[serde(default)]
+    pub position_x: f64,
+    /// Vertical centre offset on the same terms as `position_x`.
+    #[serde(default)]
+    pub position_y: f64,
+    /// Fraction of the original source picture's width.
+    #[serde(default = "default_mask_size")]
+    pub width: f64,
+    /// Fraction of the original source picture's height.
+    #[serde(default = "default_mask_size")]
+    pub height: f64,
+    /// Clockwise degrees about the mask's centre.
+    #[serde(default)]
+    pub rotation: f64,
+    /// Edge softness as a fraction of the shorter picture edge.
+    #[serde(default)]
+    pub feather: f64,
+    /// Rectangle/filmstrip corner radius, 0 square through 1 pill-shaped.
+    #[serde(default)]
+    pub roundness: f64,
+    /// Whether the inspector edits width and height together.
+    #[serde(default = "yes")]
+    pub linked: bool,
+    /// Words cut through a Text mask. Other shapes ignore this.
+    #[serde(default = "default_mask_text")]
+    pub text: String,
+    /// Brush path or Pen polygon in mask-local fractions, before the mask's
+    /// position, size and rotation. Points may lie outside the unit square.
+    /// Exactly `[-1, -1]` separates independent brush strokes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<[f64; 2]>,
+    /// Brush diameter as a fraction of picture width.
+    #[serde(default = "default_mask_brush")]
+    pub brush_size: f64,
+    /// Independent animation keys for this mask's numeric properties.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<MaskKey>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+/// Built-in geometric and authored mask kinds.
+pub enum MaskShape {
+    /// One side of a rotatable dividing line.
+    Split,
+    /// Three parallel rounded bands.
+    Filmstrip,
+    /// An ellipse inside the configured bounds.
+    Circle,
+    #[default]
+    /// A rectangle with optional rounded corners.
+    Rectangle,
+    /// A five-point star.
+    Star,
+    /// A heart silhouette.
+    Heart,
+    /// The alpha of a rendered text string.
+    Text,
+    /// A freehand round brush path.
+    Brush,
+    /// A closed user-authored polygon.
+    Pen,
+}
+
+impl MaskShape {
+    /// Inspector order, kept stable because Slint transports the ordinal.
+    pub const ALL: [Self; 9] = [
+        Self::Split,
+        Self::Filmstrip,
+        Self::Circle,
+        Self::Rectangle,
+        Self::Star,
+        Self::Heart,
+        Self::Text,
+        Self::Brush,
+        Self::Pen,
+    ];
+
+    /// Human-facing English name used as a translation key.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Split => "Split",
+            Self::Filmstrip => "Filmstrip",
+            Self::Circle => "Circle",
+            Self::Rectangle => "Rectangle",
+            Self::Star => "Star",
+            Self::Heart => "Heart",
+            Self::Text => "Text",
+            Self::Brush => "Brush",
+            Self::Pen => "Pen",
+        }
+    }
+}
+
+/// A mask setting that may use the same namespaced keyframe model as an
+/// effect parameter or clip transform.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MaskProperty {
+    /// Horizontal centre offset.
+    PositionX,
+    /// Vertical centre offset.
+    PositionY,
+    /// Clockwise degrees.
+    Rotation,
+    /// Fraction of source width.
+    Width,
+    /// Fraction of source height.
+    Height,
+    /// Soft edge radius.
+    Feather,
+    /// Rectangle corner radius.
+    Roundness,
+}
+
+/// One key on one numeric mask property.
+///
+/// Mask keys deliberately live on the mask rather than in the clip's six
+/// transform/audio tracks. That keeps upstream's clip-key schema intact and
+/// lets tracking animate one mask without changing the clip itself.
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaskKey {
+    /// Which mask property this key animates.
+    pub property: MaskProperty,
+    /// Fraction of the clip's timeline duration, `0..=1`.
+    pub at: f64,
+    /// Property value at this key.
+    pub value: f64,
+    /// How this key is approached from the previous key.
+    #[serde(default)]
+    pub ease: KeyEase,
+}
+
+impl MaskProperty {
+    /// Inspector order, kept stable because Slint transports the ordinal.
+    pub const ALL: [Self; 7] = [
+        Self::PositionX,
+        Self::PositionY,
+        Self::Rotation,
+        Self::Width,
+        Self::Height,
+        Self::Feather,
+        Self::Roundness,
+    ];
+
+    /// The suffix used by this property's namespaced keyframe track.
+    pub const fn suffix(self) -> &'static str {
+        match self {
+            Self::PositionX => "positionX",
+            Self::PositionY => "positionY",
+            Self::Rotation => "rotation",
+            Self::Width => "width",
+            Self::Height => "height",
+            Self::Feather => "feather",
+            Self::Roundness => "roundness",
+        }
+    }
+
+    /// Stable keyframe track id for one mask's property.
+    pub fn id(self, mask_id: &str) -> String {
+        format!("mask:{mask_id}:{}", self.suffix())
+    }
+
+    const fn index(self) -> u8 {
+        match self {
+            Self::PositionX => 0,
+            Self::PositionY => 1,
+            Self::Rotation => 2,
+            Self::Width => 3,
+            Self::Height => 4,
+            Self::Feather => 5,
+            Self::Roundness => 6,
+        }
+    }
+
+    fn clamp(self, value: f64) -> f64 {
+        match self {
+            Self::PositionX | Self::PositionY => value.clamp(-2.0, 2.0),
+            Self::Rotation => value.clamp(-3600.0, 3600.0),
+            Self::Width | Self::Height => value.clamp(0.01, 4.0),
+            Self::Feather => value.clamp(0.0, 0.5),
+            Self::Roundness => value.clamp(0.0, 1.0),
+        }
+    }
+}
+
+fn default_mask_size() -> f64 {
+    0.65
+}
+
+fn default_mask_text() -> String {
+    "TEXT".to_owned()
+}
+
+fn default_mask_brush() -> f64 {
+    0.08
+}
+
+impl ClipMask {
+    /// Makes one mask in its shape-appropriate useful default size.
+    pub fn new(id: String, shape: MaskShape) -> Self {
+        let (width, height, roundness) = match shape {
+            MaskShape::Split => (2.0, 1.0, 0.0),
+            MaskShape::Filmstrip => (1.2, 0.35, 0.08),
+            MaskShape::Circle => (0.65, 0.65, 1.0),
+            MaskShape::Rectangle => (0.7, 0.55, 0.08),
+            MaskShape::Star => (0.65, 0.65, 0.0),
+            MaskShape::Heart => (0.68, 0.62, 0.0),
+            MaskShape::Text => (0.85, 0.35, 0.0),
+            MaskShape::Brush => (1.0, 1.0, 0.0),
+            MaskShape::Pen => (1.0, 1.0, 0.0),
+        };
+        Self {
+            id,
+            shape,
+            enabled: true,
+            inverted: false,
+            position_x: 0.0,
+            position_y: 0.0,
+            width,
+            height,
+            rotation: 0.0,
+            feather: 0.0,
+            roundness,
+            linked: true,
+            text: default_mask_text(),
+            points: Vec::new(),
+            brush_size: default_mask_brush(),
+            keys: Vec::new(),
+        }
+    }
+
+    /// Switches presets without carrying the previous shape's dimensions
+    /// or authored path into the next one. Placement and feather stay put.
+    pub fn apply_shape_preset(&mut self, shape: MaskShape) {
+        let preset = Self::new(self.id.clone(), shape);
+        self.shape = shape;
+        self.width = preset.width;
+        self.height = preset.height;
+        self.roundness = preset.roundness;
+        self.brush_size = preset.brush_size;
+        self.points.clear();
+    }
+
+    /// Reads an animatable property.
+    pub fn value(&self, property: MaskProperty) -> f64 {
+        match property {
+            MaskProperty::PositionX => self.position_x,
+            MaskProperty::PositionY => self.position_y,
+            MaskProperty::Rotation => self.rotation,
+            MaskProperty::Width => self.width,
+            MaskProperty::Height => self.height,
+            MaskProperty::Feather => self.feather,
+            MaskProperty::Roundness => self.roundness,
+        }
+    }
+
+    /// Writes and clamps an animatable property.
+    pub fn set_value(&mut self, property: MaskProperty, value: f64) {
+        let value = property.clamp(value);
+        match property {
+            MaskProperty::PositionX => self.position_x = value,
+            MaskProperty::PositionY => self.position_y = value,
+            MaskProperty::Rotation => self.rotation = value,
+            MaskProperty::Width => self.width = value,
+            MaskProperty::Height => self.height = value,
+            MaskProperty::Feather => self.feather = value,
+            MaskProperty::Roundness => self.roundness = value,
+        }
+    }
+
+    /// This property's keys in time order.
+    pub fn keys_on(
+        &self,
+        property: MaskProperty,
+    ) -> impl DoubleEndedIterator<Item = &MaskKey> + Clone {
+        self.keys.iter().filter(move |key| key.property == property)
+    }
+
+    /// The index of this property's nearest key at `at`.
+    pub fn key_at(&self, property: MaskProperty, at: f64) -> Option<usize> {
+        self.keys
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| key.property == property && (key.at - at).abs() <= KEY_EPSILON)
+            .min_by(|(_, a), (_, b)| (a.at - at).abs().total_cmp(&(b.at - at).abs()))
+            .map(|(index, _)| index)
+    }
+
+    /// The evaluated property value at one point in the clip.
+    pub fn value_at(&self, property: MaskProperty, at: f64) -> f64 {
+        let rest = self.value(property);
+        let keys = self
+            .keys_on(property)
+            .map(|key| concat_core::animate::Key {
+                at: key.at,
+                value: key.value,
+                ease: key.ease.into(),
+            })
+            .collect();
+        concat_core::animate::Track::new(keys).value_at(at, rest)
+    }
+
+    /// Undoes the evaluated mask transform for a source-picture point.
+    /// Rotation is measured in pixels, so the source aspect ratio matters.
+    pub fn point_from_source(&self, point: [f64; 2], aspect: f64, at: f64) -> [f64; 2] {
+        let aspect = finite_or(aspect, 1.0).max(1e-6);
+        let dx = (point[0] - 0.5 - self.value_at(MaskProperty::PositionX, at) * 0.5) * aspect;
+        let dy = point[1] - 0.5 - self.value_at(MaskProperty::PositionY, at) * 0.5;
+        let (sin, cos) = self
+            .value_at(MaskProperty::Rotation, at)
+            .to_radians()
+            .sin_cos();
+        let mut local = [
+            (dx * cos + dy * sin)
+                / (self.value_at(MaskProperty::Width, at).clamp(0.01, 4.0) * aspect)
+                + 0.5,
+            (-dx * sin + dy * cos) / self.value_at(MaskProperty::Height, at).clamp(0.01, 4.0) + 0.5,
+        ];
+        // A real point must not be mistaken for the legacy stroke separator.
+        if local == [-1.0, -1.0] {
+            local[0] += f64::EPSILON;
+        }
+        local
+    }
+
+    /// Sets or replaces a key and keeps the storage order deterministic.
+    pub fn set_key(&mut self, property: MaskProperty, at: f64, value: f64, ease: KeyEase) {
+        if !at.is_finite() || !value.is_finite() {
+            return;
+        }
+        let key = MaskKey {
+            property,
+            at: at.clamp(0.0, 1.0),
+            value: property.clamp(value),
+            ease: ease.sane(),
+        };
+        match self.key_at(property, key.at) {
+            Some(index) => self.keys[index] = key,
+            None => self.keys.push(key),
+        }
+        self.sort_keys();
+    }
+
+    /// Removes the key on `property` at `at`.
+    pub fn clear_key(&mut self, property: MaskProperty, at: f64) -> bool {
+        let Some(index) = self.key_at(property, at) else {
+            return false;
+        };
+        self.keys.remove(index);
+        true
+    }
+
+    fn sort_keys(&mut self) {
+        self.keys.sort_by(|a, b| {
+            a.property
+                .index()
+                .cmp(&b.property.index())
+                .then_with(|| a.at.total_cmp(&b.at))
+        });
+    }
+
+    /// Normalises values read from a document or received in a command.
+    pub fn tidy(mut self) -> Self {
+        self.position_x = finite_or(self.position_x, 0.0).clamp(-2.0, 2.0);
+        self.position_y = finite_or(self.position_y, 0.0).clamp(-2.0, 2.0);
+        self.width = finite_or(self.width, default_mask_size()).clamp(0.01, 4.0);
+        self.height = finite_or(self.height, default_mask_size()).clamp(0.01, 4.0);
+        self.rotation = finite_or(self.rotation, 0.0).clamp(-3600.0, 3600.0);
+        self.feather = finite_or(self.feather, 0.0).clamp(0.0, 0.5);
+        self.roundness = finite_or(self.roundness, 0.0).clamp(0.0, 1.0);
+        self.brush_size = finite_or(self.brush_size, default_mask_brush()).clamp(0.002, 1.0);
+        self.text = self.text.trim().chars().take(120).collect();
+        if self.text.is_empty() {
+            self.text = default_mask_text();
+        }
+        self.points
+            .retain(|point| point.iter().all(|value| value.is_finite()));
+        for [x, y] in &mut self.points {
+            if [*x, *y] == [-1.0, -1.0] {
+                continue;
+            }
+            // A translated or small mask can put an on-picture stroke well
+            // outside its unit square. Only bound pathological documents.
+            *x = x.clamp(-1e6, 1e6);
+            *y = y.clamp(-1e6, 1e6);
+        }
+        self.keys
+            .retain(|key| key.at.is_finite() && key.value.is_finite());
+        for key in &mut self.keys {
+            key.at = key.at.clamp(0.0, 1.0);
+            key.value = key.property.clamp(key.value);
+            key.ease = key.ease.sane();
+        }
+        self.sort_keys();
+        self.keys
+            .dedup_by(|a, b| a.property == b.property && (a.at - b.at).abs() <= f64::EPSILON);
+        self
+    }
+}
+
+#[cfg(test)]
+mod mask_preset_tests {
+    use super::*;
+
+    #[test]
+    fn drawing_undoes_position_size_and_rotation_at_the_playhead() {
+        let mut mask = ClipMask::new("paint".to_owned(), MaskShape::Brush);
+        mask.set_key(MaskProperty::PositionX, 0.0, -0.4, KeyEase::LINEAR);
+        mask.set_key(MaskProperty::PositionX, 1.0, 0.4, KeyEase::LINEAR);
+        mask.position_y = -0.3;
+        mask.width = 0.4;
+        mask.height = 0.7;
+        for aspect in [16.0 / 9.0, 9.0 / 16.0, 1.0] {
+            for rotation in [0.0, 35.0, 90.0, -135.0] {
+                mask.rotation = rotation;
+                for local in [[0.2, 0.8], [-0.3, -0.2], [1.2, 0.5]] {
+                    let dx = (local[0] - 0.5) * mask.width * aspect;
+                    let dy = (local[1] - 0.5) * mask.height;
+                    let (sin, cos) = rotation.to_radians().sin_cos();
+                    let at = 0.75;
+                    let source = [
+                        0.5 + mask.value_at(MaskProperty::PositionX, at) * 0.5
+                            + (dx * cos - dy * sin) / aspect,
+                        0.5 + mask.position_y * 0.5 + dx * sin + dy * cos,
+                    ];
+                    let actual = mask.point_from_source(source, aspect, at);
+                    for axis in 0..2 {
+                        assert!(
+                            (actual[axis] - local[axis]).abs() < 1e-9,
+                            "{actual:?} != {local:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tidying_preserves_outside_paths_and_only_exact_stroke_breaks() {
+        let mut mask = ClipMask::new("paint".to_owned(), MaskShape::Brush);
+        mask.points = vec![[-0.3, -0.2], [1.4, 1.7], [-1.0, -1.0]];
+        let points = mask.points.clone();
+        assert_eq!(mask.tidy().points, points);
+    }
+
+    #[test]
+    fn a_drawn_point_cannot_become_a_stroke_separator() {
+        let mask = ClipMask::new("paint".to_owned(), MaskShape::Brush);
+        assert_ne!(mask.point_from_source([-1.0, -1.0], 1.0, 0.0), [-1.0, -1.0]);
+    }
+
+    #[test]
+    fn switching_shapes_restores_the_new_preset_without_moving_the_mask() {
+        let mut mask = ClipMask::new("one".to_owned(), MaskShape::Brush);
+        mask.position_x = 0.4;
+        mask.feather = 0.03;
+        mask.brush_size = 0.2;
+        mask.points = vec![[0.2, 0.3], [0.8, 0.7]];
+        mask.apply_shape_preset(MaskShape::Filmstrip);
+        let preset = ClipMask::new("one".to_owned(), MaskShape::Filmstrip);
+        assert_eq!(
+            (mask.width, mask.height, mask.roundness),
+            (preset.width, preset.height, preset.roundness)
+        );
+        assert_eq!(mask.brush_size, preset.brush_size);
+        assert!(mask.points.is_empty());
+        assert_eq!(mask.position_x, 0.4);
+        assert_eq!(mask.feather, 0.03);
+    }
+
+    #[test]
+    fn drawing_uses_the_same_size_clamps_as_rendering_when_keys_overshoot() {
+        let mut mask = ClipMask::new("paint".to_owned(), MaskShape::Brush);
+        mask.set_key(MaskProperty::Width, 0.0, 0.5, KeyEase::LINEAR);
+        mask.set_key(
+            MaskProperty::Width,
+            1.0,
+            1.0,
+            KeyEase([0.3, -10.0, 0.7, -10.0]),
+        );
+        assert!(mask.value_at(MaskProperty::Width, 0.5) < 0.01);
+        let actual = mask.point_from_source([0.502, 0.7], 16.0 / 9.0, 0.5);
+        assert!((actual[0] - 0.7).abs() < 1e-9);
+        assert!((actual[1] - 0.7).abs() < 1e-9);
+    }
 }
 
 /// The edge softness a cutout starts with.
@@ -1172,6 +1685,13 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub cutout: Option<Cutout>,
+    /// Geometric/painted masks, combined as one alpha matte before the clip
+    /// is transformed. Disabled masks stay in the project for later reuse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masks: Vec<ClipMask>,
+    /// The clip-level bypass for every geometric mask.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub masks_enabled: bool,
     /// Keep voices at their natural pitch when `speed` is not 1. On by
     /// default; off gives the tape-machine chipmunk/slow-motion sound.
     pub preserve_pitch: bool,
@@ -1294,6 +1814,8 @@ impl Clip {
             blend: String::new(),
             crop: None,
             cutout: None,
+            masks: Vec::new(),
+            masks_enabled: false,
             filters: Vec::new(),
             video_effects: Vec::new(),
             audio_stream: None,
@@ -1347,6 +1869,10 @@ impl Clip {
             .map(Crop::tidy)
             .filter(|crop| !crop.is_none());
         self.cutout = self.cutout.take().map(Cutout::tidy);
+        self.masks = self.masks.into_iter().map(ClipMask::tidy).collect();
+        if self.masks.is_empty() {
+            self.masks_enabled = false;
+        }
         if let Some(transition) = self.transition_in.as_mut() {
             transition.duration = finite(transition.duration, 1.0).max(MIN_TRANSITION);
         }

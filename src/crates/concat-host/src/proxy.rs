@@ -158,6 +158,7 @@ pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result
             ten_bit: false,
             hardware: false,
             threads: 2,
+            ..EncodeOptions::default()
         },
     )
     .map_err(|error| error.to_string())?;

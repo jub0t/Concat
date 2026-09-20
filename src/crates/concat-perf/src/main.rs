@@ -710,6 +710,8 @@ fn export(media: &Media) -> Measure {
         preset: "veryfast".to_owned(),
         codec: concat_media::VideoCodec::H264,
         ten_bit: false,
+        rate_mode: concat_media::RateMode::Vbr,
+        bitrate_kbps: 0,
     };
     let request = concat_host::export::request(&session, &spec, Vec::new());
     let cancel = AtomicBool::new(false);

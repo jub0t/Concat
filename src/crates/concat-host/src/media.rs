@@ -228,10 +228,6 @@ pub fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
 
 /// Resolution of the cached waveform.
 ///
-/// 200 buckets per second is roughly two buckets per pixel at the default
-/// timeline zoom, which is enough that the drawn shape does not visibly
-/// change as you zoom in a step or two, without storing the whole decoded
-/// file.
 /// A thousand a second: a bucket is a millisecond, forty-eight samples,
 /// which is what a clip a screen wide at the closest zoom needs, and the
 /// pyramid folds it down for every wider view. See `concat_media::Pyramid`.
@@ -894,13 +890,14 @@ mod tests {
     fn cache_keys_are_stable() {
         // Pinned: a changed hash would orphan every project's caches.
         assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(PEAKS_BUCKETS_PER_SECOND, 1000);
         assert_eq!(
             peaks_key("/a.mp4", None),
-            format!("{:016x}-b200.peaks", fnv1a(b"/a.mp4"))
+            format!("{:016x}-b1000.peaks", fnv1a(b"/a.mp4"))
         );
         assert_eq!(
             peaks_key("/a.mp4", Some(2)),
-            format!("{:016x}-s2-b200.peaks", fnv1a(b"/a.mp4"))
+            format!("{:016x}-s2-b1000.peaks", fnv1a(b"/a.mp4"))
         );
     }
 

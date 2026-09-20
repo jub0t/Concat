@@ -13,9 +13,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, Crop, CustomFont,
-    Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, Stroke,
-    TextStyle, Timeline, Track, Transition, VideoSettings,
+    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ClipMask, Crop,
+    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MaskShape, MediaItem, MediaKind, Project,
+    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -442,6 +442,34 @@ pub enum Command {
         /// The stroke, in source fractions.
         stroke: Stroke,
     },
+    /// Adds one geometric mask and returns its stable `mask*` id.
+    AddClipMask {
+        /// The picture clip receiving the mask.
+        clip_id: String,
+        /// Initial mask geometry.
+        shape: MaskShape,
+    },
+    /// Replaces one mask after an inspector or monitor gesture.
+    UpdateClipMask {
+        /// The picture clip owning the mask.
+        clip_id: String,
+        /// Complete replacement carrying the same stable mask id.
+        mask: ClipMask,
+    },
+    /// Removes one mask without disturbing the others.
+    RemoveClipMask {
+        /// The picture clip owning the mask.
+        clip_id: String,
+        /// Stable id of the mask to remove.
+        mask_id: String,
+    },
+    /// Temporarily bypasses or re-enables every geometric mask on a clip.
+    SetClipMasksEnabled {
+        /// The picture clip owning the masks.
+        clip_id: String,
+        /// Whether its mask stack participates in rendering.
+        enabled: bool,
+    },
     /// Repositions any number of clips in one edit - one undo step for a
     /// whole multi-selection drag. Unknown clips and tracks are tolerated
     /// per [`ClipMove`].
@@ -758,6 +786,9 @@ impl IdMint {
             }
             for clip in &timeline.clips {
                 self.adopt(&clip.id);
+                for mask in &clip.masks {
+                    self.adopt(&mask.id);
+                }
             }
         }
     }
@@ -998,6 +1029,10 @@ pub fn apply(
         | Command::SetClipSpeed { .. }
         | Command::SetClipCutout { .. }
         | Command::AddCutoutStroke { .. }
+        | Command::AddClipMask { .. }
+        | Command::UpdateClipMask { .. }
+        | Command::RemoveClipMask { .. }
+        | Command::SetClipMasksEnabled { .. }
         | Command::SetClipAnimation { .. }
         | Command::SetClipKey { .. }
         | Command::ClearClipKey { .. }

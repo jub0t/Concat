@@ -26,7 +26,7 @@ mod resolve;
 
 use resolve::{BuiltTimeline, Treatment, animation_of, build_timeline, quantise};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -41,11 +41,12 @@ use concat_media::audio::{self, AudioClip};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
 };
-use concat_project::model::{AppliedFilter, Cutout};
+use concat_project::model::{AppliedFilter, ClipMask, Cutout, MaskShape};
 use concat_render::{
     Compositor, CpuCompositor, FramePlan, PlannedLayer, PlannedTreatment, plan_frame,
 };
-use concat_vision::{Mapping, MaskStore};
+use concat_text::{Align, Fonts, TitleStyle};
+use concat_vision::{Mapping, Mask, MaskStore};
 use serde::Deserialize;
 
 /// What a flattened clip is. Typed, so a kind check the compiler has not
@@ -211,6 +212,12 @@ pub struct ExportClip {
     /// - or empty when the flattener had no project folder to name it by.
     #[serde(default)]
     pub mask_dir: String,
+    /// Source-space masks combined as an alpha matte before placement.
+    #[serde(default)]
+    pub masks: Vec<ClipMask>,
+    /// Clip-level bypass for all geometric masks.
+    #[serde(default)]
+    pub masks_enabled: bool,
 }
 
 impl ExportClip {
@@ -260,6 +267,8 @@ impl ExportClip {
             cutout: None,
             mask_dir: String::new(),
             highlighted: false,
+            masks: Vec::new(),
+            masks_enabled: false,
         }
     }
 }
@@ -926,6 +935,126 @@ fn filled(
     }
 }
 
+/// Geometric masks prepared once per built timeline. Text masks rasterise
+/// here; all other shapes are evaluated analytically against each frame.
+type StaticMattes = HashMap<(u32, u32), std::sync::Arc<[u8]>>;
+
+struct GeometricMaskJob {
+    masks: Vec<ClipMask>,
+    text_masks: BTreeMap<String, Mask>,
+    mapping: Mapping,
+    /// Ordinary shapes do not change between frames. Cache their alpha
+    /// coverage by decoded size rather than evaluating every playback frame.
+    static_mattes: std::sync::Mutex<StaticMattes>,
+}
+
+impl GeometricMaskJob {
+    fn of(clip: &ExportClip) -> Option<Self> {
+        if !clip.masks_enabled || !clip.masks.iter().any(|mask| mask.enabled) {
+            return None;
+        }
+        let mut text_masks = BTreeMap::new();
+        if clip
+            .masks
+            .iter()
+            .any(|mask| mask.enabled && mask.shape == MaskShape::Text)
+        {
+            let fonts = Fonts::new();
+            for mask in clip
+                .masks
+                .iter()
+                .filter(|mask| mask.enabled && mask.shape == MaskShape::Text)
+            {
+                let style = TitleStyle {
+                    content: mask.text.clone(),
+                    font_family: concat_text::BUNDLED_FAMILY.to_owned(),
+                    font_size: 0.56,
+                    font_weight: 700.0,
+                    italic: false,
+                    color: "#ffffffff".to_owned(),
+                    align: Align::Center,
+                    stroke_width: 0.0,
+                    stroke_color: "#00000000".to_owned(),
+                    shadow: false,
+                    background: String::new(),
+                    line_height: 1.0,
+                    tracking: 0.0,
+                    max_width: 0.0,
+                    max_height: 0.0,
+                };
+                if let Ok(rendered) = concat_text::render(&fonts, &style, 512, 256)
+                    && let Some(raster) = Mask::from_png_alpha(&rendered.png)
+                {
+                    text_masks.insert(mask.id.clone(), raster);
+                }
+            }
+        }
+        Some(Self {
+            masks: clip.masks.clone(),
+            text_masks,
+            mapping: Mapping {
+                crop: clip
+                    .crop
+                    .map(|edges| edges.map(|edge| edge as f32))
+                    .unwrap_or([0.0; 4]),
+                flip_h: clip.flip_h,
+                flip_v: clip.flip_v,
+            },
+            static_mattes: std::sync::Mutex::new(HashMap::new()),
+        })
+    }
+
+    fn static_matte(&self, width: u32, height: u32) -> std::sync::Arc<[u8]> {
+        let mut cache = self
+            .static_mattes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(matte) = cache.get(&(width, height)) {
+            return std::sync::Arc::clone(matte);
+        }
+        let mut opaque = Frame::black(width, height);
+        concat_vision::cut_geometric_mapped(
+            &mut opaque,
+            &self.masks,
+            &self.mapping,
+            0.0,
+            &self.text_masks,
+        );
+        let matte: std::sync::Arc<[u8]> = opaque
+            .pixels()
+            .chunks_exact(4)
+            .map(|pixel| pixel[3])
+            .collect::<Vec<_>>()
+            .into();
+        // Playback and gesture previews can request different dimensions.
+        // Do not retain an unbounded number of full-size mattes.
+        if cache.len() >= 4 {
+            cache.clear();
+        }
+        cache.insert((width, height), std::sync::Arc::clone(&matte));
+        matte
+    }
+
+    fn cut(&self, frame: &Frame, at: f64) -> Frame {
+        let mut out = frame.clone();
+        if self.masks.iter().all(|mask| mask.keys.is_empty()) {
+            let matte = self.static_matte(frame.width(), frame.height());
+            for (pixel, &coverage) in out.pixels_mut().chunks_exact_mut(4).zip(matte.iter()) {
+                pixel[3] = ((u16::from(pixel[3]) * u16::from(coverage) + 127) / 255) as u8;
+            }
+            return out;
+        }
+        concat_vision::cut_geometric_mapped(
+            &mut out,
+            &self.masks,
+            &self.mapping,
+            at,
+            &self.text_masks,
+        );
+        out
+    }
+}
+
 /// A stack already drawn, as a layer over the whole frame on the lowest
 /// track: texel for pixel, since it is the frame's own size.
 fn ground_layer(ground: Frame) -> PlannedLayer {
@@ -964,6 +1093,7 @@ fn render_picture(
         chains,
         cutouts,
         highlight: _,
+        geometric_masks,
     } = build_timeline(request, rate, visible, gpu);
 
     let mut encoder = Encoder::create(
@@ -1023,6 +1153,14 @@ fn render_picture(
                         .get(&layer.clip)
                         .and_then(|job| job.cut(&frame, layer.source_time))
                         .map_or(frame, std::sync::Arc::new);
+                    let frame = if let Some(job) = geometric_masks.get(&layer.clip) {
+                        let at = timeline
+                            .clip(layer.clip)
+                            .map_or(0.0, |clip| clip.fraction_at(time));
+                        std::sync::Arc::new(job.cut(&frame, at))
+                    } else {
+                        frame
+                    };
                     layers.push(filled(
                         layer,
                         frame,
@@ -1093,6 +1231,14 @@ fn render_picture(
                 {
                     Some(cut) => cut,
                     None => frame,
+                };
+                let frame = if let Some(job) = geometric_masks.get(&layer.clip) {
+                    let at = timeline
+                        .clip(layer.clip)
+                        .map_or(0.0, |clip| clip.fraction_at(time));
+                    job.cut(&frame, at)
+                } else {
+                    frame
                 };
                 layers.push(filled(
                     layer,
@@ -1376,7 +1522,9 @@ pub fn preview_sources_of(
         pre_chains,
         chains,
         cutouts,
+        geometric_masks,
         highlight,
+        ..
     } = &plan.built;
     let highlight = *highlight;
     let time = quantise(seconds, rate);
@@ -1413,6 +1561,14 @@ pub fn preview_sources_of(
                 }) {
                     Some(drawn) => std::sync::Arc::new(drawn),
                     None => frame,
+                };
+                let frame = if let Some(job) = geometric_masks.get(&layer.clip) {
+                    let at = timeline
+                        .clip(layer.clip)
+                        .map_or(0.0, |clip| clip.fraction_at(time));
+                    std::sync::Arc::new(job.cut(&frame, at))
+                } else {
+                    frame
                 };
                 layers.push(filled(
                     layer,
@@ -1714,6 +1870,89 @@ mod tests {
             source_start,
             ..ExportClip::blank(kind_of, start, duration, track)
         }
+    }
+
+    #[test]
+    fn text_mask_raster_uses_the_bundled_font() {
+        let mut masked = clip("video", 0, 0.0, 1.0, 0.0);
+        masked.masks_enabled = true;
+        let mut mask = ClipMask::new("text".to_owned(), MaskShape::Text);
+        mask.text = "Mask".to_owned();
+        masked.masks.push(mask);
+        let job = GeometricMaskJob::of(&masked).unwrap();
+        let actual = job.text_masks.get("text").expect("text mask rasterised");
+        assert!(!actual.is_blank());
+        let expected_style = TitleStyle {
+            content: "Mask".to_owned(),
+            font_family: concat_text::BUNDLED_FAMILY.to_owned(),
+            font_size: 0.56,
+            font_weight: 700.0,
+            italic: false,
+            color: "#ffffffff".to_owned(),
+            align: Align::Center,
+            stroke_width: 0.0,
+            stroke_color: "#00000000".to_owned(),
+            shadow: false,
+            background: String::new(),
+            line_height: 1.0,
+            tracking: 0.0,
+            max_width: 0.0,
+            max_height: 0.0,
+        };
+        let rendered = concat_text::render(&Fonts::new(), &expected_style, 512, 256).unwrap();
+        let expected = Mask::from_png_alpha(&rendered.png).unwrap();
+        assert_eq!(actual, &expected);
+        let output = job.cut(&Frame::black(512, 256), 0.0);
+        assert!(output.pixels().chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert_eq!(output.pixel(0, 0).unwrap()[3], 0);
+    }
+
+    #[test]
+    fn static_mask_matte_is_reused_and_animated_masks_bypass_it() {
+        use concat_project::model::{KeyEase, MaskKey, MaskProperty};
+
+        let mut masked = clip("video", 0, 0.0, 1.0, 0.0);
+        masked.masks_enabled = true;
+        let mut mask = ClipMask::new("one".to_owned(), MaskShape::Rectangle);
+        mask.width = 0.3;
+        mask.height = 0.3;
+        masked.masks.push(mask.clone());
+        let job = GeometricMaskJob::of(&masked).unwrap();
+        let mut frame = Frame::black(128, 72);
+        for pixel in frame.pixels_mut().chunks_exact_mut(4) {
+            pixel[3] = 128;
+        }
+        let first = job.cut(&frame, 0.0);
+        let second = job.cut(&frame, 0.7);
+        assert_eq!(first.pixels(), second.pixels());
+        assert_eq!(job.static_mattes.lock().unwrap().len(), 1);
+
+        let mut direct = frame.clone();
+        concat_vision::cut_geometric(&mut direct, &masked.masks, 0.0, &BTreeMap::new());
+        for (cached, uncached) in first.pixels().iter().zip(direct.pixels()) {
+            assert!(cached.abs_diff(*uncached) <= 1);
+        }
+
+        mask.keys = vec![
+            MaskKey {
+                property: MaskProperty::PositionX,
+                at: 0.0,
+                value: -0.6,
+                ease: KeyEase::LINEAR,
+            },
+            MaskKey {
+                property: MaskProperty::PositionX,
+                at: 1.0,
+                value: 0.6,
+                ease: KeyEase::LINEAR,
+            },
+        ];
+        masked.masks = vec![mask];
+        let animated = GeometricMaskJob::of(&masked).unwrap();
+        let left = animated.cut(&frame, 0.0);
+        let right = animated.cut(&frame, 1.0);
+        assert_ne!(left.pixels(), right.pixels());
+        assert!(animated.static_mattes.lock().unwrap().is_empty());
     }
 
     fn spec(kind: &str, duration: f64) -> Option<TransitionSpec> {

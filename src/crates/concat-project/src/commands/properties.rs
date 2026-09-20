@@ -11,7 +11,7 @@ use super::*;
 /// Applies one of this module's commands. Any other is a routing error.
 pub(super) fn apply(
     project: &mut Project,
-    _mint: &mut IdMint,
+    mint: &mut IdMint,
     command: Command,
 ) -> Result<Outcome, CommandError> {
     match command {
@@ -139,6 +139,67 @@ pub(super) fn apply(
             Ok(Outcome {
                 created_id: None,
                 applied: true,
+            })
+        }
+
+        Command::AddClipMask { clip_id, shape } => {
+            if project.active().clip(&clip_id).is_none() {
+                return Ok(Outcome::default());
+            }
+            let id = mint.next("mask");
+            let timeline = project.active_mut();
+            let clip = timeline
+                .clip_mut(&clip_id)
+                .expect("the clip was checked before minting the mask id");
+            clip.masks.push(ClipMask::new(id.clone(), shape));
+            clip.masks_enabled = true;
+            Ok(Outcome {
+                created_id: Some(id),
+                applied: true,
+            })
+        }
+
+        Command::UpdateClipMask { clip_id, mask } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let Some(held) = clip.masks.iter_mut().find(|held| held.id == mask.id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = assign(held, mask.tidy());
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::RemoveClipMask { clip_id, mask_id } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let before = clip.masks.len();
+            clip.masks.retain(|mask| mask.id != mask_id);
+            let applied = clip.masks.len() != before;
+            if clip.masks.is_empty() {
+                clip.masks_enabled = false;
+            }
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetClipMasksEnabled { clip_id, enabled } => {
+            let timeline = project.active_mut();
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let applied = assign(&mut clip.masks_enabled, enabled && !clip.masks.is_empty());
+            Ok(Outcome {
+                created_id: None,
+                applied,
             })
         }
 

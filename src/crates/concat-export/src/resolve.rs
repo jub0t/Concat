@@ -102,6 +102,8 @@ pub(crate) struct BuiltTimeline {
     pub(crate) treatments: Vec<Treatment>,
     /// The clips whose background a mask takes away.
     pub(crate) cutouts: HashMap<ClipId, CutoutJob>,
+    /// Source-space masks prepared for preview and export.
+    pub(crate) geometric_masks: HashMap<ClipId, GeometricMaskJob>,
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
@@ -170,6 +172,7 @@ pub(crate) fn build_timeline(
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
+    let mut geometric_masks: HashMap<ClipId, GeometricMaskJob> = HashMap::new();
 
     let lanes = visible.iter().map(|clip| clip.track).max().unwrap_or(0) + 1;
     let tracks: Vec<_> = (0..lanes)
@@ -263,6 +266,9 @@ pub(crate) fn build_timeline(
             if clip.highlighted {
                 highlight = Some(id);
             }
+            if let Some(job) = GeometricMaskJob::of(clip) {
+                geometric_masks.insert(id, job);
+            }
         }
     }
 
@@ -276,6 +282,7 @@ pub(crate) fn build_timeline(
         pre_chains,
         chains,
         cutouts,
+        geometric_masks,
         highlight,
     }
 }

@@ -663,7 +663,17 @@ mod tests {
 pub fn split_listen(listen: &str) -> (String, u16) {
     let (default_host, default_port) =
         split_once_port(prefs::DEFAULT_LISTEN).unwrap_or(("127.0.0.1", 7420));
-    let (host, port) = split_once_port(listen.trim()).unwrap_or((listen.trim(), default_port));
+    let listen = listen.trim();
+    let (host, port) = split_once_port(listen).unwrap_or_else(|| {
+        // A plain host followed by a missing or invalid port still has a
+        // recognisable host half. A bare IPv6 address does not: its final
+        // colon belongs to the address, so keep the whole value as host.
+        listen
+            .rsplit_once(':')
+            .filter(|(host, _)| !host.contains(':') || host.ends_with(']'))
+            .map(|(host, _)| (host, default_port))
+            .unwrap_or((listen, default_port))
+    });
     let host = host.trim();
     (
         if host.is_empty() {

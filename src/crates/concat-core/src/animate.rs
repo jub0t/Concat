@@ -71,6 +71,52 @@ impl Ease {
         }
         bezier_y_at_x(self.x1, self.y1, self.x2, self.y2, t)
     }
+
+    /// The same curve over `[from, to]`, rescaled to unit endpoints.
+    /// Cutting a keyed segment must cut its timing curve too: reusing the
+    /// whole easing changes motion on the portion that was not edited.
+    /// Returns `None` when equal y endpoints or out-of-range x controls need
+    /// another split before the portion is representable as one timing curve.
+    pub fn subrange(self, from: f64, to: f64) -> Option<Self> {
+        if !from.is_finite() || !to.is_finite() || from < 0.0 || to > 1.0 || from >= to {
+            return None;
+        }
+        if from == 0.0 && to == 1.0 {
+            return Some(self);
+        }
+        if self.is_linear() {
+            return Some(Self::LINEAR);
+        }
+        let a = bezier_parameter_at_x(self.x1, self.x2, from);
+        let b = bezier_parameter_at_x(self.x1, self.x2, to);
+        let cut_axis = |p1, p2| {
+            let start = bezier_axis(p1, p2, a);
+            let end = bezier_axis(p1, p2, b);
+            let scale = (b - a) / 3.0;
+            (
+                start,
+                end,
+                start + scale * bezier_axis_slope(p1, p2, a),
+                end - scale * bezier_axis_slope(p1, p2, b),
+            )
+        };
+        let (x0, x3, x1, x2) = cut_axis(self.x1, self.x2);
+        let (y0, y3, y1, y2) = cut_axis(self.y1, self.y2);
+        if (y3 - y0).abs() < 1e-12 || x3 <= x0 {
+            return None;
+        }
+        let x1 = (x1 - x0) / (x3 - x0);
+        let x2 = (x2 - x0) / (x3 - x0);
+        if !(-1e-9..=1.0 + 1e-9).contains(&x1) || !(-1e-9..=1.0 + 1e-9).contains(&x2) {
+            return None;
+        }
+        Some(Self::new(
+            x1.clamp(0.0, 1.0),
+            (y1 - y0) / (y3 - y0),
+            x2.clamp(0.0, 1.0),
+            (y2 - y0) / (y3 - y0),
+        ))
+    }
 }
 
 /// x of a cubic bezier with endpoints pinned at 0 and 1, at parameter `t`.
@@ -94,13 +140,17 @@ fn bezier_axis_slope(p1: f64, p2: f64, t: f64) -> f64 {
 /// which matters here more than most, because a preview whose easing
 /// disagreed with the export's would disagree invisibly.
 pub fn bezier_y_at_x(x1: f64, y1: f64, x2: f64, y2: f64, x: f64) -> f64 {
+    bezier_axis(y1, y2, bezier_parameter_at_x(x1, x2, x))
+}
+
+fn bezier_parameter_at_x(x1: f64, x2: f64, x: f64) -> f64 {
     let x = x.clamp(0.0, 1.0);
     let mut t = x;
 
     for _ in 0..8 {
         let error = bezier_axis(x1, x2, t) - x;
         if error.abs() < 1e-7 {
-            return bezier_axis(y1, y2, t);
+            return t;
         }
         let slope = bezier_axis_slope(x1, x2, t);
         if slope.abs() < 1e-9 {
@@ -123,7 +173,7 @@ pub fn bezier_y_at_x(x1: f64, y1: f64, x2: f64, y2: f64, x: f64) -> f64 {
         }
         t = (lo + hi) / 2.0;
     }
-    bezier_axis(y1, y2, t)
+    t
 }
 
 /// One key of one property.
@@ -288,6 +338,57 @@ mod tests {
 
     fn key(at: f64, value: f64, ease: Ease) -> Key {
         Key { at, value, ease }
+    }
+
+    #[test]
+    fn a_subrange_preserves_the_original_curve() {
+        for ease in [
+            Ease::LINEAR,
+            Ease::IN,
+            Ease::OUT,
+            Ease::IN_OUT,
+            Ease::new(0.2, -0.5, 0.8, 1.5),
+        ] {
+            for (from, to) in [(0.0, 0.4), (0.4, 1.0), (0.2, 0.7)] {
+                let cut = ease.subrange(from, to).unwrap();
+                let low = ease.apply(from);
+                let high = ease.apply(to);
+                for step in 0..=100 {
+                    let x = f64::from(step) / 100.0;
+                    let actual = low + (high - low) * cut.apply(x);
+                    let expected = ease.apply(from + (to - from) * x);
+                    assert!(
+                        (actual - expected).abs() < 1e-5,
+                        "{ease:?} [{from}, {to}] at {x}: {actual} != {expected}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_equal_endpoint_loop_cannot_be_normalised_to_one_ease() {
+        let ease = Ease::new(1.0 / 3.0, -1.0 / 3.0, 2.0 / 3.0, 0.0);
+        assert!(ease.subrange(0.0, 0.5).is_none());
+        assert!(ease.subrange(0.0, 0.25).is_some());
+        assert!(ease.subrange(0.25, 0.5).is_some());
+    }
+
+    #[test]
+    fn crossed_controls_are_split_instead_of_distorted_by_clamping() {
+        let ease = Ease::new(1.0, 0.2, 0.0, 0.8);
+        assert!(ease.subrange(0.4375, 0.532).is_none());
+        for (from, to) in [(0.4375, 0.5), (0.5, 0.532)] {
+            let cut = ease.subrange(from, to).unwrap();
+            let low = ease.apply(from);
+            let high = ease.apply(to);
+            for step in 0..=100 {
+                let x = f64::from(step) / 100.0;
+                let actual = low + (high - low) * cut.apply(x);
+                let expected = ease.apply(from + (to - from) * x);
+                assert!((actual - expected).abs() < 1e-4);
+            }
+        }
     }
 
     #[test]

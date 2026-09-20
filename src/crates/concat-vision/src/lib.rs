@@ -42,6 +42,7 @@
 pub mod apply;
 #[cfg(feature = "infer")]
 pub mod brush;
+pub mod geometric;
 pub mod mask;
 pub mod models;
 #[cfg(feature = "infer")]
@@ -50,15 +51,19 @@ pub mod runtime;
 pub mod segment;
 pub mod store;
 pub mod strokes;
+pub mod tracking;
 
 pub use apply::{Mapping, cut, highlight};
 #[cfg(feature = "infer")]
 pub use brush::{Brush, Embedding};
+pub use geometric::cut as cut_geometric;
+pub use geometric::cut_mapped as cut_geometric_mapped;
 pub use mask::Mask;
 pub use models::ModelId;
 #[cfg(feature = "infer")]
 pub use segment::Segmenter;
 pub use store::{MaskStore, mask_dir, region_dir};
+pub use tracking::TranslationTracker;
 
 /// Masks are found this many times a second of source. Ten is where a
 /// person's outline stops visibly lagging their movement, and where a

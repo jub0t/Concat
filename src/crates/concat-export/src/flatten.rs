@@ -141,6 +141,8 @@ pub fn flatten_timeline_in(
                     }
                     _ => String::new(),
                 },
+                masks: clip.masks.clone(),
+                masks_enabled: clip.masks_enabled,
                 ..ExportClip::blank(kind, clip.start, clip.duration, index)
             })
         })

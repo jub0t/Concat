@@ -430,8 +430,9 @@ mod tests {
 
     /// A zoomed-in clip reads the fine buckets: a single loud millisecond
     /// shows in one column at a column a millisecond, and is folded into
-    /// its neighbours' column, still at full height, when a column is a
-    /// tenth of a second.
+    /// its neighbouring column or columns, still at full height, when a
+    /// column is a tenth of a second. A reduced peak bucket can straddle
+    /// one column boundary, but it can never disappear or spread farther.
     #[test]
     fn zooming_in_reveals_the_fine_buckets_and_never_loses_a_peak() {
         let mut min = vec![0.0; 1000];
@@ -446,15 +447,20 @@ mod tests {
         // A full-scale spike is a column whose bar reaches the top.
         let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR);
         assert_eq!(
-            fine.matches(" 0.0000 L").count(),
+            fine.split(" Z ")
+                .filter(|bar| bar.contains(" 0.0000 L"))
+                .count(),
             1,
             "one column carries the spike: {fine}"
         );
         let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR);
-        assert_eq!(
-            coarse.matches(" 0.0000 L").count(),
-            1,
-            "the spike survives the fold, in one column"
+        let coarse_spikes = coarse
+            .split(" Z ")
+            .filter(|bar| bar.contains(" 0.0000 L"))
+            .count();
+        assert!(
+            (1..=2).contains(&coarse_spikes),
+            "the spike survives the fold in at most two adjacent columns: {coarse}"
         );
         let trimmed = wave_path(&peaks, 0.6, 0.4, 10, WAVE_BAR);
         assert!(

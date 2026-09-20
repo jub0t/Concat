@@ -162,7 +162,7 @@ export component Seat inherits Rectangle {
             stroke-path: Editor.stroke-path;
             stroke-width: Editor.stroke-width;
             stroke-erase: Editor.stroke-erase;
-            painting: Editor.painting && Editor.selected-clip.cutout == 2;
+            painting: (Editor.painting && Editor.selected-clip.cutout == 2) || Editor.mask.drawing;
 
             play-toggled => { Editor.play-toggled(); }
             seek(seconds) => { Editor.seek(seconds); }
@@ -229,6 +229,25 @@ export component Seat inherits Rectangle {
             cutout-painting(on) => { Editor.cutout-painting(on); }
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
+
+            masks: Editor.masks;
+            mask: Editor.mask;
+            mask-add(shape) => { Editor.mask-add(shape); }
+            mask-shape(shape) => { Editor.mask-shape(shape); }
+            mask-select(id) => { Editor.mask-select(id); }
+            mask-remove => { Editor.mask-remove(); }
+            mask-enabled(on) => { Editor.mask-enabled(on); }
+            mask-inverted(on) => { Editor.mask-inverted(on); }
+            mask-linked(on) => { Editor.mask-linked(on); }
+            mask-set(field, value) => { Editor.mask-set(field, value); }
+            mask-commit => { Editor.mask-commit(); }
+            mask-keyframe-toggle(field, on) => { Editor.mask-keyframe-toggle(field, on); }
+            mask-text(value) => { Editor.mask-text(value); }
+            mask-drawing(on) => { Editor.mask-drawing(on); }
+            mask-clear-points => { Editor.mask-clear-points(); }
+            mask-reset => { Editor.mask-reset(); }
+            mask-track-direction(index) => { Editor.mask-track-direction(index); }
+            mask-track => { Editor.mask-track(); }
 
             project-name: Editor.project-name;
             project-folder: Editor.project-folder;
