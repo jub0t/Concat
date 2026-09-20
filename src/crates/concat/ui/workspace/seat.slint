@@ -300,8 +300,11 @@ export component Seat inherits Rectangle {
             clips: Editor.clips;
             tool: Editor.tool;
             snap: Editor.snap;
+            magnetic: Editor.magnetic;
             pan-mode: Editor.pan-mode;
             selected-count: Editor.selected-count;
+            can-undo: Editor.can-undo;
+            can-redo: Editor.can-redo;
             merge-blocked-because: Editor.merge-blocked-because;
             sound-selected: Editor.sound-selected;
             title-selected: Editor.title-selected;
@@ -319,6 +322,8 @@ export component Seat inherits Rectangle {
             snap-changed(snap) => { Editor.snap-changed(snap); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
+            undo => { Editor.undo(); }
+            redo => { Editor.redo(); }
             split => { Editor.split(); }
             merge => { Editor.merge(); }
             delete-selected => { Editor.delete-selected(); }
