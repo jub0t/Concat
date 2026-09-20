@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use concat_export::{ExportClip, ExportRequest, Reporter, render};
-pub use concat_media::VideoCodec;
+pub use concat_media::{RateMode, VideoCodec};
 
 use crate::jobs::{Job, SingleFlight};
 use crate::session::Session;
@@ -31,6 +31,12 @@ pub struct ExportSpec {
     pub codec: VideoCodec,
     /// Ten bits a channel rather than eight.
     pub ten_bit: bool,
+    /// VBR (the CRF carries the quality) or CBR (the bitrate is the
+    /// target). VBR by default, so the sheet's Advanced section being off
+    /// means the file is what it always was.
+    pub rate_mode: concat_media::RateMode,
+    /// Target bitrate in kbps, used when `rate_mode` is CBR.
+    pub bitrate_kbps: u32,
 }
 
 /// One progress report: which frame of how many, in which stage.
@@ -59,6 +65,8 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         preset: spec.preset.clone(),
         codec: spec.codec,
         ten_bit: spec.ten_bit,
+        rate_mode: spec.rate_mode,
+        bitrate_kbps: spec.bitrate_kbps,
         clips,
     }
 }
