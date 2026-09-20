@@ -9,7 +9,7 @@
 //! `wgpu` will slot into.
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
-use concat_core::shader::ShaderPass;
+use concat_core::shader::{ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
 /// A layer's placement beyond its base position, in output pixels.
@@ -167,6 +167,23 @@ pub trait Compositor {
         _time: f32,
         _layers: &[(Layer<'_>, usize)],
         _treatments: &[Treatment<'_>],
+    ) -> Option<Frame> {
+        None
+    }
+
+    /// Combines two finished frames with a transition: the outgoing picture
+    /// `from` and the incoming one `to`, at the pass's `progress`. The shader
+    /// owns the blend. `None` from a compositor that cannot run shaders, which
+    /// the CPU reference cannot: the caller then shows the fallback dissolve
+    /// the incoming layer already carries.
+    fn combine(
+        &mut self,
+        _width: u32,
+        _height: u32,
+        _time: f32,
+        _from: &Frame,
+        _to: &Frame,
+        _pass: &TransitionPass,
     ) -> Option<Frame> {
         None
     }

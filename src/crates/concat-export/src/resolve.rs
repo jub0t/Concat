@@ -102,8 +102,39 @@ pub(crate) struct BuiltTimeline {
     pub(crate) highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
     pub(crate) treatments: Vec<Treatment>,
+    /// The packaged transitions over cuts, resolved before the timeline.
+    pub(crate) transitions: Vec<TransitionSpan>,
     /// The clips whose background a mask takes away.
     pub(crate) cutouts: HashMap<ClipId, CutoutJob>,
+}
+
+/// A packaged transition over a cut. The incoming clip has been overlapped
+/// onto the outgoing one and moved to `to_track`; over `[start, end)` the
+/// compositor combines the stack below `to_track` (the outgoing picture) with
+/// the incoming layer through the package's two-input shader. A machine with
+/// no GPU shows the dissolve the incoming clip already carries instead.
+#[derive(Clone, Debug)]
+pub(crate) struct TransitionSpan {
+    pub(crate) start: Rational,
+    pub(crate) end: Rational,
+    pub(crate) to_track: usize,
+    pub(crate) id: String,
+    pub(crate) params: BTreeMap<String, f64>,
+}
+
+impl TransitionSpan {
+    pub(crate) fn covers(&self, time: Rational) -> bool {
+        self.start <= time && time < self.end
+    }
+
+    /// How far through the cut `time` is, `0..=1`.
+    pub(crate) fn progress(&self, time: Rational) -> f64 {
+        let span = self.end.as_f64() - self.start.as_f64();
+        if span <= 0.0 {
+            return 1.0;
+        }
+        ((time.as_f64() - self.start.as_f64()) / span).clamp(0.0, 1.0)
+    }
 }
 
 /// A picture chain with keys on it, and where its clip sits, so a frame's
@@ -112,6 +143,10 @@ pub(crate) struct RidingChain {
     pub(crate) effects: Vec<AppliedFilter>,
     pub(crate) start: f64,
     pub(crate) duration: f64,
+    /// The clip's reveal map, carried the same way `shader_passes` carries
+    /// it for the non-riding case - a title's word order does not change
+    /// frame to frame even when one of its effect's knobs does.
+    pub(crate) reveal_map: Option<Arc<RevealMap>>,
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
@@ -157,6 +192,7 @@ pub(crate) fn build_timeline(
     rate: FrameRate,
     visible: &[&ExportClip],
     gpu: bool,
+    transitions: Vec<TransitionSpan>,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     let mut stills = std::collections::HashSet::new();
@@ -262,6 +298,7 @@ pub(crate) fn build_timeline(
                             effects: clip.effects.clone(),
                             start: clip.start,
                             duration: clip.duration,
+                            reveal_map: clip.reveal_map.clone(),
                         },
                     );
                 }
@@ -282,6 +319,7 @@ pub(crate) fn build_timeline(
         filter_chains,
         tracks: tracks_of,
         treatments,
+        transitions,
         pre_chains,
         passes,
         riding,
@@ -338,7 +376,7 @@ pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
 
 /// The clip's shader passes, for a renderer that runs them.
 pub(crate) fn shader_passes(clip: &ExportClip) -> Vec<ShaderPass> {
-    Catalogue::builtin().shader_passes(&clip.effects)
+    Catalogue::builtin().shader_passes(&clip.effects, clip.reveal_map.clone())
 }
 
 /// The engine's keys for a flattened clip's animation, or None for none.

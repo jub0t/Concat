@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "pixelize=w=10:h=10,eq=contrast=1.5:brightness=-0.05"
+
+[[case]]
+name = "min"
+at = "min"
+chain = "pixelize=w=4:h=4,eq=contrast=1.5:brightness=-0.05"
+
+[[case]]
+name = "max"
+at = "max"
+chain = "pixelize=w=40:h=40,eq=contrast=1.5:brightness=-0.05"

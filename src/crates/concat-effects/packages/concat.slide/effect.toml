@@ -1,0 +1,21 @@
+[effect]
+id = "concat.slide"
+name = "Slide"
+kind = "transition"
+category = "Slide"
+order = 4
+description = "The incoming shot slides in over the outgoing one, which holds still underneath."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+min = 0
+max = 3
+default = 0
+values = [0, 1, 2, 3]
+labels = ["Left", "Right", "Up", "Down"]
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

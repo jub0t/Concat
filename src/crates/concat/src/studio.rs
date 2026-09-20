@@ -186,12 +186,19 @@ pub struct LibraryView {
     pub group: i32,
     /// Only starred packages show, whatever shelf they are on.
     pub favourites: bool,
+    /// Active category filter (e.g. "All", "Featured", "Retro & Film", etc.).
+    pub category: String,
 }
 
 /// Which library a shelf index names. The numbers are the panel's own -
-/// `PresetStack.shelf` - and the order the tabs sit in.
-pub const SHELF_KINDS: [PackageKind; 3] =
-    [PackageKind::Filter, PackageKind::Effect, PackageKind::Audio];
+/// `PresetStack.shelf`, and `Library.view`'s shelf argument everywhere else -
+/// and the order the tabs sit in.
+pub const SHELF_KINDS: [PackageKind; 4] = [
+    PackageKind::Filter,
+    PackageKind::Effect,
+    PackageKind::Audio,
+    PackageKind::Transition,
+];
 
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
@@ -395,6 +402,11 @@ pub enum Gesture {
         duration: f32,
         source_start: f32,
     },
+    /// Dragging a transition's duration handle on the timeline.
+    TransitionResize {
+        clip: String,
+        original_duration: f32,
+    },
     /// A drag on the stage: every selected picture under the playhead slides
     /// with the pointer, from where each one was when the press landed.
     StageMove {
@@ -554,9 +566,11 @@ pub struct Models {
     pub catalogue_effects: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_filters: Rc<VecModel<CatalogueEntryData>>,
     pub catalogue_audio: Rc<VecModel<CatalogueEntryData>>,
+    pub catalogue_transitions: Rc<VecModel<CatalogueEntryData>>,
     pub effect_groups: Rc<VecModel<SharedString>>,
     pub filter_groups: Rc<VecModel<SharedString>>,
     pub audio_groups: Rc<VecModel<SharedString>>,
+    pub transition_groups: Rc<VecModel<SharedString>>,
     /// The selected clip's two chains and their knobs.
     pub applied_visual: Rc<VecModel<AppliedEntryData>>,
     pub applied_audio: Rc<VecModel<AppliedEntryData>>,
@@ -599,9 +613,11 @@ impl Models {
             catalogue_effects: Rc::new(VecModel::default()),
             catalogue_filters: Rc::new(VecModel::default()),
             catalogue_audio: Rc::new(VecModel::default()),
+            catalogue_transitions: Rc::new(VecModel::default()),
             effect_groups: Rc::new(VecModel::default()),
             filter_groups: Rc::new(VecModel::default()),
             audio_groups: Rc::new(VecModel::default()),
+            transition_groups: Rc::new(VecModel::default()),
             applied_visual: Rc::new(VecModel::default()),
             applied_audio: Rc::new(VecModel::default()),
             visual_params: Rc::new(VecModel::default()),
@@ -650,7 +666,7 @@ pub struct Studio {
     pub prefs: Preferences,
     /// What each effect library is showing, indexed the way `SHELF_KINDS`
     /// is: 0 filters, 1 effects, 2 audio.
-    pub library: [LibraryView; 3],
+    pub library: [LibraryView; 4],
 
     // ── the edit ──
     pub session: Option<Session>,
@@ -935,8 +951,12 @@ fn shelves(
             // "echo" wants the echo, not the echo that happens to be filed
             // where they were already looking.
             name.to_lowercase().contains(&query) || description.to_lowercase().contains(&query)
-        } else {
+        } else if !view.category.is_empty() {
+            package.matches_category(&view.category)
+        } else if view.group >= 0 {
             group as i32 == view.group
+        } else {
+            true
         };
         if !shown {
             continue;
@@ -1090,7 +1110,7 @@ fn set_slot(
 struct ShelfStamp {
     catalogue: usize,
     lang: String,
-    views: Vec<(String, i32, bool)>,
+    views: Vec<(String, i32, bool, String)>,
     favourites: Vec<String>,
 }
 
@@ -1453,6 +1473,8 @@ impl Studio {
         studio.settings.download_base = studio.prefs.download_base.clone().unwrap_or_default();
         studio.apply_download_source();
         studio.apply_server();
+        studio.library[1].category = "All".to_owned();
+        studio.library[1].group = -1;
         studio.refresh_models();
         studio
     }
@@ -2746,9 +2768,9 @@ impl Studio {
         let Some(clip) = self.clip(&clip_id).cloned() else {
             return;
         };
-        if video && !clip.kind.is_visual() {
+        if video && !(clip.kind.is_visual() || clip.kind == model::ClipKind::Text) {
             self.notify(
-                &t("Select a video or image clip on the timeline first"),
+                &t("Select a video, image or text clip on the timeline first"),
                 true,
             );
             return;
@@ -2784,27 +2806,131 @@ impl Studio {
         );
     }
 
+    /// The clip that ends where `clip` starts, on the same track - the
+    /// outgoing side of the cut a transition into `clip` rides. `None` when
+    /// nothing is adjacent, which is when a transition has nothing to
+    /// dissolve from.
+    fn outgoing_of(&self, clip: &Clip) -> Option<&Clip> {
+        let frame = self.frame_seconds();
+        self.timeline()
+            .clips
+            .iter()
+            .find(|other| {
+                other.id != clip.id
+                    && other.track_id == clip.track_id
+                    && (other.start + other.duration - clip.start).abs() < frame / 2.0
+            })
+            .map(|other| other.as_ref())
+    }
+
+    /// One frame of the active timeline, in seconds - the same tolerance
+    /// `concat-export`'s own adjacency test uses, so a clip this call finds
+    /// adjacent is one the exporter will too.
+    fn frame_seconds(&self) -> f64 {
+        let video = &self.timeline().video;
+        video.rate_den as f64 / video.rate_num.max(1) as f64
+    }
+
+    /// The duration a transition into `clip` can actually run at: the
+    /// requested length, clamped to both clips' own durations. `None` when there
+    /// is no adjacent clip to dissolve from, or both clips are shorter than a frame -
+    /// the ways a transition here would render as nothing at all.
+    pub fn transition_duration(&self, clip: &Clip, requested: f64) -> Option<f64> {
+        let outgoing = self.outgoing_of(clip)?;
+        let frame = self.frame_seconds();
+        let max_duration = outgoing.duration.min(clip.duration);
+        if max_duration < frame {
+            return None;
+        }
+        let requested = if requested <= 0.0 {
+            frame
+        } else {
+            requested.max(frame)
+        };
+        let duration = requested.min(max_duration).max(0.0);
+        (duration >= frame).then_some(duration)
+    }
+
     pub fn apply_transition(&mut self, id: &str) {
         let Some(clip_id) = self.sole_selection() else {
             self.notify(&t("Select the clip the transition leads into"), true);
             return;
         };
-        if !self
-            .clip(&clip_id)
-            .is_some_and(|clip| clip.kind.is_visual())
-        {
+        let Some(clip) = self.clip(&clip_id) else {
+            return;
+        };
+        if !clip.kind.is_visual() {
             self.notify(
                 &t("Select a video or image clip on the timeline first"),
                 true,
             );
             return;
         }
+        let Some(duration) = self.transition_duration(clip, 0.5) else {
+            self.notify(
+                &t(
+                    "There's no room for a transition here - place an adjacent clip \
+                     before this one on the same track to dissolve from",
+                ),
+                true,
+            );
+            return;
+        };
         self.apply(Command::UpdateClip {
             clip_id,
             patch: ClipPatch {
                 transition_in: Some(Some(Transition {
                     id: id.to_owned(),
-                    duration: 0.5,
+                    duration,
+                })),
+                ..ClipPatch::default()
+            },
+        });
+    }
+
+    /// Takes the transition off the selected clip, leaving a plain cut.
+    pub fn remove_transition(&mut self) {
+        let Some(clip_id) = self.sole_selection() else {
+            return;
+        };
+        self.apply(Command::UpdateClip {
+            clip_id,
+            patch: ClipPatch {
+                transition_in: Some(None),
+                ..ClipPatch::default()
+            },
+        });
+    }
+
+    /// Sets the selected clip's transition to `seconds`, clamped to what
+    /// the cut can actually support - the same ceiling `apply_transition`
+    /// enforces, kept here so a drag on the timeline can never ask for more
+    /// than the render will give it.
+    pub fn set_transition_duration(&mut self, seconds: f64) {
+        let Some(clip_id) = self.sole_selection() else {
+            return;
+        };
+        self.set_clip_transition_duration(&clip_id, seconds);
+    }
+
+    /// Sets `clip_id`'s transition to `seconds`, clamped to what the cut can
+    /// actually support.
+    pub fn set_clip_transition_duration(&mut self, clip_id: &str, seconds: f64) {
+        let Some(clip) = self.clip(clip_id) else {
+            return;
+        };
+        let Some(existing) = clip.transition_in.clone() else {
+            return;
+        };
+        let Some(duration) = self.transition_duration(clip, seconds.max(0.0)) else {
+            return;
+        };
+        self.apply(Command::UpdateClip {
+            clip_id: clip_id.to_owned(),
+            patch: ClipPatch {
+                transition_in: Some(Some(Transition {
+                    duration,
+                    ..existing
                 })),
                 ..ClipPatch::default()
             },
@@ -3118,6 +3244,15 @@ impl Studio {
 
         self.flush_commit();
         self.begin_echo();
+        if edge == 2 && self.selection.len() <= 1 {
+            if let Some(transition) = clip.transition_in.as_ref() {
+                self.gesture = Gesture::TransitionResize {
+                    clip: id.to_owned(),
+                    original_duration: transition.duration as f32,
+                };
+                return;
+            }
+        }
         if edge >= 0 && self.selection.len() <= 1 {
             self.gesture = Gesture::Trim {
                 clip: id.to_owned(),
@@ -3220,6 +3355,23 @@ impl Studio {
                     }
                 }
             }
+            Gesture::TransitionResize {
+                clip,
+                original_duration,
+            } => {
+                let id = clip.clone();
+                let original_duration = *original_duration;
+                if let Some(clip_ref) = self.clip(&id).cloned() {
+                    let wanted = (original_duration + seconds).max(0.0) as f64;
+                    if let Some(duration) = self.transition_duration(&clip_ref, wanted) {
+                        if let Some(echo_clip) = self.echo_clip_mut(&id) {
+                            if let Some(t) = echo_clip.transition_in.as_mut() {
+                                t.duration = duration;
+                            }
+                        }
+                    }
+                }
+            }
             // A stage gesture is the monitor's; the lanes have nothing to
             // add to it.
             Gesture::None
@@ -3280,6 +3432,18 @@ impl Studio {
                         },
                         delta,
                     });
+                }
+            }
+            Gesture::TransitionResize {
+                clip,
+                original_duration,
+            } => {
+                let after = echo.active().clip(&clip).cloned();
+                self.echo = None;
+                let Some(after) = after else { return };
+                let new_duration = after.transition_in.as_ref().map(|t| t.duration).unwrap_or(0.0);
+                if (new_duration - f64::from(original_duration)).abs() > 1e-4 {
+                    self.set_clip_transition_duration(&clip, new_duration);
                 }
             }
             Gesture::None => {
@@ -3394,6 +3558,12 @@ impl Studio {
                 value,
                 clip.duration,
             ),
+            ClipField::AnimLoop => set_slot(
+                concat_project::model::AnimationSlot::Loop,
+                &mut clip.animation_loop,
+                value,
+                1.0,
+            ),
             ClipField::AnimInDuration => {
                 if let Some(set) = clip.animation_in.as_mut() {
                     set.duration = value.clamp(0.05, 60.0);
@@ -3402,6 +3572,11 @@ impl Studio {
             ClipField::AnimOutDuration => {
                 if let Some(set) = clip.animation_out.as_mut() {
                     set.duration = value.clamp(0.05, 60.0);
+                }
+            }
+            ClipField::AnimLoopDuration => {
+                if let Some(set) = clip.animation_loop.as_mut() {
+                    set.duration = value.clamp(0.1, 60.0);
                 }
             }
             ClipField::SpeedCurve => {
@@ -3641,6 +3816,11 @@ impl Studio {
                 concat_project::model::AnimationSlot::Combo,
                 &after.animation_combo,
                 &before.animation_combo,
+            ),
+            (
+                concat_project::model::AnimationSlot::Loop,
+                &after.animation_loop,
+                &before.animation_loop,
             ),
         ] {
             if now != was {
@@ -5994,7 +6174,11 @@ impl Studio {
                     duration: clip.duration as f32,
                     selected: self.selection.iter().any(|id| id == &clip.id),
                     fx: clip.video_effects.iter().any(|effect| effect.enabled),
-                    transition_in: clip.transition_in.is_some(),
+                    transition_duration: clip
+                        .transition_in
+                        .as_ref()
+                        .map(|transition| transition.duration as f32)
+                        .unwrap_or(0.0),
                     fade_in: clip.fade_in as f32,
                     fade_out: clip.fade_out as f32,
                     volume: clip.volume as f32,
@@ -6178,8 +6362,18 @@ impl Studio {
     pub fn library_group(&mut self, shelf: i32, index: i32) {
         if let Some(view) = self.library_at(shelf) {
             view.group = index.max(0);
+            view.category.clear();
             view.query.clear();
             view.favourites = false;
+        }
+    }
+
+    /// A category pill was picked.
+    pub fn library_category(&mut self, shelf: i32, category: &str) {
+        if let Some(view) = self.library_at(shelf) {
+            view.category = category.to_owned();
+            view.group = -1;
+            view.query.clear();
         }
     }
 
@@ -6372,6 +6566,24 @@ impl Studio {
             name: clip.name.as_str().into(),
             kind: kind_of(clip),
             duration: clip.duration as f32,
+            transition_id: clip
+                .transition_in
+                .as_ref()
+                .map(|transition| transition.id.as_str())
+                .unwrap_or_default()
+                .into(),
+            transition_name: clip
+                .transition_in
+                .as_ref()
+                .and_then(|transition| Catalogue::builtin().get(&transition.id))
+                .map(|package| t(&package.manifest.effect.name))
+                .unwrap_or_default()
+                .into(),
+            transition_duration: clip
+                .transition_in
+                .as_ref()
+                .map(|transition| transition.duration as f32)
+                .unwrap_or(0.5),
             scale: clip.scale as f32,
             offset_x: clip.offset_x as f32,
             offset_y: clip.offset_y as f32,
@@ -6403,6 +6615,10 @@ impl Studio {
                 concat_project::model::AnimationSlot::Combo,
                 &clip.animation_combo,
             ),
+            anim_loop: slot_index(
+                concat_project::model::AnimationSlot::Loop,
+                &clip.animation_loop,
+            ),
             anim_in_duration: clip
                 .animation_in
                 .as_ref()
@@ -6413,6 +6629,11 @@ impl Studio {
                 .as_ref()
                 .map(|set| set.duration as f32)
                 .unwrap_or(0.5),
+            anim_loop_duration: clip
+                .animation_loop
+                .as_ref()
+                .map(|set| set.duration as f32)
+                .unwrap_or(1.0),
             flip_h: clip.flip_h,
             flip_v: clip.flip_v,
             blend: concat_core::Blend::ALL
@@ -6615,7 +6836,7 @@ impl Studio {
             views: self
                 .library
                 .iter()
-                .map(|view| (view.query.clone(), view.group, view.favourites))
+                .map(|view| (view.query.clone(), view.group, view.favourites, view.category.clone()))
                 .collect(),
             favourites: starred.clone(),
         };
@@ -6632,6 +6853,10 @@ impl Studio {
                 shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
             sync(&models.audio_groups, groups);
             sync(&models.catalogue_audio, entries);
+            let (groups, entries) =
+                shelves(SHELF_KINDS[3], &self.library[3], starred, &self.look_art);
+            sync(&models.transition_groups, groups);
+            sync(&models.catalogue_transitions, entries);
             *self.shelf_stamp.borrow_mut() = Some(stamp);
         }
         sync(
@@ -6642,6 +6867,7 @@ impl Studio {
                     query: view.query.as_str().into(),
                     group: view.group,
                     favourites: view.favourites,
+                    category: view.category.as_str().into(),
                 })
                 .collect(),
         );

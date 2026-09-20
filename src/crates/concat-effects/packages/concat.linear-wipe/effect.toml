@@ -1,0 +1,30 @@
+[effect]
+id = "concat.linear-wipe"
+name = "Linear Wipe"
+kind = "transition"
+category = "Wipe"
+order = 10
+description = "A straight edge wipes the incoming shot across the outgoing one."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+min = 0
+max = 3
+default = 0
+values = [0, 1, 2, 3]
+labels = ["Left to Right", "Right to Left", "Top to Bottom", "Bottom to Top"]
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 100
+default = 20
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

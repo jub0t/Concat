@@ -26,7 +26,7 @@ step = 1
 unit = "%"
 
 [ffmpeg]
-chain = "chromakey=color=0x0000FFty={fixed(similarity / 100, 3)}:blend={fixed(softness / 100, 3)}"
+chain = "chromakey=color=0x0000FF:similarity={fixed(similarity / 100, 3)}:blend={fixed(softness / 100, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

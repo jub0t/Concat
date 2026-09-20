@@ -1,0 +1,11 @@
+[effect]
+id = "concat.cube"
+name = "Cube"
+kind = "transition"
+category = "Light"
+order = 14
+description = "The outgoing shot rotates away like a cube face as the incoming one rotates into view."
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

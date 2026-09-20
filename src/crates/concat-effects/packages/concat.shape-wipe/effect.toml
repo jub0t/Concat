@@ -1,0 +1,30 @@
+[effect]
+id = "concat.shape-wipe"
+name = "Shape Wipe"
+kind = "transition"
+category = "Wipe"
+order = 12
+description = "The incoming shot grows through a shape from the centre of the cut."
+
+[[param]]
+key = "shape"
+label = "Shape"
+type = "enum"
+min = 0
+max = 2
+default = 0
+values = [0, 1, 2]
+labels = ["Circle", "Heart", "Star"]
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 100
+default = 15
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

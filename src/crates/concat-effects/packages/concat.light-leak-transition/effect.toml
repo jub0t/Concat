@@ -1,0 +1,21 @@
+[effect]
+id = "concat.light-leak-transition"
+name = "Light Leak"
+kind = "transition"
+category = "Light"
+order = 13
+description = "A warm streak of light sweeps across the cut."
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 100
+default = 70
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadewhite"
+fallback = "cross-fade"

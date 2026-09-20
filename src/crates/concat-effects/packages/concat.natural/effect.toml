@@ -1,0 +1,13 @@
+[effect]
+id = "concat.natural"
+name = "Natural"
+kind = "filter"
+category = "Portrait"
+order = 55
+description = "A gentle, true-to-life lift: barely-there warmth, skin left alone."
+
+[ffmpeg]
+chain = "colortemperature=temperature=5600:pl=1,eq=saturation=1.05:contrast=1.04"
+
+[wgsl]
+entry = "effect.wgsl"

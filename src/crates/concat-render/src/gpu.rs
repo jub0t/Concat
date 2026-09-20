@@ -29,7 +29,7 @@
 use std::collections::HashMap;
 
 use concat_core::frame::Frame;
-use concat_core::shader::{Lut, ShaderPass};
+use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
 use crate::compositor::{Compositor, CpuCompositor, Layer, Treatment};
@@ -152,10 +152,21 @@ pub struct WgpuCompositor {
     uniform_layout: wgpu::BindGroupLayout,
     /// Group 2 of a shader pass: the package's look-up table, a 3D texture.
     lut_layout: wgpu::BindGroupLayout,
+    /// Group 3 of a shader pass: a title's per-word reveal map, a 2D
+    /// texture; see `concat_core::RevealMap`.
+    reveal_layout: wgpu::BindGroupLayout,
+    /// Group 0 of a transition: the outgoing and incoming pictures, each a
+    /// texture and its sampler.
+    transition_layout: wgpu::BindGroupLayout,
     /// Uploaded tables by their id, the identity among them; see `lut_group`.
     luts: HashMap<u64, wgpu::BindGroup>,
+    /// Uploaded reveal maps by their id, the identity among them; see
+    /// `reveal_group`.
+    reveals: HashMap<u64, wgpu::BindGroup>,
     /// Compiled passes by their key; see `ShaderPass::key`.
     shaders: HashMap<String, CompiledShader>,
+    /// Compiled transitions by their key; see `TransitionPass::key`.
+    transitions: HashMap<String, CompiledShader>,
     sampler: wgpu::Sampler,
     vertices: wgpu::Buffer,
     vertex_capacity: usize,
@@ -263,6 +274,59 @@ impl WgpuCompositor {
                 },
             ],
         });
+        // Group 3: a title's reveal map. Every pass binds one - a map that
+        // reveals everything when the package has none, or the pass is not
+        // over a title at all - so the same pipeline layout serves every
+        // shader pass whether or not it reads `reveal_order()`.
+        let reveal_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("concat pass reveal map"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        // Group 0 of a transition: two pictures, each a texture and a
+        // sampler - the outgoing at 0/1, the incoming at 2/3.
+        let texture_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let sampler_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let transition_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("concat transition inputs"),
+            entries: &[
+                texture_entry(0),
+                sampler_entry(1),
+                texture_entry(2),
+                sampler_entry(3),
+            ],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("concat compositor"),
             bind_group_layouts: &[Some(&bind_layout)],
@@ -373,8 +437,12 @@ impl WgpuCompositor {
             bind_layout,
             uniform_layout,
             lut_layout,
+            reveal_layout,
+            transition_layout,
             luts: HashMap::new(),
+            reveals: HashMap::new(),
             shaders: HashMap::new(),
+            transitions: HashMap::new(),
             sampler,
             vertices,
             vertex_capacity: 6 * 8,
@@ -869,6 +937,7 @@ impl WgpuCompositor {
                     Some(&self.bind_layout),
                     Some(&self.uniform_layout),
                     Some(&self.lut_layout),
+                    Some(&self.reveal_layout),
                 ],
                 immediate_size: 0,
             });
@@ -938,6 +1007,135 @@ impl WgpuCompositor {
         );
     }
 
+    /// The compiled pipeline for a transition, built the first time its key is
+    /// seen. Mirrors [`WgpuCompositor::shader`] but binds two input pictures at
+    /// group 0 and lets the shader own the blend.
+    fn transition_shader(&mut self, pass: &TransitionPass) {
+        if self.transitions.contains_key(&pass.key) {
+            return;
+        }
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(&pass.key),
+                source: wgpu::ShaderSource::Wgsl(pass.source.as_ref().into()),
+            });
+        let layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&pass.key),
+                bind_group_layouts: &[
+                    Some(&self.transition_layout),
+                    Some(&self.uniform_layout),
+                    Some(&self.lut_layout),
+                ],
+                immediate_size: 0,
+            });
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&pass.key),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        // The transition owns the mix; the pipeline does none.
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+        let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("concat transition frame"),
+            size: 16,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let params = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("concat transition params"),
+            size: pass.params.len().max(ShaderPass::MIN_PARAMS) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat transition uniforms"),
+            layout: &self.uniform_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: frame.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: params.as_entire_binding(),
+                },
+            ],
+        });
+        self.transitions.insert(
+            pass.key.clone(),
+            CompiledShader {
+                pipeline,
+                frame,
+                params,
+                bind_group,
+            },
+        );
+    }
+
+    /// A texture holding a whole frame's pixels, for a transition input. Made
+    /// fresh each combine rather than pooled: a transition is a short window,
+    /// and its two inputs are full-frame, so the pool would only churn.
+    fn input_texture(&self, frame: &Frame) -> wgpu::Texture {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat transition input"),
+            size: wgpu::Extent3d {
+                width: frame.width(),
+                height: frame.height(),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            frame.pixels(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(frame.width() * 4),
+                rows_per_image: Some(frame.height()),
+            },
+            wgpu::Extent3d {
+                width: frame.width(),
+                height: frame.height(),
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
     /// The bind group for a pass's table, uploaded the first time its id is
     /// seen, and the identity's for a pass without one. Returns the id the
     /// group is filed under.
@@ -1000,6 +1198,68 @@ impl WgpuCompositor {
         lut.id
     }
 
+    /// The bind group for a title's reveal map, uploaded the first time its
+    /// id is seen, and the identity's - reveals everything - for a pass
+    /// without one. Mirrors [`WgpuCompositor::lut_group`]. Returns the id
+    /// the group is filed under.
+    fn reveal_group(&mut self, reveal: Option<&RevealMap>) -> u64 {
+        static IDENTITY: std::sync::OnceLock<RevealMap> = std::sync::OnceLock::new();
+        let reveal = reveal.unwrap_or_else(|| IDENTITY.get_or_init(RevealMap::identity));
+        if self.reveals.contains_key(&reveal.id) {
+            return reveal.id;
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat reveal map"),
+            size: wgpu::Extent3d {
+                width: reveal.width,
+                height: reveal.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &reveal.gray,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(reveal.width),
+                rows_per_image: Some(reveal.height),
+            },
+            wgpu::Extent3d {
+                width: reveal.width,
+                height: reveal.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat reveal map"),
+            layout: &self.reveal_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        self.reveals.insert(reveal.id, bind_group);
+        reveal.id
+    }
+
     /// Runs `passes` over the pooled texture `source` of `width` × `height`,
     /// each drawing into a fresh pooled texture of the same size, and
     /// returns the index of the last one drawn. Each pass is its own
@@ -1017,8 +1277,10 @@ impl WgpuCompositor {
             let target = self.claim(width, height);
             self.shader(pass);
             let lut_id = self.lut_group(pass.lut.as_deref());
+            let reveal_id = self.reveal_group(pass.reveal_map.as_deref());
             let shader = &self.shaders[&pass.key];
             let lut_group = &self.luts[&lut_id];
+            let reveal_group = &self.reveals[&reveal_id];
             let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.intensity];
             let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
             self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
@@ -1056,6 +1318,7 @@ impl WgpuCompositor {
                 render.set_bind_group(0, &pool[current].bind_group, &[]);
                 render.set_bind_group(1, &shader.bind_group, &[]);
                 render.set_bind_group(2, lut_group, &[]);
+                render.set_bind_group(3, reveal_group, &[]);
                 render.draw(0..3, 0..1);
             }
             self.queue.submit([encoder.finish()]);
@@ -1197,6 +1460,126 @@ impl Compositor for WgpuCompositor {
         }
         frame
     }
+
+    fn combine(
+        &mut self,
+        width: u32,
+        height: u32,
+        time: f32,
+        from: &Frame,
+        to: &Frame,
+        pass: &TransitionPass,
+    ) -> Option<Frame> {
+        if self.dead {
+            return None;
+        }
+        self.transition_shader(pass);
+        let lut_id = self.lut_group(pass.lut.as_deref());
+
+        // The two pictures, uploaded and bound at group 0.
+        let from_texture = self.input_texture(from);
+        let to_texture = self.input_texture(to);
+        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let inputs = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat transition inputs"),
+            layout: &self.transition_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&from_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&to_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        // The frame block carries progress where a pass carries intensity.
+        {
+            let shader = &self.transitions[&pass.key];
+            let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.progress];
+            let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
+            self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
+            let mut params = pass.params.clone();
+            params.resize(shader.params.size() as usize, 0);
+            self.queue.write_buffer(&shader.params, 0, &params);
+        }
+
+        self.target(width, height);
+        {
+            let target = self.target.as_ref().expect("just ensured");
+            let view = target
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let shader = &self.transitions[&pass.key];
+            let lut_group = &self.luts[&lut_id];
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("concat transition"),
+                });
+            {
+                let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("concat transition"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                render.set_pipeline(&shader.pipeline);
+                render.set_bind_group(0, &inputs, &[]);
+                render.set_bind_group(1, &shader.bind_group, &[]);
+                render.set_bind_group(2, lut_group, &[]);
+                render.draw(0..3, 0..1);
+            }
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &target.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &target.staging,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(target.padded_row as u32),
+                        rows_per_image: Some(height),
+                    },
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.queue.submit([encoder.finish()]);
+        }
+        let frame = self.read_back();
+        if frame.is_none() {
+            self.dead = true;
+        }
+        frame
+    }
 }
 
 impl WgpuCompositor {
@@ -1268,10 +1651,10 @@ mod tests {
             }
             frame
         };
-        let full = [shader.pass(&Default::default(), &[], 1.0, None)];
+        let full = [shader.pass(&Default::default(), &[], 1.0, None, None)];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&full)]);
         assert_eq!(&out.pixels()[..3], &[0, 255, 255]);
-        let half = [shader.pass(&Default::default(), &[], 0.5, None)];
+        let half = [shader.pass(&Default::default(), &[], 0.5, None, None)];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&half)]);
         let p = &out.pixels()[..3];
         assert!(
@@ -1302,12 +1685,42 @@ mod tests {
             &[],
             1.0,
             Some(std::sync::Arc::new(green)),
+            None,
         )];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&tabled)]);
         assert_eq!(&out.pixels()[..3], &[0, 255, 0]);
-        let plain = [shader.pass(&Default::default(), &[], 1.0, None)];
+        let plain = [shader.pass(&Default::default(), &[], 1.0, None, None)];
         let out = gpu.composite(4, 4, &[Layer::new(&red).with_passes(&plain)]);
         assert_eq!(&out.pixels()[..3], &[255, 0, 0]);
+    }
+
+    /// A pass reads its title's reveal map through `reveal_order()`: the
+    /// first word's half of the canvas reads 0, the second word's half
+    /// reads 1, and a pass without one - the common case, any pass over
+    /// anything that is not a title - reads the identity, 0 everywhere.
+    #[test]
+    fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
+        let Some(mut gpu) = gpu() else { return };
+        let manifest = concat_effects::Manifest::parse(
+            "[effect]\nid = \"test.reveal\"\nname = \"Reveal\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("a manifest");
+        let shader = concat_effects::Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { let r = reveal_order(uv); return vec4<f32>(r, r, r, 1.0); }",
+        )
+        .expect("compiles");
+        let source = solid(4, 4, [0, 0, 0, 255]);
+        let map = std::sync::Arc::new(RevealMap::from_rects(4, 4, &[(0, 0, 2, 4), (2, 0, 2, 4)]));
+        let passes = [shader.pass(&Default::default(), &[], 1.0, None, Some(map))];
+        let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&passes)]);
+        let pixels = out.pixels();
+        assert_eq!(pixels[0], 0, "{:?}", &pixels[..4]);
+        assert_eq!(pixels[2 * 4], 255, "{:?}", &pixels[8..12]);
+
+        let identity = [shader.pass(&Default::default(), &[], 1.0, None, None)];
+        let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&identity)]);
+        assert_eq!(&out.pixels()[..4], &[0, 0, 0, 255]);
     }
 
     /// A treatment runs its passes over the stack beneath its track and
@@ -1326,7 +1739,7 @@ mod tests {
             "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }",
         )
         .expect("compiles");
-        let passes = [shader.pass(&Default::default(), &[], 1.0, None)];
+        let passes = [shader.pass(&Default::default(), &[], 1.0, None, None)];
         let red = solid(8, 8, [255, 0, 0, 255]);
         let blue = solid(4, 4, [0, 0, 255, 255]);
         let layers = [(Layer::new(&red), 0), (Layer::new(&blue), 2)];
@@ -1355,6 +1768,84 @@ mod tests {
             p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
             "{p:?}"
         );
+    }
+
+    /// A transition combines its two inputs through its shader: a trivial
+    /// dissolve over two solid colours must equal `from` at progress 0, `to`
+    /// at progress 1, and the exact half-and-half mix at progress 0.5. The
+    /// golden every packaged transition's own shader is measured against.
+    #[test]
+    fn a_transition_combines_its_two_inputs_by_progress() {
+        let Some(mut gpu) = gpu() else { return };
+        let manifest = concat_effects::Manifest::parse(
+            "[effect]\nid = \"test.dissolve\"\nname = \"Dissolve\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("a manifest");
+        let shader = concat_effects::TransitionShader::compile(
+            &manifest,
+            "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> { return mix(from_at(uv), to_at(uv), progress); }",
+        )
+        .expect("compiles");
+        let red = solid(4, 4, [255, 0, 0, 255]);
+        let blue = solid(4, 4, [0, 0, 255, 255]);
+
+        let mut at = |progress: f32| {
+            let pass = shader.pass(&Default::default(), &[], progress, None);
+            gpu.combine(4, 4, 0.0, &red, &blue, &pass)
+                .expect("a GPU combine")
+        };
+        assert_eq!(&at(0.0).pixels()[..3], &[255, 0, 0], "all outgoing at 0");
+        assert_eq!(&at(1.0).pixels()[..3], &[0, 0, 255], "all incoming at 1");
+        assert_eq!(&at(0.5).pixels()[..3], &[128, 0, 128], "the exact half mix");
+    }
+
+    /// Every packaged effect and filter with a shader actually renders on
+    /// the GPU at its default settings - naga's validation at load catches
+    /// a broken shader's syntax and types, but only a real pipeline creation
+    /// and draw catches a binding or layout mistake.
+    #[test]
+    fn every_shader_package_renders_at_its_defaults() {
+        let Some(mut gpu) = gpu() else { return };
+        let source = solid(4, 4, [200, 120, 60, 255]);
+        let catalogue = concat_effects::Catalogue::builtin();
+        for package in catalogue.packages() {
+            let Some(shader) = package.shader() else { continue };
+            let values = package.resolve(&Default::default());
+            let pass = shader.pass(
+                &values,
+                &package.manifest.params,
+                1.0,
+                package.lut().cloned(),
+                None,
+            );
+            let out = gpu.composite(4, 4, &[Layer::new(&source).with_passes(&[pass])]);
+            assert_eq!(out.pixels().len(), 4 * 4 * 4, "{}", package.id());
+        }
+    }
+
+    /// Every packaged transition's pipeline actually creates and runs on the
+    /// GPU, across its whole progress range - naga's validation at load
+    /// catches a broken shader's syntax and types, but only a real pipeline
+    /// creation catches a binding or layout mistake.
+    #[test]
+    fn every_packaged_transition_combines_across_its_progress_range() {
+        let Some(mut gpu) = gpu() else { return };
+        let red = solid(4, 4, [255, 0, 0, 255]);
+        let blue = solid(4, 4, [0, 0, 255, 255]);
+        let catalogue = concat_effects::Catalogue::builtin();
+        for package in catalogue.packages() {
+            if package.kind() != concat_effects::Kind::Transition {
+                continue;
+            }
+            for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                let pass = catalogue
+                    .transition_pass(package.id(), &Default::default(), progress)
+                    .unwrap_or_else(|| panic!("{} has no transition pass", package.id()));
+                gpu.combine(4, 4, 0.0, &red, &blue, &pass).unwrap_or_else(|| {
+                    panic!("{} failed to combine at progress {progress}", package.id())
+                });
+            }
+        }
     }
 
     fn gpu() -> Option<WgpuCompositor> {

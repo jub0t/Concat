@@ -97,8 +97,10 @@ export struct ClipData {
     selected: bool,
     /// at least one video effect is live: draws the `fx` chip in the header
     fx: bool,
-    /// there is a transition on the cut into this clip
-    transition-in: bool,
+    /// Seconds of transition on the cut into this clip; zero for none. The
+    /// marker at the clip's head is sized to this, in step with what the
+    /// cut actually rides.
+    transition-duration: float,
     /// seconds of audio ramp at each end; zero for none
     fade-in: float,
     fade-out: float,
@@ -151,7 +153,7 @@ export enum TextAlignment { left, center, right }
 export enum ClipField {
     scale, offset-x, offset-y, rotation, stretch-x, stretch-y, opacity,
     volume, speed, preserve-pitch, speed-curve, reverse, fade-in, fade-out,
-    anim-in, anim-out, anim-combo, anim-in-duration, anim-out-duration,
+    anim-in, anim-out, anim-combo, anim-loop, anim-in-duration, anim-out-duration, anim-loop-duration,
     flip-h, flip-v, blend, crop-left, crop-top, crop-right, crop-bottom,
     font-size, font-weight, italic, text-opacity, align,
     stroke-width, shadow, line-height, tracking, text-width,
@@ -250,6 +252,11 @@ export struct SelectedClipData {
     /// two ramps would overlap.
     duration: float,
 
+    // the transition on the cut into this clip; empty id means none
+    transition-id: string,
+    transition-name: string,
+    transition-duration: float,
+
     // transform — video and stills
     scale: float,
     offset-x: float,
@@ -279,8 +286,10 @@ export struct SelectedClipData {
     anim-in: int,
     anim-out: int,
     anim-combo: int,
+    anim-loop: int,
     anim-in-duration: float,
     anim-out-duration: float,
+    anim-loop-duration: float,
 
     // the picture's edges and colour
     flip-h: bool,

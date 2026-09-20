@@ -1,0 +1,3 @@
+[[case]]
+name = "default"
+chain = "curves=all='0/0.08 1/0.9',colorbalance=rh=0.08:bh=-0.06,noise=alls=8:allf=t"

@@ -1,0 +1,1 @@
+split[hla{index}][hlb{index}];[hlb{index}]gblur=sigma={r},colorbalance=rh=0.3:gh=0.05:bh=-0.2[hlg{index}];[hla{index}][hlg{index}]blend=all_mode=screen:all_opacity={a}

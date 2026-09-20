@@ -1,0 +1,24 @@
+[effect]
+id = "concat.halftone"
+name = "Halftone"
+kind = "effect"
+category = "Retro"
+order = 76
+intensity = "size"
+description = "The picture reduced to a grid of black and white dots."
+
+[[param]]
+key = "size"
+label = "Dot size"
+type = "int"
+min = 4
+max = 40
+default = 10
+step = 1
+unit = "px"
+
+[ffmpeg]
+chain = "pixelize=w={round(size)}:h={round(size)},eq=contrast=1.5:brightness=-0.05"
+
+[wgsl]
+entry = "effect.wgsl"

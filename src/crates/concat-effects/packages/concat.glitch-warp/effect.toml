@@ -1,0 +1,21 @@
+[effect]
+id = "concat.glitch-warp"
+name = "Glitch Warp"
+kind = "transition"
+category = "Glitch"
+order = 17
+description = "Chromatic slice tear and digital pixel displacement transition."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 75
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "pixelize"
+fallback = "cross-fade"

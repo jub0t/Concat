@@ -126,9 +126,11 @@ export global Editor {
     in-out property <[CatalogueEntryData]> catalogue-effects;
     in-out property <[CatalogueEntryData]> catalogue-filters;
     in-out property <[CatalogueEntryData]> catalogue-audio;
+    in-out property <[CatalogueEntryData]> catalogue-transitions;
     in-out property <[string]> effect-groups;
     in-out property <[string]> filter-groups;
     in-out property <[string]> audio-groups;
+    in-out property <[string]> transition-groups;
     in-out property <[AppliedEntryData]> applied-visual;
     in-out property <[AppliedEntryData]> applied-audio;
     in-out property <[AppliedParamData]> visual-params;
@@ -222,6 +224,9 @@ export global Editor {
     callback cutout-painting(on: bool);
     callback cutout-subject(index: int);
     callback cutout-clear();
+    /// The transition riding into the selected clip; see VideoPanel.
+    callback transition-remove();
+    callback transition-duration-set(seconds: float);
 
     // ── the timeline ──
     in-out property <[TimelineTabData]> timeline-tabs;

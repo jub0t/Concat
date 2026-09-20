@@ -161,6 +161,7 @@ pub(super) fn apply(
                 AnimationSlot::In => &mut clip.animation_in,
                 AnimationSlot::Out => &mut clip.animation_out,
                 AnimationSlot::Combo => &mut clip.animation_combo,
+                AnimationSlot::Loop => &mut clip.animation_loop,
             };
             let applied = assign(field, animation);
             Ok(Outcome {

@@ -1,0 +1,3 @@
+[[case]]
+name = "default"
+chain = "colorbalance=rs=0.08:bs=0.12:gs=-0.05:rh=-0.05:gh=0.06:bh=0.1,eq=contrast=1.15:saturation=1.15"

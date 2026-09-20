@@ -28,6 +28,9 @@ pub struct Manifest {
     /// The WGSL backend, when the package is a shader.
     #[serde(default)]
     pub wgsl: Option<Wgsl>,
+    /// The two-input backend, when the package is a transition.
+    #[serde(default)]
+    pub transition: Option<Transition>,
     /// A look-up table the package ships: the shader reads it through
     /// `lut()`, and a chain names its file as `{lut}`.
     #[serde(default)]
@@ -197,6 +200,43 @@ pub struct Wgsl {
     pub passes: Vec<Pass>,
 }
 
+/// The `[transition]` table: a two-input shader that combines the outgoing
+/// picture, the incoming one, and a progress into one. A transition's whole
+/// backend is here; it never carries an `[ffmpeg]` chain or a `[wgsl]` table,
+/// because the per-clip chain machinery those drive does not apply to a cut.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Transition {
+    /// The shader file, beside the manifest. It declares
+    /// `fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32>`.
+    pub entry: String,
+    /// A built-in FFmpeg `xfade` transition name for the GPU-less export
+    /// fallback; absent falls back to a plain dissolve.
+    #[serde(default)]
+    pub xfade: Option<String>,
+    /// The legacy transition id to degrade to where the shader cannot run
+    /// (the CPU reference, and export without a GPU); absent means
+    /// `cross-fade`.
+    #[serde(default)]
+    pub fallback: Option<String>,
+}
+
+/// The FFmpeg `xfade` transition names a `[transition]` may name as its
+/// export fallback. Validated at load so a typo is a load error, not a
+/// silent hard cut at export.
+pub const XFADE_NAMES: &[&str] = &[
+    "fade", "fadeblack", "fadewhite", "fadegrays", "fadefast", "fadeslow",
+    "dissolve", "pixelize", "distance", "radial", "smoothleft", "smoothright",
+    "smoothup", "smoothdown", "circleopen", "circleclose", "circlecrop",
+    "rectcrop", "wipeleft", "wiperight", "wipeup", "wipedown", "wipetl",
+    "wipetr", "wipebl", "wipebr", "slideleft", "slideright", "slideup",
+    "slidedown", "vertopen", "vertclose", "horzopen", "horzclose", "diagtl",
+    "diagtr", "diagbl", "diagbr", "hlslice", "hrslice", "vuslice", "vdslice",
+    "hblur", "squeezeh", "squeezev", "zoomin", "hlwind", "hrwind", "vuwind",
+    "vdwind", "coverleft", "coverright", "coverup", "coverdown", "revealleft",
+    "revealright", "revealup", "revealdown",
+];
+
 /// One render pass of a WGSL package.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
@@ -326,16 +366,41 @@ impl Manifest {
                 "intensity names `{intensity}`, which is not a parameter"
             )));
         }
-        // Both backends may be present: the shader renders wherever there
-        // is a GPU, and the chain is what a machine without one gets.
-        if self.ffmpeg.is_none() && self.wgsl.is_none() {
-            return Err(self.invalid("no backend: add an [ffmpeg] or a [wgsl] table"));
-        }
-        if self.ffmpeg.is_some() && matches!(self.effect.kind, Kind::Transition | Kind::Generator) {
-            return Err(self.invalid("an [ffmpeg] package must be an effect, a filter or audio"));
-        }
-        if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
-            return Err(self.invalid("a [wgsl] package cannot be audio"));
+        if self.effect.kind == Kind::Transition {
+            // A transition's whole backend is its two-input shader; the
+            // per-clip chain and single-input shader machinery do not apply.
+            let Some(transition) = &self.transition else {
+                return Err(self.invalid("a transition needs a [transition] table"));
+            };
+            if self.ffmpeg.is_some() || self.wgsl.is_some() {
+                return Err(self.invalid(
+                    "a transition's backend is [transition], not [ffmpeg] or [wgsl]",
+                ));
+            }
+            if let Some(xfade) = &transition.xfade
+                && !XFADE_NAMES.contains(&xfade.as_str())
+            {
+                return Err(self.invalid(format!(
+                    "[transition] xfade `{xfade}` is not a known FFmpeg xfade name"
+                )));
+            }
+        } else {
+            if self.transition.is_some() {
+                return Err(self.invalid("[transition] is only for a transition package"));
+            }
+            // Both backends may be present: the shader renders wherever there
+            // is a GPU, and the chain is what a machine without one gets.
+            if self.ffmpeg.is_none() && self.wgsl.is_none() {
+                return Err(self.invalid("no backend: add an [ffmpeg] or a [wgsl] table"));
+            }
+            if self.ffmpeg.is_some() && self.effect.kind == Kind::Generator {
+                return Err(
+                    self.invalid("an [ffmpeg] package must be an effect, a filter or audio")
+                );
+            }
+            if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
+                return Err(self.invalid("a [wgsl] package cannot be audio"));
+            }
         }
         Ok(())
     }
@@ -418,7 +483,53 @@ mod tests {
         );
         rejects(
             &GOOD.replace("kind = \"effect\"", "kind = \"transition\""),
-            "effect, a filter or audio",
+            "a transition needs a [transition] table",
+        );
+    }
+
+    const GOOD_TRANSITION: &str = r#"
+        [effect]
+        id = "concat.dissolve"
+        name = "Dissolve"
+        kind = "transition"
+        aliases = ["cross-fade"]
+
+        [transition]
+        entry = "effect.wgsl"
+        xfade = "fade"
+    "#;
+
+    #[test]
+    fn a_transition_manifest_parses() {
+        let manifest = Manifest::parse(GOOD_TRANSITION).expect("parses");
+        assert_eq!(manifest.effect.kind, Kind::Transition);
+        let transition = manifest.transition.expect("a [transition] table");
+        assert_eq!(transition.entry, "effect.wgsl");
+        assert_eq!(transition.xfade.as_deref(), Some("fade"));
+    }
+
+    #[test]
+    fn bad_transition_manifests_are_rejected() {
+        // A transition may not also carry a per-clip backend.
+        rejects(
+            &GOOD_TRANSITION.replace(
+                "[transition]\n        entry = \"effect.wgsl\"\n        xfade = \"fade\"",
+                "[transition]\n        entry = \"effect.wgsl\"\n\n        [ffmpeg]\n        chain = \"null\"",
+            ),
+            "not [ffmpeg] or [wgsl]",
+        );
+        // An unknown xfade name is a typo caught at load.
+        rejects(
+            &GOOD_TRANSITION.replace("xfade = \"fade\"", "xfade = \"nonsense\""),
+            "not a known FFmpeg xfade name",
+        );
+        // [transition] belongs only to a transition package.
+        rejects(
+            &GOOD.replace(
+                "[ffmpeg]\n        chain = \"gblur=sigma={fixed(radius, 1)}\"",
+                "[transition]\n        entry = \"effect.wgsl\"",
+            ),
+            "only for a transition package",
         );
     }
 

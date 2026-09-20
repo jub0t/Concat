@@ -1,0 +1,12 @@
+[effect]
+id = "concat.clock-wipe"
+name = "Clock Wipe"
+kind = "transition"
+category = "Wipe"
+order = 15
+description = "A hand sweeps around the centre, revealing the incoming shot as it turns."
+
+[transition]
+entry = "effect.wgsl"
+xfade = "radial"
+fallback = "cross-fade"
