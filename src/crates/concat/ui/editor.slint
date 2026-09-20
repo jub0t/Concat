@@ -242,6 +242,11 @@ export global Editor {
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
     in-out property <int> selected-count;
+    /// Whether the history has a step that way: what greys the tray's undo
+    /// and redo buttons. The Edit menu asks Rust the same question when it
+    /// opens; the tray cannot, so Rust publishes the answer.
+    in-out property <bool> can-undo;
+    in-out property <bool> can-redo;
     in-out property <string> merge-blocked-because;
     /// What the selection offers the tray's sound and word tools: one clip
     /// with sound for Captions to start on, one title for Speak to read.
@@ -261,6 +266,11 @@ export global Editor {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    /// The tray's undo and redo buttons. The keyboard's ⌘Z goes through
+    /// the Edit menu instead (see App.app-menu-selected); both land on the
+    /// same two methods of the state.
+    callback undo();
+    callback redo();
     callback split();
     callback merge();
     callback delete-selected();

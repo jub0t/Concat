@@ -86,6 +86,8 @@ export enum Glyph {
     clock,
     tag,
     // the timeline tray and its lane headers
+    undo,
+    redo,
     pointer,
     razor,
     split,
@@ -466,6 +468,19 @@ export component Icon inherits Rectangle {
         commands: "M5.42 9.42 8 12 M2 8a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M14 6l-8.58 8.58"
             + " M2 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M10.8 14.8 14 18 M16 12h-2 M22"
             + " 12h-2";
+    }
+
+    // lucide/undo-2 and lucide/redo-2: the curved arrows every editor means
+    // by "take it back" and "put it back", one the mirror of the other.
+    if root.glyph == Glyph.undo: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M9 14 4 9l5-5 M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5"
+            + " 5.5H11";
+    }
+    if root.glyph == Glyph.redo: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M15 14l5-5-5-5 M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5"
+            + " 20H13";
     }
 
     // lucide/square-split-horizontal

@@ -640,6 +640,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_delete_selected(on_window!(|state| {
         state.delete_selected();
     }));
+    // The tray's buttons; the menu row and ⌘Z reach the same two methods
+    // through `app_menu_selected` below.
+    editor.on_undo(on_window!(|state| {
+        state.undo();
+    }));
+    editor.on_redo(on_window!(|state| {
+        state.redo();
+    }));
     editor.on_split(on_window!(|state| {
         let at = state.playhead;
         state.split_at(at, true);

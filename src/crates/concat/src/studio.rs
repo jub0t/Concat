@@ -5328,6 +5328,14 @@ impl Studio {
         editor.set_magnetic(self.prefs.magnetic);
         editor.set_pan_mode(self.lanes.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
+        // The tray's undo and redo buttons grey out on these; the Edit menu
+        // asks the session itself when it opens.
+        // https://github.com/jub0t/Concat/issues/154
+        let (can_undo, can_redo) = self.session.as_ref().map_or((false, false), |session| {
+            (session.can_undo(), session.can_redo())
+        });
+        editor.set_can_undo(can_undo);
+        editor.set_can_redo(can_redo);
         let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
         editor.set_title_selected(title_selected);
@@ -6309,8 +6317,8 @@ impl Studio {
                 },
             ],
             1 => vec![
-                row("undo", t("Undo"), Glyph::ChevronUp, "⌘Z", can_undo),
-                row("redo", t("Redo"), Glyph::ChevronDown, "⇧⌘Z", can_redo),
+                row("undo", t("Undo"), Glyph::Undo, "⌘Z", can_undo),
+                row("redo", t("Redo"), Glyph::Redo, "⇧⌘Z", can_redo),
                 rule(),
                 row(
                     "split",

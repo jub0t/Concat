@@ -244,7 +244,8 @@ export component TrackHeaders inherits Rectangle {
     /// and two answers to one question is one answer too many.
     in property <length> overflow;
 
-    /// The bar was dragged. Absolute, and already inside 0..overflow.
+    /// The bar was dragged, or the column wheeled. Absolute, and already
+    /// inside 0..overflow.
     callback scrolled(offset: length);
 
     callback flag-changed(index: int, visible: bool, muted: bool, locked: bool);
@@ -253,59 +254,78 @@ export component TrackHeaders inherits Rectangle {
 
     clip: true;
 
-    for track[index] in root.tracks: Header {
-        x: 0;
-        y: root.ruler-height + track.top - root.track-scroll;
-        width: parent.width;
-        height: track.height;
-        // Clipped to the stack rather than allowed to ride over the ruler,
-        // which a scrolled row would otherwise do.
-        visible: self.y + track.height > root.ruler-height && self.y < root.height;
-
-        track: track;
-        removable: root.tracks.length > 1;
-
-        flag-changed(visible, muted, locked) => {
-            root.flag-changed(index, visible, muted, locked);
+    // A wheel over a lane's name scrolls the stack, the same stack a wheel
+    // over its lane scrolls: the column is the left end of the same rows,
+    // and a wheel that works over one end of a row and not the other reads
+    // as broken. Ancestor of the rows, the bar and the corner, so a wheel
+    // none of them handles bubbles up to it; a sibling would not see it.
+    wheel := TouchArea {
+        scroll-event(event) => {
+            if (event.delta-y == 0px) {
+                return EventResult.reject;
+            }
+            // Negated because Slint's delta-y is positive scrolling *up*,
+            // and up is a smaller offset. Clamped here the way the pane
+            // clamps the lanes' wheel, so the two never disagree.
+            root.scrolled(Math.max(0px, Math.min(root.overflow,
+                root.track-scroll - event.delta-y)));
+            return EventResult.accept;
         }
-        sized(size) => { root.sized(index, size); }
-        removed => { root.removed(index); }
-    }
 
-    // The bar, over the rows and under the corner. On the trailing edge,
-    // where the stack it scrolls ends and where a scroll container puts one.
-    // Short and inset rather than full-height: a stack that overflows by a
-    // row would otherwise draw a thumb the length of the column, and a mark
-    // that long stops reading as something you can take hold of.
-    ThinScrollbar {
-        x: parent.width - self.width - 1px;
-        y: root.ruler-height + 4px;
-        height: Math.max(0px, root.height - root.ruler-height - 8px);
-        viewport: self.height;
-        content: self.height + root.overflow;
-        offset: root.track-scroll;
-        min-thumb: 16px;
-        max-thumb: 0.5;
-        scrolled(to) => { root.scrolled(to); }
-    }
+        for track[index] in root.tracks: Header {
+            x: 0;
+            y: root.ruler-height + track.top - root.track-scroll;
+            width: parent.width;
+            height: track.height;
+            // Clipped to the stack rather than allowed to ride over the ruler,
+            // which a scrolled row would otherwise do.
+            visible: self.y + track.height > root.ruler-height && self.y < root.height;
 
-    // The ruler corner: opposite the ruler, and not part of the scrolling
-    // stack. Declared after the rows so it paints over whichever one is
-    // half-scrolled behind it — `visible` above drops a row only once it is
-    // fully past, and this covers the sliver in between.
-    Rectangle {
-        x: 0;
-        y: 0;
-        width: parent.width;
-        height: root.ruler-height;
-        background: Theme.ruler;
+            track: track;
+            removable: root.tracks.length > 1;
 
+            flag-changed(visible, muted, locked) => {
+                root.flag-changed(index, visible, muted, locked);
+            }
+            sized(size) => { root.sized(index, size); }
+            removed => { root.removed(index); }
+        }
+
+        // The bar, over the rows and under the corner. On the trailing edge,
+        // where the stack it scrolls ends and where a scroll container puts one.
+        // Short and inset rather than full-height: a stack that overflows by a
+        // row would otherwise draw a thumb the length of the column, and a mark
+        // that long stops reading as something you can take hold of.
+        ThinScrollbar {
+            x: parent.width - self.width - 1px;
+            y: root.ruler-height + 4px;
+            height: Math.max(0px, root.height - root.ruler-height - 8px);
+            viewport: self.height;
+            content: self.height + root.overflow;
+            offset: root.track-scroll;
+            min-thumb: 16px;
+            max-thumb: 0.5;
+            scrolled(to) => { root.scrolled(to); }
+        }
+
+        // The ruler corner: opposite the ruler, and not part of the scrolling
+        // stack. Declared after the rows so it paints over whichever one is
+        // half-scrolled behind it — `visible` above drops a row only once it is
+        // fully past, and this covers the sliver in between.
         Rectangle {
             x: 0;
-            y: parent.height - 1px;
+            y: 0;
             width: parent.width;
-            height: 1px;
-            background: Theme.line;
+            height: root.ruler-height;
+            background: Theme.ruler;
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
         }
     }
 }

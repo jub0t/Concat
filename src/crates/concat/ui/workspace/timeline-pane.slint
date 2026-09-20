@@ -36,8 +36,11 @@ export component TimelinePane inherits Rectangle {
     // ── the tray ─────────────────────────────────────────────────────────
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
+    in property <bool> magnetic: false;
     in property <bool> pan-mode: false;
     in property <int> selected-count;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
     in property <string> merge-blocked-because;
     in property <bool> sound-selected;
     in property <bool> title-selected;
@@ -46,6 +49,8 @@ export component TimelinePane inherits Rectangle {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback undo();
+    callback redo();
     callback split();
     callback merge();
     callback delete-selected();
@@ -180,8 +185,11 @@ export component TimelinePane inherits Rectangle {
         TimelineTray {
             tool: root.tool;
             snap: root.snap;
+            magnetic: root.magnetic;
             pan-mode: root.pan-mode;
             selected-count: root.selected-count;
+            can-undo: root.can-undo;
+            can-redo: root.can-redo;
             merge-blocked-because: root.merge-blocked-because;
             sound-selected: root.sound-selected;
             title-selected: root.title-selected;
@@ -191,6 +199,8 @@ export component TimelinePane inherits Rectangle {
             snap-changed(snap) => { root.snap-changed(snap); }
             magnetic-changed(on) => { root.magnetic-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }
+            undo => { root.undo(); }
+            redo => { root.redo(); }
             split => { root.split(); }
             merge => { root.merge(); }
             delete-selected => { root.delete-selected(); }

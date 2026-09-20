@@ -155,6 +155,8 @@ pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result
             codec: VideoCodec::H264,
             preset: "veryfast".to_owned(),
             crf: 23,
+            // A proxy is a working copy: the CRF says how good, and no
+            // bitrate target ever applies to it.
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
