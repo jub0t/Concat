@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use concat_media::decode::{DecodeOptions, Decoder, FrameSource};
-use concat_media::{EncodeOptions, Encoder, FrameSink, Priority, VideoCodec};
+use concat_media::{EncodeOptions, Encoder, FrameSink, Priority, RateMode, VideoCodec};
 
 /// A file with more pixels than this gets a proxy: anything larger than
 /// full HD.
@@ -155,6 +155,10 @@ pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result
             codec: VideoCodec::H264,
             preset: "veryfast".to_owned(),
             crf: 23,
+            // A proxy is a working copy: the CRF says how good, and no
+            // bitrate target ever applies to it.
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
             ten_bit: false,
             hardware: false,
             threads: 2,
