@@ -31,7 +31,7 @@ mod builtins {
 
 pub use catalogue::{At, Catalogue, Fixture, Package};
 pub use manifest::{Kind, Manifest, Param, ParamType};
-pub use shader::Shader;
+pub use shader::{Shader, TransitionShader};
 
 /// Why a package could not be loaded.
 #[derive(thiserror::Error, Debug)]
@@ -138,7 +138,7 @@ mod tests {
             "{chain}"
         );
         assert_eq!(
-            catalogue.shader_passes(&[AppliedFilter::new("test.table")])[0]
+            catalogue.shader_passes(&[AppliedFilter::new("test.table")], None)[0]
                 .lut
                 .as_ref()
                 .map(|l| l.size),

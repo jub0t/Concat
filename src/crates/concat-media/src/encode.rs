@@ -495,6 +495,15 @@ impl Encoder {
             let mut packet = ffmpeg::Packet::empty();
             match self.encoder.receive_packet(&mut packet) {
                 Ok(()) => {
+                    // One frame, in the encoder's own time base - unset,
+                    // this defaults to zero, and a muxer that never hears a
+                    // packet's duration falls back to inferring the stream's
+                    // total duration from the PTS span alone, which comes up
+                    // one frame short: the last packet has no next one to
+                    // measure to. Set here so `rescale_ts` carries it over
+                    // with the timestamps, and the file's own duration
+                    // matches what was actually encoded.
+                    packet.set_duration(1);
                     packet.set_stream(0);
                     packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
                     packet
@@ -636,6 +645,53 @@ pub fn jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every written frame decodes back, at a frame rate an even number of
+    /// frames does not land on a round second at (25 fps, 6 seconds: every
+    /// packet but the last infers its duration from the one after it, so a
+    /// packet's duration was never set here and the file's own reported
+    /// length came up one frame short - which is exactly the gap a strict
+    /// reader, not just this crate's own decoder, counts by).
+    #[test]
+    fn every_written_frame_decodes_back_even_at_a_rate_with_no_last_neighbour() {
+        let dir = std::env::temp_dir().join(format!("concat-media-encode-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let path = dir.join("150-at-25fps.mp4");
+
+        let options = EncodeOptions {
+            codec: VideoCodec::H264,
+            preset: "ultrafast".to_owned(),
+            crf: 16,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            ten_bit: false,
+            hardware: false,
+            threads: 0,
+        };
+        let rate = FrameRate::new(concat_core::time::Rational::new(25, 1));
+        const FRAMES: u32 = 150;
+        {
+            let mut encoder = Encoder::create(&path, 64, 64, rate, &options).expect("encodes");
+            let mut frame = Frame::black(64, 64);
+            for i in 0..FRAMES {
+                frame.fill([(i % 256) as u8, 0, 0, 255]);
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+        }
+
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        let mut decoder =
+            Decoder::open(&path, &DecodeOptions::default()).expect("opens what was just written");
+        let mut count = 0;
+        while decoder.next_frame().expect("decodes").is_some() {
+            count += 1;
+        }
+        assert_eq!(count, FRAMES, "every encoded frame should decode back");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_frame_becomes_a_jpeg() {

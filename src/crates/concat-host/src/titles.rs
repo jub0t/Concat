@@ -21,11 +21,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use concat_core::frame::Frame;
+use concat_core::shader::RevealMap;
 
 use concat_export::chains::video_effect_chain;
 use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{ClipKind as ModelClipKind, Project, TextAlign, TextStyle};
-use concat_text::{Align, Fonts, TitleStyle};
+use concat_text::{Align, Fonts, TitleStyle, WordRect};
 
 use crate::dirs::AppDirs;
 
@@ -50,10 +51,13 @@ pub struct TitleClip {
 }
 
 /// What one render left behind.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Art {
     block: (u32, u32),
     offset: (i32, i32),
+    /// The title's per-word reveal order, baked once here rather than on
+    /// every clip build - see `concat_core::RevealMap`.
+    reveal: Arc<RevealMap>,
 }
 
 /// The title painter and its cache.
@@ -170,6 +174,7 @@ impl Titles {
                     media_width: Some(width),
                     media_height: Some(height),
                     has_audio: Some(false),
+                    reveal_map: Some(Arc::clone(&art.reveal)),
                     ..ExportClip::blank(ClipKind::Image, clip.start, clip.duration, index)
                 },
                 block: art.block,
@@ -198,7 +203,7 @@ impl Titles {
             .0
             .get(&key)
         {
-            return Ok((path, *art, Arc::clone(frame)));
+            return Ok((path, art.clone(), Arc::clone(frame)));
         }
         let title = title_style(style);
         let rendered = {
@@ -216,6 +221,7 @@ impl Titles {
         let art = Art {
             block: (rendered.block_width, rendered.block_height),
             offset: (rendered.block_dx, rendered.block_dy),
+            reveal: reveal_of(&rendered.words, width, height),
         };
         let frame = Arc::new(
             Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
@@ -223,7 +229,7 @@ impl Titles {
         );
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         let (kept, order) = &mut *live;
-        if kept.insert(key, (art, Arc::clone(&frame))).is_none() {
+        if kept.insert(key, (art.clone(), Arc::clone(&frame))).is_none() {
             order.push_back(key);
         }
         while order.len() > LIVE_KEPT {
@@ -254,14 +260,15 @@ impl Titles {
             .get(&key)
             && png.is_file()
         {
-            return Ok((png, *art));
+            return Ok((png, art.clone()));
         }
         // On disk from an earlier session: the sidecar says how big the
-        // block was and where, which the PNG alone cannot.
+        // block was and where, and which words it held, which the PNG
+        // alone cannot.
         if png.is_file()
-            && let Some(art) = read_block(&side)
+            && let Some(art) = read_block(&side, width, height)
         {
-            self.remember(key, art);
+            self.remember(key, art.clone());
             return Ok((png, art));
         }
 
@@ -283,15 +290,25 @@ impl Titles {
         let art = Art {
             block: (rendered.block_width, rendered.block_height),
             offset: (rendered.block_dx, rendered.block_dy),
+            reveal: reveal_of(&rendered.words, width, height),
         };
+        let words: Vec<String> = rendered
+            .words
+            .iter()
+            .map(|w| format!("[{},{},{},{}]", w.x, w.y, w.width, w.height))
+            .collect();
         let _ = std::fs::write(
             &side,
             format!(
-                "{{\"w\":{},\"h\":{},\"x\":{},\"y\":{}}}",
-                art.block.0, art.block.1, art.offset.0, art.offset.1
+                "{{\"w\":{},\"h\":{},\"x\":{},\"y\":{},\"words\":[{}]}}",
+                art.block.0,
+                art.block.1,
+                art.offset.0,
+                art.offset.1,
+                words.join(",")
             ),
         );
-        self.remember(key, art);
+        self.remember(key, art.clone());
         Ok((png, art))
     }
 
@@ -325,8 +342,9 @@ fn key_of(project: &Project, style: &TextStyle, width: u32, height: u32) -> u64 
     }
     // Bumped when the painter's output changes for the same input, so stale
     // files are not mistaken for current ones. 3: left- and right-aligned
-    // blocks moved to their anchors.
-    bytes.extend_from_slice(&3u32.to_le_bytes());
+    // blocks moved to their anchors. 4: the sidecar gained each word's box,
+    // for a per-word reveal effect to read back.
+    bytes.extend_from_slice(&4u32.to_le_bytes());
     crate::media::fnv1a(&bytes)
 }
 
@@ -360,17 +378,43 @@ fn sweep(dir: &Path, keep: usize) {
     }
 }
 
-fn read_block(side: &Path) -> Option<Art> {
+fn read_block(side: &Path, width: u32, height: u32) -> Option<Art> {
     let text = std::fs::read_to_string(side).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     let offset = |name: &str| value.get(name).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    let rects: Vec<(i32, i32, u32, u32)> = value
+        .get("words")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|word| {
+            let word = word.as_array()?;
+            Some((
+                word.first()?.as_i64()? as i32,
+                word.get(1)?.as_i64()? as i32,
+                word.get(2)?.as_u64()? as u32,
+                word.get(3)?.as_u64()? as u32,
+            ))
+        })
+        .collect();
     Some(Art {
         block: (
             value.get("w")?.as_u64()? as u32,
             value.get("h")?.as_u64()? as u32,
         ),
         offset: (offset("x"), offset("y")),
+        reveal: Arc::new(RevealMap::from_rects(width, height, &rects)),
     })
+}
+
+/// A title's per-word reveal map, baked from the boxes its layout left
+/// behind - a byproduct `concat-text` already computed, not new work.
+fn reveal_of(words: &[WordRect], width: u32, height: u32) -> Arc<RevealMap> {
+    let rects: Vec<(i32, i32, u32, u32)> = words
+        .iter()
+        .map(|w| (w.x, w.y, w.width, w.height))
+        .collect();
+    Arc::new(RevealMap::from_rects(width, height, &rects))
 }
 
 /// The document's style, field for field, in the painter's terms.
@@ -493,6 +537,11 @@ mod tests {
             (0, 0),
             "a centred title's block is on the clip"
         );
+        // "Your text": two words, so their reveal order spans 0 to 255.
+        let reveal = title.clip.reveal_map.as_ref().expect("a title reveals");
+        assert_eq!((reveal.width, reveal.height), (640, 360));
+        assert!(reveal.gray.contains(&0));
+        assert!(reveal.gray.contains(&255), "a second word reaches the top");
         let painted = Path::new(&title.clip.path);
         assert!(painted.is_file(), "the PNG is on disk");
         let stamp = std::fs::metadata(painted).and_then(|m| m.modified()).ok();
@@ -531,6 +580,12 @@ mod tests {
         let cold = Titles::new(&dirs).clips(editor.project(), 640, 360);
         assert_eq!(cold[0].offset, left[0].offset);
         assert_eq!(cold[0].block, left[0].block);
+        // The sidecar carries the words too, so a cold read reveals the
+        // same order as the one that painted them.
+        assert_eq!(
+            cold[0].clip.reveal_map.as_ref().map(|r| &*r.gray),
+            left[0].clip.reveal_map.as_ref().map(|r| &*r.gray)
+        );
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
     }
 }

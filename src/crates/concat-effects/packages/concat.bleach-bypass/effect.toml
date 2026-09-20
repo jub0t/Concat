@@ -1,0 +1,13 @@
+[effect]
+id = "concat.bleach-bypass"
+name = "Bleach Bypass"
+kind = "filter"
+category = "Cinematic"
+order = 51
+description = "The silver-retention film process: colour washed out, contrast pushed hard."
+
+[ffmpeg]
+chain = "eq=saturation=0.35:contrast=1.3:gamma=0.9"
+
+[wgsl]
+entry = "effect.wgsl"

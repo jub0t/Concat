@@ -205,6 +205,7 @@ mod tests {
                 .collect::<BTreeMap<_, _>>(),
             intensity: 1.0,
             lut: None,
+            reveal_map: None,
         }
     }
 

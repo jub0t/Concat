@@ -1,0 +1,19 @@
+[effect]
+id = "concat.spin"
+name = "Spin"
+kind = "transition"
+category = "Spin"
+order = 6
+description = "The outgoing shot spins away as the incoming one spins into place."
+
+[[param]]
+key = "turns"
+label = "Turns"
+min = 0.5
+max = 2
+default = 1
+step = 0.25
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

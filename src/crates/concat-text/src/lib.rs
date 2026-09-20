@@ -92,6 +92,22 @@ pub struct TitleStyle {
     pub max_height: f64,
 }
 
+/// One word's box in canvas pixels, top-left origin, in reading order
+/// (line by line, left to right within a line). A pixel-reveal effect
+/// keys off this order rather than the word itself, which is why it is
+/// exposed as rects and not text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WordRect {
+    /// The box's left edge.
+    pub x: i32,
+    /// The box's top edge.
+    pub y: i32,
+    /// The box's width.
+    pub width: u32,
+    /// The box's height.
+    pub height: u32,
+}
+
 /// The finished title as pixels: the canvas, RGBA with straight alpha,
 /// for a monitor that wants it now and not from a file.
 #[derive(Clone, PartialEq, Debug)]
@@ -110,6 +126,8 @@ pub struct RenderedFrame {
     pub block_dx: i32,
     /// See [`Rendered::block_dy`].
     pub block_dy: i32,
+    /// See [`Rendered::words`].
+    pub words: Vec<WordRect>,
 }
 
 /// The finished title.
@@ -134,6 +152,10 @@ pub struct Rendered {
     /// The vertical half of `block_dx`, y down. Always zero for now: the
     /// block is centred vertically whatever the alignment.
     pub block_dy: i32,
+    /// Every word's box on the canvas, in reading order - a byproduct of
+    /// layout this crate already does, kept for a caller that wants to
+    /// reveal a title one word at a time without knowing what a word is.
+    pub words: Vec<WordRect>,
 }
 
 /// What can go wrong. Fonts fall back rather than fail, so this is short.
@@ -260,11 +282,13 @@ impl Fonts {
     }
 }
 
-/// One shaped line: its outline path in pixels, pen at the origin, and its
-/// advance width.
+/// One shaped line: its outline path in pixels, pen at the origin, its
+/// advance width, and each of its words' `(start_x, end_x)` in that same
+/// pen space, left to right.
 struct Line {
     path: Option<Path>,
     width: f32,
+    words: Vec<(f32, f32)>,
 }
 
 /// A colour from `#rrggbb` or `#rrggbbaa`; anything else is `None`.
@@ -330,31 +354,47 @@ fn wrap_line(
     tracking: f32,
     max_w: f32,
 ) -> Vec<Line> {
-    if max_w <= 0.0 || text.trim().is_empty() {
+    if text.trim().is_empty() {
         return vec![shape_line(face, text, em, tracking)];
     }
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut shaped = shape_line(face, "", em, tracking);
-    for word in text.split_whitespace() {
-        let candidate = if current.is_empty() {
-            word.to_owned()
-        } else {
-            format!("{current} {word}")
-        };
-        let trial = shape_line(face, &candidate, em, tracking);
-        if trial.width <= max_w || current.is_empty() {
-            current = candidate;
-            shaped = trial;
-        } else {
-            lines.push(shaped);
-            current = word.to_owned();
-            shaped = shape_line(face, word, em, tracking);
+    // Word boundaries as byte ranges into `text`, so a growing candidate is
+    // a real prefix of the source - keeping its own inter-word spacing -
+    // rather than words rejoined with a single space.
+    let mut bounds: Vec<(usize, usize)> = Vec::new();
+    let mut start: Option<usize> = None;
+    for (index, ch) in text.char_indices() {
+        if ch.is_whitespace() {
+            if let Some(word_start) = start.take() {
+                bounds.push((word_start, index));
+            }
+        } else if start.is_none() {
+            start = Some(index);
         }
     }
-    if !current.is_empty() {
-        lines.push(shaped);
+    if let Some(word_start) = start {
+        bounds.push((word_start, text.len()));
     }
+
+    let mut lines = Vec::new();
+    let mut line_start = bounds[0].0;
+    let mut shaped = shape_line(face, "", em, tracking);
+    let mut words: Vec<(f32, f32)> = Vec::new();
+    for &(word_start, word_end) in &bounds {
+        let trial = shape_line(face, &text[line_start..word_end], em, tracking);
+        // A word that fits nowhere still gets a line of its own.
+        if max_w <= 0.0 || trial.width <= max_w || words.is_empty() {
+            words.push((shaped.width, trial.width));
+            shaped = trial;
+        } else {
+            shaped.words = std::mem::take(&mut words);
+            lines.push(shaped);
+            line_start = word_start;
+            shaped = shape_line(face, &text[line_start..word_end], em, tracking);
+            words.push((0.0, shaped.width));
+        }
+    }
+    shaped.words = words;
+    lines.push(shaped);
     lines
 }
 
@@ -363,6 +403,7 @@ fn shape_line(face: &rustybuzz::Face<'_>, text: &str, em: f32, tracking: f32) ->
         return Line {
             path: None,
             width: 0.0,
+            words: Vec::new(),
         };
     }
     let scale = em / face.units_per_em() as f32;
@@ -391,6 +432,7 @@ fn shape_line(face: &rustybuzz::Face<'_>, text: &str, em: f32, tracking: f32) ->
     Line {
         path: builder.finish(),
         width,
+        words: Vec::new(),
     }
 }
 
@@ -455,7 +497,7 @@ pub fn render(
     width: u32,
     height: u32,
 ) -> Result<Rendered, Error> {
-    let (canvas, block) = paint(fonts, style, width, height)?;
+    let (canvas, block, words) = paint(fonts, style, width, height)?;
     let png = canvas
         .encode_png()
         .map_err(|error| Error::Encode(error.to_string()))?;
@@ -467,6 +509,7 @@ pub fn render(
         block_height: block.1,
         block_dx: block.2,
         block_dy: block.3,
+        words,
     })
 }
 
@@ -480,7 +523,7 @@ pub fn render_frame(
     width: u32,
     height: u32,
 ) -> Result<RenderedFrame, Error> {
-    let (canvas, block) = paint(fonts, style, width, height)?;
+    let (canvas, block, words) = paint(fonts, style, width, height)?;
     // tiny-skia keeps premultiplied pixels; a frame carries straight alpha.
     let mut rgba = Vec::with_capacity(canvas.pixels().len() * 4);
     for pixel in canvas.pixels() {
@@ -500,19 +543,21 @@ pub fn render_frame(
         block_height: block.1,
         block_dx: block.2,
         block_dy: block.3,
+        words,
     })
 }
 
 /// A painted block: (width, height, dx, dy), on [`Rendered`]'s terms.
 type Block = (u32, u32, i32, i32);
 
-/// The canvas with the title on it, and the block.
+/// The canvas with the title on it, the block, and every word's box on the
+/// canvas in reading order.
 fn paint(
     fonts: &Fonts,
     style: &TitleStyle,
     width: u32,
     height: u32,
-) -> Result<(Pixmap, Block), Error> {
+) -> Result<(Pixmap, Block, Vec<WordRect>), Error> {
     let mut canvas = Pixmap::new(width, height).ok_or(Error::Canvas(width, height))?;
     let frame_h = height as f32;
     let em = (style.font_size.clamp(0.005, 1.0) as f32) * frame_h;
@@ -546,7 +591,7 @@ fn paint(
     let words_h = (rows as f32 - 1.0) * pitch + ascent + descent;
     if words_w <= 0.0 || lines.is_empty() {
         // Nothing to paint: an empty, valid canvas.
-        return Ok((canvas, (0, 0, 0, 0)));
+        return Ok((canvas, (0, 0, 0, 0), Vec::new()));
     }
 
     // The box the words sit in. Sized by the style where the style says,
@@ -596,8 +641,10 @@ fn paint(
     let block_dx = (outer_left + outer_w / 2.0 - anchor_x).round() as i32;
 
     // One path for all the words, placed. Each line is aligned within the
-    // box's width and sits on its own baseline.
+    // box's width and sits on its own baseline. A word's box rides the
+    // same indent and baseline, in reading order.
     let mut words = PathBuilder::new();
+    let mut word_rects = Vec::new();
     for (row, line) in lines.iter().enumerate() {
         let Some(path) = &line.path else { continue };
         let indent = match style.align {
@@ -611,11 +658,21 @@ fn paint(
             .transform(Transform::from_translate(left + indent, baseline))
             .expect("a translated glyph path stays finite");
         words.push_path(&placed);
+        let line_top = baseline - ascent;
+        for &(start_x, end_x) in &line.words {
+            word_rects.push(WordRect {
+                x: (left + indent + start_x).round() as i32,
+                y: line_top.round() as i32,
+                width: (end_x - start_x).max(0.0).round() as u32,
+                height: (ascent + descent).round() as u32,
+            });
+        }
     }
     let Some(words) = words.finish() else {
         return Ok((
             canvas,
             (outer_w.round() as u32, outer_h.round() as u32, block_dx, 0),
+            word_rects,
         ));
     };
 
@@ -695,6 +752,7 @@ fn paint(
     Ok((
         canvas,
         (outer_w.round() as u32, outer_h.round() as u32, block_dx, 0),
+        word_rects,
     ))
 }
 
@@ -769,6 +827,30 @@ mod tests {
         tiny.max_width = 0.01;
         let rendered = render(&fonts, &tiny, 640, 360).expect("renders");
         assert!(rendered.block_width > 7);
+    }
+
+    /// Every word gets a box, in reading order, left to right on a line and
+    /// top to bottom across lines that wrap - what a per-word reveal keys
+    /// off without knowing what a word is.
+    #[test]
+    fn every_word_gets_a_box_in_reading_order() {
+        let fonts = Fonts::new();
+        let out = render(&fonts, &style("one two three"), 640, 360).expect("renders");
+        assert_eq!(out.words.len(), 3, "{:?}", out.words);
+        assert!(out.words[0].x < out.words[1].x);
+        assert!(out.words[1].x < out.words[2].x);
+        for word in &out.words {
+            assert!(word.width > 0 && word.height > 0, "{word:?}");
+        }
+
+        let mut narrow = style("one two three four five six");
+        narrow.max_width = 0.3;
+        let wrapped = render(&fonts, &narrow, 640, 360).expect("renders");
+        assert_eq!(wrapped.words.len(), 6, "{:?}", wrapped.words);
+        // A later word on a lower line sits strictly below an earlier one.
+        let last_row_y = wrapped.words.last().expect("six words").y;
+        let first_row_y = wrapped.words.first().expect("six words").y;
+        assert!(last_row_y > first_row_y, "{last_row_y} vs {first_row_y}");
     }
 
     fn opaque_pixels(png: &[u8]) -> usize {

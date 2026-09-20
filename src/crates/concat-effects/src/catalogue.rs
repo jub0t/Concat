@@ -17,10 +17,10 @@ use serde::Deserialize;
 
 use crate::Error;
 use crate::expr::{Expr, Value};
-use concat_core::{Lut, ShaderPass};
+use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
 use crate::manifest::{Kind, Manifest};
-use crate::shader::Shader;
+use crate::shader::{Shader, TransitionShader};
 use crate::template::Template;
 
 /// A compiled FFmpeg backend.
@@ -73,6 +73,9 @@ pub struct Package {
     /// The shader, when the package has one: the GPU renders it, and the
     /// chain - if the package has that too - is the CPU's fallback.
     shader: Option<Shader>,
+    /// The two-input shader, when the package is a transition: the GPU
+    /// combines the outgoing and incoming pictures with it.
+    transition: Option<TransitionShader>,
     /// The pinned outputs shipped with the package.
     pub fixtures: Vec<Fixture>,
     /// The folder the package was loaded from; None for a built-in.
@@ -146,9 +149,12 @@ impl Package {
             message,
         };
 
+        // The shader file beside the manifest, if any: a `[wgsl]` effect's
+        // body, or a `[transition]`'s two-input body.
+        let body = shader;
         // A `[wgsl]` table without the file, or the file without the table,
         // is a package that does not know what it is.
-        let shader = match (&manifest.wgsl, shader) {
+        let shader = match (&manifest.wgsl, body) {
             (Some(_), Some(body)) => Some(
                 Shader::compile(&manifest, body)
                     .map_err(|message| invalid(format!("shader: {message}")))?,
@@ -159,6 +165,9 @@ impl Package {
                     wgsl.entry
                 )));
             }
+            // A transition's `effect.wgsl` is its two-input shader, compiled
+            // just below, not a stray effect shader.
+            (None, Some(_)) if manifest.transition.is_some() => None,
             (None, Some(_)) => {
                 return Err(invalid(
                     "a shader was given but the manifest has no [wgsl] table".to_owned(),
@@ -166,7 +175,24 @@ impl Package {
             }
             (None, None) => None,
         };
-        if shader.is_none() && manifest.ffmpeg.is_none() && manifest.effect.kind != Kind::Audio {
+        let transition = match (&manifest.transition, body) {
+            (Some(_), Some(body)) => Some(
+                TransitionShader::compile(&manifest, body)
+                    .map_err(|message| invalid(format!("transition shader: {message}")))?,
+            ),
+            (Some(table), None) => {
+                return Err(invalid(format!(
+                    "[transition] names `{}` but no shader was given",
+                    table.entry
+                )));
+            }
+            (None, _) => None,
+        };
+        if shader.is_none()
+            && transition.is_none()
+            && manifest.ffmpeg.is_none()
+            && manifest.effect.kind != Kind::Audio
+        {
             return Err(invalid(
                 "the package has neither a shader nor a chain".to_owned(),
             ));
@@ -239,6 +265,7 @@ impl Package {
             manifest,
             chain,
             shader,
+            transition,
             fixtures,
             folder,
             lut,
@@ -263,6 +290,125 @@ impl Package {
         &self.manifest.effect.id
     }
 
+    /// The category declared in the manifest.
+    pub fn category(&self) -> &str {
+        &self.manifest.effect.category
+    }
+
+    /// Whether this package belongs to or matches a category filter.
+    pub fn matches_category(&self, category: &str) -> bool {
+        let cat = self.category();
+        if category.is_empty() || category.eq_ignore_ascii_case("All") {
+            return true;
+        }
+        if cat.eq_ignore_ascii_case(category) {
+            return true;
+        }
+        match category {
+            "Featured" => {
+                cat.eq_ignore_ascii_case("Featured")
+                    || self.manifest.effect.order < 10
+                    || matches!(
+                        self.id(),
+                        "concat.camera-shake"
+                            | "concat.rgb-glitch"
+                            | "concat.sparkle"
+                            | "concat.light-leak"
+                            | "concat.tilt-shift"
+                            | "concat.strobe-flash"
+                            | "concat.glow"
+                            | "concat.bloom-pulse"
+                    )
+            }
+            "Retro & Film" => {
+                cat.eq_ignore_ascii_case("Retro")
+                    || cat.eq_ignore_ascii_case("Film")
+                    || cat.eq_ignore_ascii_case("Cinematic")
+                    || cat.eq_ignore_ascii_case("Retro & Film")
+                    || matches!(
+                        self.id(),
+                        "concat.crt-scanlines"
+                            | "concat.film-reel"
+                            | "concat.camcorder-90s"
+                            | "concat.halation"
+                            | "concat.vhs"
+                            | "concat.film-grain"
+                            | "concat.scanlines"
+                            | "concat.dust"
+                            | "concat.falling-dust"
+                    )
+            }
+            "Optical & Lens" => {
+                cat.eq_ignore_ascii_case("Optical")
+                    || cat.eq_ignore_ascii_case("Lens")
+                    || cat.eq_ignore_ascii_case("Blur")
+                    || cat.eq_ignore_ascii_case("Optical & Lens")
+                    || matches!(
+                        self.id(),
+                        "concat.tilt-shift"
+                            | "concat.prism-dispersion"
+                            | "concat.fisheye"
+                            | "concat.lens-flare"
+                            | "concat.bokeh"
+                            | "concat.gaussian-blur"
+                            | "concat.box-blur"
+                            | "concat.motion-blur"
+                    )
+            }
+            "Distortion & Glitch" => {
+                cat.eq_ignore_ascii_case("Distort")
+                    || cat.eq_ignore_ascii_case("Glitch")
+                    || cat.eq_ignore_ascii_case("Distortion & Glitch")
+                    || matches!(
+                        self.id(),
+                        "concat.wave-warp"
+                            | "concat.vortex-swirl"
+                            | "concat.prism-dispersion"
+                            | "concat.fisheye"
+                            | "concat.mirror-tile"
+                            | "concat.rgb-glitch"
+                            | "concat.datamosh"
+                            | "concat.ripple"
+                            | "concat.twirl"
+                            | "concat.bulge-pinch"
+                            | "concat.swirl"
+                            | "concat.mirror"
+                    )
+            }
+            "Party & Club" => {
+                cat.eq_ignore_ascii_case("Party")
+                    || cat.eq_ignore_ascii_case("Club")
+                    || cat.eq_ignore_ascii_case("Party & Club")
+                    || matches!(
+                        self.id(),
+                        "concat.bass-shockwave"
+                            | "concat.laser-beams"
+                            | "concat.neon-glow"
+                            | "concat.color-cycle"
+                            | "concat.strobe-flash"
+                            | "concat.neon"
+                            | "concat.neon-edges"
+                    )
+            }
+            "Light & Shadow" => {
+                cat.eq_ignore_ascii_case("Light")
+                    || cat.eq_ignore_ascii_case("Shadow")
+                    || cat.eq_ignore_ascii_case("Light & Shadow")
+                    || matches!(
+                        self.id(),
+                        "concat.sparkle"
+                            | "concat.light-leak"
+                            | "concat.strobe-flash"
+                            | "concat.halation"
+                            | "concat.glow"
+                            | "concat.bloom-pulse"
+                            | "concat.lens-flare"
+                    )
+            }
+            _ => false,
+        }
+    }
+
     /// Which catalogue the package belongs to.
     pub fn kind(&self) -> Kind {
         self.manifest.effect.kind
@@ -271,6 +417,31 @@ impl Package {
     /// The shader, when the package renders on the GPU.
     pub fn shader(&self) -> Option<&Shader> {
         self.shader.as_ref()
+    }
+
+    /// The two-input shader, when the package is a transition.
+    pub fn transition(&self) -> Option<&TransitionShader> {
+        self.transition.as_ref()
+    }
+
+    /// The legacy transition id this package degrades to where its shader
+    /// cannot run - the CPU reference and export without a GPU. `cross-fade`
+    /// unless the manifest names another.
+    pub fn transition_fallback(&self) -> &str {
+        self.manifest
+            .transition
+            .as_ref()
+            .and_then(|table| table.fallback.as_deref())
+            .unwrap_or("cross-fade")
+    }
+
+    /// The FFmpeg `xfade` name this transition maps to for export, if it
+    /// declares one.
+    pub fn transition_xfade(&self) -> Option<&str> {
+        self.manifest
+            .transition
+            .as_ref()
+            .and_then(|table| table.xfade.as_deref())
     }
 
     /// Whether `id` is this package's id or one of its aliases.
@@ -591,6 +762,16 @@ impl Catalogue {
             .filter(move |package| package.kind() == kind)
     }
 
+    /// Every package of one kind matching a category filter, in catalogue order.
+    pub fn of_category<'a>(
+        &'a self,
+        kind: Kind,
+        category: &'a str,
+    ) -> impl Iterator<Item = &'a Package> {
+        self.of_kind(kind)
+            .filter(move |package| package.matches_category(category))
+    }
+
     /// The complete FFmpeg video filter string for a clip's effects, or the
     /// empty string if it has none. Effects apply in the order they were
     /// added.
@@ -606,22 +787,56 @@ impl Catalogue {
 
     /// The shader passes of a clip's chain, in applied order: one per enabled
     /// entry whose package has a shader. A filter's intensity rides along;
-    /// an effect is always whole.
-    pub fn shader_passes(&self, effects: &[AppliedFilter]) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params.clone())
+    /// an effect is always whole. `reveal_map` is a title's baked per-word
+    /// order, carried to every pass exactly as a package's own look-up
+    /// table is - None for anything that is not a title, harmless for a
+    /// package that never reads `reveal_order()`.
+    pub fn shader_passes(
+        &self,
+        effects: &[AppliedFilter],
+        reveal_map: Option<Arc<RevealMap>>,
+    ) -> Vec<ShaderPass> {
+        self.passes_with(effects, |applied| applied.params.clone(), reveal_map)
     }
 
     /// The same passes at one instant of the clip, `at` in `0..=1`: a
     /// parameter with keys is worth what its ride says there. What a
     /// renderer asks for each frame of a clip whose chain rides.
-    pub fn shader_passes_at(&self, effects: &[AppliedFilter], at: f64) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params_at(at))
+    pub fn shader_passes_at(
+        &self,
+        effects: &[AppliedFilter],
+        at: f64,
+        reveal_map: Option<Arc<RevealMap>>,
+    ) -> Vec<ShaderPass> {
+        self.passes_with(effects, |applied| applied.params_at(at), reveal_map)
+    }
+
+    /// The two-input pass for a transition package at `progress` in `0..=1`,
+    /// or None when `id` names no transition this catalogue knows (an unknown
+    /// id, or one that resolves to an effect/filter). The renderer combines
+    /// the outgoing and incoming pictures with it.
+    pub fn transition_pass(
+        &self,
+        id: &str,
+        params: &BTreeMap<String, f64>,
+        progress: f64,
+    ) -> Option<TransitionPass> {
+        let package = self.get(id)?;
+        let shader = package.transition()?;
+        let values = package.resolve(params);
+        Some(shader.pass(
+            &values,
+            &package.manifest.params,
+            progress.clamp(0.0, 1.0) as f32,
+            package.lut.clone(),
+        ))
     }
 
     fn passes_with(
         &self,
         effects: &[AppliedFilter],
         params_of: impl Fn(&AppliedFilter) -> BTreeMap<String, f64>,
+        reveal_map: Option<Arc<RevealMap>>,
     ) -> Vec<ShaderPass> {
         effects
             .iter()
@@ -641,6 +856,7 @@ impl Catalogue {
                     &package.manifest.params,
                     intensity,
                     package.lut.clone(),
+                    reveal_map.clone(),
                 ))
             })
             .collect()

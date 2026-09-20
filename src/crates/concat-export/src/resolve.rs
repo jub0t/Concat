@@ -96,13 +96,49 @@ pub(crate) struct BuiltTimeline {
     /// resolved from them at each frame, because a knob with keys is worth
     /// something different each frame and the resolution is cheap.
     pub(crate) chains: HashMap<ClipId, Vec<AppliedFilter>>,
+    /// A title's per-word reveal order, for the clips that have one -
+    /// carried beside `chains` rather than inside it, since it is baked
+    /// once by the host and never resolved per frame the way effects are.
+    pub(crate) reveal_maps: HashMap<ClipId, Arc<RevealMap>>,
     /// The clip whose cutout is drawn tinted rather than cut, if one is.
     pub(crate) highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
     pub(crate) treatments: Vec<Treatment>,
+    /// The packaged transitions over cuts, resolved before the timeline.
+    pub(crate) transitions: Vec<TransitionSpan>,
     /// The clips whose background a mask takes away.
     pub(crate) cutouts: HashMap<ClipId, CutoutJob>,
 }
+
+/// A packaged transition over a cut. The incoming clip has been overlapped
+/// onto the outgoing one and moved to `to_track`; over `[start, end)` the
+/// compositor combines the stack below `to_track` (the outgoing picture) with
+/// the incoming layer through the package's two-input shader. A machine with
+/// no GPU shows the dissolve the incoming clip already carries instead.
+#[derive(Clone, Debug)]
+pub(crate) struct TransitionSpan {
+    pub(crate) start: Rational,
+    pub(crate) end: Rational,
+    pub(crate) to_track: usize,
+    pub(crate) id: String,
+    pub(crate) params: BTreeMap<String, f64>,
+}
+
+impl TransitionSpan {
+    pub(crate) fn covers(&self, time: Rational) -> bool {
+        self.start <= time && time < self.end
+    }
+
+    /// How far through the cut `time` is, `0..=1`.
+    pub(crate) fn progress(&self, time: Rational) -> f64 {
+        let span = self.end.as_f64() - self.start.as_f64();
+        if span <= 0.0 {
+            return 1.0;
+        }
+        ((time.as_f64() - self.start.as_f64()) / span).clamp(0.0, 1.0)
+    }
+}
+
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
 /// chain, and how hard.
@@ -126,7 +162,8 @@ impl Treatment {
         self.start <= time && time < self.end
     }
 
-    /// The shader passes at `time`, each keyed knob at its value there.
+    /// The shader passes at `time`, each keyed knob at its value there. A
+    /// layer is never a title, so it never carries a reveal map.
     pub(crate) fn passes_at(&self, time: Rational) -> Vec<ShaderPass> {
         let span = (self.end - self.start).as_f64();
         let at = if span > 0.0 {
@@ -134,7 +171,7 @@ impl Treatment {
         } else {
             0.0
         };
-        Catalogue::builtin().shader_passes_at(&self.effects, at)
+        Catalogue::builtin().shader_passes_at(&self.effects, at, None)
     }
 
     /// How hard the treatment is applied at `time`: the strength, eased in
@@ -159,6 +196,7 @@ pub(crate) fn build_timeline(
     rate: FrameRate,
     visible: &[&ExportClip],
     gpu: bool,
+    transitions: Vec<TransitionSpan>,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     let mut stills = std::collections::HashSet::new();
@@ -168,6 +206,7 @@ pub(crate) fn build_timeline(
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
+    let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut highlight: Option<ClipId> = None;
 
@@ -256,6 +295,9 @@ pub(crate) fn build_timeline(
                 if !effects.is_empty() {
                     chains.insert(id, effects);
                 }
+                if let Some(map) = &clip.reveal_map {
+                    reveal_maps.insert(id, Arc::clone(map));
+                }
             }
             if let Some(job) = CutoutJob::of(clip) {
                 cutouts.insert(id, job);
@@ -273,8 +315,10 @@ pub(crate) fn build_timeline(
         filter_chains,
         tracks: tracks_of,
         treatments,
+        transitions,
         pre_chains,
         chains,
+        reveal_maps,
         cutouts,
         highlight,
     }

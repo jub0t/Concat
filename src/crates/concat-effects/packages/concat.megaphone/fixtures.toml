@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "highpass=f=550,lowpass=f=2800,equalizer=f=1600:t=q:w=2.0:g=7.00,alimiter=limit=0.88"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "highpass=f=550,lowpass=f=2800,equalizer=f=1600:t=q:w=2.0:g=3.80,alimiter=limit=0.88"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "highpass=f=550,lowpass=f=2800,equalizer=f=1600:t=q:w=2.0:g=11.00,alimiter=limit=0.88"

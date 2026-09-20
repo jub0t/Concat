@@ -1,0 +1,20 @@
+[effect]
+id = "concat.whisper"
+name = "Whisper"
+kind = "audio"
+category = "Voice"
+order = 16
+intensity = "air"
+aliases = ["breathy", "intimate"]
+description = "Airy, breathy tone with attenuated low end and enhanced presence."
+
+[[param]]
+key = "air"
+label = "Air"
+min = 1
+max = 10
+default = 5
+step = 0.5
+
+[ffmpeg]
+chain = "highpass=f=500,equalizer=f=3200:t=q:w=1.4:g={fixed(2 + air * 0.6, 2)},equalizer=f=7500:t=q:w=1.2:g={fixed(1 + air * 0.5, 2)},alimiter=limit=0.92"

@@ -50,12 +50,46 @@ pub struct ShaderPass {
     /// The package's look-up table, bound as a 3D texture the shader's
     /// `lut()` samples; None binds the identity so the call is harmless.
     pub lut: Option<Arc<Lut>>,
+    /// A title's per-word reveal order, bound as a 2D texture the shader's
+    /// `reveal_order()` samples; None binds a map that reveals everything,
+    /// so the call is harmless for a pass over anything that is not a
+    /// title. See [`RevealMap`].
+    pub reveal_map: Option<Arc<RevealMap>>,
 }
 
 impl ShaderPass {
     /// The uniform buffer's minimum size: a struct with nothing in it still
     /// needs a binding.
     pub const MIN_PARAMS: usize = 16;
+}
+
+/// One two-input transition combine, as the compositor runs it.
+///
+/// Where a [`ShaderPass`] changes one layer, a transition reads two - the
+/// outgoing picture and the incoming one - and a `progress` from 0 to 1, and
+/// writes the single picture between them. It is resolved from a transition
+/// package and the cut's timing by the effect catalogue and carried to the
+/// renderer as data, exactly like a pass: the renderer compiles and caches
+/// the pipeline by `key` and pours `params` into the shader's uniform buffer
+/// as the catalogue laid them out.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransitionPass {
+    /// What to cache the compiled pipeline under: the package's id and
+    /// version, the same rule a [`ShaderPass`] follows.
+    pub key: String,
+    /// The complete WGSL module: the host's transition prelude with the
+    /// package's body, declaring
+    /// `fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32>`.
+    pub source: Arc<str>,
+    /// The `Params` uniform, laid out to the struct's offsets. Sixteen bytes
+    /// at least, so an empty struct still has a buffer.
+    pub params: Vec<u8>,
+    /// How far through the cut this frame is, `0..=1`: 0 is all the outgoing
+    /// picture, 1 all the incoming one.
+    pub progress: f32,
+    /// The package's look-up table, bound like a pass's so the shared
+    /// grading helpers work; None binds the identity.
+    pub lut: Option<Arc<Lut>>,
 }
 
 /// A 3D look-up table: `size` texels a side, RGBA8, red fastest, then
@@ -146,6 +180,66 @@ impl Lut {
     }
 }
 
+/// A title's words, baked into one grayscale map the size of its canvas:
+/// each pixel holds the normalized order (0 first, 1 last) of the word
+/// painted there, 0 wherever no word was - background is moot since it is
+/// transparent regardless, so it is left "already revealed" rather than
+/// given a value that would mean something if it were ever visible.
+///
+/// This is how a per-word reveal effect works without the renderer or the
+/// shader knowing what a "word" is: the layout that already happens to
+/// paint a title is baked once into a texture, exactly as a colour look-up
+/// table bakes a grade, and a shader reads it back with one comparison
+/// against `progress`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RevealMap {
+    /// A hash of the contents, so a renderer can cache the upload.
+    pub id: u64,
+    /// The canvas width this map was baked at.
+    pub width: u32,
+    /// The canvas height this map was baked at.
+    pub height: u32,
+    /// `width * height` bytes, one per pixel, red channel only.
+    pub gray: Arc<[u8]>,
+}
+
+impl RevealMap {
+    /// A map `width` by `height`, `rects` each `(x, y, width, height)` in
+    /// canvas pixels and in the order the words should reveal - reading
+    /// order is what a caller normally means. A pixel outside every rect
+    /// stays revealed from the start; one inside more than one keeps the
+    /// later word's order, though words in practice never overlap.
+    pub fn from_rects(width: u32, height: u32, rects: &[(i32, i32, u32, u32)]) -> RevealMap {
+        let mut gray = vec![0u8; width as usize * height as usize];
+        let last = rects.len().saturating_sub(1).max(1) as f32;
+        for (index, &(x, y, w, h)) in rects.iter().enumerate() {
+            let value = ((index as f32 / last) * 255.0).round() as u8;
+            let x0 = x.clamp(0, width as i32) as u32;
+            let y0 = y.clamp(0, height as i32) as u32;
+            let x1 = (x + w as i32).clamp(0, width as i32) as u32;
+            let y1 = (y + h as i32).clamp(0, height as i32) as u32;
+            for row in y0..y1 {
+                let start = row as usize * width as usize + x0 as usize;
+                gray[start..start + (x1 - x0) as usize].fill(value);
+            }
+        }
+        let id = fnv64(&gray) ^ u64::from(width) ^ (u64::from(height) << 32);
+        RevealMap {
+            id,
+            width,
+            height,
+            gray: gray.into(),
+        }
+    }
+
+    /// The map that reveals everything from the first frame: what a pass
+    /// without one binds, and a two-by-two texture, so the identity is
+    /// almost free to keep resident.
+    pub fn identity() -> RevealMap {
+        RevealMap::from_rects(2, 2, &[])
+    }
+}
+
 /// FNV-1a, so a table's id needs no dependency and is the same on every
 /// machine.
 fn fnv64(bytes: &[u8]) -> u64 {
@@ -181,5 +275,27 @@ mod tests {
     fn a_table_of_the_wrong_length_is_refused() {
         assert!(Lut::from_rgb(3, &[0.0; 26 * 3]).is_none());
         assert!(Lut::from_rgb(1, &[0.0; 3]).is_none());
+    }
+
+    #[test]
+    fn the_identity_reveal_map_reveals_everywhere() {
+        let map = RevealMap::identity();
+        assert!(map.gray.iter().all(|&g| g == 0));
+    }
+
+    #[test]
+    fn word_rects_are_ordered_zero_to_full_and_outside_stays_revealed() {
+        let map = RevealMap::from_rects(10, 10, &[(0, 0, 2, 2), (5, 0, 2, 2), (0, 5, 2, 2)]);
+        assert_eq!(map.gray[0], 0);
+        assert_eq!(map.gray[5], 128);
+        assert_eq!(map.gray[5 * 10], 255);
+        // A pixel no rect covers is left at the "already revealed" value.
+        assert_eq!(map.gray[9 * 10 + 9], 0);
+    }
+
+    #[test]
+    fn a_single_word_reveals_at_the_very_start() {
+        let map = RevealMap::from_rects(4, 4, &[(0, 0, 2, 2)]);
+        assert_eq!(map.gray[0], 0);
     }
 }

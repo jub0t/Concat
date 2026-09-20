@@ -1,0 +1,13 @@
+[[case]]
+name = "default"
+chain = "aecho=0.8:0.88:228|456:0.45|0.28,lowpass=f=6500"
+
+[[case]]
+name = "minimum"
+at = "min"
+chain = "aecho=0.8:0.88:138|276:0.45|0.28,lowpass=f=6500"
+
+[[case]]
+name = "maximum"
+at = "max"
+chain = "aecho=0.8:0.88:300|600:0.45|0.28,lowpass=f=6500"

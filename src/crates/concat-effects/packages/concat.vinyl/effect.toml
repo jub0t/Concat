@@ -1,0 +1,20 @@
+[effect]
+id = "concat.vinyl"
+name = "Vinyl"
+kind = "audio"
+category = "Tone"
+order = 24
+intensity = "warmth"
+aliases = ["record", "gramophone"]
+description = "Warm, vintage turntable character with band-limited sound."
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+min = 0
+max = 10
+default = 5
+step = 0.5
+
+[ffmpeg]
+chain = "highpass=f=250,lowpass=f=5000,equalizer=f=1200:t=q:w=1.5:g={fixed(2 + warmth * 0.4, 2)},alimiter=limit=0.95"

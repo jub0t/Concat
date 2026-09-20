@@ -1,0 +1,1 @@
+split[spka{index}][spkb{index}];[spkb{index}]gblur=sigma=8[spkg{index}];[spka{index}][spkg{index}]blend=all_mode=screen:all_opacity={a}

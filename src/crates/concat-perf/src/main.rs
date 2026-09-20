@@ -621,7 +621,7 @@ fn compose_plan() -> FramePlan {
         ..Transform::default()
     };
     placed.effects = concat_effects::Catalogue::builtin()
-        .shader_passes_at(&[AppliedFilter::new("concat.sepia")], 0.0);
+        .shader_passes_at(&[AppliedFilter::new("concat.sepia")], 0.0, None);
     plan.layers.push(placed);
     let mut small = PlannedLayer::picture(
         concat_render::detached_clip(),
