@@ -580,7 +580,11 @@ impl WgpuCompositor {
                 ground = Some(below);
                 continue;
             }
-            let treated = self.run_passes(width, height, below, &treatment.effects, seconds);
+            // A treatment has no single clip of its own - it runs over
+            // whatever stack sits beneath it - so `clip_time` falls back
+            // to the timeline's own clock, exactly what a package read
+            // before this existed.
+            let treated = self.run_passes(width, height, below, &treatment.effects, seconds, 0.0);
             ground = Some(if strength >= 1.0 {
                 treated
             } else {
@@ -624,6 +628,7 @@ impl WgpuCompositor {
         };
         let geometry = layer.geometry(source, plan.width, plan.height);
         let seconds = plan.seconds();
+        let clip_start = layer.clip_start.as_f64() as f32;
         let (size, texture, uvs, flips) = if layer.needs_preparing(&geometry) {
             let uploaded = self.upload(source);
             let made = self.make_picture(
@@ -639,6 +644,7 @@ impl WgpuCompositor {
                 made,
                 &layer.effects,
                 seconds,
+                clip_start,
             );
             (
                 geometry.fitted,
@@ -655,6 +661,7 @@ impl WgpuCompositor {
                     index,
                     &layer.effects,
                     seconds,
+                    clip_start,
                 );
             }
             (
@@ -1138,7 +1145,9 @@ impl WgpuCompositor {
             });
         let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("concat pass frame"),
-            size: 16,
+            // size(vec2), time, intensity, clip_time, padded to Frame's own
+            // 8-byte alignment (from its vec2 member): 20 bytes rounds to 24.
+            size: 24,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1437,6 +1446,7 @@ impl WgpuCompositor {
         source: usize,
         passes: &[ShaderPass],
         time: f32,
+        clip_start: f32,
     ) -> usize {
         let mut current = source;
         for pass in passes {
@@ -1447,7 +1457,14 @@ impl WgpuCompositor {
             let shader = &self.shaders[&pass.key];
             let lut_group = &self.luts[&lut_id];
             let reveal_group = &self.reveals[&reveal_id];
-            let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.intensity];
+            let frame_block: [f32; 6] = [
+                width as f32,
+                height as f32,
+                time,
+                pass.intensity,
+                time - clip_start,
+                0.0,
+            ];
             let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
             self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
             let mut params = pass.params.clone();

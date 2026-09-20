@@ -476,6 +476,24 @@ fn every_shader_package_renders_at_its_defaults() {
     }
 }
 
+/// A pass reads how long its own clip has been on screen through
+/// `frame.clip_time` - the gap between the frame's own time and where the
+/// clip begins on the timeline, not the timeline's absolute clock. A
+/// clip starting at 2s, five seconds into the timeline, has been on
+/// screen for exactly three.
+#[test]
+fn a_pass_reads_its_layers_clip_relative_time() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { if (abs(frame.clip_time - 3.0) < 0.001) { return vec4<f32>(0.0, 1.0, 0.0, 1.0); } return vec4<f32>(1.0, 0.0, 0.0, 1.0); }";
+    let mut timed = layer(solid(4, 4, [0, 0, 0, 255]));
+    timed.clip_start = concat_core::time::Rational::approximate(2.0).expect("a rational");
+    timed.effects = vec![package("test.cliptime", body, "", &[], 1.0)];
+    let mut p = plan(4, 4, vec![timed]);
+    p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(&out.pixels()[..3], &[0, 255, 0], "clip_time should read 3.0");
+}
+
 /// Every packaged transition's pipeline actually creates and runs on the
 /// GPU, across its whole progress range - naga's validation at load
 /// catches a broken shader's syntax and types, but only a real pipeline

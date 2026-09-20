@@ -35,6 +35,15 @@ struct Frame {
     time: f32,
     /// How much of the effect to keep over the untouched layer.
     intensity: f32,
+    /// Seconds since this layer's own clip began - zero at its first
+    /// frame, however far into the timeline that is. A one-shot look
+    /// times itself to this instead of `time`, so it plays the same
+    /// whether the clip starts at zero or at the twenty-minute mark; a
+    /// looping one can still read `time` for a phase nothing needs to
+    /// reset. Layers with no single clip of their own - a treatment's
+    /// stack, a synthesized ground - carry zero here always, which reads
+    /// as "just started" forever; a look that only loops is unaffected.
+    clip_time: f32,
 }
 
 @group(0) @binding(0) var source: texture_2d<f32>;
