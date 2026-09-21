@@ -63,6 +63,7 @@
 * [ ] **Smart Media Search** — Search local project media using speech, filenames, metadata, and eventually visual content.
 * [ ] **Long Video → Clips** — Help identify and extract useful short-form segments from longer recordings.
 * [ ] **Local Media Analysis** — Build reusable background analysis for transcripts, scenes, faces, audio, and other metadata that multiple Concat features can share.
+* [ ] 🌟 **Enhance** — Upscale, denoise and deblur footage and stills with local restoration models (Real-ESRGAN, SCUNet, NAFNet) run through the ONNX runtime on the platform's accelerator, written once as an enhanced copy the timeline reads; no filter-chain shortcuts.
 
 ### 🔌 Plugins & Extensibility
 
@@ -78,6 +79,7 @@
 These are areas worth exploring after the core editing experience is mature:
 
 * [ ] Optical-flow frame interpolation
+* [ ] OS-native super resolution and frame interpolation as a fast path for Enhance: VideoToolbox's `VTFrameProcessor` on macOS 26 / iOS 26, and the Windows App SDK video super-resolution API on Copilot+ PCs
 * [ ] Video stabilization
 * [ ] Video denoising and restoration
 * [ ] Local video upscaling
