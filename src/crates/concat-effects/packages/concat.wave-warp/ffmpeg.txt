@@ -1,1 +1,0 @@
-geq=r='r(X+{amp}*sin(Y/15+T*{spd}),Y+{amp}*cos(X/15+T*{spd}))':g='g(X+{amp}*sin(Y/15+T*{spd}),Y+{amp}*cos(X/15+T*{spd}))':b='b(X+{amp}*sin(Y/15+T*{spd}),Y+{amp}*cos(X/15+T*{spd}))'

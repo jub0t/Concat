@@ -1,1 +1,0 @@
-gblur=sigma={b},eq=saturation=1.2

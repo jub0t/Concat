@@ -1,1 +1,0 @@
-colorbalance=gh={g}:bh={g}

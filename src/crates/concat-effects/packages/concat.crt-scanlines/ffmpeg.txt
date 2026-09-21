@@ -1,1 +1,0 @@
-lenscorrection=k1={k}:k2={k}:i=bilinear
