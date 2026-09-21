@@ -763,6 +763,7 @@ struct CatalogueItemData {
 // a plus on hover when it works, a "Soon" badge when it does not.
 component CatalogueCard inherits Rectangle {
     in property <CatalogueItemData> item;
+    in property <Glyph> glyph: root.item.glyph;
     /// A card that shows before it adds: a click is `auditioned`, and only
     /// a double-click or the plus is `applied`. Otherwise a click applies.
     in property <bool> auditions;
@@ -782,6 +783,12 @@ component CatalogueCard inherits Rectangle {
     /// Transitions and audio effects have nothing to show but their name,
     /// and a name in a box says it in a third of the room.
     in property <bool> compact;
+
+    property <float> sweep: card.has-hover ? 1.0 : 0.0;
+    animate sweep { duration: 1.2s; easing: ease-in-out; iteration-count: -1; }
+
+    property <float> shimmer: card.has-hover ? 1.0 : 0.0;
+    animate shimmer { duration: 1.5s; easing: ease-in-out; iteration-count: -1; }
 
     opacity: drag.dragging ? 0.45 : 1.0;
 
@@ -851,6 +858,37 @@ component CatalogueCard inherits Rectangle {
                     tint: Theme.fg-dim;
                 }
 
+                // Transitions: animated sweep line / wipe overlay across card image
+                if (root.glyph == Glyph.transition || root.item.glyph == Glyph.transition) && card.has-hover: Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: parent.width * root.sweep;
+                    height: parent.height;
+                    background: Theme.accent-soft;
+
+                    Rectangle {
+                        x: parent.width - 2px;
+                        y: 0;
+                        width: 2px;
+                        height: parent.height;
+                        background: Theme.accent;
+                    }
+                }
+
+                // Effects: subtle live shimmer effect on hover across thumbnail
+                if (root.glyph == Glyph.sparkle || root.item.glyph == Glyph.sparkle) && card.has-hover: Rectangle {
+                    x: -parent.width + (2 * parent.width * root.shimmer);
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    background: @linear-gradient(90deg,
+                        transparent 0%,
+                        transparent 25%,
+                        Theme.accent-soft 50%,
+                        transparent 75%,
+                        transparent 100%);
+                }
+
                 if !root.item.enabled: Rectangle {
                     x: parent.width - self.width - 4px;
                     y: parent.height - self.height - 4px;
@@ -909,48 +947,6 @@ component CatalogueCard inherits Rectangle {
                 overflow: elide;
             }
         }
-    }
-}
-
-// The same auto-fill arithmetic as MediaGrid, over catalogue entries.
-component CatalogueGrid inherits Rectangle {
-    in property <[CatalogueItemData]> items;
-    /// Names the page for the timeline: "filter" makes every card here a drag
-    /// source that leaves a layer clip, and empty leaves the page click-only.
-    /// The label rides along in the payload because it is written here, in the
-    /// catalogue, and nothing on the Rust side has a copy of it.
-    in property <string> payload-kind;
-
-    /// The label rides along with the id: a page that places something has to
-    /// say what to call it, and the catalogue is the only place that knows.
-    callback applied(id: string, label: string);
-
-    property <length> gap: 8px;
-    property <length> min-card: 88px;
-    /// A page of artless entries is a page of compact cards; see
-    /// CatalogueCard. Decided once for the grid, so the rows line up.
-    property <bool> compact: root.items.length > 0 && root.items[0].art.width == 0;
-
-    property <int> cols: Math.max(1,
-        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
-    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    property <length> card-h: root.compact ? root.card-w / 2
-        : root.card-w * 9 / 16 + 4px + 14px;
-    property <int> rows: Math.ceil(root.items.length / root.cols);
-
-    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
-
-    for entry[index] in root.items: CatalogueCard {
-        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
-        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
-        width: root.card-w;
-        height: root.card-h;
-        item: entry;
-        compact: root.compact;
-        payload: root.payload-kind == "" || !entry.enabled ? ""
-            : "\{root.payload-kind}:\{entry.id}:\{entry.label}";
-
-        applied => { root.applied(entry.id, entry.label); }
     }
 }
 
@@ -1129,14 +1125,15 @@ component PresetCard inherits Rectangle {
 
 // A shelf of the effect catalogue, as Rust narrows it - searched, shelved
 // and starred by the same `Library` view the inspector reads - with the
-// same auto-fill arithmetic as CatalogueGrid. The artwork is looked up by
+// same auto-fill arithmetic as MediaGrid. The artwork is looked up by
 // id through `art`, since the pictures live here in the pane and the
 // entries come from the manifests.
 component ShelfGrid inherits Rectangle {
     in property <[CatalogueEntryData]> entries;
     /// The mark for an entry with no artwork; see CatalogueItemData.
     in property <Glyph> glyph: Glyph.sparkle;
-    /// See CatalogueGrid.
+    /// Names the page for the timeline: "filter" makes every card here a drag
+    /// source that leaves a layer clip, and empty leaves the page click-only.
     in property <string> payload-kind;
 
     pure callback art(id: string) -> image;
@@ -1199,6 +1196,97 @@ component ShelfSearch inherits HorizontalLayout {
         edited(text) => { Library.query-changed(root.shelf, text); }
         property <string> held: Library.view(root.shelf).query;
         changed held => { self.text = self.held; }
+    }
+}
+
+component CategoryPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked();
+
+    height: 24px;
+    border-radius: 12px;
+    background: root.selected ? Theme.accent
+        : touch.has-hover ? Theme.field-hover
+        : Theme.field;
+
+    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        alignment: center;
+
+        Text {
+            text: root.text;
+            color: root.selected ? Theme.on-accent
+                : touch.has-hover ? Theme.fg
+                : Theme.fg-muted;
+            font-size: Theme.fs-xs;
+            font-weight: root.selected ? Theme.weight-title : 400;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component CategoryPillBar inherits Rectangle {
+    in property <[string]> categories: [
+        "All",
+        "Featured",
+        "Retro & Film",
+        "Optical & Lens",
+        "Distortion & Glitch",
+        "Party & Club",
+        "Light & Shadow",
+    ];
+    in property <string> current: "All";
+    callback picked(category: string);
+
+    height: 30px;
+    clip: true;
+
+    property <length> offset: 0px;
+    property <length> content-width: row.preferred-width;
+    property <length> max-scroll: Math.max(0px, root.content-width - root.width);
+    property <length> press-x: 0px;
+    property <length> press-offset: 0px;
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.press-x = touch.mouse-x;
+                root.press-offset = root.offset;
+            }
+        }
+        moved => {
+            if (touch.pressed) {
+                root.offset = Math.max(-root.max-scroll, Math.min(0px, root.press-offset + touch.mouse-x - root.press-x));
+            }
+        }
+        scroll-event(event) => {
+            root.offset = Math.max(-root.max-scroll, Math.min(0px, root.offset + event.delta-x + event.delta-y));
+            return EventResult.accept;
+        }
+
+        row := HorizontalLayout {
+            x: Math.max(-root.max-scroll, Math.min(0px, root.offset));
+            y: 3px;
+            height: 24px;
+            spacing: 6px;
+
+            for cat in root.categories: CategoryPill {
+                text: cat;
+                selected: root.current == cat || (root.current == "" && cat == "All" && Library.view(1).group < 0);
+                clicked => {
+                    root.picked(cat);
+                }
+            }
+        }
     }
 }
 
@@ -1292,13 +1380,15 @@ export component MediaPane inherits Rectangle {
     /// The looks the Text page's Presets shelf offers.
     in property <[TextPresetData]> presets;
     /// The effect catalogue's shelves, as Rust narrows them by the
-    /// `Library` view: what the Effects and Filters pages show.
+    /// `Library` view: what the Effects, Filters and Transitions pages show.
     in property <[CatalogueEntryData]> catalogue-effects;
     in property <[CatalogueEntryData]> catalogue-audio;
     in property <[CatalogueEntryData]> catalogue-filters;
+    in property <[CatalogueEntryData]> catalogue-transitions;
     in property <[string]> effect-groups;
     in property <[string]> audio-groups;
     in property <[string]> filter-groups;
+    in property <[string]> transition-groups;
     /// Text page: add a title at the playhead, in the look `preset` names.
     callback add-text(preset: string);
     /// Catalogue pages: apply to the selected clip; Rust validates & explains.
@@ -1337,8 +1427,6 @@ export component MediaPane inherits Rectangle {
     property <bool> effects-open: true;
     property <bool> filters-open: true;
     property <bool> templates-open: true;
-    /// 0 = Basic, 1 = Motion
-    property <int> transition-category;
     /// The Effects page shows the sound's shelves rather than the
     /// picture's: whichever heading's row was picked last.
     property <bool> audio-shelf;
@@ -1415,6 +1503,90 @@ export component MediaPane inherits Rectangle {
         if (id == "concat.solarize") { return @image-url("../assets/effect-previews/solarize.jpg"); }
         if (id == "concat.scanlines") { return @image-url("../assets/effect-previews/scanlines.jpg"); }
         if (id == "concat.hologram") { return @image-url("../assets/effect-previews/hologram.jpg"); }
+        // New effects
+        if (id == "concat.bloom-pulse") { return @image-url("../assets/effect-previews/bloom-pulse.jpg"); }
+        if (id == "concat.blue-screen") { return @image-url("../assets/effect-previews/blue-screen.jpg"); }
+        if (id == "concat.bokeh") { return @image-url("../assets/effect-previews/bokeh.jpg"); }
+        if (id == "concat.bulge-pinch") { return @image-url("../assets/effect-previews/bulge-pinch.jpg"); }
+        if (id == "concat.crosshatch") { return @image-url("../assets/effect-previews/crosshatch.jpg"); }
+        if (id == "concat.datamosh") { return @image-url("../assets/effect-previews/datamosh.jpg"); }
+        if (id == "concat.duotone") { return @image-url("../assets/effect-previews/duotone.jpg"); }
+        if (id == "concat.dust") { return @image-url("../assets/effect-previews/dust.jpg"); }
+        if (id == "concat.fog") { return @image-url("../assets/effect-previews/fog.jpg"); }
+        if (id == "concat.green-screen") { return @image-url("../assets/effect-previews/green-screen.jpg"); }
+        if (id == "concat.halftone") { return @image-url("../assets/effect-previews/halftone.jpg"); }
+        if (id == "concat.kaleidoscope") { return @image-url("../assets/effect-previews/kaleidoscope.jpg"); }
+        if (id == "concat.lens-flare") { return @image-url("../assets/effect-previews/lens-flare.jpg"); }
+        if (id == "concat.light-leak") { return @image-url("../assets/effect-previews/light-leak.jpg"); }
+        if (id == "concat.mask-circle") { return @image-url("../assets/effect-previews/mask-circle.jpg"); }
+        if (id == "concat.mask-linear") { return @image-url("../assets/effect-previews/mask-linear.jpg"); }
+        if (id == "concat.mask-rectangle") { return @image-url("../assets/effect-previews/mask-rectangle.jpg"); }
+        if (id == "concat.neon-edges") { return @image-url("../assets/effect-previews/neon-edges.jpg"); }
+        if (id == "concat.oil-paint") { return @image-url("../assets/effect-previews/oil-paint.jpg"); }
+        if (id == "concat.rgb-split") { return @image-url("../assets/effect-previews/rgb-split.jpg"); }
+        if (id == "concat.ripple") { return @image-url("../assets/effect-previews/ripple.jpg"); }
+        if (id == "concat.snow") { return @image-url("../assets/effect-previews/snow.jpg"); }
+        if (id == "concat.twirl") { return @image-url("../assets/effect-previews/twirl.jpg"); }
+        // New filters
+        if (id == "concat.adjust") { return @image-url("../assets/effect-previews/adjust.jpg"); }
+        if (id == "concat.autumn") { return @image-url("../assets/effect-previews/autumn.jpg"); }
+        if (id == "concat.bleach-bypass") { return @image-url("../assets/effect-previews/bleach-bypass.jpg"); }
+        if (id == "concat.classic-chrome") { return @image-url("../assets/effect-previews/classic-chrome.jpg"); }
+        if (id == "concat.cyberpunk") { return @image-url("../assets/effect-previews/cyberpunk.jpg"); }
+        if (id == "concat.delicious") { return @image-url("../assets/effect-previews/delicious.jpg"); }
+        if (id == "concat.dreamy") { return @image-url("../assets/effect-previews/dreamy.jpg"); }
+        if (id == "concat.high-contrast-mono") { return @image-url("../assets/effect-previews/high-contrast-mono.jpg"); }
+        if (id == "concat.landscape-pop") { return @image-url("../assets/effect-previews/landscape-pop.jpg"); }
+        if (id == "concat.natural") { return @image-url("../assets/effect-previews/natural.jpg"); }
+        if (id == "concat.noir") { return @image-url("../assets/effect-previews/noir.jpg"); }
+        if (id == "concat.retro-70s") { return @image-url("../assets/effect-previews/retro-70s.jpg"); }
+        if (id == "concat.rosy") { return @image-url("../assets/effect-previews/rosy.jpg"); }
+        if (id == "concat.sci-fi") { return @image-url("../assets/effect-previews/sci-fi.jpg"); }
+        if (id == "concat.silver") { return @image-url("../assets/effect-previews/silver.jpg"); }
+        if (id == "concat.super-8") { return @image-url("../assets/effect-previews/super-8.jpg"); }
+        if (id == "concat.tropical") { return @image-url("../assets/effect-previews/tropical.jpg"); }
+        if (id == "concat.vaporwave") { return @image-url("../assets/effect-previews/vaporwave.jpg"); }
+        if (id == "concat.winter-cool") { return @image-url("../assets/effect-previews/winter-cool.jpg"); }
+        // Transitions
+        if (id == "concat.blur-dissolve") { return @image-url("../assets/effect-previews/blur-dissolve.jpg"); }
+        if (id == "concat.clock-wipe") { return @image-url("../assets/effect-previews/clock-wipe.jpg"); }
+        if (id == "concat.cube") { return @image-url("../assets/effect-previews/cube.jpg"); }
+        if (id == "concat.dissolve") { return @image-url("../assets/effect-previews/dissolve.jpg"); }
+        if (id == "concat.film-burn") { return @image-url("../assets/effect-previews/film-burn.jpg"); }
+        if (id == "concat.glitch-transition") { return @image-url("../assets/effect-previews/glitch-transition.jpg"); }
+        if (id == "concat.iris") { return @image-url("../assets/effect-previews/iris.jpg"); }
+        if (id == "concat.light-leak-transition") { return @image-url("../assets/effect-previews/light-leak-transition.jpg"); }
+        if (id == "concat.linear-wipe") { return @image-url("../assets/effect-previews/linear-wipe.jpg"); }
+        if (id == "concat.push") { return @image-url("../assets/effect-previews/push.jpg"); }
+        if (id == "concat.rgb-split-wipe") { return @image-url("../assets/effect-previews/rgb-split-wipe.jpg"); }
+        if (id == "concat.shape-wipe") { return @image-url("../assets/effect-previews/shape-wipe.jpg"); }
+        if (id == "concat.slide") { return @image-url("../assets/effect-previews/slide.jpg"); }
+        if (id == "concat.spin") { return @image-url("../assets/effect-previews/spin.jpg"); }
+        if (id == "concat.swirl") { return @image-url("../assets/effect-previews/swirl.jpg"); }
+        if (id == "concat.zoom-transition") { return @image-url("../assets/effect-previews/zoom-transition.jpg"); }
+        // Modern Video Effects
+        if (id == "concat.camera-shake") { return @image-url("../assets/effect-previews/camera-shake.jpg"); }
+        if (id == "concat.rgb-glitch") { return @image-url("../assets/effect-previews/rgb-glitch.jpg"); }
+        if (id == "concat.sparkle") { return @image-url("../assets/effect-previews/sparkle.jpg"); }
+        if (id == "concat.tilt-shift") { return @image-url("../assets/effect-previews/tilt-shift.jpg"); }
+        if (id == "concat.strobe-flash") { return @image-url("../assets/effect-previews/strobe-flash.jpg"); }
+        if (id == "concat.crt-scanlines") { return @image-url("../assets/effect-previews/crt-scanlines.jpg"); }
+        if (id == "concat.film-reel") { return @image-url("../assets/effect-previews/film-reel.jpg"); }
+        if (id == "concat.camcorder-90s") { return @image-url("../assets/effect-previews/camcorder-90s.jpg"); }
+        if (id == "concat.halation") { return @image-url("../assets/effect-previews/halation.jpg"); }
+        if (id == "concat.wave-warp") { return @image-url("../assets/effect-previews/wave-warp.jpg"); }
+        if (id == "concat.vortex-swirl") { return @image-url("../assets/effect-previews/vortex-swirl.jpg"); }
+        if (id == "concat.prism-dispersion") { return @image-url("../assets/effect-previews/prism-dispersion.jpg"); }
+        if (id == "concat.mirror-tile") { return @image-url("../assets/effect-previews/mirror-tile.jpg"); }
+        if (id == "concat.bass-shockwave") { return @image-url("../assets/effect-previews/bass-shockwave.jpg"); }
+        if (id == "concat.laser-beams") { return @image-url("../assets/effect-previews/laser-beams.jpg"); }
+        if (id == "concat.neon-glow") { return @image-url("../assets/effect-previews/neon-glow.jpg"); }
+        if (id == "concat.color-cycle") { return @image-url("../assets/effect-previews/color-cycle.jpg"); }
+        // Modern Transitions
+        if (id == "concat.whip-pan") { return @image-url("../assets/effect-previews/whip-pan.jpg"); }
+        if (id == "concat.zoom-blur-transition") { return @image-url("../assets/effect-previews/zoom-blur-transition.jpg"); }
+        if (id == "concat.light-leak-flash") { return @image-url("../assets/effect-previews/light-leak-flash.jpg"); }
+        if (id == "concat.glitch-warp") { return @image-url("../assets/effect-previews/glitch-warp.jpg"); }
         return root.no-art;
     }
     /// The category column. In-out, because it is dragged.
@@ -1436,21 +1608,9 @@ export component MediaPane inherits Rectangle {
     // The catalogues. The ids are written into project files, so they are
     // stable forever - pick them like you mean them. The effect artwork is a
     // rendered preview, each effect's real FFmpeg chain run over one source
-    // still.
-    property <[CatalogueItemData]> transitions-basic: [
-        { id: "cross-fade", label: "Cross Fade", enabled: true, glyph: Glyph.transition },
-        { id: "fade-black", label: "Fade to Black", enabled: true, glyph: Glyph.transition },
-        { id: "fade-white", label: "Fade to White", enabled: true, glyph: Glyph.transition },
-    ];
-    // The engine resolves these in concat-export's `resolve_transitions`:
-    // the slides and the zoom as animation keys the monitor plays too, the
-    // wipes as a mask the export bakes and the monitor shows as a dissolve.
-    property <[CatalogueItemData]> transitions-motion: [
-        { id: "wipe-left", label: "Wipe Left", enabled: true, glyph: Glyph.transition },
-        { id: "wipe-right", label: "Wipe Right", enabled: true, glyph: Glyph.transition },
-        { id: "push", label: "Push", enabled: true, glyph: Glyph.transition },
-        { id: "zoom", label: "Zoom", enabled: true, glyph: Glyph.transition },
-    ];
+    // still. Transitions used to be two hand-written lists here; they are
+    // now packages like any other effect, browsed the same way through
+    // `catalogue-transitions`/`transition-groups` below.
 
     function narrow(to: MediaFilter) {
         root.filter = to;
@@ -1675,17 +1835,14 @@ export component MediaPane inherits Rectangle {
                             open: root.transitions-open;
                             toggled => { root.transitions-open = !root.transitions-open; }
                         }
-                        if root.transitions-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Basic");
-                            current: root.transition-category == 0;
-                            clicked => { root.transition-category = 0; }
-                        }
-                        if root.transitions-open: CategoryRow {
-                            height: 24px;
-                            label: I18n.t("Motion");
-                            current: root.transition-category == 1;
-                            clicked => { root.transition-category = 1; }
+                        if root.transitions-open: VerticalLayout {
+                            spacing: 1px;
+                            for label[index] in root.transition-groups: CategoryRow {
+                                height: 24px;
+                                label: label;
+                                current: Library.view(3).group == index;
+                                clicked => { Library.group-changed(3, index); }
+                            }
                         }
                     }
 
@@ -1922,14 +2079,19 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 2: HorizontalLayout {
+                if root.tab == 2: VerticalLayout {
                     padding: 8px;
 
-                    CatalogueGrid {
-                        horizontal-stretch: 1;
-                        items: root.transition-category == 0
-                            ? root.transitions-basic
-                            : root.transitions-motion;
+                    ShelfSearch {
+                        shelf: 3;
+                        placeholder: I18n.t1("Search {0}s", I18n.t("transition"));
+                    }
+                    ShelfGrid {
+                        entries: root.catalogue-transitions;
+                        glyph: Glyph.transition;
+                        art(id) => { return root.art-of(id); }
+                        // Transitions apply directly on single-click — no audition overlay.
+                        auditions: false;
                         applied(id, label) => { root.apply-transition(id); }
                     }
                 }
@@ -1943,10 +2105,20 @@ export component MediaPane inherits Rectangle {
                             ? I18n.t1("Search {0}s", I18n.t("audio effect"))
                             : I18n.t1("Search {0}s", I18n.t("effect"));
                     }
+                    if !root.audio-shelf: CategoryPillBar {
+                        current: Library.view(root.effects-shelf).category;
+                        picked(cat) => {
+                            Library.category-changed(root.effects-shelf, cat);
+                        }
+                    }
+                    if !root.audio-shelf: Rectangle { height: 6px; }
                     ShelfGrid {
                         entries: root.audio-shelf ? root.catalogue-audio : root.catalogue-effects;
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
                         art(id) => { return root.art-of(id); }
+                        // Effects apply directly on single-click to the selected clip —
+                        // auditions:false means click = apply, no monitor overlay confusion.
+                        auditions: false;
                         applied(id, label) => {
                             if (root.audio-shelf) {
                                 root.apply-audio(id);

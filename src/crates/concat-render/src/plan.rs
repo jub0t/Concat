@@ -180,6 +180,12 @@ impl Shading {
 pub struct PlannedLayer {
     /// Which clip produced this layer.
     pub clip: ClipId,
+    /// Where this clip begins on the timeline - not the source's own time,
+    /// `source_time`, but where the clip itself sits. A shader effect reads
+    /// the gap between this and the frame's own time as `frame.clip_time`,
+    /// so a one-shot look can size itself to however long the clip has
+    /// been on screen instead of the timeline's absolute clock.
+    pub clip_start: Rational,
     /// The track the layer sits on, bottom-most zero: every layer on a
     /// lower track is under it, and a treatment names the track it sits
     /// above.
@@ -232,6 +238,7 @@ impl PlannedLayer {
     pub fn picture(clip: ClipId, frame: Arc<Frame>) -> PlannedLayer {
         PlannedLayer {
             clip,
+            clip_start: Rational::ZERO,
             track: 0,
             media: PathBuf::new(),
             source_time: Rational::ZERO,
@@ -501,6 +508,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
 
         layers.push(PlannedLayer {
             clip: clip_id,
+            clip_start: clip.start,
             track,
             media: clip.media.path.clone(),
             source_time,

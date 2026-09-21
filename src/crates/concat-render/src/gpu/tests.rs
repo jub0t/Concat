@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use concat_core::frame::Frame;
-use concat_core::shader::{Lut, ShaderPass};
+use concat_core::shader::{Lut, RevealMap, ShaderPass};
 use concat_core::timeline::{Blend, Transform};
 
 use super::*;
@@ -76,7 +76,7 @@ fn package(
         .iter()
         .map(|(key, value)| ((*key).to_owned(), *value))
         .collect();
-    shader.pass(&values, &manifest.params, intensity, None)
+    shader.pass(&values, &manifest.params, intensity, None, None)
 }
 
 const INVERT: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }";
@@ -394,4 +394,127 @@ fn output_size_changes_are_handled() {
     ));
     assert_eq!((large.width(), large.height()), (16, 8));
     assert_eq!(large.pixel(15, 7), Some([255, 255, 255, 255]));
+}
+
+/// A pass reads its title's reveal map through `reveal_order()`: the
+/// first word's half of the canvas reads 0, the second word's half
+/// reads 1, and a pass without one - the common case, any pass over
+/// anything that is not a title - reads the identity, 0 everywhere.
+#[test]
+fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
+    let Some(mut gpu) = gpu() else { return };
+    let body =
+        "fn effect(uv: vec2<f32>) -> vec4<f32> { let r = reveal_order(uv); return vec4<f32>(r, r, r, 1.0); }";
+    let map = RevealMap::from_rects(4, 4, &[(0, 0, 2, 4), (2, 0, 2, 4)]);
+    let mut revealed = layer(solid(4, 4, [0, 0, 0, 255]));
+    let mut pass = package("test.reveal", body, "", &[], 1.0);
+    pass.reveal_map = Some(Arc::new(map));
+    revealed.effects = vec![pass];
+    let out = gpu.render(&plan(4, 4, vec![revealed]));
+    let pixels = out.pixels();
+    assert_eq!(pixels[0], 0, "{:?}", &pixels[..4]);
+    assert_eq!(pixels[2 * 4], 255, "{:?}", &pixels[8..12]);
+
+    let mut plain = layer(solid(4, 4, [0, 0, 0, 255]));
+    plain.effects = vec![package("test.reveal", body, "", &[], 1.0)];
+    let out = gpu.render(&plan(4, 4, vec![plain]));
+    assert_eq!(&out.pixels()[..4], &[0, 0, 0, 255]);
+}
+
+/// A transition combines its two inputs through its shader: a trivial
+/// dissolve over two solid colours must equal `from` at progress 0, `to`
+/// at progress 1, and the exact half-and-half mix at progress 0.5. The
+/// golden every packaged transition's own shader is measured against.
+#[test]
+fn a_transition_combines_its_two_inputs_by_progress() {
+    let Some(mut gpu) = gpu() else { return };
+    let manifest = concat_effects::Manifest::parse(
+        "[effect]\nid = \"test.dissolve\"\nname = \"Dissolve\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n",
+    )
+    .expect("a manifest");
+    let shader = concat_effects::TransitionShader::compile(
+        &manifest,
+        "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> { return mix(from_at(uv), to_at(uv), progress); }",
+    )
+    .expect("compiles");
+    let red = solid(4, 4, [255, 0, 0, 255]);
+    let blue = solid(4, 4, [0, 0, 255, 255]);
+
+    let mut at = |progress: f32| {
+        let pass = shader.pass(&Default::default(), &[], progress, None);
+        gpu.combine(4, 4, 0.0, &red, &blue, &pass)
+            .expect("a GPU combine")
+    };
+    assert_eq!(&at(0.0).pixels()[..3], &[255, 0, 0], "all outgoing at 0");
+    assert_eq!(&at(1.0).pixels()[..3], &[0, 0, 255], "all incoming at 1");
+    assert_eq!(&at(0.5).pixels()[..3], &[128, 0, 128], "the exact half mix");
+}
+
+/// Every packaged effect and filter with a shader actually renders on
+/// the GPU at its default settings - naga's validation at load catches
+/// a broken shader's syntax and types, but only a real pipeline creation
+/// and draw catches a binding or layout mistake.
+#[test]
+fn every_shader_package_renders_at_its_defaults() {
+    let Some(mut gpu) = gpu() else { return };
+    let source = solid(4, 4, [200, 120, 60, 255]);
+    let catalogue = concat_effects::Catalogue::builtin();
+    for package in catalogue.packages() {
+        let Some(shader) = package.shader() else { continue };
+        let values = package.resolve(&Default::default());
+        let pass = shader.pass(
+            &values,
+            &package.manifest.params,
+            1.0,
+            package.lut().cloned(),
+            None,
+        );
+        let mut treated = layer(source.clone());
+        treated.effects = vec![pass];
+        let out = gpu.render(&plan(4, 4, vec![treated]));
+        assert_eq!(out.pixels().len(), 4 * 4 * 4, "{}", package.id());
+    }
+}
+
+/// A pass reads how long its own clip has been on screen through
+/// `frame.clip_time` - the gap between the frame's own time and where the
+/// clip begins on the timeline, not the timeline's absolute clock. A
+/// clip starting at 2s, five seconds into the timeline, has been on
+/// screen for exactly three.
+#[test]
+fn a_pass_reads_its_layers_clip_relative_time() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { if (abs(frame.clip_time - 3.0) < 0.001) { return vec4<f32>(0.0, 1.0, 0.0, 1.0); } return vec4<f32>(1.0, 0.0, 0.0, 1.0); }";
+    let mut timed = layer(solid(4, 4, [0, 0, 0, 255]));
+    timed.clip_start = concat_core::time::Rational::approximate(2.0).expect("a rational");
+    timed.effects = vec![package("test.cliptime", body, "", &[], 1.0)];
+    let mut p = plan(4, 4, vec![timed]);
+    p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(&out.pixels()[..3], &[0, 255, 0], "clip_time should read 3.0");
+}
+
+/// Every packaged transition's pipeline actually creates and runs on the
+/// GPU, across its whole progress range - naga's validation at load
+/// catches a broken shader's syntax and types, but only a real pipeline
+/// creation catches a binding or layout mistake.
+#[test]
+fn every_packaged_transition_combines_across_its_progress_range() {
+    let Some(mut gpu) = gpu() else { return };
+    let red = solid(4, 4, [255, 0, 0, 255]);
+    let blue = solid(4, 4, [0, 0, 255, 255]);
+    let catalogue = concat_effects::Catalogue::builtin();
+    for package in catalogue.packages() {
+        if package.kind() != concat_effects::Kind::Transition {
+            continue;
+        }
+        for progress in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let pass = catalogue
+                .transition_pass(package.id(), &Default::default(), progress)
+                .unwrap_or_else(|| panic!("{} has no transition pass", package.id()));
+            gpu.combine(4, 4, 0.0, &red, &blue, &pass).unwrap_or_else(|| {
+                panic!("{} failed to combine at progress {progress}", package.id())
+            });
+        }
+    }
 }

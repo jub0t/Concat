@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use concat_core::{Lut, ShaderPass};
+use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
 use crate::manifest::{Manifest, Param, ParamType};
 
@@ -35,6 +35,15 @@ struct Frame {
     time: f32,
     /// How much of the effect to keep over the untouched layer.
     intensity: f32,
+    /// Seconds since this layer's own clip began - zero at its first
+    /// frame, however far into the timeline that is. A one-shot look
+    /// times itself to this instead of `time`, so it plays the same
+    /// whether the clip starts at zero or at the twenty-minute mark; a
+    /// looping one can still read `time` for a phase nothing needs to
+    /// reset. Layers with no single clip of their own - a treatment's
+    /// stack, a synthesized ground - carry zero here always, which reads
+    /// as "just started" forever; a look that only loops is unaffected.
+    clip_time: f32,
 }
 
 @group(0) @binding(0) var source: texture_2d<f32>;
@@ -43,6 +52,8 @@ struct Frame {
 @group(1) @binding(1) var<uniform> params: Params;
 @group(2) @binding(0) var lut_texture: texture_3d<f32>;
 @group(2) @binding(1) var lut_sampler: sampler;
+@group(3) @binding(0) var reveal_texture: texture_2d<f32>;
+@group(3) @binding(1) var reveal_sampler: sampler;
 
 /// The layer's colour at `uv`, straight alpha.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
@@ -72,6 +83,15 @@ fn lut(rgb: vec3<f32>) -> vec3<f32> {
 fn hash(p: vec2<f32>, seed: f32) -> f32 {
     let q = vec3<f32>(p, seed);
     return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+/// A title's per-word reveal order at `uv`, 0..1 - the word painted there,
+/// 0 for the first and 1 for the last, and 0 wherever no word was. A
+/// pass over anything but a title reads the identity map here, which is
+/// 0 everywhere: `reveal_order(uv) <= progress` is then always true, so a
+/// package built on it is a no-op off a title with no special casing.
+fn reveal_order(uv: vec2<f32>) -> f32 {
+    return textureSampleLevel(reveal_texture, reveal_sampler, uv, 0.0).r;
 }
 
 // ── the grading library ──
@@ -391,97 +411,13 @@ impl Shader {
     /// Every declared parameter must be a field of the struct; a field the
     /// manifest does not declare is allowed and stays zero.
     pub fn compile(manifest: &Manifest, body: &str) -> Result<Shader, String> {
-        let declares_params = body
-            .split("struct")
-            .skip(1)
-            .any(|rest| rest.trim_start().starts_with("Params"));
-        if !body.contains("fn effect") {
-            return Err(
-                "the shader declares no `fn effect(uv: vec2<f32>) -> vec4<f32>`".to_owned(),
-            );
-        }
-        let mut source = String::with_capacity(PRELUDE.len() + body.len() + POSTLUDE.len() + 64);
-        if !declares_params {
-            // A package with no knobs still has to bind something.
-            source.push_str("struct Params { _unused: f32 }\n");
-        }
-        source.push_str(body);
-        source.push('\n');
-        source.push_str(PRELUDE);
-        source.push_str(POSTLUDE);
-
-        let module =
-            naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;
-        let mut validator = naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        );
-        validator
-            .validate(&module)
-            .map_err(|error| error.emit_to_string(&source))?;
-        if !module
-            .functions
-            .iter()
-            .any(|(_, function)| function.name.as_deref() == Some("effect"))
-        {
-            return Err(
-                "the shader declares no `fn effect(uv: vec2<f32>) -> vec4<f32>`".to_owned(),
-            );
-        }
-        budget(&module)?;
-
-        let (members, span) = module
-            .types
-            .iter()
-            .find_map(|(_, ty)| match (&ty.name, &ty.inner) {
-                (Some(name), naga::TypeInner::Struct { members, span }) if name == "Params" => {
-                    Some((members.clone(), *span as usize))
-                }
-                _ => None,
-            })
-            .ok_or_else(|| "the shader declares no `struct Params`".to_owned())?;
-
-        let mut slots = Vec::new();
-        for param in &manifest.params {
-            let member = members
-                .iter()
-                .find(|member| member.name.as_deref() == Some(param.key.as_str()))
-                .ok_or_else(|| format!("`Params` has no field `{}`", param.key))?;
-            let inner = &module.types[member.ty].inner;
-            let wanted = match param.kind {
-                ParamType::Point => 2,
-                ParamType::Color => 4,
-                _ => 1,
-            };
-            let width = match inner {
-                naga::TypeInner::Scalar(scalar) if is_f32(scalar) => 1,
-                naga::TypeInner::Vector { size, scalar } if is_f32(scalar) => *size as usize,
-                _ => 0,
-            };
-            if width != wanted {
-                return Err(format!(
-                    "`Params.{}` must be {}",
-                    param.key,
-                    match wanted {
-                        2 => "a vec2<f32>",
-                        4 => "a vec4<f32>",
-                        _ => "an f32",
-                    }
-                ));
-            }
-            slots.push(Slot {
-                key: param.key.clone(),
-                offset: member.offset as usize,
-                kind: param.kind,
-            });
-        }
-
+        let (source, slots, span) = stitch(manifest, body, Entry::Effect, PRELUDE, POSTLUDE)?;
         Ok(Shader {
             package: manifest.effect.id.clone(),
             key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
-            source: Arc::from(source),
+            source,
             slots,
-            span: span.max(ShaderPass::MIN_PARAMS).div_ceil(16) * 16,
+            span,
         })
     }
 
@@ -494,55 +430,7 @@ impl Shader {
     /// struct. Every declared parameter is present in `values` by the time
     /// the catalogue calls this; anything missing reads as zero.
     pub fn params_bytes(&self, values: &BTreeMap<String, f64>, params: &[Param]) -> Vec<u8> {
-        let mut bytes = vec![0u8; self.span];
-        let mut put = |offset: usize, value: f64| {
-            let at = offset..offset + 4;
-            if at.end <= bytes.len() {
-                bytes[at].copy_from_slice(&(value as f32).to_le_bytes());
-            }
-        };
-        for slot in &self.slots {
-            match slot.kind {
-                ParamType::Point => {
-                    put(
-                        slot.offset,
-                        values
-                            .get(&format!("{}.x", slot.key))
-                            .copied()
-                            .unwrap_or(0.5),
-                    );
-                    put(
-                        slot.offset + 4,
-                        values
-                            .get(&format!("{}.y", slot.key))
-                            .copied()
-                            .unwrap_or(0.5),
-                    );
-                }
-                ParamType::Color => {
-                    // Packed RGBA in one number, as the document stores it.
-                    let packed = values.get(&slot.key).copied().unwrap_or(0.0).max(0.0) as u32;
-                    for (index, shift) in [24u32, 16, 8, 0].into_iter().enumerate() {
-                        put(
-                            slot.offset + index * 4,
-                            f64::from((packed >> shift) & 0xff) / 255.0,
-                        );
-                    }
-                }
-                _ => {
-                    let fallback = params
-                        .iter()
-                        .find(|param| param.key == slot.key)
-                        .map(|param| param.default)
-                        .unwrap_or(0.0);
-                    put(
-                        slot.offset,
-                        values.get(&slot.key).copied().unwrap_or(fallback),
-                    );
-                }
-            }
-        }
-        bytes
+        lay_params(&self.slots, self.span, values, params)
     }
 
     /// A pass over a layer with these values: the uniform buffer written
@@ -554,6 +442,7 @@ impl Shader {
         params: &[Param],
         intensity: f32,
         lut: Option<Arc<Lut>>,
+        reveal_map: Option<Arc<RevealMap>>,
     ) -> ShaderPass {
         ShaderPass {
             package: self.package.clone(),
@@ -563,13 +452,29 @@ impl Shader {
             values: values.clone(),
             intensity,
             lut,
+            reveal_map,
         }
     }
 }
 
-/// The bindings the prelude declares, and the only ones a package may
-/// use: the layer, the frame block and the parameters, the table.
-const BINDINGS: [(u32, u32); 6] = [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)];
+/// The bindings a prelude declares, and the only ones a package may use.
+/// The union of both contracts: an effect's layer at group 0 (0,0)-(0,1)
+/// and a transition's two pictures at group 0 (0,0)-(0,3); the frame block
+/// and parameters at group 1; the look-up table at group 2; an effect's
+/// reveal map at group 3 - a transition has no group 3, so nothing there
+/// ever validates against a transition's module.
+const BINDINGS: [(u32, u32); 10] = [
+    (0, 0),
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (1, 0),
+    (1, 1),
+    (2, 0),
+    (2, 1),
+    (3, 0),
+    (3, 1),
+];
 
 /// What a package may not do, however well it parses: bind anything the
 /// host did not declare, or loop without an end. A community shader runs
@@ -645,6 +550,349 @@ fn breaks(block: &naga::Block) -> bool {
 
 fn is_f32(scalar: &naga::Scalar) -> bool {
     scalar.kind == naga::ScalarKind::Float && scalar.width == 4
+}
+
+/// Which entry a stitched module declares: the two shaders share everything
+/// but their entry function's name and signature.
+#[derive(Clone, Copy)]
+enum Entry {
+    Effect,
+    Transition,
+}
+
+impl Entry {
+    /// The function name the body must declare.
+    fn name(self) -> &'static str {
+        match self {
+            Entry::Effect => "effect",
+            Entry::Transition => "transition",
+        }
+    }
+
+    /// The signature named in the "no such function" error.
+    fn signature(self) -> &'static str {
+        match self {
+            Entry::Effect => "fn effect(uv: vec2<f32>) -> vec4<f32>",
+            Entry::Transition => "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32>",
+        }
+    }
+}
+
+/// Stitches a package `body` into the host's contract, parses and validates
+/// the result with naga, and reads its `Params` struct for where each declared
+/// parameter lands. Shared by [`Shader`] and [`TransitionShader`], which differ
+/// only in their prelude/postlude and entry function. Returns the finished
+/// module, the parameter slots in declaration order, and the padded uniform
+/// span.
+fn stitch(
+    manifest: &Manifest,
+    body: &str,
+    entry: Entry,
+    prelude: &str,
+    postlude: &str,
+) -> Result<(Arc<str>, Vec<Slot>, usize), String> {
+    let declares_params = body
+        .split("struct")
+        .skip(1)
+        .any(|rest| rest.trim_start().starts_with("Params"));
+    if !body.contains(&format!("fn {}", entry.name())) {
+        return Err(format!("the shader declares no `{}`", entry.signature()));
+    }
+    let mut source = String::with_capacity(prelude.len() + body.len() + postlude.len() + 64);
+    if !declares_params {
+        // A package with no knobs still has to bind something.
+        source.push_str("struct Params { _unused: f32 }\n");
+    }
+    source.push_str(body);
+    source.push('\n');
+    source.push_str(prelude);
+    source.push_str(postlude);
+
+    let module =
+        naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;
+    let mut validator = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    );
+    validator
+        .validate(&module)
+        .map_err(|error| error.emit_to_string(&source))?;
+    if !module
+        .functions
+        .iter()
+        .any(|(_, function)| function.name.as_deref() == Some(entry.name()))
+    {
+        return Err(format!("the shader declares no `{}`", entry.signature()));
+    }
+    budget(&module)?;
+
+    let (members, span) = module
+        .types
+        .iter()
+        .find_map(|(_, ty)| match (&ty.name, &ty.inner) {
+            (Some(name), naga::TypeInner::Struct { members, span }) if name == "Params" => {
+                Some((members.clone(), *span as usize))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "the shader declares no `struct Params`".to_owned())?;
+
+    let mut slots = Vec::new();
+    for param in &manifest.params {
+        let member = members
+            .iter()
+            .find(|member| member.name.as_deref() == Some(param.key.as_str()))
+            .ok_or_else(|| format!("`Params` has no field `{}`", param.key))?;
+        let inner = &module.types[member.ty].inner;
+        let wanted = match param.kind {
+            ParamType::Point => 2,
+            ParamType::Color => 4,
+            _ => 1,
+        };
+        let width = match inner {
+            naga::TypeInner::Scalar(scalar) if is_f32(scalar) => 1,
+            naga::TypeInner::Vector { size, scalar } if is_f32(scalar) => *size as usize,
+            _ => 0,
+        };
+        if width != wanted {
+            return Err(format!(
+                "`Params.{}` must be {}",
+                param.key,
+                match wanted {
+                    2 => "a vec2<f32>",
+                    4 => "a vec4<f32>",
+                    _ => "an f32",
+                }
+            ));
+        }
+        slots.push(Slot {
+            key: param.key.clone(),
+            offset: member.offset as usize,
+            kind: param.kind,
+        });
+    }
+
+    let span = span.max(ShaderPass::MIN_PARAMS).div_ceil(16) * 16;
+    Ok((Arc::from(source), slots, span))
+}
+
+/// The `Params` uniform for `values`, laid out to `slots` over a buffer of
+/// `span` bytes. Shared by both shaders, which store parameters identically.
+fn lay_params(
+    slots: &[Slot],
+    span: usize,
+    values: &BTreeMap<String, f64>,
+    params: &[Param],
+) -> Vec<u8> {
+    let mut bytes = vec![0u8; span];
+    let mut put = |offset: usize, value: f64| {
+        let at = offset..offset + 4;
+        if at.end <= bytes.len() {
+            bytes[at].copy_from_slice(&(value as f32).to_le_bytes());
+        }
+    };
+    for slot in slots {
+        match slot.kind {
+            ParamType::Point => {
+                put(
+                    slot.offset,
+                    values
+                        .get(&format!("{}.x", slot.key))
+                        .copied()
+                        .unwrap_or(0.5),
+                );
+                put(
+                    slot.offset + 4,
+                    values
+                        .get(&format!("{}.y", slot.key))
+                        .copied()
+                        .unwrap_or(0.5),
+                );
+            }
+            ParamType::Color => {
+                // Packed RGBA in one number, as the document stores it.
+                let packed = values.get(&slot.key).copied().unwrap_or(0.0).max(0.0) as u32;
+                for (index, shift) in [24u32, 16, 8, 0].into_iter().enumerate() {
+                    put(
+                        slot.offset + index * 4,
+                        f64::from((packed >> shift) & 0xff) / 255.0,
+                    );
+                }
+            }
+            _ => {
+                let fallback = params
+                    .iter()
+                    .find(|param| param.key == slot.key)
+                    .map(|param| param.default)
+                    .unwrap_or(0.0);
+                put(
+                    slot.offset,
+                    values.get(&slot.key).copied().unwrap_or(fallback),
+                );
+            }
+        }
+    }
+    bytes
+}
+
+/// The marker that opens the grading library inside [`PRELUDE`]. A transition
+/// reuses that same library by slicing it out here rather than copying it.
+const GRADING_MARKER: &str = "// ── the grading library ──";
+
+/// The shared grading library: the second half of [`PRELUDE`], from the
+/// grading marker to the end. It only reads `sample`, `texel`, `luma`, `hash`,
+/// `frame.size` and `frame.time`, all of which the transition head supplies,
+/// so it works unchanged over two inputs.
+fn grading() -> &'static str {
+    let at = PRELUDE
+        .find(GRADING_MARKER)
+        .expect("the prelude carries a grading library");
+    &PRELUDE[at..]
+}
+
+/// The transition head: the host's half of a two-input transition. It binds
+/// the outgoing picture and the incoming one at group 0, repurposes the
+/// frame's spare slot as `progress`, and re-declares the same basics the
+/// effect head does so the shared grading library (appended after this) works.
+/// `sample` reads the outgoing picture, so a helper like `soften` needs no
+/// wiring.
+const TRANSITION_HEAD: &str = r#"// ── the host's half of a transition; see concat-effects/src/shader.rs ──
+struct Frame {
+    /// The layer's size in pixels.
+    size: vec2<f32>,
+    /// Seconds into the timeline.
+    time: f32,
+    /// How far through the cut, 0 the outgoing picture, 1 the incoming one.
+    progress: f32,
+}
+
+@group(0) @binding(0) var from_texture: texture_2d<f32>;
+@group(0) @binding(1) var from_sampler: sampler;
+@group(0) @binding(2) var to_texture: texture_2d<f32>;
+@group(0) @binding(3) var to_sampler: sampler;
+@group(1) @binding(0) var<uniform> frame: Frame;
+@group(1) @binding(1) var<uniform> params: Params;
+@group(2) @binding(0) var lut_texture: texture_3d<f32>;
+@group(2) @binding(1) var lut_sampler: sampler;
+
+/// The outgoing picture's colour at `uv`, straight alpha.
+fn from_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(from_texture, from_sampler, uv);
+}
+
+/// The incoming picture's colour at `uv`, straight alpha.
+fn to_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(to_texture, to_sampler, uv);
+}
+
+/// What the shared grading helpers read: the outgoing picture, so `soften`
+/// and its like work on the from-side with no wiring by the author.
+fn sample(uv: vec2<f32>) -> vec4<f32> {
+    return from_at(uv);
+}
+
+/// One pixel, as a fraction of the layer.
+fn texel() -> vec2<f32> {
+    return vec2<f32>(1.0, 1.0) / frame.size;
+}
+
+/// Luminance, Rec. 709.
+fn luma(rgb: vec3<f32>) -> f32 {
+    return dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+}
+
+/// The package's look-up table applied to a colour - the identity when the
+/// package ships none. Sampled at the texel centres.
+fn lut(rgb: vec3<f32>) -> vec3<f32> {
+    let n = f32(textureDimensions(lut_texture).x);
+    let uvw = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * (n - 1.0) / n + vec3<f32>(0.5 / n);
+    return textureSampleLevel(lut_texture, lut_sampler, uvw, 0.0).rgb;
+}
+
+/// A hash in 0..1 from a point and a seed, for grain and dither.
+fn hash(p: vec2<f32>, seed: f32) -> f32 {
+    let q = vec3<f32>(p, seed);
+    return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+"#;
+
+/// The transition's draw stages: a full-screen triangle, and a fragment that
+/// hands the whole result to the package's `transition` - it owns the blend,
+/// so the pipeline does no mixing of its own.
+const TRANSITION_POSTLUDE: &str = r#"
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
+    let x = f32(i32(index & 1u) * 4 - 1);
+    let y = f32(i32(index >> 1u) * 4 - 1);
+    var out: VsOut;
+    out.position = vec4<f32>(x, y, 0.0, 1.0);
+    out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return transition(in.uv, frame.progress);
+}
+"#;
+
+/// A transition package's shader, stitched, checked and laid out.
+#[derive(Clone, Debug)]
+pub struct TransitionShader {
+    key: String,
+    source: Arc<str>,
+    slots: Vec<Slot>,
+    span: usize,
+}
+
+impl TransitionShader {
+    /// Stitches `body` into the transition contract - two bound pictures and a
+    /// progress - checks it, and reads the `Params` struct for its parameters'
+    /// layout. Every declared parameter must be a field of the struct.
+    pub fn compile(manifest: &Manifest, body: &str) -> Result<TransitionShader, String> {
+        let prelude = format!("{TRANSITION_HEAD}{}", grading());
+        let (source, slots, span) =
+            stitch(manifest, body, Entry::Transition, &prelude, TRANSITION_POSTLUDE)?;
+        Ok(TransitionShader {
+            key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
+            source,
+            slots,
+            span,
+        })
+    }
+
+    /// The stitched module.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// The `Params` buffer for these resolved values, laid out to the struct.
+    pub fn params_bytes(&self, values: &BTreeMap<String, f64>, params: &[Param]) -> Vec<u8> {
+        lay_params(&self.slots, self.span, values, params)
+    }
+
+    /// A combine of two layers at `progress` with these values.
+    pub fn pass(
+        &self,
+        values: &BTreeMap<String, f64>,
+        params: &[Param],
+        progress: f32,
+        lut: Option<Arc<Lut>>,
+    ) -> TransitionPass {
+        TransitionPass {
+            key: self.key.clone(),
+            source: Arc::clone(&self.source),
+            params: self.params_bytes(values, params),
+            progress,
+            lut,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -742,10 +990,10 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         );
         let extra = Shader::compile(
             &manifest,
-            "@group(3) @binding(0) var other: texture_2d<f32>;\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv) + textureSample(other, source_sampler, uv); }",
+            "@group(4) @binding(0) var other: texture_2d<f32>;\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv) + textureSample(other, source_sampler, uv); }",
         );
         assert!(
-            extra.unwrap_err().contains("@group(3)"),
+            extra.unwrap_err().contains("@group(4)"),
             "a binding the host does not provide"
         );
         let bounded = Shader::compile(
@@ -776,5 +1024,63 @@ label = "Amount"
         assert!(broken.is_err());
         let no_effect = Shader::compile(&manifest, "struct Params { amount: f32 }");
         assert!(no_effect.unwrap_err().contains("fn effect"));
+    }
+
+    fn transition_manifest(params: &str) -> Manifest {
+        Manifest::parse(&format!(
+            r#"
+[effect]
+id = "test.wipe"
+name = "Wipe"
+kind = "transition"
+{params}
+[transition]
+entry = "effect.wgsl"
+"#
+        ))
+        .expect("a valid manifest")
+    }
+
+    #[test]
+    fn a_transition_body_is_stitched_over_two_inputs() {
+        let manifest = transition_manifest(
+            r#"
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 1
+default = 0.5
+"#,
+        );
+        let shader = TransitionShader::compile(
+            &manifest,
+            r#"
+struct Params { softness: f32 }
+fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
+    // Reads both inputs, the shared grading library, and a knob.
+    let a = soften(uv, params.softness * 4.0);
+    return mix(from_at(uv), to_at(uv), clamp(progress, 0.0, 1.0)) + vec4<f32>(a * 0.0, 0.0);
+}
+"#,
+        )
+        .expect("compiles");
+        assert_eq!(shader.key, "test.wipe@1");
+        assert!(shader.source().contains("fn fs_main"));
+        assert!(shader.source().contains("frame.progress"));
+        assert!(shader.source().contains("to_texture"));
+        let pass = shader.pass(&BTreeMap::from([("softness".to_owned(), 0.5)]), &manifest.params, 0.25, None);
+        assert_eq!(pass.progress, 0.25);
+        assert_eq!(pass.params.len(), 16);
+    }
+
+    #[test]
+    fn a_transition_without_its_entry_is_refused() {
+        let manifest = transition_manifest("");
+        let no_entry = TransitionShader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { return from_at(uv); }",
+        );
+        assert!(no_entry.unwrap_err().contains("fn transition"));
     }
 }

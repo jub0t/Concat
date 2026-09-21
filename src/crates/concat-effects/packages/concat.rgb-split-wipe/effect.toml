@@ -1,0 +1,20 @@
+[effect]
+id = "concat.rgb-split-wipe"
+name = "RGB Split"
+kind = "transition"
+category = "Glitch"
+order = 9
+description = "The colour channels pull apart through the cut and snap back together."
+
+[[param]]
+key = "spread"
+label = "Spread"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

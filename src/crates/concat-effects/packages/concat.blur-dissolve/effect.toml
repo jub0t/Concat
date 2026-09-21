@@ -1,0 +1,21 @@
+[effect]
+id = "concat.blur-dissolve"
+name = "Blur Dissolve"
+kind = "transition"
+category = "Dissolve"
+order = 1
+description = "A cross-dissolve that blurs into the cut and sharpens back out of it."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 0
+max = 100
+default = 60
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "dissolve"
+fallback = "cross-fade"

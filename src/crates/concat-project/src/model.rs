@@ -569,6 +569,8 @@ pub enum AnimationSlot {
     Out,
     /// The whole clip.
     Combo,
+    /// A repeating motion over the clip.
+    Loop,
 }
 
 /// A named animation on one slot. The keys are made from the name for the
@@ -1142,6 +1144,10 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub animation_combo: Option<ClipAnimation>,
+    /// A repeating motion over the clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub animation_loop: Option<ClipAnimation>,
     /// The user's own keys, sorted by property and then by `at`. Empty is a
     /// clip whose properties are the constants above.
     ///
@@ -1288,6 +1294,7 @@ impl Clip {
             animation_in: None,
             animation_out: None,
             animation_combo: None,
+            animation_loop: None,
             keys: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -1362,6 +1369,7 @@ impl Clip {
             &mut self.animation_in,
             &mut self.animation_out,
             &mut self.animation_combo,
+            &mut self.animation_loop,
         ] {
             *slot = slot.take().and_then(ClipAnimation::tidy);
         }

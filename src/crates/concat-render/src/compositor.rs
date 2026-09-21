@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
-use concat_core::shader::ShaderPass;
+use concat_core::shader::{ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
 use crate::kernels;
@@ -34,6 +34,23 @@ pub trait Compositor {
     /// The result is always fully opaque - it is what goes to screen or to an
     /// encoder, and neither has anything to show through.
     fn render(&mut self, plan: &FramePlan) -> Frame;
+
+    /// Combines two finished frames with a transition: the outgoing picture
+    /// `from` and the incoming one `to`, at the pass's `progress`. The shader
+    /// owns the blend. `None` from a compositor that cannot run shaders, which
+    /// the CPU reference cannot: the caller then shows the fallback dissolve
+    /// the incoming layer already carries.
+    fn combine(
+        &mut self,
+        _width: u32,
+        _height: u32,
+        _time: f32,
+        _from: &Frame,
+        _to: &Frame,
+        _pass: &TransitionPass,
+    ) -> Option<Frame> {
+        None
+    }
 }
 
 /// A straightforward CPU compositor.
@@ -687,6 +704,7 @@ mod tests {
             values: Default::default(),
             intensity: 1.0,
             lut: None,
+            reveal_map: None,
         };
         let mut frame_plan = plan(8, 8, vec![red, blue]);
         frame_plan.treatments = vec![PlannedTreatment {

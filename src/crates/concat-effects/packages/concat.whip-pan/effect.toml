@@ -1,0 +1,21 @@
+[effect]
+id = "concat.whip-pan"
+name = "Whip Pan"
+kind = "transition"
+category = "Wipe"
+order = 14
+description = "High-speed directional camera whip with motion blur."
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 20
+max = 100
+default = 80
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "slideleft"
+fallback = "slideleft"

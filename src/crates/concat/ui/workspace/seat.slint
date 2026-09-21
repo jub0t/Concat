@@ -120,9 +120,11 @@ export component Seat inherits Rectangle {
             catalogue-effects: Editor.catalogue-effects;
             catalogue-audio: Editor.catalogue-audio;
             catalogue-filters: Editor.catalogue-filters;
+            catalogue-transitions: Editor.catalogue-transitions;
             effect-groups: Editor.effect-groups;
             audio-groups: Editor.audio-groups;
             filter-groups: Editor.filter-groups;
+            transition-groups: Editor.transition-groups;
             add-text(preset) => { Editor.library-add-text(preset); }
             apply-effect(id) => { Editor.library-apply-effect(id); }
             apply-transition(id) => { Editor.library-apply-transition(id); }
@@ -229,6 +231,8 @@ export component Seat inherits Rectangle {
             cutout-painting(on) => { Editor.cutout-painting(on); }
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
+            transition-remove => { Editor.transition-remove(); }
+            transition-duration-set(seconds) => { Editor.transition-duration-set(seconds); }
 
             project-name: Editor.project-name;
             project-folder: Editor.project-folder;

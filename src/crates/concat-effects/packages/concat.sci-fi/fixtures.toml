@@ -1,0 +1,3 @@
+[[case]]
+name = "default"
+chain = "colortemperature=temperature=8200:pl=1,colorbalance=bs=0.06:bh=0.04,eq=saturation=0.85"

@@ -1,0 +1,21 @@
+[effect]
+id = "concat.film-burn"
+name = "Film Burn"
+kind = "transition"
+category = "Dissolve"
+order = 2
+description = "A warm over-exposed flash burns through the cut."
+
+[[param]]
+key = "heat"
+label = "Heat"
+min = 0
+max = 100
+default = 70
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadewhite"
+fallback = "cross-fade"

@@ -1,0 +1,13 @@
+[effect]
+id = "concat.dreamy"
+name = "Dreamy"
+kind = "filter"
+category = "Vibe"
+order = 66
+description = "A soft, hazy bloom over lifted pastel blacks."
+
+[ffmpeg]
+chain = "curves=all='0/0.08 1/0.92',eq=saturation=0.9,gblur=sigma=0.6"
+
+[wgsl]
+entry = "effect.wgsl"

@@ -1,0 +1,3 @@
+[[case]]
+name = "default"
+chain = "selectivecolor=greens='0 0 0.15 0':cyans='0.1 0 0 0',eq=contrast=1.12:saturation=1.15"

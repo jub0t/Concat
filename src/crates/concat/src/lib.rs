@@ -161,9 +161,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_catalogue_effects(ModelRc::from(models.catalogue_effects.clone()));
         editor.set_catalogue_filters(ModelRc::from(models.catalogue_filters.clone()));
         editor.set_catalogue_audio(ModelRc::from(models.catalogue_audio.clone()));
+        editor.set_catalogue_transitions(ModelRc::from(models.catalogue_transitions.clone()));
         editor.set_effect_groups(ModelRc::from(models.effect_groups.clone()));
         editor.set_filter_groups(ModelRc::from(models.filter_groups.clone()));
         editor.set_audio_groups(ModelRc::from(models.audio_groups.clone()));
+        editor.set_transition_groups(ModelRc::from(models.transition_groups.clone()));
         editor.set_applied_visual(ModelRc::from(models.applied_visual.clone()));
         editor.set_applied_audio(ModelRc::from(models.applied_audio.clone()));
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
@@ -788,6 +790,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
         library.on_favourites_changed(on_window!(|state, shelf: i32, on: bool| {
             state.library_favourites(shelf, on);
         }));
+        library.on_category_changed(on_window!(|state, shelf: i32, category: SharedString| {
+            state.library_category(shelf, &category);
+        }));
         library.on_favourite(on_window!(|state, id: SharedString, on: bool| {
             state.library_favourite(&id, on);
         }));
@@ -890,6 +895,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     editor.on_cutout_clear(on_window!(|state| {
         state.cutout_clear();
+    }));
+    editor.on_transition_remove(on_window!(|state| {
+        state.remove_transition();
+    }));
+    editor.on_transition_duration_set(on_window!(|state, seconds: f32| {
+        state.set_transition_duration(seconds as f64);
     }));
 
     // ── the context menu ──

@@ -1,0 +1,21 @@
+[effect]
+id = "concat.light-leak-flash"
+name = "Light Leak Flash"
+kind = "transition"
+category = "Light"
+order = 16
+description = "Organic overexposed film burn flash bridging the cut."
+
+[[param]]
+key = "strength"
+label = "Strength"
+min = 0
+max = 100
+default = 80
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadewhite"
+fallback = "cross-fade"

@@ -1,0 +1,22 @@
+[effect]
+id = "concat.zoom-transition"
+name = "Zoom"
+kind = "transition"
+category = "Zoom"
+order = 3
+description = "A whip zoom out of the outgoing shot and into the incoming one."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+min = 0
+max = 1
+default = 0
+values = [0, 1]
+labels = ["In", "Out"]
+
+[transition]
+entry = "effect.wgsl"
+xfade = "zoomin"
+fallback = "cross-fade"

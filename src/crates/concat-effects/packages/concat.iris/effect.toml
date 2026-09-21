@@ -1,0 +1,21 @@
+[effect]
+id = "concat.iris"
+name = "Iris"
+kind = "transition"
+category = "Wipe"
+order = 11
+description = "A circle opens from the centre to reveal the incoming shot."
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 100
+default = 15
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+xfade = "circleopen"
+fallback = "cross-fade"

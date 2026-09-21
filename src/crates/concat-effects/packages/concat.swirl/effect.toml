@@ -1,0 +1,20 @@
+[effect]
+id = "concat.swirl"
+name = "Swirl"
+kind = "transition"
+category = "Spin"
+order = 7
+description = "The cut twists both pictures around its centre and untwists into the next shot."
+
+[[param]]
+key = "twist"
+label = "Twist"
+min = 0
+max = 100
+default = 70
+step = 1
+unit = "%"
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

@@ -24,16 +24,17 @@ pub mod chains;
 pub mod flatten;
 mod resolve;
 
-use resolve::{BuiltTimeline, Treatment, animation_of, build_timeline, quantise};
+use resolve::{BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::SpeedCurve;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
 use concat_core::frame::Frame;
-use concat_core::shader::ShaderPass;
+use concat_core::shader::{RevealMap, ShaderPass};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
@@ -211,6 +212,12 @@ pub struct ExportClip {
     /// - or empty when the flattener had no project folder to name it by.
     #[serde(default)]
     pub mask_dir: String,
+    /// A title's per-word reveal order, baked at rasterize time and set by
+    /// the host - never by the wire format, like `transition_chain`. Every
+    /// shader pass over this clip carries it, so a reveal effect can read
+    /// it back through `reveal_order()`.
+    #[serde(skip)]
+    pub reveal_map: Option<Arc<RevealMap>>,
 }
 
 impl ExportClip {
@@ -260,6 +267,7 @@ impl ExportClip {
             cutout: None,
             mask_dir: String::new(),
             highlighted: false,
+            reveal_map: None,
         }
     }
 }
@@ -394,7 +402,9 @@ impl Reporter<'_> {
 
 /// Turns per-cut transition requests into things the renderer already knows
 /// how to draw: overlapping clips, opacity ramps, placement keys, and fade
-/// and mask filters.
+/// and mask filters. Returns the packaged transitions found along the way,
+/// for the compositor to combine over; every other kind needs nothing more
+/// than what it already baked into the clips themselves.
 ///
 /// Track indices are doubled first, so an incoming clip gets an odd lane of
 /// its own directly above the pair it crosses over - stacking against every
@@ -414,10 +424,22 @@ impl Reporter<'_> {
 /// monitor shows a dissolve in its place - the same split the fades to a
 /// colour make, and for the same reason: the filter counts frames from the
 /// clip's start, which the monitor's pooled seeks do not.
-fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bool) {
+///
+/// An id the catalogue knows as a transition package gets the same overlap
+/// plus a dissolve ramp, but the returned [`TransitionSpan`] tells the
+/// compositor a shader owns the blend where one can run: see
+/// `combine_transition`. Legacy ids are matched first and never reach this
+/// path, so a project saved before packaged transitions existed renders
+/// exactly as it always did.
+fn resolve_transitions(
+    clips: &mut [ExportClip],
+    rate: FrameRate,
+    bake_fades: bool,
+) -> Vec<TransitionSpan> {
     for clip in clips.iter_mut() {
         clip.track *= 2;
     }
+    let mut spans: Vec<TransitionSpan> = Vec::new();
 
     let fps = rate.fps().as_f64();
     let frame = 1.0 / fps;
@@ -465,22 +487,15 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
                 };
                 let b = &mut clips[cut.incoming];
 
-                // The incoming clip extends backwards over the outgoing one,
-                // showing the source it has *before* its in-point - the
-                // handle, exactly what a dissolve consumes in any editor. No
-                // handle, shorter dissolve: the duration clamps to what
-                // actually exists rather than freezing or inventing frames.
-                let mut d = cut.duration.min(a_duration).min(b.duration);
-                if b.kind != ClipKind::Image {
-                    d = d.min(b.source_start / b.speed.max(0.0625));
-                }
+                // The incoming clip extends backwards over the outgoing one.
+                let d = cut.duration.min(a_duration).min(b.duration);
                 if d < frame {
                     continue;
                 }
                 b.start -= d;
                 b.duration += d;
                 if b.kind != ClipKind::Image {
-                    b.source_start -= d * b.speed;
+                    b.source_start = (b.source_start - d * b.speed).max(0.0);
                 }
                 // Sound rides the picture: the pre-roll fades in rather than
                 // arriving at full level a dissolve early.
@@ -605,12 +620,52 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate, bake_fades: bo
                     );
                 }
             }
+            // A packaged transition: overlap the incoming clip onto the
+            // outgoing one exactly as a dissolve does - the fallback where the
+            // shader cannot run - and record a span the compositor combines
+            // over with the package's two-input shader. Legacy ids are matched
+            // above first, so an id aliased to a package still takes the
+            // hand-written path saved projects expect.
+            kind if Catalogue::builtin()
+                .get(kind)
+                .is_some_and(|package| package.transition().is_some()) =>
+            {
+                let (a_track, a_duration) = {
+                    let a = &clips[cut.outgoing];
+                    (a.track, a.duration)
+                };
+                let b = &mut clips[cut.incoming];
+                let d = cut.duration.min(a_duration).min(b.duration);
+                if d < frame {
+                    continue;
+                }
+                b.start -= d;
+                b.duration += d;
+                if b.kind != ClipKind::Image {
+                    b.source_start = (b.source_start - d * b.speed).max(0.0);
+                }
+                b.fade_in = b.fade_in.max(d);
+                b.track = a_track + 1;
+                // The dissolve a GPU-less path shows; the shader's own blend
+                // overrides it where a GPU runs the transition.
+                b.video_fade_in = d;
+                let start = quantise(b.start, rate);
+                let end = start + quantise(d, rate);
+                spans.push(TransitionSpan {
+                    start,
+                    end,
+                    to_track: a_track + 1,
+                    id: cut.kind.clone(),
+                    params: BTreeMap::new(),
+                });
+            }
             // A kind this build does not know renders as a plain cut rather
             // than failing the export - the same degrade a missing effect
             // filter must NOT get, because there the user styled the picture.
             _ => {}
         }
     }
+    spans
 }
 
 /// The timing functions the transition shapes ride on, as `ExportKey` holds
@@ -688,7 +743,7 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
     // else reads the clip list, so the picture and sound paths below never
     // know transitions exist.
     let mut resolved = request.clips.clone();
-    resolve_transitions(&mut resolved, rate, true);
+    let transitions = resolve_transitions(&mut resolved, rate, true);
 
     // Stills composite exactly like footage; they only differ in how they are
     // decoded, which is handled where the decoder is opened.
@@ -749,6 +804,7 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
             rate,
             total_frames,
             &visible,
+            transitions,
             &silent,
             &mut reporter,
         )?;
@@ -949,6 +1005,7 @@ fn render_picture(
     rate: FrameRate,
     total_frames: i64,
     visible: &[&ExportClip],
+    transitions: Vec<TransitionSpan>,
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
@@ -960,11 +1017,13 @@ fn render_picture(
         filter_chains,
         tracks,
         treatments,
+        transitions,
         pre_chains,
         chains,
+        reveal_maps,
         cutouts,
         highlight: _,
-    } = build_timeline(request, rate, visible, gpu);
+    } = build_timeline(request, rate, visible, gpu, transitions);
 
     let mut encoder = Encoder::create(
         destination,
@@ -1027,7 +1086,7 @@ fn render_picture(
                         layer,
                         frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
-                        passes_at(&chains, &timeline, layer.clip, time),
+                        passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     ));
                 }
                 continue;
@@ -1098,7 +1157,7 @@ fn render_picture(
                     layer,
                     std::sync::Arc::new(frame),
                     tracks.get(&layer.clip).copied().unwrap_or(0),
-                    passes_at(&chains, &timeline, layer.clip, time),
+                    passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                 ));
             }
         }
@@ -1113,6 +1172,7 @@ fn render_picture(
                 treatments: Vec::new(),
             },
             &treatments,
+            &transitions,
         );
         encoder
             .write_frame(&composed)
@@ -1133,9 +1193,12 @@ fn render_picture(
 
 /// The shader passes for one clip at one instant: every keyed knob at its
 /// value there, the rest at their settings, laid out as the uniforms the
-/// shaders read.
+/// shaders read. `reveal_maps` carries a title's baked per-word order
+/// alongside its chain - unlike an effect's knobs, it is fixed for the
+/// clip's whole life, so it is looked up rather than resolved.
 fn passes_at(
     chains: &HashMap<ClipId, Vec<AppliedFilter>>,
+    reveal_maps: &HashMap<ClipId, Arc<RevealMap>>,
     timeline: &Timeline,
     clip: ClipId,
     time: Rational,
@@ -1146,7 +1209,7 @@ fn passes_at(
     let at = timeline
         .clip(clip)
         .map_or(0.0, |engine_clip| engine_clip.fraction_at(time));
-    Catalogue::builtin().shader_passes_at(effects, at)
+    Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned())
 }
 
 /// `a` towards `b` by `amount`, per channel.
@@ -1170,8 +1233,22 @@ fn composite_treated(
     compositor: &mut dyn Compositor,
     mut plan: FramePlan,
     treatments: &[Treatment],
+    transitions: &[TransitionSpan],
 ) -> Frame {
     let time = plan.time;
+    // A packaged transition live at this instant combines the outgoing stack
+    // with the incoming picture through its shader. A live adjustment layer
+    // over the same frame is the one case we leave to the dissolve fallback,
+    // so the two never fight over the ground - a rare pairing, and the cut
+    // still transitions, just without its shader.
+    let treated_now = treatments.iter().any(|treatment| treatment.covers(time));
+    if !treated_now
+        && let Some(span) = transitions.iter().find(|span| span.covers(time))
+        && let Some(frame) = combine_transition(compositor, &plan, span)
+    {
+        return frame;
+    }
+
     let mut live: Vec<&Treatment> = treatments
         .iter()
         .filter(|treatment| treatment.covers(time))
@@ -1249,6 +1326,66 @@ fn composite_treated(
     compositor.render(&stage(stack))
 }
 
+/// The frame when a packaged transition is live: the outgoing stack
+/// (everything below the incoming lane) combined with the incoming picture
+/// (drawn over that stack at full opacity) through the transition's shader.
+/// `None` when the compositor cannot run the shader or the package is unknown,
+/// and the caller then shows the dissolve the incoming clip already carries.
+fn combine_transition(
+    compositor: &mut dyn Compositor,
+    plan: &FramePlan,
+    span: &TransitionSpan,
+) -> Option<Frame> {
+    let pass =
+        Catalogue::builtin().transition_pass(&span.id, &span.params, span.progress(plan.time))?;
+    let (width, height, time) = (plan.width, plan.height, plan.time);
+    let stage = |layers: Vec<PlannedLayer>| FramePlan {
+        time,
+        width,
+        height,
+        layers,
+        treatments: Vec::new(),
+    };
+    // The outgoing picture: the stack strictly below the incoming lane.
+    let from_layers: Vec<PlannedLayer> = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track < span.to_track)
+        .cloned()
+        .collect();
+    // The incoming picture over that stack, its own layer forced to full
+    // opacity so the shader - not the dissolve ramp - owns the blend.
+    let to_layers: Vec<PlannedLayer> = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track <= span.to_track)
+        .cloned()
+        .map(|mut layer| {
+            if layer.track == span.to_track {
+                layer.opacity = 1.0;
+            }
+            layer
+        })
+        .collect();
+    let from = compositor.render(&stage(from_layers));
+    let to = compositor.render(&stage(to_layers));
+    let combined = compositor.combine(width, height, time.as_f64() as f32, &from, &to, &pass)?;
+    // Anything above the incoming lane draws over the combined picture.
+    let above: Vec<PlannedLayer> = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track > span.to_track)
+        .cloned()
+        .collect();
+    if above.is_empty() {
+        Some(combined)
+    } else {
+        let mut layers = vec![ground_layer(combined)];
+        layers.extend(above);
+        Some(compositor.render(&stage(layers)))
+    }
+}
+
 /// One paused-monitor frame: the same clip list the exporter takes, one
 /// timestamp, a preview resolution.
 #[derive(Deserialize)]
@@ -1293,6 +1430,7 @@ pub fn preview_frame(
 pub struct PreviewSources {
     plan: FramePlan,
     treatments: Vec<Treatment>,
+    transitions: Vec<TransitionSpan>,
 }
 
 impl PreviewSources {
@@ -1304,13 +1442,19 @@ impl PreviewSources {
         &self.plan
     }
 
-    /// Whether a live treatment needs FFmpeg for a package with no
-    /// shader, in which case the frame can only be drawn whole through
-    /// [`PreviewSources::composite`].
+    /// Whether the frame cannot be drawn from [`PreviewSources::plan`]
+    /// alone, and can only be drawn whole through
+    /// [`PreviewSources::composite`]: a live treatment needs FFmpeg for a
+    /// package with no shader, or a live transition is a two-input combine
+    /// a plain `FramePlan` has no way to describe.
     pub fn needs_cpu(&self) -> bool {
         self.treatments
             .iter()
             .any(|treatment| treatment.covers(self.plan.time) && !treatment.chain.is_empty())
+            || self
+                .transitions
+                .iter()
+                .any(|span| span.covers(self.plan.time))
     }
 
     /// The instant, in seconds.
@@ -1318,9 +1462,14 @@ impl PreviewSources {
         self.plan.seconds()
     }
 
-    /// The frame, drawn by `compositor`, every treatment applied.
+    /// The frame, treatments and transitions included, drawn with `compositor`.
     pub fn composite(&self, compositor: &mut dyn Compositor) -> Frame {
-        composite_treated(compositor, self.plan.clone(), &self.treatments)
+        composite_treated(
+            compositor,
+            self.plan.clone(),
+            &self.treatments,
+            &self.transitions,
+        )
     }
 }
 
@@ -1373,8 +1522,10 @@ pub fn preview_sources_of(
         filter_chains,
         tracks,
         treatments,
+        transitions,
         pre_chains,
         chains,
+        reveal_maps,
         cutouts,
         highlight,
     } = &plan.built;
@@ -1418,7 +1569,7 @@ pub fn preview_sources_of(
                     layer,
                     frame,
                     tracks.get(&layer.clip).copied().unwrap_or(0),
-                    passes_at(chains, timeline, layer.clip, time),
+                    passes_at(chains, reveal_maps, timeline, layer.clip, time),
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -1466,6 +1617,7 @@ pub fn preview_sources_of(
     Ok(PreviewSources {
         plan: frame_plan,
         treatments: treatments.clone(),
+        transitions: transitions.clone(),
     })
 }
 
@@ -1494,7 +1646,7 @@ pub fn preview_plan(
 ) -> PreviewPlan {
     let rate = FrameRate::new(Rational::new(rate_num, rate_den));
     let mut resolved = clips.to_vec();
-    resolve_transitions(&mut resolved, rate, false);
+    let transitions = resolve_transitions(&mut resolved, rate, false);
     let visible: Vec<&ExportClip> = resolved
         .iter()
         .filter(|clip| (clip.kind.is_visual() || clip.kind == ClipKind::Layer) && !clip.hidden)
@@ -1517,7 +1669,7 @@ pub fn preview_plan(
         clips: Vec::new(),
     };
     PreviewPlan {
-        built: build_timeline(&shim, rate, &visible, gpu),
+        built: build_timeline(&shim, rate, &visible, gpu, transitions),
         rate,
         width,
         height,
@@ -1675,6 +1827,7 @@ mod tests {
             &mut compositor,
             stack(Rational::from_int(1)),
             std::slice::from_ref(&negate),
+            &[],
         );
         // Red negated is cyan where nothing sits on top...
         let at = |x: usize, y: usize| &out.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -1687,13 +1840,23 @@ mod tests {
             strength: 0.5,
             ..negate.clone()
         };
-        let out = composite_treated(&mut compositor, stack(Rational::from_int(1)), &[half]);
+        let out = composite_treated(
+            &mut compositor,
+            stack(Rational::from_int(1)),
+            &[half],
+            &[],
+        );
         let pixel = &out.pixels()[(7 * 8 + 7) * 4..(7 * 8 + 7) * 4 + 3];
         assert!(pixel[0] > 120 && pixel[0] < 136, "{pixel:?}");
         assert!(pixel[1] > 120 && pixel[1] < 136, "{pixel:?}");
 
         // Outside its span the treatment does nothing.
-        let out = composite_treated(&mut compositor, stack(Rational::from_int(20)), &[negate]);
+        let out = composite_treated(
+            &mut compositor,
+            stack(Rational::from_int(20)),
+            &[negate],
+            &[],
+        );
         assert_eq!(at_of(&out, 7, 7), [255, 0, 0]);
         fn at_of(frame: &Frame, x: usize, y: usize) -> [u8; 3] {
             let p = &frame.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -1835,7 +1998,36 @@ mod tests {
     }
 
     #[test]
-    fn a_cross_fade_clamps_to_the_available_handle() {
+    fn a_packaged_transition_id_overlaps_the_clip_and_emits_a_span() {
+        // A transition named by its package id (not one of the seven legacy
+        // strings) takes the new path: the same overlap a dissolve gets, plus
+        // a `TransitionSpan` for the compositor to combine over.
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 2.0),
+        ];
+        clips[1].transition = spec("concat.dissolve", 1.0);
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+
+        let b = &clips[1];
+        assert_eq!(b.start, 3.0, "extends backwards over the cut, like a dissolve");
+        assert_eq!(b.duration, 5.0);
+        assert_eq!(b.video_fade_in, 1.0, "the GPU-less fallback dissolve");
+        assert_eq!(b.track, 1);
+
+        assert_eq!(spans.len(), 1, "one packaged transition over the cut");
+        let span = &spans[0];
+        assert_eq!(span.id, "concat.dissolve");
+        assert_eq!(span.to_track, 1, "the incoming clip's own lane");
+        assert_eq!(span.start, Rational::from_int(3));
+        assert_eq!(span.end, Rational::from_int(4));
+        assert!((span.progress(Rational::from_int(3)) - 0.0).abs() < 1e-9);
+        assert!((span.progress(Rational::new(35, 10)) - 0.5).abs() < 1e-9);
+        assert!((span.progress(Rational::from_int(4)) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_cross_fade_clamps_source_start_to_zero_not_duration() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 0.25),
@@ -1843,11 +2035,45 @@ mod tests {
         clips[1].transition = spec("cross-fade", 2.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
 
-        // Only a quarter second of source exists before the in-point, so that
-        // is the whole dissolve.
-        assert_eq!(clips[1].video_fade_in, 0.25);
+        // Even with limited handle, the transition preserves its full duration,
+        // clamping source_start to 0.0 rather than shortening the dissolve.
+        assert_eq!(clips[1].video_fade_in, 2.0);
         assert_eq!(clips[1].source_start, 0.0);
-        assert_eq!(clips[1].start, 3.75);
+        assert_eq!(clips[1].start, 2.0);
+        assert_eq!(clips[1].duration, 6.0);
+    }
+
+    #[test]
+    fn a_cross_fade_on_untrimmed_clip_succeeds() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 0.0),
+        ];
+        clips[1].transition = spec("cross-fade", 1.0);
+        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+
+        let b = &clips[1];
+        assert_eq!(b.start, 3.0);
+        assert_eq!(b.duration, 5.0);
+        assert_eq!(b.source_start, 0.0);
+        assert_eq!(b.video_fade_in, 1.0);
+    }
+
+    #[test]
+    fn a_packaged_transition_on_untrimmed_clip_succeeds() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 0.0),
+        ];
+        clips[1].transition = spec("concat.dissolve", 1.0);
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+
+        let b = &clips[1];
+        assert_eq!(b.start, 3.0);
+        assert_eq!(b.duration, 5.0);
+        assert_eq!(b.source_start, 0.0);
+        assert_eq!(b.video_fade_in, 1.0);
+        assert_eq!(spans.len(), 1);
     }
 
     #[test]

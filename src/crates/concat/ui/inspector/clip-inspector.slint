@@ -68,6 +68,8 @@ export struct LibraryViewData {
     group: int,
     /// The star is down: only favourites show, whatever shelf they are on.
     favourites: bool,
+    /// Active category filter (e.g. "All", "Featured", "Retro & Film", etc.).
+    category: string,
 }
 
 /// The three effect libraries' view state and the verbs that change it.
@@ -79,7 +81,7 @@ export struct LibraryViewData {
 /// plumbing for a fact that has one owner.
 export global Library {
     /// One view per shelf, indexed by the numbers `PresetStack.shelf` uses:
-    /// 0 filters, 1 effects, 2 audio.
+    /// 0 filters, 1 effects, 2 audio, 3 transitions.
     in property <[LibraryViewData]> views;
 
     /// The search box was typed in.
@@ -88,13 +90,15 @@ export global Library {
     callback group-changed(shelf: int, index: int);
     /// The star chip was pressed.
     callback favourites-changed(shelf: int, on: bool);
+    /// A category pill was selected.
+    callback category-changed(shelf: int, category: string);
     /// A package was starred or unstarred. Not per shelf: a star is a fact
     /// about the package, and it is remembered across sessions.
     callback favourite(id: string, on: bool);
 
     pure public function view(shelf: int) -> LibraryViewData {
-        if (Library.views.length < 3) {
-            return { query: "", group: 0, favourites: false };
+        if (Library.views.length < 4) {
+            return { query: "", group: 0, favourites: false, category: "" };
         }
         return Library.views[shelf];
     }
@@ -821,6 +825,11 @@ export component VideoPanel inherits VerticalLayout {
     /// What the automatic cutout keeps: 0 auto, 1 person, 2 object.
     callback cutout-subject(index: int);
     callback cutout-clear();
+    /// The transition riding into this clip: dropped, or set to a new
+    /// duration - clamped, same as applying one, so a drag here can never
+    /// ask for more than the cut can give it.
+    callback transition-remove();
+    callback transition-duration-set(seconds: float);
 
     /// Which keyer is on the chain, and where: -1 for none. Scans the first
     /// eight links, as PresetStack does, for want of a model lookup.
@@ -874,6 +883,7 @@ export component VideoPanel inherits VerticalLayout {
     property <float> crop-right;
     property <float> crop-bottom;
     property <float> feather;
+    property <float> transition-duration;
 
     function seed() {
         root.feather = root.selected.cutout-feather;
@@ -888,6 +898,7 @@ export component VideoPanel inherits VerticalLayout {
         root.crop-top = root.selected.crop-top;
         root.crop-right = root.selected.crop-right;
         root.crop-bottom = root.selected.crop-bottom;
+        root.transition-duration = root.selected.transition-duration;
     }
 
     property <[string]> blends: [
@@ -1313,6 +1324,60 @@ export component VideoPanel inherits VerticalLayout {
             }
         }
     }
+
+    // The transition riding into this clip from the cut before it - see
+    // Studio::apply_transition. The section always shows, so its place in
+    // the panel is stable, with a note in place of controls when there is
+    // none: applying one from the Transitions tab is what puts it here.
+    Section {
+        transition := SectionHeader {
+            title: I18n.t("Transition");
+            collapsible: true;
+            summary: root.selected.transition-id == "" ? I18n.t("none")
+                : root.selected.transition-name + " · "
+                    + InspectorFmt.format(ParamFormat.seconds2, root.selected.transition-duration);
+        }
+
+        if transition.open: SectionBody {
+            if root.selected.transition-id == "": Note {
+                text: I18n.t("Pick one from the Transitions tab to dissolve into this clip from the cut before it.");
+            }
+
+            if root.selected.transition-id != "": HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                padding-bottom: 6px;
+                spacing: 4px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.selected.transition-name;
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    font-weight: Theme.weight-title;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                IconButton {
+                    glyph: Glyph.close;
+                    label: I18n.t1("Remove {0}", "\{root.selected.transition-name}");
+                    clicked => { root.transition-remove(); }
+                }
+            }
+
+            if root.selected.transition-id != "": Param {
+                label: I18n.t("Duration");
+                value <=> root.transition-duration;
+                minimum: 0.05;
+                maximum: 5;
+                step: 0.05;
+                default-value: 0.5;
+                fmt: ParamFormat.seconds2;
+                changed(v) => { root.transition-duration-set(v); }
+            }
+        }
+    }
 }
 
 /// Audio: the level and the fades. The voice and room chain sits under it
@@ -1556,6 +1621,147 @@ export component SpeedPanel inherits VerticalLayout {
     }
 }
 
+struct AnimCardData {
+    id: string,
+    name: string,
+    glyph: Glyph,
+}
+
+component AnimationCardGrid inherits Rectangle {
+    in property <[AnimCardData]> items;
+    in property <int> selected-index: -1;
+    callback picked(int);
+
+    property <int> columns: 3;
+    property <length> pad: Theme.pad;
+    property <length> cell-gap: 6px;
+    property <length> cell-w: (root.width - 2 * root.pad
+        - (root.columns - 1) * root.cell-gap) / root.columns;
+    property <length> cell-h: 56px;
+    property <int> rows: ceil(root.items.length / root.columns);
+
+    height: root.rows * (root.cell-h + root.cell-gap);
+
+    for item[index] in root.items: card := Rectangle {
+        property <bool> is-selected: index == root.selected-index;
+
+        x: root.pad + mod(index, root.columns) * (root.cell-w + root.cell-gap);
+        y: floor(index / root.columns) * (root.cell-h + root.cell-gap);
+        width: root.cell-w;
+        height: root.cell-h;
+        border-radius: Theme.r-sm;
+        border-width: card.is-selected ? 2px : 1px;
+        border-color: card.is-selected ? Theme.accent
+            : touch.has-hover ? Theme.line-strong
+            : Theme.line;
+        background: card.is-selected ? Theme.accent-soft
+            : touch.has-hover ? Theme.field-hover
+            : Theme.field;
+
+        animate background, border-color {
+            duration: 100ms;
+            easing: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        property <bool> is-zoom-in: item.id == "zoom-in" || item.id == "pop";
+        property <bool> is-zoom-out: item.id == "zoom-out";
+        property <bool> is-pulse: item.id == "pulse" || item.id == "heartbeat" || item.id == "breathe";
+        property <bool> is-slide-up: item.id == "slide-up" || item.id == "float-up" || item.id == "float";
+        property <bool> is-slide-down: item.id == "slide-down" || item.id == "drop-in";
+        property <bool> is-slide-left: item.id == "slide-left";
+        property <bool> is-slide-right: item.id == "slide-right" || item.id == "drift";
+        property <bool> is-spin: item.id == "spin" || item.id == "roll-in";
+        property <bool> is-fade: item.id == "fade";
+        property <bool> is-bounce: item.id == "bounce" || item.id == "bounce-in";
+        property <bool> is-shake: item.id == "shake" || item.id == "jitter" || item.id == "wobble" || item.id == "sway";
+
+        // Scale animation
+        property <float> anim-scale: !touch.has-hover ? 1.0
+            : card.is-zoom-in ? 1.4
+            : card.is-zoom-out ? 0.6
+            : card.is-pulse ? 1.25
+            : 1.0;
+        animate anim-scale { duration: card.is-pulse ? 450ms : 600ms; easing: ease-in-out; iteration-count: -1; }
+
+        // Y-offset animation
+        property <length> anim-y: !touch.has-hover ? 0px
+            : card.is-slide-up ? -6px
+            : card.is-slide-down ? 6px
+            : card.is-bounce ? -6px
+            : 0px;
+        animate anim-y { duration: 500ms; easing: ease-in-out; iteration-count: -1; }
+
+        // X-offset animation
+        property <length> anim-x: !touch.has-hover ? 0px
+            : card.is-slide-left ? -6px
+            : card.is-slide-right ? 6px
+            : card.is-shake ? 4px
+            : 0px;
+        animate anim-x { duration: card.is-shake ? 150ms : 500ms; easing: ease-in-out; iteration-count: -1; }
+
+        // Rotation animation
+        property <angle> anim-rot: !touch.has-hover ? 0deg
+            : card.is-spin ? 360deg
+            : card.is-shake ? 12deg
+            : 0deg;
+        animate anim-rot { duration: card.is-spin ? 800ms : 200ms; easing: ease-in-out; iteration-count: -1; }
+
+        // Opacity animation
+        property <float> anim-opacity: !touch.has-hover ? 1.0
+            : card.is-fade ? 0.2
+            : 1.0;
+        animate anim-opacity { duration: 600ms; easing: ease-in-out; iteration-count: -1; }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 4px;
+            padding-left: 4px;
+            padding-right: 4px;
+
+            HorizontalLayout {
+                alignment: center;
+                preview-box := Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    transform-rotation: card.anim-rot;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2 + card.anim-x;
+                        y: (parent.height - self.height) / 2 + card.anim-y;
+                        size: 18px * card.anim-scale;
+                        opacity: card.anim-opacity;
+                        glyph: item.glyph;
+                        tint: card.is-selected ? Theme.accent : touch.has-hover ? Theme.fg : Theme.fg-muted;
+                        animate tint {
+                            duration: 100ms;
+                            easing: cubic-bezier(0.4, 0, 0.2, 1);
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: item.name;
+                color: card.is-selected ? Theme.accent : Theme.fg;
+                font-size: Theme.fs-xs;
+                horizontal-alignment: center;
+                overflow: elide;
+                animate color {
+                    duration: 100ms;
+                    easing: cubic-bezier(0.4, 0, 0.2, 1);
+                }
+            }
+        }
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.picked(index);
+            }
+        }
+    }
+}
+
 /// Animation: how the clip comes in, goes out, and moves in between. Each
 /// slot is a named shape from Rust's list and, for the head and tail, the
 /// seconds it takes. The shapes are keys on the clip's own placement, so
@@ -1566,42 +1772,77 @@ export component AnimationPanel inherits VerticalLayout {
     callback set(field: ClipField, value: float);
     callback commit();
 
-    property <[string]> in-shapes: [
-        I18n.t("None"),
-        I18n.t("Fade"),
-        I18n.t("Zoom In"),
-        I18n.t("Zoom Out"),
-        I18n.t("Slide Up"),
-        I18n.t("Slide Down"),
-        I18n.t("Slide Left"),
-        I18n.t("Slide Right"),
-        I18n.t("Spin")
+    property <int> active-tab: 0;
+    property <[string]> categories: [
+        I18n.t("In"),
+        I18n.t("Out"),
+        I18n.t("Combo"),
+        I18n.t("Loop")
     ];
-    property <[string]> out-shapes: [
-        I18n.t("None"),
-        I18n.t("Fade"),
-        I18n.t("Zoom In"),
-        I18n.t("Zoom Out"),
-        I18n.t("Slide Up"),
-        I18n.t("Slide Down"),
-        I18n.t("Slide Left"),
-        I18n.t("Slide Right"),
-        I18n.t("Spin")
+
+    property <[AnimCardData]> in-items: [
+        { id: "none", name: I18n.t("None"), glyph: Glyph.close },
+        { id: "fade", name: I18n.t("Fade"), glyph: Glyph.sparkle },
+        { id: "zoom-in", name: I18n.t("Zoom In"), glyph: Glyph.fit },
+        { id: "zoom-out", name: I18n.t("Zoom Out"), glyph: Glyph.minus },
+        { id: "slide-up", name: I18n.t("Slide Up"), glyph: Glyph.chevron-up },
+        { id: "slide-down", name: I18n.t("Slide Down"), glyph: Glyph.chevron-down },
+        { id: "slide-left", name: I18n.t("Slide Left"), glyph: Glyph.chevron-left },
+        { id: "slide-right", name: I18n.t("Slide Right"), glyph: Glyph.chevron-right },
+        { id: "spin", name: I18n.t("Spin"), glyph: Glyph.reset },
+        { id: "bounce-in", name: I18n.t("Bounce In"), glyph: Glyph.keyframe },
+        { id: "pop", name: I18n.t("Pop"), glyph: Glyph.sparkle },
+        { id: "roll-in", name: I18n.t("Roll In"), glyph: Glyph.reset },
+        { id: "drop-in", name: I18n.t("Drop In"), glyph: Glyph.chevron-down },
+        { id: "float-up", name: I18n.t("Float Up"), glyph: Glyph.chevron-up }
     ];
-    property <[string]> combo-shapes: [
-        I18n.t("None"),
-        I18n.t("Pulse"),
-        I18n.t("Shake"),
-        I18n.t("Spin"),
-        I18n.t("Bounce"),
-        I18n.t("Drift")
+    property <[AnimCardData]> out-items: [
+        { id: "none", name: I18n.t("None"), glyph: Glyph.close },
+        { id: "fade", name: I18n.t("Fade"), glyph: Glyph.sparkle },
+        { id: "zoom-in", name: I18n.t("Zoom In"), glyph: Glyph.fit },
+        { id: "zoom-out", name: I18n.t("Zoom Out"), glyph: Glyph.minus },
+        { id: "slide-up", name: I18n.t("Slide Up"), glyph: Glyph.chevron-up },
+        { id: "slide-down", name: I18n.t("Slide Down"), glyph: Glyph.chevron-down },
+        { id: "slide-left", name: I18n.t("Slide Left"), glyph: Glyph.chevron-left },
+        { id: "slide-right", name: I18n.t("Slide Right"), glyph: Glyph.chevron-right },
+        { id: "spin", name: I18n.t("Spin"), glyph: Glyph.reset },
+        { id: "bounce-in", name: I18n.t("Bounce In"), glyph: Glyph.keyframe },
+        { id: "pop", name: I18n.t("Pop"), glyph: Glyph.sparkle },
+        { id: "roll-in", name: I18n.t("Roll In"), glyph: Glyph.reset },
+        { id: "drop-in", name: I18n.t("Drop In"), glyph: Glyph.chevron-down },
+        { id: "float-up", name: I18n.t("Float Up"), glyph: Glyph.chevron-up }
+    ];
+    property <[AnimCardData]> combo-items: [
+        { id: "none", name: I18n.t("None"), glyph: Glyph.close },
+        { id: "pulse", name: I18n.t("Pulse"), glyph: Glyph.waveform },
+        { id: "shake", name: I18n.t("Shake"), glyph: Glyph.split },
+        { id: "spin", name: I18n.t("Spin"), glyph: Glyph.reset },
+        { id: "bounce", name: I18n.t("Bounce"), glyph: Glyph.chevron-up },
+        { id: "drift", name: I18n.t("Drift"), glyph: Glyph.chevron-right },
+        { id: "sway", name: I18n.t("Sway"), glyph: Glyph.flip-h },
+        { id: "wave", name: I18n.t("Wave"), glyph: Glyph.waveform },
+        { id: "heartbeat", name: I18n.t("Heartbeat"), glyph: Glyph.waveform },
+        { id: "breathe", name: I18n.t("Breathe"), glyph: Glyph.fit },
+        { id: "wobble", name: I18n.t("Wobble"), glyph: Glyph.flip-v }
+    ];
+    property <[AnimCardData]> loop-items: [
+        { id: "none", name: I18n.t("None"), glyph: Glyph.close },
+        { id: "spin", name: I18n.t("Spin"), glyph: Glyph.reset },
+        { id: "pulse", name: I18n.t("Pulse"), glyph: Glyph.waveform },
+        { id: "breathe", name: I18n.t("Breathe"), glyph: Glyph.fit },
+        { id: "wobble", name: I18n.t("Wobble"), glyph: Glyph.flip-v },
+        { id: "bounce", name: I18n.t("Bounce"), glyph: Glyph.chevron-up },
+        { id: "jitter", name: I18n.t("Jitter"), glyph: Glyph.split },
+        { id: "float", name: I18n.t("Float"), glyph: Glyph.chevron-up }
     ];
 
     property <float> in-seconds;
     property <float> out-seconds;
+    property <float> loop-seconds;
     function seed() {
         root.in-seconds = root.selected.anim-in-duration;
         root.out-seconds = root.selected.anim-out-duration;
+        root.loop-seconds = root.selected.anim-loop-duration;
     }
     init => { root.seed(); }
     changed selected => { root.seed(); }
@@ -1613,24 +1854,58 @@ export component AnimationPanel inherits VerticalLayout {
     Section {
         first: true;
         SectionHeader {
-            title: I18n.t("In");
+            title: I18n.t("Animation");
             HelpButton {
-                text: I18n.t("In and Out play over the clip's first and last seconds; Combo runs its whole length. Each moves the clip from where you placed it, so position it first.");
+                text: I18n.t("In and Out play over the clip's first and last seconds; Combo runs its whole length; Loop repeats continuously. Each moves the clip from where you placed it, so position it first.");
             }
         }
 
         SectionBody {
             Row {
-                label: I18n.t("Shape");
-                Select {
-                    options: root.in-shapes;
-                    current: root.selected.anim-in + 1;
-                    changed(index) => { root.set(ClipField.anim-in, index - 1); root.commit(); }
+                SegmentedControl {
+                    options: root.categories;
+                    current <=> root.active-tab;
                 }
             }
 
-            if root.selected.anim-in >= 0: Param {
-                label: I18n.t("Length");
+            if root.active-tab == 0: AnimationCardGrid {
+                items: root.in-items;
+                selected-index: root.selected.anim-in + 1;
+                picked(index) => {
+                    root.set(ClipField.anim-in, index - 1);
+                    root.commit();
+                }
+            }
+
+            if root.active-tab == 1: AnimationCardGrid {
+                items: root.out-items;
+                selected-index: root.selected.anim-out + 1;
+                picked(index) => {
+                    root.set(ClipField.anim-out, index - 1);
+                    root.commit();
+                }
+            }
+
+            if root.active-tab == 2: AnimationCardGrid {
+                items: root.combo-items;
+                selected-index: root.selected.anim-combo + 1;
+                picked(index) => {
+                    root.set(ClipField.anim-combo, index - 1);
+                    root.commit();
+                }
+            }
+
+            if root.active-tab == 3: AnimationCardGrid {
+                items: root.loop-items;
+                selected-index: root.selected.anim-loop + 1;
+                picked(index) => {
+                    root.set(ClipField.anim-loop, index - 1);
+                    root.commit();
+                }
+            }
+
+            if root.active-tab == 0 && root.selected.anim-in >= 0: Param {
+                label: I18n.t("Duration");
                 value <=> root.in-seconds;
                 minimum: 0.1;
                 maximum: root.limit;
@@ -1640,26 +1915,9 @@ export component AnimationPanel inherits VerticalLayout {
                 unit: "s";
                 changed(v) => { root.set(ClipField.anim-in-duration, v); root.commit(); }
             }
-        }
-    }
 
-    Section {
-        SectionHeader {
-            title: I18n.t("Out");
-        }
-
-        SectionBody {
-            Row {
-                label: I18n.t("Shape");
-                Select {
-                    options: root.out-shapes;
-                    current: root.selected.anim-out + 1;
-                    changed(index) => { root.set(ClipField.anim-out, index - 1); root.commit(); }
-                }
-            }
-
-            if root.selected.anim-out >= 0: Param {
-                label: I18n.t("Length");
+            if root.active-tab == 1 && root.selected.anim-out >= 0: Param {
+                label: I18n.t("Duration");
                 value <=> root.out-seconds;
                 minimum: 0.1;
                 maximum: root.limit;
@@ -1669,22 +1927,17 @@ export component AnimationPanel inherits VerticalLayout {
                 unit: "s";
                 changed(v) => { root.set(ClipField.anim-out-duration, v); root.commit(); }
             }
-        }
-    }
 
-    Section {
-        SectionHeader {
-            title: I18n.t("Combo");
-        }
-
-        SectionBody {
-            Row {
-                label: I18n.t("Shape");
-                Select {
-                    options: root.combo-shapes;
-                    current: root.selected.anim-combo + 1;
-                    changed(index) => { root.set(ClipField.anim-combo, index - 1); root.commit(); }
-                }
+            if root.active-tab == 3 && root.selected.anim-loop >= 0: Param {
+                label: I18n.t("Cycle");
+                value <=> root.loop-seconds;
+                minimum: 0.2;
+                maximum: 10.0;
+                step: 0.1;
+                default-value: 1.0;
+                fmt: ParamFormat.seconds2;
+                unit: "s";
+                changed(v) => { root.set(ClipField.anim-loop-duration, v); root.commit(); }
             }
         }
     }

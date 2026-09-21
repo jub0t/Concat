@@ -1,0 +1,1 @@
+crop=iw-{2 * a}:ih-{2 * a}:{a}+{a}*sin(t*{s}):{a}+{a}*cos(t*{s2})
