@@ -1815,6 +1815,74 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
+    /// Every built-in package's FFmpeg chain builds a filter graph.
+    ///
+    /// A package's fixtures compare its chain as *text*, so a chain FFmpeg
+    /// cannot parse passes them for as long as the fixture is wrong in the
+    /// same way - which is what had happened to the two colour keys, where
+    /// `color=0x00FF00:similarity=` was written `color=0x00FF00ty=`: the
+    /// fixtures agreed with the template, and nothing asked FFmpeg until a
+    /// frame was rendered and the whole preview failed. This asks it, for
+    /// every package at its defaults.
+    ///
+    /// Video kinds only, and only the chains that fit a clip's slot in the
+    /// graph: a chain with pads of its own (`split[a][b];...`) is refused
+    /// by `validate_chain` by design and is carried by a shader pass
+    /// instead.
+    #[test]
+    fn every_package_chain_builds_a_filter_graph() {
+        use concat_effects::manifest::Kind;
+        use concat_project::model::AppliedFilter;
+
+        let path =
+            std::env::temp_dir().join(format!("concat-chain-test-{}.mp4", std::process::id()));
+        let mut encoder =
+            Encoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
+                .expect("encodes");
+        let mut frame = Frame::black(64, 64);
+        frame.fill([40, 160, 90, 255]);
+        for _ in 0..4 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let catalogue = Catalogue::builtin();
+        let mut failures: Vec<String> = Vec::new();
+        for package in catalogue.packages() {
+            let kind = package.kind();
+            if kind != Kind::Effect && kind != Kind::Filter {
+                continue;
+            }
+            let applied = [AppliedFilter::new(&package.manifest.effect.id)];
+            let chain = catalogue.video_chain(&applied);
+            if chain.is_empty() || chain.contains('[') || chain.contains(';') {
+                continue;
+            }
+            let decoded = Decoder::open(
+                &path,
+                &DecodeOptions::default().scaled_to(64, 64).filtered(&chain),
+            )
+            .and_then(|mut decoder| decoder.next_frame());
+            match decoded {
+                Ok(Some(_)) => {}
+                Ok(None) => failures.push(format!(
+                    "{}: no frame from {chain}",
+                    package.manifest.effect.id
+                )),
+                Err(error) => failures.push(format!(
+                    "{}: {error} from {chain}",
+                    package.manifest.effect.id
+                )),
+            }
+        }
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            failures.is_empty(),
+            "chains that do not build:\n{}",
+            failures.join("\n")
+        );
+    }
+
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]
