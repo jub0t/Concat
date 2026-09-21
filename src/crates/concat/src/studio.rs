@@ -1901,6 +1901,7 @@ impl Studio {
                     &item.path,
                     width,
                     height,
+                    item.color_range.map(concat_export::engine_range),
                 );
             }
         }
@@ -1914,6 +1915,9 @@ impl Studio {
             duration: Option<f64>,
             stream: Option<u32>,
             pictures: bool,
+            /// The levels the file is read as, so the filmstrip reads the
+            /// proxy written for that reading.
+            range: Option<concat_media::ColorRange>,
         }
         let project = self.project();
         let mut wanted: Vec<Want> = project
@@ -1938,6 +1942,7 @@ impl Studio {
                 duration: item.duration,
                 stream: None,
                 pictures: item.kind != model::MediaKind::Audio,
+                range: item.color_range.map(concat_export::engine_range),
             })
             .collect();
         // The other streams clips have chosen, once each.
@@ -1975,6 +1980,7 @@ impl Studio {
                 duration: item.duration,
                 stream: Some(stream),
                 pictures: false,
+                range: item.color_range.map(concat_export::engine_range),
             });
         }
         for want in wanted {
@@ -1987,6 +1993,7 @@ impl Studio {
                 duration,
                 stream,
                 mut pictures,
+                range,
             } = want;
 
             // Restore pictures from the project's JPEG artwork cache before
@@ -2016,7 +2023,7 @@ impl Studio {
             spawn_art(
                 move || {
                     media_art(
-                        id, path, kind, has_audio, duration, project, stream, pictures,
+                        id, path, kind, has_audio, duration, project, stream, pictures, range,
                     )
                 },
                 |studio, _, _, art: MediaArt| {
@@ -3154,7 +3161,11 @@ impl Studio {
                 let after = echo.active().clip(&clip).cloned();
                 self.echo = None;
                 let Some(after) = after else { return };
-                let new_duration = after.transition_in.as_ref().map(|t| t.duration).unwrap_or(0.0);
+                let new_duration = after
+                    .transition_in
+                    .as_ref()
+                    .map(|t| t.duration)
+                    .unwrap_or(0.0);
                 if (new_duration - f64::from(original_duration)).abs() > 1e-4 {
                     self.set_clip_transition_duration(&clip, new_duration);
                 }
@@ -3195,11 +3206,30 @@ impl Studio {
         };
         self.begin_echo();
         let value = f64::from(value);
+        // The one field that is the media's rather than the clip's: set on
+        // the echo's bin item, and committed as its own command below.
+        if field == ClipField::ColorRange {
+            let media_id = self.clip(&id).map(|clip| clip.media_id.clone());
+            if let Some(media_id) = media_id
+                && let Some(item) = self
+                    .echo
+                    .as_mut()
+                    .and_then(|echo| echo.media.iter_mut().find(|item| item.id == media_id))
+            {
+                item.color_range = match value as i32 {
+                    1 => Some(model::ColorRange::Limited),
+                    2 => Some(model::ColorRange::Full),
+                    _ => None,
+                };
+            }
+            return;
+        }
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
         };
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
+            ClipField::ColorRange => {}
             ClipField::Scale => clip.scale = value.clamp(0.05, 8.0),
             ClipField::AudioTrack => {
                 // The first row is the file's default and is stored as such,
@@ -3575,6 +3605,26 @@ impl Studio {
         }
         if patch != ClipPatch::default() {
             commands.push(Command::UpdateClip { clip_id: id, patch });
+        }
+        // The media's own field, edited through the clip: the echo's bin
+        // item against the session's.
+        let range_after = self
+            .echo
+            .as_ref()
+            .and_then(|echo| echo.media_by_id(&after.media_id))
+            .map(|item| item.color_range);
+        let range_before = self
+            .session
+            .as_ref()
+            .and_then(|session| session.project().media_by_id(&after.media_id))
+            .map(|item| item.color_range);
+        if let (Some(now), Some(was)) = (range_after, range_before)
+            && now != was
+        {
+            commands.push(Command::SetMediaColorRange {
+                media_id: after.media_id.clone(),
+                range: now,
+            });
         }
         self.echo = None;
         if commands.is_empty() {
@@ -5907,6 +5957,19 @@ impl Studio {
         });
         SelectedClipData {
             present: true,
+            // -1 hides the control: a title, a layer or a sound has no
+            // picture file whose levels could be named.
+            color_range: if clip.kind.is_visual() {
+                self.project()
+                    .media_by_id(&clip.media_id)
+                    .map_or(-1, |item| match item.color_range {
+                        None => 0,
+                        Some(model::ColorRange::Limited) => 1,
+                        Some(model::ColorRange::Full) => 2,
+                    })
+            } else {
+                -1
+            },
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -6194,7 +6257,14 @@ impl Studio {
             views: self
                 .library
                 .iter()
-                .map(|view| (view.query.clone(), view.group, view.favourites, view.category.clone()))
+                .map(|view| {
+                    (
+                        view.query.clone(),
+                        view.group,
+                        view.favourites,
+                        view.category.clone(),
+                    )
+                })
                 .collect(),
             favourites: starred.clone(),
         };

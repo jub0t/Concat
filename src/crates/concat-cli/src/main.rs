@@ -379,6 +379,7 @@ fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(
                 false,
                 None,
                 None,
+                None,
             )?;
             layer.source = Some(frame);
             layer.opacity *= fade_in(index, fade);

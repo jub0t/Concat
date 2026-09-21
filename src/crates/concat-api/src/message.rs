@@ -277,6 +277,12 @@ pub struct ExportSpec {
     /// Ten bits a channel. Eight when absent.
     #[serde(default)]
     pub ten_bit: Option<bool>,
+    /// "limited" (16-235, what every player and YouTube expect) or "full"
+    /// (0-255, for screen content bound for a PC player that reads the
+    /// tag). Limited when absent.
+    /// https://github.com/jub0t/Concat/issues/103
+    #[serde(default)]
+    pub color_range: Option<String>,
 }
 
 /// What a request hands back. Serialised as the payload alone: the variant

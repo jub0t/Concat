@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use concat_export::{ExportClip, ExportRequest, Reporter, render};
-pub use concat_media::{RateMode, VideoCodec};
+pub use concat_media::{ColorRange, RateMode, VideoCodec};
 
 use crate::jobs::{Job, SingleFlight};
 use crate::session::Session;
@@ -37,6 +37,10 @@ pub struct ExportSpec {
     pub rate_mode: concat_media::RateMode,
     /// Target bitrate in kbps, used when `rate_mode` is CBR.
     pub bitrate_kbps: u32,
+    /// The levels the file is written in and tagged with. Video range,
+    /// 16-235, unless the sheet's Advanced section says full.
+    /// https://github.com/jub0t/Concat/issues/103
+    pub color_range: ColorRange,
 }
 
 /// One progress report: which frame of how many, in which stage.
@@ -67,6 +71,7 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         ten_bit: spec.ten_bit,
         rate_mode: spec.rate_mode,
         bitrate_kbps: spec.bitrate_kbps,
+        color_range: spec.color_range,
         clips,
     }
 }

@@ -620,8 +620,11 @@ fn compose_plan() -> FramePlan {
         offset_x: 0.1,
         ..Transform::default()
     };
-    placed.effects = concat_effects::Catalogue::builtin()
-        .shader_passes_at(&[AppliedFilter::new("concat.sepia")], 0.0, None);
+    placed.effects = concat_effects::Catalogue::builtin().shader_passes_at(
+        &[AppliedFilter::new("concat.sepia")],
+        0.0,
+        None,
+    );
     plan.layers.push(placed);
     let mut small = PlannedLayer::picture(
         concat_render::detached_clip(),
@@ -712,6 +715,7 @@ fn export(media: &Media) -> Measure {
         ten_bit: false,
         rate_mode: concat_media::RateMode::Vbr,
         bitrate_kbps: 0,
+        color_range: concat_media::ColorRange::Limited,
     };
     let request = concat_host::export::request(&session, &spec, Vec::new());
     let cancel = AtomicBool::new(false);

@@ -1020,6 +1020,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::TenBitChanged(on)));
     }));
+    app.on_export_color_range_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Export(ExportMsg::ColorRangeChanged(index)));
+    }));
     app.on_export_advanced_toggled(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::AdvancedToggled(on)));
     }));

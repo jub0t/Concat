@@ -197,6 +197,7 @@ meaningfully even when the file is missing.
 | `hasAudio` | bool | The file carries sound |
 | `audioTracks` | *AudioTrack*[] | *optional*. Every audio stream, in file order |
 | `placeholder` | bool | *optional*. True for a template slot |
+| `colorRange` | string | *optional*. `limited` or `full`: the levels the picture is read as, over the file's own tag. Absent means "as tagged". Set with `setMediaColorRange` |
 
 ### AudioTrack
 
@@ -330,7 +331,9 @@ Reply to `media.probe`.
 | `audioTracks` | *AudioStreamInfo*[] | Every audio stream, in file order |
 
 **VideoStreamInfo:** `index`, `codec`, `width`, `height`, `frameRate`
-(decimal), `frameRateFraction` (exact, e.g. `"30/1"`).
+(decimal), `frameRateFraction` (exact, e.g. `"30/1"`), and `colorRange`
+(`limited` or `full`, present only when the file says; a file that says
+nothing is played as limited).
 
 **AudioStreamInfo:** `index`, `codec`, `sampleRate`, `channels`, `title`,
 `language`.

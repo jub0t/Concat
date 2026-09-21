@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use concat_media::decode::{DecodeOptions, Decoder, FrameSource};
-use concat_media::{EncodeOptions, Encoder, FrameSink, Priority, RateMode, VideoCodec};
+use concat_media::{ColorRange, EncodeOptions, Encoder, FrameSink, Priority, RateMode, VideoCodec};
 
 /// A file with more pixels than this gets a proxy: anything larger than
 /// full HD.
@@ -49,13 +49,18 @@ pub fn size_for(width: u32, height: u32) -> (u32, u32) {
 }
 
 /// Where the proxy of `media` lives under `project`: named by the file's
-/// path, size and modification time. None for a file that cannot be
-/// stat'ed, which cannot be read either.
-pub fn path_for(project: &Path, media: &str) -> Option<PathBuf> {
+/// path, size and modification time, and by the range it is read as,
+/// since the copy is written from the corrected picture and a correction
+/// changed is a different copy. None for a file that cannot be stat'ed,
+/// which cannot be read either.
+pub fn path_for(project: &Path, media: &str, range: Option<ColorRange>) -> Option<PathBuf> {
     let meta = std::fs::metadata(media).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
+    if let Some(range) = range {
+        range.name().hash(&mut hasher);
+    }
     if let Ok(modified) = meta.modified()
         && let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH)
     {
@@ -69,21 +74,28 @@ pub fn path_for(project: &Path, media: &str) -> Option<PathBuf> {
     )
 }
 
-/// The proxy of `media` under `project`, when it has been written.
-pub fn existing(project: &Path, media: &str) -> Option<PathBuf> {
-    path_for(project, media).filter(|path| path.is_file())
+/// The proxy of `media` under `project`, read as `range`, when it has
+/// been written.
+pub fn existing(project: &Path, media: &str, range: Option<ColorRange>) -> Option<PathBuf> {
+    path_for(project, media, range).filter(|path| path.is_file())
 }
 
-/// Sees to it that `media` - `width` by `height` - has a proxy when it
-/// is worth one: an existing copy is adopted into the reader pool at
-/// once; otherwise one is queued to be written on the proxy lane and
-/// adopted when done. Asking again while it is being written is free.
-/// Returns whether the file has, or will have, a proxy.
-pub fn ensure(project: &Path, media: &str, width: u32, height: u32) -> bool {
+/// Sees to it that `media` - `width` by `height`, read as `range` - has
+/// a proxy when it is worth one: an existing copy is adopted into the
+/// reader pool at once; otherwise one is queued to be written on the
+/// proxy lane and adopted when done. Asking again while it is being
+/// written is free. Returns whether the file has, or will have, a proxy.
+pub fn ensure(
+    project: &Path,
+    media: &str,
+    width: u32,
+    height: u32,
+    range: Option<ColorRange>,
+) -> bool {
     if !wanted(width, height) {
         return false;
     }
-    let Some(target) = path_for(project, media) else {
+    let Some(target) = path_for(project, media, range) else {
         return false;
     };
     let pool = crate::scheduler().pool();
@@ -106,7 +118,7 @@ pub fn ensure(project: &Path, media: &str, width: u32, height: u32) -> bool {
     let source = media.to_owned();
     let size = size_for(width, height);
     crate::scheduler().submit(Priority::Proxy, move || {
-        match write(&source, &target, size) {
+        match write(&source, &target, size, range) {
             Ok(()) => {
                 crate::scheduler()
                     .pool()
@@ -123,11 +135,17 @@ pub fn ensure(project: &Path, media: &str, width: u32, height: u32) -> bool {
     true
 }
 
-/// Writes the proxy of `source` at `size` to `target`: H.264, a fast
-/// preset, two threads, in software, into a temporary name that is moved
-/// into place only when whole, so a copy that is there is a copy that is
-/// complete.
-pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result<(), String> {
+/// Writes the proxy of `source`, read as `range`, at `size` to `target`:
+/// H.264, a fast preset, two threads, in software, into a temporary name
+/// that is moved into place only when whole, so a copy that is there is a
+/// copy that is complete. The copy is tagged video range and converted to
+/// match, so it is read as it is and needs no correction of its own.
+pub fn write(
+    source: &str,
+    target: &Path,
+    (width, height): (u32, u32),
+    range: Option<ColorRange>,
+) -> Result<(), String> {
     let info = concat_media::probe(source).map_err(|error| error.to_string())?;
     let rate = info
         .video
@@ -144,7 +162,8 @@ pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result
     let options = DecodeOptions::default()
         .scaled_to(width, height)
         .in_software()
-        .threaded(2);
+        .threaded(2)
+        .in_range(range);
     let mut decoder = Decoder::open(source, &options).map_err(|error| error.to_string())?;
     let mut encoder = Encoder::create(
         &partial,
@@ -160,6 +179,7 @@ pub fn write(source: &str, target: &Path, (width, height): (u32, u32)) -> Result
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
+            color_range: ColorRange::Limited,
             hardware: false,
             threads: 2,
         },
@@ -243,9 +263,9 @@ mod tests {
         }
         let project = dir.join("project");
         let source = media.to_string_lossy().into_owned();
-        assert!(ensure(&project, &source, 2560, 1440), "worth a proxy");
+        assert!(ensure(&project, &source, 2560, 1440, None), "worth a proxy");
         crate::scheduler().drain();
-        let proxy = existing(&project, &source).expect("the proxy was written");
+        let proxy = existing(&project, &source, None).expect("the proxy was written");
         let info = concat_media::probe(&proxy).expect("probes");
         let video = info.video.expect("has pictures");
         assert_eq!((video.width, video.height), (960, 540));
@@ -255,7 +275,7 @@ mod tests {
             Some(proxy.as_path())
         );
         // Second time round: nothing to write, still adopted.
-        assert!(ensure(&project, &source, 2560, 1440));
+        assert!(ensure(&project, &source, 2560, 1440, None));
         let time = FrameRate::THIRTY.time_of_frame(2);
         let moving = pool
             .frame(&concat_media::FrameRequest::new(&source, time, 480, 270).from_proxy(true))
@@ -266,7 +286,7 @@ mod tests {
             .expect("reads the original");
         assert_eq!((paused.width(), paused.height()), (480, 270));
         // A file not worth a proxy is left alone.
-        assert!(!ensure(&project, &source, 1280, 720));
+        assert!(!ensure(&project, &source, 1280, 720, None));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -277,13 +297,18 @@ mod tests {
         let media = dir.join("clip.mp4");
         std::fs::write(&media, b"one").expect("writes");
         let project = dir.join("project");
-        let first = path_for(&project, &media.to_string_lossy()).expect("a path");
+        let first = path_for(&project, &media.to_string_lossy(), None).expect("a path");
         assert!(first.starts_with(project.join("cache").join("proxy")));
-        assert!(existing(&project, &media.to_string_lossy()).is_none());
+        assert!(existing(&project, &media.to_string_lossy(), None).is_none());
+        // Read as another range, the file is another proxy too: the copy
+        // holds the corrected picture.
+        let full =
+            path_for(&project, &media.to_string_lossy(), Some(ColorRange::Full)).expect("a path");
+        assert_ne!(first, full, "a file read as full range is another proxy");
         std::fs::write(&media, b"one more byte").expect("writes");
-        let second = path_for(&project, &media.to_string_lossy()).expect("a path");
+        let second = path_for(&project, &media.to_string_lossy(), None).expect("a path");
         assert_ne!(first, second, "a changed file is another proxy");
-        assert!(path_for(&project, &dir.join("missing.mp4").to_string_lossy()).is_none());
+        assert!(path_for(&project, &dir.join("missing.mp4").to_string_lossy(), None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2186,6 +2186,34 @@ mod tests {
             }
         ));
 
+        // A colour range is one of two words, or null to read the tag.
+        let full: Command = serde_json::from_value(json!({
+            "op": "setMediaColorRange", "mediaId": "m1", "range": "full"
+        }))
+        .expect("parses");
+        assert!(matches!(
+            full,
+            Command::SetMediaColorRange {
+                range: Some(crate::model::ColorRange::Full),
+                ..
+            }
+        ));
+        let tagged: Command = serde_json::from_value(json!({
+            "op": "setMediaColorRange", "mediaId": "m1", "range": null
+        }))
+        .expect("parses");
+        assert!(matches!(
+            tagged,
+            Command::SetMediaColorRange { range: None, .. }
+        ));
+        assert!(
+            serde_json::from_value::<Command>(json!({
+                "op": "setMediaColorRange", "mediaId": "m1", "range": "wide"
+            }))
+            .is_err(),
+            "a range is limited or full"
+        );
+
         let batch: Command = serde_json::from_value(json!({
             "op": "batch",
             "commands": [{ "op": "fillSlot", "mediaId": "m1", "item": {
@@ -2207,6 +2235,79 @@ mod tests {
         let untouched: crate::commands::ClipPatch =
             serde_json::from_value(json!({})).expect("parses");
         assert_eq!(untouched.transition_in, None);
+    }
+
+    /// A media item's colour range is set, saved, cleared, and undone
+    /// like any edit; an unknown item is a no-op that records nothing.
+    /// https://github.com/jub0t/Concat/issues/103
+    #[test]
+    fn a_medias_colour_range_is_an_undoable_edit_that_round_trips() {
+        use crate::model::ColorRange;
+        let (mut editor, media_id, _clip_id) = fixture();
+        assert_eq!(editor.project().media[0].color_range, None);
+        let before = editor.project().clone();
+
+        let view = editor
+            .apply(Command::SetMediaColorRange {
+                media_id: media_id.clone(),
+                range: Some(ColorRange::Full),
+            })
+            .expect("sets");
+        assert!(view.applied);
+        assert_eq!(
+            editor.project().media[0].color_range,
+            Some(ColorRange::Full)
+        );
+
+        // Saved as the word, read back as the range; absent stays absent,
+        // so a project that never said stays byte-identical.
+        let saved = editor.to_document(&settings());
+        assert_eq!(saved["media"][0]["colorRange"], "full");
+        let reopened = Editor::from_document(&saved).expect("loads");
+        assert_eq!(
+            reopened.project().media[0].color_range,
+            Some(ColorRange::Full)
+        );
+        let untold = crate::doc::to_document(&settings(), &before);
+        assert!(untold["media"][0].get("colorRange").is_none());
+        // A word this build does not know reads as the tag, not as a
+        // media item lost.
+        let mut odd = saved.clone();
+        odd["media"][0]["colorRange"] = json!("wide");
+        let tolerant = Editor::from_document(&odd).expect("loads");
+        assert_eq!(tolerant.project().media.len(), 1);
+        assert_eq!(tolerant.project().media[0].color_range, None);
+
+        // Cleared is back to the tag; set to what it is already, nothing.
+        editor
+            .apply(Command::SetMediaColorRange {
+                media_id: media_id.clone(),
+                range: None,
+            })
+            .expect("clears");
+        assert_eq!(editor.project().media[0].color_range, None);
+        let same = editor
+            .apply(Command::SetMediaColorRange {
+                media_id: media_id.clone(),
+                range: None,
+            })
+            .expect("no-op");
+        assert!(!same.applied, "a value already held changes nothing");
+        let gone = editor
+            .apply(Command::SetMediaColorRange {
+                media_id: "m999".to_owned(),
+                range: Some(ColorRange::Limited),
+            })
+            .expect("an unknown item is a no-op");
+        assert!(!gone.applied);
+        assert_eq!(gone.created_id, None);
+
+        editor.undo();
+        assert_eq!(
+            editor.project().media[0].color_range,
+            Some(ColorRange::Full),
+            "undo of the clear brings the range back"
+        );
     }
 
     #[test]
@@ -3482,6 +3583,7 @@ mod tests {
             has_audio: false,
             audio_tracks: vec![],
             placeholder: false,
+            color_range: None,
             extra: Default::default(),
         });
 
@@ -3518,6 +3620,7 @@ mod tests {
             has_audio: false,
             audio_tracks: vec![],
             placeholder: false,
+            color_range: None,
             extra: Default::default(),
         });
 

@@ -19,6 +19,7 @@ edit; `createdId` names what the command made, if anything.
 | [`addMedia`](#addmedia) | file into the bin | `m…` |
 | [`removeMedia`](#removemedia) | bin item and every clip of it, out | |
 | [`updateMediaPath`](#updatemediapath) | relink a file | |
+| [`setMediaColorRange`](#setmediacolorrange) | say whether a file is really limited or full range | |
 | [`replaceClipMedia`](#replaceclipmedia) | point a clip at another file | `m…` if new |
 | **Placing clips** | | |
 | [`addClip`](#addclip) | media on a named track | `c…` |
@@ -119,6 +120,31 @@ Relinks a bin item to a new path on disk.
 |---|---|---|
 | `mediaId` | string | The bin item. Unknown id: no-op |
 | `newPath` | string | The new absolute path |
+
+### `setMediaColorRange`
+
+Says what levels a media file's picture really spans, over whatever the
+file claims. The fix for a washed-out or crushed picture.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `mediaId` | string | The bin item. Unknown id: no-op |
+| `range` | `"limited"`, `"full"` or `null` | `limited` is 16-235, `full` is 0-255. `null` goes back to reading the file's own tag |
+
+```json
+{"op":"setMediaColorRange","mediaId":"m1","range":"full"}
+```
+
+When to use which:
+
+- A screen recording that plays **grey where it should be black** is a
+  full-range file tagged nothing. Set `full`.
+- A file whose **shadows are crushed** and highlights clipped is a
+  video-range file tagged full. Set `limited`.
+- `media.probe` reports what the file claims as `video.colorRange`.
+
+Reaches every clip of the media, on every timeline, in the monitor and
+the export alike. Stored in the document; absent means "as tagged".
 
 ### `replaceClipMedia`
 

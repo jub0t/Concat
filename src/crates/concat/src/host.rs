@@ -552,6 +552,7 @@ pub fn media_art(
     project: String,
     stream: Option<u32>,
     pictures: bool,
+    range: Option<concat_media::ColorRange>,
 ) -> MediaArt {
     use concat_project::model::MediaKind;
     if stream.is_some() {
@@ -587,7 +588,7 @@ pub fn media_art(
         .flatten();
     // The filmstrip reads the proxy where the file has one: the tiles are
     // small, and a 4K file's frames cost more than they show.
-    let strip_source = concat_host::proxy::existing(std::path::Path::new(&project), &path)
+    let strip_source = concat_host::proxy::existing(std::path::Path::new(&project), &path, range)
         .map(|proxy| proxy.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.clone());
     let strip = if pictures {

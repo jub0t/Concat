@@ -84,6 +84,22 @@ pub struct AudioTrack {
     pub language: String,
 }
 
+/// The levels a media file's picture spans, when the person says so over
+/// whatever the file claims: video range, 16-235, or full range, 0-255.
+/// A screen recording written full and tagged nothing plays grey where it
+/// should be black until it is read as `full`; a video-range file tagged
+/// full crushes its shadows until it is read as `limited`. Set with
+/// `Command::SetMediaColorRange`; absent means the file's own tag is read.
+/// https://github.com/jub0t/Concat/issues/103
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorRange {
+    /// 16-235: what broadcast, cameras and every player expect.
+    Limited,
+    /// 0-255: what screen recorders and some phones write.
+    Full,
+}
+
 /// One entry in the media bin: a file the user imported, plus what the host's
 /// probe learned about it. The probe metadata is stored, not re-derived, so a
 /// document opens meaningfully even when the file itself is missing.
@@ -134,6 +150,11 @@ pub struct MediaItem {
     /// false, so documents without templates stay byte-identical.
     #[serde(default, skip_serializing_if = "is_false")]
     pub placeholder: bool,
+    /// The levels the picture is read as, over the file's own tag; see
+    /// [`ColorRange`]. Absent, and left out of the document, for the tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub color_range: Option<ColorRange>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]

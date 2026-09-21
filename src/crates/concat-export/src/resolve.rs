@@ -92,6 +92,8 @@ pub(crate) struct BuiltTimeline {
     pub(crate) tracks: HashMap<ClipId, usize>,
     /// The clip's pre-fit chain - its crop - where it has one.
     pub(crate) pre_chains: HashMap<ClipId, String>,
+    /// The levels the clip's file is read as, where the person has said.
+    pub(crate) ranges: HashMap<ClipId, concat_media::ColorRange>,
     /// The clip's applied effects, on a GPU renderer: the passes are
     /// resolved from them at each frame, because a knob with keys is worth
     /// something different each frame and the resolution is cheap.
@@ -138,7 +140,6 @@ impl TransitionSpan {
         ((time.as_f64() - self.start.as_f64()) / span).clamp(0.0, 1.0)
     }
 }
-
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
 /// chain, and how hard.
@@ -205,6 +206,7 @@ pub(crate) fn build_timeline(
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
+    let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
@@ -290,6 +292,9 @@ pub(crate) fn build_timeline(
             if !pre.is_empty() {
                 pre_chains.insert(id, pre);
             }
+            if let Some(range) = clip.color_range {
+                ranges.insert(id, crate::engine_range(range));
+            }
             if gpu {
                 let effects = shaded(&clip.effects);
                 if !effects.is_empty() {
@@ -317,6 +322,7 @@ pub(crate) fn build_timeline(
         treatments,
         transitions,
         pre_chains,
+        ranges,
         chains,
         reveal_maps,
         cutouts,

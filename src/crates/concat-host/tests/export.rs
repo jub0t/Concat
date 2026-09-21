@@ -46,8 +46,8 @@ use concat_media::{
 use concat_project::animation;
 use concat_project::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
 use concat_project::model::{
-    AnimationSlot, AppliedFilter, ClipAnimation, Crop, KeyEase, KeyProperty, SpeedPoint, TextStyle,
-    Transition, VideoSettings,
+    AnimationSlot, AppliedFilter, ClipAnimation, ColorRange, Crop, KeyEase, KeyProperty,
+    SpeedPoint, TextStyle, Transition, VideoSettings,
 };
 
 /// The sample rate every source and every export carries.
@@ -92,6 +92,7 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32) {
         rate_mode: RateMode::Vbr,
         bitrate_kbps: 0,
         ten_bit: false,
+        color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
     };
@@ -389,6 +390,9 @@ struct Studio {
     titles: Titles,
     exports: PathBuf,
     count: usize,
+    /// The range the next export is written in; video range, as the
+    /// sheet's default is, unless a test says otherwise.
+    range: concat_media::ColorRange,
 }
 
 impl Studio {
@@ -410,6 +414,7 @@ impl Studio {
             titles: Titles::new(&AppDirs::under(&root.join("app"))),
             exports,
             count: 0,
+            range: concat_media::ColorRange::Limited,
         }
     }
 
@@ -501,6 +506,7 @@ impl Studio {
             ten_bit: false,
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
+            color_range: self.range,
         };
         let titles = self
             .titles
@@ -610,6 +616,73 @@ fn one_clip_exports_whole_at_every_rate() {
         exported.expect_tone(5.5);
         exported.expect_quiet(4.5);
     }
+}
+
+/// Issue #103: the levels a file is read as reach the export. A source
+/// written video range reads as it is by default; told it is full range,
+/// its levels expand and the colour of a second is no longer the colour
+/// of that second; named limited, or cleared, it reads true again. And an
+/// export written full range is tagged so and plays its seconds back
+/// true, because the tag the encoder wrote is the tag the decoder reads.
+/// https://github.com/jub0t/Concat/issues/103
+#[test]
+fn a_colour_range_named_on_the_media_reaches_the_export() {
+    let scratch = Scratch::new("range");
+    let sources = Sources::make(scratch.path());
+    let mut studio = Studio::new(scratch.path(), "Range", video(WIDTH, HEIGHT, 30, 1));
+    let peek = studio.import(&sources.peek);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: peek.clone(),
+        start: 0.0,
+    });
+
+    let as_tagged = studio.export("as tagged");
+    as_tagged.expect_second(0.5, 0);
+    as_tagged.expect_second(3.5, 3);
+    let tagged_colour = as_tagged.colour_at(3.5);
+
+    // Told the file is full range when it is not: every level moves away
+    // from the middle, so the colour of the second is no longer the colour
+    // of the second. The file is unchanged; only its reading is.
+    studio.apply(Command::SetMediaColorRange {
+        media_id: peek.clone(),
+        range: Some(ColorRange::Full),
+    });
+    let stretched = studio.export("read as full range");
+    stretched.expect_length(6.0);
+    let stretched_colour = stretched.colour_at(3.5);
+    assert!(
+        stretched_colour
+            .iter()
+            .zip(tagged_colour.iter())
+            .any(|(now, was)| now.abs_diff(*was) > 8),
+        "reading a video-range file as full range moves its levels: \
+         {tagged_colour:?} read as tagged, {stretched_colour:?} read as full"
+    );
+
+    // Named what it really is, the picture is what the tag gave.
+    studio.apply(Command::SetMediaColorRange {
+        media_id: peek.clone(),
+        range: Some(ColorRange::Limited),
+    });
+    studio.export("read as limited").expect_second(3.5, 3);
+
+    // Cleared, the tag is read again.
+    studio.apply(Command::SetMediaColorRange {
+        media_id: peek,
+        range: None,
+    });
+    studio.export("as tagged again").expect_second(3.5, 3);
+
+    // Written full range: still the seconds it was, read back through the
+    // tag it carries.
+    studio.range = concat_media::ColorRange::Full;
+    let full = studio.export("written full range");
+    full.expect_length(6.0);
+    full.expect_sound(6.0);
+    full.expect_second(0.5, 0);
+    full.expect_second(3.5, 3);
+    full.expect_second(5.9, 5);
 }
 
 /// Issue #108: two clips on one track, one of them a 60 fps screen

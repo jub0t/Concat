@@ -26,7 +26,7 @@ pub mod probe;
 pub mod samples;
 pub mod treat;
 
-pub use decode::{ColorSignal, DecodeOptions, Decoder, FrameSource, SeekableSource};
+pub use decode::{ColorRange, ColorSignal, DecodeOptions, Decoder, FrameSource, SeekableSource};
 pub use encode::{EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec, jpeg};
 pub use error::{Error, Result};
 pub use ffi::{init, linked_version};

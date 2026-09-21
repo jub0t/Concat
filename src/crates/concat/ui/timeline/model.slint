@@ -166,6 +166,9 @@ export enum ClipField {
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
     audio-track,
+    /// the levels the clip's file is read as: 0 as tagged, 1 limited,
+    /// 2 full. A property of the media, set from the clip.
+    color-range,
 }
 
 /// One keyable property's state at the playhead, as the inspector needs it.
@@ -330,6 +333,11 @@ export struct SelectedClipData {
     // than frames being restored
     enhance-progress: float,
     enhance-fetching: bool,
+
+    // the levels the clip's media is read as: 0 as the file is tagged,
+    // 1 limited, 2 full; -1 for a clip with no picture file behind it,
+    // which hides the control
+    color-range: int,
 
     // the overlay, when this is a text clip
     content: string,

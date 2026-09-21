@@ -13,6 +13,7 @@ use ffmpeg_the_third::format::{self, Pixel};
 use ffmpeg_the_third::software::scaling;
 use ffmpeg_the_third::util::frame::video::Video;
 
+use crate::decode::ColorRange;
 use crate::error::{Error, Result};
 use crate::ffi;
 
@@ -168,6 +169,13 @@ pub struct EncodeOptions {
     /// gradient, at a few percent more file. H.264 at ten bits plays on
     /// less than HEVC or AV1 at ten bits do.
     pub ten_bit: bool,
+    /// The levels the file is written in and tagged with: video range,
+    /// 16-235, which every player and YouTube expect, or full range,
+    /// 0-255, for screen content bound for a PC player that reads the
+    /// tag. The RGB to YUV conversion follows the choice, so the tag is
+    /// true either way. Video range unless told otherwise.
+    /// https://github.com/jub0t/Concat/issues/103
+    pub color_range: ColorRange,
     /// Let the platform's hardware encoder lead where there is one; see
     /// [`VideoCodec::encoders`].
     pub hardware: bool,
@@ -186,6 +194,7 @@ impl Default for EncodeOptions {
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
+            color_range: ColorRange::Limited,
             hardware: true,
             threads: 0,
         }
@@ -244,6 +253,9 @@ pub struct Encoder {
     finished: bool,
     /// Which FFmpeg encoder took the job.
     encoder_name: &'static str,
+    /// The range every converted frame is stamped with, matching the
+    /// stream's tag and the scaler's conversion.
+    color_range: ffmpeg::color::Range,
 }
 
 impl Encoder {
@@ -336,7 +348,10 @@ impl Encoder {
         video.set_frame_rate(Some(rate));
         let (primaries, transfer, matrix) = tags;
         video.set_colorspace(matrix);
-        video.set_color_range(ffmpeg::color::Range::MPEG);
+        // The range the frames will be converted to below, so the tag is
+        // true; VideoToolbox reads it to pick its full- or video-range
+        // pixel format, the software encoders write it into the stream.
+        video.set_color_range(options.color_range.as_ffmpeg());
         // SAFETY: `video` owns a live AVCodecContext; primaries and
         // transfer have no setter in the bindings, and all three are plain
         // fields the encoder reads at open.
@@ -445,9 +460,10 @@ impl Encoder {
             scaling::Flags::BILINEAR,
         )
         .map_err(|error| ffi::fail("scaler", path, error))?;
-        // BT.709 coefficients from full-range RGB to video-range YUV,
-        // rather than swscale's BT.601 default: the file says 709, so the
-        // numbers in it are 709.
+        // BT.709 coefficients from full-range RGB to YUV in the range the
+        // file is tagged with, rather than swscale's BT.601 default: the
+        // file says 709, so the numbers in it are 709, and it says which
+        // range, so the numbers span that range.
         // SAFETY: `scaler` owns a live SwsContext; the coefficient tables
         // are static and the call only sets fields on the context.
         unsafe {
@@ -457,7 +473,7 @@ impl Encoder {
                 coefficients,
                 1,
                 coefficients,
-                0,
+                i32::from(options.color_range == ColorRange::Full),
                 0,
                 1 << 16,
                 1 << 16,
@@ -476,6 +492,7 @@ impl Encoder {
             written: 0,
             finished: false,
             encoder_name,
+            color_range: options.color_range.as_ffmpeg(),
         })
     }
 
@@ -549,6 +566,13 @@ impl FrameSink for Encoder {
             .run(&rgba, &mut converted)
             .map_err(|error| ffi::fail("convert", &self.path, error))?;
         converted.set_pts(Some(self.written as i64));
+        // The frame says what its numbers span, the same as the stream
+        // does: a hardware encoder reads it off the frame.
+        // SAFETY: `converted` is a live frame the scaler just filled; the
+        // range is a plain field the encoder reads with the picture.
+        unsafe {
+            (*converted.as_mut_ptr()).color_range = self.color_range.into();
+        }
 
         self.encoder
             .send_frame(&converted)
@@ -654,7 +678,8 @@ mod tests {
     /// reader, not just this crate's own decoder, counts by).
     #[test]
     fn every_written_frame_decodes_back_even_at_a_rate_with_no_last_neighbour() {
-        let dir = std::env::temp_dir().join(format!("concat-media-encode-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("concat-media-encode-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         let path = dir.join("150-at-25fps.mp4");
@@ -666,6 +691,7 @@ mod tests {
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
+            color_range: ColorRange::Limited,
             hardware: false,
             threads: 0,
         };
@@ -733,6 +759,7 @@ mod tests {
         ffmpeg::color::TransferCharacteristic,
         ffmpeg::color::Space,
         Pixel,
+        ffmpeg::color::Range,
     ) {
         let input = ffmpeg::format::input(path).expect("opens");
         let stream = input
@@ -752,6 +779,7 @@ mod tests {
             decoder.color_transfer_characteristic(),
             decoder.color_space(),
             decoder.format(),
+            decoder.color_range(),
         )
     }
 
@@ -778,6 +806,7 @@ mod tests {
                     rate_mode: RateMode::Vbr,
                     bitrate_kbps: 0,
                     ten_bit,
+                    color_range: ColorRange::Limited,
                     hardware: true,
                     threads: 0,
                 };
@@ -790,16 +819,83 @@ mod tests {
                 }
                 encoder.finish().expect("finishes");
 
-                let (name, tag, primaries, transfer, space, format) = tags_of(&path);
+                let (name, tag, primaries, transfer, space, format, range) = tags_of(&path);
                 let _ = std::fs::remove_file(&path);
                 assert_eq!(name, codec.name(), "the stream's codec");
                 assert_eq!(primaries, ffmpeg::color::Primaries::BT709);
                 assert_eq!(transfer, ffmpeg::color::TransferCharacteristic::BT709);
                 assert_eq!(space, ffmpeg::color::Space::BT709);
+                assert_eq!(range, ffmpeg::color::Range::MPEG, "video range by default");
                 let deep = matches!(format, Pixel::YUV420P10LE | Pixel::P010LE);
                 assert_eq!(deep, ten_bit, "{} bit depth ({format:?})", codec.label());
                 if codec == VideoCodec::Hevc {
                     assert_eq!(tag, fourcc(*b"hvc1"), "HEVC in MP4 is tagged hvc1");
+                }
+            }
+        }
+    }
+
+    /// A file written full range says so, and its levels come back as
+    /// they went in - as do a video-range file's. The decoder reads the
+    /// tag the encoder wrote, so a black that comes back black in both
+    /// is a conversion that matched its tag in both.
+    /// https://github.com/jub0t/Concat/issues/103
+    #[test]
+    fn each_range_is_tagged_and_keeps_its_levels() {
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        const GREYS: [u8; 4] = [0, 64, 128, 255];
+        for range in ColorRange::ALL {
+            let path =
+                std::env::temp_dir().join(format!("concat-encode-range-{}.mp4", range.name()));
+            let options = EncodeOptions {
+                preset: "ultrafast".to_owned(),
+                // Near-lossless, so a level is a level and not a quantiser's
+                // guess at one; software, so the numbers are swscale's own.
+                crf: 1,
+                color_range: range,
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let mut encoder = Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
+                .expect("the linked FFmpeg encodes h264");
+            for grey in GREYS {
+                let mut frame = Frame::black(64, 64);
+                frame.fill([grey, grey, grey, 255]);
+                for _ in 0..3 {
+                    encoder.write_frame(&frame).expect("writes");
+                }
+            }
+            encoder.finish().expect("finishes");
+
+            let (.., tagged) = tags_of(&path);
+            assert_eq!(
+                tagged,
+                range.as_ffmpeg(),
+                "{}: the file says its range",
+                range.name()
+            );
+
+            let mut decoder =
+                Decoder::open(&path, &DecodeOptions::default().in_software()).expect("opens");
+            let mut frames = Vec::new();
+            while let Some(frame) = decoder.next_frame().expect("decodes") {
+                frames.push(frame);
+            }
+            let _ = std::fs::remove_file(&path);
+            assert_eq!(
+                frames.len(),
+                GREYS.len() * 3,
+                "{}: every frame",
+                range.name()
+            );
+            for (index, grey) in GREYS.iter().enumerate() {
+                let [r, g, b, _] = frames[index * 3 + 1].pixel(32, 32).expect("inside");
+                for channel in [r, g, b] {
+                    assert!(
+                        channel.abs_diff(*grey) <= 4,
+                        "{}: grey {grey} came back as {channel}",
+                        range.name()
+                    );
                 }
             }
         }

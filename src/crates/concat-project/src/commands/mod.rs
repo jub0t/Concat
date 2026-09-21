@@ -13,9 +13,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, Crop, CustomFont,
-    Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project, SpeedPoint, Stroke,
-    TextStyle, Timeline, Track, Transition, VideoSettings,
+    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ColorRange, Crop,
+    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project,
+    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -666,6 +666,20 @@ pub enum Command {
         /// The new absolute path on disk.
         new_path: String,
     },
+    /// Says what levels a media file's picture really spans, over whatever
+    /// the file claims: the fix for a screen recording written full range
+    /// and tagged nothing, which plays grey where it should be black, or a
+    /// video-range file tagged full, which crushes its shadows. Reaches
+    /// every clip of the media, on every timeline, in the monitor and the
+    /// export alike. An unknown id is a no-op.
+    /// https://github.com/jub0t/Concat/issues/103
+    SetMediaColorRange {
+        /// The bin item.
+        media_id: String,
+        /// `limited` or `full`, or None to go back to reading the file's
+        /// own tag.
+        range: Option<ColorRange>,
+    },
 }
 
 /// What a command produced, beyond the new state: the ids it minted, so the
@@ -996,7 +1010,8 @@ pub fn apply(
         | Command::RemoveMedia { .. }
         | Command::AddFont { .. }
         | Command::RemoveFont { .. }
-        | Command::UpdateMediaPath { .. }) => media::apply(project, mint, command),
+        | Command::UpdateMediaPath { .. }
+        | Command::SetMediaColorRange { .. }) => media::apply(project, mint, command),
         command @ (Command::AddClip { .. }
         | Command::AddClipAtFirstFree { .. }
         | Command::AddTextClip { .. }

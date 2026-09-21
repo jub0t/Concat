@@ -236,6 +236,7 @@ fn footage(
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: false,
+            color_range: concat_media::ColorRange::Limited,
             hardware: false,
             threads: 2,
         },

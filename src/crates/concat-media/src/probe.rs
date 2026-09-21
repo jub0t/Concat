@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use concat_core::time::{FrameRate, Rational};
 use ffmpeg_the_third as ffmpeg;
 
+use crate::decode::ColorRange;
 use crate::error::{Error, Result};
 use crate::ffi;
 
@@ -25,6 +26,10 @@ pub struct VideoStream {
     pub height: u32,
     /// Average frame rate, exact.
     pub frame_rate: FrameRate,
+    /// The levels the stream says its numbers span, or `None` where it
+    /// says nothing - which a player then takes for video range. What a
+    /// person compares the picture against when it looks washed out.
+    pub color_range: Option<ColorRange>,
 }
 
 /// What an audio stream looks like.
@@ -168,12 +173,16 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
             detail: "video stream has no usable frame rate".to_owned(),
         })?;
 
+    // SAFETY: the parameters are live for as long as `stream` is, and the
+    // range is a plain field libavformat filled from the container.
+    let range = unsafe { (*parameters.as_ptr()).color_range };
     Ok(VideoStream {
         index: stream.index() as u32,
         codec: parameters.id().name().to_owned(),
         width,
         height,
         frame_rate: FrameRate::new(frame_rate),
+        color_range: ColorRange::from_ffmpeg(ffmpeg::color::Range::from(range)),
     })
 }
 

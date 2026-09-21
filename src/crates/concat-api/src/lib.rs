@@ -366,6 +366,12 @@ impl Api {
                 ApiError::invalid(format!("unknown codec {name:?}: h264, hevc or av1"))
             })?,
         };
+        let color_range = match spec.color_range.as_deref() {
+            None => export::ColorRange::Limited,
+            Some(name) => export::ColorRange::parse(name).ok_or_else(|| {
+                ApiError::invalid(format!("unknown colour range {name:?}: limited or full"))
+            })?,
+        };
         let host_spec = export::ExportSpec {
             output: spec.output.clone(),
             crf: spec.crf.unwrap_or(DEFAULT_CRF),
@@ -377,6 +383,7 @@ impl Api {
             ten_bit: spec.ten_bit.unwrap_or(false),
             rate_mode: export::RateMode::Vbr,
             bitrate_kbps: 0,
+            color_range,
         };
 
         let project_path = session.path().to_owned();

@@ -83,6 +83,7 @@ pub fn flatten_timeline_in(
             Some(ExportClip {
                 path: media.path.clone(),
                 audio_stream: clip.audio_stream,
+                color_range: media.color_range,
                 source_start: clip.source_start,
                 hidden: !track.visible,
                 muted: track.muted || clip.muted == Some(true),

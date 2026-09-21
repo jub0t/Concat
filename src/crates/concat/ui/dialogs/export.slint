@@ -34,6 +34,8 @@ export struct ExportData {
     /// index into the codec list: H.264, HEVC, AV1
     codec: int,
     ten-bit: bool,
+    /// 0 = limited (video) range, 1 = full. Shown under Advanced.
+    color-range: int,
     /// The Advanced section is open: bitrate controls show.
     advanced: bool,
     /// 0 = VBR, 1 = CBR.
@@ -166,6 +168,7 @@ export component ExportDialog inherits Modal {
     callback quality-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
+    callback color-range-changed(index: int);
     callback advanced-toggled(on: bool);
     callback rate-mode-changed(index: int);
     callback bitrate-changed(text: string);
@@ -342,6 +345,25 @@ export component ExportDialog inherits Modal {
                 Field {
                     value: root.data.bitrate + " kbps";
                     edited(text) => { root.bitrate-changed(text); }
+                }
+            }
+        }
+
+        // The levels the file is written in. Limited is what every player
+        // and YouTube expect; full is for screen content bound for a PC
+        // player that reads the tag. Both are tagged true, so the choice
+        // is about the player, not about the picture.
+        // https://github.com/jub0t/Concat/issues/103
+        if !root.running && root.data.advanced: DialogSection {
+            title: I18n.t("Colour");
+
+            DialogRow {
+                label: I18n.t("Colour range");
+                Select {
+                    current: root.data.color-range;
+                    options: [I18n.t("Limited"), I18n.t("Full")];
+                    details: [I18n.t("Video, YouTube"), I18n.t("Screen content")];
+                    changed(index) => { root.color-range-changed(index); }
                 }
             }
         }

@@ -39,6 +39,7 @@ pub(super) fn apply(
                 has_audio: item.has_audio,
                 audio_tracks: item.audio_tracks,
                 placeholder: false,
+                color_range: None,
                 extra: Default::default(),
             });
             Ok(Outcome {
@@ -165,6 +166,18 @@ pub(super) fn apply(
                 .iter_mut()
                 .find(|item| item.id == media_id)
                 .is_some_and(|item| assign(&mut item.path, new_path));
+            Ok(Outcome {
+                created_id: None,
+                applied,
+            })
+        }
+
+        Command::SetMediaColorRange { media_id, range } => {
+            let applied = project
+                .media
+                .iter_mut()
+                .find(|item| item.id == media_id)
+                .is_some_and(|item| assign(&mut item.color_range, range));
             Ok(Outcome {
                 created_id: None,
                 applied,

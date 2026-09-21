@@ -125,6 +125,13 @@ pub struct DecodeOptions {
     /// A device that fails is never an error: the reader carries on in
     /// software. See [`crate::hardware`].
     pub hardware: HwPolicy,
+    /// What the picture's levels are taken to be, over whatever the file
+    /// says: for a file tagged wrong, or tagged nothing and holding the
+    /// other range, which is how a screen recording ends up grey where
+    /// it should be black. `None` reads the file's tag and, where there
+    /// is none, takes video range the way a player does. See
+    /// [`ColorRange`].
+    pub color_range: Option<ColorRange>,
 }
 
 impl DecodeOptions {
@@ -195,6 +202,86 @@ impl DecodeOptions {
     pub fn in_software(mut self) -> Self {
         self.hardware = HwPolicy::Software;
         self
+    }
+
+    /// Reads the picture as `range`, whatever the file says; `None` goes
+    /// back to the file's tag. See [`DecodeOptions::color_range`].
+    pub fn in_range(mut self, range: Option<ColorRange>) -> Self {
+        self.color_range = range;
+        self
+    }
+}
+
+/// The levels a picture's numbers span: video range, black at 16 and
+/// white at 235 of 255, which is what broadcast, cameras and every
+/// player expect; or full range, 0 to 255, which screen recorders and
+/// some phones write. A file tagged the wrong one, or tagged nothing and
+/// holding the other, shows grey where it should show black or clips
+/// its shadows and highlights: the washed-out or crushed picture.
+/// https://github.com/jub0t/Concat/issues/103
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum ColorRange {
+    /// 16-235: "tv", "MPEG", "video" or "limited" range. The default
+    /// everywhere, and what an export writes unless told otherwise.
+    #[default]
+    Limited,
+    /// 0-255: "pc", "JPEG" or "full" range.
+    Full,
+}
+
+impl ColorRange {
+    /// Every range, in the order a menu lists them.
+    pub const ALL: [ColorRange; 2] = [ColorRange::Limited, ColorRange::Full];
+
+    /// The name a document or a request stores.
+    pub fn name(self) -> &'static str {
+        match self {
+            ColorRange::Limited => "limited",
+            ColorRange::Full => "full",
+        }
+    }
+
+    /// The range a stored name means, or `None` for one nobody stores.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "limited" | "tv" | "video" | "mpeg" => Some(ColorRange::Limited),
+            "full" | "pc" | "jpeg" => Some(ColorRange::Full),
+            _ => None,
+        }
+    }
+
+    /// What the standard is called on a label.
+    pub fn label(self) -> &'static str {
+        match self {
+            ColorRange::Limited => "Limited",
+            ColorRange::Full => "Full",
+        }
+    }
+
+    /// libavcodec's spelling.
+    pub fn as_ffmpeg(self) -> ffmpeg::color::Range {
+        match self {
+            ColorRange::Limited => ffmpeg::color::Range::MPEG,
+            ColorRange::Full => ffmpeg::color::Range::JPEG,
+        }
+    }
+
+    /// libavcodec's spelling read back: `None` for a stream that says
+    /// nothing, or something neither of these.
+    pub fn from_ffmpeg(range: ffmpeg::color::Range) -> Option<Self> {
+        match range {
+            ffmpeg::color::Range::MPEG => Some(ColorRange::Limited),
+            ffmpeg::color::Range::JPEG => Some(ColorRange::Full),
+            _ => None,
+        }
+    }
+
+    /// The `scale` filter's word for it.
+    fn scale_name(self) -> &'static str {
+        match self {
+            ColorRange::Limited => "tv",
+            ColorRange::Full => "pc",
+        }
     }
 }
 
@@ -292,10 +379,18 @@ fn video_filter(
     if let Some(pre) = &options.pre_chain {
         parts.push(pre.clone());
     }
-    let convert = color
-        .filter(|signal| signal.is_wide())
-        .map(|signal| signal.bt709_args())
-        .unwrap_or_default();
+    // A wide or HDR picture is converted whole, its range among the terms.
+    // A BT.709 one is left to swscale's reading of the frames' own tag,
+    // unless the caller has said what the levels really are: then the
+    // range is named and the tag ignored, which is the whole of the fix
+    // for a file that lies about it.
+    let convert = match color {
+        Some(signal) if signal.is_wide() => signal.bt709_args(),
+        _ => options
+            .color_range
+            .map(|range| format!(":in_range={}", range.scale_name()))
+            .unwrap_or_default(),
+    };
     parts.push(format!("scale={width}:{height}:flags=bilinear{convert}"));
     if let Some(chain) = &options.filter_chain {
         parts.push(chain.clone());
@@ -395,7 +490,11 @@ impl Decoder {
             primaries: decoder.color_primaries(),
             transfer: decoder.color_transfer_characteristic(),
             matrix: decoder.color_space(),
-            range: decoder.color_range(),
+            // The caller's word over the file's, where the caller has one:
+            // the file's tag is what the override exists to correct.
+            range: options
+                .color_range
+                .map_or_else(|| decoder.color_range(), ColorRange::as_ffmpeg),
         };
 
         let (width, height) = match options.size {
@@ -931,6 +1030,64 @@ mod tests {
         );
     }
 
+    /// A range the caller names is the range the picture is read as: on
+    /// an SDR file it is the one term added to the fit, on a wide one it
+    /// replaces the file's tag among the conversion's terms, and with no
+    /// override nothing is said and the frames' own tag decides.
+    /// https://github.com/jub0t/Concat/issues/103
+    #[test]
+    fn a_named_range_overrides_the_files_tag() {
+        use ffmpeg::color::{Primaries, Range, Space, TransferCharacteristic as Transfer};
+        let sdr = ColorSignal {
+            primaries: Primaries::BT709,
+            transfer: Transfer::BT709,
+            matrix: Space::BT709,
+            range: Range::MPEG,
+        };
+        let full = DecodeOptions::default()
+            .scaled_to(640, 360)
+            .in_range(Some(ColorRange::Full));
+        assert_eq!(
+            video_filter(0, &full, 640, 360, Some(&sdr)),
+            "scale=640:360:flags=bilinear:in_range=pc,format=rgba"
+        );
+        let limited = DecodeOptions::default()
+            .scaled_to(640, 360)
+            .in_range(Some(ColorRange::Limited));
+        assert_eq!(
+            video_filter(0, &limited, 640, 360, Some(&sdr)),
+            "scale=640:360:flags=bilinear:in_range=tv,format=rgba"
+        );
+        let untold = DecodeOptions::default().scaled_to(640, 360);
+        assert_eq!(
+            video_filter(0, &untold, 640, 360, Some(&sdr)),
+            "scale=640:360:flags=bilinear,format=rgba",
+            "with no override the filter says nothing about range"
+        );
+        // On a wide picture the override has already replaced the signal's
+        // range by the time the filter is built; the filter reads the
+        // signal it is given.
+        let hdr_full = ColorSignal {
+            primaries: Primaries::BT2020,
+            transfer: Transfer::SMPTE2084,
+            matrix: Space::BT2020NCL,
+            range: ColorRange::Full.as_ffmpeg(),
+        };
+        assert!(
+            video_filter(0, &full, 640, 360, Some(&hdr_full)).contains(":in_range=pc:"),
+            "a wide picture carries the range among its conversion terms"
+        );
+        assert_eq!(ColorRange::parse("PC"), Some(ColorRange::Full));
+        assert_eq!(ColorRange::parse("video"), Some(ColorRange::Limited));
+        assert_eq!(ColorRange::parse("wide"), None);
+        assert_eq!(ColorRange::from_ffmpeg(Range::JPEG), Some(ColorRange::Full));
+        assert_eq!(ColorRange::from_ffmpeg(Range::Unspecified), None);
+        for range in ColorRange::ALL {
+            assert_eq!(ColorRange::parse(range.name()), Some(range));
+            assert_eq!(ColorRange::from_ffmpeg(range.as_ffmpeg()), Some(range));
+        }
+    }
+
     /// A PQ-tagged ten-bit HEVC file, made with the encoder's own machinery,
     /// decodes through the tone-map to frames that are neither the black
     /// nor the blown-out white a curve mismatch gives.
@@ -950,6 +1107,7 @@ mod tests {
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             ten_bit: true,
+            color_range: ColorRange::Limited,
             hardware: false,
             threads: 0,
         };

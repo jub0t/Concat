@@ -30,6 +30,11 @@ pub struct VideoStreamInfo {
     pub frame_rate: f64,
     /// The exact fraction the engine actually works in, e.g. "30000/1001".
     pub frame_rate_fraction: String,
+    /// The levels the stream says its numbers span, "limited" or "full",
+    /// or absent when the file says nothing - which a player then takes
+    /// for limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_range: Option<String>,
 }
 
 /// An audio stream, as the UI sees it.
@@ -187,6 +192,7 @@ impl From<concat_media::MediaInfo> for MediaSummary {
                     video.frame_rate.fps().numerator(),
                     video.frame_rate.fps().denominator()
                 ),
+                color_range: video.color_range.map(|range| range.name().to_owned()),
             }),
             audio: info.audio.map(AudioStreamInfo::from_stream),
             audio_tracks: info
@@ -835,6 +841,7 @@ mod tests {
                 width: 1440,
                 height: 1080,
                 frame_rate: concat_core::time::FrameRate::from_int(25),
+                color_range: None,
             }),
             audio: None,
             audio_streams: Vec::new(),

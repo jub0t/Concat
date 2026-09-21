@@ -436,6 +436,7 @@ frame loop and the mix.
 | `rateDen` | integer | *optional*. Frame rate denominator. **Default:** the timeline's |
 | `codec` | string | *optional*. `h264`, `hevc` or `av1`. **Default:** `h264`. Anything else is `invalid` |
 | `tenBit` | bool | *optional*. Ten bits a channel. **Default:** `false` |
+| `colorRange` | string | *optional*. `limited` (16-235, what every player and YouTube expect) or `full` (0-255, for screen content bound for a PC player). The file is tagged and converted to match. **Default:** `limited`. Anything else is `invalid` |
 
 ```json
 {"method":"export.run","path":"/edits/Reel","output":"/edits/reel.mp4","crf":18,"codec":"hevc"}

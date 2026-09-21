@@ -45,7 +45,7 @@ use std::sync::{Arc, Mutex};
 use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 
-use crate::decode::{DecodeOptions, Decoder, FrameSource, SeekableSource};
+use crate::decode::{ColorRange, DecodeOptions, Decoder, FrameSource, SeekableSource};
 use crate::error::Result;
 use crate::probe;
 
@@ -78,6 +78,10 @@ pub struct FrameRequest {
     /// Read the file's proxy where it has one; see
     /// [`ReaderPool::adopt_proxy`].
     pub proxy: bool,
+    /// The levels the file is read as, over its own tag; `None` reads the
+    /// tag. See [`DecodeOptions::color_range`]. Never applied to a proxy:
+    /// a proxy was written from the corrected picture and tagged true.
+    pub range: Option<ColorRange>,
 }
 
 impl FrameRequest {
@@ -93,7 +97,15 @@ impl FrameRequest {
             pre: None,
             chain: None,
             proxy: false,
+            range: None,
         }
+    }
+
+    /// Reads the file as `range`, whatever it says. See
+    /// [`FrameRequest::range`].
+    pub fn in_range(mut self, range: Option<ColorRange>) -> Self {
+        self.range = range;
+        self
     }
 
     /// Marks the file an image. See [`FrameRequest::still`].
@@ -141,6 +153,9 @@ struct SourceKey {
     width: u32,
     height: u32,
     index: i64,
+    /// The range the file was read as: the same frame read as full and
+    /// as video range is two different pictures.
+    range: Option<ColorRange>,
 }
 
 /// A treated frame's identity: the source frame and what was done to it.
@@ -308,6 +323,7 @@ impl Reader {
         height: u32,
         chain: Option<&str>,
         pre: Option<&str>,
+        range: Option<ColorRange>,
         rate: FrameRate,
         still: bool,
         index: i64,
@@ -317,7 +333,8 @@ impl Reader {
         // or before the target and the pull rolls forward from there.
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
-            .scaled_to(width, height);
+            .scaled_to(width, height)
+            .in_range(range);
         if still {
             // One frame, served for every time, and never sought: a seek
             // on a single-image JPEG leaves FFmpeg's image demuxer with
@@ -393,7 +410,14 @@ impl MediaFacts {
 }
 
 /// One reader's identity: the file, the decode size, the baked chains.
-type ReaderKey = (PathBuf, u32, u32, Option<String>, Option<String>);
+type ReaderKey = (
+    PathBuf,
+    u32,
+    u32,
+    Option<String>,
+    Option<String>,
+    Option<ColorRange>,
+);
 
 /// The warm readers and their recency, behind one short lock. A reader is
 /// found here and then used outside this lock, under its own, so a decode
@@ -654,6 +678,9 @@ impl ReaderPool {
             Some(size) if !facts.still => level_for(size, request.cover),
             _ => even(request.cover.0, request.cover.1),
         };
+        // A proxy is read as it is tagged: it was written from the
+        // corrected picture, so the correction applied twice would undo it.
+        let range = (path == request.path).then_some(request.range).flatten();
         Ok((
             facts,
             SourceKey {
@@ -661,6 +688,7 @@ impl ReaderPool {
                 width,
                 height,
                 index,
+                range,
             },
         ))
     }
@@ -733,6 +761,7 @@ impl ReaderPool {
         still: bool,
         chain: Option<&str>,
         pre: Option<&str>,
+        range: Option<ColorRange>,
     ) -> Result<Arc<Frame>> {
         let chain = chain.filter(|chain| !chain.trim().is_empty());
         let pre = pre.filter(|pre| !pre.trim().is_empty());
@@ -743,6 +772,7 @@ impl ReaderPool {
             width,
             height,
             index,
+            range,
         };
         if chain.is_none() && pre.is_none() {
             return self.source_frame(&facts, &source_key);
@@ -772,7 +802,7 @@ impl ReaderPool {
             self.remember_treated(key, Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(path, width, height, chain, pre, &facts, index)?;
+        let shared = self.reader(path, width, height, chain, pre, range, &facts, index)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -807,7 +837,9 @@ impl ReaderPool {
             self.remember_source(key.clone(), Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(path, key.width, key.height, None, None, facts, key.index)?;
+        let shared = self.reader(
+            path, key.width, key.height, None, None, key.range, facts, key.index,
+        )?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -968,6 +1000,7 @@ impl ReaderPool {
         height: u32,
         chain: Option<&str>,
         pre: Option<&str>,
+        range: Option<ColorRange>,
         facts: &MediaFacts,
         target: i64,
     ) -> Result<Arc<Mutex<Reader>>> {
@@ -977,6 +1010,7 @@ impl ReaderPool {
             height,
             chain.map(str::to_owned),
             pre.map(str::to_owned),
+            range,
         );
         {
             let mut readers = self
@@ -1001,6 +1035,7 @@ impl ReaderPool {
             height,
             chain,
             pre,
+            range,
             facts.rate,
             facts.still,
             target,
@@ -1107,6 +1142,7 @@ pub(crate) mod tests {
             width: 2,
             height: 2,
             index,
+            range: None,
         };
         cache.insert(key(0), Arc::new(Frame::black(2, 2)));
         cache.insert(key(1), Arc::new(Frame::black(2, 2)));
@@ -1134,7 +1170,7 @@ pub(crate) mod tests {
         first.fill([255, 0, 0, 255]);
         pool.hold_still(path, Arc::new(first));
         let same = pool
-            .frame_at(path, Rational::ZERO, 64, 32, true, None, None)
+            .frame_at(path, Rational::ZERO, 64, 32, true, None, None, None)
             .expect("its own size");
         assert_eq!((same.width(), same.height()), (64, 32));
         assert_eq!(&same.pixels()[..4], &[255, 0, 0, 255]);
@@ -1165,6 +1201,7 @@ pub(crate) mod tests {
                 width: 2,
                 height: 2,
                 index: 0,
+                range: None,
             },
             Arc::new(Frame::black(2, 2)),
         );
@@ -1205,7 +1242,16 @@ pub(crate) mod tests {
         let rate = FrameRate::THIRTY;
         let red_at = |pool: &ReaderPool, index: i64| -> i64 {
             let frame = pool
-                .frame_at(&path, rate.time_of_frame(index), 64, 64, false, None, None)
+                .frame_at(
+                    &path,
+                    rate.time_of_frame(index),
+                    64,
+                    64,
+                    false,
+                    None,
+                    None,
+                    None,
+                )
                 .expect("frame decodes");
             i64::from(frame.pixel(32, 32).expect("in bounds")[0])
         };

@@ -344,6 +344,7 @@ pub(super) fn apply(
                         has_audio: item.has_audio,
                         audio_tracks: item.audio_tracks,
                         placeholder: false,
+                        color_range: None,
                         extra: Default::default(),
                     });
                     id
@@ -423,6 +424,7 @@ pub(super) fn apply(
                         has_audio: false,
                         audio_tracks: Vec::new(),
                         placeholder: false,
+                        color_range: None,
                         extra: Default::default(),
                     });
                     id
