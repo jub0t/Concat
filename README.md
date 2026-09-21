@@ -99,12 +99,12 @@ Optional models download from the settings panel on first use and then never nee
   <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
 </a>
 
-## ⭐ Star History
+## Star History
 
-<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=timeline&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&logscale&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&logscale&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&logscale&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=top-left" />
  </picture>
 </a>
