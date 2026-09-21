@@ -34,13 +34,17 @@
 //     Those are shape at a scale nobody themes, and stay where they are drawn.
 import { Dark } from "dark.slint";
 import { Light } from "light.slint";
+import { Violet } from "violet.slint";
+import { Lime } from "lime.slint";
+import { Rose } from "rose.slint";
+import { Ocean } from "ocean.slint";
 
 export global Theme {
     /// Which palette every colour below is read from. Settings > Appearance
     /// picks it (main.rs, `on_settings_theme_changed`), and every binding in
     /// the tree is a property read away from it, so the window retones in a
     /// frame without anything being rebuilt.
-    in-out property <bool> dark: true;
+    in-out property <int> variant: 0;
 
     // ── type ─────────────────────────────────────────────────────────────
     //
@@ -103,61 +107,266 @@ export global Theme {
     out property <length> label-w: 62px;
 
     // ── surfaces ─────────────────────────────────────────────────────────
-    out property <color> panel: dark ? Dark.panel : Light.panel;
-    out property <color> raised: dark ? Dark.raised : Light.raised;
-    out property <color> well: dark ? Dark.well : Light.well;
-    out property <color> field: dark ? Dark.field : Light.field;
-    out property <color> field-hover: dark ? Dark.field-hover : Light.field-hover;
-    out property <color> field-active: dark ? Dark.field-active : Light.field-active;
+    out property <color> panel: variant == 1 ? Light.panel
+        : variant == 2 ? Violet.panel
+        : variant == 3 ? Lime.panel
+        : variant == 4 ? Rose.panel
+        : variant == 5 ? Ocean.panel
+        : Dark.panel;
+    out property <color> raised: variant == 1 ? Light.raised
+        : variant == 2 ? Violet.raised
+        : variant == 3 ? Lime.raised
+        : variant == 4 ? Rose.raised
+        : variant == 5 ? Ocean.raised
+        : Dark.raised;
+    out property <color> well: variant == 1 ? Light.well
+        : variant == 2 ? Violet.well
+        : variant == 3 ? Lime.well
+        : variant == 4 ? Rose.well
+        : variant == 5 ? Ocean.well
+        : Dark.well;
+    out property <color> field: variant == 1 ? Light.field
+        : variant == 2 ? Violet.field
+        : variant == 3 ? Lime.field
+        : variant == 4 ? Rose.field
+        : variant == 5 ? Ocean.field
+        : Dark.field;
+    out property <color> field-hover: variant == 1 ? Light.field-hover
+        : variant == 2 ? Violet.field-hover
+        : variant == 3 ? Lime.field-hover
+        : variant == 4 ? Rose.field-hover
+        : variant == 5 ? Ocean.field-hover
+        : Dark.field-hover;
+    out property <color> field-active: variant == 1 ? Light.field-active
+        : variant == 2 ? Violet.field-active
+        : variant == 3 ? Lime.field-active
+        : variant == 4 ? Rose.field-active
+        : variant == 5 ? Ocean.field-active
+        : Dark.field-active;
 
     // hairlines
-    out property <color> line: dark ? Dark.line : Light.line;
-    out property <color> line-strong: dark ? Dark.line-strong : Light.line-strong;
+    out property <color> line: variant == 1 ? Light.line
+        : variant == 2 ? Violet.line
+        : variant == 3 ? Lime.line
+        : variant == 4 ? Rose.line
+        : variant == 5 ? Ocean.line
+        : Dark.line;
+    out property <color> line-strong: variant == 1 ? Light.line-strong
+        : variant == 2 ? Violet.line-strong
+        : variant == 3 ? Lime.line-strong
+        : variant == 4 ? Rose.line-strong
+        : variant == 5 ? Ocean.line-strong
+        : Dark.line-strong;
 
     // text
-    out property <color> fg: dark ? Dark.fg : Light.fg;
-    out property <color> fg-muted: dark ? Dark.fg-muted : Light.fg-muted;
-    out property <color> fg-dim: dark ? Dark.fg-dim : Light.fg-dim;
+    out property <color> fg: variant == 1 ? Light.fg
+        : variant == 2 ? Violet.fg
+        : variant == 3 ? Lime.fg
+        : variant == 4 ? Rose.fg
+        : variant == 5 ? Ocean.fg
+        : Dark.fg;
+    out property <color> fg-muted: variant == 1 ? Light.fg-muted
+        : variant == 2 ? Violet.fg-muted
+        : variant == 3 ? Lime.fg-muted
+        : variant == 4 ? Rose.fg-muted
+        : variant == 5 ? Ocean.fg-muted
+        : Dark.fg-muted;
+    out property <color> fg-dim: variant == 1 ? Light.fg-dim
+        : variant == 2 ? Violet.fg-dim
+        : variant == 3 ? Lime.fg-dim
+        : variant == 4 ? Rose.fg-dim
+        : variant == 5 ? Ocean.fg-dim
+        : Dark.fg-dim;
 
     // accents
-    out property <color> accent: dark ? Dark.accent : Light.accent;
-    out property <color> accent-hover: dark ? Dark.accent-hover : Light.accent-hover;
-    out property <color> accent-soft: dark ? Dark.accent-soft : Light.accent-soft;
-    out property <color> green: dark ? Dark.green : Light.green;
-    out property <color> on-accent: dark ? Dark.on-accent : Light.on-accent;
-    out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+    out property <color> accent: variant == 1 ? Light.accent
+        : variant == 2 ? Violet.accent
+        : variant == 3 ? Lime.accent
+        : variant == 4 ? Rose.accent
+        : variant == 5 ? Ocean.accent
+        : Dark.accent;
+    out property <color> accent-hover: variant == 1 ? Light.accent-hover
+        : variant == 2 ? Violet.accent-hover
+        : variant == 3 ? Lime.accent-hover
+        : variant == 4 ? Rose.accent-hover
+        : variant == 5 ? Ocean.accent-hover
+        : Dark.accent-hover;
+    out property <color> accent-soft: variant == 1 ? Light.accent-soft
+        : variant == 2 ? Violet.accent-soft
+        : variant == 3 ? Lime.accent-soft
+        : variant == 4 ? Rose.accent-soft
+        : variant == 5 ? Ocean.accent-soft
+        : Dark.accent-soft;
+    out property <color> green: variant == 1 ? Light.green
+        : variant == 2 ? Violet.green
+        : variant == 3 ? Lime.green
+        : variant == 4 ? Rose.green
+        : variant == 5 ? Ocean.green
+        : Dark.green;
+    out property <color> on-accent: variant == 1 ? Light.on-accent
+        : variant == 2 ? Violet.on-accent
+        : variant == 3 ? Lime.on-accent
+        : variant == 4 ? Rose.on-accent
+        : variant == 5 ? Ocean.on-accent
+        : Dark.on-accent;
+    out property <color> on-green: variant == 1 ? Light.on-green
+        : variant == 2 ? Violet.on-green
+        : variant == 3 ? Lime.on-green
+        : variant == 4 ? Rose.on-green
+        : variant == 5 ? Ocean.on-green
+        : Dark.on-green;
 
     // the Rail's dragger
-    out property <color> grip: dark ? Dark.grip : Light.grip;
-    out property <color> grip-active: dark ? Dark.grip-active : Light.grip-active;
-    out property <color> grip-edge: dark ? Dark.grip-edge : Light.grip-edge;
+    out property <color> grip: variant == 1 ? Light.grip
+        : variant == 2 ? Violet.grip
+        : variant == 3 ? Lime.grip
+        : variant == 4 ? Rose.grip
+        : variant == 5 ? Ocean.grip
+        : Dark.grip;
+    out property <color> grip-active: variant == 1 ? Light.grip-active
+        : variant == 2 ? Violet.grip-active
+        : variant == 3 ? Lime.grip-active
+        : variant == 4 ? Rose.grip-active
+        : variant == 5 ? Ocean.grip-active
+        : Dark.grip-active;
+    out property <color> grip-edge: variant == 1 ? Light.grip-edge
+        : variant == 2 ? Violet.grip-edge
+        : variant == 3 ? Lime.grip-edge
+        : variant == 4 ? Rose.grip-edge
+        : variant == 5 ? Ocean.grip-edge
+        : Dark.grip-edge;
 
     // meter ramp
-    out property <color> meter-low: dark ? Dark.meter-low : Light.meter-low;
-    out property <color> meter-mid: dark ? Dark.meter-mid : Light.meter-mid;
-    out property <color> meter-high: dark ? Dark.meter-high : Light.meter-high;
+    out property <color> meter-low: variant == 1 ? Light.meter-low
+        : variant == 2 ? Violet.meter-low
+        : variant == 3 ? Lime.meter-low
+        : variant == 4 ? Rose.meter-low
+        : variant == 5 ? Ocean.meter-low
+        : Dark.meter-low;
+    out property <color> meter-mid: variant == 1 ? Light.meter-mid
+        : variant == 2 ? Violet.meter-mid
+        : variant == 3 ? Lime.meter-mid
+        : variant == 4 ? Rose.meter-mid
+        : variant == 5 ? Ocean.meter-mid
+        : Dark.meter-mid;
+    out property <color> meter-high: variant == 1 ? Light.meter-high
+        : variant == 2 ? Violet.meter-high
+        : variant == 3 ? Lime.meter-high
+        : variant == 4 ? Rose.meter-high
+        : variant == 5 ? Ocean.meter-high
+        : Dark.meter-high;
 
     // media kinds
-    out property <color> kind-video: dark ? Dark.kind-video : Light.kind-video;
-    out property <color> kind-video-well: dark ? Dark.kind-video-well : Light.kind-video-well;
-    out property <color> kind-audio: dark ? Dark.kind-audio : Light.kind-audio;
-    out property <color> kind-audio-well: dark ? Dark.kind-audio-well : Light.kind-audio-well;
-    out property <color> kind-image: dark ? Dark.kind-image : Light.kind-image;
-    out property <color> kind-image-well: dark ? Dark.kind-image-well : Light.kind-image-well;
-    out property <color> kind-text: dark ? Dark.kind-text : Light.kind-text;
-    out property <color> kind-text-well: dark ? Dark.kind-text-well : Light.kind-text-well;
-    out property <color> kind-filter: dark ? Dark.kind-filter : Light.kind-filter;
-    out property <color> kind-filter-well: dark ? Dark.kind-filter-well : Light.kind-filter-well;
+    out property <color> kind-video: variant == 1 ? Light.kind-video
+        : variant == 2 ? Violet.kind-video
+        : variant == 3 ? Lime.kind-video
+        : variant == 4 ? Rose.kind-video
+        : variant == 5 ? Ocean.kind-video
+        : Dark.kind-video;
+    out property <color> kind-video-well: variant == 1 ? Light.kind-video-well
+        : variant == 2 ? Violet.kind-video-well
+        : variant == 3 ? Lime.kind-video-well
+        : variant == 4 ? Rose.kind-video-well
+        : variant == 5 ? Ocean.kind-video-well
+        : Dark.kind-video-well;
+    out property <color> kind-audio: variant == 1 ? Light.kind-audio
+        : variant == 2 ? Violet.kind-audio
+        : variant == 3 ? Lime.kind-audio
+        : variant == 4 ? Rose.kind-audio
+        : variant == 5 ? Ocean.kind-audio
+        : Dark.kind-audio;
+    out property <color> kind-audio-well: variant == 1 ? Light.kind-audio-well
+        : variant == 2 ? Violet.kind-audio-well
+        : variant == 3 ? Lime.kind-audio-well
+        : variant == 4 ? Rose.kind-audio-well
+        : variant == 5 ? Ocean.kind-audio-well
+        : Dark.kind-audio-well;
+    out property <color> kind-image: variant == 1 ? Light.kind-image
+        : variant == 2 ? Violet.kind-image
+        : variant == 3 ? Lime.kind-image
+        : variant == 4 ? Rose.kind-image
+        : variant == 5 ? Ocean.kind-image
+        : Dark.kind-image;
+    out property <color> kind-image-well: variant == 1 ? Light.kind-image-well
+        : variant == 2 ? Violet.kind-image-well
+        : variant == 3 ? Lime.kind-image-well
+        : variant == 4 ? Rose.kind-image-well
+        : variant == 5 ? Ocean.kind-image-well
+        : Dark.kind-image-well;
+    out property <color> kind-text: variant == 1 ? Light.kind-text
+        : variant == 2 ? Violet.kind-text
+        : variant == 3 ? Lime.kind-text
+        : variant == 4 ? Rose.kind-text
+        : variant == 5 ? Ocean.kind-text
+        : Dark.kind-text;
+    out property <color> kind-text-well: variant == 1 ? Light.kind-text-well
+        : variant == 2 ? Violet.kind-text-well
+        : variant == 3 ? Lime.kind-text-well
+        : variant == 4 ? Rose.kind-text-well
+        : variant == 5 ? Ocean.kind-text-well
+        : Dark.kind-text-well;
+    out property <color> kind-filter: variant == 1 ? Light.kind-filter
+        : variant == 2 ? Violet.kind-filter
+        : variant == 3 ? Lime.kind-filter
+        : variant == 4 ? Rose.kind-filter
+        : variant == 5 ? Ocean.kind-filter
+        : Dark.kind-filter;
+    out property <color> kind-filter-well: variant == 1 ? Light.kind-filter-well
+        : variant == 2 ? Violet.kind-filter-well
+        : variant == 3 ? Lime.kind-filter-well
+        : variant == 4 ? Rose.kind-filter-well
+        : variant == 5 ? Ocean.kind-filter-well
+        : Dark.kind-filter-well;
 
     // timeline
-    out property <color> lane: dark ? Dark.lane : Light.lane;
-    out property <color> lane-alt: dark ? Dark.lane-alt : Light.lane-alt;
-    out property <color> ruler: dark ? Dark.ruler : Light.ruler;
-    out property <color> grid: dark ? Dark.grid : Light.grid;
-    out property <color> playhead: dark ? Dark.playhead : Light.playhead;
-    out property <color> wave: dark ? Dark.wave : Light.wave;
-    out property <color> wave-video: dark ? Dark.wave-video : Light.wave-video;
-    out property <color> wave-hot: dark ? Dark.wave-hot : Light.wave-hot;
+    out property <color> lane: variant == 1 ? Light.lane
+        : variant == 2 ? Violet.lane
+        : variant == 3 ? Lime.lane
+        : variant == 4 ? Rose.lane
+        : variant == 5 ? Ocean.lane
+        : Dark.lane;
+    out property <color> lane-alt: variant == 1 ? Light.lane-alt
+        : variant == 2 ? Violet.lane-alt
+        : variant == 3 ? Lime.lane-alt
+        : variant == 4 ? Rose.lane-alt
+        : variant == 5 ? Ocean.lane-alt
+        : Dark.lane-alt;
+    out property <color> ruler: variant == 1 ? Light.ruler
+        : variant == 2 ? Violet.ruler
+        : variant == 3 ? Lime.ruler
+        : variant == 4 ? Rose.ruler
+        : variant == 5 ? Ocean.ruler
+        : Dark.ruler;
+    out property <color> grid: variant == 1 ? Light.grid
+        : variant == 2 ? Violet.grid
+        : variant == 3 ? Lime.grid
+        : variant == 4 ? Rose.grid
+        : variant == 5 ? Ocean.grid
+        : Dark.grid;
+    out property <color> playhead: variant == 1 ? Light.playhead
+        : variant == 2 ? Violet.playhead
+        : variant == 3 ? Lime.playhead
+        : variant == 4 ? Rose.playhead
+        : variant == 5 ? Ocean.playhead
+        : Dark.playhead;
+    out property <color> wave: variant == 1 ? Light.wave
+        : variant == 2 ? Violet.wave
+        : variant == 3 ? Lime.wave
+        : variant == 4 ? Rose.wave
+        : variant == 5 ? Ocean.wave
+        : Dark.wave;
+    out property <color> wave-video: variant == 1 ? Light.wave-video
+        : variant == 2 ? Violet.wave-video
+        : variant == 3 ? Lime.wave-video
+        : variant == 4 ? Rose.wave-video
+        : variant == 5 ? Ocean.wave-video
+        : Dark.wave-video;
+    out property <color> wave-hot: variant == 1 ? Light.wave-hot
+        : variant == 2 ? Violet.wave-hot
+        : variant == 3 ? Lime.wave-hot
+        : variant == 4 ? Rose.wave-hot
+        : variant == 5 ? Ocean.wave-hot
+        : Dark.wave-hot;
     /// Where a waveform's bar goes hot: the peak level, as a fraction of
     /// full scale, above which the part of the bar over it is drawn in
     /// `wave-hot`. -6 dBFS: a mix that keeps its peaks under it has
@@ -165,34 +374,134 @@ export global Theme {
     out property <float> wave-hot-line: 0.5012;
 
     // clip ink
-    out property <color> clip-ink: dark ? Dark.clip-ink : Light.clip-ink;
-    out property <color> clip-body: dark ? Dark.clip-body : Light.clip-body;
-    out property <color> clip-chip: dark ? Dark.clip-chip : Light.clip-chip;
-    out property <color> wave-centre: dark ? Dark.wave-centre : Light.wave-centre;
-    out property <color> fade-shade: dark ? Dark.fade-shade : Light.fade-shade;
-    out property <color> fade-edge: dark ? Dark.fade-edge : Light.fade-edge;
-    out property <color> transition-in: dark ? Dark.transition-in : Light.transition-in;
-    out property <color> transition-out: dark ? Dark.transition-out : Light.transition-out;
+    out property <color> clip-ink: variant == 1 ? Light.clip-ink
+        : variant == 2 ? Violet.clip-ink
+        : variant == 3 ? Lime.clip-ink
+        : variant == 4 ? Rose.clip-ink
+        : variant == 5 ? Ocean.clip-ink
+        : Dark.clip-ink;
+    out property <color> clip-body: variant == 1 ? Light.clip-body
+        : variant == 2 ? Violet.clip-body
+        : variant == 3 ? Lime.clip-body
+        : variant == 4 ? Rose.clip-body
+        : variant == 5 ? Ocean.clip-body
+        : Dark.clip-body;
+    out property <color> clip-chip: variant == 1 ? Light.clip-chip
+        : variant == 2 ? Violet.clip-chip
+        : variant == 3 ? Lime.clip-chip
+        : variant == 4 ? Rose.clip-chip
+        : variant == 5 ? Ocean.clip-chip
+        : Dark.clip-chip;
+    out property <color> wave-centre: variant == 1 ? Light.wave-centre
+        : variant == 2 ? Violet.wave-centre
+        : variant == 3 ? Lime.wave-centre
+        : variant == 4 ? Rose.wave-centre
+        : variant == 5 ? Ocean.wave-centre
+        : Dark.wave-centre;
+    out property <color> fade-shade: variant == 1 ? Light.fade-shade
+        : variant == 2 ? Violet.fade-shade
+        : variant == 3 ? Lime.fade-shade
+        : variant == 4 ? Rose.fade-shade
+        : variant == 5 ? Ocean.fade-shade
+        : Dark.fade-shade;
+    out property <color> fade-edge: variant == 1 ? Light.fade-edge
+        : variant == 2 ? Violet.fade-edge
+        : variant == 3 ? Lime.fade-edge
+        : variant == 4 ? Rose.fade-edge
+        : variant == 5 ? Ocean.fade-edge
+        : Dark.fade-edge;
+    out property <color> transition-in: variant == 1 ? Light.transition-in
+        : variant == 2 ? Violet.transition-in
+        : variant == 3 ? Lime.transition-in
+        : variant == 4 ? Rose.transition-in
+        : variant == 5 ? Ocean.transition-in
+        : Dark.transition-in;
+    out property <color> transition-out: variant == 1 ? Light.transition-out
+        : variant == 2 ? Violet.transition-out
+        : variant == 3 ? Lime.transition-out
+        : variant == 4 ? Rose.transition-out
+        : variant == 5 ? Ocean.transition-out
+        : Dark.transition-out;
 
     // the monitor
-    out property <color> stage: dark ? Dark.stage : Light.stage;
-    out property <color> sample-ground: dark ? Dark.sample-ground : Light.sample-ground;
-    out property <color> on-stage-dim: dark ? Dark.on-stage-dim : Light.on-stage-dim;
+    out property <color> stage: variant == 1 ? Light.stage
+        : variant == 2 ? Violet.stage
+        : variant == 3 ? Lime.stage
+        : variant == 4 ? Rose.stage
+        : variant == 5 ? Ocean.stage
+        : Dark.stage;
+    out property <color> sample-ground: variant == 1 ? Light.sample-ground
+        : variant == 2 ? Violet.sample-ground
+        : variant == 3 ? Lime.sample-ground
+        : variant == 4 ? Rose.sample-ground
+        : variant == 5 ? Ocean.sample-ground
+        : Dark.sample-ground;
+    out property <color> on-stage-dim: variant == 1 ? Light.on-stage-dim
+        : variant == 2 ? Violet.on-stage-dim
+        : variant == 3 ? Lime.on-stage-dim
+        : variant == 4 ? Rose.on-stage-dim
+        : variant == 5 ? Ocean.on-stage-dim
+        : Dark.on-stage-dim;
 
     // sheets over things that are not panels
-    out property <color> overlay: dark ? Dark.overlay : Light.overlay;
-    out property <color> scrim: dark ? Dark.scrim : Light.scrim;
-    out property <color> on-scrim: dark ? Dark.on-scrim : Light.on-scrim;
+    out property <color> overlay: variant == 1 ? Light.overlay
+        : variant == 2 ? Violet.overlay
+        : variant == 3 ? Lime.overlay
+        : variant == 4 ? Rose.overlay
+        : variant == 5 ? Ocean.overlay
+        : Dark.overlay;
+    out property <color> scrim: variant == 1 ? Light.scrim
+        : variant == 2 ? Violet.scrim
+        : variant == 3 ? Lime.scrim
+        : variant == 4 ? Rose.scrim
+        : variant == 5 ? Ocean.scrim
+        : Dark.scrim;
+    out property <color> on-scrim: variant == 1 ? Light.on-scrim
+        : variant == 2 ? Violet.on-scrim
+        : variant == 3 ? Lime.on-scrim
+        : variant == 4 ? Rose.on-scrim
+        : variant == 5 ? Ocean.on-scrim
+        : Dark.on-scrim;
 
     // destructive
-    out property <color> danger: dark ? Dark.danger : Light.danger;
-    out property <color> danger-soft: dark ? Dark.danger-soft : Light.danger-soft;
-    out property <color> danger-wash: dark ? Dark.danger-wash : Light.danger-wash;
-    out property <color> danger-edge: dark ? Dark.danger-edge : Light.danger-edge;
+    out property <color> danger: variant == 1 ? Light.danger
+        : variant == 2 ? Violet.danger
+        : variant == 3 ? Lime.danger
+        : variant == 4 ? Rose.danger
+        : variant == 5 ? Ocean.danger
+        : Dark.danger;
+    out property <color> danger-soft: variant == 1 ? Light.danger-soft
+        : variant == 2 ? Violet.danger-soft
+        : variant == 3 ? Lime.danger-soft
+        : variant == 4 ? Rose.danger-soft
+        : variant == 5 ? Ocean.danger-soft
+        : Dark.danger-soft;
+    out property <color> danger-wash: variant == 1 ? Light.danger-wash
+        : variant == 2 ? Violet.danger-wash
+        : variant == 3 ? Lime.danger-wash
+        : variant == 4 ? Rose.danger-wash
+        : variant == 5 ? Ocean.danger-wash
+        : Dark.danger-wash;
+    out property <color> danger-edge: variant == 1 ? Light.danger-edge
+        : variant == 2 ? Violet.danger-edge
+        : variant == 3 ? Lime.danger-edge
+        : variant == 4 ? Rose.danger-edge
+        : variant == 5 ? Ocean.danger-edge
+        : Dark.danger-edge;
 
     // the window ground the panes float on
-    out property <color> page: dark ? Dark.page : Light.page;
-    out property <color> page-fg-muted: dark ? Dark.page-fg-muted : Light.page-fg-muted;
+    out property <color> page: variant == 1 ? Light.page
+        : variant == 2 ? Violet.page
+        : variant == 3 ? Lime.page
+        : variant == 4 ? Rose.page
+        : variant == 5 ? Ocean.page
+        : Dark.page;
+    out property <color> page-fg-muted: variant == 1 ? Light.page-fg-muted
+        : variant == 2 ? Violet.page-fg-muted
+        : variant == 3 ? Lime.page-fg-muted
+        : variant == 4 ? Rose.page-fg-muted
+        : variant == 5 ? Ocean.page-fg-muted
+        : Dark.page-fg-muted;
 
     // ── content ──────────────────────────────────────────────────────────
     //

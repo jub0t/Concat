@@ -11,10 +11,13 @@ use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.json";
 
+pub const THEMES: [&str; 6] = ["dark", "light", "violet", "lime", "rose", "ocean"];
+
 /// Remembered preferences.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
+    pub theme: Option<String>,
     /// The dark theme. `None` is the app's default, which is dark.
     pub dark: Option<bool>,
     /// The chosen transcriber model id, e.g. "base.en".
@@ -58,6 +61,16 @@ pub struct Preferences {
 }
 
 impl Preferences {
+    pub fn theme_name(&self) -> &str {
+        match self.theme.as_deref() {
+            Some(name) => name,
+            None => match self.dark {
+                Some(false) => "light",
+                _ => "dark",
+            },
+        }
+    }
+
     /// Whether video should decode on the hardware: the choice made, or
     /// the platform's default when none was.
     pub fn hardware_decode_on(&self) -> bool {

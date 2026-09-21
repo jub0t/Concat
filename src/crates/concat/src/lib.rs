@@ -51,6 +51,7 @@ mod sysinfo;
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
 use panes::Msg;
+use prefs::THEMES;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
 use panes::media_bin::MediaMsg;
@@ -135,8 +136,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let mut studio = Studio::new(host);
     studio.reload_packages(false);
     studio.watch_packages();
-    let dark = studio.prefs.dark.unwrap_or(true);
-    app.global::<Theme>().set_dark(dark);
+    let variant = THEMES
+        .iter()
+        .position(|name| *name == studio.prefs.theme_name())
+        .unwrap_or(0);
+    app.global::<Theme>().set_variant(variant as i32);
 
     let shell = Rc::new(Shell {
         app: app.as_weak(),
@@ -987,11 +991,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // The theme is one bool on the Theme global, and every colour in the
     // tree is a binding away from it; it is also remembered.
     app.on_settings_theme_changed({
-        move |dark| {
+        move |variant| {
             Shell::with(|shell, app| {
-                app.global::<Theme>().set_dark(dark);
+                let name = THEMES
+                    .get(variant as usize)
+                    .copied()
+                    .unwrap_or(THEMES[0]);
+                app.global::<Theme>().set_variant(variant);
                 let mut studio = shell.studio.borrow_mut();
-                studio.prefs.dark = Some(dark);
+                studio.prefs.theme = Some(name.to_owned());
                 studio.prefs.save(&studio.host.dirs);
             });
         }
@@ -1287,7 +1295,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let mut result = slint::Image::default();
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
-                let key = format!("{}{payload}", if theme.get_dark() { 'd' } else { 'l' });
+                let key = format!("{}{payload}", theme.get_variant());
                 if let Some(chip) = chips.borrow().get(&key) {
                     result = chip.clone();
                     return;

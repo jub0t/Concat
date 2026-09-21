@@ -3,12 +3,17 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
+import { Dark } from "../theme/dark.slint";
+import { Light } from "../theme/light.slint";
+import { Violet } from "../theme/violet.slint";
+import { Lime } from "../theme/lime.slint";
+import { Rose } from "../theme/rose.slint";
+import { Ocean } from "../theme/ocean.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Kbd } from "../primitives/kbd.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
-import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
@@ -370,6 +375,58 @@ component FactRow inherits HorizontalLayout {
     }
 }
 
+component ThemeCard inherits Rectangle {
+    in property <string> label;
+    in property <color> panel;
+    in property <color> accent;
+    in property <bool> current;
+
+    callback clicked();
+
+    min-width: 118px;
+    min-height: 56px;
+    border-radius: Theme.r;
+    border-width: 1px;
+    border-color: root.current ? root.accent
+        : touch.has-hover ? Theme.line-strong
+        : Theme.line;
+    background: root.current ? Theme.field-active
+        : touch.has-hover ? Theme.field
+        : Colors.transparent;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding: 7px;
+        spacing: 6px;
+
+        Rectangle {
+            height: 20px;
+            border-radius: Theme.r-sm;
+            background: root.panel;
+            clip: true;
+
+            Rectangle {
+                width: parent.width;
+                height: 4px;
+                background: root.accent;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: root.current ? Theme.fg : Theme.fg-muted;
+            font-size: Theme.fs-sm;
+            font-weight: Theme.weight-title;
+        }
+    }
+}
+
 export component SettingsDialog inherits Modal {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
@@ -389,7 +446,7 @@ export component SettingsDialog inherits Modal {
     /// The theme, chosen rather than flipped. A toggle in the strip could only
     /// say "the other one"; a page with two named options can say which one is
     /// on, which is the whole reason it moved in here.
-    callback theme-changed(dark: bool);
+    callback theme-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
     callback magnetic-changed(on: bool);
@@ -687,11 +744,59 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 1: DialogSection {
                 first: true;
                 title: I18n.t("Theme");
+                hint: I18n.t("A theme is a retone of the same window: the surfaces carry the theme's own colour and the accent follows it. The cut is never part of one — a title's colour is baked into the export in every theme.");
 
-                SegmentedControl {
-                    options: [I18n.t("Dark"), I18n.t("Light")];
-                    current: Theme.dark ? 0 : 1;
-                    changed(index) => { root.theme-changed(index == 0); }
+                GridLayout {
+                    spacing: Theme.gap;
+
+                    ThemeCard {
+                        row: 0; col: 0;
+                        label: I18n.t("Dark");
+                        panel: Dark.panel;
+                        accent: Dark.accent;
+                        current: Theme.variant == 0;
+                        clicked => { root.theme-changed(0); }
+                    }
+                    ThemeCard {
+                        row: 0; col: 1;
+                        label: I18n.t("Light");
+                        panel: Light.panel;
+                        accent: Light.accent;
+                        current: Theme.variant == 1;
+                        clicked => { root.theme-changed(1); }
+                    }
+                    ThemeCard {
+                        row: 0; col: 2;
+                        label: I18n.t("Violet");
+                        panel: Violet.panel;
+                        accent: Violet.accent;
+                        current: Theme.variant == 2;
+                        clicked => { root.theme-changed(2); }
+                    }
+                    ThemeCard {
+                        row: 1; col: 0;
+                        label: I18n.t("Lime");
+                        panel: Lime.panel;
+                        accent: Lime.accent;
+                        current: Theme.variant == 3;
+                        clicked => { root.theme-changed(3); }
+                    }
+                    ThemeCard {
+                        row: 1; col: 1;
+                        label: I18n.t("Rose");
+                        panel: Rose.panel;
+                        accent: Rose.accent;
+                        current: Theme.variant == 4;
+                        clicked => { root.theme-changed(4); }
+                    }
+                    ThemeCard {
+                        row: 1; col: 2;
+                        label: I18n.t("Ocean");
+                        panel: Ocean.panel;
+                        accent: Ocean.accent;
+                        current: Theme.variant == 5;
+                        clicked => { root.theme-changed(5); }
+                    }
                 }
             }
 

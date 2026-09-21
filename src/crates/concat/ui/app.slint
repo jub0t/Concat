@@ -198,7 +198,7 @@ export component App inherits Window {
     callback settings-page-changed(index: int);
     callback settings-show-log();
     callback settings-language-changed(index: int);
-    callback settings-theme-changed(dark: bool);
+    callback settings-theme-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-custom-context-actions-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
@@ -511,7 +511,7 @@ export component App inherits Window {
         page-changed(index) => { root.settings-page-changed(index); }
         show-log => { root.settings-show-log(); }
         language-changed(index) => { root.settings-language-changed(index); }
-        theme-changed(dark) => { root.settings-theme-changed(dark); }
+        theme-changed(index) => { root.settings-theme-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         custom-context-actions-changed(on) => { root.settings-custom-context-actions-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
