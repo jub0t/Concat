@@ -42,6 +42,7 @@
 pub mod apply;
 #[cfg(feature = "infer")]
 pub mod brush;
+pub mod enhance;
 pub mod mask;
 pub mod models;
 #[cfg(feature = "infer")]
@@ -54,6 +55,8 @@ pub mod strokes;
 pub use apply::{Mapping, cut, highlight};
 #[cfg(feature = "infer")]
 pub use brush::{Brush, Embedding};
+#[cfg(feature = "infer")]
+pub use enhance::Enhancer;
 pub use mask::Mask;
 pub use models::ModelId;
 #[cfg(feature = "infer")]

@@ -33,7 +33,8 @@ use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
 use concat_host::playback::ClipSpec;
 use concat_host::{
-    AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
+    AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
+    templates,
 };
 use concat_media::{DecodeOptions, Decoder, FrameSource, Pyramid, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
@@ -684,6 +685,9 @@ pub struct Studio {
     pub painting: bool,
     /// The mask analyses running, by media id, and how far each has got.
     cutout_jobs: HashMap<String, (bool, f32)>,
+    /// Enhance at work, by clip id: whether the model is still
+    /// downloading, and how far along. One at a time, like every long job.
+    enhance_jobs: HashMap<String, (bool, f32)>,
     /// The smart stroke being read, by the same name, while one is.
     region_job: Option<String>,
     /// The last smart stroke as the stage drew it, kept on screen from the
@@ -1327,6 +1331,7 @@ impl Studio {
             brush_size: 0.06,
             painting: true,
             cutout_jobs: HashMap::new(),
+            enhance_jobs: HashMap::new(),
             region_job: None,
             pending_stroke: None,
             host,
@@ -4366,6 +4371,129 @@ impl Studio {
         );
     }
 
+    // ── enhance ──
+    //
+    // The restoration model reads a clip's file frame by frame and writes
+    // an enhanced copy into the project's cache; the clip is then pointed
+    // at the copy, as one undo step, and shows it wherever it showed the
+    // original. The window's part is to start the job, keep the readout
+    // moving, and re-point the clip when the copy is whole.
+
+    /// Enhances the media of clip `id`: starts the job, unless one is
+    /// running, and says so.
+    pub fn enhance_clip(&mut self, id: &str) {
+        if !self.enhance_jobs.is_empty() || self.host.enhancers.is_busy() {
+            self.notify(&t("Enhance is already at work; one clip at a time"), true);
+            return;
+        }
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        if clip.kind != model::ClipKind::Video && clip.kind != model::ClipKind::Image {
+            return;
+        }
+        let Some(media) = self
+            .project()
+            .media
+            .iter()
+            .find(|item| item.id == clip.media_id)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project = std::path::PathBuf::from(session.path());
+        let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
+        if width == 0 || height == 0 {
+            self.notify(&t("This file has no picture to enhance"), true);
+            return;
+        }
+        let factor = concat_vision::enhance::factor_for(width, height);
+        let still = clip.kind == model::ClipKind::Image;
+        let Some(target) = concat_host::enhance::target_for(&project, &media.path, factor, still)
+        else {
+            self.notify(&tf("Could not read {0}", &[&media.path]), true);
+            return;
+        };
+        let request = EnhanceRequest {
+            media_path: media.path.clone(),
+            still,
+            factor,
+            target,
+        };
+        let clip_id = clip.id.clone();
+        self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
+        self.notify(
+            &tf(
+                "Enhancing {0}: {1}× on its way, frame by frame",
+                &[&media.name, &factor],
+            ),
+            false,
+        );
+        let enhancers = Arc::clone(&self.host.enhancers);
+        spawn(
+            move || {
+                let mut last = (false, -1.0f32);
+                let reporting = clip_id.clone();
+                let result = enhancers.enhance(&request, &mut |progress| {
+                    let now = match progress {
+                        concat_host::enhance::Progress::Fetching { received, total } => {
+                            (true, received as f32 / total.max(1) as f32)
+                        }
+                        concat_host::enhance::Progress::Analysing(fraction) => (false, fraction),
+                    };
+                    if now.0 != last.0 || now.1 - last.1 >= 0.01 {
+                        last = now;
+                        let id = reporting.clone();
+                        on_ui(move |studio, _, _| {
+                            if let Some(held) = studio.enhance_jobs.get_mut(&id) {
+                                *held = now;
+                            }
+                        });
+                    }
+                });
+                (clip_id, result)
+            },
+            |studio, _, _, (clip_id, result)| {
+                studio.enhance_jobs.remove(&clip_id);
+                match result {
+                    Ok(path) => studio.adopt_enhanced(&clip_id, &path),
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&tf("Enhance: {0}", &[&error]), true),
+                }
+            },
+        );
+    }
+
+    /// Points clip `id` at the enhanced copy at `path`, probed the way an
+    /// import is, and shows it.
+    fn adopt_enhanced(&mut self, id: &str, path: &std::path::Path) {
+        let summary = match media::probe(&path.to_string_lossy()) {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.notify(&tf("Enhance: {0}", &[&error]), true);
+                return;
+            }
+        };
+        let mut item = summary.to_new_media();
+        // The bin names the copy after the original, marked, rather than
+        // after its cache file.
+        if let Some(original) = self
+            .clip(id)
+            .and_then(|clip| self.project().media.iter().find(|m| m.id == clip.media_id))
+        {
+            item.name = format!("{} (enhanced)", original.name);
+        }
+        self.apply(Command::ReplaceClipMedia {
+            clip_id: id.to_owned(),
+            item,
+        });
+        self.request_preview();
+        self.notify(&t("Enhanced; the clip now shows the copy"), false);
+    }
+
     /// The Mode row: 0 off, 1 automatic, 2 custom. The chroma rows are the
     /// inspector's own business, on the chain.
     pub fn cutout_mode(&mut self, mode: i32) {
@@ -4953,6 +5081,8 @@ impl Studio {
         self.flush_commit();
         self.pause();
         self.host.cutouts.cancel();
+        self.host.enhancers.cancel();
+        self.enhance_jobs.clear();
         self.cutout_jobs.clear();
         self.region_job = None;
         if let Some(session) = self.session.as_mut() {
@@ -5911,6 +6041,15 @@ impl Studio {
             cutout_progress: analysis.map(|(_, fraction)| fraction).unwrap_or(-1.0),
             cutout_fetching: analysis.is_some_and(|(fetching, _)| fetching),
             cutout_empty: self.cutout_empty(clip),
+            enhance_progress: self
+                .enhance_jobs
+                .get(&clip.id)
+                .map(|(_, fraction)| *fraction)
+                .unwrap_or(-1.0),
+            enhance_fetching: self
+                .enhance_jobs
+                .get(&clip.id)
+                .is_some_and(|(fetching, _)| *fetching),
         }
     }
 
@@ -6322,6 +6461,18 @@ impl Studio {
                 straddled
                     && !locked
                     && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
+            ),
+            // The picture restored and enlarged by the model, as a copy
+            // the clip then shows. Greyed while one is being written,
+            // since the job runs one at a time.
+            action(
+                "enhance",
+                t("Enhance"),
+                Glyph::Sparkle,
+                "",
+                !locked
+                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image)
+                    && self.enhance_jobs.is_empty(),
             ),
             rule(),
         ];
@@ -6782,6 +6933,7 @@ impl Studio {
                 self.split_at(at, true);
             }
             "freeze" => self.freeze_at_playhead(),
+            "enhance" => self.enhance_clip(id),
             "detach" => {
                 self.apply(Command::DetachAudio {
                     clip_id: id.to_owned(),

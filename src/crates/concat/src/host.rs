@@ -46,6 +46,8 @@ pub struct Host {
     pub cutouts: Arc<concat_host::Cutouts>,
     /// The brush model, and the regions it reads under smart strokes.
     pub brushes: Arc<concat_host::Brushes>,
+    /// The restoration model, and the enhanced copies it writes.
+    pub enhancers: Arc<concat_host::Enhancers>,
     /// The Concat API on a socket, while the Remote page has it on. Its
     /// own sessions, apart from the window's: a caller edits projects of
     /// its own, not the one on screen.
@@ -64,6 +66,7 @@ impl Host {
             titles: concat_host::Titles::new(&dirs),
             cutouts: Arc::new(concat_host::Cutouts::new(&dirs.data)),
             brushes: Arc::new(concat_host::Brushes::new(&dirs.data)),
+            enhancers: Arc::new(concat_host::Enhancers::new(&dirs.data)),
             dirs,
             playback: Playback::start(Arc::new(Events))?,
             monitor: match gpu {

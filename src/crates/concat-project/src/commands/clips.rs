@@ -319,6 +319,50 @@ pub(super) fn apply(
             })
         }
 
+        Command::ReplaceClipMedia { clip_id, item } => {
+            if project.active().clip(&clip_id).is_none() {
+                return Ok(Outcome::default());
+            }
+            // The copy's bin entry, or the one already there for its path:
+            // two clips of one file enhanced in turn share one copy.
+            let media_id = match project.media.iter().find(|media| media.path == item.path) {
+                Some(existing) => existing.id.clone(),
+                None => {
+                    let id = mint.next("m");
+                    project.media.push(MediaItem {
+                        id: id.clone(),
+                        path: item.path,
+                        name: item.name,
+                        duration: item.duration,
+                        kind: item.kind,
+                        width: item.width,
+                        height: item.height,
+                        frame_rate: item.frame_rate,
+                        frame_rate_fraction: item.frame_rate_fraction,
+                        video_codec: item.video_codec,
+                        audio_codec: item.audio_codec,
+                        has_audio: item.has_audio,
+                        audio_tracks: item.audio_tracks,
+                        placeholder: false,
+                        extra: Default::default(),
+                    });
+                    id
+                }
+            };
+            let timeline = project.active_mut();
+            let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
+                return Ok(Outcome::default());
+            };
+            if timeline.clips[index].media_id == media_id {
+                return Ok(Outcome::default());
+            }
+            timeline.clip_at_mut(index).media_id = media_id.clone();
+            Ok(Outcome {
+                created_id: Some(media_id),
+                applied: true,
+            })
+        }
+
         Command::FreezeFrame {
             clip_id,
             time,

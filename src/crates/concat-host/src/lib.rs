@@ -21,6 +21,7 @@
 pub mod brush;
 pub mod cutout;
 pub mod dirs;
+pub mod enhance;
 pub mod export;
 pub mod jobs;
 pub mod logs;
@@ -37,6 +38,7 @@ pub mod titles;
 pub use brush::{Brushes, RegionRequest};
 pub use cutout::{AnalyseRequest, Cutouts};
 pub use dirs::AppDirs;
+pub use enhance::{EnhanceRequest, Enhancers};
 pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
 pub use session::{EditorView, Session, SettingsView};

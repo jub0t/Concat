@@ -618,6 +618,110 @@ mod tests {
     }
 
     #[test]
+    fn replace_clip_media_points_the_clip_at_the_copy_and_keeps_the_original() {
+        let (mut editor, media_id, clip_id) = fixture();
+        let copy = NewMedia {
+            path: "/project/cache/enhance-1-2x.mp4".into(),
+            name: "a.mp4 (enhanced)".into(),
+            duration: Some(10.0),
+            kind: MediaKind::Video,
+            width: Some(3840),
+            height: Some(2160),
+            frame_rate: Some(30.0),
+            frame_rate_fraction: Some("30/1".into()),
+            video_codec: Some("h264".into()),
+            audio_codec: Some("aac".into()),
+            has_audio: true,
+            audio_tracks: Vec::new(),
+        };
+        let outcome = editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip_id.clone(),
+                item: copy.clone(),
+            })
+            .expect("replaces");
+        assert!(outcome.applied);
+        let copy_id = outcome.created_id.expect("the copy's id");
+        assert_ne!(copy_id, media_id);
+        let clip = editor.project().active().clip(&clip_id).expect("clip");
+        assert_eq!(clip.media_id, copy_id);
+        assert_eq!(clip.source_start, 0.0, "the in-point is kept");
+        assert_eq!(
+            editor.project().media.len(),
+            2,
+            "the original stays in the bin"
+        );
+        assert_eq!(
+            editor.project().media_by_id(&copy_id).expect("copy").width,
+            Some(3840)
+        );
+
+        // The same copy again changes nothing and mints nothing.
+        let again = editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip_id.clone(),
+                item: copy.clone(),
+            })
+            .expect("no-op");
+        assert!(!again.applied);
+        assert_eq!(editor.project().media.len(), 2);
+
+        // A clip nobody has is a no-op that adds nothing to the bin.
+        let nobody = editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: "c999".into(),
+                item: NewMedia {
+                    path: "/elsewhere.mp4".into(),
+                    ..copy
+                },
+            })
+            .expect("no-op");
+        assert!(!nobody.applied);
+        assert_eq!(editor.project().media.len(), 2);
+
+        // A non-finite number in the copy's facts is refused, like an import's.
+        let bad = NewMedia {
+            duration: Some(f64::NAN),
+            path: "/nan.mp4".into(),
+            ..NewMedia {
+                path: String::new(),
+                name: String::new(),
+                duration: None,
+                kind: MediaKind::Video,
+                width: None,
+                height: None,
+                frame_rate: None,
+                frame_rate_fraction: None,
+                video_codec: None,
+                audio_codec: None,
+                has_audio: false,
+                audio_tracks: Vec::new(),
+            }
+        };
+        assert!(
+            editor
+                .apply(Command::ReplaceClipMedia {
+                    clip_id: clip_id.clone(),
+                    item: bad,
+                })
+                .is_err()
+        );
+
+        // Undo puts the clip back on the original; the copy stays in the
+        // bin, harmless, for redo.
+        editor.undo();
+        assert_eq!(
+            editor
+                .project()
+                .active()
+                .clip(&clip_id)
+                .expect("clip")
+                .media_id,
+            media_id
+        );
+    }
+
+    #[test]
     fn freeze_frame_holds_a_second_and_ripples_the_tail() {
         let (mut editor, media_id, clip_id) = fixture();
         let still = NewMedia {

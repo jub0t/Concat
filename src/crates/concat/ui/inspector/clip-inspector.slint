@@ -786,6 +786,23 @@ component AnalysisRow inherits Row {
     }
 }
 
+/// Enhance at work on the clip's media: the model on its way, then the
+/// frames, one by one, into the copy the clip will show.
+component EnhanceRow inherits Row {
+    in property <float> progress;
+    in property <bool> fetching;
+
+    label: I18n.t("Enhance");
+    Text {
+        text: root.fetching
+            ? I18n.t1("Fetching the model… {0}%", "\{Math.round(root.progress * 100)}")
+            : I18n.t1("Enhancing… {0}%", "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+}
+
 // A rule between blocks inside one section, inset to the section's padding
 // where a Section's own hairline runs edge to edge.
 component Hairline inherits HorizontalLayout {
@@ -1424,6 +1441,10 @@ export component AudioPanel inherits VerticalLayout {
                 ? root.audio-tracks[root.selected.audio-track] : "";
         }
         if source.open: SectionBody {
+        if root.selected.enhance-progress >= 0: EnhanceRow {
+            progress: root.selected.enhance-progress;
+            fetching: root.selected.enhance-fetching;
+        }
         Row {
             label: I18n.t("Audio track");
             Select {

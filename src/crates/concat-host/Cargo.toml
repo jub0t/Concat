@@ -21,6 +21,9 @@ concat-text.workspace = true
 # The cutout models and their masks; `infer` because the host is what
 # runs them, and ureq because the host is what fetches them.
 concat-vision = { workspace = true, features = ["infer"] }
+# An enhanced still is written as a PNG: lossless, since the point was
+# the detail.
+png = "0.17"
 ureq = "2"
 # A finished download is checked against the digest its table carries
 # before anything is allowed to call it installed; see models.rs.

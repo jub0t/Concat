@@ -34,6 +34,9 @@ pub enum ModelId {
     /// SlimSAM's prompt encoder and mask decoder: points on the picture
     /// into the mask of what is under them.
     BrushDecoder,
+    /// Real-ESRGAN's compact general model: a picture four times its size
+    /// with its noise and compression gone, what Enhance is made of.
+    Enhance,
 }
 
 /// One model as the table describes it.
@@ -57,7 +60,7 @@ pub struct ModelSpec {
 }
 
 /// Every downloadable model.
-pub const MODELS: [ModelSpec; 4] = [
+pub const MODELS: [ModelSpec; 5] = [
     ModelSpec {
         id: ModelId::Person,
         file: "rvm-mobilenetv3.onnx",
@@ -90,6 +93,14 @@ pub const MODELS: [ModelSpec; 4] = [
         sha256: "",
         licence: "Apache-2.0",
     },
+    ModelSpec {
+        id: ModelId::Enhance,
+        file: "realesr-general-x4v3.onnx",
+        upstream: "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/main/realesr-general-x4v3.onnx",
+        bytes: 4_866_417,
+        sha256: "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112",
+        licence: "BSD-3-Clause",
+    },
 ];
 
 impl ModelId {
@@ -108,6 +119,7 @@ impl ModelId {
             ModelId::Object => "isnet-1024",
             ModelId::BrushEncoder => "slimsam-77-encoder",
             ModelId::BrushDecoder => "slimsam-77-decoder",
+            ModelId::Enhance => "realesr-general-x4v3",
         }
     }
 }

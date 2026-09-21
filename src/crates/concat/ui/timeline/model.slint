@@ -325,6 +325,12 @@ export struct SelectedClipData {
     cutout-fetching: bool,
     cutout-empty: bool,
 
+    // Enhance writing this clip's enhanced copy: -1 when it is not, else
+    // how far along, and whether that is the model downloading rather
+    // than frames being restored
+    enhance-progress: float,
+    enhance-fetching: bool,
+
     // the overlay, when this is a text clip
     content: string,
     font-family: string,
