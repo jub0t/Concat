@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: A family (cutout, tts, whisper) or one model id; blank for all
+        description: A family (cutout, tts, chatterbox, whisper) or one model id; blank for all
         required: false
         default: ""
       publish:
