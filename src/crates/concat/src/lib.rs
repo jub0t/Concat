@@ -125,16 +125,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     };
 
-    // The user's own packages - imported looks - sit beside the built-ins
-    // from the first frame. One that will not load is reported and skipped.
-    for error in concat_effects::Catalogue::install(&Studio::looks_dir(&host.dirs)) {
-        log::warn!("look: {error}");
-    }
-
     let app = App::new()?;
     app.set_macos(platform::MACOS);
 
-    let studio = Studio::new(host);
+    // The user's own packages - imported looks, and any effect folder they
+    // or the community wrote - sit beside the built-ins from the first
+    // frame. One that will not load is skipped, and its reason is the
+    // first thing the window says.
+    let mut studio = Studio::new(host);
+    studio.reload_packages(false);
+    studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);
     app.global::<Theme>().set_dark(dark);
 
@@ -559,6 +559,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     editor.on_library_import_lut(on_window!(|state| {
         state.import_lut();
+    }));
+    editor.on_library_reload_packages(on_window!(|state| {
+        state.reload_packages(true);
     }));
 
     // ── the inspector's effect stacks ──

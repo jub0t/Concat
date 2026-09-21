@@ -9,7 +9,7 @@
 //! clip's applied effects into one FFmpeg chain.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use concat_project::model::AppliedFilter;
@@ -22,6 +22,10 @@ use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 use crate::manifest::{Kind, Manifest};
 use crate::shader::{Shader, TransitionShader};
 use crate::template::Template;
+
+/// The author every built-in package is under, and no other package may
+/// be: the front of an id, before the dot.
+pub const BUILTIN_AUTHOR: &str = "concat";
 
 /// A compiled FFmpeg backend.
 #[derive(Clone, Debug)]
@@ -234,6 +238,20 @@ impl Package {
                     if !known.contains(&name) {
                         return Err(invalid(format!(
                             "chain reads `{name}`, which is not declared"
+                        )));
+                    }
+                }
+                // A package is a folder anyone can share; its chain may
+                // touch the frame and nothing else. See `filters`.
+                for filter in template
+                    .filters()
+                    .map_err(|error| invalid(format!("chain: {error}")))?
+                {
+                    if !crate::filters::allowed(&filter) {
+                        return Err(invalid(format!(
+                            "chain uses `{filter}`, which is not a filter a package may use: \
+                             a package's chain reads the frame and writes the frame, and \
+                             nothing else"
                         )));
                     }
                 }
@@ -519,7 +537,6 @@ impl Package {
             .map_err(|error| invalid(format!("chain: {error}")))
     }
 
-    /// Runs every fixture; returns one line per failure.
     /// Loads a package from its folder: the manifest, and beside it the
     /// fixtures, the shader and the table, whichever the manifest names.
     pub fn from_folder(folder: &Path) -> Result<Package, Error> {
@@ -533,6 +550,24 @@ impl Package {
         let fixtures = read("fixtures.toml").ok();
         let shader = read("effect.wgsl").ok();
         let manifest = Manifest::parse(&manifest_text)?;
+        // The built-ins' author is theirs alone. A package of the user's
+        // own under it would shadow, or be shadowed by, one that ships
+        // with the app, and which won would turn on load order.
+        let reserved = std::iter::once(manifest.effect.id.as_str())
+            .chain(manifest.effect.aliases.iter().map(String::as_str))
+            .find(|name| {
+                name.split_once('.')
+                    .is_some_and(|(author, _)| author == BUILTIN_AUTHOR)
+            });
+        if let Some(name) = reserved {
+            return Err(Error::Invalid {
+                id: manifest.effect.id.clone(),
+                message: format!(
+                    "`{name}` is under `{BUILTIN_AUTHOR}.`, the author of the packages that \
+                     ship with the app; a package of your own is `author.name`"
+                ),
+            });
+        }
         let table = match &manifest.lut {
             Some(table) => {
                 let text = read(&table.file)?;
@@ -588,6 +623,84 @@ impl Package {
         }
         failures
     }
+
+    /// Everything wrong with the package in `folder`, one line each, or
+    /// nothing: the check an author runs before sharing a package, and
+    /// what `concat-cli check` prints. The folder is loaded the way the
+    /// window loads it, so a manifest, template or shader fault comes out
+    /// here rather than in someone else's log; its id and aliases are held
+    /// against `taken`, the catalogue it would join; and its fixtures run.
+    pub fn check_folder(folder: &Path, taken: &Catalogue) -> Vec<String> {
+        let package = match Package::from_folder(folder) {
+            Ok(package) => package,
+            Err(error) => return vec![error.to_string()],
+        };
+        let mut problems = Vec::new();
+        let mut names = vec![package.id().to_owned()];
+        names.extend(package.manifest.effect.aliases.iter().cloned());
+        for name in names {
+            if let Some(other) = taken.get(&name) {
+                problems.push(format!(
+                    "{}: `{name}` is already taken by `{}`",
+                    package.id(),
+                    other.id()
+                ));
+            }
+        }
+        problems.extend(package.check_fixtures());
+        problems
+    }
+}
+
+/// A number that changes when anything in the package folders under `dir`
+/// does: a folder added or taken away, a file in one written, added or
+/// removed. What a watcher polls, cheaply - a stat per file, no reading -
+/// to know when the folder is worth loading again. A missing `dir` is 0.
+pub fn package_stamp(dir: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let Ok(folders) = package_folders(dir) else {
+        return 0;
+    };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for folder in folders {
+        folder.hash(&mut hasher);
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        let mut files: Vec<(std::ffi::OsString, u64, u128)> = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let meta = entry.metadata().ok()?;
+                let modified = meta
+                    .modified()
+                    .ok()
+                    .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |since| since.as_nanos());
+                Some((entry.file_name(), meta.len(), modified))
+            })
+            .collect();
+        files.sort();
+        files.hash(&mut hasher);
+    }
+    // Never the "missing" value by accident.
+    hasher.finish().max(1)
+}
+
+/// The package folders directly under `dir`, sorted: every folder with an
+/// `effect.toml` in it. Anything else there is left alone, so a stray file
+/// or a folder of notes beside the packages costs nothing.
+pub fn package_folders(dir: &Path) -> Result<Vec<PathBuf>, Error> {
+    let entries = std::fs::read_dir(dir).map_err(|error| Error::Io {
+        path: dir.to_path_buf(),
+        message: error.to_string(),
+    })?;
+    let mut folders: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.join("effect.toml").is_file())
+        .collect();
+    folders.sort();
+    Ok(folders)
 }
 
 /// A path as one FFmpeg option value: single-quoted, with the quote
@@ -699,22 +812,11 @@ impl Catalogue {
     /// Loads every package folder directly under `dir`. A folder that fails
     /// is reported and skipped; the rest still load.
     pub fn load_dir(&mut self, dir: &Path) -> Vec<Error> {
-        let mut errors = Vec::new();
-        let entries = match std::fs::read_dir(dir) {
-            Ok(entries) => entries,
-            Err(error) => {
-                return vec![Error::Io {
-                    path: dir.to_path_buf(),
-                    message: error.to_string(),
-                }];
-            }
+        let folders = match package_folders(dir) {
+            Ok(folders) => folders,
+            Err(error) => return vec![error],
         };
-        let mut folders: Vec<_> = entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.join("effect.toml").is_file())
-            .collect();
-        folders.sort();
+        let mut errors = Vec::new();
         for folder in folders {
             match Package::from_folder(&folder).and_then(|p| self.add(p)) {
                 Ok(()) => {}

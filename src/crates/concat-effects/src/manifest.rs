@@ -13,10 +13,22 @@ use serde::Deserialize;
 
 use crate::Error;
 
+/// The package format this build reads: the shape of the manifest, the
+/// template and expression syntax, and the shader's contract with the
+/// compositor. Bumped when any of those changes in a way an older build
+/// could not read, so a package written for a newer Concat says so rather
+/// than failing in the shader compiler.
+pub const FORMAT: u32 = 1;
+
 /// A parsed `effect.toml`.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    /// The package format the file is written for, `format = 1` at the top
+    /// of the file, before the tables. Absent means 1, the first; see
+    /// [`FORMAT`] for the one this build reads.
+    #[serde(default = "one")]
+    pub format: u32,
     /// Identity and placement.
     pub effect: Meta,
     /// The knobs, in the order the inspector shows them.
@@ -283,6 +295,16 @@ impl Manifest {
     }
 
     fn validate(&self) -> Result<(), Error> {
+        if self.format == 0 {
+            return Err(self.invalid("format is 0; the first package format is 1"));
+        }
+        if self.format > FORMAT {
+            return Err(self.invalid(format!(
+                "written for package format {}, and this Concat reads up to {FORMAT}: \
+                 a newer Concat is needed",
+                self.format
+            )));
+        }
         let id = &self.effect.id;
         let namespaced = id
             .split_once('.')
@@ -498,6 +520,20 @@ mod tests {
         entry = "effect.wgsl"
         xfade = "fade"
     "#;
+
+    #[test]
+    fn the_format_is_the_first_thing_read() {
+        assert_eq!(Manifest::parse(GOOD).expect("parses").format, 1);
+        assert_eq!(
+            Manifest::parse(&format!("format = {FORMAT}\n{GOOD}"))
+                .expect("parses")
+                .format,
+            FORMAT
+        );
+        rejects(&format!("format = {}\n{GOOD}", FORMAT + 1), "newer Concat");
+        rejects(&format!("format = 0\n{GOOD}"), "format is 0");
+        rejects(&format!("format = \"1\"\n{GOOD}"), "format");
+    }
 
     #[test]
     fn a_transition_manifest_parses() {

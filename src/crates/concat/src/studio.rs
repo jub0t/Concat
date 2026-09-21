@@ -35,7 +35,7 @@ use concat_host::playback::ClipSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, ProjectInfo, RegionRequest, Session, media, projects, templates,
 };
-use concat_media::{Pyramid, jpeg};
+use concat_media::{DecodeOptions, Decoder, FrameSource, Pyramid, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -641,6 +641,16 @@ pub struct Studio {
     /// rebuilt on every publish and a picture read from disk each time
     /// would be the slowest thing in the window.
     look_art: std::cell::RefCell<HashMap<String, slint::Image>>,
+    /// The watch on the user's effects folder: a poll every couple of
+    /// seconds of what is in it, cheaper than a file-system watcher and
+    /// one dependency fewer, at a cost nobody will notice.
+    packages_watch: slint::Timer,
+    /// The folder as it was when the catalogue was last built, and, once
+    /// a change has been seen, the folder as it was at that sight: the
+    /// catalogue is rebuilt only when two polls agree, so a package still
+    /// being copied in is not loaded half-way.
+    packages_seen: u64,
+    packages_pending: Option<u64>,
     /// The last inspector commit: what it changed and when. A control that
     /// is dragged commits on every move, and each of those would be an undo
     /// step of its own; a commit that changes the same thing as the last
@@ -801,7 +811,10 @@ fn shelves(
                 .borrow_mut()
                 .entry(meta.id.clone())
                 .or_insert_with(|| {
-                    slint::Image::load_from_path(&folder.join("preview.png")).unwrap_or_default()
+                    // The author's own still, or the one rendered for them.
+                    slint::Image::load_from_path(&folder.join("preview.png"))
+                        .or_else(|_| slint::Image::load_from_path(&folder.join("preview.jpg")))
+                        .unwrap_or_default()
                 })
                 .clone(),
             None => slint::Image::default(),
@@ -980,9 +993,10 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let name = stem.trim().to_owned();
     let manifest = format!(
-        "[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
+        "format = {}\n\n[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
          description = \"A look imported from a .cube table.\"\n\n[lut]\nfile = \"look.cube\"\n\n\
-         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n"
+         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n",
+        concat_effects::FORMAT
     );
     std::fs::write(folder.join("effect.toml"), manifest).map_err(|error| error.to_string())?;
     std::fs::write(
@@ -995,10 +1009,7 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
     // The card still: the reference picture through the table, the same
     // arithmetic the GPU's sampler does. Read through Slint's decoder from
     // a copy on disk, since the bytes live in the binary.
-    let reference = dir.join("reference.jpg");
-    if !reference.is_file() {
-        std::fs::write(&reference, REFERENCE_STILL).map_err(|error| error.to_string())?;
-    }
+    let reference = reference_still(dir)?;
     let image = slint::Image::load_from_path(&reference).map_err(|error| error.to_string())?;
     let Some(pixels) = image.to_rgba8() else {
         return Err("the reference picture would not decode".to_owned());
@@ -1026,6 +1037,44 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
         .write_image_data(&out)
         .map_err(|error| error.to_string())?;
     Ok(id)
+}
+
+/// The reference picture every card is rendered from, as a file in the
+/// effects folder: the bytes live in the binary, and both Slint's decoder
+/// and FFmpeg's want a path.
+fn reference_still(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let reference = dir.join("reference.jpg");
+    if !reference.is_file() {
+        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+        std::fs::write(&reference, REFERENCE_STILL).map_err(|error| error.to_string())?;
+    }
+    Ok(reference)
+}
+
+/// The card still for a package of the user's own that brought none: the
+/// reference picture through the package's own chain at its defaults,
+/// written beside its manifest as `preview.jpg`, the way the built-ins'
+/// cards were made. A package with a shader and no chain has no CPU
+/// rendering to be had here, so its card stays blank until its author
+/// puts a `preview.png` beside the manifest.
+fn render_card(
+    dir: &std::path::Path,
+    package: &concat_effects::Package,
+    chain: &str,
+) -> Result<(), String> {
+    let Some(folder) = package.folder.as_deref() else {
+        return Ok(());
+    };
+    let reference = reference_still(dir)?;
+    let mut decoder = Decoder::open(&reference, &DecodeOptions::default().scaled_to(320, 180))
+        .map_err(|error| error.to_string())?;
+    let frame = decoder
+        .next_frame()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "the reference picture holds no frame".to_owned())?;
+    let treated = concat_media::treat(&frame, chain).map_err(|error| error.to_string())?;
+    let bytes = jpeg(&treated, 3).map_err(|error| error.to_string())?;
+    std::fs::write(folder.join("preview.jpg"), bytes).map_err(|error| error.to_string())
 }
 
 /// The ease a key put on at `at` inherits: that of whichever key it joins
@@ -1263,6 +1312,9 @@ impl Studio {
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
+            packages_watch: slint::Timer::default(),
+            packages_seen: 0,
+            packages_pending: None,
             last_commit: None,
             title_blocks: HashMap::new(),
             drop: None,
@@ -5025,6 +5077,111 @@ impl Studio {
         dirs.config.join("effects")
     }
 
+    /// Rebuilds the catalogue from the built-ins and the packages in
+    /// `looks_dir`, and says in the window what would not load: the first
+    /// reason and how many more, with every reason in the log, so an
+    /// author sees a manifest or shader fault where they are looking
+    /// rather than in a file they may not know exists. Returns how many
+    /// failed. With `announce`, a clean reload is reported too, with the
+    /// folder, which is how a newcomer learns where packages go.
+    pub fn reload_packages(&mut self, announce: bool) -> usize {
+        let dir = Self::looks_dir(&self.host.dirs);
+        let errors = Catalogue::install(&dir);
+        for error in &errors {
+            log::warn!("package: {error}");
+        }
+        // A card for every package of the user's own that has none and
+        // can have one. A card that fails is a line in the log, not a
+        // notice: the package itself loaded.
+        let catalogue = Catalogue::builtin();
+        for package in catalogue.packages() {
+            let Some(folder) = package.folder.as_deref() else {
+                continue;
+            };
+            if !package.kind().is_visual()
+                || package.kind() == PackageKind::Transition
+                || folder.join("preview.png").is_file()
+                || folder.join("preview.jpg").is_file()
+            {
+                continue;
+            }
+            let chain = catalogue.video_chain(&[AppliedFilter::new(package.id().to_owned())]);
+            if chain.is_empty() {
+                continue;
+            }
+            if let Err(error) = render_card(&dir, package, &chain) {
+                log::warn!("package {}: card: {error}", package.id());
+            }
+        }
+        // A changed shader means a changed card: the stills are read again.
+        self.look_art.borrow_mut().clear();
+        // The folder as the watch will next see it, cards included, so a
+        // reload does not read as a change and set off another.
+        self.packages_seen = concat_effects::package_stamp(&dir);
+        self.packages_pending = None;
+        if let Some(first) = errors.first() {
+            let message = if errors.len() == 1 {
+                tf("A custom package did not load: {0}", &[first])
+            } else {
+                tf(
+                    "{0} custom packages did not load; the first: {1}",
+                    &[&errors.len(), first],
+                )
+            };
+            self.notify(&message, true);
+        } else if announce {
+            let count = Catalogue::builtin()
+                .packages()
+                .filter(|package| package.folder.is_some())
+                .count();
+            self.notify(
+                &tf(
+                    "Loaded {0} custom package(s) from {1}",
+                    &[&count, &dir.display()],
+                ),
+                false,
+            );
+        }
+        errors.len()
+    }
+
+    /// Starts the watch on the effects folder: a poll every two seconds,
+    /// and a reload once two polls in a row see the same changed folder.
+    /// A package written or dropped in while the app runs then shows up on
+    /// its own, and one that will not load says why, without a restart or
+    /// the button.
+    pub fn watch_packages(&mut self) {
+        self.packages_watch.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(2),
+            || {
+                crate::host::Shell::with(|shell, app| {
+                    let changed = shell.studio.borrow_mut().poll_packages();
+                    if changed {
+                        shell.studio.borrow_mut().refresh_art();
+                        shell.studio.borrow().publish(&app, &shell.models);
+                    }
+                });
+            },
+        );
+    }
+
+    /// One tick of the watch: whether the catalogue was rebuilt.
+    fn poll_packages(&mut self) -> bool {
+        let now = concat_effects::package_stamp(&Self::looks_dir(&self.host.dirs));
+        if now == self.packages_seen {
+            self.packages_pending = None;
+            return false;
+        }
+        if self.packages_pending != Some(now) {
+            // Seen once; a copy may still be in progress. Next tick decides.
+            self.packages_pending = Some(now);
+            return false;
+        }
+        self.reload_packages(true);
+        true
+    }
+
     /// Imports one or more `.cube` tables as looks: each becomes a package
     /// folder under `looks_dir` - a manifest that names the table and a
     /// shader that reads it - with a card still rendered through the table
@@ -5054,8 +5211,10 @@ impl Studio {
         if imported == 0 {
             return;
         }
-        for error in Catalogue::install(&dir) {
-            log::warn!("look: {error}");
+        // A look that will not load has its reason on screen; the count of
+        // the rest would only cover it.
+        if self.reload_packages(false) > 0 {
+            return;
         }
         self.library[0].query.clear();
         self.notify(

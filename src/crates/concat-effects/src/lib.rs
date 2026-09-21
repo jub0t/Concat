@@ -21,6 +21,7 @@
 pub mod catalogue;
 pub mod cube;
 pub mod expr;
+pub mod filters;
 pub mod manifest;
 pub mod shader;
 pub mod template;
@@ -29,8 +30,8 @@ mod builtins {
     include!(concat!(env!("OUT_DIR"), "/builtins.rs"));
 }
 
-pub use catalogue::{At, Catalogue, Fixture, Package};
-pub use manifest::{Kind, Manifest, Param, ParamType};
+pub use catalogue::{At, Catalogue, Fixture, Package, package_folders, package_stamp};
+pub use manifest::{FORMAT, Kind, Manifest, Param, ParamType};
 pub use shader::{Shader, TransitionShader};
 
 /// Why a package could not be loaded.
@@ -315,6 +316,36 @@ mod tests {
     }
 
     #[test]
+    fn a_chain_may_only_name_filters_that_touch_the_frame() {
+        let with = |chain: &str| {
+            Package::from_sources(
+                &format!(
+                    "[effect]\nid = \"a.b\"\nname = \"B\"\nkind = \"effect\"\n[[param]]\nkey = \"hue\"\nlabel = \"Hue\"\nmax = 360\n[ffmpeg]\nchain = {chain:?}\n"
+                ),
+                None,
+                None,
+            )
+        };
+        with("hue=h={round(hue)},curves=all='0/0,1/1',negate").expect("plain filters load");
+        with("split[a][b];[a]gblur=sigma=2[c];[b][c]blend=all_mode=screen").expect("graphs load");
+        for (chain, needle) in [
+            ("movie=/etc/passwd[m];[m]hue=h={hue}", "`movie`"),
+            ("hue=h={hue},drawtext=textfile=/etc/passwd", "`drawtext`"),
+            ("frei0r=filter_name=/tmp/evil.so,hue=h={hue}", "`frei0r`"),
+            ("hue=h={hue},sendcmd=f=/tmp/cmd", "`sendcmd`"),
+            (
+                "hue=h={hue},vidstabdetect=result=/tmp/out",
+                "`vidstabdetect`",
+            ),
+            ("{hue}=1", "spelt out"),
+            ("hue=h={hue},", "no name"),
+        ] {
+            let error = with(chain).expect_err(chain).to_string();
+            assert!(error.contains(needle), "{chain}: {error}");
+        }
+    }
+
+    #[test]
     fn a_duplicate_id_is_refused() {
         let mut catalogue = Catalogue::new();
         let package = || {
@@ -329,5 +360,186 @@ mod tests {
         assert!(catalogue.add(package()).is_err());
         assert_eq!(catalogue.video_chain(&[applied("a.b", &[])]), "negate");
         let _ = BTreeMap::<String, f64>::new();
+    }
+
+    /// A package folder `id` under a fresh temp dir, holding `files`.
+    fn scratch(id: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("concat-check-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = dir.join(id);
+        std::fs::create_dir_all(&folder).expect("mkdir");
+        for (name, text) in files {
+            std::fs::write(folder.join(name), text).expect("write");
+        }
+        folder
+    }
+
+    const TINT: &str = "[effect]\nid = \"alice.tint\"\nname = \"Tint\"\nkind = \"effect\"\n\
+        [[param]]\nkey = \"hue\"\nlabel = \"Hue\"\nmax = 360\ndefault = 90\n\
+        [ffmpeg]\nchain = \"hue=h={round(hue)}\"\n";
+
+    #[test]
+    fn a_sound_package_checks_clean() {
+        let folder = scratch(
+            "alice.tint",
+            &[
+                ("effect.toml", TINT),
+                (
+                    "fixtures.toml",
+                    "[[case]]\nname = \"default\"\nchain = \"hue=h=90\"\n[[case]]\nat = \"max\"\nchain = \"hue=h=360\"\n",
+                ),
+            ],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert!(problems.is_empty(), "{problems:?}");
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+    }
+
+    #[test]
+    fn check_folder_names_every_fault() {
+        // A manifest that does not parse.
+        let folder = scratch(
+            "bob.broken",
+            &[("effect.toml", "[effect]\nid = \"bob.broken\"\n")],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("bob.broken") || problems[0].contains('?'),
+            "{problems:?}"
+        );
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+
+        // A fixture that pins a chain the template does not render.
+        let folder = scratch(
+            "carol.pinned",
+            &[
+                ("effect.toml", &TINT.replace("alice.tint", "carol.pinned")),
+                (
+                    "fixtures.toml",
+                    "[[case]]\nname = \"wrong\"\nchain = \"hue=h=0\"\n",
+                ),
+            ],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("wrong") && problems[0].contains("hue=h=90"),
+            "{problems:?}"
+        );
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+
+        // The built-ins' author, as an id and as an alias.
+        let folder = scratch(
+            "concat.sepia",
+            &[("effect.toml", &TINT.replace("alice.tint", "concat.sepia"))],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("author.name"), "{problems:?}");
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+        let folder = scratch(
+            "frank.alias",
+            &[(
+                "effect.toml",
+                &TINT.replace("alice.tint", "frank.alias").replace(
+                    "kind = \"effect\"\n",
+                    "kind = \"effect\"\naliases = [\"concat.sepia\"]\n",
+                ),
+            )],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("concat.sepia"), "{problems:?}");
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+
+        // An id the catalogue it would join already answers to.
+        let folder = scratch(
+            "grace.twice",
+            &[("effect.toml", &TINT.replace("alice.tint", "grace.twice"))],
+        );
+        let mut taken = Catalogue::new();
+        assert!(taken.load_dir(folder.parent().unwrap()).is_empty());
+        let problems = Package::check_folder(&folder, &taken);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("already taken"), "{problems:?}");
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+
+        // A shader that does not compile, found at load and not on the GPU.
+        let folder = scratch(
+            "dave.shady",
+            &[
+                (
+                    "effect.toml",
+                    "[effect]\nid = \"dave.shady\"\nname = \"Shady\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+                ),
+                (
+                    "effect.wgsl",
+                    "fn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv) + ; }",
+                ),
+            ],
+        );
+        let problems = Package::check_folder(&folder, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("shader"), "{problems:?}");
+
+        // A folder that is not there at all.
+        let missing = folder.parent().unwrap().join("nobody.home");
+        let problems = Package::check_folder(&missing, Catalogue::builtin());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("effect.toml"), "{problems:?}");
+        let _ = std::fs::remove_dir_all(folder.parent().unwrap());
+    }
+
+    #[test]
+    fn the_stamp_moves_with_the_folder_and_only_then() {
+        let folder = scratch(
+            "hank.still",
+            &[("effect.toml", &TINT.replace("alice.tint", "hank.still"))],
+        );
+        let dir = folder.parent().unwrap().to_path_buf();
+        assert_eq!(package_stamp(&dir.join("nowhere")), 0);
+        let first = package_stamp(&dir);
+        assert_ne!(first, 0);
+        assert_eq!(package_stamp(&dir), first, "nothing changed");
+        // A file in a package: its size changes even when the clock has
+        // not ticked over.
+        std::fs::write(
+            folder.join("fixtures.toml"),
+            "[[case]]\nchain = \"hue=h=90\"\n",
+        )
+        .expect("write");
+        let second = package_stamp(&dir);
+        assert_ne!(second, first, "a file was added");
+        std::fs::write(
+            folder.join("fixtures.toml"),
+            "[[case]]\nchain = \"hue=h=90\"\n\n",
+        )
+        .expect("write");
+        let third = package_stamp(&dir);
+        assert_ne!(third, second, "a file grew");
+        // Clutter beside the packages is not a package.
+        std::fs::write(dir.join("notes.txt"), "x").expect("write");
+        assert_eq!(package_stamp(&dir), third, "a file beside the packages");
+        // A second package.
+        std::fs::create_dir_all(dir.join("hank.other")).expect("mkdir");
+        std::fs::write(dir.join("hank.other").join("effect.toml"), TINT).expect("write");
+        assert_ne!(package_stamp(&dir), third, "a folder was added");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_folders_lists_only_folders_with_a_manifest() {
+        let folder = scratch(
+            "erin.one",
+            &[("effect.toml", &TINT.replace("alice.tint", "erin.one"))],
+        );
+        let dir = folder.parent().unwrap().to_path_buf();
+        std::fs::create_dir_all(dir.join("notes")).expect("mkdir");
+        std::fs::write(dir.join("README.txt"), "not a package").expect("write");
+        let folders = package_folders(&dir).expect("lists");
+        assert_eq!(folders, vec![folder.clone()]);
+        assert!(package_folders(&dir.join("nowhere")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

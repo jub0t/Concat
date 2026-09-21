@@ -10,12 +10,14 @@
 //! line, so a script in any language edits and exports a project; `serve`
 //! is the same API on a socket, for callers that are other processes.
 //! `preview` is how the window's effect cards get their pictures: one still
-//! through one package at its defaults.
+//! through one package at its defaults. `check` is what an author runs on
+//! an effect package before sharing it: the same load the window does, and
+//! its fixtures, with every fault named.
 
 use std::error::Error;
 use std::io::{BufRead, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
@@ -104,6 +106,16 @@ enum Command {
         #[arg(long, default_value_t = 180)]
         height: u32,
     },
+
+    /// Check effect packages before sharing them: load each folder the way
+    /// the window does, hold its id against the built-ins, run its
+    /// fixtures, and name every fault. `path` is one package folder - the
+    /// one with `effect.toml` in it - or a folder of them, such as the
+    /// app's own effects folder. Exits non-zero when any package fails.
+    Check {
+        /// A package folder, or a folder of package folders.
+        path: PathBuf,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -129,6 +141,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             width,
             height,
         } => preview(&input, &output, &effect, width, height),
+        Command::Check { path } => check(&path),
     }
 }
 
@@ -246,6 +259,46 @@ fn preview(
     let treated = concat_media::treat(&frame, &chain)?;
     std::fs::write(output, concat_media::jpeg(&treated, 3)?)?;
     println!("{effect}: {chain}\n  -> {}", output.display());
+    Ok(())
+}
+
+/// Every package at `path` through the loader and its fixtures, one line
+/// per package and one per fault. The built-ins are what the ids are held
+/// against: a user package cannot take a name the window already knows.
+fn check(path: &Path) -> Result<(), Box<dyn Error>> {
+    let folders = if path.join("effect.toml").is_file() {
+        vec![path.to_path_buf()]
+    } else {
+        let folders = concat_effects::package_folders(path)?;
+        if folders.is_empty() {
+            return Err(format!(
+                "{}: no package here - a package is a folder with an effect.toml in it",
+                path.display()
+            )
+            .into());
+        }
+        folders
+    };
+    let taken = concat_effects::Catalogue::builtin();
+    let mut failed = 0;
+    for folder in &folders {
+        let problems = concat_effects::Package::check_folder(folder, taken);
+        if problems.is_empty() {
+            println!("ok    {}", folder.display());
+        } else {
+            failed += 1;
+            println!("FAIL  {}", folder.display());
+            for problem in problems {
+                for line in problem.lines() {
+                    println!("      {line}");
+                }
+            }
+        }
+    }
+    if failed > 0 {
+        return Err(format!("{failed} of {} package(s) failed", folders.len()).into());
+    }
+    println!("{} package(s) checked", folders.len());
     Ok(())
 }
 

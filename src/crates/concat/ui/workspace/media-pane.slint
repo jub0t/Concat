@@ -1406,6 +1406,8 @@ export component MediaPane inherits Rectangle {
     callback save-template();
     /// Filters page: bring in `.cube` tables as looks of the user's own.
     callback import-lut();
+    /// Effects and Filters pages: read the user's effects folder again.
+    callback reload-packages();
 
     /// The corner button: show something else in this pane's seat.
     callback pane-picked(kind: PaneKind);
@@ -2112,6 +2114,15 @@ export component MediaPane inherits Rectangle {
                         }
                     }
                     if !root.audio-shelf: Rectangle { height: 6px; }
+                    // A package folder written while the app runs - the
+                    // user's own effect, or one shared with them - is read
+                    // in here, without a restart.
+                    ImportButton {
+                        label: I18n.t("Reload custom effects");
+                        glyph: Glyph.reset;
+                        clicked => { root.reload-packages(); }
+                    }
+                    Rectangle { height: 8px; }
                     ShelfGrid {
                         entries: root.audio-shelf ? root.catalogue-audio : root.catalogue-effects;
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
@@ -2143,10 +2154,18 @@ export component MediaPane inherits Rectangle {
                     }
                     // A table from any grading tool becomes a look here, the
                     // way it does on every desktop editor's Filters page.
-                    ImportButton {
-                        label: I18n.t("Import a LUT (.cube)");
-                        glyph: Glyph.import;
-                        clicked => { root.import-lut(); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ImportButton {
+                            label: I18n.t("Import a LUT (.cube)");
+                            glyph: Glyph.import;
+                            clicked => { root.import-lut(); }
+                        }
+                        ImportButton {
+                            label: I18n.t("Reload custom effects");
+                            glyph: Glyph.reset;
+                            clicked => { root.reload-packages(); }
+                        }
                     }
                     Rectangle { height: 8px; }
                     ShelfGrid {

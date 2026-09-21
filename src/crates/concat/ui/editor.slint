@@ -107,6 +107,10 @@ export global Editor {
     callback library-save-template();
     /// Filters page: import `.cube` tables as looks of the user's own.
     callback library-import-lut();
+    /// Effects and Filters pages: read the user's effects folder again, so
+    /// a package written or dropped in while the app runs shows up without
+    /// a restart, and one that will not load says why.
+    callback library-reload-packages();
 
     // ── the inspector ──
     in-out property <SelectedClipData> selected-clip;
