@@ -89,6 +89,24 @@ releases - including espeak-ng's data files. Concat mirrors those bundles
 and downloads them on demand from that mirror, and never bundles them with
 the app. See "The model mirror" below.
 
+The Pocket TTS bundle is Kyutai's Pocket TTS (CC-BY-4.0,
+https://huggingface.co/kyutai/pocket-tts, https://kyutai.org) as exported
+to ONNX by KevinAHM (https://huggingface.co/KevinAHM/pocket-tts-onnx,
+CC-BY-4.0) and packaged in the sherpa-onnx releases, with two sample
+recordings from Kyutai's delayed-streams-modeling repository as its named
+voices. It is downloaded on demand like the Kokoro bundles. Reading in the
+voice of a recording is a use the person doing it is answerable for:
+Concat offers it for the narrator's own voice, and Kyutai asks that no
+one's voice be cloned without their consent.
+
+Chatterbox Turbo (MIT, https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX,
+Resemble AI) is driven through ONNX Runtime directly, from Resemble's own
+ONNX export, downloaded on demand like the other voices. Its GPT-2
+tokenizer is read by the tokenizers crate (Apache-2.0). Resemble's Python
+package stamps a Perth watermark on what it speaks; the ONNX pipeline
+carries no such step and Concat adds none, which MIT permits and which
+anyone passing the sound off as a person's should know is not there.
+
 ## ONNX Runtime
 
 The cutout models run on Microsoft's ONNX Runtime
@@ -142,8 +160,9 @@ what is mirrored, and the digest each download is checked against, is
 mirror.
 
 Mirroring is redistribution, and each model keeps the licence it arrived
-under - Apache-2.0 for the Kokoro bundles, SlimSAM and IS-Net, MIT for the
-whisper conversions, GPL-3.0 for Robust Video Matting. Those terms are met
+under - Apache-2.0 for the Kokoro bundles, SlimSAM and IS-Net, CC-BY-4.0
+for Pocket TTS, BSD-3-Clause for Real-ESRGAN, MIT for Chatterbox Turbo and
+the whisper conversions, GPL-3.0 for Robust Video Matting. Those terms are met
 by the attributions above and by the licence files each mirrored archive
 carries; a mirrored file is a verbatim copy, never a modification. Nothing
 in the mirror is bundled with the app, and Concat claims no rights over any

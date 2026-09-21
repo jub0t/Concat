@@ -70,6 +70,18 @@ sha256 = ""
 licence = "Apache-2.0"
 upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx"
 
+# Enhance's restoration model. In the cutout family because the family is
+# the engine table a row is checked against, and this one lives in the
+# vision crate's beside the cutout models.
+[[model]]
+id = "enhance-upscale"
+family = "cutout"
+file = "realesr-general-x4v3.onnx"
+bytes = 4866417
+sha256 = "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112"
+licence = "BSD-3-Clause"
+upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/main/realesr-general-x4v3.onnx"
+
 # ── Text to speech ───────────────────────────────────────────────────────
 # src/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
 # official sherpa-onnx conversions; the two differ only in quantisation.
@@ -91,6 +103,105 @@ bytes = 349418188
 sha256 = ""
 licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+
+# Kyutai's Pocket TTS, the sherpa-onnx int8 conversion: English, and any
+# voice it is given a few seconds of. The weights are CC-BY-4.0 (Kyutai);
+# the ONNX export is KevinAHM/pocket-tts-onnx under the same terms.
+[[model]]
+id = "pocket-tts-int8-2026-01-26"
+family = "tts"
+file = "sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
+bytes = 98336520
+sha256 = "2f3b88823cbbb9bf0b2477ec8ae7b3fec417b3a87b6bb5f256dba66f2ad967cb"
+licence = "CC-BY-4.0"
+upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2"
+
+# ── Chatterbox ───────────────────────────────────────────────────────────
+# src/crates/concat-speech/src/chatterbox.rs. Resemble AI's Chatterbox
+# Turbo, the quantised ONNX export: nine files that make one bundle, each
+# a row since the mirror is flat. The `file` names carry the bundle's
+# name; the engine puts each back under the name its graph expects.
+
+[[model]]
+id = "chatterbox-turbo-tokenizer.json"
+family = "chatterbox"
+file = "chatterbox-turbo-tokenizer.json"
+bytes = 3562272
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/tokenizer.json"
+
+[[model]]
+id = "chatterbox-turbo-embed_tokens_quantized.onnx"
+family = "chatterbox"
+file = "chatterbox-turbo-embed_tokens_quantized.onnx"
+bytes = 2887
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx"
+
+[[model]]
+id = "chatterbox-turbo-language_model_quantized.onnx"
+family = "chatterbox"
+file = "chatterbox-turbo-language_model_quantized.onnx"
+bytes = 279670
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx"
+
+[[model]]
+id = "chatterbox-turbo-speech_encoder_quantized.onnx"
+family = "chatterbox"
+file = "chatterbox-turbo-speech_encoder_quantized.onnx"
+bytes = 1205728
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx"
+
+[[model]]
+id = "chatterbox-turbo-conditional_decoder_quantized.onnx"
+family = "chatterbox"
+file = "chatterbox-turbo-conditional_decoder_quantized.onnx"
+bytes = 2202035
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx"
+
+[[model]]
+id = "chatterbox-turbo-embed_tokens_quantized.onnx_data"
+family = "chatterbox"
+file = "chatterbox-turbo-embed_tokens_quantized.onnx_data"
+bytes = 67297376
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx_data"
+
+[[model]]
+id = "chatterbox-turbo-conditional_decoder_quantized.onnx_data"
+family = "chatterbox"
+file = "chatterbox-turbo-conditional_decoder_quantized.onnx_data"
+bytes = 326548688
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx_data"
+
+[[model]]
+id = "chatterbox-turbo-speech_encoder_quantized.onnx_data"
+family = "chatterbox"
+file = "chatterbox-turbo-speech_encoder_quantized.onnx_data"
+bytes = 354676576
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx_data"
+
+[[model]]
+id = "chatterbox-turbo-language_model_quantized.onnx_data"
+family = "chatterbox"
+file = "chatterbox-turbo-language_model_quantized.onnx_data"
+bytes = 367962860
+sha256 = ""
+licence = "MIT"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx_data"
 
 # ── Transcription ────────────────────────────────────────────────────────
 # src/crates/concat-speech/src/transcribe.rs. whisper.cpp's GGML

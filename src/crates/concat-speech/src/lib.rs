@@ -17,6 +17,8 @@
 //! (sherpa-onnx's static libraries) stays out of everything that does not
 //! speak.
 
+#[cfg(feature = "chatterbox")]
+pub mod chatterbox;
 pub mod transcribe;
 pub mod tts;
 

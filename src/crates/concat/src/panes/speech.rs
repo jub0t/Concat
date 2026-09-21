@@ -14,7 +14,7 @@ use std::sync::Arc;
 use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
 use concat_project::model::ClipKind;
-use concat_speech::tts::VoiceInfo;
+use concat_speech::tts::{CHATTERBOX_CLONE, Family, Reference, VoiceInfo, family_of, is_clone};
 use slint::SharedString;
 
 use crate::host::{on_ui, spawn};
@@ -27,6 +27,8 @@ use crate::ui::SpeechSheetData;
 
 /// The default Kokoro speaker: `af_heart`.
 const DEFAULT_VOICE: i32 = 3;
+/// The default Pocket voice: Bria, the bundle's first recording.
+const DEFAULT_POCKET_VOICE: i32 = 1000;
 /// The paces the speech sheet offers, as the voice's rate multiplier.
 const PACES: [f32; 3] = [0.85, 1.0, 1.15];
 
@@ -58,10 +60,12 @@ pub struct SpeechPane {
     /// reads a script of its own at the playhead.
     pub clip: Option<String>,
     pub text: String,
-    /// Row in `speakers`.
+    /// Row in the chosen model's voices; see [`SpeechPane::offered`].
     pub voice: usize,
     /// Row in the installed voice model list.
     pub model: usize,
+    /// The family of the chosen model, which is which voices are offered.
+    pub family: Family,
     /// 0 slower, 1 natural, 2 faster.
     pub pace: usize,
     pub running: bool,
@@ -86,29 +90,41 @@ impl SpeechPane {
                     .cloned();
                 let installed = installed(&studio.settings.voices);
                 let model = installed.iter().position(|model| model.active).unwrap_or(0);
-                let wanted = studio.prefs.tts_voice.unwrap_or(DEFAULT_VOICE);
-                let voice = self
-                    .speakers
-                    .iter()
-                    .position(|speaker| speaker.id == wanted)
-                    .unwrap_or(0);
+                let family = installed
+                    .get(model)
+                    .map(|model| family_of(&model.id))
+                    .unwrap_or(Family::Kokoro);
                 *self = SpeechPane {
                     open: true,
                     clip: title.as_ref().map(|clip| clip.id.clone()),
                     text: title
                         .and_then(|clip| clip.text.map(|text| text.content))
                         .unwrap_or_default(),
-                    voice,
+                    voice: 0,
                     model,
+                    family,
                     pace: 1,
                     speakers: std::mem::take(&mut self.speakers),
                     ..SpeechPane::default()
                 };
+                // The voice chosen last time, if the model reads with it.
+                let wanted = studio.prefs.tts_voice;
+                self.voice = self.voice_row(wanted);
             }
             SpeechMsg::Close => self.open = false,
             SpeechMsg::TextEdited(text) => self.text = text,
             SpeechMsg::VoiceChanged(index) => self.voice = index.max(0) as usize,
-            SpeechMsg::ModelChanged(index) => self.model = index.max(0) as usize,
+            SpeechMsg::ModelChanged(index) => {
+                self.model = index.max(0) as usize;
+                // Another model may read with other voices: the list is
+                // rebuilt, and the row points at a voice on it.
+                let chosen = self.offered().get(self.voice).map(|voice| voice.id);
+                self.family = installed(&studio.settings.voices)
+                    .get(self.model)
+                    .map(|model| family_of(&model.id))
+                    .unwrap_or(Family::Kokoro);
+                self.voice = self.voice_row(chosen);
+            }
             SpeechMsg::PaceChanged(index) => self.pace = (index.max(0) as usize).min(2),
             SpeechMsg::Begin => self.run(studio),
             SpeechMsg::Cancel => {
@@ -164,9 +180,34 @@ impl SpeechPane {
             self.message = t("Download a voice model in Settings › Speech first");
             return;
         };
-        let Some(voice) = self.speakers.get(self.voice).map(|speaker| speaker.id) else {
+        let Some(voice) = self.offered().get(self.voice).map(|speaker| speaker.id) else {
             self.message = t("No voice to read with");
             return;
+        };
+        // The clone reads in the voice of the selected clip: its file,
+        // from where the clip starts in it.
+        let reference = if is_clone(voice) {
+            let recording = studio
+                .sole_selection()
+                .and_then(|id| studio.clip(&id))
+                .filter(|clip| clip.kind == ClipKind::Video || clip.kind == ClipKind::Audio)
+                .and_then(|clip| {
+                    studio
+                        .project()
+                        .media_by_id(&clip.media_id)
+                        .filter(|media| media.has_audio)
+                        .map(|media| Reference {
+                            path: media.path.clone(),
+                            start: clip.source_start,
+                        })
+                });
+            let Some(recording) = recording else {
+                self.message = t("Select a clip with a voice in it to clone");
+                return;
+            };
+            Some(recording)
+        } else {
+            None
         };
         let Some(project) = studio
             .session
@@ -187,6 +228,7 @@ impl SpeechPane {
         let request = concat_speech::tts::SpeakRequest {
             model_id: model,
             voice,
+            reference,
             text,
             speed: PACES[self.pace.min(2)],
             project,
@@ -221,7 +263,7 @@ impl SpeechPane {
         let seconds = chars as f32 / CHARS_PER_SECOND / PACES[self.pace.min(2)];
         let whole = seconds.round() as i32;
         let voice = self
-            .speakers
+            .offered()
             .get(self.voice)
             .map(|speaker| voice_label(&speaker.name).0)
             .unwrap_or_default();
@@ -231,17 +273,41 @@ impl SpeechPane {
         )
     }
 
-    /// The voice list's rows: each speaker's name.
-    pub fn speaker_rows(&self) -> Vec<SharedString> {
+    /// The voices the chosen model reads with, in table order.
+    pub fn offered(&self) -> Vec<&VoiceInfo> {
         self.speakers
+            .iter()
+            .filter(|speaker| speaker.family == self.family)
+            .collect()
+    }
+
+    /// The row of `wanted` among the offered voices, or of the family's
+    /// default, or the first.
+    fn voice_row(&self, wanted: Option<i32>) -> usize {
+        let offered = self.offered();
+        let default = match self.family {
+            Family::Kokoro => DEFAULT_VOICE,
+            Family::Pocket => DEFAULT_POCKET_VOICE,
+            Family::Chatterbox => CHATTERBOX_CLONE,
+        };
+        wanted
+            .and_then(|id| offered.iter().position(|voice| voice.id == id))
+            .or_else(|| offered.iter().position(|voice| voice.id == default))
+            .unwrap_or(0)
+    }
+
+    /// The voice list's rows: each offered voice's name.
+    pub fn speaker_rows(&self) -> Vec<SharedString> {
+        self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).0.into())
             .collect()
     }
 
-    /// The voice list's second lines: each speaker's accent and gender.
+    /// The voice list's second lines: each voice's accent and gender, or
+    /// where a Pocket voice comes from.
     pub fn speaker_detail_rows(&self) -> Vec<SharedString> {
-        self.speakers
+        self.offered()
             .iter()
             .map(|speaker| voice_label(&speaker.name).1.into())
             .collect()
@@ -271,8 +337,22 @@ impl SpeechPane {
 }
 
 /// "af_heart" as a person would say it: the name, and the accent and
-/// gender its prefix encodes.
+/// gender its prefix encodes. A Pocket voice says where it comes from.
 fn voice_label(name: &str) -> (String, String) {
+    if name == "pocket_clone" || name == "chatterbox_clone" {
+        return (
+            t("The selected clip's voice"),
+            t("Reads in the voice heard in the clip selected on the timeline"),
+        );
+    }
+    if let Some(rest) = name.strip_prefix("pocket_") {
+        let mut chars = rest.chars();
+        let title = match chars.next() {
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            None => String::new(),
+        };
+        return (title, t("A recording that comes with Pocket TTS"));
+    }
     let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
     let mut chars = rest.chars();
     let title = match chars.next() {
@@ -315,5 +395,9 @@ mod tests {
         assert!(detail.contains("American"));
         assert!(detail.contains("female"));
         assert_eq!(voice_label("nova").0, "Nova");
+        assert_eq!(voice_label("pocket_bria").0, "Bria");
+        assert!(voice_label("pocket_bria").1.contains("Pocket"));
+        assert!(voice_label("pocket_clone").0.contains("clip"));
+        assert!(voice_label("chatterbox_clone").0.contains("clip"));
     }
 }
