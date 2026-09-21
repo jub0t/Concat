@@ -6,7 +6,7 @@ name: Build app
 # target:
 #
 #   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
-#   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage
+#   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst
 #   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
 #
 # Installers and binaries only: the program is not shipped as an archive
@@ -549,6 +549,45 @@ jobs:
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
+
+      # Arch Linux package, from the same folder as the .deb and .rpm.
+      # Arch ships x86_64 only, so aarch64 comes from Arch Linux ARM.
+      - name: Package (Arch Linux)
+        if: matrix.platform == 'linux'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="Concat-${VERSION}-linux-${{ matrix.arch }}"
+          pkgver="${VERSION//-/_}"
+          image=archlinux:base-devel
+          if [ "${{ matrix.arch }}" = aarch64 ]; then
+            image=menci/archlinuxarm:base-devel
+          fi
+
+          work="$PWD/arch"
+          rm -rf "$work"
+          mkdir -p "$work"
+          cp assets/arch/PKGBUILD "$work/PKGBUILD"
+          cp -a "stage/$name" "$work/stage"
+
+          cat > "$work/build.sh" <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          owner=$(stat -c '%u:%g' /pkg)
+          useradd -m builder
+          chown -R builder:builder /pkg
+          su builder -c "env CONCAT_VERSION='$CONCAT_VERSION' CONCAT_STAGE=/pkg/stage PKGDEST=/pkg makepkg --noconfirm --nodeps"
+          chown -R "$owner" /pkg
+          SCRIPT
+          chmod 755 "$work/build.sh"
+
+          docker run --rm --env CONCAT_VERSION="$pkgver" \
+            -v "$work:/pkg" -w /pkg "$image" /pkg/build.sh
+
+          mv "$work"/concat-*.pkg.tar.zst "stage/$name.pkg.tar.zst"
+          rm -rf "$work"
+          ls -l stage
 
       # The folder three ways. A .deb and an .rpm, from one description in
       # assets/linux/nfpm.yaml: the program whole under /opt/concat, a
