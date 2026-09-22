@@ -141,6 +141,10 @@ export component TitleBar inherits Rectangle {
     height: 32px;
     background: Theme.panel;
 
+    property <bool> drag-armed: false;
+    property <length> press-x: 0px;
+    property <length> press-y: 0px;
+
     // Whatever is not a control drags the window. Declared first so every
     // control sits above it and takes its own presses; Texts and plain
     // Rectangles are not hit targets, so presses on them fall through here.
@@ -148,10 +152,25 @@ export component TitleBar inherits Rectangle {
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down
                 && event.button == PointerEventButton.left) {
-                root.begin-drag();
+                root.drag-armed = true;
+                root.press-x = self.mouse-x;
+                root.press-y = self.mouse-y;
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                root.drag-armed = false;
+            }
+        }
+        moved => {
+            if (root.drag-armed && self.pressed) {
+                if (Math.abs(self.mouse-x - root.press-x) > 4px
+                    || Math.abs(self.mouse-y - root.press-y) > 4px) {
+                    root.drag-armed = false;
+                    root.begin-drag();
+                }
             }
         }
         double-clicked => {
+            root.drag-armed = false;
             root.toggle-maximize();
         }
     }

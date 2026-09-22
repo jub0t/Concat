@@ -28,17 +28,16 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let cross_x = smoothstep(0.002, 0.0, abs(uv.x - 0.5)) * step(r, 0.3);
     let cross_y = smoothstep(0.002, 0.0, abs(uv.y - 0.5)) * step(r, 0.3);
     let angle = (atan2(d.y, d.x) + 3.14159) / 6.28318;
-    let sweep = fract(frame.time);
-    let arm = smoothstep(0.01, 0.0, abs(angle - sweep)) * step(r, 0.28);
-    let reticle = max(max(outer_ring, inner_ring), max(cross_x, cross_y)) + arm;
-
-    let sec = i32(frame.time) % 4;
-    var num = 0.0;
-    if (sec < 3) {
+    var leader = 0.0;
+    if (frame.clip_time < 3.0) {
+        let sweep = fract(frame.clip_time);
+        let arm = smoothstep(0.01, 0.0, abs(angle - sweep)) * step(r, 0.28);
+        let reticle = max(max(outer_ring, inner_ring), max(cross_x, cross_y)) + arm;
+        let sec = i32(frame.clip_time);
         let num_p = (uv - vec2<f32>(0.485, 0.46)) / vec2<f32>(0.01, 0.016);
-        num = draw_digit(num_p, 3 - sec);
+        let num = draw_digit(num_p, 3 - sec);
+        leader = clamp(reticle + num, 0.0, 1.0);
     }
-    let leader = clamp(reticle + num, 0.0, 1.0);
     col = mix(col, vec3<f32>(0.92, 0.88, 0.75), leader * 0.75);
 
     return vec4<f32>(clamp01(col + vec3<f32>(grain_val)), c.a);
