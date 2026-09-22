@@ -72,10 +72,6 @@ struct KnownModel {
     sha256: &'static str,
 }
 
-/// Where every file comes from; the test holds the table to it.
-#[cfg(test)]
-const UPSTREAM: &str = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/";
-
 /// The nine files, largest last so a torn download costs the least.
 const FILES: &[KnownModel] = &[
     KnownModel {
@@ -628,6 +624,9 @@ pub fn bundle_dir(models: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const UPSTREAM: &str =
+        "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/";
 
     #[test]
     fn the_table_names_nine_distinct_files_with_the_bundle_in_front() {

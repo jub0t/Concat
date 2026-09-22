@@ -123,7 +123,14 @@ impl TimelinePane {
                 studio.prefs.save(&studio.host.dirs);
             }
             TimelineMsg::Scrolled(seconds) => self.scroll_left = seconds.max(0.0),
-            TimelineMsg::Zoomed { factor, anchor } => self.zoom(factor, anchor),
+            TimelineMsg::Zoomed { factor, anchor } => {
+                let anchor = if anchor < 0.0 {
+                    self.default_anchor(studio)
+                } else {
+                    anchor
+                };
+                self.zoom(factor, anchor);
+            }
             TimelineMsg::ZoomToFit(width) => {
                 let span = studio.duration().max(1.0) * 1.05;
                 if width > 1.0 {
@@ -131,13 +138,34 @@ impl TimelinePane {
                     self.scroll_left = 0.0;
                 }
             }
-            TimelineMsg::ZoomIn => self.zoom(1.0 / ZOOM_STEP, -1.0),
-            TimelineMsg::ZoomOut => self.zoom(ZOOM_STEP, -1.0),
+            TimelineMsg::ZoomIn => {
+                let anchor = self.default_anchor(studio);
+                self.zoom(1.0 / ZOOM_STEP, anchor);
+            }
+            TimelineMsg::ZoomOut => {
+                let anchor = self.default_anchor(studio);
+                self.zoom(ZOOM_STEP, anchor);
+            }
             TimelineMsg::Resized(width) => self.width = width.max(0.0),
             TimelineMsg::Reset => {
                 self.scroll_left = 0.0;
                 self.lane_view.clear();
             }
+        }
+    }
+
+    /// The anchor point for a zoom that has no pointer position (e.g. keyboard
+    /// shortcut or tray buttons): the playhead if on screen, else the center of
+    /// the visible timeline.
+    fn default_anchor(&self, studio: &Studio) -> f32 {
+        let playhead = f64::from(studio.playhead) as f32;
+        let screen = self.width * self.seconds_per_pixel;
+        if screen > 0.0 && (self.scroll_left..=self.scroll_left + screen).contains(&playhead) {
+            playhead
+        } else if screen > 0.0 {
+            self.scroll_left + screen / 2.0
+        } else {
+            playhead.max(0.0)
         }
     }
 

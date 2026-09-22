@@ -123,6 +123,7 @@ component Ramps inherits Rectangle {
 component Clip inherits Rectangle {
     in property <ClipData> item;
     in property <length> px-per-second;
+    in property <length> viewport-width: 1920px;
     in property <TimelineTool> tool;
     /// how close to an edge counts as grabbing it
     in property <length> edge-grab: 6px;
@@ -285,7 +286,16 @@ component Clip inherits Rectangle {
 
             property <length> tile-w: Math.max(4px,
                 self.height * root.item.strip.frame-width / Math.max(1, root.item.strip.height));
-            property <int> tiles: Math.min(400, Math.ceil(parent.width / self.tile-w));
+
+            // Window tiles to the visible screen area so zooming in never leaves
+            // all tiles off-screen to the left (fixes #156):
+            property <length> vis-start: Math.min(root.width, Math.max(0px, -root.x));
+            property <length> vis-end: Math.max(0px, Math.min(root.width, -root.x + root.viewport-width));
+            property <int> first-tile: Math.max(0, Math.floor(self.vis-start / self.tile-w));
+            property <int> total-tiles: Math.max(1, Math.ceil(root.width / self.tile-w));
+            property <int> tiles: self.vis-end <= self.vis-start ? 0
+                : Math.max(0, Math.min(Math.min(120, self.total-tiles - self.first-tile),
+                    Math.ceil((self.vis-end - self.vis-start) / self.tile-w) + 1));
 
             /// The fraction of the clip under the middle of tile `i`'s
             /// visible part.
@@ -294,8 +304,8 @@ component Clip inherits Rectangle {
                     / 2 / Math.max(1px, self.width);
             }
 
-            for i in self.tiles: Image {
-                x: i * parent.tile-w;
+            for j in self.tiles: Image {
+                x: (parent.first-tile + j) * parent.tile-w;
                 y: 0;
                 width: parent.tile-w;
                 height: parent.height;
@@ -303,7 +313,7 @@ component Clip inherits Rectangle {
                 image-fit: fill;
                 source-clip-x: Math.clamp(
                     Math.floor(root.item.strip.frames
-                        * (root.item.strip.start + root.item.strip.span * parent.at(i))),
+                        * (root.item.strip.start + root.item.strip.span * parent.at(parent.first-tile + j))),
                     0, root.item.strip.frames - 1) * root.item.strip.frame-width;
                 source-clip-y: 0;
                 source-clip-width: root.item.strip.frame-width;
@@ -1097,6 +1107,7 @@ export component Lanes inherits Rectangle {
 
             item: entry;
             px-per-second: root.px-per-second;
+            viewport-width: parent.width;
             tool: root.tool;
             // Read back through the lane the clip sits on rather than carried
             // on the clip: locking is a property of the lane, and copying it
@@ -1342,7 +1353,7 @@ export component Lanes inherits Rectangle {
                     last-x = self.mouse-x;
                 }
                 if (event.kind == PointerEventKind.move && self.pressed) {
-                    let delta = last-x - self.mouse-x;
+                    let delta = self.mouse-x - last-x;
                     root.scrolled(Math.max(0.0, root.scroll-left - delta / root.px-per-second));
                     last-x = self.mouse-x;
                 }
