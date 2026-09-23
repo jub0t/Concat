@@ -111,10 +111,10 @@ export component TitleBar inherits Rectangle {
     /// Leaves room for the traffic lights and drops nothing else; on other
     /// platforms the strip starts at the left edge.
     in property <bool> macos: true;
-    /// The launch screen's face: the wordmark and the theme toggle, and
-    /// nothing else. The menus act on a project, the panel picker and Export
-    /// act on an edit, and on this screen there is neither — a strip of
-    /// controls that all refuse is worse than a strip without them.
+    /// The launch screen's face: the theme toggle and the window buttons,
+    /// and nothing else. The menus act on a project, the panel picker and
+    /// Export act on an edit, and on this screen there is neither — a strip
+    /// of controls that all refuse is worse than a strip without them.
     in property <bool> minimal;
     /// The launch screen is under the strip, which has a ground of its own —
     /// a deeper one than the editor's. The strip takes that ground rather
@@ -193,27 +193,9 @@ export component TitleBar inherits Rectangle {
         padding-right: root.own-buttons ? 0px : 8px;
         spacing: 2px;
 
-        // mark + wordmark
-        VerticalLayout {
-            alignment: center;
-            Image {
-                width: 16px;
-                height: 16px;
-                source: @image-url("assets/concat-logo.png");
-            }
-        }
-
-        VerticalLayout {
-            alignment: center;
-            padding-left: 6px;
-            padding-right: 6px;
-            Text {
-                text: "Concat";
-                color: Theme.fg;
-                font-size: Theme.fs-lg;
-                font-weight: Theme.weight-display;
-            }
-        }
+        // No mark and no wordmark: the strip opens on the menus. A window
+        // does not need to say whose it is on every frame, and the launch
+        // screen's heading already carries the name where it means something.
 
         // Each label reports its own position rather than a fixed one: they
         // are sized from their text, so where "View" starts depends on how
