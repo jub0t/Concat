@@ -308,6 +308,8 @@ export component Seat inherits Rectangle {
             snap: Editor.snap;
             magnetic: Editor.magnetic;
             pan-mode: Editor.pan-mode;
+            preview-axis: Editor.preview-axis;
+            preview-axis-audio: Editor.preview-axis-audio;
             selected-count: Editor.selected-count;
             can-undo: Editor.can-undo;
             can-redo: Editor.can-redo;
@@ -328,6 +330,10 @@ export component Seat inherits Rectangle {
             snap-changed(snap) => { Editor.snap-changed(snap); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
+            preview-axis-changed(on) => { Editor.preview-axis-changed(on); }
+            preview-axis-audio-changed(on) => { Editor.preview-axis-audio-changed(on); }
+            hovered(seconds) => { Editor.hovered(seconds); }
+            hover-ended => { Editor.hover-ended(); }
             undo => { Editor.undo(); }
             redo => { Editor.redo(); }
             split => { Editor.split(); }

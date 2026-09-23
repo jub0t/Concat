@@ -666,6 +666,20 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_magnetic_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::MagneticChanged(on)));
     }));
+    editor.on_preview_axis_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)));
+    }));
+    editor.on_preview_axis_audio_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::PreviewAxisAudioChanged(on)));
+    }));
+    // The preview axis: on every move of the pointer across the lanes, so
+    // it publishes the lanes and no more, the way a scrub does.
+    editor.on_hovered(on_lanes!(|state, seconds: f32| {
+        state.handle(Msg::Timeline(TimelineMsg::Hovered(seconds)));
+    }));
+    editor.on_hover_ended(on_lanes!(|state| {
+        state.handle(Msg::Timeline(TimelineMsg::HoverEnded));
+    }));
     editor.on_add_track(on_window!(|state| {
         state.apply(concat_project::Command::AddTrack);
     }));
@@ -969,7 +983,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         .on_release(|| Shell::with(|_, app| app.invoke_blur()));
     editor.on_shortcut(move |action: SharedString| match action.as_str() {
         "import" | "export" | "settings" | "zoom-in" | "zoom-out" | "start" | "end" | "snap"
-        | "magnetic" => {
+        | "magnetic" | "pan" | "preview-axis" => {
             Shell::with(|_, app| app.invoke_app_menu_selected(action.clone()));
         }
         _ => Shell::with(|shell, app| {
@@ -1225,6 +1239,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.handle(Msg::Timeline(TimelineMsg::SnapToggled)),
+                        "pan" => {
+                            let on = !state.lanes.pan_mode;
+                            state.handle(Msg::Timeline(TimelineMsg::PanChanged(on)))
+                        }
+                        "preview-axis" => {
+                            let on = !state.prefs.preview_axis;
+                            state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)))
+                        }
                         "magnetic" => state.handle(Msg::Timeline(TimelineMsg::MagneticToggled)),
                         "sort-added" => state.handle(Msg::Media(MediaMsg::SortChanged(0))),
                         "sort-name" => state.handle(Msg::Media(MediaMsg::SortChanged(1))),

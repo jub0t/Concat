@@ -396,8 +396,13 @@ export component App inherits Window {
             // the two did the same thing by different pointers.
             if (event.text == "b") { Editor.shortcut("split-selected"); return accept; }
             if (event.text == "n") { Editor.shortcut("snap"); return accept; }
+            if (event.text == "s") { Editor.shortcut("preview-axis"); return accept; }
             if (event.text == "m") { Editor.shortcut("mute"); return accept; }
-            if (event.text == "h") { Editor.shortcut("flip-h"); return accept; }
+            // H is the hand: the pan tool, on and off, the key every
+            // editor's canvas grabs with. Flip horizontal had it and lost
+            // it; that is still on the clip's menu, and J still flips
+            // vertically.
+            if (event.text == "h") { Editor.shortcut("pan"); return accept; }
             if (event.text == "j") { Editor.shortcut("flip-v"); return accept; }
             if (event.text == "r") { Editor.shortcut("reverse"); return accept; }
             return reject;

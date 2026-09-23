@@ -299,10 +299,11 @@ pub enum Command {
         track_id: Option<String>,
         /// When `track_id` is None and this is true, the clip lands on the
         /// first free lane *above* the highest one occupied over its span,
-        /// minting a new lane at the top when every one above is taken. Set
-        /// by the caption run so captions sit over the video rather than
-        /// under it; a plain title leaves it false and keeps the old
-        /// bottom-first behaviour. Ignored when `track_id` names a track.
+        /// minting a new lane at the top when every one above is taken.
+        /// What the editor sets for a caption and for a title alike, so
+        /// words sit over the video rather than under it; false keeps the
+        /// bottom-first walk of [`Command::AddClipAtFirstFree`]. Ignored
+        /// when `track_id` names a track.
         #[serde(default)]
         above: bool,
         /// Timeline position in seconds, floored at 0.

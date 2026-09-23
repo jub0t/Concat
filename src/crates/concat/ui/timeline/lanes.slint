@@ -45,7 +45,7 @@ global Paint {
     public pure function badge(kind: ClipKind) -> Glyph {
         return kind == ClipKind.audio ? Glyph.music
             : kind == ClipKind.image ? Glyph.image
-            : kind == ClipKind.text ? Glyph.sparkle
+            : kind == ClipKind.text ? Glyph.text-mark
             : kind == ClipKind.filter ? Glyph.filter
             : Glyph.film;
     }
@@ -136,6 +136,11 @@ component Clip inherits Rectangle {
     callback dragged(seconds: float, pixels: length);
     callback released();
     callback context-requested();
+    /// The pointer over this clip, at this x in it, and then not. For the
+    /// preview axis: a hover belongs to the surface under the pointer, and
+    /// the lanes' floor cannot hear through a clip.
+    callback hovered(x: length);
+    callback hover-ended();
 
     property <color> mark: Paint.mark(root.item.kind);
     property <color> well: Paint.well(root.item.kind);
@@ -149,10 +154,16 @@ component Clip inherits Rectangle {
     property <bool> all-strip: root.item.kind == ClipKind.text
         || root.item.kind == ClipKind.filter;
     property <length> header-h: root.all-strip ? root.height : 17px;
-    /// A filter layer wears its mark before its name, the way the look is
-    /// told from a title or a sound on the lanes at a glance.
-    property <bool> marked: root.item.kind == ClipKind.filter;
+    /// An all-strip clip wears its kind's mark before its name, the way a
+    /// look or a title is told from a sound on the lanes at a glance.
+    property <bool> marked: root.all-strip;
     property <length> text-x: root.marked ? 22px : 7px;
+    /// The `fx` chip: a square sized to the strip it sits in, capped so a
+    /// tall filter bar wears a rounded square and not a tall pill. A video
+    /// header is too short for a square the word fits, so there it keeps
+    /// the width it always had and stays a little wider than tall.
+    property <length> chip: Math.min(root.header-h - 5px, 20px);
+    property <length> chip-w: Math.max(root.chip, 14px);
     property <length> body-h: Math.max(0px, root.height - root.header-h);
     /// The sound band at the foot of a video clip: its file's waveform
     /// under its frames, a third of the body and never a sliver, and there
@@ -406,7 +417,7 @@ component Clip inherits Rectangle {
         if root.marked && root.width > 20px: Icon {
             x: 6px;
             y: (parent.height - self.height) / 2;
-            glyph: Glyph.filter;
+            glyph: root.badge;
             size: 11px;
             tint: Theme.clip-ink;
         }
@@ -415,7 +426,7 @@ component Clip inherits Rectangle {
             x: root.text-x;
             y: 0;
             width: parent.width - root.text-x - 7px
-                - (root.item.fx && root.width > 60px ? 20px : 0px);
+                - (root.item.fx && root.width > 60px ? root.chip-w + 6px : 0px);
             height: parent.height;
             text: root.item.name;
             color: Theme.clip-ink;
@@ -425,7 +436,7 @@ component Clip inherits Rectangle {
         }
 
         // A filter layer's ramps run over its whole bar; see Ramps.
-        if root.marked: Ramps {
+        if root.item.kind == ClipKind.filter: Ramps {
             x: 0;
             y: 0;
             width: parent.width;
@@ -439,9 +450,9 @@ component Clip inherits Rectangle {
         // tellable from a plain one without opening a panel.
         if root.item.fx && root.width > 60px: Rectangle {
             x: parent.width - self.width - 4px;
-            y: 2.5px;
-            width: 14px;
-            height: parent.height - 5px;
+            y: (parent.height - self.height) / 2;
+            width: root.chip-w;
+            height: root.chip;
             border-radius: Theme.r-xs;
             background: Theme.clip-chip;
 
@@ -452,10 +463,11 @@ component Clip inherits Rectangle {
                 height: parent.height;
                 text: "fx";
                 color: Theme.clip-ink;
-                // Not a step of the scale: it is sized to the 12px chip it is
+                // Not a step of the scale: it is sized to the chip it is
                 // centred in, the way a glyph is, and moves with that and not
-                // with the type.
-                font-size: 9px;
+                // with the type - 9px in a video header's 12px chip, up to
+                // 11px in a filter bar's 20px one.
+                font-size: Math.max(9px, root.chip * 0.55);
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
@@ -503,6 +515,13 @@ component Clip inherits Rectangle {
     touch := TouchArea {
         enabled: !root.locked;
         mouse-cursor: root.edge-at >= 0 ? MouseCursor.ew-resize : MouseCursor.grab;
+
+        changed mouse-x => {
+            if (self.has-hover && !self.pressed) { root.hovered(self.mouse-x); }
+        }
+        changed has-hover => {
+            if (!self.has-hover) { root.hover-ended(); }
+        }
 
         pointer-event(event) => {
             // The right button opens the menu and does nothing else — it must
@@ -877,14 +896,48 @@ export component Lanes inherits Rectangle {
     in property <float> scroll-left;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in property <bool> pan-mode: false;
+    /// The preview axis: a hairline follows the pointer across the lanes
+    /// and the monitor shows the frame under it. Off, the lanes say nothing
+    /// about where the pointer is.
+    in property <bool> preview-axis: false;
     /// The zoom: seconds covered by one pixel.
     in property <float> seconds-per-pixel: 0.05;
     in property <length> track-scroll;
     in property <length> ruler-height: 28px;
 
     callback scrubbed(seconds: float);
+    /// The preview axis: the pointer is over the lanes at this instant,
+    /// and then - a beat after it last was - it is not.
+    callback hovered(seconds: float);
+    callback hover-ended();
     /// A press on an empty stretch of lane, before the band it may become.
     callback floor-pressed();
+
+    /// Where the pointer is, for the preview axis, and whether it is here
+    /// at all. Every surface reports through `hover-at` - the floor, the
+    /// ruler, the hand's pane, each clip - because a hover belongs to the
+    /// surface under the pointer and nothing listens through them.
+    property <length> hover-x;
+    property <bool> hover-on;
+
+    function hover-at(x: length) {
+        if (!root.preview-axis) {
+            return;
+        }
+        hover-off-timer.running = false;
+        root.hover-x = x;
+        root.hover-on = true;
+        root.hovered(Math.max(0, root.seconds-at(x)));
+    }
+    /// A beat later, not at once: the pointer crossing from a clip to the
+    /// floor leaves one surface before it reaches the next, and the
+    /// monitor snapping back to the playhead in between would read as a
+    /// glitch. A hover that arrives inside the beat cancels it.
+    function hover-off() {
+        if (root.hover-on) {
+            hover-off-timer.running = true;
+        }
+    }
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
@@ -1092,6 +1145,13 @@ export component Lanes inherits Rectangle {
                 self.to-x = self.mouse-x;
                 self.to-y = self.mouse-y;
             }
+
+            changed mouse-x => {
+                if (self.has-hover && !self.pressed) { root.hover-at(self.mouse-x); }
+            }
+            changed has-hover => {
+                if (!self.has-hover) { root.hover-off(); }
+            }
         }
 
         // ── the clips ────────────────────────────────────────────────────
@@ -1117,6 +1177,8 @@ export component Lanes inherits Rectangle {
             pressed(additive, edge) => { root.clip-pressed(entry.id, additive, edge); }
             dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
             released => { root.clip-released(); }
+            hovered(x) => { root.hover-at(self.x + x); }
+            hover-ended => { root.hover-off(); }
             context-requested => {
                 // Captured before the round trip: by the time the items come
                 // back the pointer may have moved, and a menu that opens away
@@ -1285,6 +1347,13 @@ export component Lanes inherits Rectangle {
             // the two gestures can share one surface.
             scrub := TouchArea {
                 mouse-cursor: pointer;
+
+                changed mouse-x => {
+                    if (self.has-hover && !self.pressed) { root.hover-at(self.mouse-x); }
+                }
+                changed has-hover => {
+                    if (!self.has-hover) { root.hover-off(); }
+                }
                 pointer-event(event) => {
                     if (event.kind == PointerEventKind.down) {
                         root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
@@ -1310,6 +1379,30 @@ export component Lanes inherits Rectangle {
             menu-height: root.menu-height;
             token: root.own-token;
             selected(id) => { root.menu-selected(id); }
+        }
+
+        // ── the preview axis ─────────────────────────────────────────────
+        //
+        // A hairline where the pointer is, over the lanes and the ruler, so
+        // the frame the monitor is showing has a place on the timeline. Dim,
+        // and under the playhead: it is where you are looking, not where the
+        // cut is.
+        hover-off-timer := Timer {
+            interval: 80ms;
+            running: false;
+            triggered => {
+                self.running = false;
+                root.hover-on = false;
+                root.hover-ended();
+            }
+        }
+        if root.preview-axis && root.hover-on: Rectangle {
+            x: root.hover-x;
+            y: 0;
+            width: 1px;
+            height: root.height;
+            background: Theme.fg-dim;
+            visible: self.x >= 0px && self.x <= root.width;
         }
 
         // ── the playhead ─────────────────────────────────────────────────
@@ -1346,6 +1439,13 @@ export component Lanes inherits Rectangle {
         if root.pan-mode: pan := TouchArea {
             mouse-cursor: pointer;
             property <length> last-x: 0px;
+
+            changed mouse-x => {
+                if (self.has-hover && !self.pressed) { root.hover-at(self.mouse-x); }
+            }
+            changed has-hover => {
+                if (!self.has-hover) { root.hover-off(); }
+            }
 
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down

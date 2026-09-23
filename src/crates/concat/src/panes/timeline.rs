@@ -58,6 +58,15 @@ pub enum TimelineMsg {
     MagneticChanged(bool),
     /// The menu's Magnetic row: the other way round.
     MagneticToggled,
+    /// The tray's preview axis button: the monitor follows the pointer.
+    /// A preference, remembered.
+    PreviewAxisChanged(bool),
+    /// The button's menu: whether the sound under the pointer plays too.
+    PreviewAxisAudioChanged(bool),
+    /// The pointer is over the lanes at this many seconds.
+    Hovered(f32),
+    /// The pointer left the lanes.
+    HoverEnded,
     /// The lanes scrolled sideways, to this many seconds from the start.
     Scrolled(f32),
     /// The wheel or a pinch: by a factor, about an instant; an anchor
@@ -122,6 +131,19 @@ impl TimelinePane {
                 studio.prefs.magnetic = !studio.prefs.magnetic;
                 studio.prefs.save(&studio.host.dirs);
             }
+            TimelineMsg::PreviewAxisChanged(on) => {
+                studio.prefs.preview_axis = on;
+                studio.prefs.save(&studio.host.dirs);
+                if !on {
+                    studio.end_hover();
+                }
+            }
+            TimelineMsg::PreviewAxisAudioChanged(on) => {
+                studio.prefs.preview_axis_audio = on;
+                studio.prefs.save(&studio.host.dirs);
+            }
+            TimelineMsg::Hovered(seconds) => studio.hover(seconds),
+            TimelineMsg::HoverEnded => studio.end_hover(),
             TimelineMsg::Scrolled(seconds) => self.scroll_left = seconds.max(0.0),
             TimelineMsg::Zoomed { factor, anchor } => {
                 let anchor = if anchor < 0.0 {

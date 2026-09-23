@@ -246,6 +246,12 @@ export global Editor {
     in-out property <bool> magnetic;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
+    /// The preview axis: the monitor shows the frame under the pointer as
+    /// it crosses the lanes, the playhead staying put. A remembered
+    /// preference, which Rust owns; `preview-axis-audio` is whether the
+    /// sound under the pointer plays too.
+    in-out property <bool> preview-axis: false;
+    in-out property <bool> preview-axis-audio;
     in-out property <int> selected-count;
     /// Whether the history has a step that way: what greys the tray's undo
     /// and redo buttons. The Edit menu asks Rust the same question when it
@@ -271,6 +277,12 @@ export global Editor {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback preview-axis-changed(on: bool);
+    callback preview-axis-audio-changed(on: bool);
+    /// The preview axis: the pointer is over the lanes at this instant,
+    /// and then it is not.
+    callback hovered(seconds: float);
+    callback hover-ended();
     /// The tray's undo and redo buttons. The keyboard's ⌘Z goes through
     /// the Edit menu instead (see App.app-menu-selected); both land on the
     /// same two methods of the state.

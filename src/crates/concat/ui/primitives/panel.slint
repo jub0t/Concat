@@ -203,9 +203,13 @@ export component IconButton inherits Rectangle {
     /// button, and nothing else so far. Carries the accent at rest, not only
     /// on hover, which is what separates it from `checked`.
     in property <bool> accent;
-    /// widen past the square default
+    /// widen past the square default; a worded button widens to its word
     in property <bool> wide;
     in property <length> icon-size: 14px;
+    /// The mark's colour at rest. Muted, so a row of buttons reads as marks
+    /// and not as a row of lights; a tray whose marks should stand out on
+    /// their ground raises it.
+    in property <brush> idle: Theme.fg-muted;
 
     callback clicked();
 
@@ -220,8 +224,8 @@ export component IconButton inherits Rectangle {
     property <brush> tint: root.checked ? Theme.accent
         : (root.lit && root.danger) ? Theme.danger
         : root.accent ? (root.lit ? Theme.accent-hover : Theme.accent)
-        : root.lit ? Theme.fg
-        : Theme.fg-muted;
+        : root.lit ? Theme.fg-hot
+        : root.idle;
     property <length> side: 26px;
     property <bool> ring;
 
@@ -229,7 +233,7 @@ export component IconButton inherits Rectangle {
     // on the cross axis — there is no `align-items: center` — so the root takes
     // whatever height the row hands it and the chip centres itself inside,
     // which keeps the button honest in a 28px row and a 42px header alike.
-    width: root.wide ? 40px : root.side;
+    width: root.wide ? Math.max(40px, caption.preferred-width + 16px) : root.side;
     min-height: root.side;
 
     // First in the tree, so the TouchArea below sits above it. A FocusScope
@@ -287,7 +291,10 @@ export component IconButton inherits Rectangle {
         // size inside a Rectangle - a Rectangle is not a layout, and nothing
         // stretches it - so without these four it is a text-sized box at the
         // top left corner, and centring it inside itself moves nothing.
-        if root.text != "": Text {
+        // Always in the tree, so a wide button can size itself to the
+        // word: an element behind an `if` cannot be measured from outside.
+        caption := Text {
+            visible: root.text != "";
             x: 0;
             y: 0;
             width: parent.width;

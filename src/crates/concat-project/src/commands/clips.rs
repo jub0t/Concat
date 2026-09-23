@@ -84,7 +84,7 @@ pub(super) fn apply(
                     Some(id) => id,
                     None => {
                         // Every lane above the video is taken: mint one at
-                        // the top for the caption to land on.
+                        // the top for the words to land on.
                         let id = mint.next("t");
                         timeline.tracks.push(Track {
                             id: id.clone(),
@@ -677,9 +677,9 @@ fn first_free_track(timeline: &Timeline, start: f64, duration: f64) -> Option<St
 /// duration)`. `None` when every lane above is taken, which is the caller's
 /// cue to mint a new one at the top.
 ///
-/// Captions go through this so they sit over the video, not under it. The
-/// plain `first_free_track` still walks from the bottom, which is what a
-/// title added by hand wants.
+/// Captions and titles go through this so they sit over the video, not
+/// under it. The plain `first_free_track` still walks from the bottom,
+/// which is what a sound or a picture wants.
 fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Option<String> {
     let end = start + duration;
     let occupied = |track_id: &str| {

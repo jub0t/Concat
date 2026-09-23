@@ -95,6 +95,8 @@ export enum Glyph {
     trash,
     magnet,
     fold,
+    /// the preview axis: a hairline with the pointer beside it
+    axis,
     waveform,
     filter,
     eye-off,
@@ -511,6 +513,13 @@ export component Icon inherits Rectangle {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M2 12h6 M22 12h-6 M12 2v2 M12 8v2 M12 14v2 M12 20v2"
             + " M19 9l-3 3 3 3 M5 15l3-3-3-3";
+    }
+
+    // The preview axis: a hairline down the lanes and the pointer beside
+    // it - the frame under the pointer, shown without moving the playhead.
+    if root.glyph == Glyph.axis: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M7 3v18 M11 8l9 4.2-4 1.2-1.6 4z";
     }
 
     // lucide/blend: two circles overlapping, for a filter - a look laid

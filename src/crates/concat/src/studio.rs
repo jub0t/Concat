@@ -612,6 +612,12 @@ pub struct Studio {
     pub playhead: f32,
     pub playing: bool,
     transport: slint::Timer,
+    /// The preview axis: the instant under the pointer while it crosses the
+    /// lanes, which the monitor shows instead of the playhead's. None when
+    /// the pointer is elsewhere, or the axis is off, or the cut is playing.
+    pub hover: Option<f32>,
+    /// Stops the burst of sound a hover with audio plays.
+    hover_hush: slint::Timer,
     /// One clip, held for Paste.
     pub clipboard: Option<Clip>,
     /// The monitor: its frame, and the requests for the next.
@@ -1327,6 +1333,8 @@ impl Studio {
             // ~20px a second: a ten-second cut fits a pane at its default width.
             playing: false,
             transport: slint::Timer::default(),
+            hover: None,
+            hover_hush: slint::Timer::default(),
             clipboard: None,
             monitor: crate::panes::monitor::MonitorPane::default(),
             export: Default::default(),
@@ -1866,6 +1874,9 @@ impl Studio {
         if self.playhead >= self.duration() {
             self.playhead = 0.0;
         }
+        // The transport owns the monitor from here; a frame from under a
+        // pointer that happens to be over the lanes must not stay on it.
+        self.end_hover();
         self.playing = true;
         self.host.playback.play(f64::from(self.playhead));
         // The clock is the audio device's; this follows it at 30 Hz and
@@ -1909,6 +1920,56 @@ impl Studio {
         }
         self.host.playback.seek(f64::from(self.playhead));
         self.request_preview();
+    }
+
+    // ── the preview axis ──
+
+    /// The instant the monitor shows: the pointer's while it crosses the
+    /// lanes with the preview axis on, else the playhead's.
+    pub fn preview_time(&self) -> f32 {
+        self.hover.unwrap_or(self.playhead)
+    }
+
+    /// The pointer is over the lanes at `seconds`. Nothing while playing -
+    /// the transport owns the monitor then - and nothing with the axis off.
+    pub fn hover(&mut self, seconds: f32) {
+        if !self.prefs.preview_axis || self.playing {
+            return;
+        }
+        let seconds = seconds.max(0.0);
+        if self.hover == Some(seconds) {
+            return;
+        }
+        self.hover = Some(seconds);
+        if self.prefs.preview_axis_audio {
+            // A burst of the sound under the pointer: the engine plays from
+            // there and is stopped a beat later, then put back where the
+            // playhead is, so the next Play starts where the cut says.
+            self.host.playback.play(f64::from(seconds));
+            let playhead = f64::from(self.playhead);
+            self.hover_hush.start(
+                slint::TimerMode::SingleShot,
+                std::time::Duration::from_millis(120),
+                move || {
+                    crate::host::Shell::with(|shell, _| {
+                        let studio = shell.studio.borrow();
+                        if !studio.playing {
+                            studio.host.playback.pause();
+                            studio.host.playback.seek(playhead);
+                        }
+                    });
+                },
+            );
+        }
+        self.request_preview();
+    }
+
+    /// The pointer left the lanes, or the axis went off: the monitor is the
+    /// playhead's again.
+    pub fn end_hover(&mut self) {
+        if self.hover.take().is_some() {
+            self.request_preview();
+        }
     }
 
     // ── the bin ──
@@ -2462,13 +2523,16 @@ impl Studio {
             ),
             None => (new_title_style(), None, None),
         };
+        // Over the picture, not under it: the first free lane above every
+        // occupied one, minted at the top when there is none. A drop onto a
+        // lane names its track and is placed there regardless.
         let add = Command::AddTextClip {
             track_id,
             start,
             style: Some(style),
             duration: Some(duration),
             offset_y,
-            above: false,
+            above: true,
         };
         match font {
             Some((family, path)) => self.apply(Command::Batch {
@@ -5707,6 +5771,8 @@ impl Studio {
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
         editor.set_magnetic(self.prefs.magnetic);
+        editor.set_preview_axis(self.prefs.preview_axis);
+        editor.set_preview_axis_audio(self.prefs.preview_axis_audio);
         editor.set_pan_mode(self.lanes.pan_mode);
         editor.set_selected_count(self.selection.len() as i32);
         // The tray's undo and redo buttons grey out on these; the Edit menu

@@ -12,7 +12,7 @@ import { TimelineTool } from "model.slint";
 // The tool set: add-track first, then undo and redo, then the three edit
 // actions, then snapping, then the tools a clip's sound and words need
 // - captions, a spoken title, detaching the sound - and the view controls
-// pushed to the far end behind the timecode readout. The metrics: 40px
+// pushed to the far end. The metrics: 40px
 // tall, 4px between buttons, an 18px hairline with 4px of air on each side
 // between groups. Tight, without crowding a 26px button.
 //
@@ -48,11 +48,21 @@ component Divider inherits Rectangle {
     }
 }
 
+// The tray's button: an IconButton whose mark is bright at rest. The muted
+// default is for a row that must not compete with what it sits beside; this
+// row sits on its own strip under the lanes, where a muted mark reads as
+// switched off, and a switched-off one has nothing dimmer left to be.
+component TrayButton inherits IconButton {
+    idle: Theme.fg;
+}
+
 export component TimelineTray inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
     in property <bool> magnetic: false;
     in property <bool> pan-mode: false;
+    /// The preview axis: the monitor follows the pointer across the lanes.
+    in property <bool> preview-axis: false;
     in property <int> selected-count;
     /// Whether the history has a step that way. Rust's answer, read from
     /// the editor after every change, so the buttons never guess.
@@ -64,13 +74,16 @@ export component TimelineTray inherits Rectangle {
     /// clip's worth of truth, decided by Rust; see the Editor global.
     in property <bool> sound-selected;
     in property <bool> title-selected;
-    /// hh:mm:ss:ff at the playhead, formatted by the caller
-    in property <string> readout;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback preview-axis-changed(on: bool);
+    /// The chevron beside the preview axis: open its menu under the button
+    /// at this x, in the tray's coordinates. The pane hosts the menu; see
+    /// there for why.
+    callback axis-menu-requested(x: length);
     callback undo();
     callback redo();
     callback split();
@@ -100,7 +113,7 @@ export component TimelineTray inherits Rectangle {
         padding-bottom: 7px;
         spacing: 4px;
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.plus;
             label: I18n.t("Add track");
             icon-size: 14px;
@@ -109,14 +122,14 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.undo;
             label: I18n.t("Undo (⌘Z)");
             icon-size: 16px;
             enabled: root.can-undo;
             clicked => { root.undo(); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.redo;
             label: I18n.t("Redo (⇧⌘Z)");
             icon-size: 16px;
@@ -129,13 +142,13 @@ export component TimelineTray inherits Rectangle {
         // One way to cut: at the playhead. The razor that cut where you
         // clicked is gone - two tools for one edit, and the playhead is
         // already where you were looking.
-        IconButton {
+        TrayButton {
             glyph: Glyph.split;
             label: I18n.t("Split at playhead (B, or ⌘B for every clip)");
             icon-size: 16px;
             clicked => { root.split(); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.merge;
             // The reason a blocked Merge is blocked rides on the button rather
             // than being spelled out beside it. This tree has no tooltip yet,
@@ -148,7 +161,7 @@ export component TimelineTray inherits Rectangle {
             icon-size: 16px;
             clicked => { root.merge(); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.trash;
             label: I18n.t("Delete selected");
             danger: true;
@@ -170,9 +183,9 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.hand;
-            label: I18n.t("Pan tool");
+            label: I18n.t("Pan tool (H)");
             icon-size: 16px;
             checked: root.pan-mode;
             clicked => { root.pan-changed(!root.pan-mode); }
@@ -180,7 +193,7 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.magnet;
             label: I18n.t("Snap to edges");
             icon-size: 16px;
@@ -190,7 +203,7 @@ export component TimelineTray inherits Rectangle {
         // The magnetic timeline, beside the snap it is so often mistaken
         // for: snap is where a drag lands, magnetic is that a delete or a
         // trim leaves no hole. https://github.com/jub0t/Concat/issues/106
-        IconButton {
+        TrayButton {
             glyph: Glyph.fold;
             label: I18n.t("Magnetic timeline: deleting and trimming close the gap");
             icon-size: 16px;
@@ -200,13 +213,13 @@ export component TimelineTray inherits Rectangle {
 
         Divider { }
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.text-mark;
             label: I18n.t("Generate Captions");
             icon-size: 16px;
             clicked => { root.captions(); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.volume;
             label: I18n.t("Text to Speech");
             icon-size: 16px;
@@ -215,27 +228,45 @@ export component TimelineTray inherits Rectangle {
 
         Rectangle { horizontal-stretch: 1; }
 
-        // Fixed width, right-aligned: without it every control to its right
-        // shuffles sideways each time the frame digits change.
-        Text {
-            width: 92px;
-            text: root.readout;
-            color: Theme.fg-dim;
-            font-size: Theme.fs-sm;
-            letter-spacing: 0.24px;
-            horizontal-alignment: right;
-            vertical-alignment: center;
+        // The preview axis: the monitor shows the frame under the pointer
+        // as it crosses the lanes, the playhead staying put. The chevron
+        // beside it chooses whether the sound under the pointer plays too.
+        // Where the timecode readout was: the monitor already reads the
+        // playhead, and a second copy here was one more place to glance
+        // between.
+        // One control in two halves, set flush: the mark toggles, the
+        // chevron beside it opens the menu, and no air between them so
+        // they read as a split button and not as two neighbours.
+        axis := HorizontalLayout {
+            spacing: 0;
+
+            TrayButton {
+                glyph: Glyph.axis;
+                label: root.preview-axis
+                    ? I18n.t("Turn off Preview Axis (S)")
+                    : I18n.t("Turn on Preview Axis (S)");
+                icon-size: 16px;
+                checked: root.preview-axis;
+                clicked => { root.preview-axis-changed(!root.preview-axis); }
+            }
+            TrayButton {
+                width: 16px;
+                glyph: Glyph.chevron-down;
+                label: I18n.t("Preview axis options");
+                icon-size: 11px;
+                clicked => { root.axis-menu-requested(axis.x); }
+            }
         }
 
         Divider { }
 
-        IconButton {
+        TrayButton {
             glyph: Glyph.fit;
             label: I18n.t("Zoom to fit");
             icon-size: 15px;
             clicked => { root.fit(); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.minus;
             label: I18n.t("Zoom out");
             icon-size: 14px;
@@ -243,7 +274,7 @@ export component TimelineTray inherits Rectangle {
             // bigger number is more seconds in the same pixel.
             clicked => { root.zoom(1.4); }
         }
-        IconButton {
+        TrayButton {
             glyph: Glyph.plus;
             label: I18n.t("Zoom in");
             icon-size: 14px;

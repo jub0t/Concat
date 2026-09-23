@@ -42,6 +42,15 @@ pub struct Preferences {
     /// sometimes the point; ⇧⌫ ripples either way.
     /// https://github.com/jub0t/Concat/issues/106
     pub magnetic: bool,
+    /// The preview axis: the monitor shows the frame under the pointer as
+    /// it crosses the lanes, the playhead staying where it is. Off by
+    /// default: a monitor that jumps with the pointer startles whoever has
+    /// not asked for it, and the tray's button is where they ask.
+    pub preview_axis: bool,
+    /// The preview axis plays the sound under the pointer too. Off by
+    /// default: a burst of sound on every pass of the pointer is a lot to
+    /// ask of a room.
+    pub preview_axis_audio: bool,
     /// Video decodes on the platform's own hardware where it has some:
     /// VideoToolbox on a Mac. `None` is the platform's default, which is on
     /// where the hardware path has been exercised (macOS and iOS) and off

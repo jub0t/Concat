@@ -63,29 +63,5 @@ cat <<'EOF'
 | Android | | | `android-arm64.apk` |
 | iOS / iPadOS | | | `ios-arm64.ipa` |
 
-Every bundle runs with nothing else installed.
-
-- **macOS**: open the `.dmg` and drag Concat to Applications. If macOS says
-  the app cannot be checked, right-click it and choose Open once.
-- **Windows**: run the `-setup.exe`; it puts Concat in the Start menu and
-  can take it out again. The `.msi` is the same program for an
-  administrator to deploy, machine-wide.
-- **Linux**: install the `.deb` or the `.rpm` with your package manager,
-  or `chmod +x` the `.AppImage` and run it; no install needed.
-- **Android**: open the `.apk` on the phone and allow the install from
-  this source; Android 8.0 or newer, 64-bit.
-- **iOS / iPadOS**: sideload the `.ipa` with AltStore, Sideloadly or
-  Xcode's Devices window, which sign it with your Apple ID; iOS 15 or
-  newer.
-
 `SHA256SUMS` lists each file's checksum.
-
-### Licences
-
-Concat is AGPL-3.0-or-later with a plugin exception
-([LICENSE-EXCEPTIONS.md](https://github.com/jub0t/Concat/blob/main/LICENSE-EXCEPTIONS.md)).
-The bundles carry FFmpeg (GPL, with x264), compile in whisper.cpp (MIT) and
-link sherpa-onnx with espeak-ng (GPL-3.0); Slint is used under its GPL-3.0
-option. Sources and licences:
-[THIRD_PARTY_NOTICES.md](https://github.com/jub0t/Concat/blob/main/THIRD_PARTY_NOTICES.md).
 EOF

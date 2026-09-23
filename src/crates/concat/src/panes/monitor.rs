@@ -164,7 +164,8 @@ impl MonitorPane {
         (side(width), side(height))
     }
 
-    /// Asks the engine for the frame at the playhead, one at a time.
+    /// Asks the engine for the frame at the playhead - or under the pointer,
+    /// while the preview axis has it - one at a time.
     fn request(&mut self, studio: &mut Studio) {
         if studio.on_start || studio.session.is_none() {
             return;
@@ -179,7 +180,7 @@ impl MonitorPane {
             return;
         };
         let spec = FrameSpec {
-            time: f64::from(studio.playhead),
+            time: f64::from(studio.preview_time()),
             width,
             height,
             moving: studio.playing,

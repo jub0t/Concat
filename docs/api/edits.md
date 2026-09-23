@@ -197,7 +197,7 @@ first line.
 | Field | Type | Meaning |
 |---|---|---|
 | `trackId` | string | *optional*. The lane. Absent picks a free track; a vanished track is **refused** |
-| `above` | bool | *optional*, default `false`. With no `trackId`: land on the first free lane *above* the highest occupied one, minting a lane at the top if needed. What captions use |
+| `above` | bool | *optional*, default `false`. With no `trackId`: land on the first free lane *above* the highest occupied one, minting a lane at the top if needed. What the editor does for its own titles and captions |
 | `start` | number | Seconds; floored at 0 |
 | `style` | *TextStyle* | *optional*. Only the fields you set; the rest are the window's defaults. `{"content": "Hello"}` is enough |
 | `duration` | number | *optional*, default 4 s |
