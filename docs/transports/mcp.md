@@ -18,7 +18,7 @@ connect an agent today.
 | The API an MCP server would expose | `concat-api` | ✅ Shipped. Every method in [Methods](../api/methods.md) |
 | A socket server with a token and event fan-out | `concat-server` | ✅ Shipped. [JSON-RPC](json-rpc.md), [gRPC](grpc.md) |
 | A prototype: the window serving MCP over Streamable HTTP with 17 tools, plus a stdio Python bridge | [PR #69](https://github.com/jub0t/Concat/pull/69) | ❌ Closed, not merged. It re-implemented the transport instead of reusing `concat-server` |
-| The request | [issue #95 "MCP support"](https://github.com/jub0t/Concat/issues/95) | Closed on 2026-09-19 with a pointer to the documentation issue [#123](https://github.com/jub0t/Concat/issues/123). The [roadmap](../../ROADMAP.MD) lists MCP integrations under the Concat API |
+| The request | [issue #95 "MCP support"](https://github.com/jub0t/Concat/issues/95) | Closed on 2026-09-19 with a pointer to the documentation issue [#123](https://github.com/jub0t/Concat/issues/123) |
 
 The design direction, from the September 2026 audit: build the MCP server
 on the official Rust SDK (`rmcp`) over `concat-server`'s `Hub`, so it is a

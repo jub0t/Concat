@@ -94,8 +94,7 @@ to the API reaches every transport without a change to any of them.
 | The edit commands | `src/crates/concat-project/src/commands/mod.rs` |
 
 Related reading: [`ARCHITECTURE.md`](../ARCHITECTURE.md) places the API in
-the engine; [`EFFECTS.md`](../EFFECTS.md) is for writing the packages the
-catalogue lists.
+the engine.
 
 ## Licensing
 

@@ -89,7 +89,7 @@ Optional models download from the settings panel on first use and then never nee
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
 >
-> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Want to write an effect, a filter or a transition instead? [EFFECTS.md](./EFFECTS.md) is the whole of it: a folder, a manifest, and a chain or a shader, loaded from your effects folder while the app runs. Driving Concat from a script, a service or an agent? [docs/](./docs/README.md) is the developer reference for the Concat API and its transports: JSON-RPC, gRPC and MCP. [ROADMAP.MD](./ROADMAP.MD) says where the project is going, and [this Discussion](https://github.com/jub0t/Concat/discussions/3) is where it was announced.
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [docs/](./docs/README.md) is the developer reference for the Concat API and its transports: JSON-RPC, gRPC and MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
 > 
 > Contributors are free to claim a `@Contributor` role in the Discord server, just ask for it.
 

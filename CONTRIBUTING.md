@@ -18,9 +18,9 @@ and on [Discord](https://discord.gg/DVuPfpXfqP).
 ## Before you write code
 
 Open an issue or drop into Discord first for anything beyond a small fix. Large
-areas of [`ROADMAP.MD`](ROADMAP.MD) are already in progress or intentionally
-deferred, and it is genuinely no fun to review a big PR that has to be turned
-down for reasons that were invisible from outside.
+areas are already in progress or intentionally deferred, and it is genuinely
+no fun to review a big PR that has to be turned down for reasons that were
+invisible from outside.
 
 ## Setting up
 
