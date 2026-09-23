@@ -684,6 +684,14 @@ pub struct Studio {
     /// a rebuild of the mix and a full publish. The commit is held until
     /// the moves pause; the echo shows the value meanwhile.
     commit_pending: bool,
+    /// The clip the held commit is for: the one that was selected when the
+    /// inspector wrote to the echo. Kept apart from the selection because
+    /// the two can come apart before the commit lands - a press on the
+    /// lanes' floor blurs a title's text box, which holds the commit, and
+    /// then clears the selection on the release - and a commit that looked
+    /// the clip up in the selection at landing time found nothing and
+    /// dropped the words with the echo.
+    commit_target: Option<String>,
     commit_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
@@ -1367,6 +1375,7 @@ impl Studio {
             revision: 0,
             flat: None,
             commit_pending: false,
+            commit_target: None,
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
@@ -3304,6 +3313,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        self.commit_target = Some(id.clone());
         // The media's tracks, read before the echo is borrowed: a row of
         // the Audio panel's list is a stream index of the file.
         let audio_tracks: Vec<u32> = if field == ClipField::AudioTrack {
@@ -3472,6 +3482,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        self.commit_target = Some(id.clone());
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
@@ -3512,6 +3523,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        self.commit_target = Some(id.clone());
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
@@ -3562,7 +3574,10 @@ impl Studio {
     }
 
     fn commit_now(&mut self) {
-        let Some(id) = self.sole_selection() else {
+        // The clip the echo was written for, whatever is selected now; see
+        // `commit_target`. The selection is the fallback for a commit asked
+        // for with nothing written, which has nothing to land anyway.
+        let Some(id) = self.commit_target.take().or_else(|| self.sole_selection()) else {
             self.echo = None;
             return;
         };
