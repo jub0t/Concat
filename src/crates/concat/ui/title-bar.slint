@@ -144,7 +144,9 @@ export component TitleBar inherits Rectangle {
     callback export-clicked();
 
     height: 32px;
-    background: root.deep ? Theme.launch-page : Theme.panel;
+    // The window's ground, not a panel's: the strip is the frame the panes
+    // float in, and it reads as one with the gutters between them.
+    background: root.deep ? Theme.launch-page : Theme.page;
 
     property <bool> drag-armed: false;
     property <length> press-x: 0px;
