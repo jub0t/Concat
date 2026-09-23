@@ -61,7 +61,7 @@ use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
 use panes::timeline::TimelineMsg;
-use studio::{Models, OUTPUTS, RESOLUTIONS, START_RATES, Studio};
+use studio::{ASPECTS, Models, OUTPUTS, SIZES, START_RATES, Studio};
 use ui::*;
 
 /// Opens this run's log file and makes it where the app writes things down.
@@ -211,17 +211,36 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ))));
 
     // The ladders' labels, handed over once; the index the form reports back
-    // is what carries the meaning.
-    app.set_start_resolutions(ModelRc::from(Rc::new(VecModel::from(
-        RESOLUTIONS
+    // is what carries the meaning. The shapes carry their ratio as well,
+    // because the form draws each one as a box of its own proportions and
+    // a label is a string Slint cannot do arithmetic with.
+    app.set_start_aspects(ModelRc::from(Rc::new(VecModel::from(
+        ASPECTS
             .iter()
-            .map(|(label, _, _)| SharedString::from(*label))
+            .map(|(label, w, h)| ChipOption {
+                label: SharedString::from(*label),
+                ratio: *w as f32 / *h as f32,
+            })
+            .collect::<Vec<_>>(),
+    ))));
+    // A size and a rate are words and nothing else, so their chips carry no
+    // shape: a zero ratio is what the form draws nothing for.
+    app.set_start_sizes(ModelRc::from(Rc::new(VecModel::from(
+        SIZES
+            .iter()
+            .map(|(label, _)| ChipOption {
+                label: SharedString::from(*label),
+                ratio: 0.0,
+            })
             .collect::<Vec<_>>(),
     ))));
     app.set_start_rates(ModelRc::from(Rc::new(VecModel::from(
         START_RATES
             .iter()
-            .map(|(label, _, _)| SharedString::from(*label))
+            .map(|(label, _, _)| ChipOption {
+                label: SharedString::from(*label),
+                ratio: 0.0,
+            })
             .collect::<Vec<_>>(),
     ))));
     app.set_languages(ModelRc::from(Rc::new(VecModel::from(
@@ -242,6 +261,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         words.on_lookup(|_, key| i18n::t(&key).into());
         words.on_lookup1(|_, key, a| i18n::tf(&key, &[&a]).into());
         words.on_lookup2(|_, key, a, b| i18n::tf(&key, &[&a, &b]).into());
+        // Uppercased here rather than in the tree: Slint has no text
+        // transform, and casing is the language's rule and not the
+        // interface's to guess at.
+        words.on_lookup_upper(|_, key| i18n::t(&key).to_uppercase().into());
         words.set_lang(i18n::current().into());
     }
 
@@ -347,8 +370,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_start_location_edited(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::LocationEdited(path.to_string())));
     }));
-    app.on_start_resolution_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Start(StartMsg::ResolutionChanged(index)));
+    app.on_start_aspect_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Start(StartMsg::AspectChanged(index)));
+    }));
+    app.on_start_size_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Start(StartMsg::SizeChanged(index)));
     }));
     app.on_start_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Start(StartMsg::RateChanged(index)));
@@ -361,6 +387,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_start_create(on_window!(|state| {
         state.handle(Msg::Start(StartMsg::Create));
+    }));
+    app.on_start_open(on_window!(|state| {
+        state.handle(Msg::Start(StartMsg::Open));
     }));
     app.on_start_open_recent(on_window!(|state, path: SharedString| {
         state.handle(Msg::Start(StartMsg::OpenRecent(path.to_string())));
@@ -1174,19 +1203,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     state.open_menu = -1;
                     match action.as_str() {
                         "add-selected" => state.handle(Msg::Media(MediaMsg::AddSelectedAtPlayhead)),
-                        "open" => {
-                            if let Some(path) = platform::pick_folder(&i18n::t("Open project"), "")
-                            {
-                                let concat_json = path.join("concat.json");
-                                if concat_json.exists() {
-                                    state.handle(Msg::Start(StartMsg::OpenRecent(
-                                        path.to_string_lossy().into_owned(),
-                                    )));
-                                } else {
-                                    state.notify("Not a valid project folder", true);
-                                }
-                            }
-                        }
+                        // The launch screen's own verb, from the menu bar:
+                        // the picker, the check and the notice are all one
+                        // implementation in panes/start.rs, so the two
+                        // cannot drift into disagreeing about what a project
+                        // folder is.
+                        "open" => state.handle(Msg::Start(StartMsg::Open)),
                         "import" => {
                             platform::pick_files_async(&i18n::t("Import media"), None, |paths| {
                                 on_ui(move |studio, _, _| {

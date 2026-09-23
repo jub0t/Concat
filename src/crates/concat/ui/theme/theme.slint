@@ -110,6 +110,17 @@ export global Theme {
     out property <color> field-hover: dark ? Dark.field-hover : Light.field-hover;
     out property <color> field-active: dark ? Dark.field-active : Light.field-active;
 
+    // the launch screen's ladder: the same five steps, cut deeper. Read by
+    // start.slint and by the title strip while it is up, and by nothing
+    // else — the editor keeps the ladder above.
+    out property <color> launch-page: dark ? Dark.launch-page : Light.launch-page;
+    out property <color> launch-panel: dark ? Dark.launch-panel : Light.launch-panel;
+    out property <color> launch-well: dark ? Dark.launch-well : Light.launch-well;
+    out property <color> launch-raised: dark ? Dark.launch-raised : Light.launch-raised;
+    out property <color> launch-field: dark ? Dark.launch-field : Light.launch-field;
+    out property <color> launch-field-active:
+        dark ? Dark.launch-field-active : Light.launch-field-active;
+
     // hairlines
     out property <color> line: dark ? Dark.line : Light.line;
     out property <color> line-strong: dark ? Dark.line-strong : Light.line-strong;
@@ -118,6 +129,7 @@ export global Theme {
     out property <color> fg: dark ? Dark.fg : Light.fg;
     out property <color> fg-muted: dark ? Dark.fg-muted : Light.fg-muted;
     out property <color> fg-dim: dark ? Dark.fg-dim : Light.fg-dim;
+    out property <color> fg-hot: dark ? Dark.fg-hot : Light.fg-hot;
 
     // accents
     out property <color> accent: dark ? Dark.accent : Light.accent;

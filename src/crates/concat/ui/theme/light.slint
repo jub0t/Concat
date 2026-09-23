@@ -60,6 +60,18 @@ export global Light {
     out property <color> field-hover: #e8e8ec;
     out property <color> field-active: #d6d6dd;
 
+    // the launch screen's own ladder — see the dark palette for why it
+    // exists. Deeper here too, which on this side of the switch means a
+    // greyer page and panes that stop short of white: the launcher is the
+    // one screen with no picture on it, and it is allowed to be the quiet
+    // room the rest of the app is not.
+    out property <color> launch-page: #c4c4cd;
+    out property <color> launch-panel: #ededf1;
+    out property <color> launch-well: #d6d6dd;
+    out property <color> launch-raised: #f7f7f8;
+    out property <color> launch-field: #e2e2e8;
+    out property <color> launch-field-active: #cdcdd6;
+
     // hairlines — black-alpha, the mirror of the dark palette's white-alpha,
     // so they hold on panel, well, and ground alike. A shade heavier than a
     // straight inversion: dark hairlines on light surfaces are read at lower
@@ -72,6 +84,8 @@ export global Light {
     out property <color> fg: #16161a;
     out property <color> fg-muted: #56565e;
     out property <color> fg-dim: #86868c;
+    // Away from a light ground is down, not up; see the dark palette.
+    out property <color> fg-hot: #000000;
 
     // accents
     //

@@ -116,6 +116,11 @@ export component TitleBar inherits Rectangle {
     /// act on an edit, and on this screen there is neither — a strip of
     /// controls that all refuse is worse than a strip without them.
     in property <bool> minimal;
+    /// The launch screen is under the strip, which has a ground of its own —
+    /// a deeper one than the editor's. The strip takes that ground rather
+    /// than its usual panel, so the launcher reads as one room and not as a
+    /// dark window with a light lid. See the `launch-` ladder in theme/.
+    in property <bool> deep;
 
     /// Draw the window buttons at the right: true wherever the platform's
     /// decorations were taken off, which is everywhere but macOS.
@@ -139,7 +144,7 @@ export component TitleBar inherits Rectangle {
     callback export-clicked();
 
     height: 32px;
-    background: Theme.panel;
+    background: root.deep ? Theme.launch-page : Theme.panel;
 
     property <bool> drag-armed: false;
     property <length> press-x: 0px;

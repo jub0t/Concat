@@ -27,6 +27,13 @@ export global I18n {
     /// The same, with `{0}` and `{1}` replaced.
     pure callback lookup2(lang: string, key: string, a: string, b: string) -> string;
     lookup2(lang, key, a, b) => { return key; }
+    /// The translation, in capitals: the small letter-spaced labels on the
+    /// launch screen. Rust does the casing because Slint has no text
+    /// transform, and because which letters a language has capitals for is
+    /// the language's business — an interface that upper-cased by hand
+    /// would be doing it in English on every string it was handed.
+    pure callback lookup-upper(lang: string, key: string) -> string;
+    lookup-upper(lang, key) => { return key; }
 
     /// `key` in the active language.
     public pure function t(key: string) -> string {
@@ -41,5 +48,10 @@ export global I18n {
     /// `key` in the active language, with `{0}` and `{1}` filled in.
     public pure function t2(key: string, a: string, b: string) -> string {
         return lookup2(lang, key, a, b);
+    }
+
+    /// `key` in the active language, in capitals.
+    public pure function upper(key: string) -> string {
+        return lookup-upper(lang, key);
     }
 }

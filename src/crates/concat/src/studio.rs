@@ -159,13 +159,55 @@ pub(crate) const EXPORT_TIERS: [f32; 3] = [16.0, 8.0, 4.0];
 pub(crate) const EXPORT_CRF: [u8; 3] = [16, 20, 26];
 pub(crate) const AUDIO_BPS: f32 = 192_000.0;
 
-/// The frame sizes the launch screen offers, and what each label means.
-pub const RESOLUTIONS: [(&str, u32, u32); 4] = [
-    ("1080p", 1920, 1080),
-    ("720p", 1280, 720),
-    ("4K", 3840, 2160),
-    ("Vertical", 1080, 1920),
+/// The frame shapes the launch screen offers, as the ratio behind each
+/// label: width over height.
+///
+/// A shape and a size rather than the four fixed frames this was. Those
+/// offered one upright frame at one size and no square at all, so a phone
+/// cut at 4K was not a thing the form could ask for. Every pair of indices
+/// resolves through [`frame_size`], which is the one place that knows what
+/// a label means in pixels.
+pub const ASPECTS: [(&str, u32, u32); 4] = [
+    ("16:9", 16, 9),
+    ("9:16", 9, 16),
+    ("1:1", 1, 1),
+    ("4:3", 4, 3),
 ];
+
+/// The sizes, as the *short* edge in pixels.
+///
+/// Which is what the "p" in 1080p has always counted, and the only reading
+/// that survives turning a frame upright: 1080p landscape is 1920 x 1080
+/// and 1080p vertical is 1080 x 1920, the same number of lines either way.
+/// Naming the long edge instead would make a vertical 1080p a 1080 x 1920
+/// frame at one moment and a 608 x 1080 frame at another.
+pub const SIZES: [(&str, u32); 3] = [("720p", 720), ("1080p", 1080), ("4K", 2160)];
+
+/// The frame an aspect and a size name, in pixels.
+///
+/// Both indices are clamped rather than trusted: they arrive from the form
+/// as plain integers, and a frame is not worth a panic.
+pub fn frame_size(aspect: usize, size: usize) -> (u32, u32) {
+    let (_, w, h) = ASPECTS[aspect.min(ASPECTS.len() - 1)];
+    let (_, short) = SIZES[size.min(SIZES.len() - 1)];
+    // Multiplied before divided, so 1080 x 16 / 9 is 1920 and not 1080.
+    let long = even(short * w.max(h) / w.min(h));
+    if w >= h {
+        (long, even(short))
+    } else {
+        (even(short), long)
+    }
+}
+
+/// Rounded down to an even number of pixels.
+///
+/// Every ratio above already lands even at every size; this is for the next
+/// one added. Chroma is subsampled by two in both directions in every format
+/// the export writes, and an odd dimension is what an encoder either refuses
+/// or quietly crops.
+fn even(value: u32) -> u32 {
+    value & !1
+}
 
 /// The frame rates, as exact fractions. 29.97 is 30000/1001 and never
 /// anything else - a decimal is for reading, and export must never be handed

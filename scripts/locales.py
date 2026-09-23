@@ -6,11 +6,12 @@
     scripts/locales.py --check    # report what each locale lacks; exit 1 on
                                   # a key no source asks for
 
-Every string a person reads passes through `I18n.t("...")` in the .slint
-tree or `t("...")` / `tf("...")` in the window's Rust, with the English as
-the key. This script collects those keys, plus the names the effect
-packages and text presets carry in their manifests (they are looked up the
-same way), and writes them to en.json with each key as its own value.
+Every string a person reads passes through `I18n.t("...")` or
+`I18n.upper("...")` in the .slint tree, or `t("...")` / `tf("...")` in the
+window's Rust, with the English as the key. This script collects those
+keys, plus the names the effect packages and text presets carry in their
+manifests (they are looked up the same way), and writes them to en.json
+with each key as its own value.
 That file is the inventory a translator starts from; see TRANSLATING.md.
 """
 import json
@@ -25,7 +26,7 @@ PACKAGES = ROOT / "src" / "crates" / "concat-effects" / "packages"
 
 # A Rust or Slint string literal, with its escapes.
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
-SLINT_CALL = re.compile(r"I18n\.t[12]?\(\s*" + LITERAL)
+SLINT_CALL = re.compile(r"I18n\.(?:t[12]?|upper)\(\s*" + LITERAL)
 RUST_CALL = re.compile(r"(?<![A-Za-z_])(?:i18n::)?tf?\(\s*" + LITERAL)
 TOML_FIELD = re.compile(r'^(name|description|category|label|group)\s*=\s*' + LITERAL, re.M)
 PRESET = re.compile(r'look\(\s*"[^"]+",\s*' + LITERAL)

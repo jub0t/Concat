@@ -84,6 +84,27 @@ export global Dark {
     out property <color> field-hover: #3b3b3e;
     out property <color> field-active: #46464a;
 
+    // the launch screen's own ladder — a deeper cut of the one above
+    //
+    // The window before a project is open is not a window full of panes, so
+    // the reasoning that holds the everyday ladder up in the mid-darks does
+    // not apply to it: there are no gutters to widen, no lanes to sit under
+    // a panel, and nothing on screen that has to be told from four other
+    // surfaces at a glance. What there is instead is one card, one rail and
+    // a great deal of air — which is exactly the arrangement a near-black
+    // ground flatters, and the one the website opens on.
+    //
+    // Same five steps in the same order, so every rule written above still
+    // reads: `launch-well` is sunken under the card, `launch-raised` is the
+    // lift a hover gives, `launch-field` is a chip that is the answer. Only
+    // the whole ladder has moved down.
+    out property <color> launch-page: #0e0e10;
+    out property <color> launch-panel: #161619;
+    out property <color> launch-well: #101013;
+    out property <color> launch-raised: #1e1e22;
+    out property <color> launch-field: #26262b;
+    out property <color> launch-field-active: #313138;
+
     // hairlines — white-alpha, so they hold on panel, well, and ground alike.
     out property <color> line: #ffffff1a;         // rgb(255 255 255 / 0.1)
     out property <color> line-strong: #ffffff33;  // rgb(255 255 255 / 0.2)
@@ -92,6 +113,11 @@ export global Dark {
     out property <color> fg: #f5f5f7;
     out property <color> fg-muted: #a1a1a6;
     out property <color> fg-dim: #6e6e73;
+    // One step past `fg`, away from the ground: pure white here, pure black
+    // on the light palette. For the one button whose fill *is* the ink —
+    // the launch screen's Create — where hover has to mean more contrast
+    // and there is no surface left above `fg` to go to.
+    out property <color> fg-hot: #ffffff;
 
     // accents
     //

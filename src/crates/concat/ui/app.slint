@@ -30,7 +30,7 @@ import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
-import { RecentProjectData, StartData, StartScreen } from "start.slint";
+import { ChipOption, RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData,
@@ -54,7 +54,7 @@ export {
     ClipData, ClipField, ClipKeyData, ClipKind, ClipTextField, DropData, Keyframes,
     SelectedClipData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
-    RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
+    ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
     CaptionsSheetData, SpeechSheetData,
 }
 
@@ -118,16 +118,20 @@ export component App inherits Window {
     // bound rather than during the window's own construction.
     in property <bool> on-start: true;
     in property <StartData> start;
-    in property <[string]> start-resolutions;
-    in property <[string]> start-rates;
+    in property <[ChipOption]> start-aspects;
+    in property <[ChipOption]> start-sizes;
+    in property <[ChipOption]> start-rates;
     in property <[RecentProjectData]> recents;
 
     callback start-name-edited(name: string);
     callback start-location-edited(path: string);
     callback start-browse();
-    callback start-resolution-changed(index: int);
+    callback start-aspect-changed(index: int);
+    callback start-size-changed(index: int);
     callback start-rate-changed(index: int);
     callback start-create();
+    /// Open a project that already exists, picked from disk.
+    callback start-open();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
     callback start-dismiss-error();
@@ -415,6 +419,7 @@ export component App inherits Window {
             TitleBar {
                 macos: root.macos;
                 minimal: root.on-start;
+                deep: root.on-start;
                 project-name: root.project-name;
                 status: root.project-status;
 
@@ -442,16 +447,20 @@ export component App inherits Window {
                 vertical-stretch: 1;
 
                 data: root.start;
-                resolutions: root.start-resolutions;
+                aspects: root.start-aspects;
+                sizes: root.start-sizes;
                 rates: root.start-rates;
                 recents: root.recents;
 
                 name-edited(name) => { root.start-name-edited(name); }
                 location-edited(path) => { root.start-location-edited(path); }
                 browse => { root.start-browse(); }
-                resolution-changed(index) => { root.start-resolution-changed(index); }
+                aspect-changed(index) => { root.start-aspect-changed(index); }
+                size-changed(index) => { root.start-size-changed(index); }
                 rate-changed(index) => { root.start-rate-changed(index); }
                 create => { root.start-create(); }
+                open => { root.start-open(); }
+                open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
                 dismiss-error => { root.start-dismiss-error(); }
