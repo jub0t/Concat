@@ -31,6 +31,7 @@ title="$3"
 # A conventional-commit type, with its optional (scope) and breaking `!`.
 type='^[a-z]+(\([^)]*\))?!?: '
 
+## Keep the changes list ADHD-friendly, small, and each line should have at most one emoji that is appropriate to that line in the beginning.
 changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
   | grep -Ev '^(Update [^ ]+\.(rs|slint|toml|md|yml)|Lock the flake|Format the workspace|Changelog for|Merge )' \
   | grep -Ev 'in the (export|pool) tests$' \
