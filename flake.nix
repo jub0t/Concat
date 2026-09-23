@@ -156,6 +156,7 @@
                 "AudioVideo"
                 "AudioVideoEditing"
               ];
+              startupWMClass = "concat";
             })
           ];
 

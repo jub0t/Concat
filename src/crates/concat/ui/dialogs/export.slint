@@ -29,6 +29,7 @@ export struct ExportData {
     /// "8 clips · 3 titles"
     contents: string,
     resolution: int,
+    resolution-options: [string],
     rate: int,
     quality: int,
     /// index into the codec list: H.264, HEVC, AV1
@@ -244,7 +245,7 @@ export component ExportDialog inherits Modal {
                 label: I18n.t("Resolution");
                 Select {
                     current: root.data.resolution;
-                    options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
+                    options: root.data.resolution-options.length > 0 ? root.data.resolution-options : ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
                     details: ["4K", "QHD", "1080p", "720p"];
                     changed(index) => { root.resolution-changed(index); }
                 }

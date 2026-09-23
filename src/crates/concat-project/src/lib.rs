@@ -3627,4 +3627,79 @@ mod tests {
         let missing = project.missing_media();
         assert_eq!(missing.len(), 0);
     }
+
+    #[test]
+    fn remove_preceding_clip_clears_transition_in() {
+        let (mut editor, media_id, clip1_id) = fixture();
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let clip2_id = editor
+            .apply(Command::AddClip {
+                media_id,
+                track_id,
+                start: 10.0,
+                ripple: false,
+            })
+            .expect("adds clip2")
+            .created_id
+            .expect("id");
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip2_id.clone(),
+                patch: ClipPatch {
+                    transition_in: Some(Some(crate::model::Transition {
+                        id: "cross-fade".to_owned(),
+                        duration: 1.0,
+                    })),
+                    ..Default::default()
+                },
+            })
+            .expect("adds transition");
+        let clip2 = editor.project().active().clip(&clip2_id).unwrap();
+        assert!(clip2.transition_in.is_some());
+
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![clip1_id],
+                ripple: false,
+            })
+            .expect("removes clip1");
+
+        let clip2 = editor.project().active().clip(&clip2_id).unwrap();
+        assert_eq!(clip2.transition_in, None);
+    }
+
+    #[test]
+    fn split_clip_clamps_or_removes_transition_in() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    transition_in: Some(Some(crate::model::Transition {
+                        id: "cross-fade".to_owned(),
+                        duration: 2.0,
+                    })),
+                    ..Default::default()
+                },
+            })
+            .expect("adds transition");
+
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 1.0,
+            })
+            .expect("splits");
+        let head = editor.project().active().clip(&clip_id).unwrap();
+        assert_eq!(head.transition_in.as_ref().map(|t| t.duration), Some(1.0));
+
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 0.03,
+            })
+            .expect("splits again");
+        let head2 = editor.project().active().clip(&clip_id).unwrap();
+        assert_eq!(head2.transition_in, None);
+    }
 }

@@ -183,6 +183,15 @@ component Clip inherits Rectangle {
     property <bool> right-handle-hover: false;
     property <bool> right-handle-drag: false;
 
+    changed item => {
+        root.trans-btn-hover = false;
+        root.trans-btn-drag = false;
+        root.left-handle-hover = false;
+        root.left-handle-drag = false;
+        root.right-handle-hover = false;
+        root.right-handle-drag = false;
+    }
+
     property <bool> show-tooltip: root.has-transition
         && (root.trans-btn-hover || root.trans-btn-drag
             || root.right-handle-hover || root.right-handle-drag

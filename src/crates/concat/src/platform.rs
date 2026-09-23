@@ -185,8 +185,13 @@ pub fn select_backend(
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
     {
-        selector = selector
-            .with_winit_window_attributes_hook(|attributes| attributes.with_decorations(false));
+        use slint::winit_030::winit::platform::wayland::WindowAttributesExtWayland;
+        use slint::winit_030::winit::platform::x11::WindowAttributesExtX11;
+        selector = selector.with_winit_window_attributes_hook(|attributes| {
+            attributes
+                .with_decorations(false)
+                .with_name("concat", "concat")
+        });
     }
     selector.select()?;
     Ok(gpu)

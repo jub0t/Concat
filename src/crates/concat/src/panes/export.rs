@@ -16,6 +16,8 @@
 use concat_host::export::{self, ExportSpec};
 use concat_media::ColorRange;
 
+use slint::VecModel;
+
 use crate::format::{bytes, eta};
 use crate::host::{on_ui, spawn};
 use crate::i18n::{self, t, tf};
@@ -134,6 +136,28 @@ impl ExportPane {
                 self.open = true;
                 self.phase = ExportPhase::Idle;
                 self.message.clear();
+                if self.name.is_empty() || self.name == "Untitled" {
+                    self.name = studio.project_name.clone();
+                }
+                let (proj_w, proj_h) = studio.output_size();
+                let short_side = proj_w.min(proj_h);
+                if let Some((idx, _)) = EXPORT_SHORT_SIDES
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, side)| (**side as i64 - short_side as i64).abs())
+                {
+                    self.resolution = idx;
+                }
+                let rate = studio.project().active().video.rate();
+                if let Some((idx, _)) =
+                    EXPORT_RATES.iter().enumerate().min_by(|(_, r1), (_, r2)| {
+                        let diff1 = (r1.0 as f64 / r1.1 as f64 - rate).abs();
+                        let diff2 = (r2.0 as f64 / r2.1 as f64 - rate).abs();
+                        diff1.total_cmp(&diff2)
+                    })
+                {
+                    self.rate = idx;
+                }
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
@@ -354,6 +378,20 @@ impl ExportPane {
             .iter()
             .filter(|clip| clip.kind == concat_project::model::ClipKind::Text)
             .count();
+        let (proj_w, proj_h) = studio.output_size();
+        let (proj_w, proj_h) = (proj_w.max(1) as f64, proj_h.max(1) as f64);
+        let even = |side: f64| ((side / 2.0).round() as u32 * 2).max(2);
+        let resolution_options: Vec<slint::SharedString> = EXPORT_SHORT_SIDES
+            .iter()
+            .map(|&short| {
+                let (w, h) = if proj_w >= proj_h {
+                    (even(short as f64 * proj_w / proj_h), short)
+                } else {
+                    (short, even(short as f64 * proj_h / proj_w))
+                };
+                slint::SharedString::from(format!("{w} × {h}"))
+            })
+            .collect();
         ExportData {
             open: self.open,
             name: self.name.as_str().into(),
@@ -370,6 +408,7 @@ impl ExportPane {
             }
             .into(),
             resolution: self.resolution as i32,
+            resolution_options: slint::ModelRc::new(VecModel::from(resolution_options)),
             rate: self.rate as i32,
             quality: self.quality as i32,
             codec: self.codec as i32,

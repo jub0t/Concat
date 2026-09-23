@@ -530,6 +530,7 @@ jobs:
           Comment=Video editor
           Exec=concat
           Icon=concat
+          StartupWMClass=concat
           Categories=AudioVideo;Video;
           Terminal=false
           DESKTOP
