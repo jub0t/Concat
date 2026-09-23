@@ -39,6 +39,9 @@ pub enum MediaKind {
 pub enum MediaOrigin {
     /// Read aloud by the speech sheet.
     Speech,
+    /// A clip's sound rendered as it played - trimmed, at its speed, with
+    /// its level, fades and effects baked in - as a file of its own.
+    Processed,
 }
 
 /// What a clip can be - wider than [`MediaKind`] because a text clip has no

@@ -24,7 +24,7 @@ export enum MediaKind { video, audio, image }
 /// the row that is highlighted when every import is on, which is why it is a
 /// value here and not the absence of one. `speech` is the Generated group's
 /// shelf: what the editor read aloud, which the Media rows leave out.
-export enum MediaFilter { all, video, audio, images, speech }
+export enum MediaFilter { all, video, audio, images, speech, processed }
 
 /// One look a title can be given, as the Text page's Presets shelf shows
 /// it: enough of the style to draw the name in it. Published by Rust from
@@ -1411,6 +1411,7 @@ export component MediaPane inherits Rectangle {
     in property <int> count-images;
     /// What the editor made, by origin; not in `count-all`.
     in property <int> count-speech;
+    in property <int> count-processed;
     /// how many of the whole bin are selected, not how many of `items` are
     in property <int> selected-count;
     in property <bool> importing;
@@ -1886,6 +1887,16 @@ export component MediaPane inherits Rectangle {
                             current: root.filter == MediaFilter.speech;
                             clicked => { root.narrow(MediaFilter.speech); }
                         }
+                        // A clip's sound written out as it played, from
+                        // the clip's own menu: a file of its own, apart
+                        // from the import it was cut from.
+                        if root.generated-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("Processed");
+                            count: root.count-processed;
+                            current: root.filter == MediaFilter.processed;
+                            clicked => { root.narrow(MediaFilter.processed); }
+                        }
                     }
 
                     if root.tab == 1: VerticalLayout {
@@ -2109,6 +2120,8 @@ export component MediaPane inherits Rectangle {
                     glyph: Glyph.import;
                     text: root.filter == MediaFilter.speech
                         ? I18n.t("Nothing read aloud yet. Text to speech puts its voice here.")
+                        : root.filter == MediaFilter.processed
+                        ? I18n.t("Nothing rendered yet. Right-click a clip on the timeline and render its sound to put it here.")
                         : root.count-all > 0
                         ? I18n.t("Nothing of that kind in this project.")
                         : "Drop video and audio files anywhere in the window to import them.";
