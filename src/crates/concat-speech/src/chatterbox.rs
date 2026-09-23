@@ -70,8 +70,30 @@ const LAYERS: usize = 24;
 /// Resemble's reference setting: a token the model has written is that
 /// much less likely to be written again.
 const REPETITION_PENALTY: f32 = 1.2;
+/// Resemble's own sampling, as `ChatterboxTurboTTS.generate` defaults it:
+/// the logits softened by this temperature, the thousand likeliest kept,
+/// and the smallest set of those that covers `TOP_P` drawn from. The ONNX
+/// reference script takes the argmax instead, which is what a language
+/// model does when it wants to repeat itself; the sampled read is the one
+/// people compare against.
+const TEMPERATURE: f32 = 0.8;
+const TOP_K: usize = 1000;
+const TOP_P: f32 = 0.95;
 /// The most tokens one chunk of text may take: forty seconds of speech.
 const MAX_NEW_TOKENS: usize = 1024;
+/// How far past its expected length a chunk may run before it is cut off:
+/// a read that has said its words stops on its own well inside this, and
+/// one that has not is not going to.
+const RUNAWAY: usize = 4;
+/// The least recording a voice can be taken from. Resemble's own loader
+/// refuses less with "Audio prompt must be longer than 5 seconds": under
+/// it the speaker encoder has nothing to hold and the model reads in
+/// nobody's voice, at length.
+pub const MIN_REFERENCE_SECONDS: f32 = 5.0;
+/// Where a recording's loudness is brought to before it is heard, as
+/// Resemble's loader does with pyloudnorm. Measured here as RMS, which for
+/// speech sits within a decibel or two of the integrated loudness.
+const TARGET_LUFS: f32 = -27.0;
 /// A chunk of text longer than this is read as two.
 const CHUNK_CHARS: usize = 250;
 /// Between chunks.
@@ -353,7 +375,11 @@ impl Engine {
             reference.len() as f32 / SAMPLE_RATE as f32
         );
         let voice = self.hear(reference)?;
-        let chunks = chunks(text);
+        // The text as the model was trained to see it: capitalised, one
+        // space between words, plain punctuation, and a full stop at the
+        // end, which is what tells it to stop.
+        let text = punc_norm(text);
+        let chunks = chunks(&text);
         if chunks.is_empty() {
             return Err("nothing to say: the text is empty".to_owned());
         }
@@ -407,16 +433,24 @@ impl Engine {
         Ok(samples)
     }
 
-    /// The speech encoder over the recording.
+    /// The speech encoder over the recording, brought to the loudness the
+    /// model was trained at.
     fn hear(&self, reference: &[f32]) -> Result<Voice, String> {
-        if reference.len() < SAMPLE_RATE as usize / 2 {
-            return Err("too little sound to take a voice from".to_owned());
+        let seconds = reference.len() as f32 / SAMPLE_RATE as f32;
+        if seconds < MIN_REFERENCE_SECONDS {
+            return Err(format!(
+                "the recording is {seconds:.1}s of sound and Chatterbox needs at least \
+                 {MIN_REFERENCE_SECONDS:.0}s of clear speech to take a voice from - pick a longer \
+                 sample, or start it earlier"
+            ));
         }
+        let (reference, gain_db) = norm_loudness(reference);
+        log::info!("chatterbox: the recording brought to {TARGET_LUFS} LUFS ({gain_db:+.1} dB)");
         let mut encoder = self
             .speech_encoder
             .lock()
             .map_err(|_| "chatterbox: encoder poisoned")?;
-        let audio = tensor_f32(vec![1, reference.len()], reference.to_vec())?;
+        let audio = tensor_f32(vec![1, reference.len()], reference)?;
         let outputs = encoder
             .run(vec![feed("audio_values", audio)])
             .map_err(|error| format!("chatterbox speech encoder: {error}"))?;
@@ -495,7 +529,12 @@ impl Engine {
 
         let mut cache: Vec<Option<ort::value::Value>> = (0..LAYERS * 2).map(|_| None).collect();
         let mut generated: Vec<i64> = vec![START_SPEECH_TOKEN];
-        for step in 0..MAX_NEW_TOKENS {
+        let mut rng = Rng::seeded();
+        // Cut off well past where this chunk should have finished, so a
+        // read that has lost its way costs seconds and not the forty the
+        // model would otherwise fill.
+        let limit = MAX_NEW_TOKENS.min(expected_tokens(chunk) * RUNAWAY + 64);
+        for step in 0..limit {
             if cancel.load(Ordering::Relaxed) {
                 return Err("speech generation cancelled".to_owned());
             }
@@ -530,7 +569,15 @@ impl Engine {
             let (logits_shape, logits) = take_f32(&outputs, "logits")?;
             let vocab = logits_shape[2];
             let last = &logits[(logits_shape[1] - 1) * vocab..];
-            let next = next_token(last, &generated, REPETITION_PENALTY);
+            let next = sample_token(
+                last,
+                &generated,
+                REPETITION_PENALTY,
+                TEMPERATURE,
+                TOP_K,
+                TOP_P,
+                &mut rng,
+            );
             for layer in 0..LAYERS {
                 for (slot, kind) in ["key", "value"].iter().enumerate() {
                     let name = format!("present.{layer}.{kind}");
@@ -546,10 +593,12 @@ impl Engine {
                 log::debug!("chatterbox: stop token after {} speech tokens", step);
                 break;
             }
-            if step + 1 == MAX_NEW_TOKENS {
+            if step + 1 == limit {
                 log::warn!(
-                    "chatterbox: no stop token in {MAX_NEW_TOKENS} tokens - the read ran out; \
-                     the recording or the text may be one the model cannot follow"
+                    "chatterbox: no stop token in {limit} tokens for {} characters - the read \
+                     ran out and was cut; the recording or the text may be one the model \
+                     cannot follow",
+                    chunk.chars().count()
                 );
             }
             position += seq_len;
@@ -584,6 +633,178 @@ impl Engine {
             .map_err(|error| format!("chatterbox decoder: {error}"))?;
         let (_, wave) = take_f32(&outputs, "waveform")?;
         Ok(wave)
+    }
+}
+
+/// A small, fast generator for the draw a sample takes: xorshift64*, seeded
+/// from the clock and the process so two reads of one text differ, the way
+/// two takes do.
+pub struct Rng(u64);
+
+impl Rng {
+    /// Seeded from the clock and the process id.
+    pub fn seeded() -> Rng {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos() as u64)
+            .unwrap_or(0x9E37_79B9_7F4A_7C15);
+        Rng::from_seed(nanos ^ (u64::from(std::process::id()) << 32))
+    }
+
+    /// Seeded by hand, for a draw that has to repeat.
+    pub fn from_seed(seed: u64) -> Rng {
+        Rng(if seed == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            seed
+        })
+    }
+
+    /// Uniform in `[0, 1)`.
+    pub fn unit(&mut self) -> f32 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        let word = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        (word >> 40) as f32 / (1u64 << 24) as f32
+    }
+}
+
+/// The next token, drawn the way Resemble's `generate` draws it: the
+/// repetition penalty first, then the logits over `temperature`, the
+/// `top_k` likeliest kept, and one drawn from the smallest set of those
+/// whose probability adds up to `top_p`. A temperature of zero is the
+/// argmax, as [`next_token`] takes it.
+pub fn sample_token(
+    logits: &[f32],
+    written: &[i64],
+    penalty: f32,
+    temperature: f32,
+    top_k: usize,
+    top_p: f32,
+    rng: &mut Rng,
+) -> i64 {
+    if temperature <= 0.0 || logits.is_empty() {
+        return next_token(logits, written, penalty);
+    }
+    let mut scored: Vec<(usize, f32)> = logits
+        .iter()
+        .enumerate()
+        .map(|(index, &score)| {
+            let score = if written.contains(&(index as i64)) {
+                if score < 0.0 {
+                    score * penalty
+                } else {
+                    score / penalty
+                }
+            } else {
+                score
+            };
+            (
+                index,
+                if score.is_finite() {
+                    score
+                } else {
+                    f32::NEG_INFINITY
+                },
+            )
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored.truncate(top_k.max(1));
+    let top = scored[0].1;
+    if !top.is_finite() {
+        return scored[0].0 as i64;
+    }
+    // Softmax over the kept, off the top score so the exponents stay in
+    // range; then the nucleus.
+    let weights: Vec<f32> = scored
+        .iter()
+        .map(|(_, score)| ((score - top) / temperature).exp())
+        .collect();
+    let total: f32 = weights.iter().sum();
+    let cutoff = top_p.clamp(0.0, 1.0) * total;
+    let mut kept = 0;
+    let mut covered = 0.0;
+    for weight in &weights {
+        kept += 1;
+        covered += weight;
+        if covered >= cutoff {
+            break;
+        }
+    }
+    let mut draw = rng.unit() * covered;
+    for (index, weight) in weights.iter().take(kept).enumerate() {
+        draw -= weight;
+        if draw <= 0.0 {
+            return scored[index].0 as i64;
+        }
+    }
+    scored[kept - 1].0 as i64
+}
+
+/// The recording brought to [`TARGET_LUFS`], and the gain it took in
+/// decibels. RMS stands in for the integrated loudness Resemble measures;
+/// a silent recording is left as it is rather than amplified into noise.
+pub fn norm_loudness(samples: &[f32]) -> (Vec<f32>, f32) {
+    let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len().max(1) as f32).sqrt();
+    if rms <= 1e-6 {
+        return (samples.to_vec(), 0.0);
+    }
+    let loudness = 20.0 * rms.log10();
+    let gain_db = TARGET_LUFS - loudness;
+    let gain = 10f32.powf(gain_db / 20.0);
+    if !gain.is_finite() || gain <= 0.0 {
+        return (samples.to_vec(), 0.0);
+    }
+    (
+        samples
+            .iter()
+            .map(|s| (s * gain).clamp(-1.0, 1.0))
+            .collect(),
+        gain_db,
+    )
+}
+
+/// The text as the model saw its training data, ported from Resemble's
+/// `punc_norm`: a capital to start, one space between words, the
+/// punctuation a keyboard has in place of the kind a word processor
+/// makes, and something to end on - a full stop when there is nothing
+/// else, which is what tells the model the sentence is over.
+pub fn punc_norm(text: &str) -> String {
+    let mut text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.is_empty() {
+        return text;
+    }
+    let mut chars = text.chars();
+    if let Some(first) = chars.next()
+        && first.is_lowercase()
+    {
+        text = first.to_uppercase().collect::<String>() + chars.as_str();
+    }
+    for (from, to) in [
+        ("…", ", "),
+        (":", ","),
+        ("—", "-"),
+        ("–", "-"),
+        (" ,", ","),
+        ("“", "\""),
+        ("”", "\""),
+        ("‘", "'"),
+        ("’", "'"),
+    ] {
+        text = text.replace(from, to);
+    }
+    let text = text.trim_end_matches(' ').to_owned();
+    if ['.', '!', '?', '-', ',']
+        .iter()
+        .any(|end| text.ends_with(*end))
+    {
+        text
+    } else {
+        text + "."
     }
 }
 
@@ -767,6 +988,96 @@ mod tests {
         assert_eq!(next_token(&[0.3, 0.3], &[], 1.2), 0);
         assert_eq!(next_token(&[], &[], 1.2), 0);
         assert_eq!(next_token(&[f32::NAN, 0.1], &[], 1.2), 1, "NaN never wins");
+    }
+
+    /// A draw at temperature zero is the argmax; a draw with the nucleus
+    /// shut to nothing is the argmax too; and a draw with it open lands on
+    /// one of the kept tokens and never on one the penalty has buried.
+    #[test]
+    fn a_sample_stays_inside_the_nucleus() {
+        let logits = [0.1, 5.0, 4.9, -3.0, 0.0];
+        let mut rng = Rng::from_seed(7);
+        assert_eq!(
+            sample_token(&logits, &[], 1.2, 0.0, 1000, 0.95, &mut rng),
+            1
+        );
+        assert_eq!(sample_token(&logits, &[], 1.2, 0.8, 1000, 0.0, &mut rng), 1);
+        for _ in 0..200 {
+            let token = sample_token(&logits, &[], 1.2, 0.8, 1000, 0.95, &mut rng);
+            assert!(token == 1 || token == 2, "{token}");
+        }
+        // Two tokens' worth of nucleus, and both get drawn over time.
+        let mut seen = [false; 5];
+        for _ in 0..500 {
+            seen[sample_token(&logits, &[], 1.2, 0.8, 1000, 0.95, &mut rng) as usize] = true;
+        }
+        assert!(seen[1] && seen[2]);
+        // top_k of one is the argmax however the dice fall.
+        for _ in 0..50 {
+            assert_eq!(sample_token(&logits, &[], 1.2, 0.8, 1, 0.95, &mut rng), 1);
+        }
+        // Nothing to draw from does not panic.
+        assert_eq!(sample_token(&[], &[], 1.2, 0.8, 1000, 0.95, &mut rng), 0);
+        assert_eq!(
+            sample_token(&[f32::NAN, f32::NAN], &[], 1.2, 0.8, 1000, 0.95, &mut rng),
+            0
+        );
+    }
+
+    /// The generator gives numbers in `[0, 1)`, different ones, and the same
+    /// ones again from the same seed.
+    #[test]
+    fn the_generator_is_uniform_and_repeatable() {
+        let mut a = Rng::from_seed(42);
+        let mut b = Rng::from_seed(42);
+        let mut distinct = std::collections::HashSet::new();
+        for _ in 0..1000 {
+            let x = a.unit();
+            assert!((0.0..1.0).contains(&x), "{x}");
+            assert_eq!(x, b.unit());
+            distinct.insert(x.to_bits());
+        }
+        assert!(distinct.len() > 900);
+        assert_ne!(Rng::from_seed(0).unit(), 0.0, "a zero seed is not stuck");
+    }
+
+    /// A recording is brought to the target loudness whether it came in
+    /// loud or quiet, silence is left alone, and nothing clips.
+    #[test]
+    fn a_recording_is_brought_to_the_target_loudness() {
+        let tone = |amplitude: f32| -> Vec<f32> {
+            (0..24_000)
+                .map(|i| amplitude * (i as f32 * 0.05).sin())
+                .collect()
+        };
+        for amplitude in [0.9, 0.05, 0.002] {
+            let (out, gain_db) = norm_loudness(&tone(amplitude));
+            let rms = (out.iter().map(|s| s * s).sum::<f32>() / out.len() as f32).sqrt();
+            let lufs = 20.0 * rms.log10();
+            assert!(
+                (lufs - TARGET_LUFS).abs() < 0.5,
+                "{amplitude}: {lufs} after {gain_db} dB"
+            );
+            assert!(out.iter().all(|s| (-1.0..=1.0).contains(s)));
+        }
+        let (silent, gain_db) = norm_loudness(&[0.0; 100]);
+        assert!(silent.iter().all(|&s| s == 0.0) && gain_db == 0.0);
+    }
+
+    /// Resemble's text cleanup, ported: a capital, single spaces, plain
+    /// punctuation, and an end.
+    #[test]
+    fn the_text_is_normalised_the_way_resemble_does_it() {
+        assert_eq!(punc_norm("hello   world"), "Hello world.");
+        assert_eq!(punc_norm("Already ends!"), "Already ends!");
+        assert_eq!(punc_norm("a list: one… two"), "A list, one, two.");
+        assert_eq!(
+            punc_norm("“quoted” — and ‘this’"),
+            "\"quoted\" - and 'this'."
+        );
+        assert_eq!(punc_norm("trailing ,"), "Trailing,");
+        assert_eq!(punc_norm("   "), "");
+        assert_eq!(punc_norm("ünïcode start"), "Ünïcode start.");
     }
 
     #[test]

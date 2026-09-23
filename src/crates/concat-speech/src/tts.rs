@@ -196,13 +196,15 @@ pub const POCKET_ID: &str = "sherpa-onnx-pocket-tts-int8-2026-01-26";
 
 /// Chatterbox's voices. The model has no speakers of its own and ships no
 /// recording of anyone's under a licence this build may carry, so its
-/// stock voices are Pocket's two recordings, read from the Pocket bundle:
+/// stock voice is Pocket's Bria recording, read from the Pocket bundle:
 /// offered only while that bundle is on disk, and named as Chatterbox's
-/// so a voice id still says which family reads it. The third is a
-/// recording of the caller's choosing, as Pocket's is.
+/// so a voice id still says which family reads it. Pocket's other
+/// recording, Loona, is a second long, and Chatterbox needs five to take
+/// a voice from - see `chatterbox::MIN_REFERENCE_SECONDS` - so it is not
+/// offered here. The other voice is a recording of the caller's choosing,
+/// as Pocket's is.
 pub const CHATTERBOX_VOICES: &[(i32, &str, Option<&str>)] = &[
     (2000, "chatterbox_bria", Some("test_wavs/bria.wav")),
-    (2001, "chatterbox_loona", Some("test_wavs/loona.wav")),
     (CHATTERBOX_CLONE, "chatterbox_clone", None),
 ];
 
@@ -1075,9 +1077,14 @@ mod tests {
             assert_eq!(voice_name(*id), Some(*name));
             assert_eq!(voice_family(*id), Some(Family::Chatterbox));
         }
-        // The stock Chatterbox voices are Pocket's recordings by another name.
+        // The stock Chatterbox voice is Pocket's long recording by another
+        // name; Pocket's one-second one is not offered to it.
         assert_eq!(CHATTERBOX_VOICES[0].2, POCKET_VOICES[0].2);
-        assert_eq!(CHATTERBOX_VOICES[1].2, POCKET_VOICES[1].2);
+        assert!(
+            !CHATTERBOX_VOICES
+                .iter()
+                .any(|(_, _, file)| *file == POCKET_VOICES[1].2)
+        );
         assert_eq!(voice_name(999), None);
         for model in KNOWN_MODELS {
             assert!(known(model.id).is_some());
