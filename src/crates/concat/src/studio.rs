@@ -4888,7 +4888,7 @@ impl Studio {
         };
     }
 
-    /// CapCut-style freeze at the playhead on a picture clip.
+    /// A freeze frame at the playhead on a picture clip.
     ///
     /// Video extracts a JPEG still into the project cache; images reuse their
     /// media. The engine command splits the clip, inserts the hold, and

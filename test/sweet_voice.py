@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply a CapCut-inspired "Sweet" voice effect using a local FFmpeg install."""
+"""Apply the "Sweet" voice effect using a local FFmpeg install."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def output_audio_codec(path: Path) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Apply a bright, soft, slightly higher CapCut-inspired Sweet voice effect."
+        description="Apply the bright, soft, slightly higher Sweet voice effect."
     )
     parser.add_argument("input", type=Path, help="Input audio or video file")
     parser.add_argument("output", type=Path, nargs="?", help="Output path")

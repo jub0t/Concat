@@ -332,12 +332,13 @@ export component App inherits Window {
             activated => { root.app-menu-selected("redo"); }
         }
 
-        // The rest of the keyboard, the way CapCut lays it out: the chord
-        // key with a letter for an edit, a bare letter for a tool, the
-        // arrows and Home/End for the playhead. Every one lands here only
-        // when nothing else took it - a field being typed into consumes
-        // its own letters and spaces before a key can walk up to this
-        // scope, which is what keeps typing a title from cutting a clip.
+        // The rest of the keyboard, laid out the way every editor has
+        // taught its users: the chord key with a letter for an edit, a
+        // bare letter for a tool, the arrows and Home/End for the
+        // playhead. Every one lands here only when nothing else took it -
+        // a field being typed into consumes its own letters and spaces
+        // before a key can walk up to this scope, which is what keeps
+        // typing a title from cutting a clip.
         key-pressed(event) => {
             if (root.on-start) {
                 return reject;

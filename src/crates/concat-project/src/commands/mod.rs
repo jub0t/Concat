@@ -34,7 +34,7 @@ const DEFAULT_IMAGE_DURATION: f64 = 5.0;
 const DEFAULT_TEXT_DURATION: f64 = 4.0;
 /// How long a layer covers when first placed. Editorial default, not a fact.
 const DEFAULT_LAYER_DURATION: f64 = 5.0;
-/// Default hold for a CapCut-style freeze when the caller omits duration.
+/// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
     MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_CLIP_DURATION, MIN_SCALE, MIN_SPEED,
@@ -499,7 +499,7 @@ pub enum Command {
         /// The probed copy, as described by the host.
         item: NewMedia,
     },
-    /// CapCut-style freeze at `time`: splits `clip_id`, inserts a still of
+    /// A freeze frame at `time`: splits `clip_id`, inserts a still of
     /// `duration` on the same track, and ripples later clips on that track
     /// by `duration`. Video needs a probed `still` (host-extracted jpg);
     /// image clips may omit it and reuse their media. Audio and text are
@@ -534,7 +534,7 @@ pub enum Command {
         /// that starts after a removed span moves left by the length of the
         /// removed spans before it. A track the deletion never touched
         /// stays where it is, so a picture going from one lane does not
-        /// pull the sound on another - CapCut's magnetic track, which is
+        /// pull the sound on another - the magnetic track, which is
         /// what was asked for. False leaves the hole.
         /// https://github.com/jub0t/Concat/issues/106
         #[serde(default)]

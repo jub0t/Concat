@@ -14,7 +14,7 @@ point them at anything in `assets/` (gitignored), and read the numbers.
 | `silero_vad/test_vad.py` | Silero VAD speech regions + speed | silence removal, caption pre-pass |
 | `rnnoise/test_denoise.py` | RNNoise denoise quality + speed | one-click "reduce noise" on a clip |
 | `enhance_voice.py` | full repair chain: de-plosive, de-click (LPC interpolation), DeepFilterNet3/MossFormer2, ffmpeg polish | "Enhance voice" button |
-| `sweet_voice.py` | the CapCut-style "Sweet" chain as pure ffmpeg filters | shipped as the `sweet` entry in the filters catalogue |
+| `sweet_voice.py` | the "Sweet" voice chain as pure ffmpeg filters | shipped as the `sweet` entry in the filters catalogue |
 | `scene_detect/test_scene_detect.py` | PySceneDetect cut detection + speed | auto-split at scene cuts |
 | `black_frames/detect_black_frames.py` | luminance-threshold black segment detection | trim dead frames, sanity-check exports |
 | `face_blur/face_blur.py` | YuNet detection + Gaussian blur per frame | face blur effect |

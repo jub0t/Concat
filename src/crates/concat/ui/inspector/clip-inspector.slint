@@ -1142,7 +1142,7 @@ export component VideoPanel inherits VerticalLayout {
                     reset => { root.cutout-clear(); }
                 }
             }
-        // The brushes, CapCut's way round: the two that follow the mask,
+        // The brushes, in the order everyone expects: the two that follow the mask,
         // then the two that do as they are told. Picking one starts the
         // painting; Apply ends it.
         if root.removal == 2: HorizontalLayout {

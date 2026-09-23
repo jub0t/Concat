@@ -7,9 +7,9 @@
 
 ## 1. What Is Concat
 
-Concat is a **native, offline-first video editor** built with **Rust + Slint UI**, targeting CapCut feature parity. It runs on macOS, Windows, Linux, iOS, and Android from a single codebase. There is no cloud dependency, no sign-in, and no telemetry — everything runs on-device.
+Concat is a **native, offline-first video editor** built with **Rust + Slint UI**, aiming for the feature set of the mainstream consumer editors. It runs on macOS, Windows, Linux, iOS, and Android from a single codebase. There is no cloud dependency, no sign-in, and no telemetry — everything runs on-device.
 
-The project is in active early development. The goal is a free, open alternative to CapCut with the same snappiness and creative breadth.
+The project is in active early development. The goal is a free, open editor with the same snappiness and creative breadth as the commercial ones.
 
 ---
 

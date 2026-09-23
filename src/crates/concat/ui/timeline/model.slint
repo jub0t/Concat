@@ -12,7 +12,7 @@
 /// Wider than MediaKind: a title has no file behind it, it *is* its content,
 /// and a filter has no file either — it is a preset dragged from the library's
 /// Filters page that covers a span of time and treats whatever plays under it,
-/// the way CapCut's filter bars do.
+/// the way a filter bar does in the consumer editors.
 export enum ClipKind { video, audio, image, text, filter }
 
 /// What a press on a clip means. One tool since the razor went - a cut
@@ -35,11 +35,11 @@ export struct TimelineTabData {
 ///
 /// `auto` is the default, and the only one that thinks: a lane is as tall as
 /// the tallest thing on it, so a lane of footage opens large, a lane of sound
-/// medium, and a lane of filter layers minimal. That is the shape CapCut gets
-/// by typing its tracks — arrived at here without typing them, which matters
-/// because these lanes are deliberately untyped and a mixed one still has to
-/// be right. The other three are the override, per lane, from the dropdown in
-/// its header.
+/// medium, and a lane of filter layers minimal. That is the shape a typed
+/// timeline gets by typing its tracks — arrived at here without typing them,
+/// which matters because these lanes are deliberately untyped and a mixed one
+/// still has to be right. The other three are the override, per lane, from
+/// the dropdown in its header.
 export enum TrackSize { auto, small, medium, large }
 
 /// One lane. Deliberately untyped: any media goes on any track, which is why
