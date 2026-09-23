@@ -77,9 +77,9 @@ export component ProjectDialog inherits Modal {
                 Select {
                     current: root.data.size;
                     placeholder: I18n.t("Custom");
-                    options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
+                    options: ["1920 × 1080", "2560 × 1440", "3840 × 2160", "1080 × 1920",
                         "1080 × 1080", "1440 × 1080", "2560 × 1080"];
-                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+                    details: ["16:9", "16:9 QHD", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
                     changed(index) => { root.size-changed(index); }
                 }
             }

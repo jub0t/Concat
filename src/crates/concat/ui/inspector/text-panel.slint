@@ -55,6 +55,7 @@ export component TextPanel inherits VerticalLayout {
     property <float> offset-y;
     property <int> weight-index;
     property <int> family-index;
+    property <string> content;
 
     property <[float]> weights: [400, 500, 600, 700];
     /// The label column of the rows whose label is two words.
@@ -63,6 +64,7 @@ export component TextPanel inherits VerticalLayout {
     property <float> frame-h: Math.max(1, root.selected.frame-height);
 
     function seed() {
+        root.content = root.selected.content;
         root.size = root.selected.font-size;
         root.alpha = root.selected.text-opacity;
         root.stroke-width = root.selected.stroke-width;
@@ -116,7 +118,7 @@ export component TextPanel inherits VerticalLayout {
                     y: 6px;
                     width: parent.width - 16px;
                     height: parent.height - 12px;
-                    text: root.selected.content;
+                    text: root.content;
                     color: Theme.fg;
                     font-size: Theme.fs;
                     // Multi-line: a lower third is routinely two lines, and a
@@ -131,11 +133,12 @@ export component TextPanel inherits VerticalLayout {
                     // way out, so a title being typed is one change and not
                     // forty.
                     edited => {
+                        root.content = self.text;
                         root.set-text(ClipTextField.content, self.text);
                     }
                     changed has-focus => {
                         if (!self.has-focus) {
-                            root.set-text(ClipTextField.content, self.text);
+                            root.set-text(ClipTextField.content, root.content);
                             root.commit();
                         }
                     }

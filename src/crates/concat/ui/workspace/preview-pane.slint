@@ -657,9 +657,9 @@ export component PreviewPane inherits Rectangle {
     /// That row was used.
     callback pane-removed();
 
-    property <[int]> ratios-w: [1920, 3840, 1080, 1080, 1440, 2560];
-    property <[int]> ratios-h: [1080, 2160, 1920, 1080, 1080, 1080];
-    property <[string]> ratio-names: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+    property <[int]> ratios-w: [1920, 2560, 3840, 1080, 1080, 1440, 2560];
+    property <[int]> ratios-h: [1080, 1440, 2160, 1920, 1080, 1080, 1080];
+    property <[string]> ratio-names: ["16:9", "16:9 QHD", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
 
     property <float> aspect: root.output-height > 0
         ? root.output-width / root.output-height : 16 / 9;

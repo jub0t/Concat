@@ -63,8 +63,9 @@ use crate::presets::{self, TextPreset};
 use crate::ui::*;
 
 /// The monitor's output sizes, matching the picker's rows.
-pub const OUTPUTS: [(i32, i32); 6] = [
+pub const OUTPUTS: [(i32, i32); 7] = [
     (1920, 1080),
+    (2560, 1440),
     (3840, 2160),
     (1080, 1920),
     (1080, 1080),
@@ -181,7 +182,12 @@ pub const ASPECTS: [(&str, u32, u32); 4] = [
 /// and 1080p vertical is 1080 x 1920, the same number of lines either way.
 /// Naming the long edge instead would make a vertical 1080p a 1080 x 1920
 /// frame at one moment and a 608 x 1080 frame at another.
-pub const SIZES: [(&str, u32); 3] = [("720p", 720), ("1080p", 1080), ("4K", 2160)];
+pub const SIZES: [(&str, u32); 4] = [
+    ("720p", 720),
+    ("1080p", 1080),
+    ("1440p", 1440),
+    ("4K", 2160),
+];
 
 /// The frame an aspect and a size name, in pixels.
 ///
@@ -674,6 +680,7 @@ pub struct Studio {
     /// on every move, and each commit was a command, an undo of the last,
     /// a rebuild of the mix and a full publish. The commit is held until
     /// the moves pause; the echo shows the value meanwhile.
+    pub commit_target: Option<String>,
     commit_pending: bool,
     commit_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
@@ -1354,6 +1361,7 @@ impl Studio {
             audition: None,
             revision: 0,
             flat: None,
+            commit_target: None,
             commit_pending: false,
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
@@ -3236,6 +3244,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        self.commit_target = Some(id.clone());
         // The media's tracks, read before the echo is borrowed: a row of
         // the Audio panel's list is a stream index of the file.
         let audio_tracks: Vec<u32> = if field == ClipField::AudioTrack {
@@ -3423,6 +3432,7 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        self.commit_target = Some(id.clone());
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
@@ -3513,7 +3523,8 @@ impl Studio {
     }
 
     fn commit_now(&mut self) {
-        let Some(id) = self.sole_selection() else {
+        let target_id = self.commit_target.take().or_else(|| self.sole_selection());
+        let Some(id) = target_id else {
             self.echo = None;
             return;
         };
@@ -5606,6 +5617,7 @@ impl Studio {
                         transition_duration: clip
                             .transition_in
                             .as_ref()
+                            .filter(|_| self.outgoing_of(clip).is_some())
                             .map(|transition| transition.duration as f32)
                             .unwrap_or(0.0),
                         fade_in: clip.fade_in as f32,

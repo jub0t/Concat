@@ -308,6 +308,11 @@ pub(super) fn apply(
                 head.fade_out = 0.0;
                 head.animation_out = None;
                 head.rewindow_keys(whole, 0.0, offset);
+                if offset < 0.05 {
+                    head.transition_in = None;
+                } else if let Some(t) = head.transition_in.as_mut() {
+                    t.duration = t.duration.min(offset);
+                }
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
             // A split always mints the tail, so "minted anything" and
@@ -565,6 +570,27 @@ pub(super) fn apply(
             timeline
                 .clips
                 .retain(|clip| !doomed.contains(clip.id.as_str()));
+            let orphaned: Vec<usize> = timeline
+                .clips
+                .iter()
+                .enumerate()
+                .filter_map(|(i, clip)| {
+                    if clip.transition_in.is_some() {
+                        let has_preceding = timeline.clips.iter().any(|c| {
+                            c.track_id == clip.track_id
+                                && c.id != clip.id
+                                && (c.start + c.duration - clip.start).abs() < 1e-4
+                        });
+                        if !has_preceding {
+                            return Some(i);
+                        }
+                    }
+                    None
+                })
+                .collect();
+            for i in orphaned {
+                timeline.clip_at_mut(i).transition_in = None;
+            }
             let applied = timeline.clips.len() != clip_count;
             if ripple && applied {
                 close_gaps(timeline, &removed);

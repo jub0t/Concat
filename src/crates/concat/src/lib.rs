@@ -755,6 +755,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     editor.on_band_selected(on_lanes!(
         |state, from: f32, to: f32, from_y: f32, to_y: f32, additive: bool| {
+            state.flush_commit();
             let (from_row, to_row) = (state.row_at(from_y), state.row_at(to_y));
             let caught: Vec<String> = state
                 .timeline()
