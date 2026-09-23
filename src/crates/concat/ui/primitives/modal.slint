@@ -344,6 +344,15 @@ export component DialogSection inherits VerticalLayout {
     /// a question mark beside the title: read on hover, out of the way
     /// otherwise.
     in property <string> hint;
+    /// A switch at the header's far end, for a group that is a feature to
+    /// turn on rather than a set of settings that are always there. The
+    /// switch draws `on` and reports a press through `switched`; it keeps
+    /// no state of its own, so the caller's data stays the one truth and
+    /// a reopened sheet cannot disagree with it. Bind `open` to the same
+    /// value to fold the body away while it is off.
+    in property <bool> switchable;
+    in property <bool> on;
+    callback switched(on: bool);
 
     if !root.first: Rectangle {
         height: 1px;
@@ -421,6 +430,37 @@ export component DialogSection inherits VerticalLayout {
                 font-size: Theme.fs-sm;
                 vertical-alignment: center;
                 overflow: elide;
+            }
+
+            // The same pill as the inspector's Switch, drawn from `on`
+            // rather than holding a checked state of its own.
+            if root.switchable: VerticalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 30px;
+                    height: 17px;
+                    border-radius: self.height / 2;
+                    background: root.on ? Theme.accent : Theme.field-active;
+
+                    animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                    Rectangle {
+                        x: root.on ? parent.width - self.width - 2px : 2px;
+                        y: (parent.height - self.height) / 2;
+                        width: 13px;
+                        height: 13px;
+                        border-radius: self.width / 2;
+                        background: Theme.on-accent;
+
+                        animate x { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.switched(!root.on); }
+                    }
+                }
             }
         }
     }

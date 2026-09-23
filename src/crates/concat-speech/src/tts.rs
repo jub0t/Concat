@@ -103,12 +103,12 @@ const KNOWN_MODELS: &[KnownModel] = &[
     KnownModel {
         id: crate::chatterbox::BUNDLE_ID,
         label: "Chatterbox Turbo (studio)",
-        blurb: "The closest to a studio voice; reads in the selected clip's voice. English, slow, a gigabyte.",
+        blurb: "The closest to a studio voice; reads in Pocket's recordings or any sample of your own. English, slow, a gigabyte.",
         approx_bytes: crate::chatterbox::BUNDLE_BYTES,
         sha256: "",
     },
     KnownModel {
-        id: "sherpa-onnx-pocket-tts-int8-2026-01-26",
+        id: POCKET_ID,
         label: "Pocket TTS (cloning)",
         blurb: "Reads in any voice, including one from a clip on the timeline. English.",
         approx_bytes: 98_336_520,
@@ -187,17 +187,29 @@ pub const POCKET_VOICES: &[(i32, &str, Option<&str>)] = &[
     (POCKET_CLONE, "pocket_clone", None),
 ];
 
-/// The voice that is the selected clip's own.
+/// The voice that is a recording of the caller's choosing - a clip on the
+/// timeline, a file in the bin - handed over as the request's reference.
 pub const POCKET_CLONE: i32 = 1099;
 
-/// Chatterbox's voices: only the selected clip's own, since the model has
-/// no speakers of its own and ships no recording of anyone's.
-pub const CHATTERBOX_VOICES: &[(i32, &str)] = &[(CHATTERBOX_CLONE, "chatterbox_clone")];
+/// The Pocket bundle, which is also where the stock recordings live.
+pub const POCKET_ID: &str = "sherpa-onnx-pocket-tts-int8-2026-01-26";
 
-/// The selected clip's own voice, read by Chatterbox.
+/// Chatterbox's voices. The model has no speakers of its own and ships no
+/// recording of anyone's under a licence this build may carry, so its
+/// stock voices are Pocket's two recordings, read from the Pocket bundle:
+/// offered only while that bundle is on disk, and named as Chatterbox's
+/// so a voice id still says which family reads it. The third is a
+/// recording of the caller's choosing, as Pocket's is.
+pub const CHATTERBOX_VOICES: &[(i32, &str, Option<&str>)] = &[
+    (2000, "chatterbox_bria", Some("test_wavs/bria.wav")),
+    (2001, "chatterbox_loona", Some("test_wavs/loona.wav")),
+    (CHATTERBOX_CLONE, "chatterbox_clone", None),
+];
+
+/// A recording of the caller's choosing, read by Chatterbox.
 pub const CHATTERBOX_CLONE: i32 = 2099;
 
-/// Whether a voice is the selected clip's own, in any family.
+/// Whether a voice is a recording of the caller's choosing, in any family.
 pub fn is_clone(voice: i32) -> bool {
     voice == POCKET_CLONE || voice == CHATTERBOX_CLONE
 }
@@ -212,7 +224,7 @@ pub fn voice_family(voice: i32) -> Option<Family> {
         Some(Family::Kokoro)
     } else if POCKET_VOICES.iter().any(|(id, _, _)| *id == voice) {
         Some(Family::Pocket)
-    } else if CHATTERBOX_VOICES.iter().any(|(id, _)| *id == voice) {
+    } else if CHATTERBOX_VOICES.iter().any(|(id, _, _)| *id == voice) {
         Some(Family::Chatterbox)
     } else {
         None
@@ -234,8 +246,8 @@ fn voice_name(voice: i32) -> Option<&'static str> {
         .or_else(|| {
             CHATTERBOX_VOICES
                 .iter()
-                .find(|(id, _)| *id == voice)
-                .map(|(_, name)| *name)
+                .find(|(id, _, _)| *id == voice)
+                .map(|(_, name, _)| *name)
         })
 }
 
@@ -362,8 +374,19 @@ pub struct SpeakRequest {
     pub reference: Option<Reference>,
     /// What to say.
     pub text: String,
-    /// Speaking rate; 1.0 is the voice's natural pace.
+    /// Speaking rate; 1.0 is the voice's natural pace. Kokoro and Pocket
+    /// honour it; Chatterbox reads at its own.
     pub speed: f32,
+    /// The breath between sentences, as sherpa scales it: 0 runs them
+    /// together, 1 is a long pause, 0.2 is the engine's own. Absent is
+    /// the engine's own. Kokoro and Pocket.
+    #[serde(default)]
+    pub pauses: Option<f32>,
+    /// Pocket's flow-matching steps: more is a cleaner voice and a longer
+    /// wait, 5 is the engine's own. Absent is the engine's own; the other
+    /// families have no such dial and ignore it.
+    #[serde(default)]
+    pub steps: Option<i32>,
     /// The project folder the WAV should land in.
     pub project: String,
 }
@@ -449,11 +472,18 @@ impl Speech {
                     name: (*name).to_owned(),
                     family: Family::Pocket,
                 }))
-                .chain(CHATTERBOX_VOICES.iter().map(|(id, name)| VoiceInfo {
-                    id: *id,
-                    name: (*name).to_owned(),
-                    family: Family::Chatterbox,
-                }))
+                // Chatterbox's stock voices are Pocket's recordings, and are
+                // only offered while the bundle holding them is here.
+                .chain(
+                    CHATTERBOX_VOICES
+                        .iter()
+                        .filter(|(_, _, file)| file.is_none() || model_downloaded(dirs, POCKET_ID))
+                        .map(|(id, name, _)| VoiceInfo {
+                            id: *id,
+                            name: (*name).to_owned(),
+                            family: Family::Chatterbox,
+                        }),
+                )
                 .collect(),
         })
     }
@@ -607,6 +637,14 @@ impl Speech {
         } else {
             1.0
         };
+        let defaults = GenerationConfig::default();
+        let silence_scale = request
+            .pauses
+            .filter(|pauses| pauses.is_finite())
+            .map_or(defaults.silence_scale, |pauses| pauses.clamp(0.0, 1.0));
+        let num_steps = request
+            .steps
+            .map_or(defaults.num_steps, |steps| steps.clamp(1, 16));
 
         let dir = model_dir(dirs, &request.model_id)?;
         if !model_downloaded(dirs, &request.model_id) {
@@ -664,10 +702,18 @@ impl Speech {
 
         // Chatterbox is its own loop: the recording in, the samples out,
         // and the file written here. Sherpa's families go on below.
+        // A named voice's recording lives in the Pocket bundle, whichever
+        // model reads it; a chosen recording needs no bundle at all.
+        let recordings = if is_clone(request.voice) {
+            dir.clone()
+        } else {
+            recordings_dir(dirs)?
+        };
+
         #[cfg(feature = "chatterbox")]
         let tts = match tts {
             Engine::Chatterbox(chatterbox) => {
-                let samples = reference_samples(&dir, request)?;
+                let samples = reference_samples(&recordings, request)?;
                 let mut progress = progress;
                 let spoken = chatterbox.speak(text, &samples, &cancel, &mut |fraction| {
                     progress(fraction);
@@ -694,12 +740,15 @@ impl Speech {
             Family::Kokoro => GenerationConfig {
                 sid: request.voice,
                 speed,
+                silence_scale,
                 ..Default::default()
             },
             _ => {
-                let samples = reference_samples(&dir, request)?;
+                let samples = reference_samples(&recordings, request)?;
                 GenerationConfig {
                     speed,
+                    silence_scale,
+                    num_steps,
                     reference_audio: Some(samples),
                     reference_sample_rate: REFERENCE_RATE as i32,
                     extra: Some(
@@ -772,14 +821,28 @@ impl Speech {
 /// the rate its bundled recordings are in.
 const REFERENCE_RATE: u32 = 24_000;
 
-/// The recording a Pocket request reads the voice from, as mono samples
-/// at [`REFERENCE_RATE`]: one of the bundle's own for a named voice, or
-/// the request's reference for the clone, cut to [`REFERENCE_SECONDS`]
-/// from where the voice is heard.
+/// Where the stock recordings are: the Pocket bundle. An error naming the
+/// fix when it is not on disk, since a Chatterbox voice borrowed from it
+/// can be asked for without Pocket ever having been downloaded.
+fn recordings_dir(dirs: &AppDirs) -> Result<PathBuf, String> {
+    if !model_downloaded(dirs, POCKET_ID) {
+        return Err(
+            "the stock voices are Pocket TTS's recordings - download Pocket TTS in Settings > \
+             Speech, or read in a sample voice of your own"
+                .to_owned(),
+        );
+    }
+    model_dir(dirs, POCKET_ID)
+}
+
+/// The recording a request reads the voice from, as mono samples at
+/// [`REFERENCE_RATE`]: one of the stock recordings in `dir` for a named
+/// voice, or the request's reference for a chosen one, cut to
+/// [`REFERENCE_SECONDS`] from where the voice is heard.
 fn reference_samples(dir: &Path, request: &SpeakRequest) -> Result<Vec<f32>, String> {
     let (path, start) = if is_clone(request.voice) {
         let reference = request.reference.as_ref().ok_or_else(|| {
-            "no clip to take the voice from - select a clip with a voice in it".to_owned()
+            "no recording to take the voice from - pick a sample with a voice in it".to_owned()
         })?;
         (
             PathBuf::from(&reference.path),
@@ -792,6 +855,7 @@ fn reference_samples(dir: &Path, request: &SpeakRequest) -> Result<Vec<f32>, Str
     } else {
         let file = POCKET_VOICES
             .iter()
+            .chain(CHATTERBOX_VOICES.iter())
             .find(|(id, _, _)| *id == request.voice)
             .and_then(|(_, _, file)| *file)
             .ok_or_else(|| format!("voice {} has no recording", request.voice))?;
@@ -956,11 +1020,15 @@ mod tests {
         }
         for (id, name, _) in POCKET_VOICES {
             assert_eq!(voice_name(*id), Some(*name));
-            assert!(!CHATTERBOX_VOICES.iter().any(|(other, _)| other == id));
+            assert!(!CHATTERBOX_VOICES.iter().any(|(other, _, _)| other == id));
         }
-        for (id, name) in CHATTERBOX_VOICES {
+        for (id, name, _) in CHATTERBOX_VOICES {
             assert_eq!(voice_name(*id), Some(*name));
+            assert_eq!(voice_family(*id), Some(Family::Chatterbox));
         }
+        // The stock Chatterbox voices are Pocket's recordings by another name.
+        assert_eq!(CHATTERBOX_VOICES[0].2, POCKET_VOICES[0].2);
+        assert_eq!(CHATTERBOX_VOICES[1].2, POCKET_VOICES[1].2);
         assert_eq!(voice_name(999), None);
         for model in KNOWN_MODELS {
             assert!(known(model.id).is_some());
@@ -977,10 +1045,12 @@ mod tests {
             reference,
             text: "hello".to_owned(),
             speed: 1.0,
+            pauses: None,
+            steps: None,
             project: String::new(),
         };
         let error = reference_samples(&dir, &request(POCKET_CLONE, None)).expect_err("no clip");
-        assert!(error.contains("select a clip"), "{error}");
+        assert!(error.contains("pick a sample"), "{error}");
         // A recording that is not there names itself.
         let error = reference_samples(&dir, &request(1000, None)).expect_err("no file");
         assert!(error.contains("bria.wav"), "{error}");

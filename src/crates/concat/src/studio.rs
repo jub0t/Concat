@@ -495,8 +495,12 @@ pub struct Models {
     /// The sheets' option lists: what is installed, and who can speak.
     pub caption_models: Rc<VecModel<SharedString>>,
     pub speech_models: Rc<VecModel<SharedString>>,
+    pub speech_model_details: Rc<VecModel<SharedString>>,
     pub speakers: Rc<VecModel<SharedString>>,
     pub speaker_details: Rc<VecModel<SharedString>>,
+    pub speech_samples: Rc<VecModel<SharedString>>,
+    pub speech_sample_waves: Rc<VecModel<SharedString>>,
+    pub speech_sample_details: Rc<VecModel<SharedString>>,
     pub transcribers: Rc<VecModel<ModelData>>,
     pub voices: Rc<VecModel<ModelData>>,
     pub seats: Rc<VecModel<SeatBox>>,
@@ -536,8 +540,12 @@ impl Models {
             bar: Rc::new(VecModel::default()),
             caption_models: Rc::new(VecModel::default()),
             speech_models: Rc::new(VecModel::default()),
+            speech_model_details: Rc::new(VecModel::default()),
             speakers: Rc::new(VecModel::default()),
             speaker_details: Rc::new(VecModel::default()),
+            speech_samples: Rc::new(VecModel::default()),
+            speech_sample_waves: Rc::new(VecModel::default()),
+            speech_sample_details: Rc::new(VecModel::default()),
             transcribers: Rc::new(VecModel::default()),
             voices: Rc::new(VecModel::default()),
             seats: Rc::new(VecModel::default()),
@@ -6520,8 +6528,21 @@ impl Studio {
                 .map(|model| SharedString::from(model.name.as_str()))
                 .collect(),
         );
+        sync(
+            &models.speech_model_details,
+            self.speech.model_detail_rows(self),
+        );
         sync(&models.speakers, self.speech.speaker_rows());
         sync(&models.speaker_details, self.speech.speaker_detail_rows());
+        sync(&models.speech_samples, self.speech.sample_rows(self));
+        sync(
+            &models.speech_sample_waves,
+            self.speech.sample_wave_rows(self),
+        );
+        sync(
+            &models.speech_sample_details,
+            self.speech.sample_detail_rows(self),
+        );
         app.set_speech(self.speech.data(self));
 
         let bar = self.menu_bar();

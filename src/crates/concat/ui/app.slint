@@ -247,13 +247,26 @@ export component App inherits Window {
 
     in property <SpeechSheetData> speech;
     in property <[string]> speech-models;
+    in property <[string]> speech-model-details;
     in property <[string]> speech-voices;
     in property <[string]> speech-voice-details;
+    /// The recordings in the bin a voice can be taken from: their names,
+    /// their waveforms as path commands, and their lengths.
+    in property <[string]> speech-samples;
+    in property <[string]> speech-sample-waves;
+    in property <[string]> speech-sample-details;
     callback speech-closed();
     callback speech-text-edited(text: string);
     callback speech-voice-changed(index: int);
     callback speech-model-changed(index: int);
-    callback speech-pace-changed(index: int);
+    callback speech-speed-changed(value: float);
+    callback speech-quality-changed(index: int);
+    callback speech-pauses-changed(value: float);
+    callback speech-reference-start-changed(seconds: float);
+    callback speech-use-sample-changed(on: bool);
+    callback speech-sample-changed(index: int);
+    /// See SpeechDialog.insert-tag: a string cut Rust does for the sheet.
+    pure callback speech-insert-tag(text: string, tag: string, at: int) -> string;
     callback speech-begin();
     callback speech-cancel();
 
@@ -597,14 +610,24 @@ export component App inherits Window {
         height: root.height;
         data: root.speech;
         models: root.speech-models;
+        model-details: root.speech-model-details;
         voices: root.speech-voices;
         voice-details: root.speech-voice-details;
+        samples: root.speech-samples;
+        sample-waves: root.speech-sample-waves;
+        sample-details: root.speech-sample-details;
 
         closed => { root.speech-closed(); }
         text-edited(text) => { root.speech-text-edited(text); }
         voice-changed(index) => { root.speech-voice-changed(index); }
         model-changed(index) => { root.speech-model-changed(index); }
-        pace-changed(index) => { root.speech-pace-changed(index); }
+        speed-changed(value) => { root.speech-speed-changed(value); }
+        quality-changed(index) => { root.speech-quality-changed(index); }
+        pauses-changed(value) => { root.speech-pauses-changed(value); }
+        reference-start-changed(seconds) => { root.speech-reference-start-changed(seconds); }
+        use-sample-changed(on) => { root.speech-use-sample-changed(on); }
+        sample-changed(index) => { root.speech-sample-changed(index); }
+        insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
         begin => { root.speech-begin(); }
         cancel => { root.speech-cancel(); }
     }

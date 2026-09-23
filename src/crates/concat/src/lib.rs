@@ -199,8 +199,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
+        app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
         app.set_speech_voices(ModelRc::from(models.speakers.clone()));
         app.set_speech_voice_details(ModelRc::from(models.speaker_details.clone()));
+        app.set_speech_samples(ModelRc::from(models.speech_samples.clone()));
+        app.set_speech_sample_waves(ModelRc::from(models.speech_sample_waves.clone()));
+        app.set_speech_sample_details(ModelRc::from(models.speech_sample_details.clone()));
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
         app.set_voices(ModelRc::from(models.voices.clone()));
@@ -1272,9 +1276,29 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_speech_model_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Speech(SpeechMsg::ModelChanged(index)));
     }));
-    app.on_speech_pace_changed(on_window!(|state, index: i32| {
-        state.handle(Msg::Speech(SpeechMsg::PaceChanged(index)));
+    app.on_speech_speed_changed(on_window!(|state, value: f32| {
+        state.handle(Msg::Speech(SpeechMsg::SpeedChanged(value)));
     }));
+    app.on_speech_quality_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Speech(SpeechMsg::QualityChanged(index)));
+    }));
+    app.on_speech_pauses_changed(on_window!(|state, value: f32| {
+        state.handle(Msg::Speech(SpeechMsg::PausesChanged(value)));
+    }));
+    app.on_speech_reference_start_changed(on_window!(|state, seconds: f32| {
+        state.handle(Msg::Speech(SpeechMsg::ReferenceStartChanged(seconds)));
+    }));
+    app.on_speech_use_sample_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Speech(SpeechMsg::UseSampleChanged(on)));
+    }));
+    app.on_speech_sample_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Speech(SpeechMsg::SampleChanged(index)));
+    }));
+    // A string cut, and nothing of the window's: the sheet keeps the text,
+    // Rust only knows where a character starts.
+    app.on_speech_insert_tag(|text: SharedString, tag: SharedString, at: i32| {
+        panes::speech::insert_tag(text.as_str(), tag.as_str(), at.max(0) as usize).into()
+    });
     app.on_speech_begin(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Begin));
     }));
