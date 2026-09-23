@@ -676,9 +676,17 @@ mod tests {
 /// a port that is not a number, gets the default port; an empty host gets
 /// loopback.
 pub fn split_listen(listen: &str) -> (String, u16) {
-    let (default_host, default_port) =
-        split_once_port(prefs::DEFAULT_LISTEN).unwrap_or(("127.0.0.1", 7420));
-    let (host, port) = split_once_port(listen.trim()).unwrap_or((listen.trim(), default_port));
+    let (default_host, default_port) = match split_once_port(prefs::DEFAULT_LISTEN) {
+        Some((host, Some(port))) => (host, port),
+        _ => ("127.0.0.1", 7420),
+    };
+    let listen = listen.trim();
+    // A host with a port that does not parse keeps the host: "host:" or
+    // "host:abc" is a host and the default port, not a host of that name.
+    let (host, port) = match split_once_port(listen) {
+        Some((host, port)) => (host, port.unwrap_or(default_port)),
+        None => (listen, default_port),
+    };
     let host = host.trim();
     (
         if host.is_empty() {
@@ -690,15 +698,17 @@ pub fn split_listen(listen: &str) -> (String, u16) {
     )
 }
 
-/// `host:port` when the port parses, else `None`.
-fn split_once_port(listen: &str) -> Option<(&str, u16)> {
+/// The host before the last colon and the port after it, when there is
+/// such a place for a port: `None` for text with no colon or a bare IPv6
+/// address, and a `None` port when what follows the colon is not one.
+fn split_once_port(listen: &str) -> Option<(&str, Option<u16>)> {
     let (host, port) = listen.rsplit_once(':')?;
     // "::1" with no brackets is all colons; only a bracketed IPv6 host, or
     // a plain host, has a port after its last colon.
     if host.contains(':') && !host.ends_with(']') {
         return None;
     }
-    Some((host, port.trim().parse().ok()?))
+    Some((host, port.trim().parse().ok()))
 }
 
 /// The inverse of [`split_listen`]: the one string the server binds.

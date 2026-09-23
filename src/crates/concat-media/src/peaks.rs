@@ -123,8 +123,23 @@ impl Peaks {
         if count == 0 || to <= from || self.buckets_per_second <= 0.0 {
             return (0.0, 0.0);
         }
-        let first = ((from * self.buckets_per_second).floor().max(0.0) as usize).min(count);
-        let last = ((to * self.buckets_per_second).ceil().max(0.0) as usize).min(count);
+        // The buckets that begin inside the span, so a bucket straddling
+        // two columns is read by one of them and never both, with a hair of
+        // float noise at a boundary forgiven. A span narrower than a bucket
+        // reads the bucket it sits in.
+        const HAIR: f32 = 1e-3;
+        let start = from * self.buckets_per_second;
+        let end = to * self.buckets_per_second;
+        let mut first = ((start - HAIR).ceil().max(0.0) as usize).min(count);
+        let mut last = ((end - HAIR).ceil().max(0.0) as usize).min(count);
+        if first >= last {
+            if start >= count as f32 {
+                // Past the end is silence.
+                return (0.0, 0.0);
+            }
+            first = (start.floor().max(0.0) as usize).min(count - 1);
+            last = first + 1;
+        }
         let (mut low, mut high) = (0.0f32, 0.0f32);
         for index in first..last.max(first) {
             low = low.min(self.min[index]);

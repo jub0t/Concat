@@ -50,7 +50,10 @@ fn main() {
 
     let mut failed = 0;
     let kinds = [Kind::Filter, Kind::Effect, Kind::Transition];
-    for package in kinds.into_iter().flat_map(|k| Catalogue::builtin().of_kind(k)) {
+    for package in kinds
+        .into_iter()
+        .flat_map(|k| Catalogue::builtin().of_kind(k))
+    {
         let id = package.id();
         if !only.is_empty() && !only.iter().any(|want| want == id) {
             continue;

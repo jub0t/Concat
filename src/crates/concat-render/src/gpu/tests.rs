@@ -403,8 +403,7 @@ fn output_size_changes_are_handled() {
 #[test]
 fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
     let Some(mut gpu) = gpu() else { return };
-    let body =
-        "fn effect(uv: vec2<f32>) -> vec4<f32> { let r = reveal_order(uv); return vec4<f32>(r, r, r, 1.0); }";
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { let r = reveal_order(uv); return vec4<f32>(r, r, r, 1.0); }";
     let map = RevealMap::from_rects(4, 4, &[(0, 0, 2, 4), (2, 0, 2, 4)]);
     let mut revealed = layer(solid(4, 4, [0, 0, 0, 255]));
     let mut pass = package("test.reveal", body, "", &[], 1.0);
@@ -460,7 +459,9 @@ fn every_shader_package_renders_at_its_defaults() {
     let source = solid(4, 4, [200, 120, 60, 255]);
     let catalogue = concat_effects::Catalogue::builtin();
     for package in catalogue.packages() {
-        let Some(shader) = package.shader() else { continue };
+        let Some(shader) = package.shader() else {
+            continue;
+        };
         let values = package.resolve(&Default::default());
         let pass = shader.pass(
             &values,
@@ -491,7 +492,11 @@ fn a_pass_reads_its_layers_clip_relative_time() {
     let mut p = plan(4, 4, vec![timed]);
     p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
     let out = gpu.render(&p);
-    assert_eq!(&out.pixels()[..3], &[0, 255, 0], "clip_time should read 3.0");
+    assert_eq!(
+        &out.pixels()[..3],
+        &[0, 255, 0],
+        "clip_time should read 3.0"
+    );
 }
 
 /// Every packaged transition's pipeline actually creates and runs on the
@@ -512,9 +517,10 @@ fn every_packaged_transition_combines_across_its_progress_range() {
             let pass = catalogue
                 .transition_pass(package.id(), &Default::default(), progress)
                 .unwrap_or_else(|| panic!("{} has no transition pass", package.id()));
-            gpu.combine(4, 4, 0.0, &red, &blue, &pass).unwrap_or_else(|| {
-                panic!("{} failed to combine at progress {progress}", package.id())
-            });
+            gpu.combine(4, 4, 0.0, &red, &blue, &pass)
+                .unwrap_or_else(|| {
+                    panic!("{} failed to combine at progress {progress}", package.id())
+                });
         }
     }
 }

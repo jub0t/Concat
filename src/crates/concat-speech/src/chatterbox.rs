@@ -824,7 +824,8 @@ pub fn punc_norm(text: &str) -> String {
     ] {
         text = text.replace(from, to);
     }
-    let text = text.trim_end_matches(' ').to_owned();
+    // An ellipsis before a space became ", " before a space: one space.
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if ['.', '!', '?', '-', ',']
         .iter()
         .any(|end| text.ends_with(*end))

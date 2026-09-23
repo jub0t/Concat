@@ -229,7 +229,10 @@ impl Titles {
         );
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         let (kept, order) = &mut *live;
-        if kept.insert(key, (art.clone(), Arc::clone(&frame))).is_none() {
+        if kept
+            .insert(key, (art.clone(), Arc::clone(&frame)))
+            .is_none()
+        {
             order.push_back(key);
         }
         while order.len() > LIVE_KEPT {

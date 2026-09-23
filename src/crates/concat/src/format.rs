@@ -443,16 +443,18 @@ mod tests {
             max,
             buckets_per_second: 1000.0,
         });
-        // A full-scale spike is a column whose bar reaches the top.
+        // A full-scale spike is a column whose bar reaches the top: a
+        // closed shape with a corner at the top.
+        let spikes = |path: &str| {
+            path.split('Z')
+                .filter(|bar| bar.contains(" 0.0000 L"))
+                .count()
+        };
         let fine = wave_path(&peaks, 0.0, 1.0, 1000, WAVE_BAR);
-        assert_eq!(
-            fine.matches(" 0.0000 L").count(),
-            1,
-            "one column carries the spike: {fine}"
-        );
+        assert_eq!(spikes(&fine), 1, "one column carries the spike: {fine}");
         let coarse = wave_path(&peaks, 0.0, 1.0, 10, WAVE_BAR);
         assert_eq!(
-            coarse.matches(" 0.0000 L").count(),
+            spikes(&coarse),
             1,
             "the spike survives the fold, in one column"
         );

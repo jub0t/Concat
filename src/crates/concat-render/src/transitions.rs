@@ -91,7 +91,9 @@ pub(crate) fn combine(from: &Frame, to: &Frame, xfade: &str, progress: f32) -> O
         Shape::Iris { closing } => pick(&|u, v| {
             let d =
                 ((u - 0.5).powi(2) + (v - 0.5).powi(2)).sqrt() / std::f32::consts::FRAC_1_SQRT_2;
-            let radius = if closing { 1.0 - s } else { s } * 1.15;
+            // The edge overshoots its softness at both ends, so progress
+            // 0 is exactly the outgoing picture and 1 exactly the incoming.
+            let radius = edge(if closing { 1.0 - s } else { s }, 1.15, 0.05);
             let m = smoothstep(radius - 0.05, radius + 0.05, d);
             // Inside the circle is the incoming picture while it opens, and
             // the outgoing one while it closes.
@@ -104,7 +106,7 @@ pub(crate) fn combine(from: &Frame, to: &Frame, xfade: &str, progress: f32) -> O
         }),
         Shape::Box { closing } => pick(&|u, v| {
             let d = (u - 0.5).abs().max((v - 0.5).abs()) * 2.0;
-            let radius = if closing { 1.0 - s } else { s } * 1.05;
+            let radius = edge(if closing { 1.0 - s } else { s }, 1.05, 0.03);
             let m = smoothstep(radius - 0.03, radius + 0.03, d);
             let (inside, outside) = if closing {
                 (from_at(u, v), to_at(u, v))
@@ -116,7 +118,8 @@ pub(crate) fn combine(from: &Frame, to: &Frame, xfade: &str, progress: f32) -> O
         Shape::Wipe { coord, soft } => pick(&|u, v| {
             // The incoming picture is uncovered where the coordinate is
             // behind the edge; the edge is as soft as the shape says.
-            let m = smoothstep(s - soft, s + soft, coord.of(u, v));
+            let at = edge(s, 1.0, soft);
+            let m = smoothstep(at - soft, at + soft, coord.of(u, v));
             mix(to_at(u, v), from_at(u, v), m)
         }),
         Shape::Bars { axis, closing } => pick(&|u, v| {
@@ -124,8 +127,8 @@ pub(crate) fn combine(from: &Frame, to: &Frame, xfade: &str, progress: f32) -> O
                 Axis::X => (u - 0.5).abs() * 2.0,
                 Axis::Y => (v - 0.5).abs() * 2.0,
             };
-            let edge = if closing { 1.0 - s } else { s };
-            let m = smoothstep(edge - 0.02, edge + 0.02, d);
+            let at = edge(if closing { 1.0 - s } else { s }, 1.0, 0.02);
+            let m = smoothstep(at - 0.02, at + 0.02, d);
             let (inside, outside) = if closing {
                 (from_at(u, v), to_at(u, v))
             } else {
@@ -138,8 +141,11 @@ pub(crate) fn combine(from: &Frame, to: &Frame, xfade: &str, progress: f32) -> O
             // points away from; under a push the outgoing one leaves by
             // the other side, under a cover it stays put, under a reveal
             // it alone moves.
+            // Both pictures travel along (dx, dy): the incoming one is
+            // still `1 - s` short of its place, the outgoing one has gone
+            // `s` past its own, so each is read from where it was.
             let (tu, tv) = (u + dx * (1.0 - s), v + dy * (1.0 - s));
-            let (fu, fv) = (u + dx * s, v + dy * s);
+            let (fu, fv) = (u - dx * s, v - dy * s);
             let arrived = (0.0..=1.0).contains(&tu) && (0.0..=1.0).contains(&tv);
             match moving {
                 Moving::Both => {
@@ -374,6 +380,13 @@ fn mix(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
 }
 
 /// WGSL's `smoothstep`.
+/// Where a soft edge sits at `progress`: it travels from `-soft` to
+/// `reach + soft`, so the whole of its blend is off the picture at both
+/// ends and progress 0 and 1 are the two pictures themselves.
+fn edge(progress: f32, reach: f32, soft: f32) -> f32 {
+    progress * (reach + 2.0 * soft) - soft
+}
+
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)

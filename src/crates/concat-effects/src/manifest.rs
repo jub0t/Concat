@@ -237,16 +237,64 @@ pub struct Transition {
 /// export fallback. Validated at load so a typo is a load error, not a
 /// silent hard cut at export.
 pub const XFADE_NAMES: &[&str] = &[
-    "fade", "fadeblack", "fadewhite", "fadegrays", "fadefast", "fadeslow",
-    "dissolve", "pixelize", "distance", "radial", "smoothleft", "smoothright",
-    "smoothup", "smoothdown", "circleopen", "circleclose", "circlecrop",
-    "rectcrop", "wipeleft", "wiperight", "wipeup", "wipedown", "wipetl",
-    "wipetr", "wipebl", "wipebr", "slideleft", "slideright", "slideup",
-    "slidedown", "vertopen", "vertclose", "horzopen", "horzclose", "diagtl",
-    "diagtr", "diagbl", "diagbr", "hlslice", "hrslice", "vuslice", "vdslice",
-    "hblur", "squeezeh", "squeezev", "zoomin", "hlwind", "hrwind", "vuwind",
-    "vdwind", "coverleft", "coverright", "coverup", "coverdown", "revealleft",
-    "revealright", "revealup", "revealdown",
+    "fade",
+    "fadeblack",
+    "fadewhite",
+    "fadegrays",
+    "fadefast",
+    "fadeslow",
+    "dissolve",
+    "pixelize",
+    "distance",
+    "radial",
+    "smoothleft",
+    "smoothright",
+    "smoothup",
+    "smoothdown",
+    "circleopen",
+    "circleclose",
+    "circlecrop",
+    "rectcrop",
+    "wipeleft",
+    "wiperight",
+    "wipeup",
+    "wipedown",
+    "wipetl",
+    "wipetr",
+    "wipebl",
+    "wipebr",
+    "slideleft",
+    "slideright",
+    "slideup",
+    "slidedown",
+    "vertopen",
+    "vertclose",
+    "horzopen",
+    "horzclose",
+    "diagtl",
+    "diagtr",
+    "diagbl",
+    "diagbr",
+    "hlslice",
+    "hrslice",
+    "vuslice",
+    "vdslice",
+    "hblur",
+    "squeezeh",
+    "squeezev",
+    "zoomin",
+    "hlwind",
+    "hrwind",
+    "vuwind",
+    "vdwind",
+    "coverleft",
+    "coverright",
+    "coverup",
+    "coverdown",
+    "revealleft",
+    "revealright",
+    "revealup",
+    "revealdown",
 ];
 
 /// One render pass of a WGSL package.
@@ -395,9 +443,9 @@ impl Manifest {
                 return Err(self.invalid("a transition needs a [transition] table"));
             };
             if self.ffmpeg.is_some() || self.wgsl.is_some() {
-                return Err(self.invalid(
-                    "a transition's backend is [transition], not [ffmpeg] or [wgsl]",
-                ));
+                return Err(
+                    self.invalid("a transition's backend is [transition], not [ffmpeg] or [wgsl]")
+                );
             }
             if let Some(xfade) = &transition.xfade
                 && !XFADE_NAMES.contains(&xfade.as_str())
