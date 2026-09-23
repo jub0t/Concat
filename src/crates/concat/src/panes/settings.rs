@@ -586,7 +586,6 @@ impl SettingsPane {
                 .into()
             },
             version: env!("CARGO_PKG_VERSION").into(),
-            engine: format!("concat-engine · FFmpeg {}", concat_media::linked_version()).into(),
         }
     }
 }

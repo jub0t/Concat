@@ -296,7 +296,6 @@
   "Every colour turned around the wheel by the same angle.": "將所有顏色沿色相環旋轉相同角度。",
   "Everyday": "日常",
   "Everything brighter than the threshold turns negative, as an over-exposed print does.": "將亮度超過臨界值的部分反相，呈現照片過度曝光般的效果。",
-  "Everything on this machine. Transcription and speech run against models you download here, and nothing about a project leaves the device.": "所有處理都在本機進行。語音轉文字與語音合成使用在此下載的模型，專案資料不會離開裝置。",
   "Export": "匯出",
   "Export again": "再次匯出",
   "Export failed: {0}": "匯出失敗：{0}",

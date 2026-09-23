@@ -101,7 +101,6 @@ export struct SettingsData {
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
-    engine: string,
 }
 
 // Accuracy, as pips rather than a number: five little bars say "third of five"
@@ -1007,6 +1006,9 @@ export component SettingsDialog inherits Modal {
             }
 
             if root.data.tab == 5: VerticalLayout {
+                // The name and the build, and nothing under them: the engine
+                // and the FFmpeg it links are rows of the table below, where
+                // a report reads them from.
                 DialogSection {
                     first: true;
                     title: I18n.t("About");
@@ -1017,40 +1019,48 @@ export component SettingsDialog inherits Modal {
                         font-size: Theme.fs-lg;
                         font-weight: Theme.weight-title;
                     }
-
-                    Text {
-                        text: root.data.engine;
-                        color: Theme.fg-muted;
-                        font-family: Theme.font-technical;
-                        font-size: Theme.fs-sm;
-                    }
-
-                    Text {
-                        text: I18n.t("Everything on this machine. Transcription and speech run against models you download here, and nothing about a project leaves the device.");
-                        color: Theme.fg-muted;
-                        font-size: Theme.fs;
-                        wrap: word-wrap;
-                    }
                 }
 
                 // The block an issue report is opened with. Every line in it
                 // is something the report will be asked for and nobody has to
                 // hand — which build, which renderer, which OS — and reading
                 // them off a screen one at a time is how a report ends up
-                // missing the one that mattered. Hence the button: the whole
+                // missing the one that mattered. Hence the buttons: the whole
                 // block in one press, and the rows still selectable a line at
                 // a time for when only one of them is the answer.
-                DialogSection {
-                    title: I18n.t("System information");
+                //
+                // Laid out by hand rather than as a DialogSection, because the
+                // buttons belong on the title's row, at its far end, and a
+                // section's header has no slot for them. The hairline, the
+                // header's height and the body's inset are the section's own,
+                // so the group reads as one more of them.
+                Rectangle {
+                    height: 1px;
+                    background: Theme.line;
+                }
+
+                Rectangle {
+                    height: 30px;
 
                     HorizontalLayout {
-                        alignment: end;
+                        padding-left: 14px;
+                        padding-right: 14px;
                         spacing: Theme.gap;
 
-                        // The other half of a report: the block above says
-                        // what this machine is, the log says what the app
-                        // did on it. A run writes one file, and the last ten
-                        // runs are in the folder this opens.
+                        Text {
+                            text: I18n.t("System information");
+                            color: Theme.fg;
+                            font-size: Theme.fs-lg;
+                            font-weight: Theme.weight-title;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        // The other half of a report: the block says what
+                        // this machine is, the log says what the app did on
+                        // it. A run writes one file, and the last ten runs
+                        // are in the folder this opens.
                         IconButton {
                             glyph: Glyph.folder;
                             label: I18n.t("Show the log");
@@ -1073,17 +1083,19 @@ export component SettingsDialog inherits Modal {
                             }
                         }
                     }
+                }
 
-                    // No spacing: the rows carry their own height, the way the
-                    // Details panel's table does, and the section's own 6px on
-                    // top of it opens the table back into a list of paragraphs.
-                    VerticalLayout {
-                        spacing: 0px;
+                // No spacing: the rows carry their own height, the way the
+                // Details panel's table does, and any more between them opens
+                // the table back into a list of paragraphs.
+                VerticalLayout {
+                    padding: 14px;
+                    padding-top: 4px;
+                    spacing: 0px;
 
-                        for fact in root.system-facts: FactRow {
-                            label: fact.label;
-                            value: fact.value;
-                        }
+                    for fact in root.system-facts: FactRow {
+                        label: fact.label;
+                        value: fact.value;
                     }
                 }
             }
