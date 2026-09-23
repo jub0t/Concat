@@ -1426,6 +1426,7 @@ dependencies = [
  "bzip2 0.6.1",
  "concat-host",
  "concat-media",
+ "log",
  "ort",
  "serde",
  "serde_json",

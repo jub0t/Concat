@@ -18,10 +18,23 @@
 //! file lands in a `.part` and is renamed whole, so a torn download is
 //! never mistaken for a model.
 //!
-//! Every voice is a recording: there are no speakers built in. The sheet
-//! offers the selected clip's own. Resemble's Python stamps its output
-//! with a watermark; the ONNX path carries no such step, and this one
-//! adds none.
+//! Every voice is a recording: there are no speakers built in. Resemble's
+//! Python stamps its output with a watermark; the ONNX path carries no
+//! such step, and this one adds none.
+//!
+//! The one thing the export is particular about, and the thing that turns
+//! a read into moaning when it is got wrong: the embedding graph splits
+//! whatever ids it is given into two runs. Everything but the last two goes
+//! through the *text* table; the last two go through the *speech* table,
+//! with `<|endoftext|>` (50256) swapped for the start-of-speech token
+//! (6561) on the way. The tokenizer's post-processor appends two
+//! `<|endoftext|>` to every text, so the whole of its output - terminators
+//! included - is embedded in one call, and the graph itself turns the two
+//! terminators into two start-of-speech marks. A single written token,
+//! embedded on its own, has no first run and is speech. Nothing else may be
+//! appended: a start token added by hand is a third mark the model never
+//! saw in training, and a text encoded without its terminators sends its
+//! last word through the speech table as noise.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -39,8 +52,13 @@ pub const BUNDLE_ID: &str = "chatterbox-turbo-q8";
 pub const SAMPLE_RATE: u32 = 24_000;
 /// Speech tokens a second: how long a token is in sound.
 const TOKENS_PER_SECOND: f32 = 25.0;
-/// The token the language model starts writing after.
+/// The token the language model starts writing after. Never fed by hand:
+/// the embedding graph makes it from the text's `<|endoftext|>` pair.
 const START_SPEECH_TOKEN: i64 = 6561;
+/// GPT-2's `<|endoftext|>`, which the tokenizer's post-processor appends
+/// twice to every text and the embedding graph reads as the start of
+/// speech.
+const TEXT_END_TOKEN: i64 = 50256;
 /// The token that means it has finished.
 const STOP_SPEECH_TOKEN: i64 = 6562;
 /// A token of silence, three of which end every utterance.
@@ -298,16 +316,23 @@ impl Engine {
         if !installed(dir) {
             return Err("the Chatterbox bundle is incomplete - re-download it".to_owned());
         }
+        let started = std::time::Instant::now();
+        log::info!("chatterbox: loading the bundle in {}", dir.display());
         let tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
             .map_err(|error| format!("chatterbox tokenizer: {error}"))?;
         let onnx = dir.join("onnx");
-        Ok(Engine {
+        let engine = Engine {
             tokenizer,
             speech_encoder: Mutex::new(session(&onnx.join("speech_encoder_quantized.onnx"))?),
             embed_tokens: Mutex::new(session(&onnx.join("embed_tokens_quantized.onnx"))?),
             language_model: Mutex::new(session(&onnx.join("language_model_quantized.onnx"))?),
             decoder: Mutex::new(session(&onnx.join("conditional_decoder_quantized.onnx"))?),
-        })
+        };
+        log::info!(
+            "chatterbox: four networks loaded in {:.1}s",
+            started.elapsed().as_secs_f32()
+        );
+        Ok(engine)
     }
 
     /// Reads `text` in the voice of `reference`, mono samples at
@@ -321,11 +346,18 @@ impl Engine {
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(f32),
     ) -> Result<Vec<f32>, String> {
+        let started = std::time::Instant::now();
+        log::info!(
+            "chatterbox: reading {} characters in the voice of a {:.1}s recording",
+            text.chars().count(),
+            reference.len() as f32 / SAMPLE_RATE as f32
+        );
         let voice = self.hear(reference)?;
         let chunks = chunks(text);
         if chunks.is_empty() {
             return Err("nothing to say: the text is empty".to_owned());
         }
+        log::info!("chatterbox: {} chunk(s) to read", chunks.len());
         let expected: usize = chunks.iter().map(|chunk| expected_tokens(chunk)).sum();
         let mut written = 0usize;
         let mut samples = Vec::new();
@@ -336,13 +368,41 @@ impl Engine {
                     (SAMPLE_RATE as f32 * GAP_SECONDS) as usize,
                 ));
             }
+            log::debug!(
+                "chatterbox: chunk {}/{}: {:?}",
+                index + 1,
+                chunks.len(),
+                chunk.chars().take(80).collect::<String>()
+            );
+            let writing = std::time::Instant::now();
             let tokens = self.write(chunk, &voice, cancel, &mut |count| {
                 progress(((written + count) as f32 / expected.max(1) as f32).min(0.95));
             })?;
+            log::info!(
+                "chatterbox: chunk {}/{} wrote {} speech tokens ({:.1}s of speech) in {:.1}s",
+                index + 1,
+                chunks.len(),
+                tokens.len(),
+                tokens.len() as f32 / TOKENS_PER_SECOND,
+                writing.elapsed().as_secs_f32()
+            );
             written += tokens.len();
+            let decoding = std::time::Instant::now();
             let wave = self.decode(&voice, &tokens)?;
+            log::info!(
+                "chatterbox: chunk {}/{} decoded to {:.2}s of audio in {:.1}s",
+                index + 1,
+                chunks.len(),
+                wave.len() as f32 / SAMPLE_RATE as f32,
+                decoding.elapsed().as_secs_f32()
+            );
             samples.extend(wave);
         }
+        log::info!(
+            "chatterbox: {:.2}s of audio in {:.1}s",
+            samples.len() as f32 / SAMPLE_RATE as f32,
+            started.elapsed().as_secs_f32()
+        );
         progress(1.0);
         Ok(samples)
     }
@@ -360,12 +420,20 @@ impl Engine {
         let outputs = encoder
             .run(vec![feed("audio_values", audio)])
             .map_err(|error| format!("chatterbox speech encoder: {error}"))?;
-        Ok(Voice {
+        let voice = Voice {
             features: take_f32(&outputs, "audio_features")?,
             prompt: take_i64(&outputs, "audio_tokens")?,
             embedding: take_f32(&outputs, "speaker_embeddings")?,
             spectrum: take_f32(&outputs, "speaker_features")?,
-        })
+        };
+        log::debug!(
+            "chatterbox: heard the voice: features {:?}, {} prompt tokens, embedding {:?}, spectrum {:?}",
+            voice.features.0,
+            voice.prompt.len(),
+            voice.embedding.0,
+            voice.spectrum.0
+        );
+        Ok(voice)
     }
 
     /// The language model over one chunk: the speech tokens it writes,
@@ -377,14 +445,23 @@ impl Engine {
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize),
     ) -> Result<Vec<i64>, String> {
+        // With the post-processor's two `<|endoftext|>` on the end: they are
+        // what the embedding graph turns into the start of speech, and a
+        // text without them is read wrong from its last word on - see the
+        // module's note.
         let encoding = self
             .tokenizer
-            .encode(chunk, false)
+            .encode(chunk, true)
             .map_err(|error| format!("chatterbox tokenizer: {error}"))?;
         let text_ids: Vec<i64> = encoding.get_ids().iter().map(|&id| i64::from(id)).collect();
-        if text_ids.is_empty() {
+        if text_ids.iter().all(|&id| id == TEXT_END_TOKEN) {
             return Ok(Vec::new());
         }
+        log::debug!(
+            "chatterbox: {} text tokens, ending {:?}",
+            text_ids.len(),
+            &text_ids[text_ids.len().saturating_sub(3)..]
+        );
         let mut embed = self
             .embed_tokens
             .lock()
@@ -394,8 +471,10 @@ impl Engine {
             .lock()
             .map_err(|_| "chatterbox: model poisoned")?;
 
-        // The first step reads the voice, the text and the start token
-        // together; every later step reads one token with the cache.
+        // The first step reads the voice and the whole text together - the
+        // text's own terminators becoming the start of speech inside the
+        // embedding graph, so nothing is appended here; every later step
+        // reads the one token just written, with the cache.
         let embed_ids =
             |embed: &mut Session, ids: &[i64]| -> Result<(Vec<usize>, Vec<f32>), String> {
                 let outputs = embed
@@ -407,11 +486,9 @@ impl Engine {
                 take_f32(&outputs, "inputs_embeds")
             };
         let (_, text_embeds) = embed_ids(&mut embed, &text_ids)?;
-        let (_, start_embed) = embed_ids(&mut embed, &[START_SPEECH_TOKEN])?;
         let width = voice.features.0[2];
         let mut embeds = voice.features.1.clone();
         embeds.extend_from_slice(&text_embeds);
-        embeds.extend_from_slice(&start_embed);
         let mut seq_len = embeds.len() / width;
         let mut total_len = seq_len;
         let mut position = 0usize;
@@ -466,7 +543,14 @@ impl Engine {
             generated.push(next);
             progress(step + 1);
             if next == STOP_SPEECH_TOKEN {
+                log::debug!("chatterbox: stop token after {} speech tokens", step);
                 break;
+            }
+            if step + 1 == MAX_NEW_TOKENS {
+                log::warn!(
+                    "chatterbox: no stop token in {MAX_NEW_TOKENS} tokens - the read ran out; \
+                     the recording or the text may be one the model cannot follow"
+                );
             }
             position += seq_len;
             let (_, next_embed) = embed_ids(&mut embed, &[next])?;
@@ -625,8 +709,7 @@ pub fn bundle_dir(models: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
-    const UPSTREAM: &str =
-        "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/";
+    const UPSTREAM: &str = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/";
 
     #[test]
     fn the_table_names_nine_distinct_files_with_the_bundle_in_front() {

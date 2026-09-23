@@ -616,12 +616,31 @@ impl Speech {
     ) -> Result<SpeakResult, String> {
         let job = self.gate.begin("speech generation")?;
         let cancel = job.cancel_handle();
+        let started = std::time::Instant::now();
 
         let text = request.text.trim();
         if text.is_empty() {
             return Err("nothing to say: the text is empty".to_owned());
         }
         let family = family_of(&request.model_id);
+        log::info!(
+            "tts: {} reading {} characters with voice {} ({}), speed {:.2}, pauses {:?}, steps {:?}{}",
+            request.model_id,
+            text.chars().count(),
+            request.voice,
+            voice_name(request.voice).unwrap_or("?"),
+            request.speed,
+            request.pauses,
+            request.steps,
+            request
+                .reference
+                .as_ref()
+                .map(|reference| format!(
+                    ", voice from {} at {:.1}s",
+                    reference.path, reference.start
+                ))
+                .unwrap_or_default()
+        );
         match voice_family(request.voice) {
             Some(owner) if owner == family => {}
             Some(_) => {
@@ -672,6 +691,8 @@ impl Speech {
         if engine.as_ref().map(|cached| cached.model_id.as_str()) != Some(request.model_id.as_str())
         {
             // Load before overwriting: a failed load keeps the old engine.
+            let loading = std::time::Instant::now();
+            log::info!("tts: loading {} from {}", request.model_id, dir.display());
             let tts = match family {
                 Family::Kokoro => Engine::Sherpa(load_kokoro(&dir)?),
                 Family::Pocket => Engine::Sherpa(load_pocket(&dir)?),
@@ -684,6 +705,11 @@ impl Speech {
                     return Err("Chatterbox is not part of this build".to_owned());
                 }
             };
+            log::info!(
+                "tts: {} loaded in {:.1}s",
+                request.model_id,
+                loading.elapsed().as_secs_f32()
+            );
             *engine = Some(CachedEngine {
                 model_id: request.model_id.clone(),
                 tts,
@@ -724,9 +750,15 @@ impl Speech {
                 let rate = crate::chatterbox::SAMPLE_RATE;
                 std::fs::write(&file, crate::chatterbox::wav_bytes(&spoken, rate))
                     .map_err(|error| format!("could not write {}: {error}", file.display()))?;
+                let duration = spoken.len() as f64 / f64::from(rate);
+                log::info!(
+                    "tts: wrote {} ({duration:.2}s) in {:.1}s",
+                    file.display(),
+                    started.elapsed().as_secs_f32()
+                );
                 return Ok(SpeakResult {
                     path: file.to_string_lossy().into_owned(),
-                    duration: spoken.len() as f64 / f64::from(rate),
+                    duration,
                 });
             }
             Engine::Sherpa(tts) => tts,
@@ -800,6 +832,12 @@ impl Speech {
         }
 
         let duration = audio.samples().len() as f64 / f64::from(audio.sample_rate().max(1));
+        log::info!(
+            "tts: wrote {} ({duration:.2}s at {} Hz) in {:.1}s",
+            file.display(),
+            audio.sample_rate(),
+            started.elapsed().as_secs_f32()
+        );
         Ok(SpeakResult {
             path: file.to_string_lossy().into_owned(),
             duration,
@@ -881,6 +919,17 @@ fn reference_samples(dir: &Path, request: &SpeakRequest) -> Result<Vec<f32>, Str
             "too little sound in {} to take a voice from",
             path.display()
         ));
+    }
+    let peak = samples
+        .iter()
+        .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+    log::info!(
+        "tts: voice from {} at {start:.1}s: {:.1}s of sound, peak {peak:.2}",
+        path.display(),
+        samples.len() as f32 / REFERENCE_RATE as f32
+    );
+    if peak < 0.01 {
+        log::warn!("tts: the voice recording is near silent - the read will be in nobody's voice");
     }
     Ok(samples)
 }
