@@ -21,12 +21,12 @@
 //     mute/solo pair are `field` buttons inset into one. `field-active` is the
 //     rung that drops below the well, which is right — pressed is recessed.
 //
-//   - **The accent comes down.** #cbf53f is a light on a dark ground. On a
+//   - **The accents come down.** #cbf53f is a light on a dark ground. On a
 //     near-white panel it is a highlighter: illegible as ink, and barely a
-//     shape as a fill. This takes the same hue to where it can do both jobs —
+//     shape as a fill. This takes each hue to where it can do both jobs —
 //     dark enough to read as text on the panel, dark enough for white to read
-//     on it — and `on-accent` flips to white in the same edit, which is
-//     exactly the pairing the dark palette says has to hold. `green` and
+//     on it — and every accent's ink flips to white in the same edit, which
+//     is exactly the pairing the dark palette says has to hold. `green` and
 //     `danger` move for the same reason and by the same amount.
 //
 //   - **The clips are tinted, not shaded.** Each kind's `-well` is a light
@@ -45,6 +45,8 @@
 // The greys carry a trace of blue as they darken, the way `page` does in the
 // dark palette. It is what keeps a large field of light grey from going warm
 // and reading as paper.
+import { Accent } from "accent.slint";
+
 export global Light {
     // surfaces
     //
@@ -89,23 +91,30 @@ export global Light {
 
     // accents
     //
-    // Still the lime, taken down to where a near-white ground can hold it. At
-    // this value it clears 4.5:1 against `panel` as ink and white clears 5:1
-    // on it as a fill, which is what lets one token keep doing both jobs — the
-    // 41 places that tint a glyph or a border with it and the 26 that fill a
-    // control with it are the same token, and splitting them into an ink and a
-    // fill would be a second accent to keep in step.
+    // The dark palette's six, each taken down to where a near-white ground
+    // can hold it. At these values every one clears 4.5:1 against `panel` as
+    // ink and white clears 5:1 on it as a fill, which is what lets one token
+    // keep doing both jobs — the 41 places that tint a glyph or a border with
+    // it and the 26 that fill a control with it are the same token, and
+    // splitting them into an ink and a fill would be a second accent to keep
+    // in step.
     //
     // Hover goes darker, not lighter: on this ground more contrast is more
     // engagement, which is the same sentence the dark palette's brighter hover
-    // is saying.
-    out property <color> accent: #4d7c0f;
-    out property <color> accent-hover: #3f680b;
-    out property <color> accent-soft: #4d7c0f2e;   // rgb(77 124 15 / 0.18)
+    // is saying. The ink is white on all six, because every one is now dark —
+    // the pairing the dark palette insists on, honoured from the other side.
+    // `soft` is the colour at 18%.
+    //
+    // The same order as `dark.slint` and as `accent-names` in theme.slint.
+    out property <[Accent]> accents: [
+        { accent: #4d7c0f, hover: #3f680b, soft: #4d7c0f2e, on: #ffffff },   // lime
+        { accent: #1f66d1, hover: #1a55b0, soft: #1f66d12e, on: #ffffff },   // sky
+        { accent: #7239e6, hover: #6030c8, soft: #7239e62e, on: #ffffff },   // violet
+        { accent: #cf2468, hover: #b01d58, soft: #cf24682e, on: #ffffff },   // rose
+        { accent: #b4530a, hover: #98450a, soft: #b4530a2e, on: #ffffff },   // amber
+        { accent: #0f7a6e, hover: #0c665c, soft: #0f7a6e2e, on: #ffffff },   // mint
+    ];
     out property <color> green: #248a3d;
-    // Light ink, because the accent is now dark — the pairing the dark
-    // palette's `on-accent` comment insists on, honoured from the other side.
-    out property <color> on-accent: #ffffff;
     out property <color> on-green: #ffffff;
 
     // The Rail's dragger. White rather than the dark palette's near-white,

@@ -720,5 +720,11 @@
   "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Bir bağlantının ilk çağrısından önce sunması gereken şey. Boş bırakılırsa sunucu her başlatıldığında bir tane uydurur ve burada gösterir.",
   "Decode on the hardware": "Decode on the hardware",
   "Decoding": "Decoding",
-  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.",
+  "Accent": "Vurgu",
+  "Lime": "Limon yeşili",
+  "Violet": "Menekşe",
+  "Rose": "Gül",
+  "Amber": "Amber",
+  "Mint": "Nane"
 }

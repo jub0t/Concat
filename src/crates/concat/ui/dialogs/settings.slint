@@ -9,6 +9,8 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { ColorPicker } from "../primitives/color-picker.slint";
+import { Fmt } from "../util.slint";
 import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
@@ -287,6 +289,57 @@ component ModelRow inherits Rectangle {
     }
 }
 
+// One accent on offer: a dot of the colour, and a ring round it while it is
+// the one in use. The ring is the text colour rather than the accent — the
+// dot already *is* the accent, and a ring in it would just be a bigger dot —
+// and it sits off the dot by a gap of the panel, so it reads as a mark round
+// the colour and not as a border on it. A hover shows the same ring faintly.
+component AccentSwatch inherits Rectangle {
+    in property <color> colour;
+    /// The colour's name, for whoever cannot see it.
+    in property <string> label;
+    in property <bool> chosen;
+    /// Not a colour yet: the dot wears a plus, cut out in the panel's
+    /// colour, to say it is where a colour would go.
+    in property <bool> blank;
+
+    callback clicked();
+
+    width: 26px;
+    height: 26px;
+    border-radius: 13px;
+    border-width: 2px;
+    border-color: root.chosen ? Theme.fg
+        : touch.has-hover ? Theme.line-strong
+        : Colors.transparent;
+
+    accessible-role: button;
+    accessible-label: root.label;
+
+    animate border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Rectangle {
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.colour;
+
+        animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+        if root.blank: Icon {
+            glyph: Glyph.plus;
+            size: 10px;
+            weight: 2.6;
+            tint: Theme.panel;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 component PageTab inherits Rectangle {
     in property <string> label;
     in property <Glyph> glyph;
@@ -390,6 +443,10 @@ export component SettingsDialog inherits Modal {
     /// say "the other one"; a page with two named options can say which one is
     /// on, which is the whole reason it moved in here.
     callback theme-changed(dark: bool);
+    /// The accent, as an index into `Theme.accent-names`.
+    callback accent-changed(index: int);
+    /// A colour picked by hand in place of any on the list.
+    callback accent-custom-changed(colour: color);
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
     callback magnetic-changed(on: bool);
@@ -406,6 +463,16 @@ export component SettingsDialog inherits Modal {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+
+    /// `Theme.accent-names`, each in the chosen language, in the same order.
+    /// A second list rather than a lookup on the first because the string
+    /// inventory (scripts/locales.py) is built from literal calls, and a name
+    /// that only ever reached `I18n.t` through a variable would never be
+    /// offered to a translator.
+    property <[string]> accent-labels: [
+        I18n.t("Lime"), I18n.t("Sky"), I18n.t("Violet"),
+        I18n.t("Rose"), I18n.t("Amber"), I18n.t("Mint"),
+    ];
 
     open: root.data.open;
     title: I18n.t("Settings");
@@ -684,14 +751,94 @@ export component SettingsDialog inherits Modal {
             // through the struct would be a second copy to keep in step with
             // the first. The change still goes out as a callback, so Rust
             // stays the one place a remembered preference will be written.
-            if root.data.tab == 1: DialogSection {
-                first: true;
-                title: I18n.t("Theme");
+            if root.data.tab == 1: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("Theme");
 
-                SegmentedControl {
-                    options: [I18n.t("Dark"), I18n.t("Light")];
-                    current: Theme.dark ? 0 : 1;
-                    changed(index) => { root.theme-changed(index == 0); }
+                    SegmentedControl {
+                        options: [I18n.t("Dark"), I18n.t("Light")];
+                        current: Theme.dark ? 0 : 1;
+                        changed(index) => { root.theme-changed(index == 0); }
+                    }
+                }
+
+                // The accent: the colour every selection, activated tool and
+                // focus ring is drawn in. Read off the Theme global for the
+                // same reason the theme is, and each one is shown in the
+                // palette that is on, so the choice is made in the room it
+                // will be worn in. The chosen one's name sits at the end of
+                // the row: a dot is a colour, not a word, and the word is
+                // what the settings file remembers.
+                DialogSection {
+                    title: I18n.t("Accent");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+
+                        for name[index] in Theme.accent-names: AccentSwatch {
+                            colour: Theme.accent-of(index);
+                            label: root.accent-labels[index];
+                            chosen: Theme.accent-choice == index;
+                            clicked => { root.accent-changed(index); }
+                        }
+
+                        // The seventh dot is any colour at all. Grey with a
+                        // plus until one is picked — a grey dot is a blank,
+                        // not an offer of grey — and the picked colour once
+                        // one is. It opens the same picker a title's colour
+                        // does, seeded with the accent that is on, so the
+                        // picking starts from what the window already wears.
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+
+                            AccentSwatch {
+                                colour: Theme.accent-is-custom ? Theme.accent-custom : Theme.fg-dim;
+                                label: I18n.t("Custom");
+                                chosen: Theme.accent-is-custom;
+                                blank: !Theme.accent-is-custom;
+                                clicked => { picker.show(); }
+                            }
+
+                            picker := PopupWindow {
+                                x: 0;
+                                y: parent.height + 4px;
+                                width: 236px;
+                                close-policy: close-on-click-outside;
+
+                                Rectangle {
+                                    background: Theme.raised;
+                                    border-width: 1px;
+                                    border-color: Theme.line-strong;
+                                    border-radius: Theme.r;
+
+                                    ColorPicker {
+                                        value: Theme.accent-is-custom ? Theme.accent-custom : Theme.accent;
+                                        alpha: false;
+                                        changed(next) => { root.accent-custom-changed(next); }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: Theme.accent-is-custom ? I18n.t("Custom")
+                                : root.accent-labels[Theme.accent-choice];
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        if Theme.accent-is-custom: Text {
+                            text: Fmt.hex-of(Theme.accent-custom, false);
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                    }
                 }
             }
 

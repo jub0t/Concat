@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// One accent: the four colours that have to move together when the accent
+// does. Both palettes list theirs as a row of these, in the same order, and
+// `Theme` reads the chosen one out by index — so a palette can offer a
+// colour without a token per colour, and the ink that sits on it can never
+// be left behind when it changes.
+export struct Accent {
+    /// The colour itself: every selection, activated tool and focus ring.
+    accent: color,
+    /// The same, under a pointer.
+    hover: color,
+    /// A wash of it, for the ground of a selected row.
+    soft: color,
+    /// Ink for text and glyphs sitting ON it.
+    on: color,
+}

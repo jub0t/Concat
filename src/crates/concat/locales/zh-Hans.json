@@ -720,5 +720,11 @@
   "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "连接在首次调用前必须出示的内容。留空时，服务器每次启动都会自行生成一个并显示在这里。",
   "Decode on the hardware": "Decode on the hardware",
   "Decoding": "Decoding",
-  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.",
+  "Accent": "强调色",
+  "Lime": "青柠",
+  "Violet": "紫罗兰",
+  "Rose": "玫红",
+  "Amber": "琥珀",
+  "Mint": "薄荷"
 }

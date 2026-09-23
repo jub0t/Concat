@@ -720,5 +720,11 @@
   "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "연결이 첫 호출 전에 제시해야 하는 값입니다. 비워 두면 서버가 시작할 때마다 하나를 만들어 여기에 표시합니다.",
   "Decode on the hardware": "Decode on the hardware",
   "Decoding": "Decoding",
-  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.",
+  "Accent": "강조색",
+  "Lime": "라임",
+  "Violet": "바이올렛",
+  "Rose": "로즈",
+  "Amber": "앰버",
+  "Mint": "민트"
 }

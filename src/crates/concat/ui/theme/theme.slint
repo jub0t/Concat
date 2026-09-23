@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-// The theme: the two palettes, and the one property that chooses between them.
+// The theme: the two palettes, and the two properties that choose from them.
 //
 // Everything the interface is made of — every colour, every radius, every
 // metric, every step of the type scale — is read from `Theme`, and nowhere
 // else. Nothing outside this directory names a colour. Which colour `Theme`
-// hands back depends on `dark`, and that is the whole of the switch.
+// hands back depends on `dark`, and for the accent on `accent-choice` as
+// well, and that is the whole of the switch.
 //
-// The split across the three files is by what a theme gets to decide:
+// The split across the files is by what a theme gets to decide:
 //
 //   - `dark.slint` and `light.slint` are the palettes. Colours only, the same
 //     token names in the same order, and each one complete — no palette
 //     borrows a value from the other. Their headers say what the values mean
 //     and which relationships between them are load-bearing; read the dark
-//     one first, it is where those rules are written down.
+//     one first, it is where those rules are written down. Each lists its
+//     accents as a row of `Accent`s (accent.slint), in the order this file
+//     names them.
 //   - This file holds the switch, and everything a palette does *not* get to
 //     decide: the type, the shape, and the content colours. A second theme is
 //     a retone, not a redraw — the panels are the same size and the corners
@@ -23,8 +26,10 @@
 //     window happened to be wearing.
 //
 // To add a third theme: write the palette next door, import it here, and give
-// `dark` more than two answers to be. To fork the look wholesale: change the
-// values in a palette. Neither one touches a file outside this directory.
+// `dark` more than two answers to be. To add an accent: a row in each palette
+// and a name in `accent-names`, at the same position. To fork the look
+// wholesale: change the values in a palette. None of it touches a file
+// outside this directory.
 //
 // Two things are deliberately *not* here:
 //
@@ -32,6 +37,7 @@
 //     effect does rather than anything a theme decides.
 //   - Sizes under about 5px — a 2px scrollbar thumb, a 1px splitter pill.
 //     Those are shape at a scale nobody themes, and stay where they are drawn.
+import { Accent } from "accent.slint";
 import { Dark } from "dark.slint";
 import { Light } from "light.slint";
 
@@ -41,6 +47,29 @@ export global Theme {
     /// the tree is a property read away from it, so the window retones in a
     /// frame without anything being rebuilt.
     in-out property <bool> dark: true;
+    /// Which of the palettes' accents the accent tokens are read from: an
+    /// index into `accent-names`, and into each palette's `accents`.
+    /// Settings > Appearance picks it (lib.rs, `on_settings_accent_changed`)
+    /// the way it picks `dark`, and it retones the window the same way.
+    /// Remembered by name rather than by number, so a list that grows or
+    /// reorders keeps everyone's choice; 0 is Lime, the default. One past
+    /// the last name is the custom colour, `accent-custom`.
+    in-out property <int> accent-choice: 0;
+    /// A colour picked by hand in place of any on the list. Read only while
+    /// `accent-choice` points past the list, and one colour under both
+    /// palettes: whoever picked it picked what they see, and the three
+    /// tokens that go with an accent are derived from it below, each by
+    /// the palette's own rule. Grey until picked — the dot that offers it
+    /// is grey, and a grey accent is what nobody would choose, so it
+    /// cannot be mistaken for a choice that was made.
+    in-out property <color> accent-custom: #808080;
+    /// The chosen accent is the picked one rather than one of the list.
+    out property <bool> accent-is-custom: accent-choice >= accent-names.length;
+    /// The accents on offer, in the order both palettes list them. Each
+    /// name is the English word Settings shows for it, and the id it is
+    /// remembered under in settings.json, lower-cased; the dialog holds the
+    /// same list wrapped for translation, in this order.
+    out property <[string]> accent-names: ["Lime", "Sky", "Violet", "Rose", "Amber", "Mint"];
 
     // ── type ─────────────────────────────────────────────────────────────
     //
@@ -131,13 +160,39 @@ export global Theme {
     out property <color> fg-dim: dark ? Dark.fg-dim : Light.fg-dim;
     out property <color> fg-hot: dark ? Dark.fg-hot : Light.fg-hot;
 
-    // accents
-    out property <color> accent: dark ? Dark.accent : Light.accent;
-    out property <color> accent-hover: dark ? Dark.accent-hover : Light.accent-hover;
-    out property <color> accent-soft: dark ? Dark.accent-soft : Light.accent-soft;
+    // accents — the chosen row of the palette that is on, spread into the
+    // four tokens the tree has always read.
+    //
+    // A custom colour has no row, so its three companions are made from it
+    // the way each palette makes its own: hover is a step towards more
+    // contrast, which is brighter on a dark ground and darker on a light
+    // one; soft is the colour at the palette's wash alpha; and the ink on
+    // it is dark or light by which of the two the colour itself is not.
+    // Perceived lightness rather than the mean of the channels, so a pure
+    // green gets dark ink and a pure blue gets light, as they should.
+    out property <float> custom-light:
+        (0.299 * accent-custom.red + 0.587 * accent-custom.green + 0.114 * accent-custom.blue) / 255;
+    out property <Accent> custom-tone: {
+        accent: accent-custom,
+        hover: dark ? accent-custom.brighter(0.15) : accent-custom.darker(0.15),
+        soft: accent-custom.with-alpha(dark ? 0.2 : 0.18),
+        on: custom-light > 0.55 ? #16161a : #ffffff,
+    };
+    out property <Accent> tone: accent-is-custom ? custom-tone
+        : dark ? Dark.accents[accent-choice] : Light.accents[accent-choice];
+    out property <color> accent: tone.accent;
+    out property <color> accent-hover: tone.hover;
+    out property <color> accent-soft: tone.soft;
+    out property <color> on-accent: tone.on;
     out property <color> green: dark ? Dark.green : Light.green;
-    out property <color> on-accent: dark ? Dark.on-accent : Light.on-accent;
     out property <color> on-green: dark ? Dark.on-green : Light.on-green;
+
+    /// The `index`th accent under the palette that is on, for the row in
+    /// Settings that offers them: each is shown as it would be worn, so the
+    /// choice is made in the room it will be seen in.
+    public pure function accent-of(index: int) -> color {
+        return dark ? Dark.accents[index].accent : Light.accents[index].accent;
+    }
 
     // the Rail's dragger
     out property <color> grip: dark ? Dark.grip : Light.grip;
@@ -217,11 +272,18 @@ export global Theme {
     // They live here rather than beside the control that offers them because
     // there is exactly one shelf and it belongs to the whole application. The
     // list is the neutrals first, then the interface's own status hues, then
-    // the clip palette's marks — both palettes' accents are in it, so the row
-    // agrees with the window whichever way it is set.
+    // the clip palette's marks — the chosen accent under both palettes is in
+    // it, so the row agrees with the window whichever way it is set. Those
+    // two are the one thing in the shelf that follows a setting, and only
+    // which colour is *offered* moves: a title already painted keeps its
+    // colour, because the colour is in the document and not in the theme.
+    // A custom accent has one colour, not two, so it takes the first slot
+    // and the lime keeps the second.
     out property <[color]> swatches: [
         #ffffff, #f5f5f7, #a1a1a6, #6e6e73, #15220a, #000000,
-        #cbf53f, #4d7c0f, #30d158, #ffd60a, #f09e2f, #ff453a,
+        accent-is-custom ? accent-custom : Dark.accents[accent-choice].accent,
+        accent-is-custom ? Dark.accents[0].accent : Light.accents[accent-choice].accent,
+        #30d158, #ffd60a, #f09e2f, #ff453a,
         #e8355e, #8b5cf6, #4d8df6, #142640,
     ];
     /// What a title's plate is set to when the switch is turned on. A colour

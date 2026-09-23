@@ -27,8 +27,8 @@
 //     Move them together or not at all. What the ladder is measuring is
 //     prominence, and here prominence happens to run towards white; that is
 //     the one thing about it a light palette cannot copy.
-//   - `on-accent` is the ink that sits *on* the accent, and it is dark because
-//     the accent is bright. Swap the accent for a dark one and this has to
+//   - Each accent's `on` is the ink that sits *on* it, and it is dark because
+//     the accent is bright. Swap an accent for a dark one and its ink has to
 //     become light in the same edit, or every activated control loses its
 //     label — which is exactly what the light palette does. The same pairing
 //     holds for `on-green` and `on-scrim`.
@@ -50,6 +50,8 @@
 // The clip and media-kind hues and the meter ramp name things the engine and
 // the project format also name, so they are fixed by what they mean rather
 // than by the surfaces around them.
+import { Accent } from "accent.slint";
+
 export global Dark {
     // surfaces
     //
@@ -122,20 +124,30 @@ export global Dark {
     // accents
     //
     // Lime, not blue. The two places that carry the look are the selection
-    // highlight and every activated tool, and both are lime; making it the
-    // one accent as well says the same thing with one token instead of three.
+    // highlight and every activated tool, and both are the accent; making it
+    // the one accent as well says the same thing with one token instead of
+    // three.
     //
-    // It is legible against near-black and near-white alike, which is what a
+    // Six to choose from, and Settings › Appearance picks one. The first is
+    // the default, and the one the rest of this file means by "lime". Each
+    // is legible against near-black and near-white alike, which is what a
     // selection has to be: it lands on whatever happens to be underneath it.
-    // What sits *on* it therefore has to be dark ink, and fixed — see
-    // `on-accent` below.
-    out property <color> accent: #cbf53f;
-    out property <color> accent-hover: #d9ff63;
-    out property <color> accent-soft: #cbf53f33;   // rgb(203 245 63 / 0.2)
+    // What sits *on* each therefore has to be dark ink, and is fixed with it:
+    // `on` is a deep shade of the same hue, `hover` a step brighter, `soft`
+    // the colour at 20% for a wash. A dark accent would want #ffffff for its
+    // ink instead, which is the light palette's whole answer.
+    //
+    // The same order as `light.slint` and as `accent-names` in theme.slint,
+    // which is where each one's name lives.
+    out property <[Accent]> accents: [
+        { accent: #cbf53f, hover: #d9ff63, soft: #cbf53f33, on: #15220a },   // lime
+        { accent: #5fb8ff, hover: #82c9ff, soft: #5fb8ff33, on: #061c33 },   // sky
+        { accent: #b394ff, hover: #c6b0ff, soft: #b394ff33, on: #1d0f3d },   // violet
+        { accent: #ff6fa3, hover: #ff8fb8, soft: #ff6fa333, on: #38091c },   // rose
+        { accent: #ffb340, hover: #ffc46a, soft: #ffb34033, on: #2d1a00 },   // amber
+        { accent: #3fdcc4, hover: #6ae7d4, soft: #3fdcc433, on: #05261f },   // mint
+    ];
     out property <color> green: #30d158;
-    // Ink for text and glyphs sitting ON the accent. A bright accent needs a
-    // dark one; a dark accent would want #ffffff here instead.
-    out property <color> on-accent: #15220a;
     out property <color> on-green: #06210f;
 
     // The Rail's dragger — the raised chip you push along a hairline rail, as

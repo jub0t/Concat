@@ -720,5 +720,11 @@
   "What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.": "Ce qu'une connexion doit présenter avant son premier appel. Laissé vide, le serveur en invente un à chaque démarrage et l'affiche ici.",
   "Decode on the hardware": "Decode on the hardware",
   "Decoding": "Decoding",
-  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before."
+  "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.": "On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.",
+  "Accent": "Accent",
+  "Lime": "Citron vert",
+  "Violet": "Violet",
+  "Rose": "Rose",
+  "Amber": "Ambre",
+  "Mint": "Menthe"
 }

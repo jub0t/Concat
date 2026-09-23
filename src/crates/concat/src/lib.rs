@@ -137,6 +137,27 @@ pub fn run() -> Result<(), slint::PlatformError> {
     studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);
     app.global::<Theme>().set_dark(dark);
+    // The accent is remembered by name and the names live on the Theme
+    // global, so the index is looked up there rather than kept in Rust too.
+    // A remembered hex is a colour picked by hand, which is the slot past
+    // the names.
+    {
+        let theme = app.global::<Theme>();
+        let names = theme.get_accent_names();
+        let count = slint::Model::row_count(&names);
+        match studio.prefs.custom_accent().and_then(format::parse_colour) {
+            Some(colour) => {
+                theme.set_accent_custom(colour);
+                theme.set_accent_choice(count as i32);
+            }
+            None => {
+                let index = studio
+                    .prefs
+                    .accent_index(slint::Model::iter(&names).map(|name| name.to_string()));
+                theme.set_accent_choice(index as i32);
+            }
+        }
+    }
 
     let shell = Rc::new(Shell {
         app: app.as_weak(),
@@ -1035,6 +1056,42 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 app.global::<Theme>().set_dark(dark);
                 let mut studio = shell.studio.borrow_mut();
                 studio.prefs.dark = Some(dark);
+                studio.prefs.save(&studio.host.dirs);
+            });
+        }
+    });
+    // The accent is the same shape of thing: one int on the Theme global,
+    // remembered under the name the global lists it by.
+    app.on_settings_accent_changed({
+        move |index| {
+            Shell::with(|shell, app| {
+                let theme = app.global::<Theme>();
+                let names = theme.get_accent_names();
+                let Some(name) = usize::try_from(index)
+                    .ok()
+                    .and_then(|row| slint::Model::row_data(&names, row))
+                else {
+                    return;
+                };
+                theme.set_accent_choice(index);
+                let mut studio = shell.studio.borrow_mut();
+                studio.prefs.accent = Some(prefs::Preferences::accent_id(&name));
+                studio.prefs.save(&studio.host.dirs);
+            });
+        }
+    });
+    // A picked colour is remembered as its hex, which is what tells it from
+    // a name when the file is read back. Every drag on the picker's square
+    // lands here, so the file is written often for a moment; it is small.
+    app.on_settings_accent_custom_changed({
+        move |colour| {
+            Shell::with(|shell, app| {
+                let theme = app.global::<Theme>();
+                let count = slint::Model::row_count(&theme.get_accent_names());
+                theme.set_accent_custom(colour);
+                theme.set_accent_choice(count as i32);
+                let mut studio = shell.studio.borrow_mut();
+                studio.prefs.accent = Some(format::hex_of(colour));
                 studio.prefs.save(&studio.host.dirs);
             });
         }
