@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
-use concat_project::model::{self, MediaItem, Project};
+use concat_project::model::{self, MediaItem, MediaOrigin, Project};
 
 use crate::format::wave_path;
 use crate::host::{probe_error, spawn};
@@ -211,13 +211,18 @@ impl MediaBin {
         project.media_by_id(id)
     }
 
-    /// Whether the filter lets an item of this kind through.
-    fn shows(filter: MediaFilter, kind: model::MediaKind) -> bool {
+    /// Whether the filter lets an item through. The Media shelves, "All
+    /// media" included, are the imports: a file the editor made is on its
+    /// origin's shelf under Generated and nowhere else, so a read-aloud
+    /// voice is not also the fifth thing under Audio.
+    fn shows(filter: MediaFilter, item: &MediaItem) -> bool {
+        let imported = item.origin.is_none();
         match filter {
-            MediaFilter::All => true,
-            MediaFilter::Video => kind == model::MediaKind::Video,
-            MediaFilter::Audio => kind == model::MediaKind::Audio,
-            MediaFilter::Images => kind == model::MediaKind::Image,
+            MediaFilter::All => imported,
+            MediaFilter::Video => imported && item.kind == model::MediaKind::Video,
+            MediaFilter::Audio => imported && item.kind == model::MediaKind::Audio,
+            MediaFilter::Images => imported && item.kind == model::MediaKind::Image,
+            MediaFilter::Speech => item.origin == Some(MediaOrigin::Speech),
         }
     }
 
@@ -251,7 +256,7 @@ impl MediaBin {
             HashSet::new()
         };
         for item in &project.media {
-            if !Self::shows(self.filter, item.kind) {
+            if !Self::shows(self.filter, item) {
                 continue;
             }
             let (row, col) = (cell / columns.max(1), cell % columns.max(1));
@@ -268,7 +273,7 @@ impl MediaBin {
         let mut visible: Vec<&MediaItem> = project
             .media
             .iter()
-            .filter(|item| Self::shows(self.filter, item.kind))
+            .filter(|item| Self::shows(self.filter, item))
             .collect();
         match self.sort {
             // Added: the import order, as the document keeps it.
@@ -404,6 +409,39 @@ mod tests {
             4,
             "an unknown sort keeps the order"
         );
+    }
+
+    #[test]
+    fn a_generated_voice_is_on_its_own_shelf_and_no_other() {
+        let mut bin = MediaBin::default();
+        let mut project = project();
+        project.media.push(MediaItem {
+            id: "s1".to_owned(),
+            name: "Voice 1.wav".to_owned(),
+            kind: Kind::Audio,
+            origin: Some(MediaOrigin::Speech),
+            ..MediaItem::default()
+        });
+        let names = |bin: &MediaBin| -> Vec<String> {
+            bin.visible(&project)
+                .iter()
+                .map(|item| item.name.clone())
+                .collect()
+        };
+        // Not under All media, not under Audio, though it is audio.
+        bin.filter = MediaFilter::All;
+        assert_eq!(names(&bin).len(), 4, "the imports, and only them");
+        bin.filter = MediaFilter::Audio;
+        assert_eq!(names(&bin), ["alpha.wav"]);
+        bin.filter = MediaFilter::Speech;
+        assert_eq!(names(&bin), ["Voice 1.wav"]);
+        // A marquee on the Speech shelf walks the Speech shelf.
+        let caught = bin.band(&project, 3, (0, 2), (0, 0), false);
+        assert_eq!(caught.len(), 1);
+        assert!(caught.contains("s1"));
+        // Rows are minted for it like any other, so a drag can name it.
+        bin.assign_rows(&project);
+        assert_eq!(bin.by_row(&project, 5).expect("row 5").id, "s1");
     }
 
     #[test]

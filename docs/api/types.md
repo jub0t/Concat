@@ -198,6 +198,7 @@ meaningfully even when the file is missing.
 | `audioTracks` | *AudioTrack*[] | *optional*. Every audio stream, in file order |
 | `placeholder` | bool | *optional*. True for a template slot |
 | `colorRange` | string | *optional*. `limited` or `full`: the levels the picture is read as, over the file's own tag. Absent means "as tagged". Set with `setMediaColorRange` |
+| `origin` | string | *optional*. `speech` for a file the speech sheet read aloud. Absent for an import. The bin shelves a file with an origin under Generated, not with the imports |
 
 ### AudioTrack
 
@@ -304,7 +305,7 @@ A probed file, as `addMedia`, `fillSlot`, `replaceClipMedia` and
 `freezeFrame` take it. The same fields as *MediaItem* minus `id` and
 `placeholder`: `path`, `name`, `duration`, `kind`, `width`, `height`,
 `frameRate`, `frameRateFraction`, `videoCodec`, `audioCodec`, `hasAudio`,
-`audioTracks`.
+`audioTracks`, and `origin` (*optional*; leave it out for an import).
 
 > [!TIP]
 > Build one from a `media.probe` reply: copy `path`, `duration`, `kind`

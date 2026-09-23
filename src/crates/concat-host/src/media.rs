@@ -124,6 +124,7 @@ impl MediaSummary {
                 .iter()
                 .map(AudioStreamInfo::to_track)
                 .collect(),
+            origin: None,
         }
     }
 }
@@ -1027,6 +1028,7 @@ mod tests {
                         audio_codec: None,
                         has_audio: false,
                         audio_tracks: Vec::new(),
+                        origin: None,
                     },
                 })
                 .expect("adds")

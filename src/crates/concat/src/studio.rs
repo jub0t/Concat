@@ -6403,25 +6403,24 @@ impl Studio {
         );
 
         // The bin.
+        // The Media shelves count the imports; what the editor made is
+        // counted on its own shelf under Generated. See MediaBin::shows.
         let items = &self.project().media;
         sync(&models.media, self.media.rows(self));
-        editor.set_media_count_all(items.len() as i32);
-        editor.set_media_count_video(
+        let imported = |kind: Option<model::MediaKind>| {
             items
                 .iter()
-                .filter(|item| item.kind == model::MediaKind::Video)
-                .count() as i32,
-        );
-        editor.set_media_count_audio(
+                .filter(|item| item.origin.is_none() && kind.is_none_or(|kind| item.kind == kind))
+                .count() as i32
+        };
+        editor.set_media_count_all(imported(None));
+        editor.set_media_count_video(imported(Some(model::MediaKind::Video)));
+        editor.set_media_count_audio(imported(Some(model::MediaKind::Audio)));
+        editor.set_media_count_images(imported(Some(model::MediaKind::Image)));
+        editor.set_media_count_speech(
             items
                 .iter()
-                .filter(|item| item.kind == model::MediaKind::Audio)
-                .count() as i32,
-        );
-        editor.set_media_count_images(
-            items
-                .iter()
-                .filter(|item| item.kind == model::MediaKind::Image)
+                .filter(|item| item.origin == Some(model::MediaOrigin::Speech))
                 .count() as i32,
         );
         editor.set_media_selected_count(self.media.selected.len() as i32);

@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
-use concat_project::model::ClipKind;
+use concat_project::model::{ClipKind, MediaOrigin};
 use concat_speech::tts::{CHATTERBOX_CLONE, Family, Reference, VoiceInfo, family_of, is_clone};
 use slint::SharedString;
 
@@ -137,9 +137,11 @@ impl SpeechPane {
                 self.running = false;
                 match *result {
                     Ok(summary) => {
-                        let created = studio.apply(Command::AddMedia {
-                            item: summary.to_new_media(),
-                        });
+                        // Marked as read aloud: the bin shelves it under
+                        // Generated › Speech, apart from the imports.
+                        let mut item = summary.to_new_media();
+                        item.origin = Some(MediaOrigin::Speech);
+                        let created = studio.apply(Command::AddMedia { item });
                         let media_id = created.or_else(|| {
                             studio
                                 .project()

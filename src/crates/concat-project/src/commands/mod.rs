@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ColorRange, Crop,
-    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, Project,
-    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin,
+    Project, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -208,6 +208,11 @@ pub struct NewMedia {
     /// Defaulted so a caller from before the list can still add media.
     #[serde(default)]
     pub audio_tracks: Vec<AudioTrack>,
+    /// What made the file, when the editor did; see `MediaItem::origin`.
+    /// Defaulted so an import, and a caller from before origins, says
+    /// nothing.
+    #[serde(default)]
+    pub origin: Option<MediaOrigin>,
 }
 
 /// Every edit, as the window sends it: a tagged `op` plus camelCase

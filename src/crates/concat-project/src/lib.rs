@@ -40,7 +40,9 @@ mod tests {
     use crate::commands::{ClipMove, ClipPatch, Command, NewMedia, TrackFlag, TrimEdge};
     use crate::doc::DocumentSettings;
     use crate::editor::Editor;
-    use crate::model::{AudioTrack, ClipKind, MediaItem, MediaKind, Project, TextStyle};
+    use crate::model::{
+        AudioTrack, ClipKind, MediaItem, MediaKind, MediaOrigin, Project, TextStyle,
+    };
 
     fn media(path: &str, duration: f64, has_audio: bool) -> Command {
         Command::AddMedia {
@@ -57,6 +59,7 @@ mod tests {
                 audio_codec: has_audio.then(|| "aac".to_owned()),
                 has_audio,
                 audio_tracks: Vec::new(),
+                origin: None,
             },
         }
     }
@@ -633,6 +636,7 @@ mod tests {
             audio_codec: Some("aac".into()),
             has_audio: true,
             audio_tracks: Vec::new(),
+            origin: None,
         };
         let outcome = editor
             .apply(Command::ReplaceClipMedia {
@@ -696,6 +700,7 @@ mod tests {
                 audio_codec: None,
                 has_audio: false,
                 audio_tracks: Vec::new(),
+                origin: None,
             }
         };
         assert!(
@@ -737,6 +742,7 @@ mod tests {
             audio_codec: None,
             has_audio: false,
             audio_tracks: Vec::new(),
+            origin: None,
         };
         let freeze_id = editor
             .apply(Command::FreezeFrame {
@@ -830,6 +836,7 @@ mod tests {
                         audio_codec: None,
                         has_audio: false,
                         audio_tracks: Vec::new(),
+                        origin: None,
                     }),
                 })
                 .expect("freezes")
@@ -2347,6 +2354,7 @@ mod tests {
                     audio_codec: None,
                     has_audio: false,
                     audio_tracks: Vec::new(),
+                    origin: None,
                 },
             })
             .expect("fills");
@@ -2386,6 +2394,7 @@ mod tests {
                 audio_codec: None,
                 has_audio: false,
                 audio_tracks: Vec::new(),
+                origin: None,
             },
         });
         assert!(
@@ -2478,6 +2487,57 @@ mod tests {
         });
         let editor = Editor::from_document(&legacy).expect("loads");
         assert!(!editor.project().media[0].placeholder);
+    }
+
+    #[test]
+    fn a_medias_origin_round_trips_and_an_unknown_one_reads_as_an_import() {
+        let mut editor = Editor::new();
+        let Command::AddMedia { mut item } = media("/voice.wav", 3.0, true) else {
+            unreachable!()
+        };
+        item.kind = MediaKind::Audio;
+        item.origin = Some(MediaOrigin::Speech);
+        editor.apply(Command::AddMedia { item }).expect("adds");
+        editor.apply(media("/a.mp4", 10.0, true)).expect("adds");
+
+        let document = editor.to_document(&settings());
+        let media = document["media"].as_array().expect("a list");
+        assert_eq!(media[0]["origin"], json!("speech"));
+        assert!(
+            media[1].get("origin").is_none(),
+            "an import says nothing, so a document without voices stays byte-identical"
+        );
+        let restored = Editor::from_document(&document).expect("loads");
+        assert_eq!(
+            restored.project().media[0].origin,
+            Some(MediaOrigin::Speech)
+        );
+        assert_eq!(restored.project().media[1].origin, None);
+
+        // A document from a build that predates origins, and one from a
+        // build with origins this one has not heard of: both load, and
+        // both files are imports here.
+        let legacy = json!({
+            "name": "Old", "version": 1,
+            "media": [
+                { "id": "m1", "path": "/a.mp4", "name": "a.mp4", "kind": "video",
+                  "hasAudio": false },
+                { "id": "m2", "path": "/b.wav", "name": "b.wav", "kind": "audio",
+                  "hasAudio": true, "origin": "telepathy" },
+                { "id": "m3", "path": "/c.wav", "name": "c.wav", "kind": "audio",
+                  "hasAudio": true, "origin": 7 }
+            ],
+            "tracks": [{ "id": "T1", "name": "Track 1", "visible": true, "muted": false }],
+            "clips": []
+        });
+        let editor = Editor::from_document(&legacy).expect("loads");
+        assert!(
+            editor
+                .project()
+                .media
+                .iter()
+                .all(|item| item.origin.is_none())
+        );
     }
 
     #[test]
@@ -3584,6 +3644,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            origin: None,
             extra: Default::default(),
         });
 
@@ -3621,6 +3682,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            origin: None,
             extra: Default::default(),
         });
 

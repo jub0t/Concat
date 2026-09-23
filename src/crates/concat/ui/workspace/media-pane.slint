@@ -20,9 +20,10 @@ import { Wave } from "../primitives/wave.slint";
 export enum MediaKind { video, audio, image }
 
 /// What the sidebar has narrowed the bin to. `all` is not "no filter": it is
-/// the row that is highlighted when every kind is on, which is why it is a
-/// value here and not the absence of one.
-export enum MediaFilter { all, video, audio, images }
+/// the row that is highlighted when every import is on, which is why it is a
+/// value here and not the absence of one. `speech` is the Generated group's
+/// shelf: what the editor read aloud, which the Media rows leave out.
+export enum MediaFilter { all, video, audio, images, speech }
 
 /// One look a title can be given, as the Text page's Presets shelf shows
 /// it: enough of the style to draw the name in it. Published by Rust from
@@ -1356,6 +1357,8 @@ export component MediaPane inherits Rectangle {
     in property <int> count-video;
     in property <int> count-audio;
     in property <int> count-images;
+    /// What the editor made, by origin; not in `count-all`.
+    in property <int> count-speech;
     /// how many of the whole bin are selected, not how many of `items` are
     in property <int> selected-count;
     in property <bool> importing;
@@ -1422,6 +1425,7 @@ export component MediaPane inherits Rectangle {
 
     property <int> tab;
     property <bool> categories-open: true;
+    property <bool> generated-open: true;
     property <bool> text-open: true;
     /// 0 = Titles, 1 = Presets
     property <int> text-category;
@@ -1805,6 +1809,25 @@ export component MediaPane inherits Rectangle {
                             current: root.filter == MediaFilter.images;
                             clicked => { root.narrow(MediaFilter.images); }
                         }
+
+                        // What the editor made rather than the user
+                        // imported, one shelf per origin. A voice read
+                        // aloud is here and not under Audio, so the sound
+                        // the user brought stays tellable from the sound
+                        // the app wrote.
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("Generated");
+                            open: root.generated-open;
+                            toggled => { root.generated-open = !root.generated-open; }
+                        }
+                        if root.generated-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("Speech");
+                            count: root.count-speech;
+                            current: root.filter == MediaFilter.speech;
+                            clicked => { root.narrow(MediaFilter.speech); }
+                        }
                     }
 
                     if root.tab == 1: VerticalLayout {
@@ -2026,7 +2049,9 @@ export component MediaPane inherits Rectangle {
 
                 if root.tab == 0 && root.items.length == 0: Empty {
                     glyph: Glyph.import;
-                    text: root.count-all > 0
+                    text: root.filter == MediaFilter.speech
+                        ? I18n.t("Nothing read aloud yet. Text to speech puts its voice here.")
+                        : root.count-all > 0
                         ? I18n.t("Nothing of that kind in this project.")
                         : "Drop video and audio files anywhere in the window to import them.";
                 }

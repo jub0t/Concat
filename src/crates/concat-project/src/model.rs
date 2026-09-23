@@ -31,6 +31,16 @@ pub enum MediaKind {
     Image,
 }
 
+/// What made a media file, when it was the editor and not the user's
+/// import. The bin shelves such a file under Generated, by origin, and
+/// keeps it out of the import shelves.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaOrigin {
+    /// Read aloud by the speech sheet.
+    Speech,
+}
+
 /// What a clip can be - wider than [`MediaKind`] because a text clip has no
 /// file behind it; it *is* its own content.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -155,6 +165,14 @@ pub struct MediaItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub color_range: Option<ColorRange>,
+    /// Where the file came from when the editor made it; see
+    /// [`MediaOrigin`]. Absent, and left out of the document, for an
+    /// import, and read as absent when it names an origin this build does
+    /// not know - the file is still a file, just one shelved with the
+    /// imports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub origin: Option<MediaOrigin>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]

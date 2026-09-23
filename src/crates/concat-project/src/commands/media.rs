@@ -38,6 +38,7 @@ pub(super) fn apply(
                 audio_codec: item.audio_codec,
                 has_audio: item.has_audio,
                 audio_tracks: item.audio_tracks,
+                origin: item.origin,
                 placeholder: false,
                 color_range: None,
                 extra: Default::default(),

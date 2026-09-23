@@ -165,6 +165,7 @@ fn ripple_delete_of_200() -> Measure {
                 audio_codec: None,
                 has_audio: false,
                 audio_tracks: Vec::new(),
+                origin: None,
             },
         })
         .expect("adds media")
@@ -256,6 +257,7 @@ fn undo_200_edits() -> Measure {
                 audio_codec: None,
                 has_audio: false,
                 audio_tracks: Vec::new(),
+                origin: None,
             },
         })
         .expect("adds media")
@@ -305,6 +307,7 @@ fn document_round_trip() -> Measure {
                 audio_codec: None,
                 has_audio: false,
                 audio_tracks: Vec::new(),
+                origin: None,
             },
         })
         .expect("adds media")
