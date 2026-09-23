@@ -5231,6 +5231,14 @@ impl Studio {
     /// Opens a project as the session and leaves the launch screen, or
     /// says why it could not.
     pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
+        if self
+            .host
+            .open_projects
+            .claim(&info.path, concat_api::Holder::Window)
+            .is_err()
+        {
+            return Err(t("This project is open through the Remote API"));
+        }
         match Session::open_info(&info) {
             Ok(session) => {
                 if let Err(error) = projects::remember(&self.host.dirs.config, &info) {
@@ -5286,7 +5294,10 @@ impl Studio {
                 }
                 Ok(())
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                self.host.open_projects.release(&info.path);
+                Err(error)
+            }
         }
     }
 
@@ -5325,6 +5336,9 @@ impl Studio {
             }
         }
         self.autosave.stop();
+        if let Some(session) = self.session.as_ref() {
+            self.host.open_projects.release(session.path());
+        }
         self.session = None;
         // Whatever a worker still brings back for this project is dropped
         // at delivery; the sheets that were waiting on one stop waiting.

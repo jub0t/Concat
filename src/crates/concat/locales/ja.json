@@ -899,6 +899,7 @@
   "This clip has no sound to render": "このクリップにはレンダリングするサウンドがありません",
   "This file has no picture to enhance": "このファイルには高画質化する映像がありません",
   "This model reads only with its own speakers": "このモデルは内蔵の話者でのみ読み上げます",
+  "This project is open through the Remote API": "このプロジェクトはリモート API で開かれています",
   "Threshold": "Threshold",
   "Tiles": "タイル",
   "Tilt Shift": "ティルトシフト",

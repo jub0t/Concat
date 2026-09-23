@@ -18,16 +18,70 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use concat_api::rpc::{Call, Id, Message};
 use concat_api::{ApiError, Done, ErrorCode, Reply, Response};
 use serde_json::Value;
 
 use crate::{Connections, Hub, token};
+
+/// The longest line a caller may send once it is in: a document-sized
+/// edit fits, a buffer grown to whatever arrives does not.
+pub const MAX_LINE: usize = 4 * 1024 * 1024;
+/// The longest first line: the `auth` call is a few dozen bytes.
+pub const MAX_AUTH_LINE: usize = 4 * 1024;
+/// How long a caller has to present its token before the connection is
+/// closed, so one that connects and says nothing holds no thread.
+pub const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+/// How many callers may be connected at once; the next is refused with
+/// `busy` and closed.
+pub const MAX_CONNECTIONS: usize = 64;
+/// How many lines may wait for a caller that is not reading them before
+/// the connection is closed rather than the queue grown.
+const OUTBOX_LINES: usize = 256;
+
+/// One of the [`MAX_CONNECTIONS`] seats; given back when dropped.
+struct Seat(Arc<AtomicUsize>);
+
+impl Seat {
+    fn take(seats: &Arc<AtomicUsize>) -> Option<Seat> {
+        let mut taken = seats.load(Ordering::SeqCst);
+        loop {
+            if taken >= MAX_CONNECTIONS {
+                return None;
+            }
+            match seats.compare_exchange(taken, taken + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Some(Seat(Arc::clone(seats))),
+                Err(now) => taken = now,
+            }
+        }
+    }
+}
+
+impl Drop for Seat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Tells a caller there is no seat, and hangs up.
+fn refuse_full(mut writer: impl Write) {
+    let line = Message::Reply {
+        id: None,
+        response: Response::Error(ApiError::new(
+            ErrorCode::Busy,
+            format!("{MAX_CONNECTIONS} callers are connected already"),
+        )),
+    }
+    .to_json();
+    let _ = writeln!(writer, "{line}");
+    let _ = writer.flush();
+}
 
 /// Accepts JSON-RPC connections on `listener` until `stop` is set.
 pub(crate) fn serve_tcp(
@@ -36,6 +90,7 @@ pub(crate) fn serve_tcp(
     token: String,
     stop: Arc<AtomicBool>,
     connections: Connections,
+    seats: Arc<AtomicUsize>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -44,6 +99,10 @@ pub(crate) fn serve_tcp(
             }
             let Ok(stream) = stream else { continue };
             let _ = stream.set_nodelay(true);
+            let Some(seat) = Seat::take(&seats) else {
+                refuse_full(stream);
+                continue;
+            };
             let Ok(reader) = stream.try_clone() else {
                 continue;
             };
@@ -53,15 +112,24 @@ pub(crate) fn serve_tcp(
             let Ok(ender) = stream.try_clone() else {
                 continue;
             };
+            let Ok(timer) = stream.try_clone() else {
+                continue;
+            };
             if let Ok(mut connections) = connections.lock() {
                 connections.push(Box::new(move || {
                     let _ = closer.shutdown(std::net::Shutdown::Both);
                 }));
             }
+            // The handshake has this long; once it is done the caller may
+            // be silent for as long as it likes.
+            let _ = stream.set_read_timeout(Some(AUTH_TIMEOUT));
             let hub = hub.clone();
             let token = token.clone();
             std::thread::spawn(move || {
-                connection(BufReader::new(reader), stream, hub, token);
+                let _seat = seat;
+                connection(BufReader::new(reader), stream, hub, token, move || {
+                    let _ = timer.set_read_timeout(None);
+                });
                 // The registry above still holds a handle, so the socket is
                 // shut here rather than merely dropped: the caller sees EOF.
                 let _ = ender.shutdown(std::net::Shutdown::Both);
@@ -78,6 +146,7 @@ pub(crate) fn serve_unix(
     token: String,
     stop: Arc<AtomicBool>,
     connections: Connections,
+    seats: Arc<AtomicUsize>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -85,6 +154,10 @@ pub(crate) fn serve_unix(
                 break;
             }
             let Ok(stream) = stream else { continue };
+            let Some(seat) = Seat::take(&seats) else {
+                refuse_full(stream);
+                continue;
+            };
             let Ok(reader) = stream.try_clone() else {
                 continue;
             };
@@ -94,15 +167,24 @@ pub(crate) fn serve_unix(
             let Ok(ender) = stream.try_clone() else {
                 continue;
             };
+            let Ok(timer) = stream.try_clone() else {
+                continue;
+            };
             if let Ok(mut connections) = connections.lock() {
                 connections.push(Box::new(move || {
                     let _ = closer.shutdown(std::net::Shutdown::Both);
                 }));
             }
+            // The handshake has this long; once it is done the caller may
+            // be silent for as long as it likes.
+            let _ = stream.set_read_timeout(Some(AUTH_TIMEOUT));
             let hub = hub.clone();
             let token = token.clone();
             std::thread::spawn(move || {
-                connection(BufReader::new(reader), stream, hub, token);
+                let _seat = seat;
+                connection(BufReader::new(reader), stream, hub, token, move || {
+                    let _ = timer.set_read_timeout(None);
+                });
                 // The registry above still holds a handle, so the socket is
                 // shut here rather than merely dropped: the caller sees EOF.
                 let _ = ender.shutdown(std::net::Shutdown::Both);
@@ -112,13 +194,26 @@ pub(crate) fn serve_unix(
 }
 
 /// One caller, start to end: the handshake, then a call per line.
-fn connection(reader: impl BufRead, writer: impl Write + Send + 'static, hub: Hub, token: String) {
+/// `authenticated` runs once the token has been presented, for the
+/// transport to lift the handshake's timeout.
+fn connection(
+    mut reader: impl BufRead,
+    writer: impl Write + Send + 'static,
+    hub: Hub,
+    token: String,
+    authenticated: impl FnOnce(),
+) {
     let outbox = Outbox::start(writer);
-    let mut lines = reader.lines().map_while(Result::ok);
 
-    let Some(first) = lines.find(|line| !line.trim().is_empty()) else {
-        outbox.close();
-        return;
+    let first = loop {
+        match read_line(&mut reader, MAX_AUTH_LINE) {
+            None => {
+                outbox.close();
+                return;
+            }
+            Some(line) if line.trim().is_empty() => continue,
+            Some(line) => break line,
+        }
     };
     let (id, outcome) = handshake(&first, &token);
     let ok = outcome.is_ok();
@@ -130,15 +225,16 @@ fn connection(reader: impl BufRead, writer: impl Write + Send + 'static, hub: Hu
         outbox.close();
         return;
     }
+    authenticated();
 
     // Events reach this caller from here on: the outbox is shared with the
     // hub's fan-out, which drops it once a send fails.
     let events = outbox.clone();
-    hub.subscribe(Box::new(move |event| {
+    hub.subscribe(Arc::new(move |event| {
         events.send(Message::Event(event.clone()))
     }));
 
-    for line in lines {
+    while let Some(line) = read_line(&mut reader, MAX_LINE) {
         if line.trim().is_empty() {
             continue;
         }
@@ -151,6 +247,19 @@ fn connection(reader: impl BufRead, writer: impl Write + Send + 'static, hub: Hu
         }
     }
     outbox.close();
+}
+
+/// One line of at most `cap` bytes, its newline taken off. `None` at the
+/// end of the stream, on a read error, and for a line over the cap, which
+/// ends the connection: the buffer grows to the cap and no further,
+/// whatever the caller sends.
+fn read_line(reader: &mut impl BufRead, cap: usize) -> Option<String> {
+    let mut line = String::new();
+    match std::io::Read::take(&mut *reader, cap as u64 + 1).read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) if line.len() > cap && !line.ends_with('\n') => None,
+        Ok(_) => Some(line.trim_end_matches(['\r', '\n']).to_owned()),
+    }
 }
 
 /// Reads the first line as the `auth` call and checks its token, in
@@ -184,13 +293,15 @@ fn handshake(line: &str, token: &str) -> (Option<Id>, Result<Reply, ApiError>) {
 /// The connection's one writer: a queue and the thread that drains it.
 #[derive(Clone)]
 struct Outbox {
-    queue: Arc<Mutex<Option<Sender<Message>>>>,
+    queue: Arc<Mutex<Option<SyncSender<Message>>>>,
     writer: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl Outbox {
     fn start(mut writer: impl Write + Send + 'static) -> Outbox {
-        let (queue, messages) = mpsc::channel::<Message>();
+        // Bounded: a caller that stops reading is hung up on at the cap,
+        // not kept in memory line by line.
+        let (queue, messages) = mpsc::sync_channel::<Message>(OUTBOX_LINES);
         let thread = std::thread::spawn(move || {
             for message in messages {
                 if writeln!(writer, "{}", message.to_json()).is_err() || writer.flush().is_err() {
@@ -209,7 +320,7 @@ impl Outbox {
         match self.queue.lock() {
             Ok(queue) => queue
                 .as_ref()
-                .is_some_and(|queue| queue.send(message).is_ok()),
+                .is_some_and(|queue| queue.try_send(message).is_ok()),
             Err(_) => false,
         }
     }
@@ -268,6 +379,38 @@ mod tests {
             self.reader.read_line(&mut reply).expect("reads");
             serde_json::from_str(&reply).expect("a JSON line")
         }
+    }
+
+    #[test]
+    fn a_line_over_the_cap_ends_the_connection() {
+        let (server, _scratch) = server(None);
+        let mut client = Client::connect(&server);
+        let long = "a".repeat(MAX_LINE + 2);
+        // The write may fail part way once the server hangs up; that is
+        // the point.
+        let _ = writeln!(client.writer, "{long}");
+        let mut after = String::new();
+        assert_eq!(
+            client.reader.read_line(&mut after).unwrap_or(0),
+            0,
+            "closed without an answer"
+        );
+        server.stop();
+    }
+
+    #[test]
+    fn a_full_house_refuses_the_next_caller() {
+        let (server, _scratch) = server(None);
+        let seated: Vec<Client> = (0..MAX_CONNECTIONS)
+            .map(|_| Client::connect(&server))
+            .collect();
+        let mut late = Client::reach(&server);
+        let mut line = String::new();
+        late.reader.read_line(&mut line).expect("a refusal");
+        let refused: Value = serde_json::from_str(&line).expect("a JSON line");
+        assert_eq!(refused["error"]["data"]["code"], "busy", "{refused}");
+        drop(seated);
+        server.stop();
     }
 
     #[test]

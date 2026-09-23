@@ -380,6 +380,8 @@ impl SettingsPane {
             server.stop();
         }
         self.server_error.clear();
+        let exporter = studio.host.exporter.clone();
+        let open_projects = studio.host.open_projects.clone();
         let prefs = &studio.prefs.server;
         if !prefs.enabled {
             return;
@@ -400,7 +402,15 @@ impl SettingsPane {
                     token: Some(prefs.token.clone()).filter(|token| !token.is_empty()),
                     ..concat_server::Config::default()
                 };
-                concat_server::Server::start(config, concat_api::Api::new)
+                // The window's export slot and its register of open
+                // projects, so one export at a time holds across the two
+                // and a caller never edits the project on screen.
+                concat_server::Server::start(config, move |events| {
+                    let mut api = concat_api::Api::new(events)?;
+                    api.share_exporter(exporter);
+                    api.share_open_projects(open_projects);
+                    Ok(api)
+                })
             });
         match started {
             Ok(server) => studio.host.server = Some(server),

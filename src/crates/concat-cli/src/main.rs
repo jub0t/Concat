@@ -85,6 +85,11 @@ enum Command {
         /// given, and printed either way.
         #[arg(long, env = "CONCAT_API_TOKEN")]
         token: Option<String>,
+        /// A folder the API may write under: created projects, exports,
+        /// preview files. Repeatable. Your home when none is given; `/`
+        /// for anywhere.
+        #[arg(long = "root", value_name = "DIR")]
+        roots: Vec<PathBuf>,
     },
 
     /// Run one picture through an effect at its defaults and write the
@@ -133,7 +138,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             socket,
             grpc,
             token,
-        } => serve(json, socket, grpc, token),
+            roots,
+        } => serve(json, socket, grpc, token, roots),
         Command::Preview {
             input,
             output,
@@ -193,6 +199,7 @@ fn serve(
     socket: Option<PathBuf>,
     grpc: Option<SocketAddr>,
     token: Option<String>,
+    roots: Vec<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
     let nothing_asked = json.is_none() && socket.is_none() && grpc.is_none();
     let config = concat_server::Config {
@@ -200,6 +207,7 @@ fn serve(
         socket,
         grpc,
         token,
+        roots,
     };
     let server = concat_server::Server::start(config, concat_api::Api::new)?;
     if let Some(address) = server.json_addr() {
@@ -222,6 +230,20 @@ fn serve(
         "Concat API {}: token {}",
         concat_api::API_VERSION,
         server.token()
+    );
+    let roots = server.roots();
+    println!(
+        "Concat API {}: writes under {}",
+        concat_api::API_VERSION,
+        if roots.is_empty() {
+            "anywhere".to_owned()
+        } else {
+            roots
+                .iter()
+                .map(|root| root.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
     );
     loop {
         std::thread::park();

@@ -20,16 +20,21 @@
 //! caller; each names its job and its project, so a caller keeps the ones
 //! it asked for.
 //!
-//! The API reads and writes whatever paths it is given, so a server is a
-//! door into the machine. Every connection presents a token before its
-//! first call, loopback included: another user's process on the same
-//! machine reaches 127.0.0.1 as easily as this one does. A server given
-//! no token mints one, 128 bits from the operating system's randomness,
-//! that only the process that started it knows; [`Server::token`] is how
-//! that process passes it on, to a page or a terminal. The token is
-//! compared in constant time, whichever transport carries it. There is
-//! no encryption: a bind off loopback belongs behind something that
-//! provides it.
+//! A server is a door into the machine, so the door is narrow. Every
+//! connection presents a token before its first call, loopback included:
+//! another user's process on the same machine reaches 127.0.0.1 as
+//! easily as this one does. A server given no token mints one, 128 bits
+//! from the operating system's randomness, that only the process that
+//! started it knows; [`Server::token`] is how that process passes it on,
+//! to a page or a terminal. The token is compared in constant time,
+//! whichever transport carries it. The API writes only under the roots
+//! the server is given - the user's home unless told otherwise
+//! ([`Config::roots`]) - and a frame or an export is bounded in size.
+//! The JSON transport reads a line of at most [`json::MAX_LINE`] bytes,
+//! gives a caller [`json::AUTH_TIMEOUT`] to present its token, seats at
+//! most [`json::MAX_CONNECTIONS`] callers at once and hangs up on one
+//! that stops reading its replies. There is no encryption: a bind off
+//! loopback belongs behind something that provides it.
 
 mod hub;
 pub mod json;
@@ -64,6 +69,20 @@ pub struct Config {
     /// point, and it is why a bind off loopback needs no token set here
     /// to be safe to make.
     pub token: Option<String>,
+    /// The folders the API may write under: a created project, an
+    /// instantiated template, an export, a preview file. Empty means the
+    /// user's home ([`home_root`]); to write anywhere, name `/`.
+    pub roots: Vec<PathBuf>,
+}
+
+/// Where the API writes when told nothing else: the user's home folder,
+/// or nowhere when the platform has none to name.
+pub fn home_root() -> Vec<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|home| !home.is_empty())
+        .map(|home| vec![PathBuf::from(home)])
+        .unwrap_or_default()
 }
 
 impl Config {
@@ -91,6 +110,7 @@ pub struct Server {
     socket: Option<PathBuf>,
     grpc: Option<SocketAddr>,
     token: String,
+    roots: Vec<PathBuf>,
     stop: Arc<AtomicBool>,
     listeners: Vec<JoinHandle<()>>,
     connections: Connections,
@@ -122,15 +142,23 @@ impl Server {
         .into_iter()
         .flatten()
         .collect();
+        let roots = if config.roots.is_empty() {
+            home_root()
+        } else {
+            config.roots.clone()
+        };
+        let confined = roots.clone();
         let (hub, dispatcher) = Hub::start(move |events| {
             let mut api = make(events)?;
             for transport in transports {
                 api.add_capability(transport);
             }
+            api.restrict_writes_to(confined);
             Ok(api)
         })?;
         let stop = Arc::new(AtomicBool::new(false));
         let connections: Connections = Arc::new(Mutex::new(Vec::new()));
+        let seats = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut server = Server {
             hub,
             dispatcher: Some(dispatcher),
@@ -138,6 +166,7 @@ impl Server {
             socket: None,
             grpc: None,
             token,
+            roots,
             stop: Arc::clone(&stop),
             listeners: Vec::new(),
             connections: Arc::clone(&connections),
@@ -157,6 +186,7 @@ impl Server {
                 server.token.clone(),
                 Arc::clone(&stop),
                 Arc::clone(&connections),
+                Arc::clone(&seats),
             ));
         }
 
@@ -171,6 +201,7 @@ impl Server {
                 server.token.clone(),
                 Arc::clone(&stop),
                 Arc::clone(&connections),
+                Arc::clone(&seats),
             ));
             server.socket = Some(path);
         }
@@ -215,6 +246,11 @@ impl Server {
     /// prints this so a caller can present it.
     pub fn token(&self) -> &str {
         &self.token
+    }
+
+    /// The folders the API writes under; empty when it may write anywhere.
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
     }
 
     /// How many callers are connected.
@@ -284,6 +320,7 @@ pub(crate) mod tests {
         let config = Config {
             json: Some("127.0.0.1:0".parse().expect("an address")),
             token: token.map(str::to_owned),
+            roots: vec![scratch.path().to_path_buf()],
             ..Config::default()
         };
         let server =

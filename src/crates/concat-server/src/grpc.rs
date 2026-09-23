@@ -68,10 +68,11 @@ impl Concat for Service {
         _request: Request<proto::EventsRequest>,
     ) -> Result<tonic::Response<Self::EventsStream>, Status> {
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
-        // Called on the job's thread, where blocking is fine; a send that
-        // fails is a caller that hung up.
-        self.hub.subscribe(Box::new(move |event: &Event| {
-            sender.blocking_send(Ok(encode_event(event))).is_ok()
+        // Called on the job's thread, which must not wait on a caller: one
+        // that has not taken the last sixty-four events is treated as gone,
+        // like one that hung up.
+        self.hub.subscribe(Arc::new(move |event: &Event| {
+            sender.try_send(Ok(encode_event(event))).is_ok()
         }));
         Ok(tonic::Response::new(ReceiverStream::new(receiver)))
     }

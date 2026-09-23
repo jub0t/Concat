@@ -93,6 +93,10 @@ Good to know:
 - A fresh project has one timeline `TL1` with four tracks `T1`–`T4`.
 - It is added to the recents list, like one the window made.
 - A folder that already holds a project is refused (`failed`).
+- Over a socket, `location` must lie under one of the server's write
+  roots, or the request is `refused`; see the JSON-RPC transport's
+  [Security](../transports/json-rpc.md#security). A folder the window has
+  open is `refused` too.
 
 ---
 
@@ -402,6 +406,8 @@ Good to know:
 - **Every slot must be filled.** A set that leaves one empty makes nothing.
 - Every file is probed first, so a bad path refuses the whole request and
   leaves no folder behind.
+- Over a socket, `location` must lie under one of the server's write
+  roots, or the request is `refused`.
 
 ---
 
@@ -465,8 +471,14 @@ or
 
 Rules:
 
-- **One export at a time.** A second is refused with `busy`.
+- **One export at a time.** A second is refused with `busy`. From the
+  window's Remote page the slot is the window's own, so an export begun
+  in the Export sheet counts.
 - An empty timeline is `refused`.
+- Over a socket, `output` must lie under one of the server's write roots,
+  or the request is `refused`.
+- `width` and `height` are at most 8192 a side, the frame rate at most
+  240 a second, `crf` at most 63: anything larger is `invalid`.
 - `cutout.progress` only appears for clips with an automatic cutout whose
   masks are not cached yet. `fetching` is true while the model downloads.
 - Event shapes are in [Types → Events](types.md#events). The job model is
@@ -522,6 +534,8 @@ Rules:
 
 - `width` and `height` count only **together**. Give both or neither;
   neither means the timeline's size.
-- Zero for either is `invalid`.
+- Zero for either is `invalid`, and so is anything over 8192 a side.
+- Over a socket, `output` must lie under one of the server's write roots,
+  or the request is `refused`.
 - The PNG is RGBA, 8 bits a channel, base64 in the standard alphabet with
   padding.

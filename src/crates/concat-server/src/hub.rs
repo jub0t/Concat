@@ -23,7 +23,7 @@ use concat_api::{Api, ApiError, ErrorCode, Event, EventSink, Request, Response};
 
 /// A way to hand an event to one caller. Returns false once the caller is
 /// gone, after which it is dropped.
-pub type Subscriber = Box<dyn Fn(&Event) -> bool + Send>;
+pub type Subscriber = Arc<dyn Fn(&Event) -> bool + Send + Sync>;
 
 /// One call waiting its turn.
 struct Task {
@@ -49,8 +49,20 @@ impl Hub {
         let sink: EventSink = {
             let subscribers = Arc::clone(&subscribers);
             Arc::new(move |event: Event| {
-                if let Ok(mut subscribers) = subscribers.lock() {
-                    subscribers.retain(|subscriber| subscriber(&event));
+                // Called with the list unlocked: a caller slow to take an
+                // event holds up the job's thread and nobody's subscribe.
+                let listening: Vec<Subscriber> = match subscribers.lock() {
+                    Ok(list) => list.clone(),
+                    Err(_) => return,
+                };
+                let gone: Vec<&Subscriber> = listening
+                    .iter()
+                    .filter(|subscriber| !subscriber(&event))
+                    .collect();
+                if !gone.is_empty()
+                    && let Ok(mut list) = subscribers.lock()
+                {
+                    list.retain(|kept| !gone.iter().any(|left| Arc::ptr_eq(kept, left)));
                 }
             })
         };

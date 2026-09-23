@@ -33,7 +33,7 @@ pub mod rpc;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use base64::Engine as _;
@@ -69,11 +69,90 @@ const CAPABILITIES: &[&str] = &["events"];
 /// that writes them to a caller locks its writer inside.
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// The largest frame a preview or an export may ask for, a side: 8K. A
+/// caller with the token is trusted to edit, not to ask the machine for
+/// seventeen gigabytes of pixels (audit 2026-09-23, #4).
+pub const MAX_SIDE: u32 = 8192;
+/// The highest constant rate factor any codec here takes.
+const MAX_CRF: u8 = 63;
+/// The fastest frame rate an export may ask for.
+const MAX_RATE: f64 = 240.0;
+
+/// Who holds a project folder open on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Holder {
+    /// The window, on screen.
+    Window,
+    /// The API, for a caller on a socket.
+    Api,
+}
+
+impl std::fmt::Display for Holder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Holder::Window => "the window",
+            Holder::Api => "the API",
+        })
+    }
+}
+
+/// The project folders open on this machine and who has each, shared
+/// between a window and the API it embeds, so neither opens a folder the
+/// other is editing and saves over its work (audit 2026-09-23, #5). Cheap
+/// to clone; every clone is the same register.
+#[derive(Clone, Default)]
+pub struct OpenProjects(Arc<Mutex<BTreeMap<String, Holder>>>);
+
+impl OpenProjects {
+    /// Claims `path` for `holder`. Refused, naming who has it, when the
+    /// other side does; claiming again what one already holds is fine.
+    pub fn claim(&self, path: &str, holder: Holder) -> Result<(), Holder> {
+        let key = key_of(path);
+        let mut open = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match open.get(&key) {
+            Some(&other) if other != holder => Err(other),
+            _ => {
+                open.insert(key, holder);
+                Ok(())
+            }
+        }
+    }
+
+    /// Gives `path` back, whoever had it.
+    pub fn release(&self, path: &str) {
+        let key = key_of(path);
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&key);
+    }
+
+    /// Who has `path` open, if anyone.
+    pub fn holder(&self, path: &str) -> Option<Holder> {
+        let key = key_of(path);
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&key)
+            .copied()
+    }
+}
+
 /// The dispatcher: the open sessions and the services behind them.
 pub struct Api {
     dirs: AppDirs,
     /// Open projects by canonical folder path.
     sessions: BTreeMap<String, Session>,
+    /// Where this API may write: a created project, an instantiated
+    /// template, an export or a preview file lands under one of these.
+    /// Empty means anywhere, for the process's own owner at a terminal.
+    roots: Vec<PathBuf>,
+    /// Which project folders are open on this machine, across this API
+    /// and a window it is embedded in.
+    open: OpenProjects,
     titles: Titles,
     cutouts: Arc<Cutouts>,
     monitor: Monitor,
@@ -100,6 +179,8 @@ impl Api {
             monitor: Monitor::new(),
             exporter: Exporter::new(),
             sessions: BTreeMap::new(),
+            roots: Vec::new(),
+            open: OpenProjects::default(),
             events,
             jobs: Jobs::default(),
             dirs,
@@ -125,6 +206,72 @@ impl Api {
     /// The export slot, for an embedder that shares it with a window.
     pub fn exporter(&self) -> Exporter {
         self.exporter.clone()
+    }
+
+    /// Takes an embedder's export slot in place of its own, so "one export
+    /// at a time" holds across a window and this API together.
+    pub fn share_exporter(&mut self, exporter: Exporter) {
+        self.exporter = exporter;
+    }
+
+    /// Takes an embedder's register of open projects in place of its own,
+    /// so a folder the window has open is refused here, and the other way
+    /// round.
+    pub fn share_open_projects(&mut self, open: OpenProjects) {
+        self.open = open;
+    }
+
+    /// Confines every write to `roots`: from here on a created project, an
+    /// instantiated template, an export and a preview file must land under
+    /// one of them, and any other path is `refused`. Reads - a probe, a
+    /// project opened by path - are not confined. An empty list confines
+    /// nothing, which is right for the process's own owner at a terminal
+    /// and wrong for a socket.
+    pub fn restrict_writes_to(&mut self, roots: Vec<PathBuf>) {
+        self.roots = roots
+            .into_iter()
+            .map(|root| root.canonicalize().unwrap_or(root))
+            .collect();
+    }
+
+    /// The roots writes are confined to; empty when they are not.
+    pub fn roots(&self) -> &[PathBuf] {
+        &self.roots
+    }
+
+    /// `path` as somewhere this API may write, or why not.
+    fn writable(&self, path: &str) -> Result<(), ApiError> {
+        if self.roots.is_empty() {
+            return Ok(());
+        }
+        let outside = || {
+            let roots = self
+                .roots
+                .iter()
+                .map(|root| root.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            ApiError::new(
+                ErrorCode::Refused,
+                format!("{path} is outside where this API writes ({roots})"),
+            )
+        };
+        let given = Path::new(path);
+        // A `..` past the part of the path that exists cannot be resolved
+        // and would walk out of a root on paper while staying under it in
+        // this check; there is no reason a caller needs one.
+        if given
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        {
+            return Err(outside());
+        }
+        let target = resolved(given);
+        if self.roots.iter().any(|root| target.starts_with(root)) {
+            Ok(())
+        } else {
+            Err(outside())
+        }
     }
 
     /// How many jobs are still running.
@@ -235,6 +382,7 @@ impl Api {
         name: &str,
         video: VideoSettings,
     ) -> Result<EditorView, ApiError> {
+        self.writable(location)?;
         let info = projects::create(
             location,
             name,
@@ -260,7 +408,19 @@ impl Api {
     /// Opens a session on a project the host just described and puts it at
     /// the front of the recents list.
     fn adopt(&mut self, info: ProjectInfo) -> Result<EditorView, ApiError> {
-        let session = Session::open_info(&info).map_err(ApiError::failed)?;
+        if let Err(holder) = self.open.claim(&info.path, Holder::Api) {
+            return Err(ApiError::new(
+                ErrorCode::Refused,
+                format!("{} is open in {holder}", info.path),
+            ));
+        }
+        let session = match Session::open_info(&info) {
+            Ok(session) => session,
+            Err(error) => {
+                self.open.release(&info.path);
+                return Err(ApiError::failed(error));
+            }
+        };
         // Recents are a convenience for the launch screen; a machine whose
         // config folder cannot be written still edits.
         let _ = projects::remember(&self.dirs.config, &info);
@@ -274,10 +434,15 @@ impl Api {
         if save {
             self.save(path, None)?;
         }
-        self.sessions
+        let closed = self
+            .sessions
             .remove(&key_of(path))
             .map(drop)
-            .ok_or_else(|| not_open(path))
+            .ok_or_else(|| not_open(path));
+        if closed.is_ok() {
+            self.open.release(path);
+        }
+        closed
     }
 
     /// [`Request::ProjectList`].
@@ -309,6 +474,7 @@ impl Api {
         name: &str,
         fills: Vec<Fill>,
     ) -> Result<EditorView, ApiError> {
+        self.writable(location)?;
         // Every file is probed before anything is made, so a bad path
         // refuses the whole request rather than leaving a folder behind.
         let fills = fills
@@ -350,6 +516,7 @@ impl Api {
     /// shot where there is none; then the render, with the titles already
     /// painted here and rejoining the clip list as stills.
     pub fn export(&mut self, path: &str, spec: &ExportSpec) -> Result<Started, ApiError> {
+        self.writable(&spec.output)?;
         let session = self.session(path)?;
         if session.project().active().clips.is_empty() {
             return Err(ApiError::new(
@@ -358,8 +525,18 @@ impl Api {
             ));
         }
         let settings = session.settings();
-        let width = spec.width.unwrap_or(settings.width);
-        let height = spec.height.unwrap_or(settings.height);
+        let (width, height) = checked_size(
+            spec.width.unwrap_or(settings.width),
+            spec.height.unwrap_or(settings.height),
+        )?;
+        if let Some(crf) = spec.crf
+            && crf > MAX_CRF
+        {
+            return Err(ApiError::invalid(format!("crf {crf} is over {MAX_CRF}")));
+        }
+        let rate_num = spec.rate_num.unwrap_or(settings.rate_num);
+        let rate_den = spec.rate_den.unwrap_or(settings.rate_den);
+        checked_rate(rate_num, rate_den)?;
         let codec = match spec.codec.as_deref() {
             None => export::VideoCodec::H264,
             Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
@@ -397,8 +574,8 @@ impl Api {
         let mut request = export::request(session, &host_spec, titles);
         request.width = width;
         request.height = height;
-        request.rate_num = spec.rate_num.unwrap_or(settings.rate_num);
-        request.rate_den = spec.rate_den.unwrap_or(settings.rate_den);
+        request.rate_num = rate_num;
+        request.rate_den = rate_den;
 
         let slot = self
             .exporter
@@ -460,6 +637,7 @@ impl Api {
         output: &str,
         size: Option<(u32, u32)>,
     ) -> Result<Written, ApiError> {
+        self.writable(output)?;
         let (width, height, pixels) = self.pixels(path, time, size)?;
         write_png(Path::new(output), width, height, &pixels)?;
         Ok(Written {
@@ -497,9 +675,7 @@ impl Api {
         let session = self.session(path)?;
         let settings = session.settings();
         let (width, height) = size.unwrap_or((settings.width, settings.height));
-        if width == 0 || height == 0 {
-            return Err(ApiError::invalid("A frame needs a width and a height"));
-        }
+        let (width, height) = checked_size(width, height)?;
         let mut clips = session.flattened_clips();
         clips.extend(self.title_clips(session, width, height));
         let pixels = self
@@ -681,6 +857,68 @@ fn catalogue(kind: Option<&str>) -> Result<Vec<PackageInfo>, ApiError> {
 /// The key a project folder is held under: its canonical path where the
 /// folder exists, so `.` and an absolute spelling of it are one session,
 /// and the path as given where it does not yet.
+impl Drop for Api {
+    /// The register is shared with an embedder that outlives this API:
+    /// what it held open is given back.
+    fn drop(&mut self) {
+        for key in self.sessions.keys() {
+            self.open.release(key);
+        }
+    }
+}
+
+/// A frame size a caller may ask for, or why not.
+fn checked_size(width: u32, height: u32) -> Result<(u32, u32), ApiError> {
+    if width == 0 || height == 0 {
+        return Err(ApiError::invalid("A frame needs a width and a height"));
+    }
+    if width > MAX_SIDE || height > MAX_SIDE {
+        return Err(ApiError::invalid(format!(
+            "{width}×{height} is over {MAX_SIDE} a side"
+        )));
+    }
+    Ok((width, height))
+}
+
+/// A frame rate a caller may ask for, or why not.
+fn checked_rate(num: i64, den: i64) -> Result<(), ApiError> {
+    if num <= 0 || den <= 0 {
+        return Err(ApiError::invalid(
+            "A frame rate needs a positive numerator and denominator",
+        ));
+    }
+    if num as f64 / den as f64 > MAX_RATE {
+        return Err(ApiError::invalid(format!(
+            "{num}/{den} is over {MAX_RATE} frames a second"
+        )));
+    }
+    Ok(())
+}
+
+/// `path` with its symlinks resolved as far as it exists: the deepest
+/// ancestor that is there, canonicalised, with the rest appended. A file
+/// not written yet still says where it would land.
+fn resolved(path: &Path) -> PathBuf {
+    let mut existing = path;
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(real) = existing.canonicalize() {
+            let mut out = real;
+            for part in rest.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+        match (existing.parent(), existing.file_name()) {
+            (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                rest.push(name.to_owned());
+                existing = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
 fn key_of(path: &str) -> String {
     std::fs::canonicalize(path)
         .map(|canonical| canonical.to_string_lossy().into_owned())
@@ -1129,5 +1367,102 @@ mod tests {
             height: Some(9),
         }));
         assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn writes_stay_under_the_roots() {
+        let (mut api, scratch, _events) = api();
+        let allowed = scratch.path().join("allowed");
+        std::fs::create_dir_all(&allowed).expect("allowed");
+        api.restrict_writes_to(vec![allowed.clone()]);
+        let outside = scratch
+            .path()
+            .join("elsewhere")
+            .to_string_lossy()
+            .into_owned();
+        let refused = err(api.dispatch(Request::ProjectCreate {
+            location: outside.clone(),
+            name: "Out".to_owned(),
+            video: None,
+        }));
+        assert_eq!(refused.code, ErrorCode::Refused);
+        assert!(!scratch.path().join("elsewhere").exists(), "nothing made");
+        let inside = allowed.to_string_lossy().into_owned();
+        ok(api.dispatch(Request::ProjectCreate {
+            location: inside.clone(),
+            name: "In".to_owned(),
+            video: None,
+        }));
+        let path = format!("{inside}/In");
+        for output in [
+            format!("{inside}/../elsewhere/frame.png"),
+            format!("{outside}/frame.png"),
+        ] {
+            let refused = err(api.dispatch(Request::PreviewFrame {
+                path: path.clone(),
+                time: 0.0,
+                output: Some(output.clone()),
+                width: None,
+                height: None,
+            }));
+            assert_eq!(refused.code, ErrorCode::Refused, "{output}");
+        }
+        // Under the root, into a folder not there yet, is fine.
+        let written = serde_json::to_value(ok(api.dispatch(Request::PreviewFrame {
+            path,
+            time: 0.0,
+            output: Some(format!("{inside}/frames/first.png")),
+            width: Some(16),
+            height: Some(9),
+        })))
+        .expect("JSON");
+        assert!(
+            written["path"]
+                .as_str()
+                .is_some_and(|written| written.ends_with("first.png"))
+        );
+    }
+
+    #[test]
+    fn a_frame_over_8k_a_side_is_invalid() {
+        let (mut api, scratch, _events) = api();
+        let path = project(&mut api, &scratch, "Big");
+        let refused = err(api.dispatch(Request::PreviewFrame {
+            path,
+            time: 0.0,
+            output: None,
+            width: Some(65_535),
+            height: Some(65_535),
+        }));
+        assert_eq!(refused.code, ErrorCode::Invalid);
+    }
+
+    #[test]
+    fn a_project_the_window_holds_is_refused_and_the_other_way_round() {
+        let (mut api, scratch, _events) = api();
+        let path = project(&mut api, &scratch, "Mine");
+        ok(api.dispatch(Request::ProjectClose {
+            path: path.clone(),
+            save: false,
+        }));
+        let open = OpenProjects::default();
+        api.share_open_projects(open.clone());
+        open.claim(&path, Holder::Window)
+            .expect("the window has it");
+        let refused = err(api.dispatch(Request::ProjectOpen { path: path.clone() }));
+        assert_eq!(refused.code, ErrorCode::Refused);
+        open.release(&path);
+        ok(api.dispatch(Request::ProjectOpen { path: path.clone() }));
+        assert_eq!(open.holder(&path), Some(Holder::Api));
+        assert_eq!(
+            open.claim(&path, Holder::Window),
+            Err(Holder::Api),
+            "and the window is refused in turn"
+        );
+        ok(api.dispatch(Request::ProjectClose {
+            path: path.clone(),
+            save: false,
+        }));
+        assert_eq!(open.holder(&path), None, "closing gives it back");
     }
 }

@@ -91,6 +91,7 @@ Concat API 0.2: token 3f9c1e…
 | `--socket PATH` | A Unix socket path (Unix only). A file already there is replaced |
 | `--grpc ADDR` | gRPC, in a build with the feature. See [gRPC](grpc.md) |
 | `--token TOKEN` | The token every connection presents. Also `CONCAT_API_TOKEN`. Minted when absent |
+| `--root DIR` | A folder the API may write under. Repeatable. Your home when absent; `--root /` for anywhere |
 
 Several flags at once serve on all of them. All callers share one
 dispatcher and its open projects.
@@ -109,9 +110,11 @@ open.
 | **Token** | Yours, or one the window mints and shows you when the field is empty |
 | Status line | "Listening on … · N connected", or why the bind failed |
 
-Edits made over the socket land in the same session the window shows.
-What you can do from the window, you can do from the socket, and the
-other way round.
+A caller on the socket edits projects of its own, never the one on
+screen: a folder the window has open is `refused` over the socket, and
+the window refuses to open one a caller holds. The export slot is shared,
+so one export at a time holds across the two. The API writes under your
+home folder.
 
 ---
 
@@ -162,15 +165,26 @@ you →  {"jsonrpc":"2.0","id":7,"method":"project.get",...}
 ## Security
 
 > [!WARNING]
-> The API reads and writes whatever paths it is given, as the user running
-> it. A server is a door into the machine.
+> A server is a door into the machine, as the user running it. The door
+> is narrow, and the token is the only key.
 
 - **No encryption.** Bind off loopback only behind something that
   provides it (an SSH tunnel, a reverse proxy with TLS).
 - The token gates the door; the network is the wall. Do not put the port
   on the open internet.
-- Anyone with the token can create, edit and export projects and read any
-  file the server's user can read.
+- **Writes stay under the roots.** A created project, an instantiated
+  template, an export and a preview file must land under a `--root` (the
+  window: your home folder); anything else is `refused`, and a path with
+  `..` in it always is. Reads are not confined: anyone with the token can
+  probe any file the server's user can read and open any project folder.
+- **Sizes are bounded.** A frame or an export is at most 8192 a side, an
+  export's frame rate at most 240 a second and its `crf` at most 63:
+  anything larger is `invalid`.
+- **The transport has limits.** A line is at most 4 MiB (the `auth` line
+  4 KiB); a caller has ten seconds to present its token; at most 64
+  callers are connected at once, the next is answered `busy` and closed;
+  a caller that stops reading is hung up on once 256 lines are waiting
+  for it.
 
 ---
 

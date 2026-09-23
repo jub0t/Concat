@@ -255,7 +255,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    window["the window"] --> api
+    window["the window"] -- "Remote page: embeds a server" --> hub
+    window -- "its own Session" --> host
     cli["concat-cli"] --> api
     json["JSON-RPC lines<br/>TCP or a Unix socket"] --> hub
     grpc["gRPC (feature)"] --> hub
@@ -268,6 +269,15 @@ configured, on loopback too, and every connection presents it first; the
 comparison is constant-time. `version` reports `capabilities` so a client can
 tell what a build serves before calling. The CLI prints the token it serves
 with; the window's Remote page shows it.
+
+The window is not a client of its own API. Its Remote page embeds a
+server whose `Api` has sessions of its own; what the two share is the
+export slot, so one export at a time holds across them, and a register
+of open project folders (`concat_api::OpenProjects`), so neither opens
+a folder the other is editing. The API writes only under its roots
+(`Config::roots`, the home folder by default) and bounds what a caller
+may ask for; the JSON transport caps line length, connections and the
+time to present a token.
 
 ## 8. Testing and measuring
 
