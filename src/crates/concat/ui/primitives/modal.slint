@@ -171,10 +171,14 @@ export component Button inherits Rectangle {
     in property <bool> block;
     /// 34px instead of 28px, for the action a sheet is built around
     in property <bool> large;
+    /// A glyph alone on a square the height of the row, for a toggle that
+    /// sits beside a field and says what it does with its mark: the eye
+    /// that shows a token. The label, if one is given, is not drawn.
+    in property <bool> square;
 
     callback clicked();
 
-    property <length> gap: root.glyph == Glyph.none ? 0px : 6px;
+    property <length> gap: (root.glyph == Glyph.none || root.square) ? 0px : 6px;
     property <length> mark: root.glyph == Glyph.none ? 0px : 14px;
     property <bool> lit: touch.has-hover && root.enabled;
     /// the red the danger tone hovers into — a dark wash, not a fill
@@ -188,7 +192,9 @@ export component Button inherits Rectangle {
     // below sizes the label from this button's width, so reading back the
     // result is a loop.
     min-width: root.block ? 0px
+        : root.square ? (root.large ? 34px : 28px)
         : text.preferred-width + root.mark + root.gap + (root.large ? 32px : 24px);
+    max-width: root.square ? (root.large ? 34px : 28px) : 100000px;
     border-radius: Theme.r;
     opacity: root.enabled ? 1.0 : 0.45;
     border-width: root.ghost ? 0px : 1px;
@@ -222,7 +228,7 @@ export component Button inherits Rectangle {
         }
 
         text := Text {
-            text: root.label;
+            text: root.square ? "" : root.label;
             color: root.ink;
             font-size: root.large ? Theme.fs-lg : Theme.fs;
             font-weight: Theme.weight-title;
@@ -476,6 +482,10 @@ export component Field inherits Rectangle {
     in property <string> placeholder;
     /// numbers, paths and names read better in the technical face
     in property <bool> technical;
+    /// Drawn as dots, the way a password field is: for a token that is
+    /// shown on a screen other people can see. What is typed and what
+    /// `edited` reports are the real characters either way.
+    in property <bool> secret;
     /// The corners, a side at a time, so two fields can be joined into
     /// one control with a square seam between them.
     in property <length> radius-left: Theme.r;
@@ -536,6 +546,7 @@ export component Field inherits Rectangle {
         // same reason, as SearchField in the inspector.
         height: self.preferred-height;
         text <=> root.draft;
+        input-type: root.secret ? InputType.password : InputType.text;
         color: Theme.fg;
         font-family: root.technical ? Theme.font-technical : Theme.font;
         font-size: Theme.fs;

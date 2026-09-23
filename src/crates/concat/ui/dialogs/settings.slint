@@ -473,6 +473,16 @@ export component SettingsDialog inherits Modal {
         I18n.t("Rose"), I18n.t("Amber"), I18n.t("Mint"),
     ];
 
+    /// The Remote page's token is shown in clear rather than as dots.
+    /// Off each time the sheet opens: showing it is a decision for the
+    /// moment, not a setting.
+    property <bool> token-shown;
+    changed open => {
+        if (!root.open) {
+            root.token-shown = false;
+        }
+    }
+
     open: root.data.open;
     title: I18n.t("Settings");
     glyph: Glyph.settings;
@@ -987,6 +997,10 @@ export component SettingsDialog inherits Modal {
                     title: I18n.t("Token");
                     hint: I18n.t("What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.");
 
+                    // Dots until asked, the way a password field is: the
+                    // token is what lets a connection in, and Settings is
+                    // open on screens other people look at. The eye shows
+                    // it for as long as the sheet is up.
                     HorizontalLayout {
                         spacing: 6px;
 
@@ -994,7 +1008,15 @@ export component SettingsDialog inherits Modal {
                             value: root.data.server-token;
                             placeholder: I18n.t("none");
                             technical: true;
+                            secret: !root.token-shown;
                             edited(text) => { root.server-token-edited(text); }
+                        }
+
+                        Button {
+                            square: true;
+                            glyph: root.token-shown ? Glyph.eye-off : Glyph.eye;
+                            label: root.token-shown ? I18n.t("Hide the token") : I18n.t("Show the token");
+                            clicked => { root.token-shown = !root.token-shown; }
                         }
 
                         Button {
