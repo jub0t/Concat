@@ -630,6 +630,9 @@ pub struct Studio {
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
+    /// The media the bin's menu was opened on, when it was the bin's menu
+    /// and not a clip's: the two share one set of rows and one token.
+    pub menu_media: Option<String>,
     pub menu_token: i32,
     pub toast: ToastState,
 
@@ -1343,6 +1346,7 @@ impl Studio {
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
+            menu_media: None,
             menu_token: 0,
             toast: ToastState::default(),
             on_start: true,
@@ -3312,30 +3316,11 @@ impl Studio {
         };
         self.begin_echo();
         let value = f64::from(value);
-        // The one field that is the media's rather than the clip's: set on
-        // the echo's bin item, and committed as its own command below.
-        if field == ClipField::ColorRange {
-            let media_id = self.clip(&id).map(|clip| clip.media_id.clone());
-            if let Some(media_id) = media_id
-                && let Some(item) = self
-                    .echo
-                    .as_mut()
-                    .and_then(|echo| echo.media.iter_mut().find(|item| item.id == media_id))
-            {
-                item.color_range = match value as i32 {
-                    1 => Some(model::ColorRange::Limited),
-                    2 => Some(model::ColorRange::Full),
-                    _ => None,
-                };
-            }
-            return;
-        }
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
         };
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
-            ClipField::ColorRange => {}
             ClipField::Scale => clip.scale = value.clamp(0.05, 8.0),
             ClipField::AudioTrack => {
                 // The first row is the file's default and is stored as such,
@@ -3711,26 +3696,6 @@ impl Studio {
         }
         if patch != ClipPatch::default() {
             commands.push(Command::UpdateClip { clip_id: id, patch });
-        }
-        // The media's own field, edited through the clip: the echo's bin
-        // item against the session's.
-        let range_after = self
-            .echo
-            .as_ref()
-            .and_then(|echo| echo.media_by_id(&after.media_id))
-            .map(|item| item.color_range);
-        let range_before = self
-            .session
-            .as_ref()
-            .and_then(|session| session.project().media_by_id(&after.media_id))
-            .map(|item| item.color_range);
-        if let (Some(now), Some(was)) = (range_after, range_before)
-            && now != was
-        {
-            commands.push(Command::SetMediaColorRange {
-                media_id: after.media_id.clone(),
-                range: now,
-            });
         }
         self.echo = None;
         if commands.is_empty() {
@@ -6065,19 +6030,6 @@ impl Studio {
         });
         SelectedClipData {
             present: true,
-            // -1 hides the control: a title, a layer or a sound has no
-            // picture file whose levels could be named.
-            color_range: if clip.kind.is_visual() {
-                self.project()
-                    .media_by_id(&clip.media_id)
-                    .map_or(-1, |item| match item.color_range {
-                        None => 0,
-                        Some(model::ColorRange::Limited) => 1,
-                        Some(model::ColorRange::Full) => 2,
-                    })
-            } else {
-                -1
-            },
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -6575,8 +6527,12 @@ impl Studio {
         }
     }
 
-    /// The right-click menu for the clip it was opened on.
+    /// The right-click menu: the bin card's when it was opened on one,
+    /// else the clip's.
     fn menu(&self) -> Vec<MenuItemData> {
+        if let Some(id) = self.menu_media.as_deref() {
+            return self.media_menu(id);
+        }
         let Some(clip) = self.menu_target.as_ref().and_then(|id| self.clip(id)) else {
             return Vec::new();
         };
@@ -6709,6 +6665,109 @@ impl Studio {
             checked: false,
         });
         rows
+    }
+
+    /// The right-click menu for a card in the bin: the file's verbs, and
+    /// the one attribute a file has that every clip cut from it inherits.
+    ///
+    /// A picture's colour range is the media's rather than any clip's -
+    /// the fix for a file that lies about its levels is a fact about the
+    /// file - so it is set here, off the card, the way Resolve keeps Clip
+    /// Attributes off the media pool, and not in a clip's inspector where
+    /// it read as a property of the cut. Auto is the file's tag, and the
+    /// codec's convention where there is none; see
+    /// `concat_media::ColorRange::implied`.
+    /// https://github.com/jub0t/Concat/issues/103
+    fn media_menu(&self, id: &str) -> Vec<MenuItemData> {
+        let Some(item) = self.project().media_by_id(id) else {
+            return Vec::new();
+        };
+        let action = |id: &str, label: String, glyph: Glyph, danger: bool| MenuItemData {
+            id: id.into(),
+            label: label.into(),
+            kind: MenuRow::Action,
+            glyph,
+            shortcut: "".into(),
+            enabled: true,
+            danger,
+            checkable: false,
+            checked: false,
+        };
+        // The levels go where a shortcut would: the number is what the
+        // word means, and a person who knows one knows the other.
+        let check = |id: &str, label: String, levels: &str, on: bool| MenuItemData {
+            id: id.into(),
+            label: label.into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::None,
+            shortcut: levels.into(),
+            enabled: true,
+            danger: false,
+            checkable: true,
+            checked: on,
+        };
+        let rule = || MenuItemData {
+            kind: MenuRow::Separator,
+            ..Default::default()
+        };
+        let mut rows = vec![
+            action("add", t("Add at playhead"), Glyph::Plus, false),
+            rule(),
+        ];
+        if item.kind != model::MediaKind::Audio {
+            let range = item.color_range;
+            rows.push(MenuItemData {
+                label: t("Colour range").to_uppercase().into(),
+                kind: MenuRow::Label,
+                ..Default::default()
+            });
+            rows.push(check("range-auto", t("Auto"), "", range.is_none()));
+            rows.push(check(
+                "range-limited",
+                t("Limited"),
+                "16-235",
+                range == Some(model::ColorRange::Limited),
+            ));
+            rows.push(check(
+                "range-full",
+                t("Full"),
+                "0-255",
+                range == Some(model::ColorRange::Full),
+            ));
+            rows.push(rule());
+        }
+        rows.push(action("remove", t("Remove"), Glyph::Trash, true));
+        rows
+    }
+
+    /// A row of a bin card's menu, for the media it was opened on.
+    pub fn media_action(&mut self, id: &str, action: &str) {
+        let Some(row) = self.media.row_of(id) else {
+            return;
+        };
+        if self.project().media_by_id(id).is_none() {
+            return;
+        }
+        let range = |range| Command::SetMediaColorRange {
+            media_id: id.to_owned(),
+            range,
+        };
+        match action {
+            "add" => self.place_at_playhead(&format!("media:{row}")),
+            "remove" => self.handle(crate::panes::Msg::Media(
+                crate::panes::media_bin::MediaMsg::Remove(row),
+            )),
+            "range-auto" => {
+                self.apply(range(None));
+            }
+            "range-limited" => {
+                self.apply(range(Some(model::ColorRange::Limited)));
+            }
+            "range-full" => {
+                self.apply(range(Some(model::ColorRange::Full)));
+            }
+            _ => {}
+        }
     }
 
     pub fn menu_height(rows: &[MenuItemData]) -> f32 {

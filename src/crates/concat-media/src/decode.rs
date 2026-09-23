@@ -233,6 +233,77 @@ impl ColorRange {
     /// Every range, in the order a menu lists them.
     pub const ALL: [ColorRange; 2] = [ColorRange::Limited, ColorRange::Full];
 
+    /// The range a stream is taken to span when its file says nothing,
+    /// read off what the codec and its pixels are by convention - the
+    /// call Resolve's "Auto" makes. JPEG and the picture formats are full
+    /// range by definition, as is anything RGB rather than YCbCr: there
+    /// is no matrix for RGB to be limited under. Every YCbCr video codec
+    /// is limited unless tagged otherwise, which is what a player assumes
+    /// and what a camera writes. A screen recording holding full-range
+    /// pixels and saying nothing is the one case this cannot know, and is
+    /// what the override is for.
+    /// https://github.com/jub0t/Concat/issues/103
+    pub fn implied(codec: ffmpeg::codec::Id, pixel: Pixel) -> ColorRange {
+        use ffmpeg::codec::Id;
+        let picture = matches!(
+            codec,
+            Id::MJPEG | Id::PNG | Id::APNG | Id::BMP | Id::GIF | Id::TIFF | Id::WEBP
+        );
+        // The `j` formats are libavcodec's own way of saying full range;
+        // a hardware decoder hands the same stream back as plain NV12,
+        // which is why the codec is asked as well as the pixels.
+        let full_pixels = matches!(
+            pixel,
+            Pixel::YUVJ420P
+                | Pixel::YUVJ422P
+                | Pixel::YUVJ444P
+                | Pixel::YUVJ440P
+                | Pixel::YUVJ411P
+                | Pixel::RGB24
+                | Pixel::BGR24
+                | Pixel::RGBA
+                | Pixel::BGRA
+                | Pixel::ARGB
+                | Pixel::ABGR
+                | Pixel::ZRGB
+                | Pixel::ZBGR
+                | Pixel::RGB8
+                | Pixel::BGR8
+                | Pixel::PAL8
+                | Pixel::RGB48BE
+                | Pixel::RGB48LE
+                | Pixel::RGBA64BE
+                | Pixel::RGBA64LE
+                | Pixel::RGB565BE
+                | Pixel::RGB565LE
+                | Pixel::RGB555BE
+                | Pixel::RGB555LE
+                | Pixel::GBRP
+                | Pixel::GBRAP
+                | Pixel::GBRP10BE
+                | Pixel::GBRP10LE
+                | Pixel::GBRP12BE
+                | Pixel::GBRP12LE
+                | Pixel::GBRP16BE
+                | Pixel::GBRP16LE
+                | Pixel::GBRAP10BE
+                | Pixel::GBRAP10LE
+                | Pixel::GBRAP12BE
+                | Pixel::GBRAP12LE
+                | Pixel::GBRAP16BE
+                | Pixel::GBRAP16LE
+                | Pixel::X2RGB10LE
+                | Pixel::X2RGB10BE
+                | Pixel::X2BGR10LE
+                | Pixel::X2BGR10BE
+        );
+        if picture || full_pixels {
+            ColorRange::Full
+        } else {
+            ColorRange::Limited
+        }
+    }
+
     /// The name a document or a request stores.
     pub fn name(self) -> &'static str {
         match self {
@@ -298,6 +369,11 @@ pub struct ColorSignal {
     pub matrix: ffmpeg::color::Space,
     /// Video (16-235) or full range.
     pub range: ffmpeg::color::Range,
+    /// `range` is a reading of the codec rather than the file's tag or
+    /// the caller's word: the file said nothing, and
+    /// [`ColorRange::implied`] answered for it. The frames then carry no
+    /// tag either, so a full reading has to be told to the fit by name.
+    pub implied: bool,
 }
 
 impl ColorSignal {
@@ -383,13 +459,16 @@ fn video_filter(
     // A BT.709 one is left to swscale's reading of the frames' own tag,
     // unless the caller has said what the levels really are: then the
     // range is named and the tag ignored, which is the whole of the fix
-    // for a file that lies about it.
-    let convert = match color {
-        Some(signal) if signal.is_wide() => signal.bt709_args(),
-        _ => options
-            .color_range
-            .map(|range| format!(":in_range={}", range.scale_name()))
-            .unwrap_or_default(),
+    // for a file that lies about it. A range read off the codec in place
+    // of a tag is named only when it is full: the frames carry no tag for
+    // swscale to read, and untagged already means limited to it.
+    let convert = match (color, options.color_range) {
+        (Some(signal), _) if signal.is_wide() => signal.bt709_args(),
+        (_, Some(range)) => format!(":in_range={}", range.scale_name()),
+        (Some(signal), None) if signal.implied && signal.range == ffmpeg::color::Range::JPEG => {
+            ":in_range=pc".to_owned()
+        }
+        _ => String::new(),
     };
     parts.push(format!("scale={width}:{height}:flags=bilinear{convert}"));
     if let Some(chain) = &options.filter_chain {
@@ -486,15 +565,21 @@ impl Decoder {
             },
             None => Self::open_codec(path, &stream, options, None)?,
         };
+        // The caller's word over the file's, where the caller has one: the
+        // file's tag is what the override exists to correct. Where neither
+        // says, the codec's convention does; see `ColorRange::implied`.
+        let tagged = decoder.color_range();
+        let implied = options.color_range.is_none() && tagged == ffmpeg::color::Range::Unspecified;
         let color = ColorSignal {
             primaries: decoder.color_primaries(),
             transfer: decoder.color_transfer_characteristic(),
             matrix: decoder.color_space(),
-            // The caller's word over the file's, where the caller has one:
-            // the file's tag is what the override exists to correct.
-            range: options
-                .color_range
-                .map_or_else(|| decoder.color_range(), ColorRange::as_ffmpeg),
+            range: match options.color_range {
+                Some(range) => range.as_ffmpeg(),
+                None if implied => ColorRange::implied(decoder.id(), decoder.format()).as_ffmpeg(),
+                None => tagged,
+            },
+            implied,
         };
 
         let (width, height) = match options.size {
@@ -999,6 +1084,7 @@ mod tests {
             transfer: Transfer::BT709,
             matrix: Space::BT709,
             range: Range::MPEG,
+            implied: false,
         };
         assert!(!sdr.is_wide());
         assert_eq!(
@@ -1010,6 +1096,7 @@ mod tests {
             transfer: Transfer::SMPTE2084,
             matrix: Space::BT2020NCL,
             range: Range::MPEG,
+            implied: false,
         };
         assert!(hdr.is_wide() && hdr.is_hdr());
         let spec = video_filter(0, &options, 640, 360, Some(&hdr));
@@ -1022,11 +1109,88 @@ mod tests {
             transfer: Transfer::Unspecified,
             matrix: Space::Unspecified,
             range: Range::Unspecified,
+            implied: false,
         };
         assert!(wide.is_wide() && !wide.is_hdr());
         assert!(
             video_filter(0, &options, 64, 64, Some(&wide))
                 .contains(":in_transfer=auto:in_color_matrix=auto:in_range=auto:")
+        );
+    }
+
+    /// With no tag and no override, the codec's convention names the
+    /// range: JPEG, the picture formats and anything RGB are full, and a
+    /// YCbCr video codec is limited - even one a hardware decoder has
+    /// handed back as plain NV12.
+    #[test]
+    fn an_untagged_stream_takes_its_codecs_range() {
+        use ffmpeg::codec::Id;
+        assert_eq!(
+            ColorRange::implied(Id::MJPEG, Pixel::YUVJ420P),
+            ColorRange::Full
+        );
+        assert_eq!(
+            ColorRange::implied(Id::MJPEG, Pixel::NV12),
+            ColorRange::Full
+        );
+        assert_eq!(
+            ColorRange::implied(Id::H264, Pixel::YUVJ420P),
+            ColorRange::Full
+        );
+        assert_eq!(ColorRange::implied(Id::PNG, Pixel::RGBA), ColorRange::Full);
+        assert_eq!(
+            ColorRange::implied(Id::RAWVIDEO, Pixel::BGRA),
+            ColorRange::Full
+        );
+        assert_eq!(
+            ColorRange::implied(Id::H264, Pixel::YUV420P),
+            ColorRange::Limited
+        );
+        assert_eq!(
+            ColorRange::implied(Id::HEVC, Pixel::YUV420P10LE),
+            ColorRange::Limited
+        );
+        assert_eq!(
+            ColorRange::implied(Id::RAWVIDEO, Pixel::NV12),
+            ColorRange::Limited
+        );
+        assert_eq!(
+            ColorRange::implied(Id::None, Pixel::None),
+            ColorRange::Limited
+        );
+    }
+
+    /// An implied full range is named to the fit, because the frames
+    /// carry no tag to read; an implied limited one is left unsaid, since
+    /// unsaid already means limited; a tagged one is the frames' to say;
+    /// and an override still beats the reading.
+    #[test]
+    fn an_implied_full_range_reaches_the_filter() {
+        use ffmpeg::color::{Primaries, Range, Space, TransferCharacteristic as Transfer};
+        let options = DecodeOptions::default().scaled_to(640, 360);
+        let signal = |range, implied| ColorSignal {
+            primaries: Primaries::BT709,
+            transfer: Transfer::BT709,
+            matrix: Space::BT709,
+            range,
+            implied,
+        };
+        assert_eq!(
+            video_filter(0, &options, 640, 360, Some(&signal(Range::JPEG, true))),
+            "scale=640:360:flags=bilinear:in_range=pc,format=rgba"
+        );
+        assert_eq!(
+            video_filter(0, &options, 640, 360, Some(&signal(Range::MPEG, true))),
+            "scale=640:360:flags=bilinear,format=rgba"
+        );
+        assert_eq!(
+            video_filter(0, &options, 640, 360, Some(&signal(Range::JPEG, false))),
+            "scale=640:360:flags=bilinear,format=rgba"
+        );
+        let limited = options.clone().in_range(Some(ColorRange::Limited));
+        assert_eq!(
+            video_filter(0, &limited, 640, 360, Some(&signal(Range::JPEG, true))),
+            "scale=640:360:flags=bilinear:in_range=tv,format=rgba"
         );
     }
 
@@ -1043,6 +1207,7 @@ mod tests {
             transfer: Transfer::BT709,
             matrix: Space::BT709,
             range: Range::MPEG,
+            implied: false,
         };
         let full = DecodeOptions::default()
             .scaled_to(640, 360)
@@ -1072,6 +1237,7 @@ mod tests {
             transfer: Transfer::SMPTE2084,
             matrix: Space::BT2020NCL,
             range: ColorRange::Full.as_ffmpeg(),
+            implied: false,
         };
         assert!(
             video_filter(0, &full, 640, 360, Some(&hdr_full)).contains(":in_range=pc:"),

@@ -116,6 +116,11 @@ export component Seat inherits Rectangle {
             remove(id) => { Editor.media-remove(id); }
             remove-selected => { Editor.media-remove-selected(); }
             activate(id) => { Editor.media-activate(id); }
+            context(id) => { Editor.media-context(id); }
+            menu-items: Editor.menu-items;
+            menu-height: Editor.menu-height;
+            menu-token: Editor.menu-token;
+            menu-selected(id) => { Editor.menu-selected(id); }
 
             presets: Editor.text-presets;
             catalogue-effects: Editor.catalogue-effects;

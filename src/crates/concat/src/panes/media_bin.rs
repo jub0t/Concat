@@ -211,6 +211,11 @@ impl MediaBin {
         project.media_by_id(id)
     }
 
+    /// The row an id is shown at, for a message that names rows.
+    pub fn row_of(&self, id: &str) -> Option<i32> {
+        self.rows.get(id).copied()
+    }
+
     /// Whether the filter lets an item through. The Media shelves, "All
     /// media" included, are the imports: a file the editor made is on its
     /// origin's shelf under Generated and nowhere else, so a read-aloud

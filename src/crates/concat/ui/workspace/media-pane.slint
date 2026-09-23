@@ -11,6 +11,7 @@ import { CatalogueEntryData, Library } from "../inspector/clip-inspector.slint";
 import { SearchField } from "../inspector/controls.slint";
 import { Select } from "../primitives/select.slint";
 import { Wave } from "../primitives/wave.slint";
+import { ContextMenu, MenuItemData } from "../primitives/context-menu.slint";
 
 // The library pane: a strip of pages across the top, then a narrow category
 // sidebar and the browsing area beside it. Media is the bin; Text adds a
@@ -393,6 +394,8 @@ component MediaCard inherits Rectangle {
     /// double click: put it on the timeline at the playhead
     callback activated();
     callback removed();
+    /// right click, with where on the card it landed: the menu opens there
+    callback context(x: length, y: length);
 
     property <color> mark: root.item.kind == MediaKind.audio ? Theme.kind-audio
         : root.item.kind == MediaKind.image ? Theme.kind-image
@@ -437,6 +440,15 @@ component MediaCard inherits Rectangle {
         card := TouchArea {
             mouse-cursor: pointer;
             pointer-event(event) => {
+                // The right button asks for the menu and does nothing
+                // else, on the release rather than the press, for the
+                // reasons the lanes give beside their own.
+                if (event.button == PointerEventButton.right) {
+                    if (event.kind == PointerEventKind.up) {
+                        root.context(self.mouse-x, self.mouse-y);
+                    }
+                    return;
+                }
                 if (event.kind == PointerEventKind.down) {
                     root.additive = event.modifiers.shift || event.modifiers.control
                         || event.modifiers.meta;
@@ -600,6 +612,24 @@ component MediaGrid inherits Rectangle {
     callback clicked(id: int, additive: bool);
     callback activated(id: int);
     callback removed(id: int);
+    /// Right-click on a card. Rust fills the menu and bumps `menu-token`;
+    /// where it opens is decided here, because only this side knows where
+    /// the pointer was. The token is gated the way the lanes gate theirs:
+    /// it is one number for the whole window, and only the grid that
+    /// asked opens on it.
+    callback context(id: int);
+    callback menu-selected(id: string);
+    in property <[MenuItemData]> menu-items;
+    in property <length> menu-height;
+    in property <int> menu-token;
+    property <bool> asked;
+    property <int> own-token;
+    changed menu-token => {
+        if (root.asked) {
+            root.asked = false;
+            root.own-token = root.menu-token;
+        }
+    }
     /// A press on the gutter between the cards, before any band.
     callback pressed();
     /// A marquee closed over the grid, given as the block of cells it caught:
@@ -723,6 +753,15 @@ component MediaGrid inherits Rectangle {
         removed => {
             root.removed(entry.id);
         }
+        context(x, y) => {
+            // Captured before the round trip, and `asked` goes up first:
+            // the call below publishes before it returns, so the token
+            // can arrive inside it.
+            menu.request-x = self.x + x;
+            menu.request-y = self.y + y;
+            root.asked = true;
+            root.context(entry.id);
+        }
     }
 
     // The band being drawn, declared last so it lies over the cards it is
@@ -736,6 +775,19 @@ component MediaGrid inherits Rectangle {
         background: Theme.accent-soft;
         border-width: 1px;
         border-color: Theme.accent;
+    }
+
+    // Over everything, like the lanes' one: a PopupWindow is its own layer,
+    // but the element that places it has to be able to measure the grid.
+    menu := ContextMenu {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        items: root.menu-items;
+        menu-height: root.menu-height;
+        token: root.own-token;
+        selected(id) => { root.menu-selected(id); }
     }
 }
 
@@ -1379,6 +1431,12 @@ export component MediaPane inherits Rectangle {
     callback remove-selected();
     /// double-clicked: place it on the timeline at the playhead
     callback activate(id: int);
+    /// right-clicked: the card's menu, filled by Rust; see MediaGrid.context
+    callback context(id: int);
+    callback menu-selected(id: string);
+    in property <[MenuItemData]> menu-items;
+    in property <length> menu-height;
+    in property <int> menu-token;
 
     /// The looks the Text page's Presets shelf offers.
     in property <[TextPresetData]> presets;
@@ -2073,10 +2131,16 @@ export component MediaPane inherits Rectangle {
                         page-floor: Math.max(0px, pages.height - 52px
                             - (root.selected-count > 1 ? 36px : 0px) - 8px);
 
+                        menu-items: root.menu-items;
+                        menu-height: root.menu-height;
+                        menu-token: root.menu-token;
+
                         pressed => { root.floor-pressed(); }
                         clicked(id, additive) => { root.select(id, additive); }
                         activated(id) => { root.activate(id); }
                         removed(id) => { root.remove(id); }
+                        context(id) => { root.context(id); }
+                        menu-selected(id) => { root.menu-selected(id); }
                         band-selected(columns, from-col, to-col, from-row, to-row, additive) => {
                             root.band-selected(columns, from-col, to-col,
                                 from-row, to-row, additive);

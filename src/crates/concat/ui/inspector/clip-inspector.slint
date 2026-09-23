@@ -1410,9 +1410,10 @@ export component AudioPanel inherits VerticalLayout {
     /// which one this clip plays; a file with one has nothing to choose and
     /// shows no row.
     in property <[string]> audio-tracks;
-    /// The Source section has something to offer: a choice of audio
-    /// track, or a picture file whose levels can be named.
-    property <bool> choosing: root.audio-tracks.length > 1 || root.selected.color-range >= 0;
+    /// The Source section has something to offer: a choice of audio track.
+    /// A file's colour range used to sit here too and is the media's now,
+    /// in the bin card's menu: it is a fact about the file, not the cut.
+    property <bool> choosing: root.audio-tracks.length > 1;
 
     callback set(field: ClipField, value: float);
     callback commit();
@@ -1454,23 +1455,6 @@ export component AudioPanel inherits VerticalLayout {
                 current: root.selected.audio-track;
                 changed(index) => {
                     root.set(ClipField.audio-track, index);
-                    root.commit();
-                }
-            }
-        }
-        // The levels the file really spans, for one that lies about it: a
-        // screen recording that plays grey where it should be black is a
-        // full-range file tagged nothing, and "Full" is the fix. Set on
-        // the media, so every clip of the file follows.
-        // https://github.com/jub0t/Concat/issues/103
-        if root.selected.color-range >= 0: Row {
-            label: I18n.t("Colour range");
-            Select {
-                options: [I18n.t("As tagged"), I18n.t("Limited"), I18n.t("Full")];
-                details: ["", "16-235", "0-255"];
-                current: root.selected.color-range;
-                changed(index) => {
-                    root.set(ClipField.color-range, index);
                     root.commit();
                 }
             }

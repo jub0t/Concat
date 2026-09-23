@@ -86,6 +86,9 @@ export global Editor {
     callback media-remove(id: int);
     callback media-remove-selected();
     callback media-activate(id: int);
+    /// Right-click on a card in the bin: Rust fills `menu-items` for the
+    /// file and bumps `menu-token`, the same round trip as `clip-context`.
+    callback media-context(id: int);
 
     // library catalogue pages
     /// The looks the Text page offers, published once.

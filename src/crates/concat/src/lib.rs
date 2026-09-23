@@ -973,6 +973,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // ── the context menu ──
     editor.on_clip_context(on_window!(|state, id: SharedString| {
         state.menu_token += 1;
+        state.menu_media = None;
         if state.clip(id.as_str()).is_none() {
             state.menu_target = None;
             return;
@@ -982,7 +983,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
         state.menu_target = Some(id.to_string());
     }));
+    // The bin's cards share the menu's rows and token with the clips; which
+    // one was asked for is what the two targets below remember.
+    editor.on_media_context(on_window!(|state, row: i32| {
+        state.menu_token += 1;
+        state.menu_target = None;
+        state.menu_media = state
+            .media
+            .by_row(state.project(), row)
+            .map(|item| item.id.clone());
+    }));
     editor.on_menu_selected(on_window!(|state, action: SharedString| {
+        if let Some(id) = state.menu_media.clone() {
+            state.media_action(&id, action.as_str());
+            return;
+        }
         // The clip the menu was opened on; failing that, the one clip that
         // is selected, which is what the menu was showing anyway.
         let target = state.menu_target.clone().or_else(|| state.sole_selection());
