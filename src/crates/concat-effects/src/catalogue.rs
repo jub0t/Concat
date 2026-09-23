@@ -453,8 +453,11 @@ impl Package {
             .unwrap_or("cross-fade")
     }
 
-    /// The FFmpeg `xfade` name this transition maps to for export, if it
-    /// declares one.
+    /// The FFmpeg `xfade` name this transition declares as its shape for a
+    /// compositor that runs no shaders - the CPU reference, and an export
+    /// or monitor without a GPU - if it declares one. The name is FFmpeg's
+    /// so a manifest can be checked against a known list at load, but what
+    /// draws it is `concat_render`, in the shipped shader's own terms.
     pub fn transition_xfade(&self) -> Option<&str> {
         self.manifest
             .transition

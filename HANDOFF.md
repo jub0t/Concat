@@ -125,6 +125,18 @@ effect.toml [transition] → TransitionShader (concat-core)
                 → exported via FFmpeg frame-by-frame
 ```
 
+Without a GPU the same `Compositor::combine()` runs on `CpuCompositor`, which
+draws the shape the manifest names as `xfade` in plain arithmetic
+(`concat-render/src/transitions.rs`): the crossfades, the clock wipe, the iris,
+the wipes and slides, the zoom and the mosaic, each in the shipped shader's own
+terms rather than FFmpeg's reading of the name. The `TransitionPass` carries
+the name (`xfade`), filled in by `Catalogue::transition_pass()`. A package
+naming no shape, or one the CPU does not draw, gets the dissolve ramp the
+incoming clip already carries. The monitor takes the same path: with a GPU a
+live transition goes through `PreviewSources::composite()` on the device
+(`Monitor::texture_of`, the `needs_cpu` branch), without one through the CPU
+shapes.
+
 A transition shader body declares:
 ```wgsl
 fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
@@ -262,11 +274,13 @@ Enforced by the test `every_ffmpeg_package_pins_its_default_and_every_slider_bou
 
 ### 🔴 Critical / High Priority
 
-| # | Issue | Location |
+None open. The three that were here are resolved:
+
+| # | Was | Now |
 |---|---|---|
-| 1 | **Transition seam drag handles** don't yet write back to the project (UI draws them but the resize gesture isn't wired to `Studio::resize_transition()`) | `lanes.slint` drag callbacks → `studio.rs` |
-| 2 | **No live preview for transitions on the monitor** — applying a transition to a cut should show an animated preview in the monitor at the playhead; currently the monitor only updates on playback | `studio.rs` request_preview / transition preview |
-| 3 | **Export: `xfade` filtergraph not wired** — packaged transitions export as a simple dissolve fallback; a two-stream `xfade` FFmpeg export path was never built | `concat-export/src/lib.rs` |
+| 1 | Transition seam drag handles did not write back to the project | Wired: a press on a handle or the seam button is `clip-pressed` with edge `2`, which starts `Gesture::TransitionResize`; the drag updates the echo through `Studio::transition_duration()`'s clamp, and the release commits `Command::UpdateClip` via `set_clip_transition_duration()` |
+| 2 | No live preview for transitions on the monitor | With a GPU the monitor already combined through the shader (`Monitor::texture_of` → `PreviewSources::composite` on the device). Without one it showed a dissolve; it now draws the manifest's `xfade` shape on the CPU |
+| 3 | Export had no `xfade` path; packaged transitions exported as a dissolve without a GPU | Picture is composited frame by frame, never through an FFmpeg filtergraph, so an `xfade` filter was never the right shape of fix. `CpuCompositor::combine()` now draws the named shape (`concat-render/src/transitions.rs`), and a GPU-less export shows the cut the GPU shows, minus the shader's flourish |
 
 ### 🟡 Medium Priority
 
@@ -335,7 +349,7 @@ Suggested commit strategy:
 
 1. **Cargo workspace is `src/`, not repo root** — `cd src` before every `cargo` command
 2. **`auditions: true` on effects/transitions shelves = global monitor overlay bug** — only Filters should use auditions
-3. **Transitions have no FFmpeg path** — `Kind::Transition` is GPU-only by design; `manifest.rs` validation enforces this
+3. **Transitions have no FFmpeg filter path** — a `Kind::Transition` package is a WGSL body; `manifest.rs` validation enforces this. Without a GPU the CPU compositor draws the manifest's `xfade` shape in place of the shader (`concat-render/src/transitions.rs`); a name that file does not know, or no name, is the dissolve fallback
 4. **Fixture strings are exact text diffs** — even a space change in an FFmpeg chain breaks the test; regenerate with `--nocapture`
 5. **Don't use trig in `{...}` template expressions** — use FFmpeg's `geq` and always test the chain against a real `ffmpeg` binary
 6. **`concat.light-leak` (effect) ≠ `concat.light-leak-transition` (transition)** — catalogue ID namespace is flat; duplicates are rejected at build time

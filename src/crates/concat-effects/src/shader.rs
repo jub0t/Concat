@@ -857,8 +857,13 @@ impl TransitionShader {
     /// layout. Every declared parameter must be a field of the struct.
     pub fn compile(manifest: &Manifest, body: &str) -> Result<TransitionShader, String> {
         let prelude = format!("{TRANSITION_HEAD}{}", grading());
-        let (source, slots, span) =
-            stitch(manifest, body, Entry::Transition, &prelude, TRANSITION_POSTLUDE)?;
+        let (source, slots, span) = stitch(
+            manifest,
+            body,
+            Entry::Transition,
+            &prelude,
+            TRANSITION_POSTLUDE,
+        )?;
         Ok(TransitionShader {
             key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
             source,
@@ -891,6 +896,7 @@ impl TransitionShader {
             params: self.params_bytes(values, params),
             progress,
             lut,
+            xfade: None,
         }
     }
 }
@@ -1069,7 +1075,12 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         assert!(shader.source().contains("fn fs_main"));
         assert!(shader.source().contains("frame.progress"));
         assert!(shader.source().contains("to_texture"));
-        let pass = shader.pass(&BTreeMap::from([("softness".to_owned(), 0.5)]), &manifest.params, 0.25, None);
+        let pass = shader.pass(
+            &BTreeMap::from([("softness".to_owned(), 0.5)]),
+            &manifest.params,
+            0.25,
+            None,
+        );
         assert_eq!(pass.progress, 0.25);
         assert_eq!(pass.params.len(), 16);
     }

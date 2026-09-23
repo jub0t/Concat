@@ -23,6 +23,7 @@ pub mod gpu;
 pub mod kernels;
 pub mod metrics;
 pub mod plan;
+mod transitions;
 
 pub use compositor::{Compositor, CpuCompositor};
 #[cfg(feature = "gpu")]

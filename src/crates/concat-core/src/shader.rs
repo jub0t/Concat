@@ -90,6 +90,12 @@ pub struct TransitionPass {
     /// The package's look-up table, bound like a pass's so the shared
     /// grading helpers work; None binds the identity.
     pub lut: Option<Arc<Lut>>,
+    /// The shape a compositor that runs no shaders draws instead: the
+    /// FFmpeg `xfade` name the package's manifest declares, which the CPU
+    /// reference knows how to draw in plain arithmetic. None, or a name it
+    /// does not know, and the compositor declines the combine, leaving the
+    /// dissolve the incoming layer already carries.
+    pub xfade: Option<String>,
 }
 
 /// A 3D look-up table: `size` texels a side, RGBA8, red fastest, then

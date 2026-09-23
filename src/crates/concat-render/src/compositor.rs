@@ -37,9 +37,10 @@ pub trait Compositor {
 
     /// Combines two finished frames with a transition: the outgoing picture
     /// `from` and the incoming one `to`, at the pass's `progress`. The shader
-    /// owns the blend. `None` from a compositor that cannot run shaders, which
-    /// the CPU reference cannot: the caller then shows the fallback dissolve
-    /// the incoming layer already carries.
+    /// owns the blend where a compositor can run one; the CPU reference
+    /// draws the shape the pass names as its `xfade` instead. `None` from a
+    /// compositor that can do neither: the caller then shows the fallback
+    /// dissolve the incoming layer already carries.
     fn combine(
         &mut self,
         _width: u32,
@@ -58,6 +59,22 @@ pub trait Compositor {
 pub struct CpuCompositor;
 
 impl Compositor for CpuCompositor {
+    /// The shape the pass names, drawn in plain arithmetic; see
+    /// `transitions`. A pass naming no shape, or one the CPU does not
+    /// draw, is declined.
+    fn combine(
+        &mut self,
+        _width: u32,
+        _height: u32,
+        _time: f32,
+        from: &Frame,
+        to: &Frame,
+        pass: &TransitionPass,
+    ) -> Option<Frame> {
+        let xfade = pass.xfade.as_deref()?;
+        crate::transitions::combine(from, to, xfade, pass.progress)
+    }
+
     fn render(&mut self, plan: &FramePlan) -> Frame {
         let mut ground = Frame::black(plan.width, plan.height);
         let mut treatments: Vec<&PlannedTreatment> = plan.treatments.iter().collect();
@@ -715,6 +732,36 @@ mod tests {
         let out = CpuCompositor.render(&frame_plan);
         assert_eq!(out.pixel(7, 7), Some([255, 0, 0, 255]));
         assert_eq!(out.pixel(0, 0), Some([0, 0, 255, 255]));
+    }
+
+    /// Through the trait: a pass naming a shape the CPU draws is combined,
+    /// one naming none is declined, and the shader source is never read.
+    #[test]
+    fn the_cpu_combines_by_the_named_shape_and_declines_without_one() {
+        let from = solid(8, 8, [255, 0, 0, 255]);
+        let to = solid(8, 8, [0, 0, 255, 255]);
+        let pass = |xfade: Option<&str>| TransitionPass {
+            key: "test.cut@1".to_owned(),
+            source: Arc::from("not wgsl at all"),
+            params: vec![0; 16],
+            progress: 1.0,
+            lut: None,
+            xfade: xfade.map(str::to_owned),
+        };
+        let done = CpuCompositor
+            .combine(8, 8, 0.0, &from, &to, &pass(Some("wipeleft")))
+            .expect("a shape the CPU draws");
+        assert_eq!(done.pixel(0, 0), Some([0, 0, 255, 255]));
+        assert!(
+            CpuCompositor
+                .combine(8, 8, 0.0, &from, &to, &pass(None))
+                .is_none()
+        );
+        assert!(
+            CpuCompositor
+                .combine(8, 8, 0.0, &from, &to, &pass(Some("hlslice")))
+                .is_none()
+        );
     }
 
     #[test]
