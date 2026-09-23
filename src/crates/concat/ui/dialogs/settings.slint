@@ -83,6 +83,11 @@ export struct SettingsData {
     /// this build and machine have hardware to decode on; off, the
     /// switch is not shown
     hardware-decode-offered: bool,
+    /// the voices run on the machine's accelerator rather than the CPU
+    speech-accelerated: bool,
+    /// this build has an accelerator to offer the voices; off, the switch
+    /// is not shown
+    speech-acceleration-offered: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -450,6 +455,7 @@ export component SettingsDialog inherits Modal {
     callback custom-context-actions-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback hardware-decode-changed(on: bool);
+    callback speech-accelerated-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
@@ -892,16 +898,48 @@ export component SettingsDialog inherits Modal {
                 }
             }
 
-            if root.data.tab == 3: DialogSection {
-                first: true;
-                title: I18n.t("Voices");
+            if root.data.tab == 3: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("Voices");
 
-                for model in root.voices: ModelRow {
-                    model: model;
-                    activated => { root.model-activated(model.id); }
-                    download => { root.model-download(model.id); }
-                    cancel => { root.model-cancel(model.id); }
-                    remove => { root.model-remove(model.id); }
+                    for model in root.voices: ModelRow {
+                        model: model;
+                        activated => { root.model-activated(model.id); }
+                        download => { root.model-download(model.id); }
+                        cancel => { root.model-cancel(model.id); }
+                        remove => { root.model-remove(model.id); }
+                    }
+                }
+
+                // The machine's own accelerator, where the build has one.
+                // A bet rather than a default: CoreML takes the parts of a
+                // network it knows and hands the rest to the CPU, so how
+                // much faster a read gets is the model's business.
+                if root.data.speech-acceleration-offered: DialogSection {
+                    title: I18n.t("Engine");
+                    hint: I18n.t("On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+
+                        Text {
+                            text: I18n.t("Run voices on the GPU");
+                            color: Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Switch {
+                                checked: root.data.speech-accelerated;
+                                toggled(on) => { root.speech-accelerated-changed(on); }
+                            }
+                        }
+                    }
                 }
             }
 

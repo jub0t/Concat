@@ -61,6 +61,11 @@ pub struct Preferences {
     /// where the hardware path has been exercised (macOS and iOS) and off
     /// elsewhere; see `Preferences::hardware_decode_on`.
     pub hardware_decode: Option<bool>,
+    /// The voices run on the machine's own accelerator - CoreML on a Mac -
+    /// rather than the CPU. Off by default: what the accelerator takes of
+    /// a network is the network's business, and the CPU is the answer that
+    /// is always right.
+    pub speech_accelerated: bool,
     /// Where model downloads look first: a `SourcePreference` by name.
     /// Absent is automatic.
     pub download_source: Option<String>,

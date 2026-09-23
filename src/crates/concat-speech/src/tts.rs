@@ -413,6 +413,9 @@ enum Engine {
 
 struct CachedEngine {
     model_id: String,
+    /// Loaded for the accelerator, or for the CPU; a change of mind loads
+    /// the model again.
+    accelerated: bool,
     tts: Engine,
 }
 
@@ -690,18 +693,26 @@ impl Speech {
             .engine
             .lock()
             .map_err(|_| "speech state poisoned".to_owned())?;
-        if engine.as_ref().map(|cached| cached.model_id.as_str()) != Some(request.model_id.as_str())
-        {
+        let accelerated = crate::accelerated();
+        let stale = engine.as_ref().is_none_or(|cached| {
+            cached.model_id != request.model_id || cached.accelerated != accelerated
+        });
+        if stale {
             // Load before overwriting: a failed load keeps the old engine.
             let loading = std::time::Instant::now();
-            log::info!("tts: loading {} from {}", request.model_id, dir.display());
+            log::info!(
+                "tts: loading {} from {} for the {}",
+                request.model_id,
+                dir.display(),
+                if accelerated { "accelerator" } else { "CPU" }
+            );
             let tts = match family {
-                Family::Kokoro => Engine::Sherpa(load_kokoro(&dir)?),
-                Family::Pocket => Engine::Sherpa(load_pocket(&dir)?),
+                Family::Kokoro => Engine::Sherpa(load_kokoro(&dir, accelerated)?),
+                Family::Pocket => Engine::Sherpa(load_pocket(&dir, accelerated)?),
                 #[cfg(feature = "chatterbox")]
-                Family::Chatterbox => {
-                    Engine::Chatterbox(Box::new(crate::chatterbox::Engine::load(&dir)?))
-                }
+                Family::Chatterbox => Engine::Chatterbox(Box::new(
+                    crate::chatterbox::Engine::load(&dir, accelerated)?,
+                )),
                 #[cfg(not(feature = "chatterbox"))]
                 Family::Chatterbox => {
                     return Err("Chatterbox is not part of this build".to_owned());
@@ -714,6 +725,7 @@ impl Speech {
             );
             *engine = Some(CachedEngine {
                 model_id: request.model_id.clone(),
+                accelerated,
                 tts,
             });
         }
@@ -959,7 +971,7 @@ fn onnx_starting(dir: &Path, prefix: &str) -> Option<String> {
 
 /// Builds the engine for a Pocket TTS bundle: the five networks and the
 /// two tables the sherpa-onnx example names.
-fn load_pocket(dir: &Path) -> Result<OfflineTts, String> {
+fn load_pocket(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
     let part = |prefix: &str| {
         onnx_starting(dir, prefix)
             .ok_or_else(|| format!("the model folder has no {prefix} network - re-download it"))
@@ -985,12 +997,25 @@ fn load_pocket(dir: &Path) -> Result<OfflineTts, String> {
                 voice_embedding_cache_capacity: 8,
             },
             num_threads: threads(),
+            provider: Some(provider(accelerated).to_owned()),
             ..Default::default()
         },
         ..Default::default()
     };
     OfflineTts::create(&config)
         .ok_or_else(|| "the speech engine failed to load - try re-downloading the model".to_owned())
+}
+
+/// The ONNX Runtime provider sherpa is asked for: CoreML on a Mac that
+/// wants the accelerator, the CPU otherwise. sherpa falls back to the CPU
+/// itself, with a line in the log, where its runtime was built without
+/// the one asked for.
+fn provider(accelerated: bool) -> &'static str {
+    if accelerated && cfg!(target_os = "macos") {
+        "coreml"
+    } else {
+        "cpu"
+    }
 }
 
 /// The threads the engine may use: every core up to eight.
@@ -1004,7 +1029,7 @@ fn threads() -> i32 {
 ///
 /// The lexicon list mirrors the official sherpa-onnx invocation for this
 /// bundle: US English and Chinese, joined by commas, each only if present.
-fn load_kokoro(dir: &Path) -> Result<OfflineTts, String> {
+fn load_kokoro(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
     let network = onnx_file(dir)
         .ok_or_else(|| "the model folder has no .onnx network - re-download it".to_owned())?;
     let existing = |name: &str| {
@@ -1034,6 +1059,7 @@ fn load_kokoro(dir: &Path) -> Result<OfflineTts, String> {
                 ..Default::default()
             },
             num_threads: threads(),
+            provider: Some(provider(accelerated).to_owned()),
             ..Default::default()
         },
         ..Default::default()

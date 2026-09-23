@@ -271,15 +271,37 @@ struct Voice {
     spectrum: (Vec<usize>, Vec<f32>),
 }
 
-fn session(path: &Path) -> Result<Session, String> {
+/// One network, opened for the CPU or, when asked and where the build has
+/// it, for CoreML: the Mac's GPU and Neural Engine. CoreML takes the parts
+/// of a graph it knows and hands the rest back to the CPU, and a graph it
+/// cannot take at all still runs - slower, not broken - so asking for it
+/// is safe; the log says which it got.
+fn session(path: &Path, accelerated: bool) -> Result<Session, String> {
     let threads = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
         .clamp(1, 8);
-    Session::builder()
+    let mut builder = Session::builder()
         .map_err(|error| format!("onnx runtime: {error}"))?
         .with_intra_threads(threads)
-        .map_err(|error| format!("onnx runtime: {error}"))?
+        .map_err(|error| format!("onnx runtime: {error}"))?;
+    #[cfg(target_os = "macos")]
+    if accelerated {
+        use ort::ep::coreml::{ComputeUnits, CoreML};
+        builder = builder
+            .with_execution_providers([CoreML::default()
+                .with_compute_units(ComputeUnits::All)
+                .with_subgraphs(true)
+                .build()])
+            .map_err(|error| format!("onnx runtime: coreml: {error}"))?;
+        log::info!(
+            "chatterbox: {} asked to run on CoreML",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = accelerated;
+    builder
         .commit_from_file(path)
         .map_err(|error| format!("{}: {error}", path.display()))
 }
@@ -333,22 +355,27 @@ fn take_i64(outputs: &ort::session::SessionOutputs<'_>, name: &str) -> Result<Ve
 }
 
 impl Engine {
-    /// Loads the bundle in `dir`.
-    pub fn load(dir: &Path) -> Result<Engine, String> {
+    /// Loads the bundle in `dir`, for the accelerator or the CPU.
+    pub fn load(dir: &Path, accelerated: bool) -> Result<Engine, String> {
         if !installed(dir) {
             return Err("the Chatterbox bundle is incomplete - re-download it".to_owned());
         }
         let started = std::time::Instant::now();
-        log::info!("chatterbox: loading the bundle in {}", dir.display());
+        log::info!(
+            "chatterbox: loading the bundle in {} for the {}",
+            dir.display(),
+            if accelerated { "accelerator" } else { "CPU" }
+        );
         let tokenizer = tokenizers::Tokenizer::from_file(dir.join("tokenizer.json"))
             .map_err(|error| format!("chatterbox tokenizer: {error}"))?;
         let onnx = dir.join("onnx");
+        let open = |name: &str| session(&onnx.join(name), accelerated);
         let engine = Engine {
             tokenizer,
-            speech_encoder: Mutex::new(session(&onnx.join("speech_encoder_quantized.onnx"))?),
-            embed_tokens: Mutex::new(session(&onnx.join("embed_tokens_quantized.onnx"))?),
-            language_model: Mutex::new(session(&onnx.join("language_model_quantized.onnx"))?),
-            decoder: Mutex::new(session(&onnx.join("conditional_decoder_quantized.onnx"))?),
+            speech_encoder: Mutex::new(open("speech_encoder_quantized.onnx")?),
+            embed_tokens: Mutex::new(open("embed_tokens_quantized.onnx")?),
+            language_model: Mutex::new(open("language_model_quantized.onnx")?),
+            decoder: Mutex::new(open("conditional_decoder_quantized.onnx")?),
         };
         log::info!(
             "chatterbox: four networks loaded in {:.1}s",

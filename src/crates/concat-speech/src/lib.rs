@@ -25,6 +25,31 @@ pub mod tts;
 pub use transcribe::Transcriber;
 pub use tts::Speech;
 
+/// Whether the voices run on the machine's own accelerator where the build
+/// has one, or on the CPU. Process-wide, the way `concat_media`'s hardware
+/// decode preference is: Settings › Speech sets it, and an engine reads it
+/// as it loads - one already loaded the other way is loaded again on the
+/// next read. Off until asked, because the accelerator is a bet: CoreML
+/// runs the parts of a network it knows and hands the rest back to the
+/// CPU, and which parts those are is the model's business.
+static ACCELERATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Asks the engines to run on the accelerator, or not to.
+pub fn set_accelerated(on: bool) {
+    ACCELERATED.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the engines are asked to run on the accelerator.
+pub fn accelerated() -> bool {
+    ACCELERATED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether this build has an accelerator to offer at all: CoreML, on a
+/// Mac. Elsewhere the switch is not shown, since it would do nothing.
+pub const fn acceleration_offered() -> bool {
+    cfg!(target_os = "macos")
+}
+
 /// Progress for one model download.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadProgress {

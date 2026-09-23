@@ -209,6 +209,7 @@ export component App inherits Window {
     callback settings-custom-context-actions-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
     callback settings-hardware-decode-changed(on: bool);
+    callback settings-speech-accelerated-changed(on: bool);
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
     callback settings-server-enabled-changed(on: bool);
@@ -548,6 +549,7 @@ export component App inherits Window {
         custom-context-actions-changed(on) => { root.settings-custom-context-actions-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
         hardware-decode-changed(on) => { root.settings-hardware-decode-changed(on); }
+        speech-accelerated-changed(on) => { root.settings-speech-accelerated-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }
         server-enabled-changed(on) => { root.settings-server-enabled-changed(on); }

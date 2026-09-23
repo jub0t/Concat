@@ -1195,6 +1195,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_settings_hardware_decode_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::HardwareDecodeChanged(on)));
     }));
+    app.on_settings_speech_accelerated_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::SpeechAcceleratedChanged(on)));
+    }));
     app.on_settings_download_source_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Settings(SettingsMsg::DownloadSourceChanged(index)));
     }));

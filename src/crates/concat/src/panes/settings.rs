@@ -43,6 +43,8 @@ pub enum SettingsMsg {
     /// The magnetic timeline switch; the tray's button is the same fact.
     MagneticChanged(bool),
     HardwareDecodeChanged(bool),
+    /// The voices run on the accelerator.
+    SpeechAcceleratedChanged(bool),
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
     ServerEnabledChanged(bool),
@@ -139,6 +141,8 @@ pub struct SettingsPane {
     pub custom_context_actions: bool,
     /// Video decodes on the platform's hardware.
     pub hardware_decode: bool,
+    /// The voices run on the machine's accelerator.
+    pub speech_accelerated: bool,
     /// Index into `SourcePreference::ALL`: where model downloads look first.
     pub download_source: usize,
     /// The base URL of a custom download source.
@@ -169,6 +173,8 @@ impl SettingsPane {
                 self.custom_context_actions = studio.prefs.custom_context_actions;
                 self.hardware_decode = studio.prefs.hardware_decode_on();
                 concat_media::set_hardware_decode(self.hardware_decode);
+                self.speech_accelerated = studio.prefs.speech_accelerated;
+                concat_speech::set_accelerated(self.speech_accelerated);
                 self.download_source = Self::download_source(studio).0;
                 self.download_base = studio.prefs.download_base.clone().unwrap_or_default();
                 Self::apply_download_source(studio);
@@ -221,6 +227,14 @@ impl SettingsPane {
             SettingsMsg::MagneticChanged(on) => {
                 studio.prefs.magnetic = on;
                 studio.prefs.save(&studio.host.dirs);
+            }
+            SettingsMsg::SpeechAcceleratedChanged(on) => {
+                self.speech_accelerated = on;
+                studio.prefs.speech_accelerated = on;
+                studio.prefs.save(&studio.host.dirs);
+                // An engine already loaded the other way is loaded again on
+                // the next read; nothing running is disturbed.
+                concat_speech::set_accelerated(on);
             }
             SettingsMsg::HardwareDecodeChanged(on) => {
                 self.hardware_decode = on;
@@ -559,6 +573,8 @@ impl SettingsPane {
             custom_context_actions: self.custom_context_actions,
             magnetic: studio.prefs.magnetic,
             hardware_decode: self.hardware_decode,
+            speech_accelerated: self.speech_accelerated,
+            speech_acceleration_offered: concat_speech::acceleration_offered(),
             hardware_decode_offered: concat_media::HwDevice::platform_default()
                 .is_some_and(concat_media::HwDevice::linked),
             download_source: self.download_source as i32,
