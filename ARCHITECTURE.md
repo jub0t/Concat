@@ -306,9 +306,31 @@ with; the window's Remote page shows it.
   into the decoder's chain, not through the plan.
 - `ExportClip` remains the CLI and API wire type and the title rasteriser's
   output.
-- Cached frames are uploaded to the GPU per composite; keeping them as
-  textures in the pool is the follow-up now that both compositors read a plan.
+- Cached frames are uploaded to the GPU again unless they were drawn in the
+  previous composite (`WgpuCompositor::upload` reuses a texture by frame id);
+  a source-texture cache with its own budget, so a scrub back over cached
+  ground skips the upload too, is the follow-up now that both compositors
+  read a plan. The frame pool is `concat-media/src/pool.rs`.
 - Zero-copy hardware frames (IOSurface into wgpu) are not done; a hardware
-  frame is transferred to memory first.
-- Filmstrips are one image per clip; one texture per track per zoom level is
-  not done, and the Slint repaint itself is not measured headless.
+  frame is transferred to memory first, and the libavfilter stage between
+  the download and the upload (rotation, fit, crop, colour range, RGBA) would
+  have to move to the GPU with it.
+- The preview resolves transitions with fades off, so fade-black, fade-white
+  and the wipes are absent from the monitor until they come through the plan.
+- Filmstrips are one image per media item drawn as up to 120 tile images per
+  clip, and waveforms one path per clip drawn twice; one texture per track
+  per zoom level is not done, and the Slint repaint itself is not measured
+  (`SLINT_DEBUG_PERFORMANCE` needs the window).
+- Enhance runs one restoration model (`concat-vision/src/enhance.rs`) through
+  ONNX Runtime on every platform. The OS scalers (VideoToolbox's
+  `VTFrameProcessor` on macOS 26 and iOS 26, the Windows App SDK's video
+  super-resolution) belong behind the same enhanced-copy job as a per-platform
+  fast path at its per-frame step (`concat-host/src/enhance.rs`, the
+  `enhancer.enhance` call), never as a second feature. Frame interpolation
+  does not fit that step: it changes the frame count and the encoder's rate.
+- A package's `[[wgsl.pass]]` list (`target`, `size` over `WIDTH` and
+  `HEIGHT`; `concat-effects/src/manifest.rs`) is parsed and never read:
+  `run_passes` (`concat-render/src/gpu.rs`) runs one pass per applied effect
+  at the source's size, with no named intermediates. Wiring it up is what a
+  GPU upscaler package (FSR 1.0, Anime4K, both MIT with WGSL ports) needs to
+  write a larger picture than it reads.
