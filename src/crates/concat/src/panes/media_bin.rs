@@ -19,7 +19,7 @@ use concat_project::Command;
 use concat_project::model::{self, MediaItem, MediaOrigin, Project};
 
 use crate::format::wave_path;
-use crate::host::{probe_error, spawn};
+use crate::host::{probe_error, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::studio::Studio;
@@ -140,7 +140,7 @@ impl MediaBin {
                 if paths.is_empty() || studio.session.is_none() {
                     return;
                 }
-                spawn(
+                spawn_in_project(
                     move || {
                         paths
                             .iter()

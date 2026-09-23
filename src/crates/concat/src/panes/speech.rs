@@ -31,7 +31,7 @@ use concat_speech::tts::{
 use slint::SharedString;
 
 use crate::format::wave_path;
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::panes::captions::CHARS_PER_SECOND;
@@ -336,10 +336,11 @@ impl SpeechPane {
         self.running = true;
         self.progress = 0.0;
         self.message.clear();
-        spawn(
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
             move || {
-                let spoken = speech.speak(&dirs, &request, |fraction| {
-                    on_ui(move |studio, _, _| {
+                let spoken = speech.speak(&dirs, &request, move |fraction| {
+                    on_ui_in_project(epoch, move |studio, _, _| {
                         studio.handle(Msg::Speech(SpeechMsg::Progress(fraction)));
                     });
                 })?;

@@ -6,8 +6,9 @@
 //! Each pane owns its state and is changed only by its own messages: a
 //! Slint callback and a worker's report are the same thing, one [`Msg`]
 //! posted to [`crate::studio::Studio::handle`], which routes it to the pane
-//! and publishes. A message that arrives after the project it concerns
-//! has closed is dropped there, in one place, rather than guarded against
+//! and publishes. A worker's result for a project that has since closed
+//! is dropped in one place, `host::deliver`, by the project epoch the work
+//! was started in (`host::spawn_in_project`), rather than guarded against
 //! in every closure.
 //!
 //! The panes move here one at a time from the window's controller; the

@@ -63,16 +63,16 @@ pub struct SettingsView {
 impl Session {
     /// Opens a project folder as the editing session.
     ///
-    /// A folder whose document is missing or unreadable opens as an empty
-    /// project rather than failing, but a *corrupt* document is an error,
-    /// because silently replacing an edit with emptiness is how projects get
-    /// lost. `settings` come from the manifest and seed the first timeline
+    /// A folder with no document yet opens as an empty project rather than
+    /// failing, but a document that is there and cannot be read or parsed
+    /// is an error, because silently replacing an edit with emptiness is
+    /// how projects get lost. `settings` come from the manifest and seed the first timeline
     /// of a project that has no document yet; a document that loads brings
     /// every timeline's own frame with it, and those win, because that is
     /// where an edited frame was saved.
     pub fn open(path: &str, settings: DocumentSettings) -> Result<Session, String> {
         let editor = match projects::read_document(path) {
-            Ok(document) => match Editor::from_document(&document) {
+            Ok(Some(document)) => match Editor::from_document(&document) {
                 Some(editor) => editor,
                 // The settings-only manifest `create` writes: a project
                 // closed before its first edit reopens empty, it is not
@@ -92,7 +92,11 @@ impl Session {
                 }
             },
             // No document yet - a project created moments ago.
-            Err(_) => Editor::with_video(settings.video()),
+            Ok(None) => Editor::with_video(settings.video()),
+            // Unreadable or not JSON: a save cut short, a disk in trouble.
+            // The one thing open must not do is answer with an empty
+            // project, since the next save would replace what was edited.
+            Err(error) => return Err(error),
         };
         Ok(Session {
             path: path.to_owned(),
@@ -336,6 +340,25 @@ mod tests {
         std::fs::write(scratch.join("concat.json"), br#"{"timelines": "garbage"}"#)
             .expect("writes");
         assert!(Session::open(&scratch.to_string_lossy(), settings()).is_err());
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn a_truncated_document_is_refused_rather_than_replaced() {
+        let scratch =
+            std::env::temp_dir().join(format!("concat-truncated-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch dir");
+        // A save cut short by a power cut or an outside tool: the file is
+        // there, and it is not JSON. Opening it as an empty project would
+        // let the next save replace whatever was edited.
+        std::fs::write(
+            scratch.join("concat.json"),
+            br#"{"version": 1, "timelines": ["#,
+        )
+        .expect("writes");
+        let opened = Session::open(&scratch.to_string_lossy(), settings());
+        assert!(opened.is_err(), "a half document is not an empty project");
         let _ = std::fs::remove_dir_all(&scratch);
     }
 }

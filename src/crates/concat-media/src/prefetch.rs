@@ -191,9 +191,12 @@ impl Prefetcher {
         });
         for index in 0..workers {
             let lane = Arc::clone(&lane);
-            let _ = std::thread::Builder::new()
+            if let Err(error) = std::thread::Builder::new()
                 .name(format!("concat-decode-{index}"))
-                .spawn(move || work(&lane));
+                .spawn(move || work(&lane))
+            {
+                log::error!("decode worker {index} could not start: {error}");
+            }
         }
         Self {
             shared: Arc::new(Shared {
@@ -352,20 +355,40 @@ fn work(lane: &Lane) {
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
             }
         };
-        job();
-        let mut queue = lock(&lane.queue);
+        let finished = Finished { lane, priority };
+        // A job that panics must not take the counters with it: `running`
+        // would never come down, `drain` would wait forever and the reserve
+        // would stay spent for the life of the process. The guard counts
+        // the job as finished whatever it did (audit 2026-09-23, #2).
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+            log::error!("a {priority:?} job panicked; the worker carries on");
+        }
+        drop(finished);
+    }
+}
+
+/// A running job's place in the counters, given back when dropped, so it
+/// is given back on a panic too.
+struct Finished<'a> {
+    lane: &'a Lane,
+    priority: Priority,
+}
+
+impl Drop for Finished<'_> {
+    fn drop(&mut self) {
+        let mut queue = lock(&self.lane.queue);
         queue.running -= 1;
-        if priority.background() {
+        if self.priority.background() {
             queue.background_running -= 1;
         }
-        if priority == Priority::Proxy {
+        if self.priority == Priority::Proxy {
             queue.proxy_running -= 1;
         }
         drop(queue);
         // A finished job frees a worker for a job the reserve was holding
         // back, and is what a drain waits for.
-        lane.ready.notify_all();
-        lane.done.notify_all();
+        self.lane.ready.notify_all();
+        self.lane.done.notify_all();
     }
 }
 
@@ -380,6 +403,29 @@ mod tests {
     use super::*;
     use concat_core::time::FrameRate;
     use std::sync::atomic::AtomicUsize;
+
+    /// A job that panics is counted as finished: the worker carries on,
+    /// the next job runs, and a drain returns rather than waiting on a
+    /// counter nothing will ever bring down.
+    #[test]
+    fn a_panicking_job_does_not_take_the_worker_with_it() {
+        let pool = Arc::new(ReaderPool::new(1024, 1));
+        let prefetcher = Prefetcher::new(pool, 1);
+        prefetcher.submit(Priority::Artwork, || panic!("a bad job"));
+        let ran = Arc::new(AtomicUsize::new(0));
+        let mark = Arc::clone(&ran);
+        prefetcher.submit(Priority::Artwork, move || {
+            mark.fetch_add(1, Ordering::SeqCst);
+        });
+        prefetcher.drain();
+        assert_eq!(ran.load(Ordering::SeqCst), 1, "the job after the panic ran");
+        let queue = lock(&prefetcher.lane.queue);
+        assert_eq!(
+            (queue.running, queue.background_running, queue.proxy_running),
+            (0, 0, 0),
+            "the counters came back down"
+        );
+    }
 
     /// Jobs run most urgent first, and a background job never takes the
     /// last worker: with one worker and a reserve of none, everything

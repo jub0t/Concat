@@ -53,8 +53,8 @@ use crate::format::{
 };
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
-    image_of, media_art, on_ui, spawn, spawn_art, spawn_strip, strip_window, window_art,
-    window_span, window_start,
+    image_of, media_art, on_ui_in_project, spawn, spawn_art, spawn_in_project, spawn_strip,
+    strip_window, window_art, window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
 use crate::panes::settings::installed;
@@ -4474,7 +4474,8 @@ impl Studio {
         };
         self.cutout_jobs.insert(id.clone(), (false, 0.0));
         let cutouts = Arc::clone(&self.host.cutouts);
-        spawn(
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = id.clone();
@@ -4490,7 +4491,7 @@ impl Studio {
                     if now.0 != last.0 || now.1 - last.1 >= 0.01 {
                         last = now;
                         let id = reporting.clone();
-                        on_ui(move |studio, _, _| {
+                        on_ui_in_project(epoch, move |studio, _, _| {
                             if let Some(held) = studio.cutout_jobs.get_mut(&id) {
                                 *held = now;
                             }
@@ -4586,7 +4587,7 @@ impl Studio {
             file.display()
         );
         self.notify(&t("Rendering the sound…"), false);
-        spawn(
+        spawn_in_project(
             move || -> Result<concat_host::media::MediaSummary, String> {
                 std::fs::create_dir_all(&out_dir)
                     .map_err(|error| format!("could not create {}: {error}", out_dir.display()))?;
@@ -4662,7 +4663,8 @@ impl Studio {
             false,
         );
         let enhancers = Arc::clone(&self.host.enhancers);
-        spawn(
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
             move || {
                 let mut last = (false, -1.0f32);
                 let reporting = clip_id.clone();
@@ -4676,7 +4678,7 @@ impl Studio {
                     if now.0 != last.0 || now.1 - last.1 >= 0.01 {
                         last = now;
                         let id = reporting.clone();
-                        on_ui(move |studio, _, _| {
+                        on_ui_in_project(epoch, move |studio, _, _| {
                             if let Some(held) = studio.enhance_jobs.get_mut(&id) {
                                 *held = now;
                             }
@@ -5236,6 +5238,7 @@ impl Studio {
                 }
                 self.pause();
                 self.session = Some(session);
+                crate::host::next_project_epoch();
                 self.echo = None;
                 self.dirty = false;
                 self.project_name = info.name.clone();
@@ -5323,6 +5326,13 @@ impl Studio {
         }
         self.autosave.stop();
         self.session = None;
+        // Whatever a worker still brings back for this project is dropped
+        // at delivery; the sheets that were waiting on one stop waiting.
+        crate::host::next_project_epoch();
+        self.captions.running = false;
+        self.captions.progress = 0.0;
+        self.speech.running = false;
+        self.speech.progress = 0.0;
         self.echo = None;
         self.dirty = false;
         self.selection.clear();
@@ -6366,7 +6376,8 @@ impl Studio {
         self.region_job = Some(key.clone());
         self.cutout_jobs.entry(key.clone()).or_insert((false, 0.0));
         let brushes = Arc::clone(&self.host.brushes);
-        spawn(
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
             move || {
                 let reporting = key.clone();
                 let result = brushes.read(&request, &mut |progress| {
@@ -6377,7 +6388,7 @@ impl Studio {
                         concat_host::cutout::Progress::Analysing(fraction) => (false, fraction),
                     };
                     let key = reporting.clone();
-                    on_ui(move |studio, _, _| {
+                    on_ui_in_project(epoch, move |studio, _, _| {
                         if let Some(held) = studio.cutout_jobs.get_mut(&key) {
                             *held = now;
                         }

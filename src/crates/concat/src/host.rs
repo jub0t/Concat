@@ -179,17 +179,56 @@ pub fn spawn<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    spawn_detached(move || deliver(work(), then));
+    spawn_detached(move || deliver(None, work(), then));
+}
+
+/// The project the window is on, counted up at every open and close. A
+/// worker's result made for an earlier project is told apart by it and
+/// dropped in [`deliver`], in one place, rather than guarded against in
+/// every closure: a probe, a caption run or a spoken line started in one
+/// project must not land in the next (audit 2026-09-23, #3).
+static PROJECT_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The project epoch now; see [`spawn_in_project`].
+pub fn project_epoch() -> u64 {
+    PROJECT_EPOCH.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Starts the next project epoch: a project opened or closed.
+pub fn next_project_epoch() {
+    PROJECT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+}
+
+/// Whether a result made in `epoch` concerns a project no longer open.
+fn stale(epoch: Option<u64>) -> bool {
+    epoch.is_some_and(|epoch| epoch != project_epoch())
+}
+
+/// [`spawn`] for work that belongs to the open project: `then` runs only
+/// while that project is still the open one, and is dropped otherwise.
+/// Work that is not a project's - a poster for the launch screen, a model
+/// download - goes through [`spawn`] and is always delivered.
+pub fn spawn_in_project<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    spawn_detached(move || deliver(Some(epoch), work(), then));
 }
 
 /// Hands a worker's result to the event-loop thread: `then` with the state
-/// and the window, and a full publish after it.
+/// and the window, and a full publish after it. A result made in a project
+/// epoch that has passed is dropped here.
 fn deliver<T: Send + 'static>(
+    epoch: Option<u64>,
     result: T,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {
+            if stale(epoch) {
+                return;
+            }
             {
                 let mut studio = shell.studio.borrow_mut();
                 then(&mut studio, &app, &shell.models, result);
@@ -225,14 +264,31 @@ fn spawn_at<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    concat_host::scheduler().submit(priority, move || deliver(work(), then));
+    concat_host::scheduler().submit(priority, move || deliver(None, work(), then));
 }
 
 /// Runs `body` on the event-loop thread from anywhere, with a full publish
 /// after. For progress reports from a worker.
 pub fn on_ui(body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
+    on_ui_gated(None, body);
+}
+
+/// [`on_ui`] for a report about the open project - a job's progress -
+/// made in `epoch` (see [`project_epoch`]): dropped once that project has
+/// closed, like a [`spawn_in_project`] result.
+pub fn on_ui_in_project(
+    epoch: u64,
+    body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static,
+) {
+    on_ui_gated(Some(epoch), body);
+}
+
+fn on_ui_gated(epoch: Option<u64>, body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {
+            if stale(epoch) {
+                return;
+            }
             {
                 let mut studio = shell.studio.borrow_mut();
                 body(&mut studio, &app, &shell.models);
@@ -619,5 +675,24 @@ pub fn media_art(
         thumbnail,
         peaks,
         strip,
+    }
+}
+
+#[cfg(test)]
+mod epoch_tests {
+    #[test]
+    fn a_result_from_an_earlier_project_is_stale() {
+        let then = super::project_epoch();
+        assert!(
+            !super::stale(None),
+            "work that is nobody's project is never stale"
+        );
+        assert!(!super::stale(Some(then)));
+        super::next_project_epoch();
+        assert!(
+            super::stale(Some(then)),
+            "the project it was made in has closed"
+        );
+        assert!(!super::stale(Some(super::project_epoch())));
     }
 }

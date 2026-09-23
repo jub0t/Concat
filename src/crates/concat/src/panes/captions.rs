@@ -17,7 +17,7 @@ use concat_project::model::TextStyle;
 use concat_speech::transcribe::Segment;
 use slint::SharedString;
 
-use crate::host::{on_ui, spawn};
+use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::panes::settings::installed;
@@ -235,10 +235,11 @@ impl CaptionsPane {
         self.running = true;
         self.progress = 0.0;
         self.message.clear();
-        spawn(
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
             move || {
-                transcriber.transcribe(&dirs, &request, |percent| {
-                    on_ui(move |studio, _, _| {
+                transcriber.transcribe(&dirs, &request, move |percent| {
+                    on_ui_in_project(epoch, move |studio, _, _| {
                         studio.handle(Msg::Captions(CaptionsMsg::Progress(percent)));
                     });
                 })

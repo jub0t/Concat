@@ -205,13 +205,20 @@ pub fn is_settings_only(document: &serde_json::Value) -> bool {
             .all(|key| document.get(key).is_none())
 }
 
-/// Reads the whole project document back.
-pub fn read_document(path: &str) -> Result<serde_json::Value, String> {
+/// Reads the whole project document back: `None` when the folder has no
+/// document yet, an error for one that is there and cannot be read or
+/// parsed. The two are kept apart because a caller that treats them alike
+/// opens a half-written document as an empty project and saves over it
+/// (audit 2026-09-23, #1).
+pub fn read_document(path: &str) -> Result<Option<serde_json::Value>, String> {
     let manifest = manifest_path(Path::new(path));
-    let bytes = std::fs::read(&manifest)
-        .map_err(|error| format!("could not read {}: {error}", manifest.display()))?;
-
+    let bytes = match std::fs::read(&manifest) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("could not read {}: {error}", manifest.display())),
+    };
     serde_json::from_slice(&bytes)
+        .map(Some)
         .map_err(|error| format!("{} is not a Concat project: {error}", manifest.display()))
 }
 

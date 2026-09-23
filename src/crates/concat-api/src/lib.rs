@@ -1018,7 +1018,12 @@ mod tests {
             path: path.clone(),
             name: None,
         }));
-        assert_eq!(projects::read_document(&path).expect("saved"), document);
+        assert_eq!(
+            projects::read_document(&path)
+                .expect("saved")
+                .expect("a document"),
+            document
+        );
     }
 
     #[test]

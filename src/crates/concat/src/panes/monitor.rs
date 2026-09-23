@@ -22,7 +22,7 @@ use std::sync::Arc;
 use concat_host::preview::FrameSpec;
 use concat_project::model::Project;
 
-use crate::host::{spawn, spawn_detached};
+use crate::host::{spawn_detached, spawn_in_project};
 use crate::i18n::tf;
 use crate::panes::Msg;
 use crate::studio::Studio;
@@ -188,7 +188,7 @@ impl MonitorPane {
         let monitor = studio.host.monitor.clone();
         self.busy = true;
         self.wanted = false;
-        spawn(
+        spawn_in_project(
             move || {
                 // On the window's device the frame stays a texture; without
                 // one it comes back as pixels and is uploaded here.
