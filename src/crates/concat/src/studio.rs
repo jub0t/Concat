@@ -42,7 +42,7 @@ use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
 use concat_project::{Command, why_not_merge};
-use slint::{Model, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
 
 use crate::dock::{
     Dock, DockLayout, SEAT_GAP, default_dock, lay_out, nearest_row, row_at, row_top,
@@ -489,6 +489,8 @@ pub struct Models {
     /// the rest, since a model handed over fresh is unequal to the last by
     /// identity and re-evaluates every binding on it.
     pub key_rows: Rc<VecModel<ClipKeyData>>,
+    /// The Keyframes panel's rows; see `Studio::key_editor_rows`.
+    pub key_editor_rows: Rc<VecModel<KeyRowData>>,
     pub library_views: Rc<VecModel<LibraryViewData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
@@ -535,6 +537,7 @@ impl Models {
             audio_params: Rc::new(VecModel::default()),
             adjust_params: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
+            key_editor_rows: Rc::new(VecModel::default()),
             library_views: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
@@ -5944,6 +5947,14 @@ impl Studio {
         // The keyframe cluster's state, on its own global: every keyable row
         // in the inspector reads it, and none of them is threaded to.
         let keys = app.global::<Keyframes>();
+        // The Keyframes panel: set whole, since a row holds a model of its
+        // keys and cannot be compared for a diff.
+        models.key_editor_rows.set_vec(self.key_editor_rows());
+        app.global::<KeyEditor>().set_at(
+            self.sole_selection()
+                .and_then(|id| self.clip(&id))
+                .map_or(0.0, |clip| place_in(clip, self.playhead) as f32),
+        );
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
@@ -6150,6 +6161,403 @@ impl Studio {
                 }
             })
             .collect()
+    }
+
+    /// The Keyframes panel's rows: the six properties of the selected
+    /// clip, and every Adjust knob of it that carries keys, each with its
+    /// keys along the clip, what it is worth at the playhead, and the ease
+    /// into the key the playhead is on or heading for.
+    pub fn key_editor_rows(&self) -> Vec<KeyRowData> {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return Vec::new();
+        };
+        let at = place_in(clip, self.playhead);
+        let near = |a: f64, b: f64| (a - b).abs() <= model::KEY_EPSILON;
+        // The ease shown for a run of keys: the one into the key at the
+        // playhead, else into the next key - the segment being played -
+        // when there is a key behind it to ease from.
+        let ease_of = |keys: &[(f64, model::KeyEase)]| -> (bool, [f32; 4], f32) {
+            let target = keys
+                .iter()
+                .find(|(key_at, _)| near(*key_at, at))
+                .or_else(|| keys.iter().find(|(key_at, _)| *key_at > at));
+            match target {
+                Some((key_at, ease))
+                    if keys
+                        .iter()
+                        .any(|(other, _)| *other < key_at - model::KEY_EPSILON) =>
+                {
+                    let [x1, y1, x2, y2] = ease.0;
+                    (
+                        true,
+                        [x1 as f32, y1 as f32, x2 as f32, y2 as f32],
+                        *key_at as f32,
+                    )
+                }
+                _ => (false, [0.0, 0.0, 1.0, 1.0], 0.0),
+            }
+        };
+        let marks = |ats: &[f64]| -> ModelRc<KeyMarkData> {
+            ModelRc::new(VecModel::from(
+                ats.iter()
+                    .map(|&key_at| KeyMarkData {
+                        at: key_at as f32,
+                        here: near(key_at, at),
+                    })
+                    .collect::<Vec<_>>(),
+            ))
+        };
+        let mut rows = Vec::new();
+        for property in model::KeyProperty::ALL {
+            let keys: Vec<(f64, model::KeyEase)> = clip
+                .keys_on(property)
+                .map(|key| (key.at, key.ease))
+                .collect();
+            let ats: Vec<f64> = keys.iter().map(|(key_at, _)| *key_at).collect();
+            // The same ranges and units as the inspector's knobs.
+            let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
+                match property {
+                    model::KeyProperty::Scale => (
+                        t("Scale"),
+                        0.05,
+                        8.0,
+                        0.01,
+                        1.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::OffsetX => (
+                        t("Position X"),
+                        -1.0,
+                        1.0,
+                        0.005,
+                        0.0,
+                        ParamFormat::Centred,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::OffsetY => (
+                        t("Position Y"),
+                        -1.0,
+                        1.0,
+                        0.005,
+                        0.0,
+                        ParamFormat::Centred,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::Rotation => (
+                        t("Rotation"),
+                        -180.0,
+                        180.0,
+                        1.0,
+                        0.0,
+                        ParamFormat::Degrees,
+                        "°",
+                        1.0,
+                    ),
+                    model::KeyProperty::Opacity => (
+                        t("Opacity"),
+                        0.0,
+                        1.0,
+                        0.01,
+                        1.0,
+                        ParamFormat::Fraction,
+                        "%",
+                        100.0,
+                    ),
+                    model::KeyProperty::Volume => (
+                        t("Level"),
+                        -60.0,
+                        24.0,
+                        0.5,
+                        0.0,
+                        ParamFormat::Gain,
+                        "",
+                        1.0,
+                    ),
+                };
+            let shown_value = shown(clip, property, at);
+            let value = if property == model::KeyProperty::Volume {
+                // The level knob speaks decibels, floored where silence is.
+                if shown_value <= 0.001 {
+                    -60.0
+                } else {
+                    (20.0 * shown_value.log10()).clamp(-60.0, 24.0)
+                }
+            } else {
+                shown_value
+            };
+            let (prev, next) = clip.keys_around(property, at);
+            let (has_ease, ease, ease_at) = ease_of(&keys);
+            rows.push(KeyRowData {
+                field: key_field_of(property),
+                param: SharedString::default(),
+                label: label.into(),
+                keys: marks(&ats),
+                state: ClipKeyData {
+                    field: key_field_of(property),
+                    keyed: !keys.is_empty(),
+                    here: clip.key_at(property, at).is_some(),
+                    prev: prev.is_some(),
+                    next: next.is_some(),
+                },
+                value: value as f32,
+                minimum,
+                maximum,
+                step,
+                default_value,
+                fmt,
+                unit: unit.into(),
+                unit_scale,
+                ease_x1: ease[0],
+                ease_y1: ease[1],
+                ease_x2: ease[2],
+                ease_y2: ease[3],
+                has_ease,
+                ease_at,
+            });
+        }
+        if let Some(link) = clip
+            .video_effects
+            .iter()
+            .find(|entry| entry.id == ADJUST_ID)
+        {
+            let inside = self.key_point().map(|(_, at)| at);
+            for row in adjust_rows(&clip.video_effects, inside) {
+                if !row.keyed {
+                    continue;
+                }
+                let keys: Vec<(f64, model::KeyEase)> = link
+                    .keys_on(&row.key)
+                    .iter()
+                    .map(|key| (key.at, key.ease))
+                    .collect();
+                let ats: Vec<f64> = keys.iter().map(|(key_at, _)| *key_at).collect();
+                let (has_ease, ease, ease_at) = ease_of(&keys);
+                rows.push(KeyRowData {
+                    field: ClipField::Scale,
+                    param: row.key.clone(),
+                    label: row.label.clone(),
+                    keys: marks(&ats),
+                    state: ClipKeyData {
+                        field: ClipField::Scale,
+                        keyed: true,
+                        here: row.here,
+                        prev: row.prev,
+                        next: row.next,
+                    },
+                    value: row.value,
+                    minimum: row.min,
+                    maximum: row.max,
+                    step: row.step,
+                    default_value: row.default_value,
+                    fmt: row.fmt,
+                    unit: row.unit.clone(),
+                    unit_scale: 1.0,
+                    ease_x1: ease[0],
+                    ease_y1: ease[1],
+                    ease_x2: ease[2],
+                    ease_y2: ease[3],
+                    has_ease,
+                    ease_at,
+                });
+            }
+        }
+        rows
+    }
+
+    /// Moves the playhead to `at` of the selected clip, `0..1`.
+    pub fn jump_to_key(&mut self, at: f32) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let (start, duration) = (clip.start, clip.duration);
+        self.seek((start + f64::from(at).clamp(0.0, 1.0) * duration) as f32);
+    }
+
+    /// Moves the key at `from` to `to` on a property, or on the Adjust
+    /// knob `param` names: the same value and ease at the new place, as
+    /// one undo step.
+    pub fn move_key(&mut self, field: ClipField, param: &str, from: f32, to: f32) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
+        let commands = if param.is_empty() {
+            let Some(property) = Self::key_property_of(field) else {
+                return;
+            };
+            let Some(index) = clip.key_at(property, from) else {
+                return;
+            };
+            let key = &clip.keys[index];
+            let (value, ease) = (key.value, key.ease);
+            vec![
+                Command::ClearClipKey {
+                    clip_id: clip_id.clone(),
+                    property,
+                    at: from,
+                },
+                Command::SetClipKey {
+                    clip_id,
+                    property,
+                    at: to,
+                    value,
+                    ease,
+                },
+            ]
+        } else {
+            let Some(entry) = clip
+                .video_effects
+                .iter()
+                .position(|entry| entry.id == ADJUST_ID)
+            else {
+                return;
+            };
+            let link = &clip.video_effects[entry];
+            let Some(index) = link.key_at(param, from) else {
+                return;
+            };
+            let key = &link.keys_on(param)[index];
+            let (value, ease) = (key.value, key.ease);
+            vec![
+                Command::ClearEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry,
+                    key: param.to_owned(),
+                    at: from,
+                },
+                Command::SetEffectKey {
+                    clip_id,
+                    entry,
+                    key: param.to_owned(),
+                    at: to,
+                    value,
+                    ease,
+                },
+            ]
+        };
+        self.apply(Command::Batch { commands });
+    }
+
+    /// Sets the ease into the key at `at`. A drag of the curve editor is
+    /// many of these, folded into one undo step.
+    pub fn set_key_ease(&mut self, field: ClipField, param: &str, at: f32, ease: [f32; 4]) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let at = f64::from(at);
+        let ease = model::KeyEase(ease.map(f64::from)).sane();
+        let command = if param.is_empty() {
+            let Some(property) = Self::key_property_of(field) else {
+                return;
+            };
+            let Some(index) = clip.key_at(property, at) else {
+                return;
+            };
+            Command::SetClipKey {
+                clip_id,
+                property,
+                at,
+                value: clip.keys[index].value,
+                ease,
+            }
+        } else {
+            let Some(entry) = clip
+                .video_effects
+                .iter()
+                .position(|entry| entry.id == ADJUST_ID)
+            else {
+                return;
+            };
+            let link = &clip.video_effects[entry];
+            let Some(index) = link.key_at(param, at) else {
+                return;
+            };
+            Command::SetEffectKey {
+                clip_id,
+                entry,
+                key: param.to_owned(),
+                at,
+                value: link.keys_on(param)[index].value,
+                ease,
+            }
+        };
+        self.apply_within("ease", command);
+    }
+
+    /// Moves the playhead to the nearest key behind (-1) or ahead (+1) on
+    /// any knob of the selected clip.
+    pub fn step_any_key(&mut self, delta: i32) {
+        let Some((clip, at)) = self.key_point() else {
+            return;
+        };
+        let mut candidates: Vec<f64> = model::KeyProperty::ALL
+            .iter()
+            .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
+            .collect();
+        if let Some(link) = clip
+            .video_effects
+            .iter()
+            .find(|entry| entry.id == ADJUST_ID)
+        {
+            candidates.extend(link.keys.values().flatten().map(|key| key.at));
+        }
+        let target = if delta < 0 {
+            candidates
+                .iter()
+                .copied()
+                .filter(|&key_at| key_at < at - model::KEY_EPSILON)
+                .reduce(f64::max)
+        } else {
+            candidates
+                .iter()
+                .copied()
+                .filter(|&key_at| key_at > at + model::KEY_EPSILON)
+                .reduce(f64::min)
+        };
+        let Some(target) = target else {
+            return;
+        };
+        let (start, duration) = (clip.start, clip.duration);
+        self.seek((start + target * duration) as f32);
+    }
+
+    /// Takes every key off the selected clip: its properties and its
+    /// Adjust knobs, as one undo step.
+    pub fn clear_all_keys(&mut self) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let mut commands: Vec<Command> = model::KeyProperty::ALL
+            .iter()
+            .filter(|&&property| clip.is_keyed(property))
+            .map(|&property| Command::ClearClipKeys {
+                clip_id: clip_id.clone(),
+                property,
+            })
+            .collect();
+        if let Some(entry) = clip
+            .video_effects
+            .iter()
+            .position(|entry| entry.id == ADJUST_ID)
+        {
+            for key in clip.video_effects[entry].keys.keys() {
+                commands.push(Command::ClearEffectKeys {
+                    clip_id: clip_id.clone(),
+                    entry,
+                    key: key.clone(),
+                });
+            }
+        }
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
     }
 
     /// Puts a key on the field at the playhead, or takes off the one there.

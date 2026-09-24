@@ -46,12 +46,15 @@ import {
 } from "timeline/model.slint";
 
 // Re-exported so main.rs can reach the globals and the struct.
+import { KeyEditor, KeyMarkData, KeyRowData } from "inspector/keyframes-panel.slint";
+
 export {
     Curves, Fmt, Focus, Payload, Theme, Bezier, Editor, I18n,
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData, ParamFormat,
     DockDivider, DockSide, PaneKind, SeatBox,
     EffectData, MediaFilter, MediaItemData, MediaKind, TextPresetData,
     ClipData, ClipField, ClipKeyData, ClipKind, ClipTextField, DropData, Keyframes,
+    KeyEditor, KeyMarkData, KeyRowData,
     SelectedClipData, StageGuideData, StageItemData, TextAlignment, TimelineTabData,
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,

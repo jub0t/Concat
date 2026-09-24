@@ -194,6 +194,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
         app.global::<Keyframes>()
             .set_rows(ModelRc::from(models.key_rows.clone()));
+        app.global::<KeyEditor>()
+            .set_rows(ModelRc::from(models.key_editor_rows.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
@@ -851,6 +853,36 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }));
         keys.on_clear_param(on_lanes!(|state, key: SharedString| {
             state.clear_adjust_keys(key.as_str());
+        }));
+    }
+    // The Keyframes panel's verbs; its rows go out with every publish.
+    {
+        let editor = app.global::<KeyEditor>();
+        editor.on_jump(on_lanes!(|state, at: f32| {
+            state.jump_to_key(at);
+        }));
+        editor.on_move_key(on_lanes!(|state,
+                                      field: ClipField,
+                                      param: SharedString,
+                                      from: f32,
+                                      to: f32| {
+            state.move_key(field, param.as_str(), from, to);
+        }));
+        editor.on_set_ease(on_lanes!(|state,
+                                      field: ClipField,
+                                      param: SharedString,
+                                      at: f32,
+                                      x1: f32,
+                                      y1: f32,
+                                      x2: f32,
+                                      y2: f32| {
+            state.set_key_ease(field, param.as_str(), at, [x1, y1, x2, y2]);
+        }));
+        editor.on_step_all(on_lanes!(|state, delta: i32| {
+            state.step_any_key(delta);
+        }));
+        editor.on_clear_all(on_lanes!(|state| {
+            state.clear_all_keys();
         }));
     }
 
