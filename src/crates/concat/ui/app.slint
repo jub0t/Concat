@@ -285,8 +285,11 @@ export component App inherits Window {
 
     /// Takes focus back from whatever field holds it. The keyboard scope is
     /// where focus rests when nothing is being typed into, so giving it the
-    /// focus is what "click beside the field" means; Rust calls this for
-    /// every press a pane reports through Editor.blur.
+    /// focus is what "click beside the field" means. Rust calls this for
+    /// every press a pane reports through Editor.blur, and - from the raw
+    /// window events, before Slint routes the press (platform.rs) - for
+    /// every press that is not on the text input holding the focus, so a
+    /// click on a clip, a knob or the monitor ends the editing too.
     public function blur() {
         keys.focus();
     }

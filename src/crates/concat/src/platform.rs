@@ -24,7 +24,7 @@ use slint::PlatformError;
 // The winit backend, and so these, exist everywhere but Android, which
 // draws through Slint's android-activity backend and has no winit at all.
 #[cfg(not(target_os = "android"))]
-use slint::winit_030::winit::event::WindowEvent;
+use slint::winit_030::winit::event::{ElementState, WindowEvent};
 #[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event_loop::ActiveEventLoop;
 #[cfg(not(target_os = "android"))]
@@ -33,26 +33,70 @@ use slint::winit_030::winit::window::{Window as WinitWindow, WindowId};
 use slint::winit_030::{CustomApplicationHandler, EventResult};
 
 use crate::gpu::Gpu;
-
-/// Collects the paths of a single OS drag as `DroppedFile` events deliver
-/// them one at a time, then hands the whole batch to `on_dropped` once
-/// winit says this pass over the event queue is done - the same shape a
-/// picked-files dialog hands the caller, so the caller need not know drag
-/// and drop split it up.
+/// The window's raw events, seen before Slint routes them. Two jobs:
+///
+/// Dropped files. winit reports one path per event, in a burst, and the
+/// burst is over when the loop is about to wait, so the paths are held
+/// and handed over together: one probe, one notice, however many files.
+///
+/// A press away from the field being typed into. Slint keeps the focus
+/// where it is until something else takes it, so a number field stayed in
+/// its editing state - ring and all - through a click on a clip, a knob or
+/// the monitor. Every press now passes through here first: if a text input
+/// has the focus and the press is not on it, the window is asked to take
+/// the focus back (App.blur) before Slint routes the press, and whatever
+/// was pressed then takes the focus itself if it wants it - another input
+/// does, so a click from one field into the next still lands a caret.
 #[cfg(not(target_os = "android"))]
 struct DropHandler {
     pending: Vec<PathBuf>,
     on_dropped: Box<dyn Fn(Vec<PathBuf>)>,
+    /// Where the pointer last was, in logical pixels of the window: winit
+    /// says where it moved, and a press says only that it happened.
+    cursor: Option<(f32, f32)>,
+    on_pressed_away: Box<dyn Fn()>,
 }
 
 #[cfg(not(target_os = "android"))]
 impl DropHandler {
-    fn new(on_dropped: impl Fn(Vec<PathBuf>) + 'static) -> Self {
+    fn new(
+        on_dropped: impl Fn(Vec<PathBuf>) + 'static,
+        on_pressed_away: impl Fn() + 'static,
+    ) -> Self {
         Self {
             pending: Vec::new(),
             on_dropped: Box::new(on_dropped),
+            cursor: None,
+            on_pressed_away: Box::new(on_pressed_away),
         }
     }
+}
+
+/// Whether a press at (`x`, `y`), in logical pixels of `window`, lands
+/// away from the text input that has the focus. False when nothing has
+/// it, when what has it is not a text input - a button keeps its focus
+/// for the keyboard's sake - and when the press is on the input itself,
+/// give or take a few pixels of its padding, which is where a caret is
+/// placed rather than where a field is left.
+#[cfg(not(target_os = "android"))]
+fn press_misses_focused_input(window: &slint::Window, x: f32, y: f32) -> bool {
+    use slint::private_unstable_api::re_exports::{LogicalPoint, TextInput, WindowInner};
+
+    let focused = WindowInner::from_pub(window).focus_item.borrow().upgrade();
+    let Some(item) = focused else {
+        return false;
+    };
+    if item.downcast::<TextInput>().is_none() {
+        return false;
+    }
+    const SLACK: f32 = 8.0;
+    let origin = item.map_to_window(LogicalPoint::default());
+    let size = item.geometry().size;
+    let inside = x >= origin.x - SLACK
+        && x <= origin.x + size.width + SLACK
+        && y >= origin.y - SLACK
+        && y <= origin.y + size.height + SLACK;
+    !inside
 }
 
 #[cfg(not(target_os = "android"))]
@@ -61,12 +105,30 @@ impl CustomApplicationHandler for DropHandler {
         &mut self,
         _event_loop: &ActiveEventLoop,
         _window_id: WindowId,
-        _winit_window: Option<&WinitWindow>,
-        _slint_window: Option<&slint::Window>,
+        winit_window: Option<&WinitWindow>,
+        slint_window: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
-        if let WindowEvent::DroppedFile(path) = event {
-            self.pending.push(path.clone());
+        match event {
+            WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = slint_window
+                    .map(|window| f64::from(window.scale_factor()))
+                    .or_else(|| winit_window.map(|window| window.scale_factor()))
+                    .unwrap_or(1.0);
+                self.cursor = Some(((position.x / scale) as f32, (position.y / scale) as f32));
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            } => {
+                if let (Some(window), Some((x, y))) = (slint_window, self.cursor)
+                    && press_misses_focused_input(window, x, y)
+                {
+                    (self.on_pressed_away)();
+                }
+            }
+            _ => {}
         }
         EventResult::Propagate
     }
@@ -94,6 +156,7 @@ pub const MACOS: bool = cfg!(target_os = "macos");
 #[cfg(not(target_os = "android"))]
 pub fn select_backend(
     on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
+    on_pressed_away: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     // The device the renderer and the monitor share. Taken first, because
     // the backend is selected with it.
@@ -121,7 +184,7 @@ pub fn select_backend(
 
     let mut selector = slint::BackendSelector::new()
         .backend_name("winit".into())
-        .with_winit_custom_application_handler(DropHandler::new(on_files_dropped));
+        .with_winit_custom_application_handler(DropHandler::new(on_files_dropped, on_pressed_away));
     selector = match &gpu {
         Some(gpu) => selector.require_wgpu_29(gpu.configuration()),
         None => {
@@ -260,6 +323,9 @@ pub fn is_maximized(window: &slint::Window) -> bool {
 #[cfg(target_os = "android")]
 pub fn select_backend(
     on_files_dropped: impl Fn(Vec<PathBuf>) + 'static,
+    // Android has no pointer to press away with; the screen's own keyboard
+    // dismisses, and the field goes with it.
+    _on_pressed_away: impl Fn() + 'static,
 ) -> Result<Option<Gpu>, PlatformError> {
     let _ = on_files_dropped;
     Ok(None)

@@ -106,16 +106,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // goes through the same `Studio::import` the Import menu uses, so a
     // dropped file gets the same probe, the same failure notice, and the
     // same "no project open yet" no-op that a picked one does.
-    let gpu = platform::select_backend(|paths| {
-        Shell::with(|shell, app| {
-            {
-                let mut studio = shell.studio.borrow_mut();
-                studio.handle(Msg::Media(MediaMsg::Import(paths)));
-            }
-            shell.studio.borrow_mut().refresh_art();
-            shell.studio.borrow().publish(&app, &shell.models);
-        });
-    })?;
+    let gpu = platform::select_backend(
+        |paths| {
+            Shell::with(|shell, app| {
+                {
+                    let mut studio = shell.studio.borrow_mut();
+                    studio.handle(Msg::Media(MediaMsg::Import(paths)));
+                }
+                shell.studio.borrow_mut().refresh_art();
+                shell.studio.borrow().publish(&app, &shell.models);
+            });
+        },
+        // A press anywhere but the field being typed into takes the focus
+        // back, the way a browser does; the field commits on the way out.
+        // See the handler in platform.rs for why this is a raw event and
+        // not a TouchArea.
+        || Shell::with(|_, app| app.invoke_blur()),
+    )?;
 
     let host = match Host::start(gpu) {
         Ok(host) => host,
