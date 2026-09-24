@@ -257,6 +257,29 @@ mod tests {
     }
 
     #[test]
+    fn both_chinese_standards_ship_under_their_own_names() {
+        let names: HashMap<&str, String> = BUILT_IN
+            .iter()
+            .map(|(code, text)| (*code, parse(text).expect("parses").0))
+            .collect();
+        assert_eq!(names["zh-Hans"], "简体中文");
+        assert_eq!(names["zh-TW"], "繁體中文");
+        // The two files are different translations, not one in two scripts
+        // with a handful of lines swapped: the Taiwan file speaks of
+        // 檔案 and 影片, the mainland file of 文件 and 视频.
+        let hans = parse(BUILT_IN.iter().find(|(c, _)| *c == "zh-Hans").unwrap().1)
+            .unwrap()
+            .1;
+        let tw = parse(BUILT_IN.iter().find(|(c, _)| *c == "zh-TW").unwrap().1)
+            .unwrap()
+            .1;
+        assert_eq!(hans["Export"], "导出");
+        assert_eq!(tw["Export"], "匯出");
+        assert_eq!(hans["Settings"], "设置");
+        assert_eq!(tw["Settings"], "設定");
+    }
+
+    #[test]
     fn placeholders_fill_in_order() {
         assert_eq!(fill("{1} of {0}", &[&3, &"a"]), "a of 3");
         assert_eq!(fill("plain", &[&1]), "plain");
