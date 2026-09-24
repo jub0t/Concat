@@ -20,7 +20,7 @@ import { Select } from "../primitives/select.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { InspectorFmt, Param, ParamFormat } from "../inspector/controls.slint";
 import { ClipField, ClipKeyData, Keyframes, SelectedClipData } from "../timeline/model.slint";
-import { Pane } from "pane.slint";
+import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 
 /// One key on a row: where in the clip, its value as a fraction of the
@@ -291,28 +291,54 @@ export component KeyframesPane inherits Pane {
 
     VerticalLayout {
         // ── header ──────────────────────────────────────────────────────
+        //
+        // The same bar as the other panes, and only what they carry in it:
+        // the name, and the switcher at the end. Everything that works the
+        // keys used to sit here too, and a row of seven things had a minimum
+        // width most seats fall under - the pane clips, and the first thing
+        // to go off the end was the switcher.
+        PaneHeader {
+            title: I18n.t("Keyframes");
+
+            VerticalLayout {
+                alignment: center;
+                PaneSwitcher {
+                    kind: PaneKind.keyframes;
+                    seat: root.pane-seat;
+                    removable: root.pane-removable;
+                    picked(kind) => { root.pane-picked(kind); }
+                    removed => { root.pane-removed(); }
+                }
+            }
+        }
+
+        // ── the tools ───────────────────────────────────────────────────
+        //
+        // A strip of its own at the top of the body, the same 40px as the
+        // timeline's tray, which is the strip it most resembles: which view,
+        // the walk from key to key with the toggle between, the ease into
+        // the key in hand, and at the far end the one action that undoes
+        // the lot. The views are marks rather than words - the two are
+        // told apart at a glance, and the words stay as their names.
         Rectangle {
             height: 40px;
-            background: Theme.panel;
             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
 
             HorizontalLayout {
-                padding-left: 12px;
+                padding-left: 8px;
                 padding-right: 8px;
                 spacing: 8px;
-                alignment: stretch;
 
-                Text {
-                    text: I18n.t("Keyframes");
-                    color: Theme.fg;
-                    font-size: Theme.fs;
-                    font-weight: 600;
-                    vertical-alignment: center;
-                }
                 VerticalLayout {
                     alignment: center;
                     SegmentedControl {
+                        // Two marks want no more room than two chips; a set
+                        // width is fixed, so the control's own minimum,
+                        // sized for words, does not apply.
+                        width: 72px;
+                        horizontal-stretch: 0;
                         options: [I18n.t("Dopesheet"), I18n.t("Curves")];
+                        icons: [Glyph.dopesheet, Glyph.curves];
                         current: root.view;
                         changed(index) => { root.view = index; }
                     }
@@ -364,16 +390,6 @@ export component KeyframesPane inherits Pane {
                         ghost: true;
                         enabled: root.any;
                         clicked => { KeyEditor.clear-all(); }
-                    }
-                }
-                VerticalLayout {
-                    alignment: center;
-                    PaneSwitcher {
-                        kind: PaneKind.keyframes;
-                        seat: root.pane-seat;
-                        removable: root.pane-removable;
-                        picked(kind) => { root.pane-picked(kind); }
-                        removed => { root.pane-removed(); }
                     }
                 }
             }

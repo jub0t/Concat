@@ -56,6 +56,10 @@ export enum Glyph {
     flip-h,
     flip-v,
     keyframe,
+    /// the Keyframes pane's two views: bars stepping down a sheet, and an
+    /// arc between two nodes
+    dopesheet,
+    curves,
     reset,
     hand,
     /// the title strip's maximise: one square; restore is `copy`, two
@@ -430,6 +434,23 @@ export component Icon inherits Rectangle {
         commands: "M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41"
             + " 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41"
             + " 0Z";
+    }
+
+    // Three bars stepping down the frame, each starting where the last
+    // left off: a dopesheet's lanes, before any key is on them.
+    // lucide/chart-no-axes-gantt
+    if root.glyph == Glyph.dopesheet: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M6 5h12 M4 12h10 M12 19h8";
+    }
+
+    // A quarter arc between two nodes: one segment of a curve, with the key
+    // at either end of it. Lucide's circles are two half-arcs each.
+    // lucide/spline
+    if root.glyph == Glyph.curves: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M17 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M3 19a2 2 0 1 0 4 0a2 2 0 1 0"
+            + " -4 0 M5 17A12 12 0 0 1 17 5";
     }
 
     // Row height: a frame divided into rows. What the button changes is how
