@@ -5468,8 +5468,24 @@ impl Studio {
     /// failed. With `announce`, a clean reload is reported too, with the
     /// folder, which is how a newcomer learns where packages go.
     pub fn reload_packages(&mut self, announce: bool) -> usize {
+        /// A custom package's shader runs once over a picture this many
+        /// pixels a side before the package is offered: enough that a loop
+        /// bounded in the thousands per pixel shows, and a real frame's
+        /// worth of work does not.
+        const TRIAL_SIDE: u32 = 512;
+        /// How long that trial may take before the package is refused.
+        const TRIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
         let dir = Self::looks_dir(&self.host.dirs);
-        let errors = Catalogue::install(&dir);
+        let monitor = &self.host.monitor;
+        let errors = Catalogue::install_with(&dir, &mut |package| {
+            let Some(pass) = package.trial_pass() else {
+                return Ok(());
+            };
+            match monitor.trial(&pass, TRIAL_SIDE, TRIAL_TIMEOUT) {
+                Some(Err(why)) => Err(format!("its shader failed its trial: {why}")),
+                _ => Ok(()),
+            }
+        });
         for error in &errors {
             log::warn!("package: {error}");
         }

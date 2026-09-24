@@ -414,7 +414,7 @@ impl Shader {
         let (source, slots, span) = stitch(manifest, body, Entry::Effect, PRELUDE, POSTLUDE)?;
         Ok(Shader {
             package: manifest.effect.id.clone(),
-            key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
+            key: pipeline_key(&manifest.effect.id, manifest.effect.version, &source),
             source,
             slots,
             span,
@@ -457,39 +457,97 @@ impl Shader {
     }
 }
 
-/// The bindings a prelude declares, and the only ones a package may use.
-/// The union of both contracts: an effect's layer at group 0 (0,0)-(0,1)
-/// and a transition's two pictures at group 0 (0,0)-(0,3); the frame block
-/// and parameters at group 1; the look-up table at group 2; an effect's
-/// reveal map at group 3 - a transition has no group 3, so nothing there
-/// ever validates against a transition's module.
-const BINDINGS: [(u32, u32); 10] = [
-    (0, 0),
-    (0, 1),
-    (0, 2),
-    (0, 3),
-    (1, 0),
-    (1, 1),
-    (2, 0),
-    (2, 1),
-    (3, 0),
-    (3, 1),
-];
+/// What the host binds at one slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bound {
+    /// A 2D float texture: a layer, a transition's picture, a reveal map.
+    Picture,
+    /// The 3D float texture of a look-up table.
+    Table,
+    /// A plain (non-comparison) sampler.
+    Sampler,
+    /// A uniform block: the frame, the parameters.
+    Uniform,
+}
+
+impl Bound {
+    fn name(self) -> &'static str {
+        match self {
+            Bound::Picture => "a 2D texture",
+            Bound::Table => "a 3D texture",
+            Bound::Sampler => "a sampler",
+            Bound::Uniform => "a uniform block",
+        }
+    }
+}
+
+/// What the host provides at `(group, binding)` for `entry`, and so the
+/// only thing a package may declare there: an effect's layer at (0,0)-(0,1)
+/// and its reveal map at group 3; a transition's two pictures at (0,0)-(0,3)
+/// and nothing at group 3; the frame block and parameters at group 1 and
+/// the look-up table at group 2 for both. A slot outside this, or one
+/// declared as something else, is a pipeline the device cannot build.
+fn provided(entry: Entry, group: u32, binding: u32) -> Option<Bound> {
+    match (entry, group, binding) {
+        (_, 0, 0) => Some(Bound::Picture),
+        (_, 0, 1) => Some(Bound::Sampler),
+        (Entry::Transition, 0, 2) => Some(Bound::Picture),
+        (Entry::Transition, 0, 3) => Some(Bound::Sampler),
+        (_, 1, 0) | (_, 1, 1) => Some(Bound::Uniform),
+        (_, 2, 0) => Some(Bound::Table),
+        (_, 2, 1) => Some(Bound::Sampler),
+        (Entry::Effect, 3, 0) => Some(Bound::Picture),
+        (Entry::Effect, 3, 1) => Some(Bound::Sampler),
+        _ => None,
+    }
+}
+
+/// What a global variable is declared as, in the host's terms.
+fn declared(module: &naga::Module, global: &naga::GlobalVariable) -> Option<Bound> {
+    match &module.types[global.ty].inner {
+        naga::TypeInner::Image {
+            dim,
+            arrayed: false,
+            class:
+                naga::ImageClass::Sampled {
+                    kind: naga::ScalarKind::Float,
+                    multi: false,
+                },
+        } => match dim {
+            naga::ImageDimension::D2 => Some(Bound::Picture),
+            naga::ImageDimension::D3 => Some(Bound::Table),
+            _ => None,
+        },
+        naga::TypeInner::Sampler { comparison: false } => Some(Bound::Sampler),
+        _ if global.space == naga::AddressSpace::Uniform => Some(Bound::Uniform),
+        _ => None,
+    }
+}
 
 /// What a package may not do, however well it parses: bind anything the
-/// host did not declare, or loop without an end. A community shader runs
-/// on the person's GPU with the host's rights, and a loop with no bound
+/// host did not declare, bind a slot as something other than what the
+/// host puts there, or loop without an end. A community shader runs on
+/// the person's GPU with the host's rights, and a loop with no bound
 /// hangs the device for every process on the machine; a binding the host
 /// does not know is one it cannot serve. Caught at load, where a broken
 /// package is a load error and not a black frame.
-fn budget(module: &naga::Module) -> Result<(), String> {
+fn budget(module: &naga::Module, entry: Entry) -> Result<(), String> {
     for (_, global) in module.global_variables.iter() {
-        if let Some(binding) = &global.binding
-            && !BINDINGS.contains(&(binding.group, binding.binding))
-        {
+        let Some(binding) = &global.binding else {
+            continue;
+        };
+        let Some(wanted) = provided(entry, binding.group, binding.binding) else {
             return Err(format!(
                 "the shader binds @group({}) @binding({}), which the host does not provide",
                 binding.group, binding.binding
+            ));
+        };
+        if declared(module, global) != Some(wanted) {
+            return Err(format!(
+                "the shader binds @group({}) @binding({}) as something other than {}, which is what the host provides there",
+                binding.group,
+                binding.binding,
+                wanted.name()
             ));
         }
     }
@@ -546,6 +604,17 @@ fn breaks(block: &naga::Block) -> bool {
         naga::Statement::Switch { cases, .. } => cases.iter().any(|case| breaks(&case.body)),
         _ => false,
     })
+}
+
+/// What a compiled pipeline is cached under: the package's id and version,
+/// and a fingerprint of the stitched source, so a shader edited in place
+/// without a version bump still gets a pipeline of its own rather than
+/// the stale one a running compositor holds.
+fn pipeline_key(id: &str, version: u32, source: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    format!("{id}@{version}#{:016x}", hasher.finish())
 }
 
 fn is_f32(scalar: &naga::Scalar) -> bool {
@@ -610,9 +679,12 @@ fn stitch(
 
     let module =
         naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;
+    // The baseline capabilities and nothing more: a shader that needs an
+    // extension is refused here, by name, rather than by whichever device
+    // it first meets.
     let mut validator = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
+        naga::valid::Capabilities::empty(),
     );
     validator
         .validate(&module)
@@ -624,7 +696,7 @@ fn stitch(
     {
         return Err(format!("the shader declares no `{}`", entry.signature()));
     }
-    budget(&module)?;
+    budget(&module, entry)?;
 
     let (members, span) = module
         .types
@@ -865,7 +937,7 @@ impl TransitionShader {
             TRANSITION_POSTLUDE,
         )?;
         Ok(TransitionShader {
-            key: format!("{}@{}", manifest.effect.id, manifest.effect.version),
+            key: pipeline_key(&manifest.effect.id, manifest.effect.version, &source),
             source,
             slots,
             span,
@@ -950,7 +1022,7 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
 "#,
         )
         .expect("compiles");
-        assert_eq!(shader.key, "test.thing@1");
+        assert!(shader.key.starts_with("test.thing@1#"), "{}", shader.key);
         assert!(shader.source().contains("fn fs_main"));
         // radius first at 0, amount at 4; the buffer padded to sixteen.
         let mut values = BTreeMap::new();
@@ -1071,7 +1143,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
 "#,
         )
         .expect("compiles");
-        assert_eq!(shader.key, "test.wipe@1");
+        assert!(shader.key.starts_with("test.wipe@1#"), "{}", shader.key);
         assert!(shader.source().contains("fn fs_main"));
         assert!(shader.source().contains("frame.progress"));
         assert!(shader.source().contains("to_texture"));
@@ -1093,5 +1165,51 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
             "fn effect(uv: vec2<f32>) -> vec4<f32> { return from_at(uv); }",
         );
         assert!(no_entry.unwrap_err().contains("fn transition"));
+    }
+
+    /// A shader may only declare the slots the host fills, as what the
+    /// host puts there: an effect has no group 0 binding 2, and a sampler
+    /// at group 3 binding 0 is not the reveal map that lives there.
+    #[test]
+    fn a_binding_of_the_wrong_kind_or_the_wrong_entry_is_refused() {
+        let manifest = Manifest::parse(
+            "[effect]\nid = \"test.bind\"\nname = \"Bind\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("a manifest");
+        let wrong_kind = Shader::compile(
+            &manifest,
+            "@group(3) @binding(0) var extra: sampler;\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
+        );
+        let message = wrong_kind.expect_err("a sampler where a picture goes");
+        assert!(message.contains("@group(3) @binding(0)"), "{message}");
+        assert!(message.contains("2D texture"), "{message}");
+        let wrong_entry = Shader::compile(
+            &manifest,
+            "@group(0) @binding(2) var other: texture_2d<f32>;\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
+        );
+        let message = wrong_entry.expect_err("a transition's slot in an effect");
+        assert!(message.contains("does not provide"), "{message}");
+    }
+
+    /// The pipeline key follows the source, so a shader edited without a
+    /// version bump does not keep a stale pipeline.
+    #[test]
+    fn the_key_changes_with_the_source() {
+        let manifest = Manifest::parse(
+            "[effect]\nid = \"test.key\"\nname = \"Key\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("a manifest");
+        let one = Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
+        )
+        .expect("compiles");
+        let two = Shader::compile(
+            &manifest,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv) * 0.5; }",
+        )
+        .expect("compiles");
+        assert_ne!(one.key, two.key);
+        assert!(one.key.starts_with("test.key@1#"));
     }
 }

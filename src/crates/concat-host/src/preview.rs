@@ -95,6 +95,22 @@ impl Monitor {
         }
     }
 
+    /// Runs `pass` once on the window's device over a picture `side`
+    /// pixels square, against `timeout`: what a custom package's shader
+    /// survives before the package is offered. None without a GPU, where
+    /// there is nothing to run it on.
+    #[cfg(feature = "gpu")]
+    pub fn trial(
+        &self,
+        pass: &concat_core::shader::ShaderPass,
+        side: u32,
+        timeout: std::time::Duration,
+    ) -> Option<Result<(), String>> {
+        let gpu = self.gpu.as_ref()?;
+        let mut gpu = gpu.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        Some(gpu.trial_at(pass, side, timeout))
+    }
+
     /// Whether frames can be composited on the GPU.
     pub fn has_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]

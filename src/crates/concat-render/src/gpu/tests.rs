@@ -382,6 +382,32 @@ fn a_benign_package_survives_its_trial() {
     assert_eq!(&frame.pixels()[..3], &[0, 0, 255]);
 }
 
+/// A module the driver refuses - here, one that is not WGSL at all, which
+/// only reaches the device because the pass was built by hand rather than
+/// by the catalogue - is caught in its error scope: the layer draws
+/// untreated, the device is not dead, and the trial says no.
+#[test]
+fn a_pass_the_driver_refuses_is_skipped_and_fails_its_trial() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut broken = package("test.broken", INVERT, "", &[], 1.0);
+    broken.key = "test.broken@1#garbage".to_owned();
+    broken.source = Arc::from("this is not a shader");
+    let mut over = layer(solid(4, 4, [0, 200, 0, 255]));
+    over.effects = vec![broken.clone()];
+    let frame = gpu.render(&plan(4, 4, vec![over]));
+    assert_eq!(frame.pixel(1, 1), Some([0, 200, 0, 255]), "drawn untreated");
+    assert!(!gpu.is_dead());
+    assert!(
+        gpu.trial_at(&broken, 64, std::time::Duration::from_secs(5))
+            .is_err()
+    );
+    // And a good pass still runs on the same compositor.
+    let mut over = layer(solid(4, 4, [0, 200, 0, 255]));
+    over.effects = vec![package("test.trial", INVERT, "", &[], 1.0)];
+    let frame = gpu.render(&plan(4, 4, vec![over]));
+    assert_eq!(frame.pixel(1, 1), Some([255, 55, 255, 255]));
+}
+
 #[test]
 fn output_size_changes_are_handled() {
     let Some(mut gpu) = gpu() else { return };

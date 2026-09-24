@@ -230,6 +230,15 @@ impl Package {
                     known.push(name.to_owned());
                     lets.push((name.to_owned(), expr));
                 }
+                // A filter that reads a file reads it with the host's
+                // rights: the only file a chain may name is the package's
+                // own look-up table, and only through `{lut}`.
+                if let Some(option) = names_a_file(&ffmpeg.chain) {
+                    return Err(invalid(format!(
+                        "chain names a file through `{option}`: a package's chain may read \
+                         its own look-up table as `{{lut}}` and no other file"
+                    )));
+                }
                 let template = Template::parse(&ffmpeg.chain)
                     .map_err(|error| invalid(format!("chain: {error}")))?;
                 let mut names = Vec::new();
@@ -430,6 +439,15 @@ impl Package {
     /// Which catalogue the package belongs to.
     pub fn kind(&self) -> Kind {
         self.manifest.effect.kind
+    }
+
+    /// The pass this package's shader makes at its defaults: what a vet
+    /// runs once before the package is offered. None for a package with
+    /// no shader.
+    pub fn trial_pass(&self) -> Option<ShaderPass> {
+        let shader = self.shader.as_ref()?;
+        let values = self.resolve(&BTreeMap::new());
+        Some(shader.pass(&values, &self.manifest.params, 1.0, self.lut.clone(), None))
     }
 
     /// The shader, when the package renders on the GPU.
@@ -655,6 +673,26 @@ impl Package {
     }
 }
 
+/// The option a chain names a file through, if it does: `file=`,
+/// `psfile=` and `filename=` are how FFmpeg's filters take one, and the
+/// only value a package may give is its own table, `{lut}`.
+fn names_a_file(chain: &str) -> Option<&'static str> {
+    const OPTIONS: [&str; 3] = ["file=", "psfile=", "filename="];
+    for option in OPTIONS {
+        let mut rest = chain;
+        while let Some(at) = rest.find(option) {
+            let before = rest[..at].chars().next_back();
+            let value = &rest[at + option.len()..];
+            let named = before.is_none_or(|c| !c.is_alphanumeric() && c != '_');
+            if named && !value.starts_with("{lut}") {
+                return Some(option);
+            }
+            rest = &rest[at + option.len()..];
+        }
+    }
+    None
+}
+
 /// A number that changes when anything in the package folders under `dir`
 /// does: a folder added or taken away, a file in one written, added or
 /// removed. What a watcher polls, cheaply - a stat per file, no reading -
@@ -762,15 +800,50 @@ impl Catalogue {
     /// afresh and leaks the last one, which is a few kilobytes a time and
     /// what keeps every caller's `&'static` honest.
     pub fn install(dir: &Path) -> Vec<Error> {
+        Self::install_with(dir, &mut |_| Ok(()))
+    }
+
+    /// [`Catalogue::install`], with every package the folder holds put to
+    /// `vet` before it is offered: one the vet refuses is left out and
+    /// reported the way one that failed to parse is. The window's vet runs
+    /// a package's shader once on the GPU against a timeout, so a shader
+    /// that hangs the device is found at install, not on the first frame
+    /// that asks for it (audit 2026-09-23, #7).
+    pub fn install_with(
+        dir: &Path,
+        vet: &mut dyn FnMut(&Package) -> Result<(), String>,
+    ) -> Vec<Error> {
         let mut catalogue = Catalogue::compiled_in();
-        let errors = if dir.is_dir() {
+        let mut errors = if dir.is_dir() {
             catalogue.load_dir(dir)
         } else {
             Vec::new()
         };
+        let refused: Vec<(String, String)> = catalogue
+            .packages
+            .iter()
+            .filter(|package| package.folder.is_some())
+            .filter_map(|package| vet(package).err().map(|why| (package.id().to_owned(), why)))
+            .collect();
+        for (id, message) in refused {
+            catalogue.remove(&id);
+            errors.push(Error::Invalid { id, message });
+        }
         let built: &'static Catalogue = Box::leak(Box::new(catalogue));
         *CURRENT.write().expect("catalogue lock") = Some(built);
         errors
+    }
+
+    /// Takes a package out, by id, and reindexes what is left.
+    fn remove(&mut self, id: &str) {
+        self.packages.retain(|package| package.id() != id);
+        self.by_id.clear();
+        for (index, package) in self.packages.iter().enumerate() {
+            self.by_id.insert(package.id().to_owned(), index);
+            for alias in &package.manifest.effect.aliases {
+                self.by_id.insert(alias.clone(), index);
+            }
+        }
     }
 
     /// The packages compiled into the binary, and nothing else.
@@ -1004,5 +1077,25 @@ impl Catalogue {
             }
         }
         fragments.join(",")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A chain reads the frame and its own table and no other file.
+    #[test]
+    fn a_chain_that_names_a_file_is_refused() {
+        assert_eq!(names_a_file("lut3d=file={lut}:interp=tetrahedral"), None);
+        assert_eq!(names_a_file("hue=h=10,eq=brightness=0.1"), None);
+        assert_eq!(names_a_file("lut3d=file=/etc/passwd"), Some("file="));
+        assert_eq!(names_a_file("curves=psfile=/tmp/x.acv"), Some("psfile="));
+        assert_eq!(names_a_file("lut1d=filename=x.cube"), Some("filename="));
+        assert_eq!(
+            names_a_file("scale=profile=1"),
+            None,
+            "an option that merely ends in the word"
+        );
     }
 }

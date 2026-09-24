@@ -140,8 +140,13 @@ At load, `concat-effects/src/shader.rs` stitches the host's prelude round the
 package body, parses and validates it with naga, reads the `Params` layout for
 the uniform buffer, and refuses a shader that binds anything the host did not
 declare or loops without a break. A look-up table larger than 65 a side is
-refused too. The GPU compositor can run a package once on a sixteen-pixel
-picture against a timeout (`WgpuCompositor::trial`) before it is enabled.
+refused too, and a binding declared as anything other than what the host
+puts there, and a chain that names a file other than its own `{lut}`. When
+the window loads the user's packages it runs each one's shader once on the
+GPU over a 512-pixel picture against a three-second timeout
+(`Catalogue::install_with`, `WgpuCompositor::trial_at`) and leaves out one
+that fails; a pipeline the driver refuses at draw time is caught in an
+error scope and the pass skipped, never an uncaptured error.
 
 ## 4. Decoding, caching and scheduling
 

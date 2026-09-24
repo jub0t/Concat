@@ -32,8 +32,9 @@ pub struct ShaderPass {
     /// stage keys its own kernel for the package by.
     pub package: String,
     /// What to cache the compiled pipeline under: the package's id and
-    /// version, so a package that changes its shader gets a new pipeline
-    /// and one that only changes its knobs keeps the old.
+    /// version and a fingerprint of its source, so a package that changes
+    /// its shader gets a new pipeline - version bump or not - and one that
+    /// only changes its knobs keeps the old.
     pub key: String,
     /// The complete WGSL module: the host's prelude with the package's body,
     /// declaring `fn effect(uv: vec2<f32>) -> vec4<f32>`.

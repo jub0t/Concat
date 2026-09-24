@@ -203,6 +203,9 @@ pub struct WgpuCompositor {
     shaders: HashMap<String, CompiledShader>,
     /// Compiled transitions by their key; see `TransitionPass::key`.
     transitions: HashMap<String, CompiledShader>,
+    /// Passes and transitions the driver refused a pipeline for, by key:
+    /// tried once, skipped from then on, never asked for again.
+    refused: std::collections::HashSet<String>,
     sampler: wgpu::Sampler,
     vertices: wgpu::Buffer,
     vertex_capacity: usize,
@@ -486,6 +489,7 @@ impl WgpuCompositor {
             reveals: HashMap::new(),
             shaders: HashMap::new(),
             transitions: HashMap::new(),
+            refused: std::collections::HashSet::new(),
             sampler,
             vertices,
             vertex_capacity: 6 * 8,
@@ -848,22 +852,40 @@ impl WgpuCompositor {
     /// this compositor is dead from then on, since a device mid-hang
     /// cannot be trusted with the next frame.
     pub fn trial(&mut self, pass: &ShaderPass, timeout: std::time::Duration) -> Result<(), String> {
+        self.trial_at(pass, 16, timeout)
+    }
+
+    /// [`WgpuCompositor::trial`] over a picture `side` pixels square. A
+    /// loop that is bounded but enormous costs a sixteen-pixel trial
+    /// nothing and a real frame minutes; a trial at a few hundred pixels
+    /// a side is what tells the two apart (audit 2026-09-23, #7).
+    pub fn trial_at(
+        &mut self,
+        pass: &ShaderPass,
+        side: u32,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
         if self.dead {
             return Err("the GPU device is dead".to_owned());
         }
-        let mut picture = Frame::transparent(16, 16);
+        let side = side.max(1);
+        let mut picture = Frame::transparent(side, side);
         picture.fill([128, 96, 64, 255]);
         let mut layer =
             PlannedLayer::picture(crate::plan::detached_clip(), std::sync::Arc::new(picture));
         layer.effects = vec![pass.clone()];
         let plan = FramePlan {
             layers: vec![layer],
-            ..FramePlan::empty(16, 16)
+            ..FramePlan::empty(side, side)
         };
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let (draws, vertices) = self.prepare(&plan);
+        if self.refused.contains(&pass.key) {
+            let _ = pollster::block_on(scope.pop());
+            return Err("the driver refused the pass's pipeline".to_owned());
+        }
         self.write_vertices(&vertices);
-        let texture = self.presentable(16, 16);
+        let texture = self.presentable(side, side);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let encoder = self.encode(&view, &draws, wgpu::Color::BLACK);
         self.queue.submit([encoder.finish()]);
@@ -1090,12 +1112,15 @@ impl WgpuCompositor {
 
     /// The compiled pipeline for a pass, built the first time its key is
     /// seen. The catalogue validated the module at load, so a failure here
-    /// is a driver disagreement; wgpu reports it through its error scope and
-    /// the pass draws nothing rather than the frame being lost.
+    /// is a driver disagreement: it is caught in an error scope, logged,
+    /// and the pass is skipped from then on - the layer draws untreated -
+    /// rather than reaching wgpu's uncaptured-error handler, which ends
+    /// the process (audit 2026-09-23, #7).
     fn shader(&mut self, pass: &ShaderPass) {
-        if self.shaders.contains_key(&pass.key) {
+        if self.shaders.contains_key(&pass.key) || self.refused.contains(&pass.key) {
             return;
         }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1143,6 +1168,14 @@ impl WgpuCompositor {
                 multiview_mask: None,
                 cache: None,
             });
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            log::error!(
+                "pass {}: the driver refused its pipeline: {error}",
+                pass.key
+            );
+            self.refused.insert(pass.key.clone());
+            return;
+        }
         let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("concat pass frame"),
             // size(vec2), time, intensity, clip_time, padded to Frame's own
@@ -1186,9 +1219,10 @@ impl WgpuCompositor {
     /// seen. Mirrors [`WgpuCompositor::shader`] but binds two input pictures at
     /// group 0 and lets the shader own the blend.
     fn transition_shader(&mut self, pass: &TransitionPass) {
-        if self.transitions.contains_key(&pass.key) {
+        if self.transitions.contains_key(&pass.key) || self.refused.contains(&pass.key) {
             return;
         }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1234,6 +1268,14 @@ impl WgpuCompositor {
                 multiview_mask: None,
                 cache: None,
             });
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            log::error!(
+                "transition {}: the driver refused its pipeline: {error}",
+                pass.key
+            );
+            self.refused.insert(pass.key.clone());
+            return;
+        }
         let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("concat transition frame"),
             size: 16,
@@ -1454,7 +1496,10 @@ impl WgpuCompositor {
             self.shader(pass);
             let lut_id = self.lut_group(pass.lut.as_deref());
             let reveal_id = self.reveal_group(pass.reveal_map.as_deref());
-            let shader = &self.shaders[&pass.key];
+            // A pass the driver refused leaves the picture as it was.
+            let Some(shader) = self.shaders.get(&pass.key) else {
+                continue;
+            };
             let lut_group = &self.luts[&lut_id];
             let reveal_group = &self.reveals[&reveal_id];
             let frame_block: [f32; 6] = [
@@ -1645,6 +1690,9 @@ impl Compositor for WgpuCompositor {
             return None;
         }
         self.transition_shader(pass);
+        if !self.transitions.contains_key(&pass.key) {
+            return None;
+        }
         let lut_id = self.lut_group(pass.lut.as_deref());
 
         // The two pictures, uploaded and bound at group 0.
