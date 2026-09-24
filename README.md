@@ -11,6 +11,10 @@
   </tr>
 </table>
 
+
+---
+
+
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
 <p align="center">
@@ -24,7 +28,6 @@
 
 </div>
 
----
 
 ## About
 
