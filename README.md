@@ -31,23 +31,31 @@
 
 ## About
 
-Concat is everything you use CapCut for. No watermarks. No paywalls. No subscriptions.
+Concat is a free, open-source video editor and a CapCut alternative for macOS, Windows, Linux and Android. It covers what people actually open CapCut for: auto-captions, text-to-speech, background removal, keyframe animation, effects and titles, multi-track cutting, 4K export. With none of the catches: no watermark, no account, no subscription, no upload.
 
-It runs entirely on your machine, powered by a native Rust engine. Install it and start cutting. No account, no setup.
+Everything runs locally on a native Rust engine with a GPU compositor. Install it, drop in footage, cut. The AI models for captions, voices and cutout download once from Settings and work offline after that. Your footage never leaves your disk.
+
+**Good for:** TikTok, Reels and Shorts, YouTube videos, tutorials and screen recordings, podcast clips, memes.
+
+**Also for machines:** a JSON-RPC, gRPC and MCP API, so scripts and AI agents can cut video with it too.
 
 ## Highlights
 
-- 🚫 **No watermarks.** No account. No paywall.
-- 🔒 **100% local.** Nothing leaves your machine.
-- 🎬 **Multi-track editing.** Several timelines per project.
-- ✂️ **Cut fast.** Split, trim, merge, transitions, speed control.
-- 💬 **Auto-captions.** Runs on your machine, offline.
-- 🗣️ **Text-to-Speech.** Free, local voices.
-- 🎙️ **Voice filters.** Clean up or play with your sound.
-- 📝 **Titles and styled text.**
-- 📦 **Templates.** Build an edit once, reuse it.
-- 🖥️ **macOS, Windows and Linux.** Same app everywhere.
-- 🌍 **Fourteen languages.** Add one with a single JSON file, see [TRANSLATING.md](TRANSLATING.md).
+- 🚫 **No watermarks. No account. No paywall.** Ever.
+- 🔒 **100% local.** Nothing uploads. Works offline.
+- 💬 **Auto-captions.** Local Whisper. Pick a model size, get styled captions on the timeline.
+- 🗣️ **Text-to-speech + voice cloning.** Free local voices, or any voice from a few seconds of a recording.
+- 🧍 **Background removal.** People, objects, or paint the mask yourself.
+- 🎞️ **Keyframes.** Position, scale, rotation, opacity, volume, effect parameters. Curve editor built in.
+- ✨ **170+ effects, filters, transitions and text animations.** GPU-rendered, live in the preview.
+- ✂️ **Cut fast.** Split, trim, ripple, merge, freeze frame, speed. Magnetic timeline if you want it.
+- 🎚️ **Multi-track, multi-timeline.** Several cuts in one project. Blend modes, crop, flips.
+- 📝 **Titles.** Fonts, stroke, shadow, background plate. Presets to start from.
+- 🎙️ **One-switch voice cleanup.** Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
+- 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
+- 🦀 **Native Rust engine.** GPU compositor, proxies, hardware decode. 4K scrubs smoothly.
+- 🤖 **Scriptable.** JSON-RPC, gRPC and MCP API, plus a CLI. AI agents can cut video with it.
+- 🖥️ **macOS, Windows, Linux, Android.** 14 languages. Same app, same project files.
 
 ## Get started
 
