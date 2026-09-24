@@ -1135,6 +1135,85 @@ fn ease_before(keys: &[model::ParamKey], at: f64) -> model::KeyEase {
         .map_or(model::KeyEase::LINEAR, |key| key.ease)
 }
 
+/// The playhead's place in `clip`, `0..=1`, held to its ends: where a keyed
+/// property is shown and written from. `Studio::key_point` is the same
+/// without the clamp, for the diamonds, which must not land a key on an end
+/// nobody aimed at.
+fn place_in(clip: &Clip, playhead: f32) -> f64 {
+    if clip.duration <= 0.0 {
+        return 0.0;
+    }
+    ((f64::from(playhead) - clip.start) / clip.duration).clamp(0.0, 1.0)
+}
+
+/// What a keyable property is worth on screen: its constant, or once it
+/// carries keys, its ride's value at `at`.
+fn shown(clip: &Clip, property: model::KeyProperty, at: f64) -> f64 {
+    if clip.is_keyed(property) {
+        clip.value_at(property, at)
+    } else {
+        clip.constant(property)
+    }
+}
+
+/// Writes a keyable property the way the person means it: the constant
+/// while the property has no keys, and once it rides, the key at `at` -
+/// put on if there was none, with the ease of the key behind it. The engine
+/// stops reading the constant the moment a property is keyed, so a knob or
+/// a stage drag that wrote it would change nothing on screen.
+fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: f64) {
+    if clip.is_keyed(property) {
+        let ease = clip
+            .keys_on(property)
+            .rfind(|key| key.at < at)
+            .map_or(model::KeyEase::LINEAR, |key| key.ease);
+        clip.set_key(property, at, value, ease);
+        return;
+    }
+    match property {
+        model::KeyProperty::Scale => clip.scale = value,
+        model::KeyProperty::OffsetX => clip.offset_x = value,
+        model::KeyProperty::OffsetY => clip.offset_y = value,
+        model::KeyProperty::Rotation => clip.rotation = value,
+        model::KeyProperty::Opacity => clip.opacity = value,
+        model::KeyProperty::Volume => clip.volume = value,
+    }
+}
+
+/// The commands that turn `before`'s keys into `after`'s: a `SetClipKey`
+/// for every key added or changed, a `ClearClipKey` for every key gone.
+/// Two keys within a hair of each other are the same key.
+fn key_commands(clip_id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
+    let near = |a: f64, b: f64| (a - b).abs() <= model::KEY_EPSILON;
+    let mut commands = Vec::new();
+    for property in model::KeyProperty::ALL {
+        for key in after.keys_on(property) {
+            let unchanged = before
+                .keys_on(property)
+                .any(|old| near(old.at, key.at) && old.value == key.value && old.ease == key.ease);
+            if !unchanged {
+                commands.push(Command::SetClipKey {
+                    clip_id: clip_id.to_owned(),
+                    property,
+                    at: key.at,
+                    value: key.value,
+                    ease: key.ease,
+                });
+            }
+        }
+        for old in before.keys_on(property) {
+            if !after.keys_on(property).any(|key| near(old.at, key.at)) {
+                commands.push(Command::ClearClipKey {
+                    clip_id: clip_id.to_owned(),
+                    property,
+                    at: old.at,
+                });
+            }
+        }
+    }
+    commands
+}
+
 /// The colour panel's rows: the adjust package's parameters, at the values
 /// the clip's chain holds or at the defaults when the clip carries none.
 /// Every one can be keyed; `at` is the playhead's place in the clip, `0..=1`,
@@ -3330,6 +3409,12 @@ impl Studio {
         } else {
             Vec::new()
         };
+        // Where the playhead sits in the clip: a keyed property is written
+        // there, as a key.
+        let at = self
+            .clip(&id)
+            .map(|clip| place_in(clip, self.playhead))
+            .unwrap_or(0.0);
         self.begin_echo();
         let value = f64::from(value);
         let Some(clip) = self.echo_clip_mut(&id) else {
@@ -3337,7 +3422,9 @@ impl Studio {
         };
         let text = clip.text.get_or_insert_with(TextStyle::default);
         match field {
-            ClipField::Scale => clip.scale = value.clamp(0.05, 8.0),
+            ClipField::Scale => {
+                write_keyable(clip, model::KeyProperty::Scale, value.clamp(0.05, 8.0), at)
+            }
             ClipField::AudioTrack => {
                 // The first row is the file's default and is stored as such,
                 // so a clip on the first track saves as every clip did before
@@ -3347,15 +3434,34 @@ impl Studio {
             }
             ClipField::StretchX => clip.stretch_x = value.clamp(0.1, 10.0),
             ClipField::StretchY => clip.stretch_y = value.clamp(0.1, 10.0),
-            ClipField::OffsetX => clip.offset_x = value.clamp(-1.0, 1.0),
-            ClipField::OffsetY => clip.offset_y = value.clamp(-1.0, 1.0),
-            ClipField::Rotation => clip.rotation = value.clamp(-180.0, 180.0),
-            ClipField::Opacity => clip.opacity = value.clamp(0.0, 1.0),
+            ClipField::OffsetX => write_keyable(
+                clip,
+                model::KeyProperty::OffsetX,
+                value.clamp(-1.0, 1.0),
+                at,
+            ),
+            ClipField::OffsetY => write_keyable(
+                clip,
+                model::KeyProperty::OffsetY,
+                value.clamp(-1.0, 1.0),
+                at,
+            ),
+            ClipField::Rotation => write_keyable(
+                clip,
+                model::KeyProperty::Rotation,
+                value.clamp(-180.0, 180.0),
+                at,
+            ),
+            ClipField::Opacity => {
+                write_keyable(clip, model::KeyProperty::Opacity, value.clamp(0.0, 1.0), at)
+            }
             ClipField::CutoutFeather => {
                 clip.cutout.get_or_insert_with(model::Cutout::auto).feather =
                     value.clamp(0.0, model::MAX_FEATHER);
             }
-            ClipField::Volume => clip.volume = value.max(0.0),
+            ClipField::Volume => {
+                write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
+            }
             ClipField::Speed => {
                 let speed = value.clamp(0.0625, 16.0);
                 clip.duration = (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));
@@ -3637,6 +3743,7 @@ impl Studio {
         if after.crop != before.crop {
             patch.crop = Some(after.crop);
         }
+        commands.extend(key_commands(&id, &before, &after));
         if after.text != before.text {
             patch.text = Some(after.text.clone());
         }
@@ -3753,12 +3860,14 @@ impl Studio {
         } else {
             (w * clip.stretch_x, h * clip.stretch_y)
         };
-        // The placement: the clip's own.
+        // The placement at the playhead: the clip's own, or its ride's
+        // where a property is keyed, so the box follows the keys.
+        let at = place_in(clip, self.playhead);
         let base = concat_core::timeline::Transform {
-            scale: clip.scale,
-            offset_x: clip.offset_x,
-            offset_y: clip.offset_y,
-            rotation: clip.rotation,
+            scale: shown(clip, model::KeyProperty::Scale, at),
+            offset_x: shown(clip, model::KeyProperty::OffsetX, at),
+            offset_y: shown(clip, model::KeyProperty::OffsetY, at),
+            rotation: shown(clip, model::KeyProperty::Rotation, at),
             stretch_x: clip.stretch_x,
             stretch_y: clip.stretch_y,
         };
@@ -3898,10 +4007,15 @@ impl Studio {
             .filter(|clip| {
                 self.selection.iter().any(|held| held == &clip.id) && !self.locked(&clip.track_id)
             })
-            .map(|clip| StageOrigin {
-                clip: clip.id.clone(),
-                offset_x: clip.offset_x,
-                offset_y: clip.offset_y,
+            .map(|clip| {
+                // A keyed clip is dragged from where its ride has it at
+                // the playhead, not from a constant nothing shows.
+                let at = place_in(clip, self.playhead);
+                StageOrigin {
+                    clip: clip.id.clone(),
+                    offset_x: shown(clip, model::KeyProperty::OffsetX, at),
+                    offset_y: shown(clip, model::KeyProperty::OffsetY, at),
+                }
             })
             .collect();
         self.begin_echo();
@@ -3954,7 +4068,11 @@ impl Studio {
         self.gesture = if grip == 4 {
             Gesture::StageRotate {
                 clip: id.to_owned(),
-                rotation: clip.rotation,
+                rotation: shown(
+                    &clip,
+                    model::KeyProperty::Rotation,
+                    place_in(&clip, self.playhead),
+                ),
                 centre,
                 from: dy.atan2(dx),
             }
@@ -3999,7 +4117,11 @@ impl Studio {
         } else {
             Gesture::StageScale {
                 clip: id.to_owned(),
-                scale: clip.scale,
+                scale: shown(
+                    &clip,
+                    model::KeyProperty::Scale,
+                    place_in(&clip, self.playhead),
+                ),
                 centre,
                 from: dx.hypot(dy).max(1.0),
                 half,
@@ -4091,10 +4213,16 @@ impl Studio {
                         }
                     }
                 }
+                let playhead = self.playhead;
                 for origin in origins {
                     if let Some(clip) = self.echo_clip_mut(&origin.clip) {
-                        clip.offset_x = (origin.offset_x + dx).clamp(-1.0, 1.0);
-                        clip.offset_y = (origin.offset_y + dy).clamp(-1.0, 1.0);
+                        let at = place_in(clip, playhead);
+                        let (x, y) = (
+                            (origin.offset_x + dx).clamp(-1.0, 1.0),
+                            (origin.offset_y + dy).clamp(-1.0, 1.0),
+                        );
+                        write_keyable(clip, model::KeyProperty::OffsetX, x, at);
+                        write_keyable(clip, model::KeyProperty::OffsetY, y, at);
                     }
                 }
             }
@@ -4164,8 +4292,10 @@ impl Studio {
                         });
                     }
                 }
+                let playhead = self.playhead;
                 if let Some(clip) = self.echo_clip_mut(clip) {
-                    clip.scale = next.clamp(0.05, 8.0);
+                    let at = place_in(clip, playhead);
+                    write_keyable(clip, model::KeyProperty::Scale, next.clamp(0.05, 8.0), at);
                 }
             }
             Gesture::StageStretch {
@@ -4249,8 +4379,10 @@ impl Studio {
                 // Kept in the inspector's range, wrapping rather than
                 // stopping: a turn through the bottom carries on.
                 next = (next + 180.0).rem_euclid(360.0) - 180.0;
+                let playhead = self.playhead;
                 if let Some(clip) = self.echo_clip_mut(clip) {
-                    clip.rotation = next;
+                    let at = place_in(clip, playhead);
+                    write_keyable(clip, model::KeyProperty::Rotation, next, at);
                 }
             }
             _ => {
@@ -6115,6 +6247,9 @@ impl Studio {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return SelectedClipData::default();
         };
+        // A keyed property shows what it is worth at the playhead, which is
+        // what the knob edits.
+        let at = place_in(clip, self.playhead);
         let text = clip.text.clone().unwrap_or_default();
         let fill = colour_of(&text.color);
         let stroke = colour_of(&text.stroke_color);
@@ -6150,14 +6285,14 @@ impl Studio {
                 .as_ref()
                 .map(|transition| transition.duration as f32)
                 .unwrap_or(0.5),
-            scale: clip.scale as f32,
-            offset_x: clip.offset_x as f32,
-            offset_y: clip.offset_y as f32,
-            rotation: clip.rotation as f32,
+            scale: shown(clip, model::KeyProperty::Scale, at) as f32,
+            offset_x: shown(clip, model::KeyProperty::OffsetX, at) as f32,
+            offset_y: shown(clip, model::KeyProperty::OffsetY, at) as f32,
+            rotation: shown(clip, model::KeyProperty::Rotation, at) as f32,
             stretch_x: clip.stretch_x as f32,
             stretch_y: clip.stretch_y as f32,
-            opacity: clip.opacity as f32,
-            volume: clip.volume as f32,
+            opacity: shown(clip, model::KeyProperty::Opacity, at) as f32,
+            volume: shown(clip, model::KeyProperty::Volume, at) as f32,
             audio_track: self
                 .project()
                 .media_by_id(&clip.media_id)
@@ -7367,7 +7502,7 @@ impl Studio {
 
 #[cfg(test)]
 mod tests {
-    use super::{Footprint, Studio};
+    use super::{Command, Footprint, Studio, key_commands, place_in, shown, write_keyable};
 
     const FRAME: (u32, u32) = (1920, 1080);
 
@@ -7460,5 +7595,43 @@ mod tests {
         let x = 0.5 + 540.0 / 1920.0;
         assert!(box_.contains(x, 0.5 + 6.0 / 1080.0, FRAME));
         assert!(!box_.contains(x, 0.5 - 6.0 / 1080.0, FRAME));
+    }
+
+    /// A knob over a property with no keys writes the constant; over one
+    /// that rides, it writes the key at the playhead and leaves the
+    /// constant alone. The echo's keys then become one command each.
+    #[test]
+    fn a_keyed_property_is_written_as_a_key_and_committed_as_commands() {
+        use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
+        let before = Clip::blank("c1", "t1", ClipKind::Video, "clip", 0.0, 10.0);
+        let mut after = before.clone();
+        write_keyable(&mut after, KeyProperty::Scale, 2.0, 0.5);
+        assert_eq!(after.scale, 2.0, "no keys: the constant");
+        assert!(key_commands("c1", &before, &after).is_empty());
+
+        after.set_key(KeyProperty::Scale, 0.25, 1.0, KeyEase::LINEAR);
+        write_keyable(&mut after, KeyProperty::Scale, 3.0, 0.75);
+        assert_eq!(after.scale, 2.0, "keyed: the constant is left alone");
+        assert_eq!(after.value_at(KeyProperty::Scale, 0.75), 3.0);
+        assert_eq!(shown(&after, KeyProperty::Scale, 0.75), 3.0);
+        let commands = key_commands("c1", &before, &after);
+        assert_eq!(commands.len(), 2, "one per key: {commands:?}");
+        assert!(commands.iter().all(|command| matches!(
+            command,
+            Command::SetClipKey {
+                property: KeyProperty::Scale,
+                ..
+            }
+        )));
+
+        let mut gone = after.clone();
+        gone.clear_key(KeyProperty::Scale, 0.25);
+        let commands = key_commands("c1", &after, &gone);
+        assert!(
+            matches!(commands.as_slice(), [Command::ClearClipKey { at, .. }] if (*at - 0.25).abs() < 1e-9),
+            "{commands:?}"
+        );
+        assert_eq!(place_in(&after, 2.5), 0.25);
+        assert_eq!(place_in(&after, 12.0), 1.0, "held to the end");
     }
 }
