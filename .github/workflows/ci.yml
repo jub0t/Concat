@@ -7,6 +7,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # release.yml runs this before it builds anything: a tag on a red tree
+  # is not a release.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -31,13 +34,16 @@ jobs:
 
       # Slint's Skia renderer links fontconfig and freetype; cpal links
       # ALSA; bindgen needs libclang; whisper.cpp is built by cmake; the
-      # file dialogs link GTK on Linux.
+      # file dialogs link GTK on Linux. Mesa's Vulkan drivers bring
+      # lavapipe, a software GPU, so the compositor's parity suite runs
+      # here rather than skipping for want of an adapter.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
-            libgtk-3-dev libasound2-dev libclang-dev cmake
+            libgtk-3-dev libasound2-dev libclang-dev cmake \
+            libvulkan1 mesa-vulkan-drivers
 
       # Ubuntu's packaged FFmpeg is older than the 7 the engine needs, so the
       # libraries come from BtbN, and FFMPEG_DIR tells the bindings where.
@@ -84,10 +90,18 @@ jobs:
       # most.
       - run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: src
+      # CONCAT_REQUIRE_GPU: the GPU tests fail rather than skip when no
+      # adapter is usable, so the parity suite is known to have run.
       - run: cargo test --workspace -j 1
         working-directory: src
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
+          CONCAT_REQUIRE_GPU: "1"
+      # The performance table's quick scenarios against their budgets, in
+      # the `quick` profile: planning, undo, the document, publishing.
+      # The media scenarios need a machine that is not a shared runner.
+      - run: cargo run -p concat-perf --profile quick -- --check --quick
+        working-directory: src
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
       - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings
@@ -117,4 +131,75 @@ jobs:
           -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text
           --features concat-render/gpu --target wasm32-unknown-unknown
           -- -D warnings
+        working-directory: src
+
+  # The window and the engine compiled where they ship. Linux is the job
+  # above; macOS and Windows used to be compiled only by a release tag,
+  # which is where a broken platform path was found. A check, not the
+  # tests: the dependencies are the same as build-app.yml's, and what this
+  # catches is code that does not build on the platform.
+  desktop:
+    name: Compiles on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            sherpa: osx-arm64
+          - os: windows-2022
+            sherpa: win-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      FFMPEG_WINDOWS: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install ffmpeg cmake
+          echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
+      - name: FFmpeg and LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install llvm -y --no-progress
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip "$env:FFMPEG_WINDOWS"
+          Expand-Archive ffmpeg-win.zip -DestinationPath ffdl
+          $dir = (Get-ChildItem ffdl -Directory | Select-Object -First 1).FullName
+          "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
+      # static on macOS, the import libraries alone on Windows.
+      - name: sherpa-onnx libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-shared-MT-Release-lib"
+          else
+            stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-static-lib"
+          fi
+          echo "Downloading $stem"
+          curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          mkdir -p sherpa
+          python3 -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall('sherpa', **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
+          test -d "sherpa/$stem/lib"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mkdir -p sherpa-libs
+            cp "sherpa/$stem/lib/"*.lib sherpa-libs/
+            echo "SHERPA_ONNX_LIB_DIR=$(pwd -W)\\sherpa-libs" >> "$GITHUB_ENV"
+          else
+            echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+          key: check-${{ matrix.os }}
+      - run: cargo check --workspace --all-targets
         working-directory: src

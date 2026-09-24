@@ -20,6 +20,13 @@ use crate::plan::{Crop, Transition, detached_clip};
 fn gpu() -> Option<WgpuCompositor> {
     let compositor = WgpuCompositor::new();
     if compositor.is_none() {
+        // CI installs a software Vulkan driver so this suite runs there; a
+        // machine that says it must run and has no adapter is a broken
+        // setup, not a skip.
+        assert!(
+            std::env::var_os("CONCAT_REQUIRE_GPU").is_none(),
+            "CONCAT_REQUIRE_GPU is set and no GPU adapter is usable"
+        );
         eprintln!("no usable GPU adapter; skipping");
     }
     compositor

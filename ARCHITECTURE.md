@@ -49,6 +49,7 @@ graph BT
     host --> export
     host --> text
     speech --> host
+    speech --> media
     api --> host
     server --> api
     cli --> server
@@ -288,7 +289,7 @@ time to present a token.
 
 | Suite | Where | What it holds |
 |---|---|---|
-| Unit tests, 429 across 75 files | every crate | the arithmetic, the commands, the reader, the plan |
+| Unit tests (`cargo test --workspace` prints the count) | every crate | the arithmetic, the commands, the reader, the plan |
 | Export end to end | `concat-host/tests/export.rs` | every edit a person can make exports, through real `Session` commands over synthetic media, read back; crashes hard on purpose |
 | Parity | `concat-render/src/gpu/tests.rs` | the GPU against the CPU reference by SSIM, one plan per feature |
 | Hostile packages | `concat-effects/src/shader.rs` tests | the unbounded loop, the extra binding, the oversized table are refused |

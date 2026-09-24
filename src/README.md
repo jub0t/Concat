@@ -112,8 +112,8 @@ cargo build --release -p concat --target aarch64-apple-ios
 scripts/ios-app.sh aarch64-apple-ios release                    # Concat.app
 ```
 
-`.github/workflows/mobile.yml` runs exactly this on every push and keeps
-the FFmpeg builds cached. The window is one library: `concat` on the
+`.github/workflows/mobile.yml` runs exactly this on every pull request
+and on a release tag, and keeps the FFmpeg builds cached. The window is one library: `concat` on the
 desktop and on iOS runs it from `main.rs`, `concat-android` from the
 activity's `android_main`, and `crates/concat/src/platform.rs` is where
 the three differ - how the backend is chosen, how files are picked, and
@@ -126,7 +126,8 @@ a person waits on are - planning a frame, an undo, opening a document,
 decoding, a scrub through the cache, compositing on the CPU and the GPU,
 an export - each against a budget, on synthetic media so the numbers are
 the machine's and the code's. `--check` fails the run when a scenario is
-outside its budget, which is what CI wants; `--quick` skips the media.
+outside its budget; `--quick` skips the media, and CI runs the quick set
+that way on every push.
 The quick scenarios also run under `cargo test`, so a regression there
 stops the build. See `crates/concat-perf/src/main.rs` for what each
 number means and what is not measured.

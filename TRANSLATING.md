@@ -55,8 +55,8 @@ change.
 4. Open a pull request. Corrections to the languages Concat already ships
    are just as welcome as new ones.
 
-Concat ships English, Deutsch, Español, Français, Italiano, 日本語, 한국어,
-Português (Brasil), Русский, Türkçe, 简体中文 and 正體中文.
+Concat ships English, Deutsch, Español, فارسی, Français, Hrvatski, Italiano,
+日本語, 한국어, Português (Brasil), Русский, Türkçe, 简体中文 and 正體中文.
 
 ## For developers
 

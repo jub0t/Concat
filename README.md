@@ -43,7 +43,7 @@ It runs entirely on your machine, powered by a native Rust engine. Install it an
 - 📝 **Titles and styled text.**
 - 📦 **Templates.** Build an edit once, reuse it.
 - 🖥️ **macOS, Windows and Linux.** Same app everywhere.
-- 🌍 **Twelve languages.** Add one with a single JSON file, see [TRANSLATING.md](TRANSLATING.md).
+- 🌍 **Fourteen languages.** Add one with a single JSON file, see [TRANSLATING.md](TRANSLATING.md).
 
 ## Get started
 

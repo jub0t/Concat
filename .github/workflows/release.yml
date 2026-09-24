@@ -10,10 +10,11 @@ name: Release
 # about.
 #
 # The bundles are self-contained: the macOS .dmg carries its FFmpeg dylibs
-# and is notarised when the signing secrets are set; the Linux tarball and
-# the Windows zip carry the FFmpeg runtime libraries beside the binary; the
-# Android .apk is signed with the repository's key, and the iOS .ipa is
-# signed by the tester on the way onto the phone.
+# and is notarised when the signing secrets are set; the Linux packages
+# (.deb, .rpm, .AppImage, Arch) and the Windows installers carry the
+# FFmpeg runtime libraries beside the binary; the Android .apk is signed
+# with the repository's key, and the iOS .ipa is signed by the tester on
+# the way onto the phone. Nothing is built until CI has passed on the tag.
 on:
   push:
     tags: ["v*"]
@@ -56,13 +57,19 @@ jobs:
           # v0.2.1-alpha.22 both produce Concat-0.2.1-* files.
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+  # The engine's tests and lints, on the tagged commit: a tag on a red
+  # tree is not a release.
+  engine:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
   build:
-    needs: [check]
+    needs: [check, engine]
     uses: ./.github/workflows/build-app.yml
     secrets: inherit
 
   phones:
-    needs: [check]
+    needs: [check, engine]
     uses: ./.github/workflows/mobile.yml
     secrets: inherit
 
