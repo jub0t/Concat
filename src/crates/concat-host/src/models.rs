@@ -18,7 +18,9 @@
 //!
 //! The table of what is mirrored is `models/manifest.toml` at the root of
 //! the repository, and `scripts/models.py --check` is what keeps it and the
-//! engine's own tables saying the same thing. The tables are here rather
+//! engine's own tables saying the same thing. Every row carries the SHA-256
+//! of its bytes, and a download is refused without one to check against;
+//! Hugging Face upstreams are pinned to a commit, since `main` moves. The tables are here rather
 //! than parsed from that file because a model's identity is something the
 //! engine should not be able to start without.
 
@@ -283,13 +285,19 @@ pub fn download(
 
 /// Checks a finished download against the digest the table carries.
 ///
-/// An empty `expected` passes: a model added to the tables is unverified
-/// until the mirror has been filled once and has reported what it holds.
-/// Anything else is compared, and a file that does not match is refused -
-/// the caller deletes it rather than leaving something that looks installed.
+/// A file that does not match is refused - the caller deletes it rather
+/// than leaving something that looks installed - and so is a download with
+/// no digest to check against: a model added to a table is unusable until
+/// its digest is there too, rather than trusted until someone gets round
+/// to it. The sources include mirrors and a base the user can set, so a
+/// download nobody can check is a download anyone can substitute
+/// (audit 2026-09-23, #6).
 pub fn verify(file: &Path, expected: &str) -> Result<(), String> {
     if expected.is_empty() {
-        return Ok(());
+        return Err(format!(
+            "{} cannot be checked: the model table carries no digest for it",
+            file.display()
+        ));
     }
     let actual = sha256(file)?;
     if actual == expected {
@@ -461,14 +469,14 @@ mod tests {
     }
 
     #[test]
-    fn a_digest_is_checked_and_an_empty_one_is_not() {
+    fn a_digest_is_checked_and_an_empty_one_is_refused() {
         let dir = std::env::temp_dir().join("concat-models-verify");
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let file = dir.join("bytes");
         std::fs::write(&file, b"concat").expect("a temp file");
         // echo -n concat | sha256sum
         let known = "3f4c1a4b3c9fb1b0e24bd1ec0bd7b16d0db4dbf1fe2f3b5dcdba0bd38b8f8b3a";
-        assert!(verify(&file, "").is_ok());
+        assert!(verify(&file, "").is_err(), "nothing to check against");
         assert!(verify(&file, known).is_err());
         let actual = sha256(&file).expect("a digest");
         assert_eq!(actual.len(), 64);

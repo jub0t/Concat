@@ -117,65 +117,65 @@ const FILES: &[KnownModel] = &[
     KnownModel {
         id: "chatterbox-turbo-tokenizer.json",
         local: "tokenizer.json",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/tokenizer.json",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/tokenizer.json",
         bytes: 3_562_272,
-        sha256: "",
+        sha256: "3f04e34bea22f9144d1a19151154095bc9ce0430bf421304f5797e716288a906",
     },
     KnownModel {
         id: "chatterbox-turbo-embed_tokens_quantized.onnx",
         local: "onnx/embed_tokens_quantized.onnx",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/embed_tokens_quantized.onnx",
         bytes: 2_887,
-        sha256: "",
+        sha256: "0efe1bc01c2c48a98425a74444fd9887924d887f922c2722a6ec961ebb9e1db6",
     },
     KnownModel {
         id: "chatterbox-turbo-language_model_quantized.onnx",
         local: "onnx/language_model_quantized.onnx",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/language_model_quantized.onnx",
         bytes: 279_670,
-        sha256: "",
+        sha256: "0b40581277e30b7034331ec8c3ad47ed71d321f015b387a95221e54e2fcbfde8",
     },
     KnownModel {
         id: "chatterbox-turbo-speech_encoder_quantized.onnx",
         local: "onnx/speech_encoder_quantized.onnx",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/speech_encoder_quantized.onnx",
         bytes: 1_205_728,
-        sha256: "",
+        sha256: "5b6f15870a43cf97892df86fc550a0ef4763522d527cde72b2a4316f80a34de4",
     },
     KnownModel {
         id: "chatterbox-turbo-conditional_decoder_quantized.onnx",
         local: "onnx/conditional_decoder_quantized.onnx",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/conditional_decoder_quantized.onnx",
         bytes: 2_202_035,
-        sha256: "",
+        sha256: "2af3b150196d9d559cd3c91e03da80eb27a466032369dc2b57ea729cddad3ebb",
     },
     KnownModel {
         id: "chatterbox-turbo-embed_tokens_quantized.onnx_data",
         local: "onnx/embed_tokens_quantized.onnx_data",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx_data",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/embed_tokens_quantized.onnx_data",
         bytes: 67_297_376,
-        sha256: "",
+        sha256: "9025d04c124899823124b1d7bb7069b1f535fb8a6c2d88f97520eb6fecced986",
     },
     KnownModel {
         id: "chatterbox-turbo-conditional_decoder_quantized.onnx_data",
         local: "onnx/conditional_decoder_quantized.onnx_data",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx_data",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/conditional_decoder_quantized.onnx_data",
         bytes: 326_548_688,
-        sha256: "",
+        sha256: "4918ca09e05e41d2b4aa1ace6201d1cd911ffc58a42801002bab177d495cfe0a",
     },
     KnownModel {
         id: "chatterbox-turbo-speech_encoder_quantized.onnx_data",
         local: "onnx/speech_encoder_quantized.onnx_data",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx_data",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/speech_encoder_quantized.onnx_data",
         bytes: 354_676_576,
-        sha256: "",
+        sha256: "d59861fb55e806fbeee731da9d4f8ff819fb5735de5d15e262d902594ee4dbb6",
     },
     KnownModel {
         id: "chatterbox-turbo-language_model_quantized.onnx_data",
         local: "onnx/language_model_quantized.onnx_data",
-        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx_data",
+        upstream: "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/language_model_quantized.onnx_data",
         bytes: 367_962_860,
-        sha256: "",
+        sha256: "ec9945df36cb5d131d46688f2609fd715fbfcb0b8ee9681af5c84118de2d55a2",
     },
 ];
 
@@ -958,7 +958,7 @@ pub fn bundle_dir(models: &Path) -> PathBuf {
 mod tests {
     use super::*;
 
-    const UPSTREAM: &str = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/";
+    const UPSTREAM: &str = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/";
 
     #[test]
     fn the_table_names_nine_distinct_files_with_the_bundle_in_front() {

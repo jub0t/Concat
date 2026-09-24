@@ -52,8 +52,8 @@ pub struct ModelSpec {
     pub upstream: &'static str,
     /// Its size, for a progress bar before the server says.
     pub bytes: u64,
-    /// What a finished download must hash to. Empty until the mirror has
-    /// been filled once and reported what it holds.
+    /// What a finished download must hash to; a download with nothing to
+    /// check against is refused.
     pub sha256: &'static str,
     /// The licence it comes under, for the notices.
     pub licence: &'static str,
@@ -74,29 +74,29 @@ pub const MODELS: [ModelSpec; 5] = [
         file: "isnet-general-use.onnx",
         upstream: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
         bytes: 178_648_008,
-        sha256: "",
+        sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
         licence: "Apache-2.0",
     },
     ModelSpec {
         id: ModelId::BrushEncoder,
         file: "slimsam-77-encoder.onnx",
-        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx",
+        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/5850ab45f587c112167512ffef949107115e26a0/onnx/vision_encoder.onnx",
         bytes: 23_276_014,
-        sha256: "",
+        sha256: "9f8433273a6750b587779baa0cf5508111001bf7e7acfcf585d370139fd366d0",
         licence: "Apache-2.0",
     },
     ModelSpec {
         id: ModelId::BrushDecoder,
         file: "slimsam-77-decoder.onnx",
-        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx",
+        upstream: "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/5850ab45f587c112167512ffef949107115e26a0/onnx/prompt_encoder_mask_decoder.onnx",
         bytes: 16_557_892,
-        sha256: "",
+        sha256: "f4514391764fbd56e08e119060d874ecd7d52994bfb1968af159e12d4943b5bb",
         licence: "Apache-2.0",
     },
     ModelSpec {
         id: ModelId::Enhance,
         file: "realesr-general-x4v3.onnx",
-        upstream: "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/main/realesr-general-x4v3.onnx",
+        upstream: "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/realesr-general-x4v3.onnx",
         bytes: 4_866_417,
         sha256: "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112",
         licence: "BSD-3-Clause",

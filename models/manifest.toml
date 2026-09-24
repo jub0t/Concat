@@ -23,10 +23,12 @@
 # tag only when a model's bytes change - app releases point at it by name,
 # so an unchanged model is never re-uploaded.
 #
-# `sha256` is what the app verifies a finished download against. An empty
-# digest means the mirror has not been filled since the model was added;
-# the workflow prints what it computed, and that goes here and into the
-# engine's table beside it.
+# `sha256` is what the app verifies a finished download against, and a
+# download with no digest to check is refused, so a model added here is
+# unusable until its digest is: the workflow prints what it computed, and
+# that goes here and into the engine's table beside it. Hugging Face
+# upstreams are pinned to a commit rather than `main`, so the bytes the
+# fallback fetches are the bytes the digest names.
 
 # The release every model is mirrored on.
 release = "models-v1"
@@ -48,7 +50,7 @@ id = "cutout-object"
 family = "cutout"
 file = "isnet-general-use.onnx"
 bytes = 178648008
-sha256 = ""
+sha256 = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
 licence = "Apache-2.0"
 upstream = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
 
@@ -57,18 +59,18 @@ id = "cutout-brush-encoder"
 family = "cutout"
 file = "slimsam-77-encoder.onnx"
 bytes = 23276014
-sha256 = ""
+sha256 = "9f8433273a6750b587779baa0cf5508111001bf7e7acfcf585d370139fd366d0"
 licence = "Apache-2.0"
-upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/vision_encoder.onnx"
+upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/5850ab45f587c112167512ffef949107115e26a0/onnx/vision_encoder.onnx"
 
 [[model]]
 id = "cutout-brush-decoder"
 family = "cutout"
 file = "slimsam-77-decoder.onnx"
 bytes = 16557892
-sha256 = ""
+sha256 = "f4514391764fbd56e08e119060d874ecd7d52994bfb1968af159e12d4943b5bb"
 licence = "Apache-2.0"
-upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/main/onnx/prompt_encoder_mask_decoder.onnx"
+upstream = "https://huggingface.co/Xenova/slimsam-77-uniform/resolve/5850ab45f587c112167512ffef949107115e26a0/onnx/prompt_encoder_mask_decoder.onnx"
 
 # Enhance's restoration model. In the cutout family because the family is
 # the engine table a row is checked against, and this one lives in the
@@ -80,7 +82,7 @@ file = "realesr-general-x4v3.onnx"
 bytes = 4866417
 sha256 = "1940a93ee08283a0a7286183186357b1688fe9fa8ede74604b424586aaddf112"
 licence = "BSD-3-Clause"
-upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/main/realesr-general-x4v3.onnx"
+upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve/c6a971706797c7502945a2b4c4274fce4900d4ab/realesr-general-x4v3.onnx"
 
 # ── Text to speech ───────────────────────────────────────────────────────
 # src/crates/concat-speech/src/tts.rs. Kokoro v1.0 multi-language, the
@@ -90,8 +92,8 @@ upstream = "https://huggingface.co/CoderViking/realesr-general-x4v3-onnx/resolve
 id = "kokoro-int8-multi-lang-v1_0"
 family = "tts"
 file = "kokoro-int8-multi-lang-v1_0.tar.bz2"
-bytes = 131839838
-sha256 = ""
+bytes = 132303094
+sha256 = "4c3052abaa60943a341f193888cf6abd68787dae6ab8ae5c925a706caa247e4e"
 licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_0.tar.bz2"
 
@@ -99,8 +101,8 @@ upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/k
 id = "kokoro-multi-lang-v1_0"
 family = "tts"
 file = "kokoro-multi-lang-v1_0.tar.bz2"
-bytes = 349418188
-sha256 = ""
+bytes = 349906910
+sha256 = "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298"
 licence = "Apache-2.0"
 upstream = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
 
@@ -127,81 +129,81 @@ id = "chatterbox-turbo-tokenizer.json"
 family = "chatterbox"
 file = "chatterbox-turbo-tokenizer.json"
 bytes = 3562272
-sha256 = ""
+sha256 = "3f04e34bea22f9144d1a19151154095bc9ce0430bf421304f5797e716288a906"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/tokenizer.json"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/tokenizer.json"
 
 [[model]]
 id = "chatterbox-turbo-embed_tokens_quantized.onnx"
 family = "chatterbox"
 file = "chatterbox-turbo-embed_tokens_quantized.onnx"
 bytes = 2887
-sha256 = ""
+sha256 = "0efe1bc01c2c48a98425a74444fd9887924d887f922c2722a6ec961ebb9e1db6"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/embed_tokens_quantized.onnx"
 
 [[model]]
 id = "chatterbox-turbo-language_model_quantized.onnx"
 family = "chatterbox"
 file = "chatterbox-turbo-language_model_quantized.onnx"
 bytes = 279670
-sha256 = ""
+sha256 = "0b40581277e30b7034331ec8c3ad47ed71d321f015b387a95221e54e2fcbfde8"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/language_model_quantized.onnx"
 
 [[model]]
 id = "chatterbox-turbo-speech_encoder_quantized.onnx"
 family = "chatterbox"
 file = "chatterbox-turbo-speech_encoder_quantized.onnx"
 bytes = 1205728
-sha256 = ""
+sha256 = "5b6f15870a43cf97892df86fc550a0ef4763522d527cde72b2a4316f80a34de4"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/speech_encoder_quantized.onnx"
 
 [[model]]
 id = "chatterbox-turbo-conditional_decoder_quantized.onnx"
 family = "chatterbox"
 file = "chatterbox-turbo-conditional_decoder_quantized.onnx"
 bytes = 2202035
-sha256 = ""
+sha256 = "2af3b150196d9d559cd3c91e03da80eb27a466032369dc2b57ea729cddad3ebb"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/conditional_decoder_quantized.onnx"
 
 [[model]]
 id = "chatterbox-turbo-embed_tokens_quantized.onnx_data"
 family = "chatterbox"
 file = "chatterbox-turbo-embed_tokens_quantized.onnx_data"
 bytes = 67297376
-sha256 = ""
+sha256 = "9025d04c124899823124b1d7bb7069b1f535fb8a6c2d88f97520eb6fecced986"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/embed_tokens_quantized.onnx_data"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/embed_tokens_quantized.onnx_data"
 
 [[model]]
 id = "chatterbox-turbo-conditional_decoder_quantized.onnx_data"
 family = "chatterbox"
 file = "chatterbox-turbo-conditional_decoder_quantized.onnx_data"
 bytes = 326548688
-sha256 = ""
+sha256 = "4918ca09e05e41d2b4aa1ace6201d1cd911ffc58a42801002bab177d495cfe0a"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/conditional_decoder_quantized.onnx_data"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/conditional_decoder_quantized.onnx_data"
 
 [[model]]
 id = "chatterbox-turbo-speech_encoder_quantized.onnx_data"
 family = "chatterbox"
 file = "chatterbox-turbo-speech_encoder_quantized.onnx_data"
 bytes = 354676576
-sha256 = ""
+sha256 = "d59861fb55e806fbeee731da9d4f8ff819fb5735de5d15e262d902594ee4dbb6"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/speech_encoder_quantized.onnx_data"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/speech_encoder_quantized.onnx_data"
 
 [[model]]
 id = "chatterbox-turbo-language_model_quantized.onnx_data"
 family = "chatterbox"
 file = "chatterbox-turbo-language_model_quantized.onnx_data"
 bytes = 367962860
-sha256 = ""
+sha256 = "ec9945df36cb5d131d46688f2609fd715fbfcb0b8ee9681af5c84118de2d55a2"
 licence = "MIT"
-upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main/onnx/language_model_quantized.onnx_data"
+upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/d21799bd0354adb85e348b8a0442a8405110a2cf/onnx/language_model_quantized.onnx_data"
 
 # ── Transcription ────────────────────────────────────────────────────────
 # src/crates/concat-speech/src/transcribe.rs. whisper.cpp's GGML
@@ -211,52 +213,52 @@ upstream = "https://huggingface.co/ResembleAI/chatterbox-turbo-ONNX/resolve/main
 id = "whisper-tiny.en"
 family = "whisper"
 file = "ggml-tiny.en.bin"
-bytes = 77700000
-sha256 = ""
+bytes = 77704715
+sha256 = "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.en.bin"
 
 [[model]]
 id = "whisper-tiny"
 family = "whisper"
 file = "ggml-tiny.bin"
-bytes = 77700000
-sha256 = ""
+bytes = 77691713
+sha256 = "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin"
 
 [[model]]
 id = "whisper-base.en"
 family = "whisper"
 file = "ggml-base.en.bin"
-bytes = 147400000
-sha256 = ""
+bytes = 147964211
+sha256 = "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.en.bin"
 
 [[model]]
 id = "whisper-base"
 family = "whisper"
 file = "ggml-base.bin"
-bytes = 147500000
-sha256 = ""
+bytes = 147951465
+sha256 = "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin"
 
 [[model]]
 id = "whisper-small.en"
 family = "whisper"
 file = "ggml-small.en.bin"
-bytes = 487600000
-sha256 = ""
+bytes = 487614201
+sha256 = "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en.bin"
 
 [[model]]
 id = "whisper-small"
 family = "whisper"
 file = "ggml-small.bin"
-bytes = 487600000
-sha256 = ""
+bytes = 487601967
+sha256 = "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
 licence = "MIT"
-upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
+upstream = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin"

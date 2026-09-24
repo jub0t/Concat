@@ -38,8 +38,8 @@ struct KnownModel {
     /// One line for the settings row: what this size trades away.
     blurb: &'static str,
     approx_bytes: u64,
-    /// What the finished file must hash to. Empty until the mirror has been
-    /// filled once and reported what it holds; see [`concat_host::models`].
+    /// What the finished file must hash to; a download with nothing to
+    /// check against is refused. See [`concat_host::models`].
     sha256: &'static str,
     english_only: bool,
 }
@@ -54,48 +54,48 @@ const KNOWN_MODELS: &[KnownModel] = &[
         id: "tiny.en",
         label: "Tiny (English)",
         blurb: "Fastest draft. Rough on names and punctuation.",
-        approx_bytes: 77_700_000,
-        sha256: "",
+        approx_bytes: 77_704_715,
+        sha256: "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
         english_only: true,
     },
     KnownModel {
         id: "tiny",
         label: "Tiny (Multilingual)",
         blurb: "Fastest draft, any language.",
-        approx_bytes: 77_700_000,
-        sha256: "",
+        approx_bytes: 77_691_713,
+        sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
         english_only: false,
     },
     KnownModel {
         id: "base.en",
         label: "Base (English)",
         blurb: "The sweet spot: solid captions at ~10x realtime.",
-        approx_bytes: 147_400_000,
-        sha256: "",
+        approx_bytes: 147_964_211,
+        sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
         english_only: true,
     },
     KnownModel {
         id: "base",
         label: "Base (Multilingual)",
         blurb: "Solid captions, any language.",
-        approx_bytes: 147_500_000,
-        sha256: "",
+        approx_bytes: 147_951_465,
+        sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
         english_only: false,
     },
     KnownModel {
         id: "small.en",
         label: "Small (English)",
         blurb: "Noticeably better wording; a few times slower.",
-        approx_bytes: 487_600_000,
-        sha256: "",
+        approx_bytes: 487_614_201,
+        sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
         english_only: true,
     },
     KnownModel {
         id: "small",
         label: "Small (Multilingual)",
         blurb: "Best quality offered, any language.",
-        approx_bytes: 487_600_000,
-        sha256: "",
+        approx_bytes: 487_601_967,
+        sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
         english_only: false,
     },
 ];
@@ -109,9 +109,13 @@ fn model_archive(id: &str) -> String {
     format!("ggml-{id}.bin")
 }
 
+/// The whisper.cpp commit the table's digests were taken at: what the
+/// fallback fetches is pinned to it, so `main` moving on changes nothing.
+const UPSTREAM_COMMIT: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
+
 /// Where the mirror was filled from, and the second place a download tries.
 fn model_upstream(id: &str) -> String {
-    format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{id}.bin")
+    format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/{UPSTREAM_COMMIT}/ggml-{id}.bin")
 }
 
 /// Where downloaded models live: `<app data>/whisper-models/ggml-<id>.bin`.

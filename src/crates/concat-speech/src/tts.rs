@@ -105,6 +105,8 @@ const KNOWN_MODELS: &[KnownModel] = &[
         label: "Chatterbox Turbo (studio)",
         blurb: "The closest to a studio voice; reads in Pocket's recordings or any sample of your own. English, slow, a gigabyte.",
         approx_bytes: crate::chatterbox::BUNDLE_BYTES,
+        // Nine files, each checked against its own digest in
+        // `chatterbox::FILES`; this row never reaches `verify`.
         sha256: "",
     },
     KnownModel {
@@ -118,15 +120,15 @@ const KNOWN_MODELS: &[KnownModel] = &[
         id: "kokoro-int8-multi-lang-v1_0",
         label: "Kokoro (compact)",
         blurb: "The recommended build: same voices, a third of the download.",
-        approx_bytes: 131_839_838,
-        sha256: "",
+        approx_bytes: 132_303_094,
+        sha256: "4c3052abaa60943a341f193888cf6abd68787dae6ab8ae5c925a706caa247e4e",
     },
     KnownModel {
         id: "kokoro-multi-lang-v1_0",
         label: "Kokoro (full precision)",
         blurb: "Bit-perfect weights for the skeptical; rarely audibly better.",
-        approx_bytes: 349_418_188,
-        sha256: "",
+        approx_bytes: 349_906_910,
+        sha256: "c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298",
     },
 ];
 

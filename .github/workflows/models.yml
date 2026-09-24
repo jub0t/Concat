@@ -16,8 +16,8 @@ name: Mirror models
 # A model whose row has no digest yet is recorded: the job fetches it,
 # computes the sha256, writes it into models/manifest.toml and into the
 # engine's table beside it, and uploads the patch as an artifact for a
-# maintainer to commit. Until that lands, the app accepts the download
-# unverified, which is what the empty digest means.
+# maintainer to commit. Until that lands, the app refuses the download:
+# a row with no digest is a model nobody can check.
 on:
   workflow_dispatch:
     inputs:

@@ -196,7 +196,11 @@ def check() -> int:
     for family, path in TABLES.items():
         rows = [model for model in models if model.get("family") == family]
         text = re.split(r'\n(?:#\[cfg\(test\)\]\s*)?mod tests?\s*\{', path.read_text(encoding="utf-8"))[0]
+        # An id may be a string constant rather than a literal, as the
+        # Pocket row's is: resolve `const NAME: &str = "..."` first.
+        consts = dict(re.findall(r'const (\w+): &str = "([^"]+)"', text))
         ids = set(re.findall(r'^\s*(?:pub )?id: "([^"]+)"', text, re.M))
+        ids |= {consts[name] for name in re.findall(r'^\s*(?:pub )?id: (\w+),', text, re.M) if name in consts}
         if family == "cutout":
             ids = set(re.findall(r'^\s*file: "([^"]+)"', text, re.M))
         wanted = {engine_id(model) for model in rows}
@@ -213,9 +217,10 @@ def check() -> int:
     total = sum(model.get("bytes", 0) for model in models)
     print(f"{len(models)} models, {total / 1e9:.2f} GB, mirrored on {release}")
     if empty:
-        # Not a failure: a model added here is unverified until the mirror
-        # workflow has run once and reported what it fetched.
-        print(f"    {len(empty)} awaiting a digest from the mirror: {', '.join(empty)}")
+        # Not a failure here, since the mirror workflow runs this check
+        # before it fills a digest in - but the app refuses a download it
+        # cannot check, so a model listed here is unusable until then.
+        print(f"    {len(empty)} awaiting a digest, refused by the app until then: {', '.join(empty)}")
     return failed
 
 
