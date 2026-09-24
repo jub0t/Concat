@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! What a placed clip looks and sounds like: its patchable fields, speed, transform, keys, cutout and animation.
+//! What a placed clip looks and sounds like: its patchable fields, speed, transform, keys and cutout.
 //!
 //! One arm per command, exactly as [`super::apply`] routes them here;
 //! everything these arms share lives in the parent module.
@@ -139,34 +139,6 @@ pub(super) fn apply(
             Ok(Outcome {
                 created_id: None,
                 applied: true,
-            })
-        }
-
-        Command::SetClipAnimation {
-            clip_id,
-            slot,
-            animation,
-        } => {
-            let timeline = project.active_mut();
-            let Some(clip) = timeline.clip_mut(&clip_id) else {
-                return Ok(Outcome::default());
-            };
-            let animation = animation
-                .filter(|set| crate::animation::index_of(slot, &set.preset).is_some())
-                .map(|set| ClipAnimation {
-                    preset: set.preset,
-                    duration: set.duration.clamp(MIN_ANIMATION, MAX_ANIMATION),
-                });
-            let field = match slot {
-                AnimationSlot::In => &mut clip.animation_in,
-                AnimationSlot::Out => &mut clip.animation_out,
-                AnimationSlot::Combo => &mut clip.animation_combo,
-                AnimationSlot::Loop => &mut clip.animation_loop,
-            };
-            let applied = assign(field, animation);
-            Ok(Outcome {
-                created_id: None,
-                applied,
             })
         }
 

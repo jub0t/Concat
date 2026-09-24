@@ -182,12 +182,6 @@ pub struct MediaItem {
     pub extra: Map<String, Value>,
 }
 
-/// Half a second: what an animation preset lasts when its entry does not
-/// say.
-fn default_animation_duration() -> f64 {
-    0.5
-}
-
 fn unity() -> f64 {
     1.0
 }
@@ -598,50 +592,6 @@ impl Crop {
             out.bottom = (0.9 - out.top).max(0.0);
         }
         out
-    }
-}
-
-/// Which end of a clip an animation belongs to, or the whole of it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AnimationSlot {
-    /// The first seconds.
-    In,
-    /// The last seconds.
-    Out,
-    /// The whole clip.
-    Combo,
-    /// A repeating motion over the clip.
-    Loop,
-}
-
-/// A named animation on one slot. The keys are made from the name for the
-/// clip's current length whenever they are needed; see the `animation`
-/// module.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClipAnimation {
-    /// The shape's name, e.g. "Fade".
-    pub preset: String,
-    /// Seconds the shape takes, for In and Out; ignored by a Combo.
-    #[serde(default = "default_animation_duration")]
-    pub duration: f64,
-}
-
-impl ClipAnimation {
-    /// The entry, or nothing for one naming no preset.
-    pub fn tidy(mut self) -> Option<ClipAnimation> {
-        self.preset = self.preset.trim().to_owned();
-        if self.preset.is_empty() {
-            return None;
-        }
-        self.duration = if self.duration.is_finite() {
-            self.duration
-                .clamp(ranges::MIN_ANIMATION, ranges::MAX_ANIMATION)
-        } else {
-            default_animation_duration()
-        };
-        Some(self)
     }
 }
 
@@ -1104,10 +1054,6 @@ pub mod ranges {
     pub const MAX_OFFSET: f64 = 3.0;
     /// A transition can be no shorter than this, in seconds.
     pub const MIN_TRANSITION: f64 = 0.1;
-    /// The shortest a clip animation runs, in seconds.
-    pub const MIN_ANIMATION: f64 = 0.05;
-    /// The longest a clip animation runs, in seconds.
-    pub const MAX_ANIMATION: f64 = 60.0;
 
     /// A rotation kept in (-180, 180] so a full drag never accumulates
     /// turns.
@@ -1179,29 +1125,10 @@ pub struct Clip {
     /// Played backwards.
     #[serde(default, skip_serializing_if = "is_false")]
     pub reverse: bool,
-    /// How the clip comes in: a named shape over its first seconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "wire::maybe")]
-    pub animation_in: Option<ClipAnimation>,
-    /// How it goes out: a named shape over its last seconds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "wire::maybe")]
-    pub animation_out: Option<ClipAnimation>,
-    /// A shape over its whole length.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "wire::maybe")]
-    pub animation_combo: Option<ClipAnimation>,
-    /// A repeating motion over the clip.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[serde(deserialize_with = "wire::maybe")]
-    pub animation_loop: Option<ClipAnimation>,
     /// The user's own keys, sorted by property and then by `at`. Empty is a
-    /// clip whose properties are the constants above.
-    ///
-    /// These sit *under* the animation presets rather than beside them: a
-    /// keyed property's value replaces the constant the preset is relative
-    /// to, so a clip can carry both a hand-keyed scale and a Fade preset
-    /// without either having to know about the other.
+    /// clip whose properties are the constants above. A keyed property's
+    /// keys travel absolutely: they replace the constant rather than ride
+    /// on it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[serde(deserialize_with = "wire::list")]
     pub keys: Vec<ClipKey>,
@@ -1338,10 +1265,6 @@ impl Clip {
             preserve_pitch: true,
             speed_curve: None,
             reverse: false,
-            animation_in: None,
-            animation_out: None,
-            animation_combo: None,
-            animation_loop: None,
             keys: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -1425,14 +1348,6 @@ impl Clip {
             for entry in chain.iter_mut() {
                 entry.sort_keys();
             }
-        }
-        for slot in [
-            &mut self.animation_in,
-            &mut self.animation_out,
-            &mut self.animation_combo,
-            &mut self.animation_loop,
-        ] {
-            *slot = slot.take().and_then(ClipAnimation::tidy);
         }
         self.text = self.text.take().map(TextStyle::tidy);
         if self.muted == Some(false) {

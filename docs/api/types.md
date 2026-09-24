@@ -157,7 +157,6 @@ the JSON when they hold it.
 | `speed` | number | Playback rate; the curve's mean when a curve is set |
 | `speedCurve` | *SpeedPoint*[] | *optional* |
 | `reverse` | bool | *optional* |
-| `animationIn`, `animationOut`, `animationCombo`, `animationLoop` | `{preset, duration}` | *optional* |
 | `keys` | *ClipKey*[] | *optional*. User keyframes, sorted by property then `at` |
 | `flipH`, `flipV` | bool | *optional* |
 | `blend` | string | *optional*. `multiply`, `screen`, `add`, `lighten`, `darken`; absent is normal |

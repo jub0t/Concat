@@ -168,8 +168,6 @@ fn pick_timeline<'a>(project: &'a Project, timeline_id: Option<&str>) -> Option<
 /// the base by the scale and opacity tracks, so a clip sitting at zero
 /// opacity could never be keyed back up if its keys were relative to it.
 ///
-/// Presets stay relative, which is what lets a Fade preset ride on top of a
-/// hand-keyed opacity without either knowing about the other.
 pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) -> f64 {
     if !clip.is_keyed(property) {
         return clip.constant(property);
@@ -181,45 +179,18 @@ pub fn export_base(clip: &concat_project::model::Clip, property: KeyProperty) ->
     }
 }
 
-/// The keys the engine plays: the clip's own where it has them, and its
-/// animation presets - materialised for its current length - everywhere it
-/// does not. See `concat_project::animation`.
-///
-/// A property the user has keyed does not also get its preset's track. Two
-/// sets of keys on one property is a question with no good answer, and the
-/// hand-set ones are the ones someone will be looking at when they wonder
-/// why the clip is not doing what they said.
+/// The keys the engine plays: the clip's own, property by property.
 pub fn export_keys(clip: &concat_project::model::Clip) -> Vec<ExportKey> {
-    let presets = concat_project::animation::animation_of(clip);
     let mut out = Vec::new();
-
     for property in KeyProperty::ALL {
-        if clip.is_keyed(property) {
-            out.extend(clip.keys_on(property).map(|key| ExportKey {
-                property: property.name().to_owned(),
-                at: key.at,
-                value: key.value,
-                ease: key.ease.sane().0,
-            }));
+        if !clip.is_keyed(property) {
             continue;
         }
-        // Gain has no presets to fall back on; the catalogue is picture only.
-        let Some(animation) = presets.as_ref() else {
-            continue;
-        };
-        let track = match property {
-            KeyProperty::Scale => &animation.scale,
-            KeyProperty::OffsetX => &animation.offset_x,
-            KeyProperty::OffsetY => &animation.offset_y,
-            KeyProperty::Rotation => &animation.rotation,
-            KeyProperty::Opacity => &animation.opacity,
-            KeyProperty::Volume => continue,
-        };
-        out.extend(track.keys().iter().map(|key| ExportKey {
+        out.extend(clip.keys_on(property).map(|key| ExportKey {
             property: property.name().to_owned(),
             at: key.at,
             value: key.value,
-            ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
+            ease: key.ease.sane().0,
         }));
     }
     out

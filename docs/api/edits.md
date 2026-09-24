@@ -38,7 +38,6 @@ edit; `createdId` names what the command made, if anything.
 | [`setClipTransform`](#setcliptransform) | scale, offset, rotation, stretch | |
 | [`setClipSpeed`](#setclipspeed) | playback rate | |
 | [`setClipSpeedCurve`](#setclipspeedcurve) | speed over time | |
-| [`setClipAnimation`](#setclipanimation) | a named in/out/combo/loop shape | |
 | [`setClipKey`](#setclipkey) · [`clearClipKey`](#clearclipkey) · [`clearClipKeys`](#clearclipkeys) | keyframes on scale, offset, rotation, opacity, volume | |
 | [`setEffectKey`](#seteffectkey) · [`clearEffectKey`](#cleareffectkey) · [`clearEffectKeys`](#cleareffectkeys) | keyframes on an effect parameter | |
 | [`setClipCutout`](#setclipcutout) · [`addCutoutStroke`](#addcutoutstroke) | background removal and brush corrections | |
@@ -376,16 +375,6 @@ Speed that changes over the clip.
 |---|---|---|
 | `clipId` | string | The clip |
 | `curve` | *SpeedPoint*[] or `null` | Points of `{at, speed}`, `at` a fraction 0..=1 of the clip. `null` returns to a constant rate at the current mean |
-
-### `setClipAnimation`
-
-A named shape on one slot of the clip.
-
-| Field | Type | Meaning |
-|---|---|---|
-| `clipId` | string | The clip |
-| `slot` | `"in"`, `"out"`, `"combo"`, `"loop"` | Which slot |
-| `animation` | `{preset, duration}` or `null` | `preset` is a name the inspector's menu offers for that slot (e.g. `"Fade"`, `"Zoom In"`, `"Slide Up"`, `"Pulse"`, `"Shake"`); `duration` in seconds for in/out. `null` takes it off |
 
 ### `setClipKey`
 

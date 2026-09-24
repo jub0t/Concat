@@ -43,11 +43,10 @@ use concat_media::{
     AudioDecoder, AudioOptions, DecodeOptions, Decoder, EncodeOptions, Encoder,
     Error as MediaError, FrameSink, FrameSource, HwDevice, RateMode, SampleFormat, VideoCodec,
 };
-use concat_project::animation;
 use concat_project::commands::{ClipMove, ClipPatch, Command, TrackFlag, TrimEdge};
 use concat_project::model::{
-    AnimationSlot, AppliedFilter, ClipAnimation, ColorRange, Crop, KeyEase, KeyProperty,
-    SpeedPoint, TextStyle, Transition, VideoSettings,
+    AppliedFilter, ColorRange, Crop, KeyEase, KeyProperty, SpeedPoint, TextStyle, Transition,
+    VideoSettings,
 };
 
 /// The sample rate every source and every export carries.
@@ -989,8 +988,7 @@ fn every_edit_still_exports() {
         });
     }
 
-    // The transform, the crop, the flips, a blend, opacity, fades, gain,
-    // and an animation on each slot.
+    // The transform, the crop, the flips, a blend, opacity, fades, gain.
     studio.apply(Command::SetClipTransform {
         clip_id: cam_clip.clone(),
         scale: Some(0.6),
@@ -1022,21 +1020,6 @@ fn every_edit_still_exports() {
     let exported = studio.export("transform crop blend fades");
     exported.expect_length(end);
     exported.expect_sound(end);
-
-    for slot in [AnimationSlot::In, AnimationSlot::Out, AnimationSlot::Combo] {
-        let names = animation::names(slot);
-        assert!(!names.is_empty(), "{slot:?} offers animations");
-        studio.apply(Command::SetClipAnimation {
-            clip_id: cam_clip.clone(),
-            slot,
-            animation: Some(ClipAnimation {
-                preset: names[0].to_owned(),
-                duration: 0.5,
-            }),
-        });
-    }
-    let exported = studio.export("animations");
-    exported.expect_length(end);
 
     // A layer over everything, and a title.
     studio.apply(Command::AddLayerClip {

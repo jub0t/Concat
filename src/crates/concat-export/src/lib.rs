@@ -128,7 +128,7 @@ pub struct ExportClip {
     #[serde(default)]
     pub reverse: bool,
     /// Keys over the clip's placement and opacity, resolved by the UI from
-    /// its animation presets. Empty for none.
+    /// Empty for none.
     #[serde(default)]
     pub animation: Vec<ExportKey>,
     /// Mirrored left to right.

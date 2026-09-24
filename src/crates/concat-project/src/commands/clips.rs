@@ -299,14 +299,12 @@ pub(super) fn apply(
                 // an entrance or an exit the whole did not have at the cut.
                 tail.transition_in = None;
                 tail.fade_in = 0.0;
-                tail.animation_in = None;
                 tail.rewindow_keys(whole, offset, whole);
                 created = Some(tail.id.clone());
                 let head = timeline.clip_at_mut(index);
                 head.duration = offset;
                 head.source_start = head_source;
                 head.fade_out = 0.0;
-                head.animation_out = None;
                 head.rewindow_keys(whole, 0.0, offset);
                 timeline.clips.insert(index + 1, Arc::new(tail));
             }
@@ -453,13 +451,11 @@ pub(super) fn apply(
             tail.source_start = tail_source;
             tail.transition_in = None;
             tail.fade_in = 0.0;
-            tail.animation_in = None;
             tail.rewindow_keys(clip_duration, offset, clip_duration);
             let head = timeline.clip_at_mut(index);
             head.duration = offset;
             head.source_start = head_source;
             head.fade_out = 0.0;
-            head.animation_out = None;
             head.rewindow_keys(clip_duration, 0.0, offset);
             timeline.clips.insert(index + 1, Arc::new(tail));
 
@@ -537,7 +533,6 @@ pub(super) fn apply(
                 survivor.absorb_keys(piece, piece.start - first.start);
             }
             survivor.fade_out = last.fade_out;
-            survivor.animation_out = last.animation_out.clone();
             // A validated merge always absorbs at least one piece.
             Ok(Outcome {
                 created_id: Some(first.id),

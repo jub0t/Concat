@@ -13,9 +13,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AnimationSlot, AppliedFilter, AudioTrack, Clip, ClipAnimation, ClipKind, ColorRange, Crop,
-    CustomFont, Cutout, CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin,
-    Project, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, Crop, CustomFont, Cutout, CutoutMode,
+    KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, SpeedPoint, Stroke,
+    TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -37,8 +37,8 @@ const DEFAULT_LAYER_DURATION: f64 = 5.0;
 /// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
-    MAX_ANIMATION, MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_ANIMATION, MIN_CLIP_DURATION,
-    MIN_SCALE, MIN_SPEED, MIN_STRETCH, wrap_rotation,
+    MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_CLIP_DURATION, MIN_SCALE, MIN_SPEED,
+    MIN_STRETCH, wrap_rotation,
 };
 
 /// Which end of a clip a trim drags. The two are not symmetric: see
@@ -345,15 +345,6 @@ pub enum Command {
         clip_id: String,
         /// The curve, or None for a constant rate at the current mean.
         curve: Option<Vec<SpeedPoint>>,
-    },
-    /// Sets or clears the animation on one slot of a clip.
-    SetClipAnimation {
-        /// The clip.
-        clip_id: String,
-        /// Which end, or the whole.
-        slot: AnimationSlot,
-        /// The shape and its seconds, or None to take it off.
-        animation: Option<ClipAnimation>,
     },
     /// Puts a key on one property at one point of a clip, replacing
     /// whichever key on that property was already within a hair of it.
@@ -896,9 +887,6 @@ impl Command {
                 .iter()
                 .flatten()
                 .flat_map(|point| [point.at, point.speed])),
-            Command::SetClipAnimation { animation, .. } => {
-                bad(animation.iter().map(|animation| animation.duration))
-            }
             Command::SetClipKey {
                 at, value, ease, ..
             }
@@ -1033,7 +1021,6 @@ pub fn apply(
         | Command::SetClipSpeed { .. }
         | Command::SetClipCutout { .. }
         | Command::AddCutoutStroke { .. }
-        | Command::SetClipAnimation { .. }
         | Command::SetClipKey { .. }
         | Command::ClearClipKey { .. }
         | Command::ClearClipKeys { .. }

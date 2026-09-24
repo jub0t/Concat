@@ -948,7 +948,6 @@ fn commit_key(commands: &[Command]) -> String {
             Command::SetClipCutout { .. } => "cutout".to_owned(),
             Command::SetClipSpeed { .. } => "speed".to_owned(),
             Command::SetClipSpeedCurve { .. } => "curve".to_owned(),
-            Command::SetClipAnimation { slot, .. } => format!("animation:{slot:?}"),
             Command::UpdateClip { patch, .. } => {
                 let mut fields = Vec::new();
                 if patch.name.is_some() {
@@ -997,40 +996,6 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
         model::KeyProperty::Opacity => ClipField::Opacity,
         model::KeyProperty::Volume => ClipField::Volume,
     }
-}
-
-/// The menu row of a slot's animation: -1 for none.
-fn slot_index(
-    slot: concat_project::model::AnimationSlot,
-    set: &Option<concat_project::model::ClipAnimation>,
-) -> i32 {
-    set.as_ref()
-        .and_then(|set| concat_project::animation::index_of(slot, &set.preset))
-        .map(|index| index as i32)
-        .unwrap_or(-1)
-}
-
-/// A slot set from its menu row: -1 takes it off, else the row's shape at
-/// the length already set or `seconds`.
-fn set_slot(
-    slot: concat_project::model::AnimationSlot,
-    field: &mut Option<concat_project::model::ClipAnimation>,
-    row: f64,
-    seconds: f64,
-) {
-    if row < 0.0 {
-        *field = None;
-        return;
-    }
-    let names = concat_project::animation::names(slot);
-    let Some(name) = names.get(row as usize) else {
-        return;
-    };
-    let duration = field.as_ref().map(|set| set.duration).unwrap_or(seconds);
-    *field = Some(concat_project::model::ClipAnimation {
-        preset: (*name).to_owned(),
-        duration,
-    });
 }
 
 /// What the catalogue shelves are a function of; see `Studio::shelf_stamp`.
@@ -3426,45 +3391,6 @@ impl Studio {
                 let crop = crop.tidy();
                 clip.crop = (!crop.is_none()).then_some(crop);
             }
-            ClipField::AnimIn => set_slot(
-                concat_project::model::AnimationSlot::In,
-                &mut clip.animation_in,
-                value,
-                0.5,
-            ),
-            ClipField::AnimOut => set_slot(
-                concat_project::model::AnimationSlot::Out,
-                &mut clip.animation_out,
-                value,
-                0.5,
-            ),
-            ClipField::AnimCombo => set_slot(
-                concat_project::model::AnimationSlot::Combo,
-                &mut clip.animation_combo,
-                value,
-                clip.duration,
-            ),
-            ClipField::AnimLoop => set_slot(
-                concat_project::model::AnimationSlot::Loop,
-                &mut clip.animation_loop,
-                value,
-                1.0,
-            ),
-            ClipField::AnimInDuration => {
-                if let Some(set) = clip.animation_in.as_mut() {
-                    set.duration = value.clamp(0.05, 60.0);
-                }
-            }
-            ClipField::AnimOutDuration => {
-                if let Some(set) = clip.animation_out.as_mut() {
-                    set.duration = value.clamp(0.05, 60.0);
-                }
-            }
-            ClipField::AnimLoopDuration => {
-                if let Some(set) = clip.animation_loop.as_mut() {
-                    set.duration = value.clamp(0.1, 60.0);
-                }
-            }
             ClipField::SpeedCurve => {
                 // The same arithmetic as the command: the source covered is
                 // held, so the length follows the curve's mean.
@@ -3711,36 +3637,6 @@ impl Studio {
         if after.crop != before.crop {
             patch.crop = Some(after.crop);
         }
-        for (slot, now, was) in [
-            (
-                concat_project::model::AnimationSlot::In,
-                &after.animation_in,
-                &before.animation_in,
-            ),
-            (
-                concat_project::model::AnimationSlot::Out,
-                &after.animation_out,
-                &before.animation_out,
-            ),
-            (
-                concat_project::model::AnimationSlot::Combo,
-                &after.animation_combo,
-                &before.animation_combo,
-            ),
-            (
-                concat_project::model::AnimationSlot::Loop,
-                &after.animation_loop,
-                &before.animation_loop,
-            ),
-        ] {
-            if now != was {
-                commands.push(Command::SetClipAnimation {
-                    clip_id: id.clone(),
-                    slot,
-                    animation: now.clone(),
-                });
-            }
-        }
         if after.text != before.text {
             patch.text = Some(after.text.clone());
         }
@@ -3857,8 +3753,7 @@ impl Studio {
         } else {
             (w * clip.stretch_x, h * clip.stretch_y)
         };
-        // The placement at the playhead: the clip's own, moved by its
-        // animation, so the box follows a slide or a spin.
+        // The placement: the clip's own.
         let base = concat_core::timeline::Transform {
             scale: clip.scale,
             offset_x: clip.offset_x,
@@ -3867,13 +3762,7 @@ impl Studio {
             stretch_x: clip.stretch_x,
             stretch_y: clip.stretch_y,
         };
-        let placed = match concat_project::animation::animation_of(clip) {
-            Some(animation) if clip.duration > 0.0 => {
-                let x = ((f64::from(self.playhead) - clip.start) / clip.duration).clamp(0.0, 1.0);
-                animation.transform_at(base, x)
-            }
-            _ => base,
-        };
+        let placed = base;
         let factor = placed.scale / clip.scale.max(1e-6);
         // A title anchored on an edge paints its block beside the clip's
         // position, not on it; the box goes where the block is. The offset
@@ -6283,34 +6172,6 @@ impl Studio {
                     .unwrap_or(concat_project::speed::PRESETS.len() as i32),
             },
             reverse: clip.reverse,
-            anim_in: slot_index(concat_project::model::AnimationSlot::In, &clip.animation_in),
-            anim_out: slot_index(
-                concat_project::model::AnimationSlot::Out,
-                &clip.animation_out,
-            ),
-            anim_combo: slot_index(
-                concat_project::model::AnimationSlot::Combo,
-                &clip.animation_combo,
-            ),
-            anim_loop: slot_index(
-                concat_project::model::AnimationSlot::Loop,
-                &clip.animation_loop,
-            ),
-            anim_in_duration: clip
-                .animation_in
-                .as_ref()
-                .map(|set| set.duration as f32)
-                .unwrap_or(0.5),
-            anim_out_duration: clip
-                .animation_out
-                .as_ref()
-                .map(|set| set.duration as f32)
-                .unwrap_or(0.5),
-            anim_loop_duration: clip
-                .animation_loop
-                .as_ref()
-                .map(|set| set.duration as f32)
-                .unwrap_or(1.0),
             flip_h: clip.flip_h,
             flip_v: clip.flip_v,
             blend: concat_core::Blend::ALL
