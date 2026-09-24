@@ -40,7 +40,6 @@ Slint UI - is one Cargo workspace under `src/`.
 | Path | What lives there |
 |---|---|
 | `src/crates/` | The engine (core, media, render, export, project), the host layer (`concat-host`, `concat-speech`), the CLI, and `concat`, the Slint editor window |
-| `test/` | Python prototypes of analyses, kept for reference (see `test/README.md`); no fixtures and no automated tests |
 
 [`src/README.md`](src/README.md) explains how the crates fit together and
 where the sharp edges are. Read it before touching the engine.

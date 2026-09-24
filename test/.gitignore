@@ -1,9 +1,0 @@
-# Experiment inputs/outputs and model weights - the scripts are the record,
-# their artifacts are not. (test/assets/ is already ignored repo-wide.)
-*.wav
-*.mp3
-*.mp4
-*.onnx
-*.json
-denoised.*
-enhanced.*
