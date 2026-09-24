@@ -29,9 +29,11 @@ pub(super) fn apply(
             if timeline.track(&track_id).is_none() {
                 return Err(CommandError::TrackGone);
             }
-            if ripple {
-                ripple_room_for(timeline, &track_id, start, &media);
-            }
+            let start = if ripple {
+                ripple_room_for(timeline, &track_id, start, &media)
+            } else {
+                start
+            };
             let id = mint.next("c");
             timeline
                 .clips
@@ -633,24 +635,36 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
     clip
 }
 
-/// Shifts every clip on `track_id` at or after `start` right by the
-/// duration the new clip will take, when the new clip would overlap
-/// something already there. A drop with room to spare changes nothing.
-fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &MediaItem) {
+/// Makes room on `track_id` for a new clip at `start`: a drop onto the
+/// middle of a clip lands at that clip's end instead, and every clip at
+/// or after the place it lands moves right by the new clip's length, so
+/// the new clip slots in and nothing is covered (#129). Returns where the
+/// new clip lands. A drop with room to spare changes nothing.
+fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &MediaItem) -> f64 {
     let duration = match media.kind {
         MediaKind::Image => DEFAULT_IMAGE_DURATION,
         _ => media.duration.unwrap_or(UNKNOWN_DURATION),
     };
+    // Dropped onto a clip: after it, rather than over it or through it.
+    let start = timeline
+        .clips
+        .iter()
+        .filter(|clip| {
+            clip.track_id == track_id && clip.start < start && start < clip.start + clip.duration
+        })
+        .map(|clip| clip.start + clip.duration)
+        .fold(start, f64::max);
     let end = start + duration;
     let overlaps = timeline.clips.iter().any(|clip| {
         clip.track_id == track_id && clip.start < end && start < clip.start + clip.duration
     });
     if !overlaps {
-        return;
+        return start;
     }
     for clip in timeline.clips_where(|clip| clip.track_id == track_id && clip.start >= start) {
         clip.start += duration;
     }
+    start
 }
 
 /// The lowest track with nothing occupying `[start, start + duration)`,

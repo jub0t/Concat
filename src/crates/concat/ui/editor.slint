@@ -269,6 +269,9 @@ export global Editor {
     in-out property <bool> sound-selected;
     in-out property <bool> title-selected;
     in-out property <float> playhead;
+    /// The selected clip's keys, as instants on the timeline: the ruler's
+    /// diamonds. Empty unless exactly one clip is selected.
+    in-out property <[float]> key-marks;
     in-out property <float> frame-rate;
     in-out property <float> scroll-left;
     in-out property <float> seconds-per-pixel;
@@ -307,6 +310,8 @@ export global Editor {
     /// decides which clips are worth publishing.
     callback lanes-resized(width: float);
     callback scrubbed(seconds: float);
+    /// A ruler diamond was dragged: every key at `from` moves to `to`.
+    callback key-mark-moved(from: float, to: float);
     callback clip-pressed(id: string, additive: bool, edge: int);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();

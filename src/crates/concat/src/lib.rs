@@ -196,6 +196,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             .set_rows(ModelRc::from(models.key_rows.clone()));
         app.global::<KeyEditor>()
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
+        editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
@@ -730,6 +731,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
 
     // ── the view ──
+    editor.on_key_mark_moved(on_lanes!(|state, from: f32, to: f32| {
+        state.move_keys_at(from, to);
+    }));
     editor.on_scrubbed(on_lanes!(|state, seconds: f32| {
         state.seek(seconds.max(0.0));
     }));

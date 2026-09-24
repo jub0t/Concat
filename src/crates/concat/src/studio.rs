@@ -491,6 +491,8 @@ pub struct Models {
     pub key_rows: Rc<VecModel<ClipKeyData>>,
     /// The Keyframes panel's rows; see `Studio::key_editor_rows`.
     pub key_editor_rows: Rc<VecModel<KeyRowData>>,
+    /// The ruler's diamonds; see `Studio::key_marks`.
+    pub key_marks: Rc<VecModel<f32>>,
     pub library_views: Rc<VecModel<LibraryViewData>>,
     pub menu: Rc<VecModel<MenuItemData>>,
     pub bar: Rc<VecModel<MenuItemData>>,
@@ -538,6 +540,7 @@ impl Models {
             adjust_params: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
+            key_marks: Rc::new(VecModel::default()),
             library_views: Rc::new(VecModel::default()),
             menu: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
@@ -1973,6 +1976,20 @@ impl Studio {
                         let end = studio.duration();
                         let position = studio.host.playback.position() as f32;
                         studio.playhead = position.min(end);
+                        // The view follows: a playhead that runs off the
+                        // right edge, or sits off the left, pages the lanes
+                        // to it, the way every editor keeps the cut in view.
+                        if let Some((low, high)) = studio.lanes.published_span() {
+                            let screen = (high - low) / 3.0;
+                            let left = studio.lanes.scroll_left;
+                            if screen > 0.0
+                                && (studio.playhead > left + screen * 0.95
+                                    || studio.playhead < left)
+                            {
+                                studio.lanes.scroll_left =
+                                    (studio.playhead - screen * 0.05).max(0.0);
+                            }
+                        }
                         if position >= end {
                             studio.pause();
                         } else {
@@ -3186,11 +3203,31 @@ impl Studio {
             };
             return;
         }
-        let moving = if self.selection.iter().any(|held| held == id) {
+        let mut moving = if self.selection.iter().any(|held| held == id) {
             self.selection.clone()
         } else {
             vec![id.to_owned()]
         };
+        // A detached sound travels with its picture and the picture with
+        // its sound: the pair stays in step unless one of them is moved
+        // on its own lane by a lock (#105).
+        let partners: Vec<String> = moving
+            .iter()
+            .filter_map(|clip_id| self.clip(clip_id))
+            .flat_map(|clip| {
+                let mut found: Vec<String> = clip.detached_from.iter().cloned().collect();
+                found.extend(
+                    self.timeline()
+                        .clips
+                        .iter()
+                        .filter(|other| other.detached_from.as_deref() == Some(clip.id.as_str()))
+                        .map(|other| other.id.clone()),
+                );
+                found
+            })
+            .filter(|partner| !moving.contains(partner))
+            .collect();
+        moving.extend(partners);
         let origins = moving
             .iter()
             .filter_map(|clip_id| {
@@ -5969,6 +6006,7 @@ impl Studio {
             .unwrap_or(0);
         editor.set_timeline_current_tab(active as i32);
         editor.set_playhead(self.playhead);
+        sync(&models.key_marks, self.key_marks());
         editor.set_scroll_left(self.lanes.scroll_left);
         editor.set_seconds_per_pixel(self.lanes.seconds_per_pixel);
         editor.set_frame_rate(self.frame_rate());
@@ -6366,6 +6404,95 @@ impl Studio {
             }
         }
         rows
+    }
+
+    /// The selected clip's keys as instants on the timeline, every property
+    /// and Adjust knob together, one diamond per instant: what the ruler
+    /// draws while exactly one clip is selected (#188).
+    pub fn key_marks(&self) -> Vec<f32> {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return Vec::new();
+        };
+        let mut ats: Vec<f64> = model::KeyProperty::ALL
+            .iter()
+            .flat_map(|&property| clip.keys_on(property).map(|key| key.at))
+            .collect();
+        if let Some(link) = clip
+            .video_effects
+            .iter()
+            .find(|entry| entry.id == ADJUST_ID)
+        {
+            ats.extend(link.keys.values().flatten().map(|key| key.at));
+        }
+        ats.sort_by(f64::total_cmp);
+        ats.dedup_by(|a, b| (*a - *b).abs() <= model::KEY_EPSILON);
+        ats.iter()
+            .map(|at| (clip.start + at * clip.duration) as f32)
+            .collect()
+    }
+
+    /// Moves every key of the selected clip that sits at the instant
+    /// `from` to the instant `to`, as one undo step: what a dragged ruler
+    /// diamond does.
+    pub fn move_keys_at(&mut self, from: f32, to: f32) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        if clip.duration <= 0.0 {
+            return;
+        }
+        let clip_id = clip.id.clone();
+        let from_at = (f64::from(from) - clip.start) / clip.duration;
+        let to_at = ((f64::from(to) - clip.start) / clip.duration).clamp(0.0, 1.0);
+        let mut commands = Vec::new();
+        for property in model::KeyProperty::ALL {
+            let Some(index) = clip.key_at(property, from_at) else {
+                continue;
+            };
+            let key = &clip.keys[index];
+            commands.push(Command::ClearClipKey {
+                clip_id: clip_id.clone(),
+                property,
+                at: key.at,
+            });
+            commands.push(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property,
+                at: to_at,
+                value: key.value,
+                ease: key.ease,
+            });
+        }
+        if let Some(entry) = clip
+            .video_effects
+            .iter()
+            .position(|entry| entry.id == ADJUST_ID)
+        {
+            let link = &clip.video_effects[entry];
+            for name in link.keys.keys() {
+                let Some(index) = link.key_at(name, from_at) else {
+                    continue;
+                };
+                let key = &link.keys_on(name)[index];
+                commands.push(Command::ClearEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry,
+                    key: name.clone(),
+                    at: key.at,
+                });
+                commands.push(Command::SetEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry,
+                    key: name.clone(),
+                    at: to_at,
+                    value: key.value,
+                    ease: key.ease,
+                });
+            }
+        }
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
     }
 
     /// Moves the playhead to `at` of the selected clip, `0..1`.

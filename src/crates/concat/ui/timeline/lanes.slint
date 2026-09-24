@@ -134,6 +134,9 @@ component Clip inherits Rectangle {
     /// lanes down — the lanes differ in height, so which row a drag has
     /// reached is a question only the side holding the heights can answer.
     callback dragged(seconds: float, pixels: length);
+    /// Where the pointer is across the clip while it drags, for the lanes
+    /// to scroll when it reaches their edge.
+    callback pointer-at(x: length);
     callback released();
     callback context-requested();
     /// The pointer over this clip, at this x in it, and then not. For the
@@ -552,6 +555,7 @@ component Clip inherits Rectangle {
 
         moved => {
             if (root.tool == TimelineTool.select) {
+                root.pointer-at(self.mouse-x);
                 root.dragged(
                     (self.absolute-position.x + self.mouse-x - self.origin-x)
                         / root.px-per-second,
@@ -891,6 +895,8 @@ export component Lanes inherits Rectangle {
     in property <[ClipData]> clips;
     in property <TimelineTool> tool: TimelineTool.select;
     in property <float> playhead;
+    /// The selected clip's keys as instants; see `Editor.key-marks`.
+    in property <[float]> key-marks;
     in property <float> frame-rate: 30;
     /// Seconds at the left edge of the lanes.
     in property <float> scroll-left;
@@ -906,6 +912,8 @@ export component Lanes inherits Rectangle {
     in property <length> ruler-height: 28px;
 
     callback scrubbed(seconds: float);
+    /// A ruler diamond dragged from one instant to another.
+    callback key-mark-moved(from: float, to: float);
     /// The preview axis: the pointer is over the lanes at this instant,
     /// and then - a beat after it last was - it is not.
     callback hovered(seconds: float);
@@ -993,6 +1001,36 @@ export component Lanes inherits Rectangle {
     pure function at(seconds: float) -> length {
         return (seconds - root.scroll-left) * root.px-per-second;
     }
+    // ── scrolling at the edge ─────────────────────────────────────────
+    // A scrub or a clip drag that reaches the lanes' edge scrolls the view
+    // that way, a dozen pixels a tick, and re-reports the pointer so the
+    // playhead or the clip keeps up (#101). What is pressed says which
+    // report to repeat.
+    property <bool> scrubbing;
+    property <bool> clip-dragging;
+    property <length> pointer-x;
+    property <float> drag-seconds;
+    property <length> drag-pixels;
+    /// `scroll-left` when the clip was pressed; see the clip's `dragged`.
+    property <float> press-scroll;
+    property <length> edge-zone: 40px;
+    property <bool> at-edge: (root.scrubbing || root.clip-dragging)
+        && (root.pointer-x < root.edge-zone || root.pointer-x > root.width - root.edge-zone);
+
+    edge-scroll := Timer {
+        interval: 16ms;
+        running: root.at-edge;
+        triggered => {
+            root.scrolled(Math.max(0, root.scroll-left
+                + (root.pointer-x < root.edge-zone ? -12 : 12) * root.seconds-per-pixel));
+            if (root.scrubbing) {
+                root.scrubbed(Math.max(0, root.seconds-at(root.pointer-x)));
+            } else {
+                root.clip-dragged(root.drag-seconds + (root.scroll-left - root.press-scroll), root.drag-pixels);
+            }
+        }
+    }
+
     pure function seconds-at(x: length) -> float {
         return root.scroll-left + x / root.px-per-second;
     }
@@ -1174,9 +1212,24 @@ export component Lanes inherits Rectangle {
             // onto every clip would be one more thing to keep in step.
             locked: root.tracks[entry.row].locked;
 
-            pressed(additive, edge) => { root.clip-pressed(entry.id, additive, edge); }
-            dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
-            released => { root.clip-released(); }
+            pressed(additive, edge) => {
+                root.press-scroll = root.scroll-left;
+                root.clip-dragging = true;
+                root.clip-pressed(entry.id, additive, edge);
+            }
+            // The clip reports its delta from the press; a view that has
+            // scrolled since then is added, so the clip stays under the
+            // pointer while the edge scrolls it along.
+            dragged(seconds, pixels) => {
+                root.drag-seconds = seconds;
+                root.drag-pixels = pixels;
+                root.clip-dragged(seconds + (root.scroll-left - root.press-scroll), pixels);
+            }
+            pointer-at(x) => { root.pointer-x = self.x + x; }
+            released => {
+                root.clip-dragging = false;
+                root.clip-released();
+            }
             hovered(x) => { root.hover-at(self.x + x); }
             hover-ended => { root.hover-off(); }
             context-requested => {
@@ -1356,12 +1409,62 @@ export component Lanes inherits Rectangle {
                 }
                 pointer-event(event) => {
                     if (event.kind == PointerEventKind.down) {
+                        root.scrubbing = true;
+                        root.pointer-x = self.mouse-x;
                         root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
+                    } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                        root.scrubbing = false;
                     }
                 }
                 moved => {
                     if (self.pressed) {
+                        root.pointer-x = self.mouse-x;
                         root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
+                    }
+                }
+            }
+
+            // The selected clip's keys, as diamonds on the ruler's floor:
+            // clicked to go to one, dragged to move every key at that
+            // instant. Only while one clip is selected (#188).
+            for mark in root.key-marks: TouchArea {
+                property <float> drag-to: mark;
+                property <bool> dragging;
+
+                x: root.at(self.dragging ? self.drag-to : mark) - 7px;
+                y: root.ruler-height - 14px;
+                width: 14px;
+                height: 14px;
+                mouse-cursor: pointer;
+
+                Path {
+                    x: 2px;
+                    y: 2px;
+                    width: 10px;
+                    height: 10px;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    commands: "M 5 0.75 L 9.25 5 L 5 9.25 L 0.75 5 Z";
+                    fill: Theme.accent;
+                    stroke: Theme.ruler;
+                    stroke-width: 1px;
+                }
+
+                moved => {
+                    if (self.pressed) {
+                        self.dragging = true;
+                        self.drag-to = Math.max(0,
+                            root.seconds-at(root.at(mark) + self.mouse-x - self.pressed-x));
+                    }
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                        if (self.dragging && Math.abs(self.drag-to - mark) > 0.0005) {
+                            root.key-mark-moved(mark, self.drag-to);
+                        } else if (event.kind == PointerEventKind.up) {
+                            root.scrubbed(mark);
+                        }
+                        self.dragging = false;
                     }
                 }
             }

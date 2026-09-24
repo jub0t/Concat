@@ -3,24 +3,28 @@
 
 import { Theme } from "../theme/theme.slint";
 
-// A waveform drawn: the bars in `tint`, scaled by `gain` from the floor
-// up, and the part of them over the hot line drawn again in the hot colour
-// - the same path, clipped to the band above the line. The path is at
-// unity (see `format::wave_path`), so the gain is a layout property here
-// and a volume drag costs no rebuild; a gain over one pushes the bars past
-// the top and the box clips them, which is what full scale looks like.
+// A waveform drawn: the bars in `tint`, standing about the centre line and
+// scaled by `gain`, and the part of them past the hot lines - above the
+// upper one, below the lower - drawn again in the hot colour: the same
+// path, clipped to the two bands. The path is at unity (see
+// `format::wave_path`), so the gain is a layout property here and a
+// volume drag costs no rebuild; a gain over one pushes the bars past the
+// edges and the box clips them, which is what full scale looks like.
 export component Wave inherits Rectangle {
     in property <string> commands;
     in property <float> gain: 1;
     in property <brush> tint;
 
     property <length> bars-h: root.height * Math.max(0, root.gain);
+    property <length> bars-y: (root.height - root.bars-h) / 2;
+    /// How far from the middle the hot band begins, either way.
+    property <length> hot-inset: root.height * (1 - Theme.wave-hot-line) / 2;
 
     clip: true;
 
     Path {
         x: 0;
-        y: root.height - root.bars-h;
+        y: root.bars-y;
         width: root.width;
         height: root.bars-h;
         commands: root.commands;
@@ -30,16 +34,16 @@ export component Wave inherits Rectangle {
         fill: root.tint;
     }
 
-    Rectangle {
+    for band in [0, 1]: Rectangle {
         x: 0;
-        y: 0;
+        y: band == 0 ? 0 : root.height - root.hot-inset;
         width: root.width;
-        height: root.height * (1 - Theme.wave-hot-line);
+        height: root.hot-inset;
         clip: true;
 
         Path {
             x: 0;
-            y: root.height - root.bars-h;
+            y: root.bars-y - parent.y;
             width: root.width;
             height: root.bars-h;
             commands: root.commands;
@@ -50,4 +54,3 @@ export component Wave inherits Rectangle {
         }
     }
 }
-

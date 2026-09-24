@@ -75,12 +75,14 @@ export component TimelinePane inherits Rectangle {
     in property <[TrackData]> tracks;
     in property <[ClipData]> clips;
     in property <float> playhead;
+    in property <[float]> key-marks;
     in property <float> frame-rate: 30;
     in property <float> scroll-left;
     in property <float> seconds-per-pixel: 0.05;
     in-out property <length> track-scroll;
 
     callback scrubbed(seconds: float);
+    callback key-mark-moved(from: float, to: float);
     /// A press on an empty stretch of lane; see Editor.blur.
     callback floor-pressed();
     callback clip-pressed(id: string, additive: bool, edge: int);
@@ -321,6 +323,7 @@ export component TimelinePane inherits Rectangle {
 
                 tracks: root.tracks;
                 clips: root.clips;
+                key-marks: root.key-marks;
                 tool: root.tool;
                 playhead: root.playhead;
                 frame-rate: root.frame-rate;
@@ -332,6 +335,7 @@ export component TimelinePane inherits Rectangle {
                 preview-axis: root.preview-axis;
 
                 scrubbed(seconds) => { root.scrubbed(seconds); }
+                key-mark-moved(from, to) => { root.key-mark-moved(from, to); }
                 hovered(seconds) => { root.hovered(seconds); }
                 hover-ended => { root.hover-ended(); }
                 floor-pressed => { root.floor-pressed(); }

@@ -310,6 +310,7 @@ export component Seat inherits Rectangle {
             current-tab: Editor.timeline-current-tab;
             tracks: Editor.tracks;
             clips: Editor.clips;
+            key-marks: Editor.key-marks;
             tool: Editor.tool;
             snap: Editor.snap;
             magnetic: Editor.magnetic;
@@ -352,6 +353,7 @@ export component Seat inherits Rectangle {
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }
             lanes-resized(width) => { Editor.lanes-resized(width); }
             floor-pressed => { Editor.blur(); }
+            key-mark-moved(from, to) => { Editor.key-mark-moved(from, to); }
             scrubbed(seconds) => {
                 Editor.blur();
                 Editor.scrubbed(seconds);
