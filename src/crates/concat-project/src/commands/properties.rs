@@ -44,9 +44,6 @@ pub(super) fn apply(
                 // a `muted: false` that means the same as nothing.
                 applied |= assign(&mut clip.muted, muted.then_some(true));
             }
-            if let Some(reverse) = patch.reverse {
-                applied |= assign(&mut clip.reverse, reverse);
-            }
             if let Some(flip) = patch.flip_h {
                 applied |= assign(&mut clip.flip_h, flip);
             }

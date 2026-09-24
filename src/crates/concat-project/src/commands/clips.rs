@@ -203,15 +203,11 @@ pub(super) fn apply(
                 }
                 TrimEdge::Start => {
                     // Dragging the head moves the in-point too, so the pixels
-                    // under the remaining part of the clip do not slide. A
-                    // reversed clip shows the far end of its span at the
-                    // head, so its in-point is the span's other end and stays
-                    // put: only the span changes.
-                    let mut shift = delta.min(clip.duration - MIN_CLIP_DURATION);
-                    if !clip.reverse {
-                        // The head cannot reach before the source begins.
-                        shift = shift.max(-clip.source_start / clip.speed);
-                    }
+                    // under the remaining part of the clip do not slide. The
+                    // head cannot reach before the source begins.
+                    let shift = delta
+                        .min(clip.duration - MIN_CLIP_DURATION)
+                        .max(-clip.source_start / clip.speed);
                     // A magnetic head trim never moves the clip, so the
                     // timeline's own start is no limit to it; a plain one
                     // stops at zero.
@@ -222,11 +218,7 @@ pub(super) fn apply(
                     };
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
-                    let source_start = if clip.reverse {
-                        clip.source_start
-                    } else {
-                        (clip.source_start + moved * clip.speed).max(0.0)
-                    };
+                    let source_start = (clip.source_start + moved * clip.speed).max(0.0);
                     let old = clip.duration;
                     // Bitwise so no assignment is short-circuited away.
                     let applied = assign(&mut clip.start, start)
@@ -266,8 +258,7 @@ pub(super) fn apply(
                 {
                     // A curve does not survive a cut in halves: the map from
                     // here to the source is not affine, so both halves go to
-                    // the constant mean, which is what they averaged. A
-                    // reverse is affine and survives: see `split_source`.
+                    // the constant mean, which is what they averaged.
                     let clip = timeline.clip_at_mut(index);
                     let offset = time - clip.start;
                     if offset > MIN_CLIP_DURATION
@@ -282,13 +273,8 @@ pub(super) fn apply(
                 if offset <= MIN_CLIP_DURATION || offset >= clip.duration - MIN_CLIP_DURATION {
                     continue;
                 }
-                let (head_source, tail_source) = split_source(
-                    clip.source_start,
-                    clip.duration,
-                    clip.speed,
-                    offset,
-                    clip.reverse,
-                );
+                let (head_source, tail_source) =
+                    split_source(clip.source_start, clip.speed, offset);
                 let whole = clip.duration;
                 let mut tail = clip.clone();
                 tail.id = mint.next("c");
@@ -440,12 +426,10 @@ pub(super) fn apply(
             // The cut is a split's, so it leaves the pieces as a split does:
             // under a curve the map is not affine, and the in-point below
             // assumes it is, so both pieces go to the constant mean they
-            // averaged. A reverse is affine and is kept; see `split_source`.
+            // averaged.
             timeline.clip_at_mut(index).speed_curve = None;
-            let reverse = timeline.clips[index].reverse;
             let offset = time - start;
-            let (head_source, tail_source) =
-                split_source(source_start, clip_duration, speed, offset, reverse);
+            let (head_source, tail_source) = split_source(source_start, speed, offset);
             let mut tail = Clip::clone(&timeline.clips[index]);
             tail.id = mint.next("c");
             tail.start = time;
@@ -483,7 +467,6 @@ pub(super) fn apply(
             frozen.source_start = 0.0;
             frozen.speed = 1.0;
             frozen.speed_curve = None;
-            frozen.reverse = false;
             frozen.volume = 1.0;
             frozen.fade_in = 0.0;
             frozen.fade_out = 0.0;
@@ -523,11 +506,6 @@ pub(super) fn apply(
                 .clip_mut(&first.id)
                 .expect("the first piece survives the retain");
             survivor.duration = merged_duration;
-            if first.reverse {
-                // The last piece shows the earliest source, and the merged
-                // clip's in-point is that.
-                survivor.source_start = last.source_start;
-            }
             // Every piece's keys land where they were on the picture; the
             // way out is the last piece's, as the way in is the first's.
             survivor.rewindow_keys(first.duration, 0.0, merged_duration);
@@ -713,24 +691,11 @@ fn first_free_track_above(timeline: &Timeline, start: f64, duration: f64) -> Opt
         .map(|track| track.id.clone())
 }
 
-/// Where each piece of a clip cut at `offset` begins in the source.
-/// Forwards, the head keeps its in-point and the tail starts `offset ×
-/// speed` later. Backwards, the head shows the late end of the span, so
-/// the tail keeps the in-point and the head's moves up past what the tail
-/// now shows. Either way the two pieces together show exactly what the
-/// whole did.
-fn split_source(
-    source_start: f64,
-    duration: f64,
-    speed: f64,
-    offset: f64,
-    reverse: bool,
-) -> (f64, f64) {
-    if reverse {
-        (source_start + (duration - offset) * speed, source_start)
-    } else {
-        (source_start, source_start + offset * speed)
-    }
+/// Where each piece of a clip cut at `offset` begins in the source: the
+/// head keeps its in-point and the tail starts `offset × speed` later, so
+/// the two pieces together show exactly what the whole did.
+fn split_source(source_start: f64, speed: f64, offset: f64) -> (f64, f64) {
+    (source_start, source_start + offset * speed)
 }
 
 /// Why these clips cannot be merged, or None if they can. A sentence, because
@@ -755,9 +720,6 @@ pub fn why_not_merge(timeline: &Timeline, clip_ids: &[String]) -> Option<String>
     if clips.iter().any(|clip| clip.kind != clips[0].kind) {
         return Some("Merged clips must be the same kind.".to_owned());
     }
-    if clips.iter().any(|clip| clip.reverse != clips[0].reverse) {
-        return Some("Merged clips must play the same way round.".to_owned());
-    }
     if clips.iter().any(|clip| clip.speed_curve.is_some()) {
         return Some("A clip with a speed curve cannot be merged.".to_owned());
     }
@@ -775,14 +737,9 @@ pub fn why_not_merge(timeline: &Timeline, clip_ids: &[String]) -> Option<String>
         if (current.start - (previous.start + previous.duration)).abs() > JOIN_EPSILON {
             return Some("Merged clips must touch, with no gap or overlap.".to_owned());
         }
-        // Forwards the next piece starts where the last one's source ended;
-        // backwards it is the other way round, the earlier piece showing the
-        // later source.
-        let continuous = if previous.reverse {
-            previous.source_start - (current.source_start + current.duration * current.speed)
-        } else {
-            current.source_start - (previous.source_start + previous.duration * previous.speed)
-        };
+        // The next piece starts where the last one's source ended.
+        let continuous =
+            current.source_start - (previous.source_start + previous.duration * previous.speed);
         if continuous.abs() > JOIN_EPSILON {
             return Some("These pieces are no longer in their original order.".to_owned());
         }

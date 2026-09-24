@@ -103,9 +103,6 @@ pub struct ClipPatch {
     /// deleted gets its voice back.
     #[serde(default)]
     pub muted: Option<bool>,
-    /// Play backwards.
-    #[serde(default)]
-    pub reverse: Option<bool>,
     /// Mirror left to right.
     #[serde(default)]
     pub flip_h: Option<bool>,

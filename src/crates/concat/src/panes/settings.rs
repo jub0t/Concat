@@ -137,7 +137,7 @@ pub struct SettingsPane {
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
-    /// Show flip/reverse in clip context menu.
+    /// Show flip in clip context menu.
     pub custom_context_actions: bool,
     /// Video decodes on the platform's hardware.
     pub hardware_decode: bool,

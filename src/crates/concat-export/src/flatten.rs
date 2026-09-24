@@ -100,7 +100,6 @@ pub fn flatten_timeline_in(
                     .iter()
                     .map(|point| (point.at, point.speed))
                     .collect(),
-                reverse: clip.reverse,
                 animation: export_keys(clip),
                 flip_h: clip.flip_h,
                 flip_v: clip.flip_v,

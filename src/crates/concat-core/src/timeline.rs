@@ -89,9 +89,6 @@ pub struct Clip {
     /// for the time map; `speed` is then the curve's mean, kept so a sound
     /// path that needs one number has one. See [`SpeedCurve`].
     pub retime: Option<SpeedCurve>,
-    /// Played backwards: the source is consumed from its far end towards
-    /// `source_start`.
-    pub reverse: bool,
     /// Keys over the clip's placement and opacity, when it has any. See
     /// [`Animation`].
     pub animation: Option<Animation>,
@@ -216,7 +213,6 @@ impl Clip {
             video_fade_out: Rational::ZERO,
             transform: Transform::IDENTITY,
             retime: None,
-            reverse: false,
             animation: None,
             blend: Blend::Normal,
         }
@@ -300,16 +296,7 @@ impl Clip {
             }
             None => (time - self.start) * self.speed,
         };
-        Some(if self.reverse {
-            // From the far end back: the last instant lands on the first
-            // source frame, and the first on the frame just short of the
-            // end, which is the one a forward play would have shown last.
-            let span = self.source_duration();
-            let back = span - forward;
-            self.source_start + back.clamp_to(Rational::ZERO, span)
-        } else {
-            self.source_start + forward
-        })
+        Some(self.source_start + forward)
     }
 
     /// How much of the source this clip consumes: `duration * speed`, or the
@@ -323,10 +310,10 @@ impl Clip {
     }
 
     /// Whether a decoder can be paced at one rate for this clip: false when
-    /// the speed changes over it or it runs backwards, in which case every
-    /// frame has to be sought by its own source time.
+    /// the speed changes over it, in which case every frame has to be
+    /// sought by its own source time.
     pub fn is_paced(&self) -> bool {
-        self.retime.is_none() && !self.reverse
+        self.retime.is_none()
     }
 }
 
@@ -552,10 +539,10 @@ mod tests {
         );
     }
 
-    /// A curve makes the map the area under the speed line, and a reverse
-    /// walks it from the far end; both keep the source covered the same.
+    /// A curve makes the map the area under the speed line, and keeps the
+    /// source covered the same.
     #[test]
-    fn a_curve_bends_the_map_and_a_reverse_walks_it_backwards() {
+    fn a_curve_bends_the_map() {
         let mut clip = Clip::new(
             MediaRef::new("a.mp4"),
             Rational::ZERO,
@@ -572,15 +559,6 @@ mod tests {
         assert!((at(&clip, 5) - 2.5).abs() < 1e-6);
         assert!((at(&clip, 9) - 10.5).abs() < 1e-3);
         assert!((clip.source_duration().as_f64() - 12.5).abs() < 1e-6);
-        assert!(!clip.is_paced());
-
-        clip.retime = None;
-        clip.speed = Rational::from_int(2);
-        clip.reverse = true;
-        // Backwards at 2x over 10 s covers 20 s of source: the start shows
-        // the far end, the middle the middle.
-        assert!((at(&clip, 0) - 20.0).abs() < 1e-9);
-        assert!((at(&clip, 5) - 10.0).abs() < 1e-9);
         assert!(!clip.is_paced());
     }
 

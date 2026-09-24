@@ -662,26 +662,25 @@ export component SettingsDialog inherits Modal {
                 }
 
                 // Off, the clip context menu shows only the basics.
-                // On, it also shows Flip horizontal, Flip vertical, and Reverse.
+                // On, it also shows Flip horizontal and Flip vertical.
                 DialogSection {
                     title: I18n.t("Timeline shortcuts");
                     hint: I18n.t("Off, the keys do nothing.");
 
-                    // The three keys, each as a keycap beside what it does.
+                    // The two keys, each as a keycap beside what it does.
                     HorizontalLayout {
                         spacing: 16px;
                         alignment: start;
 
                         Shortcut { key: "H"; label: I18n.t("Flip horizontally"); }
                         Shortcut { key: "J"; label: I18n.t("Flip vertically"); }
-                        Shortcut { key: "R"; label: I18n.t("Reverse"); }
                     }
 
                     HorizontalLayout {
                         spacing: 6px;
 
                         Text {
-                            text: I18n.t("Enable flip and reverse shortcuts");
+                            text: I18n.t("Enable flip shortcuts");
                             color: Theme.fg;
                             font-size: Theme.fs;
                             vertical-alignment: center;

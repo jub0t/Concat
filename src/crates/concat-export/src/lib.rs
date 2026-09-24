@@ -124,9 +124,6 @@ pub struct ExportClip {
     /// clip's length; empty for the constant `speed`. See `SpeedCurve`.
     #[serde(default)]
     pub speed_curve: Vec<(f64, f64)>,
-    /// Played backwards.
-    #[serde(default)]
-    pub reverse: bool,
     /// Keys over the clip's placement and opacity, resolved by the UI from
     /// Empty for none.
     #[serde(default)]
@@ -248,7 +245,6 @@ impl ExportClip {
             speed: 1.0,
             preserve_pitch: true,
             speed_curve: Vec::new(),
-            reverse: false,
             animation: Vec::new(),
             flip_h: false,
             flip_v: false,
@@ -925,18 +921,9 @@ fn track_slice(track: &AnimTrack, x0: f64, x1: f64) -> AnimTrack {
 /// The engine's view of one audible clip - or several, when its speed
 /// changes over it. Sound can only change tempo in steps, so a curve is cut
 /// into pieces of constant rate, each at the mean of its stretch of the
-/// curve and starting where the curve says the source had got to. A reverse
-/// runs the pieces' sound backwards, and the pieces themselves in reverse
-/// order of source, which is what playing the clip backwards means.
+/// curve and starting where the curve says the source had got to.
 pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
-    let mut chain = clip.filter_chain.clone();
-    if clip.reverse {
-        chain = if chain.is_empty() {
-            "areverse".to_owned()
-        } else {
-            format!("areverse,{chain}")
-        };
-    }
+    let chain = clip.filter_chain.clone();
     let track = volume_track(clip);
     let Some(curve) = SpeedCurve::new(&clip.speed_curve) else {
         return vec![AudioClip {
@@ -957,20 +944,13 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
     // Pieces a tenth of a second long, or eight at least: fine enough that
     // a tempo step is not heard, coarse enough that the graph stays small.
     let count = ((clip.duration / 0.1).ceil() as usize).clamp(8, 400);
-    let span = curve.mean() * clip.duration;
     curve
         .pieces(count)
         .into_iter()
         .map(|(x0, x1, consumed, mean)| {
             let piece_duration = (x1 - x0) * clip.duration;
             let forward = consumed * clip.duration;
-            let source_start = if clip.reverse {
-                // Backwards: this piece plays the source that ends where the
-                // forward map had got to, so it starts one piece earlier.
-                clip.source_start + (span - forward - mean * piece_duration).max(0.0)
-            } else {
-                clip.source_start + forward
-            };
+            let source_start = clip.source_start + forward;
             let piece_start = clip.start + x0 * clip.duration;
             let piece_end = piece_start + piece_duration;
             // The clip's fades, as they fall on this piece.

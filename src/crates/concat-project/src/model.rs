@@ -1145,9 +1145,6 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe_list")]
     pub speed_curve: Option<Vec<SpeedPoint>>,
-    /// Played backwards.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub reverse: bool,
     /// The user's own keys, sorted by property and then by `at`. Empty is a
     /// clip whose properties are the constants above. A keyed property's
     /// keys travel absolutely: they replace the constant rather than ride
@@ -1287,7 +1284,6 @@ impl Clip {
             speed: 1.0,
             preserve_pitch: true,
             speed_curve: None,
-            reverse: false,
             keys: Vec::new(),
             flip_h: false,
             flip_v: false,

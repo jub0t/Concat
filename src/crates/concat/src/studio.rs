@@ -3549,7 +3549,6 @@ impl Studio {
                 clip.speed = speed;
             }
             ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
-            ClipField::Reverse => clip.reverse = value != 0.0,
             ClipField::FlipH => clip.flip_h = value != 0.0,
             ClipField::FlipV => clip.flip_v = value != 0.0,
             ClipField::Blend => {
@@ -3577,24 +3576,6 @@ impl Studio {
                 *edge = value.clamp(0.0, 0.9);
                 let crop = crop.tidy();
                 clip.crop = (!crop.is_none()).then_some(crop);
-            }
-            ClipField::SpeedCurve => {
-                // The same arithmetic as the command: the source covered is
-                // held, so the length follows the curve's mean.
-                let curve = if value < 0.0 {
-                    None
-                } else {
-                    concat_project::speed::preset(value as usize)
-                };
-                let covered = clip.duration * clip.speed;
-                let mean = curve
-                    .as_ref()
-                    .map(|points| concat_project::speed::mean_of(points))
-                    .unwrap_or(clip.speed)
-                    .clamp(0.0625, 16.0);
-                clip.speed_curve = curve;
-                clip.speed = mean;
-                clip.duration = (covered / mean).max(f64::from(MIN_DURATION));
             }
             ClipField::FadeIn => clip.fade_in = value.clamp(0.0, clip.duration / 2.0),
             ClipField::FadeOut => clip.fade_out = value.clamp(0.0, clip.duration / 2.0),
@@ -3791,12 +3772,7 @@ impl Studio {
                 cutout: after.cutout.clone(),
             });
         }
-        if after.speed_curve != before.speed_curve {
-            commands.push(Command::SetClipSpeedCurve {
-                clip_id: id.clone(),
-                curve: after.speed_curve.clone(),
-            });
-        } else if after.speed != before.speed {
+        if after.speed != before.speed {
             commands.push(Command::SetClipSpeed {
                 clip_id: id.clone(),
                 speed: after.speed,
@@ -3823,9 +3799,6 @@ impl Studio {
         }
         if after.audio_stream != before.audio_stream {
             patch.audio_stream = Some(after.audio_stream);
-        }
-        if after.reverse != before.reverse {
-            patch.reverse = Some(after.reverse);
         }
         if after.flip_h != before.flip_h {
             patch.flip_h = Some(after.flip_h);
@@ -6981,13 +6954,6 @@ impl Studio {
                 as i32,
             speed: clip.speed as f32,
             preserve_pitch: clip.preserve_pitch,
-            speed_curve: match &clip.speed_curve {
-                None => -1,
-                Some(points) => concat_project::speed::preset_of(points)
-                    .map(|index| index as i32)
-                    .unwrap_or(concat_project::speed::PRESETS.len() as i32),
-            },
-            reverse: clip.reverse,
             flip_h: clip.flip_h,
             flip_v: clip.flip_v,
             blend: concat_core::Blend::ALL
@@ -7979,28 +7945,6 @@ impl Studio {
         }
     }
 
-    pub fn toggle_reverse(&mut self) {
-        if self.selection.is_empty() {
-            return;
-        }
-        let commands: Vec<Command> = self
-            .selection
-            .iter()
-            .filter_map(|id| {
-                self.clip(id).map(|clip| Command::UpdateClip {
-                    clip_id: id.clone(),
-                    patch: ClipPatch {
-                        reverse: Some(!clip.reverse),
-                        ..Default::default()
-                    },
-                })
-            })
-            .collect();
-        if !commands.is_empty() {
-            self.apply(Command::Batch { commands });
-        }
-    }
-
     pub fn toggle_lock(&mut self, track_id: &str) {
         let view = self.lanes.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
@@ -8040,7 +7984,7 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
-        if !self.prefs.custom_context_actions && matches!(action, "flip-h" | "flip-v" | "reverse") {
+        if !self.prefs.custom_context_actions && matches!(action, "flip-h" | "flip-v") {
             return;
         }
         match action {
@@ -8062,7 +8006,6 @@ impl Studio {
             }
             "flip-h" => self.toggle_flip_h(),
             "flip-v" => self.toggle_flip_v(),
-            "reverse" => self.toggle_reverse(),
             "paste" => {
                 let Some(held) = self.clipboard.clone() else {
                     return;

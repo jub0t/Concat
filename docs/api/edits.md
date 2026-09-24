@@ -325,7 +325,6 @@ Applies a patch: only the fields present change.
 | `opacity` | number | 0..=1 |
 | `preservePitch` | bool | Keep voices at pitch when speed ≠ 1 |
 | `muted` | bool | Silence the clip's own sound |
-| `reverse` | bool | Play backwards |
 | `flipH`, `flipV` | bool | Mirror |
 | `blend` | string | `normal` (or empty), `multiply`, `screen`, `add`, `lighten`, `darken` |
 | `filters` | *AppliedFilter*[] | **Replaces** the whole audio chain |

@@ -779,17 +779,16 @@ mod tests {
         );
     }
 
-    /// A freeze cuts the clip the way a split does, so a reversed or curved
-    /// clip has to come out of it the way a split leaves one: a curve goes
-    /// to its constant mean, a reverse is kept, and the pieces meet at the
-    /// frozen source time either way.
+    /// A freeze cuts the clip the way a split does, so a curved clip has to
+    /// come out of it the way a split leaves one: both pieces at the curve's
+    /// constant mean, meeting at the frozen source time.
     #[test]
-    fn freeze_frame_on_a_reversed_or_curved_clip_keeps_the_pieces_continuous() {
-        for (reverse, curve) in [
-            (true, None),
-            (
-                false,
-                Some(vec![
+    fn freeze_frame_on_a_curved_clip_keeps_the_pieces_continuous() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::SetClipSpeedCurve {
+                clip_id: clip_id.clone(),
+                curve: Some(vec![
                     crate::model::SpeedPoint {
                         at: 0.0,
                         speed: 0.5,
@@ -799,80 +798,51 @@ mod tests {
                         speed: 2.0,
                     },
                 ]),
-            ),
-        ] {
-            let (mut editor, _, clip_id) = fixture();
-            editor
-                .apply(Command::UpdateClip {
-                    clip_id: clip_id.clone(),
-                    patch: ClipPatch {
-                        reverse: Some(reverse),
-                        ..Default::default()
-                    },
-                })
-                .expect("reverses");
-            editor
-                .apply(Command::SetClipSpeedCurve {
-                    clip_id: clip_id.clone(),
-                    curve: curve.clone(),
-                })
-                .expect("curves");
-            let freeze_id = editor
-                .apply(Command::FreezeFrame {
-                    clip_id: clip_id.clone(),
-                    time: 4.0,
-                    duration: Some(1.0),
-                    still: Some(NewMedia {
-                        path: "/freeze.jpg".into(),
-                        name: "freeze.jpg".into(),
-                        duration: None,
-                        kind: MediaKind::Image,
-                        width: Some(1920),
-                        height: Some(1080),
-                        frame_rate: None,
-                        frame_rate_fraction: None,
-                        video_codec: None,
-                        audio_codec: None,
-                        has_audio: false,
-                        audio_tracks: Vec::new(),
-                        origin: None,
-                    }),
-                })
-                .expect("freezes")
-                .created_id
-                .expect("freeze id");
+            })
+            .expect("curves");
+        let freeze_id = editor
+            .apply(Command::FreezeFrame {
+                clip_id: clip_id.clone(),
+                time: 4.0,
+                duration: Some(1.0),
+                still: Some(NewMedia {
+                    path: "/freeze.jpg".into(),
+                    name: "freeze.jpg".into(),
+                    duration: None,
+                    kind: MediaKind::Image,
+                    width: Some(1920),
+                    height: Some(1080),
+                    frame_rate: None,
+                    frame_rate_fraction: None,
+                    video_codec: None,
+                    audio_codec: None,
+                    has_audio: false,
+                    audio_tracks: Vec::new(),
+                    origin: None,
+                }),
+            })
+            .expect("freezes")
+            .created_id
+            .expect("freeze id");
 
-            let timeline = editor.project().active();
-            let head = timeline.clip(&clip_id).expect("head");
-            let tail = timeline
-                .clips
-                .iter()
-                .find(|clip| clip.id != clip_id && clip.id != freeze_id)
-                .expect("tail");
-            for piece in [head, tail] {
-                assert!(
-                    piece.speed_curve.is_none(),
-                    "reverse {reverse}, curve {curve:?}: a piece kept a curve its in-point was not computed for"
-                );
-                assert_eq!(piece.reverse, reverse, "a cut keeps the direction");
-            }
-            if reverse {
-                // Backwards, the tail shows the early source and the head
-                // picks up where the tail's span ends.
-                assert_eq!(
-                    tail.source_start + tail.duration * tail.speed,
-                    head.source_start,
-                    "the head shows what comes after the tail's span"
-                );
-                assert_eq!(tail.source_start, 0.0, "the tail keeps the in-point");
-            } else {
-                assert_eq!(
-                    head.source_start + head.duration * head.speed,
-                    tail.source_start,
-                    "curve {curve:?}: the tail picks up where the head ends"
-                );
-            }
+        let timeline = editor.project().active();
+        let head = timeline.clip(&clip_id).expect("head");
+        let tail = timeline
+            .clips
+            .iter()
+            .find(|clip| clip.id != clip_id && clip.id != freeze_id)
+            .expect("tail");
+        for piece in [head, tail] {
+            assert!(
+                piece.speed_curve.is_none(),
+                "a piece kept a curve its in-point was not computed for"
+            );
         }
+        assert_eq!(
+            head.source_start + head.duration * head.speed,
+            tail.source_start,
+            "the tail picks up where the head ends"
+        );
     }
 
     #[test]
@@ -899,76 +869,6 @@ mod tests {
         assert_eq!(clips.len(), 1);
         assert_eq!(clips[0].duration, 10.0);
         assert_eq!(clips[0].id, clip_id, "the first piece keeps its identity");
-    }
-
-    #[test]
-    fn a_reversed_clip_splits_into_mirrored_halves_and_merges_back() {
-        let (mut editor, _, clip_id) = fixture();
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: clip_id.clone(),
-                patch: ClipPatch {
-                    reverse: Some(true),
-                    ..Default::default()
-                },
-            })
-            .expect("reverses");
-        editor
-            .apply(Command::SplitClips {
-                clip_ids: vec![clip_id.clone()],
-                time: 4.0,
-            })
-            .expect("splits");
-        let clips = &editor.project().active().clips;
-        assert_eq!(clips.len(), 2);
-        let (head, tail) = (&clips[0], &clips[1]);
-        assert!(
-            head.reverse && tail.reverse,
-            "both halves still play backwards"
-        );
-        // The whole showed source 10→0. The head's four seconds show 10→6,
-        // so its span is [6, 10); the tail's six show 6→0, span [0, 6).
-        assert_eq!(head.duration, 4.0);
-        assert_eq!(head.source_start, 6.0);
-        assert_eq!(tail.duration, 6.0);
-        assert_eq!(tail.source_start, 0.0);
-
-        let ids: Vec<String> = clips.iter().map(|clip| clip.id.clone()).collect();
-        editor
-            .apply(Command::MergeClips { clip_ids: ids })
-            .expect("merges");
-        let clip = &editor.project().active().clips[0];
-        assert_eq!((clip.duration, clip.source_start), (10.0, 0.0));
-        assert!(clip.reverse);
-    }
-
-    #[test]
-    fn a_head_trim_on_a_reversed_clip_keeps_the_in_point() {
-        let (mut editor, _, clip_id) = fixture();
-        editor
-            .apply(Command::UpdateClip {
-                clip_id: clip_id.clone(),
-                patch: ClipPatch {
-                    reverse: Some(true),
-                    ..Default::default()
-                },
-            })
-            .expect("reverses");
-        editor
-            .apply(Command::TrimClip {
-                clip_id: clip_id.clone(),
-                edge: TrimEdge::Start,
-                delta: 3.0,
-                ripple: false,
-            })
-            .expect("trims");
-        let clip = &editor.project().active().clips[0];
-        // The head showed source 10; three seconds in it shows 7, and that
-        // is what the trimmed clip now opens on: span [0, 7), in-point 0.
-        assert_eq!(
-            (clip.start, clip.duration, clip.source_start),
-            (3.0, 7.0, 0.0)
-        );
     }
 
     #[test]

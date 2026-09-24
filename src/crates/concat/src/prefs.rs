@@ -42,8 +42,8 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
-    /// Show flip horizontal, flip vertical, and reverse in the clip context
-    /// menu. Keyboard shortcuts (H, J, R) are always available.
+    /// Show flip horizontal and flip vertical in the clip context menu.
+    /// Keyboard shortcuts (H, J) are always available.
     pub custom_context_actions: bool,
     /// The magnetic timeline: a delete and a trim close the gap they would
     /// leave, on the lane they happen on. Off by default, because a gap is

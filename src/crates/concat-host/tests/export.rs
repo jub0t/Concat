@@ -24,8 +24,8 @@
 //! whose every frame is a solid colour naming its source second, and a
 //! sound that is a tone during the odd seconds and silence during the
 //! even. Read back, a frame's colour and a stretch's loudness say which
-//! second of which source they came from, which is how a trim, a speed
-//! change or a reverse is checked and not just survived.
+//! second of which source they came from, which is how a trim or a speed
+//! change is checked and not just survived.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -771,7 +771,7 @@ fn every_edit_still_exports() {
     exported.expect_second(2.25, 2);
 
     // Retimed: twice as fast, then half speed with the pitch riding, then
-    // backwards, then on a curve, then undone back to half speed.
+    // on a curve, then undone back to half speed.
     studio.apply(Command::SetClipSpeed {
         clip_id: tail.clone(),
         speed: 2.0,
@@ -801,17 +801,6 @@ fn every_edit_still_exports() {
     exported.expect_second(8.5, 5);
     exported.expect_sound(16.0);
 
-    studio.apply(Command::UpdateClip {
-        clip_id: tail.clone(),
-        patch: ClipPatch {
-            reverse: Some(true),
-            ..ClipPatch::default()
-        },
-    });
-    let exported = studio.export("reversed");
-    exported.expect_second(2.25, 5);
-    exported.expect_second(8.5, 2);
-
     studio.apply(Command::SetClipSpeedCurve {
         clip_id: tail.clone(),
         curve: Some(vec![
@@ -829,7 +818,6 @@ fn every_edit_still_exports() {
     exported.expect_length(16.0);
     exported.expect_sound(16.0);
 
-    studio.session.undo();
     studio.session.undo();
     let exported = studio.export("undone to half speed");
     exported.expect_second(2.25, 2);
