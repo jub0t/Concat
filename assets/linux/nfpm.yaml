@@ -9,8 +9,8 @@
 # environment; the files are named relative to the staged folder, which
 # is where nfpm is run from:
 #
-#   cd stage/Concat-0.2.3-linux-x86_64
-#   VERSION=0.2.3 NFPM_ARCH=amd64 nfpm package -f ../../assets/linux/nfpm.yaml -p deb -t ..
+#   cd stage/Concat-0.2.4-linux-x86_64
+#   VERSION=0.2.4 NFPM_ARCH=amd64 nfpm package -f ../../assets/linux/nfpm.yaml -p deb -t ..
 name: concat
 arch: ${NFPM_ARCH}
 platform: linux

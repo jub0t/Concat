@@ -8,9 +8,9 @@
   Group Policy, Intune, winget - and it installs for the machine, into
   Program Files, with a Start menu entry and a clean uninstall. Handed in:
 
-    wix build -arch x64 -d Version=0.2.3 -d Root=C:\...\Concat
-              -d Stage=C:\...\stage\Concat-0.2.3-windows-x86_64
-              -o stage\Concat-0.2.3-windows-x86_64.msi assets\windows\concat.wxs
+    wix build -arch x64 -d Version=0.2.4 -d Root=C:\...\Concat
+              -d Stage=C:\...\stage\Concat-0.2.4-windows-x86_64
+              -o stage\Concat-0.2.4-windows-x86_64.msi assets\windows\concat.wxs
 
   Root is the repository: WiX resolves a source path against where it is
   run from, not against this file.

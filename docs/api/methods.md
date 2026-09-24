@@ -58,7 +58,7 @@ What this build serves. **Call it first.**
 ```json
 {
   "apiVersion": "0.2",
-  "concat": "0.2.3",
+  "concat": "0.2.4",
   "dirs": {
     "config": "/Users/ada/Library/Application Support/app.concat.editor",
     "data": "/Users/ada/Library/Application Support/app.concat.editor"

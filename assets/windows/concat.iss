@@ -5,8 +5,8 @@
 ; person double-clicks, and it puts Concat in the Start menu and can take
 ; it out again. Everything it needs is handed in on the command line:
 ;
-;   iscc /DVersion=0.2.3 /DArch=x64compatible /DSuffix=x86_64 ^
-;        /DStage=C:\...\stage\Concat-0.2.3-windows-x86_64 /DOut=C:\...\stage ^
+;   iscc /DVersion=0.2.4 /DArch=x64compatible /DSuffix=x86_64 ^
+;        /DStage=C:\...\stage\Concat-0.2.4-windows-x86_64 /DOut=C:\...\stage ^
 ;        assets\windows\concat.iss
 ;
 ; Arch is Inno's own word for the machine: x64compatible for the x86_64

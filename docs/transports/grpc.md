@@ -108,7 +108,7 @@ grpcurl -plaintext -proto $PROTO -H "authorization: Bearer $TOKEN" \
 ```
 
 ```json
-{"result": "{\"apiVersion\":\"0.2\",\"concat\":\"0.2.3\",\"dirs\":{…},\"capabilities\":[\"events\",\"grpc\"]}"}
+{"result": "{\"apiVersion\":\"0.2\",\"concat\":\"0.2.4\",\"dirs\":{…},\"capabilities\":[\"events\",\"grpc\"]}"}
 ```
 
 An edit:
