@@ -231,12 +231,15 @@ sequenceDiagram
   readback. Drawing happens on the event-loop thread only; decoding on a
   worker.
 - **The launch screen** (`concat/ui/start.slint`) is a launcher: a rail of
-  verbs, and beside it either the new-project form or the whole recent list.
-  It takes three shapes by width — the rail with its words, the rail as
-  icons only, or the phone shape, where the rail becomes a bar of tabs above
-  the content and every label sits over its value. The form's frame is a
-  shape and a size rather than a fixed list; `frame_size` in `studio.rs`
-  is the one place that turns the pair into pixels.
+  verbs, and beside it the projects this machine has opened, as a grid
+  whose first card starts a new one. The new-project form is a sheet over
+  the window, `NewProjectDialog`, held at the window root with the other
+  sheets and opened by that card or the rail's first verb. The screen takes
+  three shapes by width — the rail with its words, the rail as icons only,
+  or the phone shape, where the rail's verbs sit beside the heading and the
+  sheet's labels sit over their values. The form's frame is a shape and a
+  size rather than a fixed list; `frame_size` in `studio.rs` is the one
+  place that turns the pair into pixels.
 
 ## 6. The document, undo and the file
 

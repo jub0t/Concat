@@ -3,7 +3,7 @@
 
 import { I18n } from "i18n.slint";
 import { Theme } from "theme/theme.slint";
-import { CopyChip } from "primitives/modal.slint";
+import { CopyChip, Modal } from "primitives/modal.slint";
 import { FocusRing } from "primitives/focus-ring.slint";
 import { Glyph, Icon } from "icons.slint";
 import { ThinScrollbar } from "primitives/scrollbar.slint";
@@ -13,38 +13,43 @@ import { Tip } from "primitives/tooltip.slint";
 // under all of it — no card around the whole thing, no shadow. A setup
 // screen is not a dialog floating over something; it *is* the window.
 //
-// The rail is what makes it a launcher rather than a form. Everything you
+// The rail is what makes it a launcher rather than a list. Everything you
 // can do before a project is open is one column of verbs: start a new one,
-// go through the ones you have, open a folder from disk, change the
-// settings. The page beside it is whichever of the first two is current.
-// Nothing here is a mode you have to leave — the rail is always there, and
-// the two pages are two views of the same four hundred pixels.
+// open a folder from disk, change the settings. The page beside it is the
+// projects: every one this machine has opened, as a grid of posters, with
+// one more card at the head of it that starts a new one. That card is the
+// first thing on the page and the size of everything after it, so an empty
+// machine sees one card and a full one sees the same card in front of the
+// rest.
 //
-// An editor should not drop you straight into an untitled timeline either:
-// the frame rate, the frame shape and where the folder goes are decisions
-// the whole edit depends on, and choosing them after material is cut is how
-// you end up conforming footage.
+// The new project's form is a sheet over the window — `NewProjectDialog`,
+// held at the window root like every other sheet, since Slint has no
+// portal — rather than a page of its own. An editor should not drop you
+// straight into an untitled timeline: the frame rate, the frame shape and
+// where the folder goes are decisions the whole edit depends on, and
+// choosing them after material is cut is how you end up conforming
+// footage. But five rows of settings are a question to answer, not a place
+// to be, and a question is a sheet.
 //
 // Three shapes by the width the window is given, since a Slint layout has
 // no wrap:
 //
 // - wide: the rail with its words, the page beside it;
 // - middle: the rail as icons only, each with its word in a tip;
-// - narrow, a phone held upright: no rail at all — its two pages become two
-//   tabs above the content and its two actions become two round buttons
-//   beside them — every label above its value, every chip row across the
-//   width, and the forget cross on every recent card, since there is no
-//   hover to reveal it with.
+// - narrow, a phone held upright: no rail at all — its two actions become
+//   two round buttons on the heading's row, the sheet's labels sit over
+//   their values with its chip rows across the width, and the forget cross
+//   stays on every card, since there is no hover to reveal it with.
 //
 // The look is the website's, which is the same product wearing the same
 // clothes: near-black steps for the surfaces, a hairline of light on the
 // top edge of anything raised, one lime accent used on almost nothing, and
 // a filled button whose fill is the ink rather than the accent. What the
 // site does with an accent — one highlighted word — this does with the
-// rail's current marker and the one link in the form.
+// plus on the new-project card and the one link in the sheet.
 //
 // There is no template store in this tree, which is also why the library's
-// "save as template" is an unwired seam, and why the rail has no fifth
+// "save as template" is an unwired seam, and why the rail has no fourth
 // verb.
 
 /// One option on one of the form's three ladders.
@@ -58,7 +63,7 @@ export struct ChipOption {
     ratio: float,
 }
 
-/// One card in the Recent grid.
+/// One card in the projects grid.
 ///
 /// The two lines under the name arrive formatted. A decimal frame rate to
 /// two places and a coarse "4 days ago" are both easier to produce where
@@ -79,10 +84,14 @@ export struct RecentProjectData {
     poster: image,
 }
 
-/// The form, as one struct — the same shape the two dialogs use, and for
-/// the same reason: it is one screen's worth of state and a partial update
+/// The form, as one struct — the same shape the other sheets use, and for
+/// the same reason: it is one sheet's worth of state and a partial update
 /// is how a panel ends up showing half of two things.
 export struct StartData {
+    /// The sheet is up. Rust takes it down when the project it describes
+    /// opens, so a create that fails leaves the form and its notice where
+    /// they were.
+    composing: bool,
     name: string,
     location: string,
     /// Index into `aspects`; the ratio behind it is Rust's.
@@ -145,13 +154,18 @@ component PlainInput inherits Rectangle {
     in property <length> size: Theme.fs-input;
     in property <string> face: Theme.font;
     in property <bool> enabled: true;
-    /// Takes the caret when the screen opens, and selects what is there —
-    /// so the default name can be replaced by typing rather than by
-    /// clearing it first.
-    in property <bool> autofocus;
 
     callback edited(text: string);
     callback accepted();
+
+    /// Takes the caret, and selects what is there — so the default name
+    /// can be replaced by typing rather than by clearing it first. Called
+    /// by the sheet each time it opens: a field built once and shown many
+    /// times cannot do this from `init`.
+    public function take-focus() {
+        input.focus();
+        input.select-all();
+    }
 
     height: Math.max(22px, root.size + 8px);
 
@@ -164,13 +178,7 @@ component PlainInput inherits Rectangle {
     // the caret. Same as `Field` in primitives/modal.slint, same reason.
     property <string> draft;
     function seed() { root.draft = root.text; }
-    init => {
-        root.seed();
-        if (root.autofocus) {
-            input.focus();
-            input.select-all();
-        }
-    }
+    init => { root.seed(); }
     changed text => {
         if (!input.has-focus) {
             root.seed();
@@ -216,10 +224,9 @@ component PlainInput inherits Rectangle {
     }
 }
 
-// The one accent-coloured word on the screen that is not the rail's marker.
-// A link and not a button: it opens a picker for the field beside it rather
-// than doing anything to the project, and a filled button here would
-// out-shout Create.
+// The one accent-coloured word in the sheet. A link and not a button: it
+// opens a picker for the field beside it rather than doing anything to the
+// project, and a filled button here would out-shout Create.
 component LinkButton inherits Rectangle {
     in property <string> label;
     in property <bool> enabled: true;
@@ -250,8 +257,9 @@ component LinkButton inherits Rectangle {
 
 // One chip on a ladder: a pill that is either the answer or one of the
 // others. Selected is a lit surface and a brighter edge, never a fill of
-// the accent — the accent on this screen belongs to the rail and the link,
-// and four lime pills in a row would leave nothing for the button to say.
+// the accent — the accent on this screen belongs to the new-project card
+// and the link, and four lime pills in a row would leave nothing for the
+// button to say.
 component Chip inherits Rectangle {
     in property <string> label;
     /// Non-zero draws the shape of that ratio before the word.
@@ -447,32 +455,11 @@ component FormRow inherits Rectangle {
     }
 }
 
-// The one raised surface on the screen. A panel over the page, a hairline
-// of light caught on its top edge, and the largest corner in the app —
-// what the site's cards do with `hairline` and `shadow-raised`, minus the
-// drop shadow Slint has no way to draw.
-component Card inherits Rectangle {
-    background: Theme.launch-panel;
-    border-radius: Theme.r-xl;
-    border-width: 1px;
-    border-color: Theme.line;
-
-    Rectangle {
-        x: 1px;
-        y: 1px;
-        width: parent.width - 2px;
-        height: 1px;
-        background: Theme.line-strong;
-    }
-
-    @children
-}
-
-// The pill the whole screen is built around, and its quieter sibling.
+// The pill the sheet is built around, and its quieter sibling.
 //
 // Primary is the ink itself — near-white on the dark palette, near-black on
 // the light one — and not the accent. It is the site's rule: one accent,
-// spent on a word and a marker, never on a fill this size. Hover goes one
+// spent on a mark and a word, never on a fill this size. Hover goes one
 // step further from the ground rather than towards it, which is what
 // `fg-hot` is for.
 component PillButton inherits Rectangle {
@@ -577,41 +564,27 @@ component BarAction inherits Rectangle {
 
 // ── the rail ─────────────────────────────────────────────────────────────
 
-// One verb in the rail: a page to go to, or a thing to do. The current one
-// wears a lit surface and a two-pixel accent mark on its leading edge —
-// the whole of the accent's job on this screen, alongside the one link.
+// One verb in the rail: a thing to do. Lit under the pointer and nothing
+// more — there is one page beside the rail, so no verb is ever the one you
+// are on.
 component RailItem inherits Rectangle {
     in property <string> label;
     in property <Glyph> glyph;
-    in property <bool> current;
     in property <bool> enabled: true;
     /// Icons only, with the word in a tip: the middle width.
     in property <bool> compact;
-    /// A count after the word. Zero says nothing.
-    in property <int> badge;
 
     callback clicked();
 
     property <bool> lit: touch.has-hover && root.enabled;
-    property <brush> ink: root.current || root.lit ? Theme.fg : Theme.fg-muted;
+    property <brush> ink: root.lit ? Theme.fg : Theme.fg-muted;
 
     height: 36px;
     border-radius: Theme.r;
-    background: root.current ? Theme.launch-field
-        : root.lit ? Theme.launch-raised
-        : Colors.transparent;
+    background: root.lit ? Theme.launch-raised : Colors.transparent;
     opacity: root.enabled ? 1.0 : 0.4;
 
     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
-
-    if root.current: Rectangle {
-        x: 0;
-        y: (parent.height - self.height) / 2;
-        width: 2px;
-        height: 18px;
-        border-radius: 1px;
-        background: Theme.accent;
-    }
 
     HorizontalLayout {
         padding-left: root.compact ? 0px : 13px;
@@ -639,16 +612,6 @@ component RailItem inherits Rectangle {
                 overflow: elide;
             }
         }
-
-        if !root.compact && root.badge > 0: VerticalLayout {
-            alignment: center;
-            Text {
-                text: root.badge;
-                color: Theme.fg-dim;
-                font-family: Theme.font-technical;
-                font-size: Theme.fs-sm;
-            }
-        }
     }
 
     touch := TouchArea {
@@ -672,12 +635,10 @@ component Rail inherits Rectangle {
     /// make the screen's own minimum depend on whether the rail is up,
     /// which depends on the screen's width: a binding loop, and Slint says
     /// so.
-    in property <int> view;
-    in property <int> recents-count;
     in property <bool> compact;
     in property <bool> enabled: true;
 
-    callback go(view: int);
+    callback compose();
     callback open();
     callback settings();
 
@@ -697,26 +658,15 @@ component Rail inherits Rectangle {
         padding-bottom: 14px;
         spacing: 4px;
 
+        // The same verb as the card at the head of the grid, for whoever
+        // reads the rail first: a launcher's first row is where "new" is
+        // expected to be, whatever the page beside it is showing.
         RailItem {
             label: I18n.t("New project");
             glyph: Glyph.plus;
-            current: root.view == 0;
             compact: root.compact;
             enabled: root.enabled;
-            clicked => { root.go(0); }
-        }
-
-        // No stop for a list that is empty: a "Recent" heading over nothing
-        // is worse than no heading, and a rail item that leads to one is
-        // worse again.
-        if root.recents-count > 0: RailItem {
-            label: I18n.t("Recent");
-            glyph: Glyph.clock;
-            badge: root.recents-count;
-            current: root.view == 1;
-            compact: root.compact;
-            enabled: root.enabled;
-            clicked => { root.go(1); }
+            clicked => { root.compose(); }
         }
 
         Rectangle { vertical-stretch: 1; }
@@ -739,7 +689,56 @@ component Rail inherits Rectangle {
     }
 }
 
-// ── the recents ──────────────────────────────────────────────────────────
+// ── the projects ─────────────────────────────────────────────────────────
+
+// The card that starts a new project: the first cell of the grid, the size
+// of every other card in it, and the one thing on the page that is not a
+// project yet. A plus in the accent with the verb under it, on the same
+// surface the posters sit on — so it reads as one of them with nothing in
+// it yet, rather than as a button that wandered into a list.
+component NewProjectCard inherits Rectangle {
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+
+    border-radius: Theme.r-lg;
+    background: root.lit ? Theme.launch-raised : Theme.launch-panel;
+    border-width: 1px;
+    border-color: root.lit ? Theme.line-strong : Theme.line;
+    opacity: root.enabled ? 1.0 : 0.4;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 12px;
+
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.plus;
+                size: 28px;
+                tint: Theme.accent;
+            }
+        }
+
+        Text {
+            text: I18n.t("New project");
+            color: Theme.fg;
+            font-size: Theme.fs-xl;
+            font-weight: Theme.weight-title;
+            horizontal-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
 
 // One project: its poster, its name, what it is, when it was last open —
 // and the cross that forgets it, on hover where there is a pointer and
@@ -859,18 +858,20 @@ component PosterCard inherits Rectangle {
     }
 }
 
+// The new-project card, then every project this machine has opened.
+//
 // `grid-cols-[repeat(auto-fill,minmax(210px,1fr))]`, arithmetic instead of
 // a layout: Slint has no auto-fill grid, and a GridLayout wants its cells
 // named at compile time, which a model cannot do. Same as the bin's grid in
-// workspace/media-pane.slint.
-component RecentsGrid inherits Rectangle {
+// workspace/media-pane.slint. The first cell is placed by hand and the
+// model's cards count from one, which is the whole of how the new-project
+// card comes first.
+component ProjectsGrid inherits Rectangle {
     in property <[RecentProjectData]> recents;
     in property <bool> enabled: true;
     in property <bool> touchy;
-    /// One row of them and no more: the strip on the form's own page, which
-    /// is a glance at the list rather than the list.
-    in property <bool> one-row;
 
+    callback compose();
     callback opened(path: string);
     callback forgotten(path: string);
 
@@ -879,73 +880,54 @@ component RecentsGrid inherits Rectangle {
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
     property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
-    /// poster + the name, the detail and the when under it
+    /// poster + the name, the detail and the when under it — and the
+    /// new-project card is the same box, so the grid has one row height.
     property <length> card-h: root.card-w * 9 / 16 + 74px;
-    /// How many are drawn. The rest of the model is still repeated over —
-    /// a Slint repeater has no take(n) — but each one past this is a box of
-    /// no size with nothing in it.
-    out property <int> shown: root.one-row
-        ? Math.min(root.cols, root.recents.length)
-        : root.recents.length;
-    property <int> rows: Math.ceil(root.shown / root.cols);
+    /// The new-project card and every project after it.
+    property <int> count: root.recents.length + 1;
+    property <int> rows: Math.ceil(root.count / root.cols);
 
-    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+    height: root.rows * (root.card-h + root.gap) - root.gap;
 
-    for project[index] in root.recents: Rectangle {
-        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
-        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
-        width: index < root.shown ? root.card-w : 0px;
-        height: index < root.shown ? root.card-h : 0px;
+    NewProjectCard {
+        x: 0;
+        y: 0;
+        width: root.card-w;
+        height: root.card-h;
+        enabled: root.enabled;
+        clicked => { root.compose(); }
+    }
 
-        if index < root.shown: PosterCard {
-            width: parent.width;
-            height: parent.height;
-            project: project;
-            enabled: root.enabled;
-            touchy: root.touchy;
-            opened => { root.opened(project.path); }
-            forgotten => { root.forgotten(project.path); }
-        }
+    for project[index] in root.recents: PosterCard {
+        x: Math.mod(index + 1, root.cols) * (root.card-w + root.gap);
+        y: Math.floor((index + 1) / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        project: project;
+        enabled: root.enabled;
+        touchy: root.touchy;
+        opened => { root.opened(project.path); }
+        forgotten => { root.forgotten(project.path); }
     }
 }
 
 // ── the screen ───────────────────────────────────────────────────────────
 
 export component StartScreen inherits Rectangle {
-    in property <StartData> data;
-    /// The three ladders. The numbers behind each index are Rust's, so
-    /// there is one place that knows what 4K is in pixels and that 29.97 is
-    /// 30000 over 1001 — see `ASPECTS`, `SIZES` and `START_RATES` in the
-    /// window.
-    in property <[ChipOption]> aspects;
-    in property <[ChipOption]> sizes;
-    in property <[ChipOption]> rates;
     in property <[RecentProjectData]> recents;
+    /// A project is being made: every verb on the page waits for it.
+    in property <bool> busy;
 
-    callback name-edited(name: string);
-    callback location-edited(path: string);
-    callback browse();
-    callback aspect-changed(index: int);
-    callback size-changed(index: int);
-    callback rate-changed(index: int);
-    callback create();
+    /// Put up the sheet a new project is described on.
+    callback compose();
     /// Open a project that already exists, picked from disk.
     callback open();
     callback open-recent(path: string);
     callback forget-recent(path: string);
-    callback dismiss-error();
     callback open-settings();
 
-    /// Which of the rail's two pages is current: the form, or the whole
-    /// recent list.
-    property <int> view: 0;
-    /// And which one is actually shown. Forgetting the last project takes
-    /// the second page's reason to exist away with it, so the screen falls
-    /// back to the form rather than leaving the rail pointing at nothing.
-    property <int> page: root.recents.length > 0 ? root.view : 0;
-
     /// A phone held upright, or a window squeezed that far: under this the
-    /// rail is a bar and every label sits over its value.
+    /// rail is gone and its verbs sit on the heading's row.
     property <bool> narrow: root.width < 680px;
     /// Under this the rail keeps its verbs but loses its words.
     property <bool> compact-rail: root.width < 940px;
@@ -956,16 +938,11 @@ export component StartScreen inherits Rectangle {
     /// has less of it to give, and a phone less again.
     property <length> pad-top: root.narrow ? 24px
         : Math.max(32px, Math.min(88px, root.height / 9));
-    /// The content column. The list gets a wider one than the form: three
-    /// cards of history read as a shelf, three hundred pixels of input does
-    /// not read as anything.
-    property <length> content-w: root.page == 1 ? 1120px : 740px;
+    /// The content column: wide enough that the cards read as a shelf.
+    property <length> content-w: 1120px;
     /// The rail's width, and the page's left edge. Zero is a phone, which
-    /// has the rail's verbs in a bar of its own instead.
+    /// has the rail's verbs on the heading's row instead.
     property <length> rail-w: root.narrow ? 0px : (root.compact-rail ? 62px : 208px);
-
-    /// A project needs somewhere to go. Everything else has a default.
-    property <bool> can-create: !root.data.busy && root.data.location != "";
 
     background: Theme.launch-page;
     clip: true;
@@ -981,11 +958,9 @@ export component StartScreen inherits Rectangle {
         width: root.rail-w;
         height: root.height;
 
-        view: root.page;
-        recents-count: root.recents.length;
         compact: root.compact-rail;
-        enabled: !root.data.busy;
-        go(view) => { root.view = view; }
+        enabled: !root.busy;
+        compose => { root.compose(); }
         open => { root.open(); }
         settings => { root.open-settings(); }
     }
@@ -1014,74 +989,59 @@ export component StartScreen inherits Rectangle {
                 stack := VerticalLayout {
                     alignment: start;
 
-                    // ── the rail's job, on a phone ───────────────────────
-                    if root.narrow: HorizontalLayout {
+                    // ── the heading ──────────────────────────────────────
+                    HorizontalLayout {
                         spacing: 8px;
 
-                        Chip {
-                            label: I18n.t("New project");
-                            selected: root.page == 0;
-                            enabled: !root.data.busy;
-                            clicked => { root.view = 0; }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: I18n.t("Projects");
+                            color: Theme.fg;
+                            // The one display-sized line in the app. The
+                            // tree bundles two faces and no display face,
+                            // so the interface face carries it at its
+                            // heaviest weight and tight tracking — -0.03em,
+                            // which at 34px is a point. A phone gets it at
+                            // 26px, still the largest thing on its screen
+                            // and no longer half of it.
+                            font-size: root.narrow ? 26px : Theme.fs-display;
+                            font-weight: Theme.weight-display;
+                            letter-spacing: root.narrow ? -0.6px : -1px;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
                         }
 
-                        if root.recents.length > 0: Chip {
-                            label: I18n.t("Recent");
-                            selected: root.page == 1;
-                            enabled: !root.data.busy;
-                            clicked => { root.view = 1; }
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
+                        // The rail's job, on a phone: its two verbs beside
+                        // the heading, since there is no column to put
+                        // them in. The third verb is already on the page,
+                        // as the first card.
+                        if root.narrow: VerticalLayout {
                             alignment: center;
                             horizontal-stretch: 0;
                             BarAction {
                                 glyph: Glyph.folder;
                                 label: I18n.t("Open project");
-                                enabled: !root.data.busy;
+                                enabled: !root.busy;
                                 clicked => { root.open(); }
                             }
                         }
 
-                        VerticalLayout {
+                        if root.narrow: VerticalLayout {
                             alignment: center;
                             horizontal-stretch: 0;
                             BarAction {
                                 glyph: Glyph.settings;
                                 label: I18n.t("Settings");
-                                enabled: !root.data.busy;
+                                enabled: !root.busy;
                                 clicked => { root.open-settings(); }
                             }
                         }
                     }
 
-                    if root.narrow: Rectangle { height: 28px; }
-
-                    // ── the heading ──────────────────────────────────────
-                    Text {
-                        text: root.page == 1 ? I18n.t("Recent") : I18n.t("New project");
-                        color: Theme.fg;
-                        // The one display-sized line in the app. The
-                        // tree bundles two faces and no display face,
-                        // so the interface face carries it at its
-                        // heaviest weight and tight tracking — -0.03em,
-                        // which at 34px is a point. A phone gets it at
-                        // 26px, still the largest thing on its screen
-                        // and no longer half of it.
-                        font-size: root.narrow ? 26px : Theme.fs-display;
-                        font-weight: Theme.weight-display;
-                        letter-spacing: root.narrow ? -0.6px : -1px;
-                        wrap: word-wrap;
-                    }
-
                     Rectangle { height: 8px; }
 
                     Text {
-                        text: root.page == 1
-                            ? I18n.t("Everything you have opened on this machine.")
-                            : I18n.t("These settings apply to the whole edit and cannot be changed later.");
+                        text: I18n.t("Everything you have opened on this machine.");
                         color: Theme.fg-muted;
                         font-size: root.narrow ? Theme.fs-lg : Theme.fs-xl;
                         wrap: word-wrap;
@@ -1089,334 +1049,12 @@ export component StartScreen inherits Rectangle {
 
                     Rectangle { height: root.narrow ? 24px : 34px; }
 
-                    // ── the form ─────────────────────────────────────────
-                    if root.page == 0: Card {
-                        VerticalLayout {
-                            padding-left: root.narrow ? 18px : 26px;
-                            padding-right: root.narrow ? 18px : 26px;
-                            padding-top: 6px;
-                            padding-bottom: 22px;
-
-                            FormRow {
-                                label: I18n.upper("Name");
-                                stacked: root.narrow;
-
-                                PlainInput {
-                                    text: root.data.name;
-                                    placeholder: I18n.t("Untitled project");
-                                    autofocus: true;
-                                    enabled: !root.data.busy;
-                                    edited(text) => { root.name-edited(text); }
-                                    accepted => { root.create(); }
-                                }
-                            }
-
-                            FormRow {
-                                label: I18n.upper("Location");
-                                stacked: root.narrow;
-
-                                HorizontalLayout {
-                                    spacing: 12px;
-
-                                    PlainInput {
-                                        horizontal-stretch: 1;
-                                        text: root.data.location;
-                                        placeholder: I18n.t("Choose a folder");
-                                        size: Theme.fs;
-                                        face: Theme.font-technical;
-                                        enabled: !root.data.busy;
-                                        edited(text) => { root.location-edited(text); }
-                                        accepted => { root.create(); }
-                                    }
-
-                                    VerticalLayout {
-                                        alignment: center;
-                                        horizontal-stretch: 0;
-                                        LinkButton {
-                                            label: I18n.t("Choose…");
-                                            enabled: !root.data.busy;
-                                            clicked => { root.browse(); }
-                                        }
-                                    }
-                                }
-                            }
-
-                            FormRow {
-                                label: I18n.upper("Shape");
-                                stacked: root.narrow;
-
-                                HorizontalLayout {
-                                    spacing: 16px;
-
-                                    ChipRow {
-                                        horizontal-stretch: 1;
-                                        options: root.aspects;
-                                        current: root.data.aspect;
-                                        enabled: !root.data.busy;
-                                        block: root.narrow;
-                                        changed(index) => { root.aspect-changed(index); }
-                                    }
-
-                                    // The chosen frame at the row's end,
-                                    // drawn rather than described: the
-                                    // one thing on this screen that
-                                    // shows what the numbers mean.
-                                    if !root.narrow: VerticalLayout {
-                                        alignment: center;
-                                        horizontal-stretch: 0;
-                                        FrameShape {
-                                            room: 32px;
-                                            ratio: root.data.frame-aspect;
-                                        }
-                                    }
-                                }
-                            }
-
-                            FormRow {
-                                label: I18n.upper("Size");
-                                stacked: root.narrow;
-
-                                HorizontalLayout {
-                                    spacing: 16px;
-
-                                    ChipRow {
-                                        horizontal-stretch: 1;
-                                        options: root.sizes;
-                                        current: root.data.size;
-                                        enabled: !root.data.busy;
-                                        block: root.narrow;
-                                        changed(index) => { root.size-changed(index); }
-                                    }
-
-                                    VerticalLayout {
-                                        alignment: center;
-                                        horizontal-stretch: 0;
-                                        Text {
-                                            text: root.data.size-readout;
-                                            color: Theme.fg-dim;
-                                            font-family: Theme.font-technical;
-                                            font-size: Theme.fs-sm;
-                                        }
-                                    }
-                                }
-                            }
-
-                            FormRow {
-                                label: I18n.upper("Frame rate");
-                                last: true;
-                                stacked: root.narrow;
-
-                                HorizontalLayout {
-                                    spacing: 16px;
-
-                                    ChipRow {
-                                        horizontal-stretch: 1;
-                                        options: root.rates;
-                                        current: root.data.rate;
-                                        enabled: !root.data.busy;
-                                        block: root.narrow;
-                                        changed(index) => { root.rate-changed(index); }
-                                    }
-
-                                    VerticalLayout {
-                                        alignment: center;
-                                        horizontal-stretch: 0;
-                                        Text {
-                                            text: root.data.rate-readout;
-                                            color: Theme.fg-dim;
-                                            font-family: Theme.font-technical;
-                                            font-size: Theme.fs-sm;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // The notice, above the button, wrapping to
-                            // as many lines as the error takes: an
-                            // elided error is half an error, and on a
-                            // phone that is most of it.
-                            if root.data.error != "": Rectangle {
-                                height: notice.preferred-height + 4px;
-
-                                notice := Rectangle {
-                                    x: 0;
-                                    y: 4px;
-                                    width: parent.width;
-                                    height: self.preferred-height;
-                                    border-radius: Theme.r;
-                                    background: Theme.danger-soft;
-
-                                    HorizontalLayout {
-                                        padding-left: 10px;
-                                        padding-right: 6px;
-                                        padding-top: 8px;
-                                        padding-bottom: 8px;
-                                        spacing: 8px;
-
-                                        VerticalLayout {
-                                            alignment: start;
-                                            padding-top: 2px;
-                                            Icon {
-                                                glyph: Glyph.info;
-                                                size: 13px;
-                                                tint: Theme.danger;
-                                            }
-                                        }
-
-                                        Text {
-                                            horizontal-stretch: 1;
-                                            text: root.data.error;
-                                            color: Theme.danger;
-                                            font-size: Theme.fs;
-                                            wrap: word-wrap;
-                                        }
-
-                                        VerticalLayout {
-                                            alignment: start;
-                                            CopyChip {
-                                                text: root.data.error;
-                                            }
-                                        }
-
-                                        VerticalLayout {
-                                            alignment: start;
-                                            Rectangle {
-                                                width: 22px;
-                                                height: 22px;
-                                                border-radius: Theme.r-xs;
-
-                                                Icon {
-                                                    x: (parent.width - self.width) / 2;
-                                                    y: (parent.height - self.height) / 2;
-                                                    glyph: Glyph.close;
-                                                    size: 11px;
-                                                    tint: Theme.danger;
-                                                }
-
-                                                TouchArea {
-                                                    mouse-cursor: pointer;
-                                                    clicked => { root.dismiss-error(); }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Rectangle { height: 22px; }
-
-                            // The button and the line about what
-                            // pressing it does to the disk: side by
-                            // side where there is room, the button
-                            // across the width and the line under it on
-                            // a phone, where a pill a thumb can miss is
-                            // a pill that will be missed.
-                            if !root.narrow: HorizontalLayout {
-                                spacing: 18px;
-
-                                PillButton {
-                                    primary: true;
-                                    label: root.data.busy
-                                        ? I18n.t("Creating…")
-                                        : I18n.t("Create");
-                                    enabled: root.can-create;
-                                    clicked => { root.create(); }
-                                }
-
-                                VerticalLayout {
-                                    alignment: center;
-                                    horizontal-stretch: 1;
-                                    Text {
-                                        text: I18n.t("The project folder is created now; the edit autosaves into it.");
-                                        color: Theme.fg-dim;
-                                        font-size: Theme.fs-sm;
-                                        wrap: word-wrap;
-                                    }
-                                }
-                            }
-
-                            if root.narrow: VerticalLayout {
-                                spacing: 12px;
-
-                                PillButton {
-                                    primary: true;
-                                    block: true;
-                                    label: root.data.busy
-                                        ? I18n.t("Creating…")
-                                        : I18n.t("Create");
-                                    enabled: root.can-create;
-                                    clicked => { root.create(); }
-                                }
-
-                                Text {
-                                    text: I18n.t("The project folder is created now; the edit autosaves into it.");
-                                    color: Theme.fg-dim;
-                                    font-size: Theme.fs-sm;
-                                    horizontal-alignment: center;
-                                    wrap: word-wrap;
-                                }
-                            }
-                        }
-                    }
-
-                    // ── a glance at the history, under the form ──────────
-                    if root.page == 0 && root.recents.length > 0: VerticalLayout {
-                        Rectangle { height: root.narrow ? 32px : 44px; }
-
-                        HorizontalLayout {
-                            height: 24px;
-                            spacing: 8px;
-
-                            Text {
-                                text: I18n.t("Recent");
-                                color: Theme.fg;
-                                font-size: Theme.fs-xl;
-                                font-weight: Theme.weight-title;
-                                vertical-alignment: center;
-                            }
-
-                            // How many, quietly: a count is the one
-                            // thing a shelf of cards does not say about
-                            // itself until it is scrolled.
-                            Text {
-                                text: root.recents.length;
-                                color: Theme.fg-dim;
-                                font-family: Theme.font-technical;
-                                font-size: Theme.fs-sm;
-                                vertical-alignment: center;
-                            }
-
-                            Rectangle { horizontal-stretch: 1; }
-
-                            // Only when the strip is holding something
-                            // back. A link to the rest of nothing is a
-                            // link to this page.
-                            if root.recents.length > strip.shown: VerticalLayout {
-                                alignment: center;
-                                LinkButton {
-                                    label: I18n.t("See all");
-                                    clicked => { root.view = 1; }
-                                }
-                            }
-                        }
-
-                        Rectangle { height: 14px; }
-
-                        strip := RecentsGrid {
-                            recents: root.recents;
-                            enabled: !root.data.busy;
-                            touchy: root.narrow;
-                            one-row: true;
-                            opened(path) => { root.open-recent(path); }
-                            forgotten(path) => { root.forget-recent(path); }
-                        }
-                    }
-
-                    // ── the whole history ────────────────────────────────
-                    if root.page == 1: RecentsGrid {
+                    // ── the grid ─────────────────────────────────────────
+                    ProjectsGrid {
                         recents: root.recents;
-                        enabled: !root.data.busy;
+                        enabled: !root.busy;
                         touchy: root.narrow;
+                        compose => { root.compose(); }
                         opened(path) => { root.open-recent(path); }
                         forgotten(path) => { root.forget-recent(path); }
                     }
@@ -1432,6 +1070,336 @@ export component StartScreen inherits Rectangle {
             content: flick.viewport-height;
             offset: -flick.viewport-y;
             scrolled(to) => { flick.viewport-y = -to; }
+        }
+    }
+}
+
+// ── the sheet ────────────────────────────────────────────────────────────
+
+// The new project's form, over the window: what the card at the head of
+// the grid and the rail's first verb both open.
+//
+// Its parts are the launch screen's own — the plain field, the chip
+// ladders, the ink-filled pill — rather than the other sheets' fields and
+// buttons, because it is the launch screen's form and wears the launch
+// screen's clothes; it is held here with them for that reason. The window
+// root places it with the other sheets, since a sheet has to be declared
+// where it is drawn, and it is drawn over everything.
+export component NewProjectDialog inherits Modal {
+    in property <StartData> data;
+    /// The three ladders. The numbers behind each index are Rust's, so
+    /// there is one place that knows what 4K is in pixels and that 29.97 is
+    /// 30000 over 1001 — see `ASPECTS`, `SIZES` and `START_RATES` in the
+    /// window.
+    in property <[ChipOption]> aspects;
+    in property <[ChipOption]> sizes;
+    in property <[ChipOption]> rates;
+
+    callback name-edited(name: string);
+    callback location-edited(path: string);
+    callback browse();
+    callback aspect-changed(index: int);
+    callback size-changed(index: int);
+    callback rate-changed(index: int);
+    callback create();
+    callback dismiss-error();
+
+    /// A phone held upright: every label over its value, every chip row
+    /// across the width, the button across the width with its line under
+    /// it.
+    property <bool> narrow: root.width < 680px;
+    /// A project needs somewhere to go. Everything else has a default.
+    property <bool> can-create: !root.data.busy && root.data.location != "";
+
+    open: root.data.composing;
+    title: I18n.t("New project");
+    glyph: Glyph.plus;
+    // Not while creating: the sheet is what the notice lands on, and a
+    // sheet dismissed out from under a create is a create nobody hears
+    // about.
+    dismissable: !root.data.busy;
+    // Wide enough for five rates and their readout beside an 84px label,
+    // and no wider than the window less a margin, on a phone.
+    surface-width: Math.min(600px, root.width - 32px);
+
+    // The caret goes to the name each time the sheet comes up, with the
+    // name selected, so the default is replaced by typing over it. From
+    // here rather than the field's own `init`: the sheet is built once,
+    // hidden, when the window is, and shown many times after.
+    changed open => {
+        if (root.open) {
+            name-field.take-focus();
+        }
+    }
+
+    VerticalLayout {
+        padding-left: root.narrow ? 18px : 26px;
+        padding-right: root.narrow ? 18px : 26px;
+        padding-top: 16px;
+        padding-bottom: 22px;
+
+        // What the form is for, before the form: the one line a person
+        // should read before choosing.
+        Text {
+            text: I18n.t("These settings apply to the whole edit and cannot be changed later.");
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+
+        FormRow {
+            label: I18n.upper("Name");
+            stacked: root.narrow;
+
+            name-field := PlainInput {
+                text: root.data.name;
+                placeholder: I18n.t("Untitled project");
+                enabled: !root.data.busy;
+                edited(text) => { root.name-edited(text); }
+                accepted => { root.create(); }
+            }
+        }
+
+        FormRow {
+            label: I18n.upper("Location");
+            stacked: root.narrow;
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                PlainInput {
+                    horizontal-stretch: 1;
+                    text: root.data.location;
+                    placeholder: I18n.t("Choose a folder");
+                    size: Theme.fs;
+                    face: Theme.font-technical;
+                    enabled: !root.data.busy;
+                    edited(text) => { root.location-edited(text); }
+                    accepted => { root.create(); }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    LinkButton {
+                        label: I18n.t("Choose…");
+                        enabled: !root.data.busy;
+                        clicked => { root.browse(); }
+                    }
+                }
+            }
+        }
+
+        FormRow {
+            label: I18n.upper("Shape");
+            stacked: root.narrow;
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                ChipRow {
+                    horizontal-stretch: 1;
+                    options: root.aspects;
+                    current: root.data.aspect;
+                    enabled: !root.data.busy;
+                    block: root.narrow;
+                    changed(index) => { root.aspect-changed(index); }
+                }
+
+                // The chosen frame at the row's end, drawn rather than
+                // described: the one thing on this sheet that shows what
+                // the numbers mean.
+                if !root.narrow: VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    FrameShape {
+                        room: 32px;
+                        ratio: root.data.frame-aspect;
+                    }
+                }
+            }
+        }
+
+        FormRow {
+            label: I18n.upper("Size");
+            stacked: root.narrow;
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                ChipRow {
+                    horizontal-stretch: 1;
+                    options: root.sizes;
+                    current: root.data.size;
+                    enabled: !root.data.busy;
+                    block: root.narrow;
+                    changed(index) => { root.size-changed(index); }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    Text {
+                        text: root.data.size-readout;
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                    }
+                }
+            }
+        }
+
+        FormRow {
+            label: I18n.upper("Frame rate");
+            last: true;
+            stacked: root.narrow;
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                ChipRow {
+                    horizontal-stretch: 1;
+                    options: root.rates;
+                    current: root.data.rate;
+                    enabled: !root.data.busy;
+                    block: root.narrow;
+                    changed(index) => { root.rate-changed(index); }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 0;
+                    Text {
+                        text: root.data.rate-readout;
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                    }
+                }
+            }
+        }
+
+        // The notice, above the button, wrapping to as many lines as the
+        // error takes: an elided error is half an error, and on a phone
+        // that is most of it.
+        if root.data.error != "": Rectangle {
+            height: notice.preferred-height + 4px;
+
+            notice := Rectangle {
+                x: 0;
+                y: 4px;
+                width: parent.width;
+                height: self.preferred-height;
+                border-radius: Theme.r;
+                background: Theme.danger-soft;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 6px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: start;
+                        padding-top: 2px;
+                        Icon {
+                            glyph: Glyph.info;
+                            size: 13px;
+                            tint: Theme.danger;
+                        }
+                    }
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.error;
+                        color: Theme.danger;
+                        font-size: Theme.fs;
+                        wrap: word-wrap;
+                    }
+
+                    VerticalLayout {
+                        alignment: start;
+                        CopyChip {
+                            text: root.data.error;
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: start;
+                        Rectangle {
+                            width: 22px;
+                            height: 22px;
+                            border-radius: Theme.r-xs;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 11px;
+                                tint: Theme.danger;
+                            }
+
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.dismiss-error(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle { height: 22px; }
+
+        // The button and the line about what pressing it does to the disk:
+        // side by side where there is room, the button across the width
+        // and the line under it on a phone, where a pill a thumb can miss
+        // is a pill that will be missed.
+        if !root.narrow: HorizontalLayout {
+            spacing: 18px;
+
+            PillButton {
+                primary: true;
+                label: root.data.busy
+                    ? I18n.t("Creating…")
+                    : I18n.t("Create");
+                enabled: root.can-create;
+                clicked => { root.create(); }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                Text {
+                    text: I18n.t("The project folder is created now; the edit autosaves into it.");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-sm;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.narrow: VerticalLayout {
+            spacing: 12px;
+
+            PillButton {
+                primary: true;
+                block: true;
+                label: root.data.busy
+                    ? I18n.t("Creating…")
+                    : I18n.t("Create");
+                enabled: root.can-create;
+                clicked => { root.create(); }
+            }
+
+            Text {
+                text: I18n.t("The project folder is created now; the edit autosaves into it.");
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
         }
     }
 }

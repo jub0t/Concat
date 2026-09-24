@@ -411,6 +411,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let editor = app.global::<Editor>();
 
     // ── the launch screen ──
+    app.on_start_compose(on_window!(|state| {
+        state.handle(Msg::Start(StartMsg::Compose));
+    }));
+    app.on_start_dismiss(on_window!(|state| {
+        state.handle(Msg::Start(StartMsg::Dismiss));
+    }));
     app.on_start_name_edited(on_window!(|state, name: SharedString| {
         state.handle(Msg::Start(StartMsg::NameEdited(name.to_string())));
     }));

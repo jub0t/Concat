@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! The launch screen's form: a new project's name, place, shape, size and
-//! rate, the verb that opens one that already exists, and the recent
-//! list's own two verbs.
+//! The launch screen's sheet: a new project's name, place, shape, size
+//! and rate, the verb that opens one that already exists, and the project
+//! grid's own two verbs.
 
 use concat_host::projects;
 
@@ -12,9 +12,13 @@ use crate::platform;
 use crate::studio::{ASPECTS, SIZES, START_RATES, Studio, frame_size, home_folder};
 use crate::ui::StartData;
 
-/// Everything that can happen to the launch screen's form.
+/// Everything that can happen to the launch screen's sheet.
 #[derive(Clone, Debug)]
 pub enum StartMsg {
+    /// Put up the sheet a new project is described on.
+    Compose,
+    /// Take it down, keeping what was typed for next time.
+    Dismiss,
     NameEdited(String),
     LocationEdited(String),
     /// The frame's shape: 16:9, 9:16, 1:1, 4:3.
@@ -32,8 +36,12 @@ pub enum StartMsg {
     ForgetRecent(String),
 }
 
-/// The form on the launch screen.
+/// The sheet on the launch screen.
 pub struct StartPane {
+    /// The sheet is up. Down again once the project it describes opens,
+    /// and not before: a create that fails keeps the form, and its notice,
+    /// on screen.
+    pub composing: bool,
     pub name: String,
     pub location: String,
     /// Index into [`ASPECTS`].
@@ -48,6 +56,7 @@ pub struct StartPane {
 impl Default for StartPane {
     fn default() -> Self {
         Self {
+            composing: false,
             name: "Untitled project".into(),
             // A phone has no desk: its projects live at the top of the
             // folder the file manager shows for the app.
@@ -72,6 +81,13 @@ impl StartPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: StartMsg, studio: &mut Studio) {
         match msg {
+            StartMsg::Compose => self.composing = true,
+            StartMsg::Dismiss => {
+                self.composing = false;
+                // The notice belongs to the attempt it reported on, not to
+                // the next time the sheet comes up.
+                self.error.clear();
+            }
             StartMsg::NameEdited(name) => self.name = name,
             StartMsg::LocationEdited(path) => self.location = path,
             StartMsg::AspectChanged(index) => {
@@ -93,20 +109,27 @@ impl StartPane {
             }
             StartMsg::Create => self.create(studio),
             StartMsg::Open => self.open(studio),
+            // Both of the grid's verbs report through the toast, as Open
+            // does: the sheet is down while a card is pressed, and a notice
+            // inside it would go unseen.
             StartMsg::OpenRecent(path) => {
-                let opened = projects::open(&path).and_then(|info| studio.open_project(info));
-                self.opened(opened);
+                if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info))
+                {
+                    studio.notify(&error, true);
+                }
             }
             StartMsg::ForgetRecent(path) => {
                 if let Err(error) = projects::forget(&studio.host.dirs.config, &path) {
-                    self.error = error;
+                    studio.notify(&error, true);
                 }
                 studio.recents = projects::list(&studio.host.dirs.config);
             }
         }
     }
 
-    /// Makes the project the form describes and opens it.
+    /// Makes the project the sheet describes and opens it. The sheet comes
+    /// down with the project open behind it; a failure leaves it up, with
+    /// the reason in its notice.
     fn create(&mut self, studio: &mut Studio) {
         let name = self.name.trim().to_owned();
         let name = if name.is_empty() {
@@ -122,7 +145,14 @@ impl StartPane {
         }
         let opened = projects::create(&self.location, &name, width, height, num, den)
             .and_then(|info| studio.open_project(info));
-        self.opened(opened);
+        self.busy = false;
+        match opened {
+            Ok(()) => {
+                self.composing = false;
+                self.error.clear();
+            }
+            Err(error) => self.error = error,
+        }
     }
 
     /// Opens a project folder that already exists.
@@ -134,9 +164,9 @@ impl StartPane {
     ///
     /// This is also what File › Open project does, from the menu bar of a
     /// window that already has a project in it. That is why it reports
-    /// through the toast rather than through the form's own notice: the
-    /// notice is on the launch screen, and half the presses of this never
-    /// see the launch screen at all.
+    /// through the toast rather than through the sheet's notice: the sheet
+    /// is down when this is pressed, and half the presses of this never see
+    /// the launch screen at all.
     fn open(&mut self, studio: &mut Studio) {
         let Some(folder) = platform::pick_folder(&t("Open a project"), &self.location) else {
             return;
@@ -151,20 +181,12 @@ impl StartPane {
         }
     }
 
-    /// The form after an open: at rest, and saying why when it failed.
-    fn opened(&mut self, result: Result<(), String>) {
-        self.busy = false;
-        match result {
-            Ok(()) => self.error.clear(),
-            Err(error) => self.error = error,
-        }
-    }
-
-    /// The form as Slint shows it.
+    /// The sheet as Slint shows it.
     pub fn data(&self) -> StartData {
         let (width, height) = frame_size(self.aspect, self.size);
         let (_, num, den) = START_RATES[self.rate.min(START_RATES.len() - 1)];
         StartData {
+            composing: self.composing,
             name: self.name.as_str().into(),
             location: self.location.as_str().into(),
             aspect: self.aspect as i32,
