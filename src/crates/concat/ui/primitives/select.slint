@@ -38,6 +38,10 @@ export component Select inherits Rectangle {
     /// option would reserve is room the tray does not have; the trigger
     /// then changes width as the choice does, which is the trade.
     in property <bool> snug;
+    /// The corners, a side at a time, so a select can be joined onto a
+    /// field as its unit with a square seam between them; see Field.
+    in property <length> radius-left: Theme.r;
+    in property <length> radius-right: Theme.r;
 
     callback changed(index: int);
 
@@ -97,7 +101,10 @@ export component Select inherits Rectangle {
     height: Theme.h;
     min-width: 60px;
     horizontal-stretch: 1;
-    border-radius: Theme.r;
+    border-top-left-radius: root.radius-left;
+    border-bottom-left-radius: root.radius-left;
+    border-top-right-radius: root.radius-right;
+    border-bottom-right-radius: root.radius-right;
     opacity: root.enabled ? 1.0 : 0.45;
     background: root.flat && !root.open ? Colors.transparent
         : (root.open || (trigger.has-hover && root.enabled)) ? Theme.field-hover

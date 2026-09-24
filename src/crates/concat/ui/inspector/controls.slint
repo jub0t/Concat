@@ -784,13 +784,33 @@ export component SearchField inherits Rectangle {
 export component ColourField inherits HorizontalLayout {
     in property <string> label;
     in property <color> value;
-    /// The value spelled out, formatted by whoever owns it — Slint cannot
-    /// print a colour.
-    in property <string> hex;
     /// The colour carries an alpha of its own; see ColorPicker.
     in property <bool> alpha: false;
 
     callback changed(value: color);
+
+    /// The digits being typed, held apart from `value` for the reason
+    /// the dialog's Field holds its draft: a TextInput writes to whatever
+    /// it is bound to, and a republish mid-edit must not yank the caret.
+    property <string> draft;
+    function seed() {
+        root.draft = Fmt.hex-digits(root.value);
+    }
+    /// What was typed, taken as a colour - "fff" and "cbf53f" alike, and
+    /// the value kept when it is neither - with the alpha it already had:
+    /// the field is six digits, and an opacity has a dial of its own.
+    function adopt() {
+        root.changed(Fmt.color-of("#" + root.draft, root.value)
+            .with-alpha(root.value.to-hsv().alpha));
+        root.seed();
+    }
+
+    init => { root.seed(); }
+    changed value => {
+        if (!input.has-focus) {
+            root.seed();
+        }
+    }
 
     padding-left: Theme.pad;
     padding-right: Theme.pad;
@@ -806,33 +826,102 @@ export component ColourField inherits HorizontalLayout {
 
     Rectangle { horizontal-stretch: 1; }
 
-    Text {
-        text: root.hex;
-        color: Theme.fg-dim;
-        font-family: Theme.font-technical;
-        font-size: Theme.fs-sm;
-        vertical-alignment: center;
+    // The hex, typed as well as read. The hash sits in a quiet segment on
+    // the left - the number field's unit well, mirrored - because every
+    // value starts with it and nobody should have to type it; the six
+    // digits are the field.
+    VerticalLayout {
+        alignment: center;
+
+        field := Rectangle {
+            width: 86px;
+            height: 24px;
+            border-radius: Theme.r-sm;
+            clip: true;
+            background: input.has-focus ? Theme.field-hover
+                : hover.has-hover ? Theme.field-hover
+                : Theme.field;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.accent : Colors.transparent;
+
+            animate background, border-color { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+            HorizontalLayout {
+                Rectangle {
+                    width: 20px;
+                    background: Theme.well;
+
+                    Rectangle {
+                        x: parent.width - 1px;
+                        width: 1px;
+                        background: Theme.line;
+                    }
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "#";
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+
+                    hover := TouchArea {
+                        mouse-cursor: MouseCursor.text;
+                        clicked => { input.focus(); }
+                    }
+
+                    input := TextInput {
+                        x: 8px;
+                        y: (parent.height - self.height) / 2;
+                        width: parent.width - 16px;
+                        height: self.preferred-height;
+                        text <=> root.draft;
+                        color: Theme.fg;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs;
+                        single-line: true;
+                        selection-background-color: Theme.accent;
+                        selection-foreground-color: Theme.on-accent;
+
+                        accepted => { root.adopt(); }
+                        changed has-focus => {
+                            if (!self.has-focus) {
+                                root.adopt();
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
+    // The swatch: a square the height of the field, and the button that
+    // opens the picker.
     VerticalLayout {
         alignment: center;
 
         swatch := Rectangle {
-            width: 34px;
-            height: 20px;
-            border-radius: Theme.r-xs;
+            width: 24px;
+            height: 24px;
+            border-radius: Theme.r-sm;
             clip: true;
             border-width: 1px;
             border-color: touch.has-hover ? Theme.line-strong : Theme.line;
 
             // A checker under a colour that can be see-through, so a faint
-            // plate looks faint rather than like the panel.
+            // stroke looks faint rather than like the panel.
             if root.alpha: Rectangle {
-                for cell in 15: Rectangle {
-                    x: Math.floor(cell / 3) * 7px;
-                    y: Math.mod(cell, 3) * 7px;
-                    width: 7px;
-                    height: 7px;
+                for cell in 9: Rectangle {
+                    x: Math.floor(cell / 3) * 8px;
+                    y: Math.mod(cell, 3) * 8px;
+                    width: 8px;
+                    height: 8px;
                     background: Math.mod(cell + Math.floor(cell / 3), 2) == 0 ? #c8c8c8 : #7a7a7a;
                 }
             }
@@ -842,7 +931,7 @@ export component ColourField inherits HorizontalLayout {
                 y: 1px;
                 width: parent.width - 2px;
                 height: parent.height - 2px;
-                border-radius: Theme.r-xs - 1px;
+                border-radius: Theme.r-sm - 1px;
                 background: root.value;
             }
 

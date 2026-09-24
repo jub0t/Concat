@@ -3638,6 +3638,12 @@ impl Studio {
                 ));
             }
             ClipField::BackgroundRadius => text.background_radius = value.clamp(0.0, 0.2),
+            ClipField::BackgroundPaddingX => {
+                text.background_padding_x = value.clamp(0.0, 0.5);
+            }
+            ClipField::BackgroundPaddingY => {
+                text.background_padding_y = value.clamp(0.0, 0.5);
+            }
         }
         // A media clip has no text; the placeholder must not linger.
         if clip.kind != model::ClipKind::Text {
@@ -7013,6 +7019,8 @@ impl Studio {
             plated: plate.alpha() > 0,
             plate_opacity: f32::from(plate.alpha()) / 255.0,
             plate_radius: text.background_radius as f32,
+            plate_padding_x: text.background_padding_x as f32,
+            plate_padding_y: text.background_padding_y as f32,
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
             text_width: text.max_width as f32,

@@ -164,6 +164,9 @@ export enum ClipField {
     /// the background's opacity is its colour's alpha, as the stroke's is;
     /// its corner radius is a fraction of frame height
     background-opacity, background-radius,
+    /// the air between the words and the background's edges, fractions of
+    /// frame height on each axis
+    background-padding-x, background-padding-y,
     cutout-feather,
     /// which of the media's audio tracks the clip plays, as a row of
     /// Editor.audio-tracks
@@ -348,6 +351,10 @@ export struct SelectedClipData {
     plate-opacity: float,
     /// the background's corner radius as a fraction of frame height
     plate-radius: float,
+    /// the background's air either side of and above the words, as
+    /// fractions of frame height
+    plate-padding-x: float,
+    plate-padding-y: float,
     line-height: float,
     tracking: float,
     /// the widest a line runs before wrapping, as a fraction of the frame;

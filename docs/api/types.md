@@ -257,6 +257,8 @@ change; the rest take these defaults.
 | `shadow` | bool | true | A drop shadow |
 | `background` | string | `""` | A background colour behind the text, `#rrggbb[aa]`, its alpha the opacity; empty is none |
 | `backgroundRadius` | number | 0.0135 | The background's corner radius as a fraction of frame height; 0 is square |
+| `backgroundPaddingX` | number | 0.0315 | The background's air either side of the words, as a fraction of frame height; ignored on an axis `maxWidth` sizes |
+| `backgroundPaddingY` | number | 0.018 | The same above and below; ignored when `maxHeight` sizes the box |
 | `lineHeight` | number | 1.2 | Multiple of the font size; floored at 0.5 |
 | `tracking` | number | 0 | Extra letter spacing, in frame-height fractions |
 | `maxWidth` | number | 0 | Wrap width as a fraction of frame width; 0 is no wrap |

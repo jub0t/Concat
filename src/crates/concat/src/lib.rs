@@ -160,7 +160,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }
     // A picked playhead colour is remembered as its hex; none remembered,
     // or one that will not parse, is the palette's own.
-    if let Some(colour) = studio.prefs.playhead.as_deref().and_then(format::parse_colour) {
+    if let Some(colour) = studio
+        .prefs
+        .playhead
+        .as_deref()
+        .and_then(format::parse_colour)
+    {
         let theme = app.global::<Theme>();
         theme.set_playhead_custom(colour);
         theme.set_playhead_is_custom(true);
@@ -1479,6 +1484,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             format::hex_of(value).into()
         }
     });
+    app.global::<Fmt>()
+        .on_hex_digits(|value| format::hex_of(value)[1..].into());
     app.global::<Fmt>()
         .on_color_of(|text, fallback| format::parse_colour(text.as_str()).unwrap_or(fallback));
     app.global::<Fmt>()

@@ -876,6 +876,14 @@ pub struct TextStyle {
     /// the rounding every background wore before it had a dial - 15 % of
     /// the default size's em - and zero is square.
     pub background_radius: f64,
+    /// The air between the words and the background's left and right
+    /// edges, as a fraction of frame height, on an axis the words size
+    /// themselves: a box with a width is exactly that wide. The default
+    /// is the air every background had before it was a dial, 35 % of the
+    /// default size's em.
+    pub background_padding_x: f64,
+    /// The same above and below; 20 % of the default em by default.
+    pub background_padding_y: f64,
     /// Baseline spacing as a multiple of the font size; the reader floors it
     /// at 0.5 so lines cannot collapse onto each other.
     pub line_height: f64,
@@ -914,8 +922,11 @@ impl TextStyle {
         self.tracking = finite(self.tracking, base.tracking);
         self.max_width = finite(self.max_width, base.max_width).max(0.0);
         self.max_height = finite(self.max_height, base.max_height).max(0.0);
-        self.background_radius =
-            finite(self.background_radius, base.background_radius).max(0.0);
+        self.background_radius = finite(self.background_radius, base.background_radius).max(0.0);
+        self.background_padding_x =
+            finite(self.background_padding_x, base.background_padding_x).max(0.0);
+        self.background_padding_y =
+            finite(self.background_padding_y, base.background_padding_y).max(0.0);
         self
     }
 }
@@ -936,6 +947,8 @@ impl Default for TextStyle {
             shadow: true,
             background: String::new(),
             background_radius: 0.0135,
+            background_padding_x: 0.0315,
+            background_padding_y: 0.018,
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,

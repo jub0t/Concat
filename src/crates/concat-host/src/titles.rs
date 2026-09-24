@@ -439,6 +439,8 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         shadow: style.shadow,
         background: style.background.clone(),
         background_radius: style.background_radius,
+        background_padding_x: style.background_padding_x,
+        background_padding_y: style.background_padding_y,
         line_height: style.line_height,
         max_width: style.max_width,
         max_height: style.max_height,

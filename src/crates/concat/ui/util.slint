@@ -15,6 +15,9 @@ export global Fmt {
     /// A colour spelled as "#rrggbb", or "#rrggbbaa" when `with-alpha` and
     /// it is not opaque. Slint cannot print a colour; Rust does.
     pure callback hex-of(value: color, with-alpha: bool) -> string;
+    /// The same six digits without the hash, for a field that draws the
+    /// hash itself. Never the alpha: a field with one has a dial for it.
+    pure callback hex-digits(value: color) -> string;
     /// The colour a person typed - "#fff", "#cbf53f", "#000000cc", hash
     /// optional - or `fallback` when it is not one.
     pure callback color-of(text: string, fallback: color) -> color;

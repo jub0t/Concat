@@ -80,6 +80,11 @@ pub struct TitleStyle {
     /// The plate's corner radius as a fraction of frame height; zero is
     /// square.
     pub background_radius: f64,
+    /// The plate's air either side of the words, as a fraction of frame
+    /// height; only on an axis the style does not size.
+    pub background_padding_x: f64,
+    /// The same above and below.
+    pub background_padding_y: f64,
     /// Baseline pitch as a multiple of the em.
     pub line_height: f64,
     /// Extra advance after every glyph, as a fraction of frame height.
@@ -617,12 +622,12 @@ fn paint(
     // outline, and what the title's neighbours should keep clear of.
     let plate = colour(&style.background);
     let pad_x = if plate.is_some() && max_w <= 0.0 {
-        em * 0.35
+        (style.background_padding_x.max(0.0) as f32) * frame_h
     } else {
         0.0
     };
     let pad_y = if plate.is_some() && max_h <= 0.0 {
-        em * 0.2
+        (style.background_padding_y.max(0.0) as f32) * frame_h
     } else {
         0.0
     };
@@ -798,6 +803,8 @@ mod tests {
             shadow: true,
             background: String::new(),
             background_radius: 0.0135,
+            background_padding_x: 0.0315,
+            background_padding_y: 0.018,
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,
@@ -955,7 +962,11 @@ mod tests {
             (at(161, 109), at(320, 109))
         };
         let rendered = render(&fonts, &square, 640, 360).expect("renders");
-        assert_eq!(probe(&rendered.png), (255, 255), "square corners are painted");
+        assert_eq!(
+            probe(&rendered.png),
+            (255, 255),
+            "square corners are painted"
+        );
 
         let mut round = square.clone();
         round.background_radius = 0.1;
@@ -963,6 +974,36 @@ mod tests {
         let (corner, edge) = probe(&rendered.png);
         assert_eq!(corner, 0, "a rounded corner is clear");
         assert_eq!(edge, 255, "and the edge between the corners is painted");
+    }
+
+    /// The plate's air follows the style's padding: the block is the words
+    /// plus twice the padding on each axis the words size, and a padding of
+    /// nothing is a plate that hugs them.
+    #[test]
+    fn the_plates_air_follows_the_padding() {
+        let fonts = Fonts::new();
+        let mut hugging = style("hi");
+        hugging.background = "#000000ff".to_owned();
+        hugging.shadow = false;
+        hugging.background_padding_x = 0.0;
+        hugging.background_padding_y = 0.0;
+        let tight = render(&fonts, &hugging, 640, 360).expect("renders");
+
+        let mut roomy = hugging.clone();
+        roomy.background_padding_x = 0.1;
+        roomy.background_padding_y = 0.05;
+        let wide = render(&fonts, &roomy, 640, 360).expect("renders");
+        // 10 % of 360 either side, and 5 % above and below.
+        assert_eq!(
+            wide.block_width,
+            tight.block_width + 72,
+            "the air either side"
+        );
+        assert_eq!(
+            wide.block_height,
+            tight.block_height + 36,
+            "the air above and below"
+        );
     }
 
     /// A box narrower or shorter than the words grows to hold them: a word

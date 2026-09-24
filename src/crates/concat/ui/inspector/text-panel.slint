@@ -4,7 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
-import { Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
+import { IconButton, Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import { NumberField } from "../primitives/number-field.slint";
@@ -49,10 +49,24 @@ export component TextPanel inherits VerticalLayout {
     property <float> stroke-alpha;
     property <float> plate-alpha;
     property <float> plate-radius;
+    /// The background's air, in pixels of the frame like the box's sides.
+    property <float> plate-pad-x;
+    property <float> plate-pad-y;
+    /// The two paddings are one number: an edit to either sets both. A
+    /// choice about how the panel is used, not about the title, so it is
+    /// not in the document and survives a change of selection.
+    property <bool> pad-locked: false;
     property <float> line-height;
     property <float> tracking;
     property <float> box-w;
     property <float> box-h;
+    /// Each side's unit: 0 is pixels, 1 is Auto, which is zero in the
+    /// document - the words size that side, padding and all.
+    property <int> w-mode;
+    property <int> h-mode;
+    /// What a side measured before it went Auto, so px brings it back.
+    property <float> last-w;
+    property <float> last-h;
     property <float> offset-x;
     property <float> offset-y;
     property <int> weight-index;
@@ -71,10 +85,14 @@ export component TextPanel inherits VerticalLayout {
         root.stroke-alpha = root.selected.stroke-opacity;
         root.plate-alpha = root.selected.plate-opacity;
         root.plate-radius = root.selected.plate-radius;
+        root.plate-pad-x = root.selected.plate-padding-x * root.frame-h;
+        root.plate-pad-y = root.selected.plate-padding-y * root.frame-h;
         root.line-height = root.selected.line-height;
         root.tracking = root.selected.tracking;
         root.box-w = root.selected.text-width * root.frame-w;
         root.box-h = root.selected.text-height * root.frame-h;
+        root.w-mode = root.box-w > 0 ? 0 : 1;
+        root.h-mode = root.box-h > 0 ? 0 : 1;
         root.offset-x = root.selected.offset-x;
         root.offset-y = root.selected.offset-y;
         root.weight-index = root.selected.font-weight >= 700 ? 3
@@ -87,6 +105,41 @@ export component TextPanel inherits VerticalLayout {
 
     init => { root.seed(); }
     changed selected => { root.seed(); }
+
+    /// Both paddings at once, in pixels of the frame, as one edit: the
+    /// echo takes the two sets and the commit lands them together.
+    function set-padding(x: float, y: float) {
+        root.plate-pad-x = x;
+        root.plate-pad-y = y;
+        root.set(ClipField.background-padding-x, x / root.frame-h);
+        root.set(ClipField.background-padding-y, y / root.frame-h);
+        root.commit();
+    }
+
+    /// A side's unit picked: Auto is zero in the document, and px is the
+    /// size the side last had, or a share of the frame to start from when
+    /// it never had one - half the width, a fifth of the height, a lower
+    /// third's band.
+    function size-mode(width: bool, auto: bool) {
+        if (width) {
+            if (auto) {
+                root.last-w = root.box-w;
+                root.box-w = 0;
+            } else if (root.box-w <= 0) {
+                root.box-w = root.last-w > 0 ? root.last-w : Math.round(root.frame-w / 2);
+            }
+            root.set(ClipField.text-width, root.box-w / root.frame-w);
+        } else {
+            if (auto) {
+                root.last-h = root.box-h;
+                root.box-h = 0;
+            } else if (root.box-h <= 0) {
+                root.box-h = root.last-h > 0 ? root.last-h : Math.round(root.frame-h / 5);
+            }
+            root.set(ClipField.text-height, root.box-h / root.frame-h);
+        }
+        root.commit();
+    }
 
     /// A box side in pixels: "auto" at zero, else the whole number.
     pure function px(v: float) -> string {
@@ -228,7 +281,6 @@ export component TextPanel inherits VerticalLayout {
         ColourField {
             label: I18n.t("Color");
             value: root.selected.fill;
-            hex: root.selected.fill-hex;
             alpha: false;
             changed(colour) => { root.set-colour(ClipTextField.color, colour); root.commit(); }
         }
@@ -278,7 +330,6 @@ export component TextPanel inherits VerticalLayout {
         if root.selected.plated: ColourField {
             label: I18n.t("Background color");
             value: root.selected.plate.with-alpha(1);
-            hex: root.selected.plate-hex;
             alpha: false;
             changed(shade) => {
                 root.set-colour(ClipTextField.background, shade.with-alpha(root.plate-alpha));
@@ -314,6 +365,50 @@ export component TextPanel inherits VerticalLayout {
             unit-scale: 100;
             changed(v) => { root.set(ClipField.background-radius, v); root.commit(); }
         }
+
+        // The air between the words and the background's edges, in pixels
+        // of the frame like the box's sides, on any axis the words size
+        // themselves - a sized box is exactly its size. The lock at the end
+        // makes the two one number: locking takes the Y to the X at once,
+        // and from then on an edit to either is an edit to both.
+        if root.selected.plated: Row {
+            label: I18n.t("Padding");
+            label-width: root.label-w;
+
+            NumberField {
+                prefix: "X";
+                unit: "px";
+                value <=> root.plate-pad-x;
+                minimum: 0;
+                maximum: root.frame-h / 2;
+                step: 1;
+                changed(v) => { root.set-padding(v, root.pad-locked ? v : root.plate-pad-y); }
+            }
+            NumberField {
+                prefix: "Y";
+                unit: "px";
+                value <=> root.plate-pad-y;
+                minimum: 0;
+                maximum: root.frame-h / 2;
+                step: 1;
+                changed(v) => { root.set-padding(root.pad-locked ? v : root.plate-pad-x, v); }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    glyph: root.pad-locked ? Glyph.lock : Glyph.unlock;
+                    label: root.pad-locked ? I18n.t("Unlock the paddings")
+                        : I18n.t("Lock the paddings together");
+                    checked: root.pad-locked;
+                    clicked => {
+                        root.pad-locked = !root.pad-locked;
+                        if (root.pad-locked && root.plate-pad-x != root.plate-pad-y) {
+                            root.set-padding(root.plate-pad-x, root.plate-pad-x);
+                        }
+                    }
+                }
+            }
+        }
         }
     }
 
@@ -348,7 +443,6 @@ export component TextPanel inherits VerticalLayout {
         if root.selected.stroke-width > 0: ColourField {
             label: I18n.t("Color");
             value: root.selected.stroke;
-            hex: root.selected.stroke-hex;
             alpha: true;
             changed(shade) => {
                 root.set-colour(ClipTextField.stroke-color, shade);
@@ -395,37 +489,63 @@ export component TextPanel inherits VerticalLayout {
             }
         }
 
-        // The box, in pixels of the frame. Zero is "auto": that side is
-        // sized by the words. The stage's grips pull the same two numbers;
+        // The box, in pixels of the frame, or Auto: that side is sized by
+        // the words, with the background's padding round them, so a title
+        // whose words change - a caption made from a transcript - keeps
+        // its air whatever is written. The unit is a select joined onto
+        // the field where a unit would sit; Auto greys the number, which
+        // is nothing then. The stage's grips pull the same two numbers;
         // here they can be typed exactly.
         Row {
             label: I18n.t("Width");
             label-width: root.label-w;
-            NumberField {
-                prefix: "W";
-                unit: "px";
-                value <=> root.box-w;
-                minimum: 0;
-                maximum: root.frame-w * 2;
-                step: 1;
-                format(v) => { return root.px(v); }
-                parse(t) => { return t.is-float() ? Math.max(0, t.to-float()) : 0; }
-                changed(v) => { root.set(ClipField.text-width, v / root.frame-w); root.commit(); }
+            HorizontalLayout {
+                spacing: 0;
+                NumberField {
+                    prefix: "W";
+                    radius-right: 0px;
+                    enabled: root.w-mode == 0;
+                    value <=> root.box-w;
+                    minimum: 1;
+                    maximum: root.frame-w * 2;
+                    step: 1;
+                    format(v) => { return v <= 0 ? "–" : "\{Math.round(v)}"; }
+                    parse(t) => { return t.is-float() ? Math.max(1, t.to-float()) : root.box-w; }
+                    changed(v) => { root.set(ClipField.text-width, v / root.frame-w); root.commit(); }
+                }
+                Select {
+                    width: self.natural-width;
+                    radius-left: 0px;
+                    options: ["px", I18n.t("Auto")];
+                    current <=> root.w-mode;
+                    changed(index) => { root.size-mode(true, index == 1); }
+                }
             }
         }
         Row {
             label: I18n.t("Height");
             label-width: root.label-w;
-            NumberField {
-                prefix: "H";
-                unit: "px";
-                value <=> root.box-h;
-                minimum: 0;
-                maximum: root.frame-h * 2;
-                step: 1;
-                format(v) => { return root.px(v); }
-                parse(t) => { return t.is-float() ? Math.max(0, t.to-float()) : 0; }
-                changed(v) => { root.set(ClipField.text-height, v / root.frame-h); root.commit(); }
+            HorizontalLayout {
+                spacing: 0;
+                NumberField {
+                    prefix: "H";
+                    radius-right: 0px;
+                    enabled: root.h-mode == 0;
+                    value <=> root.box-h;
+                    minimum: 1;
+                    maximum: root.frame-h * 2;
+                    step: 1;
+                    format(v) => { return v <= 0 ? "–" : "\{Math.round(v)}"; }
+                    parse(t) => { return t.is-float() ? Math.max(1, t.to-float()) : root.box-h; }
+                    changed(v) => { root.set(ClipField.text-height, v / root.frame-h); root.commit(); }
+                }
+                Select {
+                    width: self.natural-width;
+                    radius-left: 0px;
+                    options: ["px", I18n.t("Auto")];
+                    current <=> root.h-mode;
+                    changed(index) => { root.size-mode(false, index == 1); }
+                }
             }
         }
 
