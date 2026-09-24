@@ -40,6 +40,8 @@ pub fn pane_glyph(slug: &str) -> &'static str {
             "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2Z \
                       M7 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21"
         }
+        // lucide/diamond
+        "keyframes" => "M12 2.5l9.5 9.5-9.5 9.5-9.5-9.5z",
         // lucide/sliders-horizontal
         "inspector" => {
             "M10 5H3 M12 19H3 M14 3v4 M16 17v4 M21 12h-9 M21 19h-5 M21 5h-7 \

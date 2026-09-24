@@ -1162,6 +1162,47 @@ fn shown(clip: &Clip, property: model::KeyProperty, at: f64) -> f64 {
     }
 }
 
+/// A keyable property's value in the knob's units: the model's, except
+/// the level, which the knob shows in decibels and the clip holds as gain.
+fn knob_value(property: model::KeyProperty, value: f64) -> f64 {
+    match property {
+        model::KeyProperty::Volume => {
+            if value <= 0.001 {
+                -60.0
+            } else {
+                (20.0 * value.log10()).clamp(-60.0, 24.0)
+            }
+        }
+        _ => value,
+    }
+}
+
+/// The reverse of [`knob_value`]: a knob's number as the model holds it.
+fn model_value(property: model::KeyProperty, knob: f64) -> f64 {
+    match property {
+        model::KeyProperty::Volume => {
+            if knob <= -60.0 {
+                0.0
+            } else {
+                10f64.powf(knob / 20.0)
+            }
+        }
+        _ => knob,
+    }
+}
+
+/// The range a keyable knob runs over, in the knob's units: what the
+/// curve view's height spans. The same numbers as the inspector's rows.
+fn knob_range(property: model::KeyProperty) -> (f64, f64) {
+    match property {
+        model::KeyProperty::Scale => (0.05, 8.0),
+        model::KeyProperty::OffsetX | model::KeyProperty::OffsetY => (-1.0, 1.0),
+        model::KeyProperty::Rotation => (-180.0, 180.0),
+        model::KeyProperty::Opacity => (0.0, 1.0),
+        model::KeyProperty::Volume => (-60.0, 24.0),
+    }
+}
+
 /// Writes a keyable property the way the person means it: the constant
 /// while the property has no keys, and once it rides, the key at `at` -
 /// put on if there was none, with the ease of the key behind it. The engine
@@ -6201,58 +6242,77 @@ impl Studio {
             .collect()
     }
 
-    /// The Keyframes panel's rows: the six properties of the selected
-    /// clip, and every Adjust knob of it that carries keys, each with its
-    /// keys along the clip, what it is worth at the playhead, and the ease
-    /// into the key the playhead is on or heading for.
+    /// The Keyframes pane's rows: the six properties of the selected clip,
+    /// and every Adjust knob of it that carries keys, each with its keys
+    /// along the clip - where, what value as a fraction of the knob's
+    /// range, and the ease into it - what the knob is worth at the
+    /// playhead, and the ride over the clip as a path for the curve view.
     pub fn key_editor_rows(&self) -> Vec<KeyRowData> {
         let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
             return Vec::new();
         };
         let at = place_in(clip, self.playhead);
         let near = |a: f64, b: f64| (a - b).abs() <= model::KEY_EPSILON;
-        // The ease shown for a run of keys: the one into the key at the
-        // playhead, else into the next key - the segment being played -
-        // when there is a key behind it to ease from.
-        let ease_of = |keys: &[(f64, model::KeyEase)]| -> (bool, [f32; 4], f32) {
-            let target = keys
+        // A run of keys as marks: each with its value as a fraction of the
+        // range and the ease into it, and the ride as a path - a hold to
+        // the first key, a cubic per segment (the ease's control points are
+        // exactly the curve's, in time and value), a hold after the last.
+        let marks_and_curve = |keys: &[(f64, f64, model::KeyEase)],
+                               to_fraction: &dyn Fn(f64) -> f64|
+         -> (ModelRc<KeyMarkData>, String, i32) {
+            let marks: Vec<KeyMarkData> = keys
                 .iter()
-                .find(|(key_at, _)| near(*key_at, at))
-                .or_else(|| keys.iter().find(|(key_at, _)| *key_at > at));
-            match target {
-                Some((key_at, ease))
-                    if keys
-                        .iter()
-                        .any(|(other, _)| *other < key_at - model::KEY_EPSILON) =>
-                {
+                .enumerate()
+                .map(|(index, (key_at, value, ease))| {
                     let [x1, y1, x2, y2] = ease.0;
-                    (
-                        true,
-                        [x1 as f32, y1 as f32, x2 as f32, y2 as f32],
-                        *key_at as f32,
-                    )
+                    KeyMarkData {
+                        at: *key_at as f32,
+                        here: near(*key_at, at),
+                        value: to_fraction(*value).clamp(0.0, 1.0) as f32,
+                        ease_x1: x1 as f32,
+                        ease_y1: y1 as f32,
+                        ease_x2: x2 as f32,
+                        ease_y2: y2 as f32,
+                        eased: index > 0,
+                    }
+                })
+                .collect();
+            let mut curve = String::new();
+            if let (Some(first), Some(last)) = (marks.first(), marks.last()) {
+                let y = |value: f32| 1.0 - value;
+                curve.push_str(&format!(
+                    "M 0 {:.4} L {:.4} {:.4}",
+                    y(first.value),
+                    first.at,
+                    y(first.value)
+                ));
+                for pair in marks.windows(2) {
+                    let (a, b) = (&pair[0], &pair[1]);
+                    let (dx, dy) = (b.at - a.at, b.value - a.value);
+                    curve.push_str(&format!(
+                        " C {:.4} {:.4} {:.4} {:.4} {:.4} {:.4}",
+                        a.at + b.ease_x1 * dx,
+                        y(a.value + b.ease_y1 * dy),
+                        a.at + b.ease_x2 * dx,
+                        y(a.value + b.ease_y2 * dy),
+                        b.at,
+                        y(b.value)
+                    ));
                 }
-                _ => (false, [0.0, 0.0, 1.0, 1.0], 0.0),
+                curve.push_str(&format!(" L 1 {:.4}", y(last.value)));
             }
-        };
-        let marks = |ats: &[f64]| -> ModelRc<KeyMarkData> {
-            ModelRc::new(VecModel::from(
-                ats.iter()
-                    .map(|&key_at| KeyMarkData {
-                        at: key_at as f32,
-                        here: near(key_at, at),
-                    })
-                    .collect::<Vec<_>>(),
-            ))
+            // The key the ease menu edits: the one at the playhead, else
+            // the next, when it has a key behind it to ease from.
+            let ease_index = marks
+                .iter()
+                .position(|mark| mark.eased && f64::from(mark.at) >= at - model::KEY_EPSILON)
+                .map_or(-1, |index| index as i32);
+            (ModelRc::new(VecModel::from(marks)), curve, ease_index)
         };
         let mut rows = Vec::new();
         for property in model::KeyProperty::ALL {
-            let keys: Vec<(f64, model::KeyEase)> = clip
-                .keys_on(property)
-                .map(|key| (key.at, key.ease))
-                .collect();
-            let ats: Vec<f64> = keys.iter().map(|(key_at, _)| *key_at).collect();
-            // The same ranges and units as the inspector's knobs.
+            // The same ranges and units as the inspector's knobs. The level
+            // knob speaks decibels, floored where silence is.
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
                 match property {
                     model::KeyProperty::Scale => (
@@ -6316,24 +6376,19 @@ impl Studio {
                         1.0,
                     ),
                 };
-            let shown_value = shown(clip, property, at);
-            let value = if property == model::KeyProperty::Volume {
-                // The level knob speaks decibels, floored where silence is.
-                if shown_value <= 0.001 {
-                    -60.0
-                } else {
-                    (20.0 * shown_value.log10()).clamp(-60.0, 24.0)
-                }
-            } else {
-                shown_value
-            };
+            let to_knob = |value: f64| knob_value(property, value);
+            let keys: Vec<(f64, f64, model::KeyEase)> = clip
+                .keys_on(property)
+                .map(|key| (key.at, to_knob(key.value), key.ease))
+                .collect();
+            let (marks, curve, ease_index) =
+                marks_and_curve(&keys, &|value| (value - minimum) / (maximum - minimum));
             let (prev, next) = clip.keys_around(property, at);
-            let (has_ease, ease, ease_at) = ease_of(&keys);
             rows.push(KeyRowData {
                 field: key_field_of(property),
                 param: SharedString::default(),
                 label: label.into(),
-                keys: marks(&ats),
+                keys: marks,
                 state: ClipKeyData {
                     field: key_field_of(property),
                     keyed: !keys.is_empty(),
@@ -6341,20 +6396,16 @@ impl Studio {
                     prev: prev.is_some(),
                     next: next.is_some(),
                 },
-                value: value as f32,
-                minimum,
-                maximum,
+                value: to_knob(shown(clip, property, at)) as f32,
+                minimum: minimum as f32,
+                maximum: maximum as f32,
                 step,
                 default_value,
                 fmt,
                 unit: unit.into(),
                 unit_scale,
-                ease_x1: ease[0],
-                ease_y1: ease[1],
-                ease_x2: ease[2],
-                ease_y2: ease[3],
-                has_ease,
-                ease_at,
+                curve: curve.into(),
+                ease_index,
             });
         }
         if let Some(link) = clip
@@ -6367,18 +6418,24 @@ impl Studio {
                 if !row.keyed {
                     continue;
                 }
-                let keys: Vec<(f64, model::KeyEase)> = link
+                let keys: Vec<(f64, f64, model::KeyEase)> = link
                     .keys_on(&row.key)
                     .iter()
-                    .map(|key| (key.at, key.ease))
+                    .map(|key| (key.at, key.value, key.ease))
                     .collect();
-                let ats: Vec<f64> = keys.iter().map(|(key_at, _)| *key_at).collect();
-                let (has_ease, ease, ease_at) = ease_of(&keys);
+                let (minimum, maximum) = (f64::from(row.min), f64::from(row.max));
+                let (marks, curve, ease_index) = marks_and_curve(&keys, &|value| {
+                    if maximum > minimum {
+                        (value - minimum) / (maximum - minimum)
+                    } else {
+                        0.5
+                    }
+                });
                 rows.push(KeyRowData {
                     field: ClipField::Scale,
                     param: row.key.clone(),
                     label: row.label.clone(),
-                    keys: marks(&ats),
+                    keys: marks,
                     state: ClipKeyData {
                         field: ClipField::Scale,
                         keyed: true,
@@ -6394,16 +6451,86 @@ impl Studio {
                     fmt: row.fmt,
                     unit: row.unit.clone(),
                     unit_scale: 1.0,
-                    ease_x1: ease[0],
-                    ease_y1: ease[1],
-                    ease_x2: ease[2],
-                    ease_y2: ease[3],
-                    has_ease,
-                    ease_at,
+                    curve: curve.into(),
+                    ease_index,
                 });
             }
         }
         rows
+    }
+
+    /// Moves the key at `from` to `to` and gives it `fraction` of its
+    /// row's range, keeping its ease: a drag of a handle in the curve view.
+    pub fn drag_key(&mut self, field: ClipField, param: &str, from: f32, to: f32, fraction: f32) {
+        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+            return;
+        };
+        let clip_id = clip.id.clone();
+        let (from, to) = (f64::from(from), f64::from(to).clamp(0.0, 1.0));
+        let fraction = f64::from(fraction).clamp(0.0, 1.0);
+        let commands = if param.is_empty() {
+            let Some(property) = Self::key_property_of(field) else {
+                return;
+            };
+            let Some(index) = clip.key_at(property, from) else {
+                return;
+            };
+            let (minimum, maximum) = knob_range(property);
+            let value = model_value(property, minimum + fraction * (maximum - minimum));
+            let ease = clip.keys[index].ease;
+            vec![
+                Command::ClearClipKey {
+                    clip_id: clip_id.clone(),
+                    property,
+                    at: from,
+                },
+                Command::SetClipKey {
+                    clip_id,
+                    property,
+                    at: to,
+                    value,
+                    ease,
+                },
+            ]
+        } else {
+            let Some(entry) = clip
+                .video_effects
+                .iter()
+                .position(|entry| entry.id == ADJUST_ID)
+            else {
+                return;
+            };
+            let link = &clip.video_effects[entry];
+            let Some(index) = link.key_at(param, from) else {
+                return;
+            };
+            let Some(row) = adjust_rows(&clip.video_effects, Some(from))
+                .into_iter()
+                .find(|row| row.key == param)
+            else {
+                return;
+            };
+            let (minimum, maximum) = (f64::from(row.min), f64::from(row.max));
+            let value = minimum + fraction * (maximum - minimum);
+            let ease = link.keys_on(param)[index].ease;
+            vec![
+                Command::ClearEffectKey {
+                    clip_id: clip_id.clone(),
+                    entry,
+                    key: param.to_owned(),
+                    at: from,
+                },
+                Command::SetEffectKey {
+                    clip_id,
+                    entry,
+                    key: param.to_owned(),
+                    at: to,
+                    value,
+                    ease,
+                },
+            ]
+        };
+        self.apply(Command::Batch { commands });
     }
 
     /// The selected clip's keys as instants on the timeline, every property

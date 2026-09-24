@@ -36,6 +36,8 @@ export enum PaneKind {
     inspector,
     /// tabs, tray, lanes
     timeline,
+    /// the selected clip's keys: a dopesheet and a curve editor
+    keyframes,
 }
 
 export global Panes {
@@ -43,6 +45,7 @@ export global Panes {
         return kind == PaneKind.media ? I18n.t("Library")
             : kind == PaneKind.preview ? I18n.t("Preview")
             : kind == PaneKind.inspector ? I18n.t("Inspector")
+            : kind == PaneKind.keyframes ? I18n.t("Keyframes")
             : I18n.t("Timeline");
     }
 
@@ -53,6 +56,7 @@ export global Panes {
         return kind == PaneKind.media ? "media"
             : kind == PaneKind.preview ? "preview"
             : kind == PaneKind.inspector ? "inspector"
+            : kind == PaneKind.keyframes ? "keyframes"
             : "timeline";
     }
 
@@ -64,6 +68,7 @@ export global Panes {
         return kind == PaneKind.media ? Glyph.film
             : kind == PaneKind.preview ? Glyph.image
             : kind == PaneKind.inspector ? Glyph.settings
+            : kind == PaneKind.keyframes ? Glyph.keyframe
             : Glyph.rows;
     }
 }
@@ -356,6 +361,11 @@ export component PaneSwitcher inherits Rectangle {
                     kind: PaneKind.inspector;
                     current: root.kind == PaneKind.inspector;
                     chosen => { menu.close(); root.picked(PaneKind.inspector); }
+                }
+                SwitchRow {
+                    kind: PaneKind.keyframes;
+                    current: root.kind == PaneKind.keyframes;
+                    chosen => { menu.close(); root.picked(PaneKind.keyframes); }
                 }
                 SwitchRow {
                     kind: PaneKind.timeline;

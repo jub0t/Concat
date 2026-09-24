@@ -1,0 +1,642 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The Keyframes pane: the selected clip's keys, with room to work on them.
+// A column of every knob that can ride on the left - the knob itself, with
+// its diamond and step arrows - and, on the right, the clip's length as a
+// dopesheet (a lane per knob, a diamond per key) or as curves (each knob's
+// value over the clip, with the keys as handles and the ease into each key
+// as the two bezier handles of that segment). Everything drags: a diamond
+// along the clip, a curve handle in value and in time, an ease handle to
+// reshape the way in.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Fmt } from "../util.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { Button } from "../primitives/modal.slint";
+import { Select } from "../primitives/select.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { InspectorFmt, Param, ParamFormat } from "../inspector/controls.slint";
+import { ClipField, ClipKeyData, Keyframes, SelectedClipData } from "../timeline/model.slint";
+import { Pane } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+
+/// One key on a row: where in the clip, its value as a fraction of the
+/// knob's range, and the ease into it from the key behind.
+export struct KeyMarkData {
+    at: float,
+    here: bool,
+    /// The value, `0..1` of the row's range, 1 at the top.
+    value: float,
+    ease-x1: float,
+    ease-y1: float,
+    ease-x2: float,
+    ease-y2: float,
+    /// There is a key behind this one, so its ease is a segment.
+    eased: bool,
+}
+
+/// One row of the pane: a keyable knob, its keys, and its ride.
+export struct KeyRowData {
+    /// The clip property, for a row that is one.
+    field: ClipField,
+    /// The Adjust knob's key, for a row that is one; empty for a property.
+    param: string,
+    label: string,
+    keys: [KeyMarkData],
+    state: ClipKeyData,
+    /// What the knob is worth at the playhead, in the knob's own units.
+    value: float,
+    minimum: float,
+    maximum: float,
+    step: float,
+    default-value: float,
+    fmt: ParamFormat,
+    unit: string,
+    unit-scale: float,
+    /// The ride over the clip as a path in the unit square: time across,
+    /// value up, the way the curve view draws it.
+    curve: string,
+    /// The key whose ease the menu edits - the one at the playhead, else
+    /// the next one - as an index into `keys`, or -1 for none.
+    ease-index: int,
+}
+
+/// The pane's rows and verbs, a global so Rust publishes one list.
+export global KeyEditor {
+    in property <[KeyRowData]> rows;
+    /// The playhead's place in the selected clip, `0..1`, held to its ends.
+    in property <float> at;
+
+    /// Move the playhead to `at` of the selected clip.
+    callback jump(at: float);
+    /// Move the key at `from` to `to`, keeping its value and ease.
+    callback move-key(field: ClipField, param: string, from: float, to: float);
+    /// Move the key at `from` to `to` and give it `value`, a fraction of
+    /// the row's range, keeping its ease: a drag in the curve view.
+    callback drag-key(field: ClipField, param: string, from: float, to: float, value: float);
+    /// Set the ease into the key at `at`.
+    callback set-ease(field: ClipField, param: string, at: float, x1: float, y1: float, x2: float, y2: float);
+    /// Move the playhead to the nearest key behind (-1) or ahead (+1) on
+    /// any knob of the clip.
+    callback step-all(delta: int);
+    /// Take every key off the clip.
+    callback clear-all();
+}
+
+/// The ease presets, matched within a hair; the fifth is whatever else.
+component EasePreset inherits Select {
+    in property <float> x1;
+    in property <float> y1;
+    in property <float> x2;
+    in property <float> y2;
+    callback picked(x1: float, y1: float, x2: float, y2: float);
+
+    pure function near(a: float, b: float) -> bool { return Math.abs(a - b) < 0.005; }
+    pure function matches(px1: float, py1: float, px2: float, py2: float) -> bool {
+        return near(root.x1, px1) && near(root.y1, py1) && near(root.x2, px2) && near(root.y2, py2);
+    }
+
+    options: [I18n.t("Linear"), I18n.t("Ease in"), I18n.t("Ease out"), I18n.t("Ease in and out"), I18n.t("Custom")];
+    current: matches(0, 0, 1, 1) ? 0
+        : matches(0.42, 0, 1, 1) ? 1
+        : matches(0, 0, 0.58, 1) ? 2
+        : matches(0.42, 0, 0.58, 1) ? 3
+        : 4;
+    changed(index) => {
+        if (index == 0) { root.picked(0, 0, 1, 1); }
+        else if (index == 1) { root.picked(0.42, 0, 1, 1); }
+        else if (index == 2) { root.picked(0, 0, 0.58, 1); }
+        else if (index == 3) { root.picked(0.42, 0, 0.58, 1); }
+    }
+}
+
+/// A diamond that goes to its key when clicked and moves it when dragged
+/// along the lane. `at` is the key's place; `scale` how many pixels a
+/// whole clip is.
+component KeyDiamond inherits TouchArea {
+    in property <float> at;
+    in property <bool> here;
+    in property <length> scale;
+    callback jump();
+    callback key-moved(to: float);
+
+    property <float> drag-to: root.at;
+    property <bool> dragging;
+    /// Where the diamond is drawn: the key, or the drag in progress.
+    out property <float> shown-at: self.dragging ? self.drag-to : root.at;
+
+    x: self.shown-at * root.scale - 8px;
+    width: 16px;
+    mouse-cursor: pointer;
+
+    Path {
+        x: 3px;
+        y: root.height / 2 - 5px;
+        width: 10px;
+        height: 10px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        commands: "M 5 0.75 L 9.25 5 L 5 9.25 L 0.75 5 Z";
+        fill: root.here ? Theme.accent : Theme.panel;
+        stroke: Theme.accent;
+        stroke-width: 1.5px;
+    }
+
+    moved => {
+        if (self.pressed) {
+            self.dragging = true;
+            self.drag-to = Math.max(0, Math.min(1, root.at + (self.mouse-x - self.pressed-x) / root.scale));
+        }
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+            if (self.dragging && Math.abs(self.drag-to - root.at) > 0.002) {
+                root.key-moved(self.drag-to);
+            } else if (event.kind == PointerEventKind.up) {
+                root.jump();
+            }
+            self.dragging = false;
+        }
+    }
+}
+
+/// A curve handle: the key as a dot, dragged in time and in value.
+component KeyHandle inherits TouchArea {
+    in property <float> at;
+    in property <float> value;
+    in property <bool> here;
+    in property <length> plot-w;
+    in property <length> plot-h;
+    callback jump();
+    callback key-moved(to: float, value: float);
+
+    property <float> drag-at: root.at;
+    property <float> drag-value: root.value;
+    property <bool> dragging;
+
+    x: (self.dragging ? self.drag-at : root.at) * root.plot-w - 7px;
+    y: (1 - (self.dragging ? self.drag-value : root.value)) * root.plot-h - 7px;
+    width: 14px;
+    height: 14px;
+    mouse-cursor: move;
+
+    Rectangle {
+        x: 3px;
+        y: 3px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: root.here ? Theme.accent : Theme.panel;
+        border-width: 1.5px;
+        border-color: Theme.accent;
+    }
+
+    moved => {
+        if (self.pressed) {
+            self.dragging = true;
+            self.drag-at = Math.max(0, Math.min(1, root.at + (self.mouse-x - self.pressed-x) / root.plot-w));
+            self.drag-value = Math.max(0, Math.min(1, root.value - (self.mouse-y - self.pressed-y) / root.plot-h));
+        }
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+            if (self.dragging && (Math.abs(self.drag-at - root.at) > 0.002
+                    || Math.abs(self.drag-value - root.value) > 0.002)) {
+                root.key-moved(self.drag-at, self.drag-value);
+            } else if (event.kind == PointerEventKind.up) {
+                root.jump();
+            }
+            self.dragging = false;
+        }
+    }
+}
+
+/// One ease handle of a segment: a small square on a stalk from its key,
+/// dragged to reshape the way into the segment's end key.
+component EaseHandle inherits TouchArea {
+    /// The handle's place in the plot, `0..1` each way.
+    in property <float> px;
+    in property <float> py;
+    /// The key it hangs off, in the plot.
+    in property <float> anchor-x;
+    in property <float> anchor-y;
+    in property <length> plot-w;
+    in property <length> plot-h;
+    callback handle-moved(px: float, py: float);
+
+    property <float> drag-x: root.px;
+    property <float> drag-y: root.py;
+    property <bool> dragging;
+    property <float> shown-x: self.dragging ? self.drag-x : root.px;
+    property <float> shown-y: self.dragging ? self.drag-y : root.py;
+
+    x: self.shown-x * root.plot-w - 6px;
+    y: (1 - self.shown-y) * root.plot-h - 6px;
+    width: 12px;
+    height: 12px;
+    mouse-cursor: pointer;
+
+    Rectangle {
+        x: 3px;
+        y: 3px;
+        width: 6px;
+        height: 6px;
+        background: Theme.fg-dim;
+        border-radius: 1px;
+    }
+
+    moved => {
+        if (self.pressed) {
+            self.dragging = true;
+            self.drag-x = root.px + (self.mouse-x - self.pressed-x) / root.plot-w;
+            self.drag-y = root.py - (self.mouse-y - self.pressed-y) / root.plot-h;
+        }
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+            if (self.dragging) { root.handle-moved(self.drag-x, self.drag-y); }
+            self.dragging = false;
+        }
+    }
+}
+
+export component KeyframesPane inherits Pane {
+    in property <SelectedClipData> selected;
+    in property <int> pane-seat;
+    in property <bool> pane-removable;
+    callback pane-picked(kind: PaneKind);
+    callback pane-removed();
+    callback clip-set(field: ClipField, value: float);
+    callback adjust-set(key: string, value: float);
+    callback clip-commit();
+
+    property <[KeyRowData]> rows: KeyEditor.rows;
+    property <bool> any: root.rows.length > 0;
+    /// 0 the dopesheet, 1 the curves.
+    property <int> view: 0;
+    /// The row the curve view draws in full and the ease menu edits.
+    property <int> active: 0;
+    property <int> shown: Math.max(0, Math.min(root.active, root.rows.length - 1));
+    property <KeyRowData> focus-row: root.any ? root.rows[root.shown] : root.rows[0];
+    property <length> row-h: 34px;
+    property <length> ruler-h: 22px;
+    property <length> column-w: 300px;
+
+    /// The ease shown in the menu: into the key at the playhead, else the
+    /// next key; Rust picks it, since a Slint function cannot loop.
+    property <int> ease-key: root.any ? root.focus-row.ease-index : -1;
+
+    VerticalLayout {
+        // ── header ──────────────────────────────────────────────────────
+        Rectangle {
+            height: 40px;
+            background: Theme.panel;
+            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 8px;
+                spacing: 8px;
+                alignment: stretch;
+
+                Text {
+                    text: I18n.t("Keyframes");
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    SegmentedControl {
+                        options: [I18n.t("Dopesheet"), I18n.t("Curves")];
+                        current: root.view;
+                        changed(index) => { root.view = index; }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 2px;
+                        IconButton {
+                            glyph: Glyph.chevron-left;
+                            label: I18n.t("Previous key");
+                            enabled: Keyframes.available;
+                            clicked => { KeyEditor.step-all(-1); }
+                        }
+                        IconButton {
+                            glyph: Glyph.keyframe;
+                            label: I18n.t("Add or remove a key at the playhead");
+                            enabled: Keyframes.available && root.any;
+                            clicked => {
+                                if (root.focus-row.param == "") { Keyframes.toggle(root.focus-row.field); }
+                                else { Keyframes.toggle-param(root.focus-row.param); }
+                            }
+                        }
+                        IconButton {
+                            glyph: Glyph.chevron-right;
+                            label: I18n.t("Next key");
+                            enabled: Keyframes.available;
+                            clicked => { KeyEditor.step-all(1); }
+                        }
+                    }
+                }
+                if root.any && root.ease-key >= 0: VerticalLayout {
+                    alignment: center;
+                    EasePreset {
+                        x1: root.focus-row.keys[root.ease-key].ease-x1;
+                        y1: root.focus-row.keys[root.ease-key].ease-y1;
+                        x2: root.focus-row.keys[root.ease-key].ease-x2;
+                        y2: root.focus-row.keys[root.ease-key].ease-y2;
+                        picked(x1, y1, x2, y2) => {
+                            KeyEditor.set-ease(root.focus-row.field, root.focus-row.param, root.focus-row.keys[root.ease-key].at, x1, y1, x2, y2);
+                        }
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    Button {
+                        label: I18n.t("Clear all keys");
+                        ghost: true;
+                        enabled: root.any;
+                        clicked => { KeyEditor.clear-all(); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    PaneSwitcher {
+                        kind: PaneKind.keyframes;
+                        seat: root.pane-seat;
+                        removable: root.pane-removable;
+                        picked(kind) => { root.pane-picked(kind); }
+                        removed => { root.pane-removed(); }
+                    }
+                }
+            }
+        }
+
+        // ── empty ───────────────────────────────────────────────────────
+        if !root.any: Rectangle {
+            vertical-stretch: 1;
+            Text {
+                text: I18n.t("Select a clip to edit its keyframes");
+                color: Theme.fg-dim;
+                font-size: Theme.fs;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // ── body ────────────────────────────────────────────────────────
+        if root.any: HorizontalLayout {
+            vertical-stretch: 1;
+
+            // The knobs, one a row, the active one marked.
+            Rectangle {
+                width: root.column-w;
+                background: Theme.panel;
+                Rectangle { x: parent.width - 1px; y: 0; width: 1px; height: parent.height; background: Theme.line; }
+
+                VerticalLayout {
+                    padding-top: root.ruler-h;
+                    padding-left: 8px;
+                    padding-right: 12px;
+                    alignment: start;
+
+                    for row[index] in root.rows: Rectangle {
+                        height: root.row-h;
+                        background: index == root.shown ? Theme.accent.with-alpha(0.08) : Colors.transparent;
+                        property <KeyRowData> data: row;
+                        changed data => { knob.value = self.data.value; }
+
+                        TouchArea {
+                            clicked => { root.active = index; }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            knob := Param {
+                                label: row.label;
+                                value: row.value;
+                                minimum: row.minimum;
+                                maximum: row.maximum;
+                                step: row.step;
+                                default-value: row.default-value;
+                                fmt: row.fmt;
+                                unit: row.unit;
+                                unit-scale: row.unit-scale;
+                                keyable: true;
+                                field: row.field;
+                                key-name: row.param;
+                                key-state: row.state;
+                                changed(v) => {
+                                    root.active = index;
+                                    if (row.param != "") { root.adjust-set(row.param, v); }
+                                    else if (row.field == ClipField.volume) { root.clip-set(row.field, InspectorFmt.from-decibels(v)); }
+                                    else { root.clip-set(row.field, v); }
+                                    root.clip-commit();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The clip: a ruler, then the dopesheet or the curves.
+            plot := Rectangle {
+                horizontal-stretch: 1;
+                background: Theme.well;
+                clip: true;
+
+                property <length> inset: 16px;
+                property <length> lane-w: Math.max(1px, self.width - 2 * self.inset);
+                property <length> lane-x: self.inset;
+                property <length> plot-h: Math.max(1px, self.height - root.ruler-h - 2 * self.inset);
+
+                // The ruler: the clip's own seconds, five marks across.
+                Rectangle {
+                    x: 0; y: 0;
+                    width: parent.width;
+                    height: root.ruler-h;
+                    background: Theme.ruler;
+                    Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                    for step in 5: Text {
+                        x: plot.lane-x + step * plot.lane-w / 4 - (step == 4 ? self.width : step == 0 ? 0 : self.width / 2);
+                        y: 0;
+                        height: root.ruler-h;
+                        text: Fmt.short-duration(step * root.selected.duration / 4);
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-xs;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        pointer-event(event) => {
+                            if (event.kind == PointerEventKind.down) {
+                                KeyEditor.jump(Math.max(0, Math.min(1, (self.mouse-x - plot.lane-x) / plot.lane-w)));
+                            }
+                        }
+                        moved => {
+                            if (self.pressed) {
+                                KeyEditor.jump(Math.max(0, Math.min(1, (self.mouse-x - plot.lane-x) / plot.lane-w)));
+                            }
+                        }
+                    }
+                }
+
+                // ── the dopesheet ───────────────────────────────────────
+                if root.view == 0: Rectangle {
+                    x: 0; y: root.ruler-h;
+                    width: parent.width;
+                    height: parent.height - root.ruler-h;
+
+                    for row[index] in root.rows: Rectangle {
+                        x: 0;
+                        y: index * root.row-h;
+                        width: parent.width;
+                        height: root.row-h;
+                        background: index == root.shown ? Theme.accent.with-alpha(0.06) : Colors.transparent;
+                        Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; opacity: 0.5; }
+                        Rectangle {
+                            x: plot.lane-x; y: parent.height / 2 - 1px;
+                            width: plot.lane-w; height: 2px;
+                            border-radius: 1px;
+                            background: row.state.keyed ? Theme.line-strong : Theme.line;
+                        }
+                        TouchArea {
+                            clicked => { root.active = index; }
+                        }
+                        for key in row.keys: KeyDiamond {
+                            at: key.at;
+                            here: key.here;
+                            scale: plot.lane-w;
+                            x: plot.lane-x + self.shown-at * self.scale - 8px;
+                            y: 0;
+                            height: root.row-h;
+                            jump => { root.active = index; KeyEditor.jump(key.at); }
+                            key-moved(to) => { root.active = index; KeyEditor.move-key(row.field, row.param, key.at, to); }
+                        }
+                    }
+                }
+
+                // ── the curves ──────────────────────────────────────────
+                if root.view == 1: Rectangle {
+                    x: plot.lane-x;
+                    y: root.ruler-h + plot.inset;
+                    width: plot.lane-w;
+                    height: plot.plot-h;
+
+                    // The grid: quarters each way.
+                    for step in 5: Rectangle {
+                        x: 0; y: step * parent.height / 4 - (step == 4 ? 1px : 0);
+                        width: parent.width; height: 1px;
+                        background: Theme.line;
+                        opacity: step == 0 || step == 4 ? 1 : 0.5;
+                    }
+                    for step in 5: Rectangle {
+                        x: step * parent.width / 4 - (step == 4 ? 1px : 0); y: 0;
+                        width: 1px; height: parent.height;
+                        background: Theme.line;
+                        opacity: step == 0 || step == 4 ? 1 : 0.5;
+                    }
+                    Text {
+                        x: 4px; y: 2px;
+                        text: InspectorFmt.format(root.focus-row.fmt, root.focus-row.maximum);
+                        color: Theme.fg-dim; font-size: Theme.fs-xs;
+                    }
+                    Text {
+                        x: 4px; y: parent.height - self.height - 2px;
+                        text: InspectorFmt.format(root.focus-row.fmt, root.focus-row.minimum);
+                        color: Theme.fg-dim; font-size: Theme.fs-xs;
+                    }
+
+                    // Every other row's ride, faint, for the shape of the
+                    // whole; the active row's in full.
+                    for row[index] in root.rows: Path {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        viewbox-width: 1;
+                        viewbox-height: 1;
+                        fit: fill;
+                        commands: row.curve;
+                        fill: Colors.transparent;
+                        stroke: Theme.accent;
+                        stroke-width: index == root.shown ? 2px : 1px;
+                        opacity: index == root.shown ? 1 : 0.25;
+                        visible: row.state.keyed;
+                    }
+
+                    // The active row's ease handles: a stalk and a square
+                    // from each end of every segment.
+                    for key[k] in root.focus-row.keys: Rectangle {
+                        visible: key.eased && k > 0;
+                        property <float> ax: root.focus-row.keys[Math.max(0, k - 1)].at;
+                        property <float> ay: root.focus-row.keys[Math.max(0, k - 1)].value;
+                        property <float> span-x: key.at - self.ax;
+                        property <float> span-y: key.value - self.ay;
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+
+                        Path {
+                            x: 0; y: 0; width: parent.width; height: parent.height;
+                            viewbox-width: 1; viewbox-height: 1; fit: fill;
+                            commands: "M \{parent.ax} \{1 - parent.ay} L \{parent.ax + key.ease-x1 * parent.span-x} \{1 - (parent.ay + key.ease-y1 * parent.span-y)} M \{key.at} \{1 - key.value} L \{parent.ax + key.ease-x2 * parent.span-x} \{1 - (parent.ay + key.ease-y2 * parent.span-y)}";
+                            fill: Colors.transparent;
+                            stroke: Theme.fg-dim;
+                            stroke-width: 1px;
+                        }
+                        EaseHandle {
+                            px: parent.ax + key.ease-x1 * parent.span-x;
+                            py: parent.ay + key.ease-y1 * parent.span-y;
+                            anchor-x: parent.ax; anchor-y: parent.ay;
+                            plot-w: parent.width; plot-h: parent.height;
+                            handle-moved(px, py) => {
+                                KeyEditor.set-ease(root.focus-row.field, root.focus-row.param, key.at,
+                                    parent.span-x == 0 ? key.ease-x1 : (px - parent.ax) / parent.span-x,
+                                    parent.span-y == 0 ? key.ease-y1 : (py - parent.ay) / parent.span-y,
+                                    key.ease-x2, key.ease-y2);
+                            }
+                        }
+                        EaseHandle {
+                            px: parent.ax + key.ease-x2 * parent.span-x;
+                            py: parent.ay + key.ease-y2 * parent.span-y;
+                            anchor-x: key.at; anchor-y: key.value;
+                            plot-w: parent.width; plot-h: parent.height;
+                            handle-moved(px, py) => {
+                                KeyEditor.set-ease(root.focus-row.field, root.focus-row.param, key.at,
+                                    key.ease-x1, key.ease-y1,
+                                    parent.span-x == 0 ? key.ease-x2 : (px - parent.ax) / parent.span-x,
+                                    parent.span-y == 0 ? key.ease-y2 : (py - parent.ay) / parent.span-y);
+                            }
+                        }
+                    }
+
+                    // The active row's keys as handles, dragged in both
+                    // axes.
+                    for key in root.focus-row.keys: KeyHandle {
+                        at: key.at;
+                        value: key.value;
+                        here: key.here;
+                        plot-w: parent.width;
+                        plot-h: parent.height;
+                        jump => { KeyEditor.jump(key.at); }
+                        key-moved(to, value) => { KeyEditor.drag-key(root.focus-row.field, root.focus-row.param, key.at, to, value); }
+                    }
+                }
+
+                // The playhead, over both views.
+                Rectangle {
+                    x: plot.lane-x + KeyEditor.at * plot.lane-w;
+                    y: root.ruler-h;
+                    width: 1px;
+                    height: parent.height - root.ruler-h;
+                    background: Theme.accent;
+                    opacity: 0.8;
+                }
+            }
+        }
+    }
+}

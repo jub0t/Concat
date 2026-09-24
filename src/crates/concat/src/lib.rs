@@ -882,6 +882,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                                       y2: f32| {
             state.set_key_ease(field, param.as_str(), at, [x1, y1, x2, y2]);
         }));
+        editor.on_drag_key(on_lanes!(
+            |state, field: ClipField, param: SharedString, from: f32, to: f32, value: f32| {
+                state.drag_key(field, param.as_str(), from, to, value);
+            }
+        ));
         editor.on_step_all(on_lanes!(|state, delta: i32| {
             state.step_any_key(delta);
         }));
