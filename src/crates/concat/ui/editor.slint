@@ -250,6 +250,9 @@ export global Editor {
     in-out property <bool> magnetic;
     /// Hand tool: wheel and drag pan time instead of scrolling the stack.
     in-out property <bool> pan-mode: false;
+    /// Trim follow: the playhead rides a clip edge while it is dragged. A
+    /// remembered preference, which Rust owns.
+    in-out property <bool> trim-follow;
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying put. A remembered
     /// preference, which Rust owns; `preview-axis-audio` is whether the
@@ -284,6 +287,7 @@ export global Editor {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback trim-follow-changed(on: bool);
     callback preview-axis-changed(on: bool);
     callback preview-axis-audio-changed(on: bool);
     /// The preview axis: the pointer is over the lanes at this instant,

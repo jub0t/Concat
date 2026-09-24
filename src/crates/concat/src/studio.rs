@@ -3348,11 +3348,23 @@ impl Studio {
                         clip.duration = f64::from(duration - delta);
                         clip.source_start = f64::from(source_start + delta * speed);
                     }
+                    // Trim follow: the playhead on the new first frame.
+                    if self.prefs.trim_follow {
+                        self.seek(at);
+                    }
                 } else {
                     let wanted = self.snapped(start + duration + seconds, threshold, &id);
                     let at = wanted.max(start + MIN_DURATION);
                     if let Some(clip) = self.echo_clip_mut(&id) {
                         clip.duration = f64::from(at - start);
+                    }
+                    // Trim follow: the playhead on the new last frame, one
+                    // frame inside the edge - at the edge itself the clip
+                    // has already ended and the monitor would show what
+                    // comes after it.
+                    if self.prefs.trim_follow {
+                        let frame = 1.0 / self.frame_rate().max(1.0);
+                        self.seek((at - frame).max(start));
                     }
                 }
             }
@@ -3426,6 +3438,7 @@ impl Studio {
                     Edge::End => after.duration - f64::from(duration),
                 };
                 if delta.abs() > 1e-6 {
+                    let id = clip.clone();
                     self.apply(Command::TrimClip {
                         clip_id: clip,
                         edge: match edge {
@@ -3437,6 +3450,14 @@ impl Studio {
                         // https://github.com/jub0t/Concat/issues/106
                         ripple: self.prefs.magnetic,
                     });
+                    // Trim follow: a magnetic head trim slides the clip back
+                    // into the gap, and the playhead goes with its first
+                    // frame.
+                    if self.prefs.trim_follow && edge == Edge::Start {
+                        if let Some(start) = self.clip(&id).map(|clip| clip.start) {
+                            self.seek(start as f32);
+                        }
+                    }
                 }
             }
             Gesture::TransitionResize {
@@ -6046,6 +6067,7 @@ impl Studio {
         editor.set_tool(self.lanes.tool);
         editor.set_snap(self.lanes.snap);
         editor.set_magnetic(self.prefs.magnetic);
+        editor.set_trim_follow(self.prefs.trim_follow);
         editor.set_preview_axis(self.prefs.preview_axis);
         editor.set_preview_axis_audio(self.prefs.preview_axis_audio);
         editor.set_pan_mode(self.lanes.pan_mode);

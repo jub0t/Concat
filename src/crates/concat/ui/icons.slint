@@ -101,6 +101,8 @@ export enum Glyph {
     fold,
     /// the preview axis: a hairline with the pointer beside it
     axis,
+    /// trim follow: the playhead between two arrows pulling an edge
+    trim-follow,
     waveform,
     filter,
     eye-off,
@@ -541,6 +543,13 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.axis: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M7 3v18 M11 8l9 4.2-4 1.2-1.6 4z";
+    }
+
+    // Trim follow: the playhead with an arrow either side - the line
+    // that moves with the edge being dragged.
+    if root.glyph == Glyph.trim-follow: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M12 3v18 M9 3h6 M6 9l-3 3 3 3 M18 9l3 3-3 3 M3 12h5 M16 12h5";
     }
 
     // lucide/blend: two circles overlapping, for a filter - a look laid

@@ -719,6 +719,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_magnetic_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::MagneticChanged(on)));
     }));
+    editor.on_trim_follow_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Timeline(TimelineMsg::TrimFollowChanged(on)));
+    }));
     editor.on_preview_axis_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Timeline(TimelineMsg::PreviewAxisChanged(on)));
     }));

@@ -61,6 +61,8 @@ export component TimelineTray inherits Rectangle {
     in property <bool> snap: true;
     in property <bool> magnetic: false;
     in property <bool> pan-mode: false;
+    /// Trim follow: the playhead rides a clip edge while it is dragged.
+    in property <bool> trim-follow: false;
     /// The preview axis: the monitor follows the pointer across the lanes.
     in property <bool> preview-axis: false;
     in property <int> selected-count;
@@ -79,6 +81,7 @@ export component TimelineTray inherits Rectangle {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback trim-follow-changed(on: bool);
     callback preview-axis-changed(on: bool);
     /// The chevron beside the preview axis: open its menu under the button
     /// at this x, in the tray's coordinates. The pane hosts the menu; see
@@ -189,6 +192,15 @@ export component TimelineTray inherits Rectangle {
             icon-size: 16px;
             checked: root.pan-mode;
             clicked => { root.pan-changed(!root.pan-mode); }
+        }
+        // Beside the hand: while an edge is dragged the playhead rides it,
+        // so the monitor shows the frame the cut lands on.
+        TrayButton {
+            glyph: Glyph.trim-follow;
+            label: I18n.t("Player follows the resize: the playhead rides the edge you trim");
+            icon-size: 16px;
+            checked: root.trim-follow;
+            clicked => { root.trim-follow-changed(!root.trim-follow); }
         }
 
         Divider { }
