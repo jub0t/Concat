@@ -74,17 +74,58 @@ pub fn fit(
     run(frame, &parts.join(","))
 }
 
+/// How many graphs a thread keeps; see [`GRAPHS`].
+const GRAPHS_KEPT: usize = 8;
+
+/// A kept graph: what it was built for, and the graph.
+type Kept = ((String, u32, u32), filter::Graph);
+
+thread_local! {
+    /// Built graphs by their spec and input size, this thread's own: a
+    /// graph is a parse and a validation, which the monitor path paid for
+    /// every treated frame (audit 2026-09-23, #16). A worker treats one or
+    /// two clips at a time, so a few are plenty; the oldest goes when the
+    /// cap is reached. A graph is taken out while in use, so a re-entrant
+    /// call builds its own.
+    static GRAPHS: std::cell::RefCell<Vec<Kept>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// One RGBA picture in, `spec` - a whole filtergraph, ending in the size
 /// and format the caller wants out - and one RGBA picture out.
 fn run(frame: &Frame, spec: &str) -> Result<Frame> {
     ffi::init();
+    let key = (spec.to_owned(), frame.width(), frame.height());
+    let cached = GRAPHS.with(|graphs| {
+        let mut graphs = graphs.borrow_mut();
+        graphs
+            .iter()
+            .position(|(known, _)| *known == key)
+            .map(|index| graphs.remove(index).1)
+    });
+    let mut graph = match cached {
+        Some(graph) => graph,
+        None => build(spec, frame.width(), frame.height())?,
+    };
+    let result = pass(&mut graph, frame);
+    if result.is_ok() {
+        GRAPHS.with(|graphs| {
+            let mut graphs = graphs.borrow_mut();
+            if graphs.len() >= GRAPHS_KEPT {
+                graphs.remove(0);
+            }
+            graphs.push((key, graph));
+        });
+    }
+    result
+}
+
+/// The graph for `spec` over RGBA pictures `width` by `height`.
+fn build(spec: &str, width: u32, height: u32) -> Result<filter::Graph> {
     // The graph has no file behind it; errors name the layer instead.
     let path = Path::new("layer");
-    let (source_w, source_h) = (frame.width(), frame.height());
-
     let mut graph = filter::Graph::new();
     let args = format!(
-        "video_size={source_w}x{source_h}:pix_fmt={}:time_base=1/1000:pixel_aspect=1/1",
+        "video_size={width}x{height}:pix_fmt={}:time_base=1/1000:pixel_aspect=1/1",
         Into::<ffmpeg::sys::AVPixelFormat>::into(Pixel::RGBA).0
     );
     let missing = |name: &str| Error::Missing {
@@ -113,6 +154,13 @@ fn run(frame: &Frame, spec: &str) -> Result<Frame> {
     graph
         .validate()
         .map_err(|error| ffi::fail("filter graph", path, error))?;
+    Ok(graph)
+}
+
+/// One picture through `graph`: in at `in`, out at `out`.
+fn pass(graph: &mut filter::Graph, frame: &Frame) -> Result<Frame> {
+    let path = Path::new("layer");
+    let (source_w, source_h) = (frame.width(), frame.height());
 
     // The picture, as a padded FFmpeg frame.
     let mut source = Video::new(Pixel::RGBA, source_w, source_h);

@@ -68,6 +68,11 @@ pub struct MediaBin {
     pub sort: usize,
     /// The cards' pictures by media id.
     pub thumbs: HashMap<String, slint::Image>,
+    /// A card's waveform path by media id, with the peaks it was drawn
+    /// from and the duration it spans: the rows are rebuilt on every
+    /// publish, thirty times a second in playback, and the path is the
+    /// one expensive line of a row.
+    waves: std::cell::RefCell<HashMap<String, (usize, f32, slint::SharedString)>>,
 }
 
 impl Default for MediaBin {
@@ -79,6 +84,7 @@ impl Default for MediaBin {
             filter: MediaFilter::All,
             sort: 0,
             thumbs: HashMap::new(),
+            waves: Default::default(),
         }
     }
 }
@@ -311,9 +317,24 @@ impl MediaBin {
                 // that size - fuller than a lane's candles, on purpose.
                 let wave = match studio.peaks.get(&item.id) {
                     Some(peaks) if item.kind == model::MediaKind::Audio => {
-                        wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64, 0.75)
+                        let duration = item.duration.unwrap_or(0.0) as f32;
+                        let drawn_from = std::sync::Arc::as_ptr(peaks) as usize;
+                        let mut waves = self.waves.borrow_mut();
+                        match waves.get(&item.id) {
+                            Some((from, span, path))
+                                if *from == drawn_from && *span == duration =>
+                            {
+                                path.clone()
+                            }
+                            _ => {
+                                let path: slint::SharedString =
+                                    wave_path(peaks, 0.0, duration, 64, 0.75).as_str().into();
+                                waves.insert(item.id.clone(), (drawn_from, duration, path.clone()));
+                                path
+                            }
+                        }
                     }
-                    _ => String::new(),
+                    _ => slint::SharedString::default(),
                 };
                 MediaItemData {
                     id: *self.rows.get(&item.id).unwrap_or(&0),
@@ -327,7 +348,7 @@ impl MediaBin {
                         .unwrap_or_default()
                         .into(),
                     thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
-                    wave: wave.as_str().into(),
+                    wave,
                     selected: self.selected.contains(&item.id),
                 }
             })

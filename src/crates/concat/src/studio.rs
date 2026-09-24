@@ -607,6 +607,17 @@ pub struct Studio {
     /// more than one frame repeated. See `host::strip_window`.
     pub windows: HashMap<String, Strip>,
     art_pending: HashSet<String>,
+    /// Art keys a decode came back empty for: not asked again this
+    /// project, or a file that cannot be read would be decoded on every
+    /// event.
+    art_failed: HashSet<String>,
+    /// What the last art scan was for: the document's revision, the
+    /// screen, and how much was pending. The scan runs when one of them
+    /// changes and is a comparison on the pointer stream between.
+    art_stamp: Option<(u64, bool, usize)>,
+    /// Media whose proxy has been seen to, this project: `proxy::ensure`
+    /// costs two stats of the file, and once is enough.
+    proxied: HashSet<String>,
     window_pending: HashSet<String>,
     /// Envelopes, keyed by the things they are computed from. A move
     /// changes none of them, and a publish happens on every frame of one.
@@ -1344,6 +1355,9 @@ impl Studio {
             strips: HashMap::new(),
             windows: HashMap::new(),
             art_pending: HashSet::new(),
+            art_failed: HashSet::new(),
+            art_stamp: None,
+            proxied: HashSet::new(),
             window_pending: HashSet::new(),
             waves: RefCell::new(HashMap::new()),
             lanes: crate::panes::timeline::TimelinePane::default(),
@@ -2014,20 +2028,33 @@ impl Studio {
         let project_path = session.path().to_owned();
         // A file larger than HD gets a proxy for playback and the
         // filmstrips, written once on the scheduler's proxy lane; see
-        // concat_host::proxy.
-        for item in &self.project().media {
-            if item.kind == model::MediaKind::Video
-                && !item.placeholder
-                && let (Some(width), Some(height)) = (item.width, item.height)
-            {
-                concat_host::proxy::ensure(
-                    std::path::Path::new(&project_path),
-                    &item.path,
+        // concat_host::proxy. Asked once per file per project.
+        let unproxied: Vec<(String, String, u32, u32, Option<concat_media::ColorRange>)> = self
+            .project()
+            .media
+            .iter()
+            .filter(|item| item.kind == model::MediaKind::Video && !item.placeholder)
+            .filter(|item| !self.proxied.contains(&item.id))
+            .filter_map(|item| {
+                let (width, height) = (item.width?, item.height?);
+                Some((
+                    item.id.clone(),
+                    item.path.clone(),
                     width,
                     height,
                     item.color_range.map(concat_export::engine_range),
-                );
-            }
+                ))
+            })
+            .collect();
+        for (id, path, width, height, range) in unproxied {
+            concat_host::proxy::ensure(
+                std::path::Path::new(&project_path),
+                &path,
+                width,
+                height,
+                range,
+            );
+            self.proxied.insert(id);
         }
         /// One job: the art key it fills, and what to decode.
         struct Want {
@@ -2048,7 +2075,9 @@ impl Studio {
             .media
             .iter()
             .filter(|item| !item.placeholder && !item.path.is_empty())
-            .filter(|item| !self.art_pending.contains(&item.id))
+            .filter(|item| {
+                !self.art_pending.contains(&item.id) && !self.art_failed.contains(&item.id)
+            })
             .filter(|item| {
                 let needs_thumb = item.kind != model::MediaKind::Audio
                     && (!self.media.thumbs.contains_key(&item.id)
@@ -2091,6 +2120,7 @@ impl Studio {
             let key = art_key(&item.id, Some(stream));
             if self.peaks.contains_key(&key)
                 || self.art_pending.contains(&key)
+                || self.art_failed.contains(&key)
                 || !asked.insert(key.clone())
             {
                 continue;
@@ -2153,6 +2183,9 @@ impl Studio {
                 |studio, _, _, art: MediaArt| {
                     let key = art_key(&art.id, art.stream);
                     studio.art_pending.remove(&key);
+                    if art.thumbnail.is_none() && art.strip.is_none() && art.peaks.is_none() {
+                        studio.art_failed.insert(key.clone());
+                    }
                     if let Some(frame) = art.thumbnail {
                         studio.media.thumbs.insert(art.id.clone(), image_of(&frame));
                     }
@@ -5245,8 +5278,31 @@ impl Studio {
                     log::warn!("{error}");
                 }
                 self.pause();
+                // The proxies of media no longer in the project, or read
+                // as a range they no longer are, go now: nothing else
+                // sweeps cache/proxy.
+                let project_dir = std::path::Path::new(session.path());
+                let kept: HashSet<std::path::PathBuf> = session
+                    .project()
+                    .media
+                    .iter()
+                    .filter_map(|item| {
+                        concat_host::proxy::path_for(
+                            project_dir,
+                            &item.path,
+                            item.color_range.map(concat_export::engine_range),
+                        )
+                    })
+                    .collect();
+                let swept = concat_host::proxy::sweep(project_dir, &kept);
+                if swept > 0 {
+                    log::info!("{swept} stale proxies swept from {}", project_dir.display());
+                }
                 self.session = Some(session);
                 crate::host::next_project_epoch();
+                self.art_failed.clear();
+                self.art_stamp = None;
+                self.proxied.clear();
                 self.echo = None;
                 self.dirty = false;
                 self.project_name = info.name.clone();
@@ -5343,6 +5399,9 @@ impl Studio {
         // Whatever a worker still brings back for this project is dropped
         // at delivery; the sheets that were waiting on one stop waiting.
         crate::host::next_project_epoch();
+        self.art_failed.clear();
+        self.art_stamp = None;
+        self.proxied.clear();
         self.captions.running = false;
         self.captions.progress = 0.0;
         self.speech.running = false;
@@ -6687,6 +6746,25 @@ impl Studio {
     /// Asks the workers for anything the launch screen or the bin is
     /// missing. Separate from `publish` because it mutates.
     pub fn refresh_art(&mut self) {
+        // Called after every callback, the pointer stream included. The
+        // scan over every media item - stats for proxies, JPEGs read back,
+        // decodes queued - runs when the document, the screen or what is
+        // pending changed, and is one comparison otherwise. The lanes'
+        // cell strips follow the view, which moves on that stream, so
+        // they are asked for every time; that walk is hash lookups
+        // (audit 2026-09-23, #11).
+        let stamp = (
+            self.revision,
+            self.on_start,
+            self.art_pending.len() + self.posters_pending.len(),
+        );
+        if self.art_stamp == Some(stamp) {
+            if !self.on_start {
+                self.request_window_art();
+            }
+            return;
+        }
+        self.art_stamp = Some(stamp);
         if self.on_start {
             self.request_posters();
         } else {

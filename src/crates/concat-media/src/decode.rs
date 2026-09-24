@@ -938,7 +938,7 @@ impl Decoder {
                 && let Some(last) = self.current.as_ref()
             {
                 self.position = last.pts;
-                let frame = last.frame.clone();
+                let frame = share(&last.frame);
                 return Ok(Some(self.convert(&frame)?));
             }
             return Ok(None);
@@ -948,7 +948,7 @@ impl Decoder {
         // decoder needs that picture again after the end: it converts a
         // reference and keeps the original, as the paced path does.
         let frame = if self.options.looping {
-            let reference = source.frame.clone();
+            let reference = share(&source.frame);
             self.convert(&reference)?
         } else {
             self.convert(&source.frame)?
@@ -998,7 +998,7 @@ impl Decoder {
         }
         self.position = Some(target);
         self.tick += 1;
-        let frame = current.frame.clone();
+        let frame = share(&current.frame);
         Ok(Some(self.convert(&frame)?))
     }
 }
@@ -1040,6 +1040,22 @@ impl FrameSource for Decoder {
         }
         Ok(frame)
     }
+}
+
+/// A second reference to `frame`'s picture: the same buffers, counted,
+/// so a graph that takes the reference (`buffersrc` does) takes nothing
+/// from the frame's owner. `Video::clone` copies the pixels - fifty
+/// megabytes a frame at 8K - and the pacer clones a frame for every output
+/// frame it repeats (audit 2026-09-23, #16). A frame with nothing to share
+/// is copied the old way.
+fn share(frame: &Video) -> Video {
+    let mut shared = Video::empty();
+    // SAFETY: both pointers are the wrappers' own valid AVFrames for the
+    // duration of the call; av_frame_ref adds references to the source's
+    // buffers and copies its properties into the empty destination, and
+    // touches nothing else. On failure the destination is left unref'd.
+    let result = unsafe { ffmpeg::sys::av_frame_ref(shared.as_mut_ptr(), frame.as_ptr()) };
+    if result < 0 { frame.clone() } else { shared }
 }
 
 impl SeekableSource for Decoder {

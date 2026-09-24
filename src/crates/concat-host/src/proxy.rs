@@ -105,8 +105,7 @@ pub fn ensure(
         }
         return true;
     }
-    static WRITING: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    let writing = WRITING.get_or_init(|| Mutex::new(HashSet::new()));
+    let writing = writing();
     {
         let mut writing = writing
             .lock()
@@ -133,6 +132,41 @@ pub fn ensure(
             .remove(&target);
     });
     true
+}
+
+/// The proxies being written now, by target, so one is never queued
+/// twice and a sweep leaves it for its writer to finish.
+fn writing() -> &'static Mutex<HashSet<PathBuf>> {
+    static WRITING: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    WRITING.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Removes the proxies under `project` that `keep` does not name: the
+/// copies of media no longer in the project, or read as a range they no
+/// longer are. Nothing else sweeps this folder, and a proxy is a
+/// quarter-size copy of every file over HD the project ever held
+/// (audit 2026-09-23, #15). One being written is left for its writer.
+/// Returns how many files went.
+pub fn sweep(project: &Path, keep: &HashSet<PathBuf>) -> usize {
+    let dir = project.join("cache").join("proxy");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return 0;
+    };
+    let writing = writing()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|extension| extension == "mp4")
+            && !keep.contains(&path)
+            && !writing.contains(&path)
+            && std::fs::remove_file(&path).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// Writes the proxy of `source`, read as `range`, at `size` to `target`:
@@ -310,5 +344,33 @@ mod tests {
         assert_ne!(first, second, "a changed file is another proxy");
         assert!(path_for(&project, &dir.join("missing.mp4").to_string_lossy(), None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sweep_keeps_what_is_named_and_what_is_being_written() {
+        let scratch =
+            std::env::temp_dir().join(format!("concat-proxy-sweep-{}", std::process::id()));
+        let dir = scratch.join("cache").join("proxy");
+        std::fs::create_dir_all(&dir).expect("a proxy folder");
+        let kept = dir.join("1111111111111111.mp4");
+        let stale = dir.join("2222222222222222.mp4");
+        let busy = dir.join("3333333333333333.mp4");
+        let partial = dir.join("4444444444444444.mp4.part");
+        for file in [&kept, &stale, &busy, &partial] {
+            std::fs::write(file, b"x").expect("writes");
+        }
+        writing()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(busy.clone());
+        let keep: HashSet<PathBuf> = [kept.clone()].into_iter().collect();
+        assert_eq!(sweep(&scratch, &keep), 1);
+        assert!(kept.is_file() && busy.is_file() && partial.is_file());
+        assert!(!stale.is_file());
+        writing()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&busy);
+        let _ = std::fs::remove_dir_all(&scratch);
     }
 }
