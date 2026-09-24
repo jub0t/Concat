@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Payload } from "../util.slint";
 import { Tip } from "../primitives/tooltip.slint";
+import { PaneScroll } from "pane.slint";
 
 // Which editor a seat is showing, and the control that changes it.
 //
@@ -41,6 +42,19 @@ export enum PaneKind {
 }
 
 export global Panes {
+    /// The window's height, published by the App (app.slint, `changed
+    /// height`) because nothing below the Window can read it: a menu hung
+    /// under a button measures the room beneath it against this. Zero
+    /// until the App has said, which `room-below` treats as no limit.
+    in-out property <length> window-height: 0px;
+
+    /// The room under a button whose lower edge sits at `bottom` in window
+    /// coordinates, less a margin off the window's edge: what a menu hung
+    /// there can take before it has to scroll.
+    public pure function room-below(bottom: length) -> length {
+        return window-height <= 0px ? 100000px : window-height - bottom - 8px;
+    }
+
     public pure function label(kind: PaneKind) -> string {
         return kind == PaneKind.media ? I18n.t("Library")
             : kind == PaneKind.preview ? I18n.t("Preview")
@@ -233,12 +247,20 @@ export component PaneSwitcher inherits Rectangle {
         "pane:\{root.seat}:\{Panes.label(root.kind)}:\{Panes.id(root.kind)}";
 
     property <length> menu-w: 168px;
-    /// Four view rows, then the rule and the row that removes the panel, then
+    /// Five view rows, then the rule and the row that removes the panel, then
     /// the surface's own padding. Summed here because a PopupWindow is sized
     /// by whoever places it — the same rule the context menu follows, and the
     /// same reason: a layout cannot report its height back up before it has
-    /// somewhere to be laid out.
-    property <length> menu-h: 4 * 26px + 9px + 26px + 8px;
+    /// somewhere to be laid out. When the Keyframes row arrived this still
+    /// said four, and the row that removes the panel was the one under the
+    /// clip.
+    property <length> list-h: 5 * 26px + 9px + 26px + 8px;
+    /// The whole list when the window has room for it under the button, and
+    /// the room otherwise, with the rest reached by scrolling. Never under
+    /// three rows: shorter than that is not a list worth scrolling, and
+    /// Slint lifts a popup that will not fit below its button instead.
+    property <length> menu-h: Math.min(root.list-h, Math.max(3 * 26px + 8px,
+        Panes.room-below(root.absolute-position.y + root.height + 4px)));
 
     // The mark, a gap, and the chevron, with even padding either side.
     property <length> mark: 14px;
@@ -340,44 +362,50 @@ export component PaneSwitcher inherits Rectangle {
             border-radius: Theme.r;
             clip: true;
 
-            VerticalLayout {
-                padding: 4px;
-                alignment: start;
+            // The pane body's own wheel-scrolled box, so a list the window
+            // has no room for is reached the way a long inspector is. With
+            // room, the bar stays out of sight and nothing moves.
+            PaneScroll {
+                VerticalLayout {
+                    padding: 4px;
+                    alignment: start;
 
-                // Written out rather than looped: four is the whole list, and
-                // a `for` over it would need the array to exist somewhere the
-                // rows could reach, which is more machinery than the rows.
-                SwitchRow {
-                    kind: PaneKind.media;
-                    current: root.kind == PaneKind.media;
-                    chosen => { menu.close(); root.picked(PaneKind.media); }
-                }
-                SwitchRow {
-                    kind: PaneKind.preview;
-                    current: root.kind == PaneKind.preview;
-                    chosen => { menu.close(); root.picked(PaneKind.preview); }
-                }
-                SwitchRow {
-                    kind: PaneKind.inspector;
-                    current: root.kind == PaneKind.inspector;
-                    chosen => { menu.close(); root.picked(PaneKind.inspector); }
-                }
-                SwitchRow {
-                    kind: PaneKind.keyframes;
-                    current: root.kind == PaneKind.keyframes;
-                    chosen => { menu.close(); root.picked(PaneKind.keyframes); }
-                }
-                SwitchRow {
-                    kind: PaneKind.timeline;
-                    current: root.kind == PaneKind.timeline;
-                    chosen => { menu.close(); root.picked(PaneKind.timeline); }
-                }
+                    // Written out rather than looped: five is the whole list,
+                    // and a `for` over it would need the array to exist
+                    // somewhere the rows could reach, which is more machinery
+                    // than the rows.
+                    SwitchRow {
+                        kind: PaneKind.media;
+                        current: root.kind == PaneKind.media;
+                        chosen => { menu.close(); root.picked(PaneKind.media); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.preview;
+                        current: root.kind == PaneKind.preview;
+                        chosen => { menu.close(); root.picked(PaneKind.preview); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.inspector;
+                        current: root.kind == PaneKind.inspector;
+                        chosen => { menu.close(); root.picked(PaneKind.inspector); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.keyframes;
+                        current: root.kind == PaneKind.keyframes;
+                        chosen => { menu.close(); root.picked(PaneKind.keyframes); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.timeline;
+                        current: root.kind == PaneKind.timeline;
+                        chosen => { menu.close(); root.picked(PaneKind.timeline); }
+                    }
 
-                SwitchDivider { }
+                    SwitchDivider { }
 
-                RemoveRow {
-                    enabled: root.removable;
-                    chosen => { menu.close(); root.removed(); }
+                    RemoveRow {
+                        enabled: root.removable;
+                        chosen => { menu.close(); root.removed(); }
+                    }
                 }
             }
         }
@@ -395,7 +423,11 @@ export component AddPaneButton inherits Rectangle {
     callback added(kind: PaneKind);
 
     property <length> menu-w: 168px;
-    property <length> menu-h: 4 * 26px + 8px;
+    /// Five view rows and the surface's padding; held to the room under the
+    /// button the way the seat's own menu is.
+    property <length> list-h: 5 * 26px + 8px;
+    property <length> menu-h: Math.min(root.list-h, Math.max(3 * 26px + 8px,
+        Panes.room-below(root.absolute-position.y + root.height + 4px)));
 
     width: 24px;
     height: 24px;
@@ -444,25 +476,31 @@ export component AddPaneButton inherits Rectangle {
             border-radius: Theme.r;
             clip: true;
 
-            VerticalLayout {
-                padding: 4px;
-                alignment: start;
+            PaneScroll {
+                VerticalLayout {
+                    padding: 4px;
+                    alignment: start;
 
-                SwitchRow {
-                    kind: PaneKind.media;
-                    chosen => { menu.close(); root.added(PaneKind.media); }
-                }
-                SwitchRow {
-                    kind: PaneKind.preview;
-                    chosen => { menu.close(); root.added(PaneKind.preview); }
-                }
-                SwitchRow {
-                    kind: PaneKind.inspector;
-                    chosen => { menu.close(); root.added(PaneKind.inspector); }
-                }
-                SwitchRow {
-                    kind: PaneKind.timeline;
-                    chosen => { menu.close(); root.added(PaneKind.timeline); }
+                    SwitchRow {
+                        kind: PaneKind.media;
+                        chosen => { menu.close(); root.added(PaneKind.media); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.preview;
+                        chosen => { menu.close(); root.added(PaneKind.preview); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.inspector;
+                        chosen => { menu.close(); root.added(PaneKind.inspector); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.keyframes;
+                        chosen => { menu.close(); root.added(PaneKind.keyframes); }
+                    }
+                    SwitchRow {
+                        kind: PaneKind.timeline;
+                        chosen => { menu.close(); root.added(PaneKind.timeline); }
+                    }
                 }
             }
         }

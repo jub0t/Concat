@@ -29,7 +29,7 @@ import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
-import { PaneKind } from "workspace/pane-switcher.slint";
+import { PaneKind, Panes } from "workspace/pane-switcher.slint";
 import { ChipOption, RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
 import {
@@ -169,7 +169,14 @@ export component App inherits Window {
     in-out property <bool> window-maximized;
     callback window-resized();
     changed width => { root.window-resized(); }
-    changed height => { root.window-resized(); }
+    // The height goes to the Panes global as well: the menus hung under the
+    // pane buttons measure the room beneath them against it, and nothing
+    // below the Window can read the Window.
+    changed height => {
+        Panes.window-height = self.height;
+        root.window-resized();
+    }
+    init => { Panes.window-height = self.height; }
     // The dialogs. Both are held at the root because Slint has no portal: a
     // modal has to be declared where it is drawn, and it is drawn over
     // everything.
