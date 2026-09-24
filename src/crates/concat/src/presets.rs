@@ -81,6 +81,7 @@ struct PresetStyle {
     stroke_color: Option<String>,
     shadow: Option<bool>,
     background: Option<String>,
+    background_radius: Option<f64>,
     line_height: Option<f64>,
     tracking: Option<f64>,
     max_width: Option<f64>,
@@ -112,6 +113,10 @@ impl PresetStyle {
             stroke_color: self.stroke_color.unwrap_or(base.stroke_color),
             shadow: self.shadow.unwrap_or(true),
             background: self.background.unwrap_or_default(),
+            background_radius: self
+                .background_radius
+                .unwrap_or(base.background_radius)
+                .max(0.0),
             line_height: self.line_height.unwrap_or(base.line_height).max(0.5),
             tracking: self.tracking.unwrap_or(0.0),
             max_width: self.max_width.unwrap_or(0.0).max(0.0),

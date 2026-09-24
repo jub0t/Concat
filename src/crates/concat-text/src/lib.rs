@@ -77,6 +77,9 @@ pub struct TitleStyle {
     pub shadow: bool,
     /// A plate behind the block, `#rrggbb[aa]`; empty for none.
     pub background: String,
+    /// The plate's corner radius as a fraction of frame height; zero is
+    /// square.
+    pub background_radius: f64,
     /// Baseline pitch as a multiple of the em.
     pub line_height: f64,
     /// Extra advance after every glyph, as a fraction of frame height.
@@ -686,7 +689,7 @@ fn paint(
         && let Some(rect) = Rect::from_xywh(outer_left, (frame_h - outer_h) / 2.0, outer_w, outer_h)
     {
         paint.set_color(fill);
-        let radius = em * 0.15;
+        let radius = (style.background_radius.max(0.0) as f32) * frame_h;
         let mut plate_path = PathBuilder::new();
         push_rounded_rect(&mut plate_path, rect, radius);
         if let Some(plate_path) = plate_path.finish() {
@@ -794,6 +797,7 @@ mod tests {
             stroke_color: "#000000".to_owned(),
             shadow: true,
             background: String::new(),
+            background_radius: 0.0135,
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,
@@ -928,6 +932,37 @@ mod tests {
             "the words are centred in the box: rows {top}..{bottom}"
         );
         assert!(top > 108 && bottom < 251, "and inside it");
+    }
+
+    /// The plate's corners follow the style's radius: square at zero, and
+    /// at a large radius the corner pixel is clear while the edge between
+    /// the corners is still painted.
+    #[test]
+    fn the_plates_corners_follow_the_radius() {
+        let fonts = Fonts::new();
+        let mut square = style("hi");
+        square.max_width = 0.5;
+        square.max_height = 0.4;
+        square.background = "#000000ff".to_owned();
+        square.shadow = false;
+        square.background_radius = 0.0;
+        // The plate spans columns 160..=479 and rows 108..=251, as the
+        // sized-box test pins down: one pixel in from its top-left corner,
+        // and one pixel in from the middle of its top edge.
+        let probe = |png: &[u8]| {
+            let pixmap = Pixmap::decode_png(png).expect("our own PNG decodes");
+            let at = |x: u32, y: u32| pixmap.pixel(x, y).map(|p| p.alpha()).unwrap_or(0);
+            (at(161, 109), at(320, 109))
+        };
+        let rendered = render(&fonts, &square, 640, 360).expect("renders");
+        assert_eq!(probe(&rendered.png), (255, 255), "square corners are painted");
+
+        let mut round = square.clone();
+        round.background_radius = 0.1;
+        let rendered = render(&fonts, &round, 640, 360).expect("renders");
+        let (corner, edge) = probe(&rendered.png);
+        assert_eq!(corner, 0, "a rounded corner is clear");
+        assert_eq!(edge, 255, "and the edge between the corners is painted");
     }
 
     /// A box narrower or shorter than the words grows to hold them: a word

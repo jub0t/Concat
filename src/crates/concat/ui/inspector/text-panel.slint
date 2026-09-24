@@ -47,6 +47,8 @@ export component TextPanel inherits VerticalLayout {
     property <float> alpha;
     property <float> stroke-width;
     property <float> stroke-alpha;
+    property <float> plate-alpha;
+    property <float> plate-radius;
     property <float> line-height;
     property <float> tracking;
     property <float> box-w;
@@ -67,6 +69,8 @@ export component TextPanel inherits VerticalLayout {
         root.alpha = root.selected.text-opacity;
         root.stroke-width = root.selected.stroke-width;
         root.stroke-alpha = root.selected.stroke-opacity;
+        root.plate-alpha = root.selected.plate-opacity;
+        root.plate-radius = root.selected.plate-radius;
         root.line-height = root.selected.line-height;
         root.tracking = root.selected.tracking;
         root.box-w = root.selected.text-width * root.frame-w;
@@ -251,30 +255,64 @@ export component TextPanel inherits VerticalLayout {
             toggled(on) => { root.set(ClipField.shadow, on ? 1 : 0); root.commit(); }
         }
 
+        // The background: the plate, to the painter and the document. A
+        // colour, not a flag - turning it off is clearing it, and fully
+        // transparent is what "none" is stored as.
         SwitchRow {
-            label: I18n.t("Plate");
+            label: I18n.t("Background");
             checked: root.selected.plated;
 
-            HelpButton { text: I18n.t("A solid band behind the words. Where a shadow softens the background, a plate replaces it — use it when the footage underneath is busy enough that neither weight nor outline will hold."); }
+            HelpButton { text: I18n.t("A solid box behind the words. Where a shadow softens the footage, a background replaces it — use it when what is underneath is busy enough that neither weight nor outline will hold."); }
 
             toggled(on) => {
-                // A plate is a colour, not a flag: turning it off is clearing
-                // it. Fully transparent is what "no plate" is stored as.
                 root.set-colour(ClipTextField.background,
                     on ? Theme.plate-on : Colors.transparent);
                 root.commit();
             }
         }
 
+        // The background's opacity is its colour's alpha, as the stroke's
+        // is, and the dial below is the one place it is set: the picker
+        // offers no strip of its own, shows the colour solid, and a colour
+        // picked keeps the opacity that was dialled.
         if root.selected.plated: ColourField {
-            label: I18n.t("Plate color");
-            value: root.selected.plate;
+            label: I18n.t("Background color");
+            value: root.selected.plate.with-alpha(1);
             hex: root.selected.plate-hex;
-            alpha: true;
+            alpha: false;
             changed(shade) => {
-                root.set-colour(ClipTextField.background, shade);
+                root.set-colour(ClipTextField.background, shade.with-alpha(root.plate-alpha));
                 root.commit();
             }
+        }
+
+        if root.selected.plated: Param {
+            label: I18n.t("Background opacity");
+            value <=> root.plate-alpha;
+            minimum: 0.01;
+            maximum: 1;
+            step: 0.01;
+            default-value: 0.8;
+            fmt: ParamFormat.fraction;
+            unit: "%";
+            unit-scale: 100;
+            changed(v) => { root.set(ClipField.background-opacity, v); root.commit(); }
+        }
+
+        // A fraction of the frame's height like the stroke's width, shown
+        // the same way, so the corners stay in proportion at any export
+        // size; zero reads "none" and is square.
+        if root.selected.plated: Param {
+            label: I18n.t("Corner radius");
+            value <=> root.plate-radius;
+            minimum: 0;
+            maximum: 0.2;
+            step: 0.001;
+            default-value: 0.0135;
+            fmt: ParamFormat.outline;
+            unit: "%";
+            unit-scale: 100;
+            changed(v) => { root.set(ClipField.background-radius, v); root.commit(); }
         }
         }
     }

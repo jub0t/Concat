@@ -438,6 +438,7 @@ fn title_style(style: &TextStyle) -> TitleStyle {
         stroke_color: style.stroke_color.clone(),
         shadow: style.shadow,
         background: style.background.clone(),
+        background_radius: style.background_radius,
         line_height: style.line_height,
         max_width: style.max_width,
         max_height: style.max_height,

@@ -867,8 +867,15 @@ pub struct TextStyle {
     pub stroke_color: String,
     /// A drop shadow for legibility over footage. On by default.
     pub shadow: bool,
-    /// A solid plate behind the text. Empty string for none.
+    /// A solid background behind the text, `#rrggbb[aa]`; its alpha is the
+    /// background's opacity. Empty string for none. The painter and older
+    /// comments call it the plate.
     pub background: String,
+    /// The background's corner radius as a fraction of frame height, so a
+    /// title composed against 1080p keeps its corners at 4K. The default is
+    /// the rounding every background wore before it had a dial - 15 % of
+    /// the default size's em - and zero is square.
+    pub background_radius: f64,
     /// Baseline spacing as a multiple of the font size; the reader floors it
     /// at 0.5 so lines cannot collapse onto each other.
     pub line_height: f64,
@@ -907,6 +914,8 @@ impl TextStyle {
         self.tracking = finite(self.tracking, base.tracking);
         self.max_width = finite(self.max_width, base.max_width).max(0.0);
         self.max_height = finite(self.max_height, base.max_height).max(0.0);
+        self.background_radius =
+            finite(self.background_radius, base.background_radius).max(0.0);
         self
     }
 }
@@ -926,6 +935,7 @@ impl Default for TextStyle {
             stroke_color: "#000000".to_owned(),
             shadow: true,
             background: String::new(),
+            background_radius: 0.0135,
             line_height: 1.2,
             tracking: 0.0,
             max_width: 0.0,

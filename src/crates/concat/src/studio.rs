@@ -3625,6 +3625,19 @@ impl Studio {
                     edge.blue(),
                 ));
             }
+            // The background's opacity is its colour's alpha the same way.
+            // Never zero from the dial: fully transparent is how "no
+            // background" is stored, and the switch is what takes it away.
+            ClipField::BackgroundOpacity => {
+                let plate = colour_of(&text.background);
+                text.background = hex_with_alpha(slint::Color::from_argb_u8(
+                    (value.clamp(0.01, 1.0) * 255.0).round() as u8,
+                    plate.red(),
+                    plate.green(),
+                    plate.blue(),
+                ));
+            }
+            ClipField::BackgroundRadius => text.background_radius = value.clamp(0.0, 0.2),
         }
         // A media clip has no text; the placeholder must not linger.
         if clip.kind != model::ClipKind::Text {
@@ -6998,6 +7011,8 @@ impl Studio {
             plate,
             plate_hex: hex_of(plate).into(),
             plated: plate.alpha() > 0,
+            plate_opacity: f32::from(plate.alpha()) / 255.0,
+            plate_radius: text.background_radius as f32,
             line_height: text.line_height as f32,
             tracking: text.tracking as f32,
             text_width: text.max_width as f32,
