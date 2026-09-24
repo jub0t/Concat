@@ -577,7 +577,10 @@ jobs:
           owner=$(stat -c '%u:%g' /pkg)
           useradd -m builder
           chown -R builder:builder /pkg
-          su builder -c "env CONCAT_VERSION='$CONCAT_VERSION' CONCAT_STAGE=/pkg/stage PKGDEST=/pkg makepkg --noconfirm --nodeps"
+          # PKGEXT named outright: Arch Linux ARM's makepkg.conf still
+          # writes .pkg.tar.xz where Arch's writes .pkg.tar.zst, and the
+          # move below wants one name from both images.
+          su builder -c "env CONCAT_VERSION='$CONCAT_VERSION' CONCAT_STAGE=/pkg/stage PKGDEST=/pkg PKGEXT=.pkg.tar.zst makepkg --noconfirm --nodeps"
           chown -R "$owner" /pkg
           SCRIPT
           chmod 755 "$work/build.sh"
