@@ -491,6 +491,10 @@ pub struct Decoder {
     input: format::context::Input,
     stream: usize,
     time_base: ffmpeg::Rational,
+    /// Where the stream's timestamps start; every timestamp read has this
+    /// taken off and every seek has it put back, so the file reads from
+    /// its own first frame. See `ffi::start_of`.
+    start: Rational,
     decoder: decoder::Video,
     rotation: i64,
     options: DecodeOptions,
@@ -545,6 +549,7 @@ impl Decoder {
             })?;
         let stream_index = stream.index();
         let time_base = stream.time_base();
+        let start = ffi::start_of(&stream);
         let rotation = ffi::rotation(&stream);
         let coded = {
             let parameters = stream.parameters();
@@ -598,6 +603,7 @@ impl Decoder {
             input,
             stream: stream_index,
             time_base,
+            start,
             decoder,
             rotation,
             options: options.clone(),
@@ -694,7 +700,7 @@ impl Decoder {
             Self::open_codec(&self.path, &stream, &self.options, None)?.0
         };
         let at = from.unwrap_or(self.origin);
-        let target = ffi::av_ticks(at);
+        let target = ffi::av_ticks(at + self.start);
         self.input
             .seek(target, ..=target)
             .map_err(|error| ffi::fail("seek", &self.path, error))?;
@@ -712,7 +718,7 @@ impl Decoder {
 
     /// The container seek, and the state reset that goes with it.
     fn jump(&mut self, to: Rational) -> Result<()> {
-        let target = ffi::av_ticks(to);
+        let target = ffi::av_ticks(to + self.start);
         self.input
             .seek(target, ..=target)
             .map_err(|error| ffi::fail("seek", &self.path, error))?;
@@ -742,7 +748,8 @@ impl Decoder {
                 Ok(()) => {
                     let pts = frame
                         .timestamp()
-                        .and_then(|ticks| ffi::seconds(ticks, self.time_base));
+                        .and_then(|ticks| ffi::seconds(ticks, self.time_base))
+                        .map(|pts| pts - self.start);
                     if let Some((device, format)) = self.hardware {
                         if frame.format() == format {
                             frame = match hardware::download(&frame) {
@@ -1045,6 +1052,26 @@ impl SeekableSource for Decoder {
 mod tests {
     use super::*;
     use crate::encode::RateMode;
+
+    /// A stream that starts late - MPEG-TS starts at 1.4 s by default, and
+    /// the MTS files cameras write likewise - is read from its own first
+    /// frame, and a seek lands where the caller meant.
+    #[test]
+    fn a_stream_that_starts_late_is_read_from_its_first_frame() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/starts-at-1.4s.ts");
+        let mut decoder = Decoder::open(path, &DecodeOptions::default()).expect("opens");
+        let first = decoder.next_frame().expect("decodes").expect("a frame");
+        assert_eq!((first.width(), first.height()), (64, 64));
+        let at = decoder.position().expect("a position").as_f64();
+        assert!(at < 0.05, "the first frame is at {at}, not 1.4 s in");
+        decoder.seek(Rational::new(1, 2)).expect("seeks");
+        let _ = decoder.next_frame().expect("decodes").expect("a frame");
+        let at = decoder.position().expect("a position").as_f64();
+        assert!(
+            (0.45..0.65).contains(&at),
+            "after a seek to 0.5 s the frame is at {at}"
+        );
+    }
 
     #[test]
     fn options_build_up() {

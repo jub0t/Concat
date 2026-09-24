@@ -264,6 +264,19 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
         0.99,
     );
 
+    // Lighten and Darken at partial opacity: the two blends the GPU draws
+    // over a copy of the ground, held to the CPU's own line.
+    for (name, blend) in [("lightened", Blend::Lighten), ("darkened", Blend::Darken)] {
+        let mut over = layer(solid(64, 48, [200, 60, 140, 255]));
+        over.opacity = 0.3;
+        over.blend = blend;
+        assert_parity(
+            name,
+            &plan(64, 48, vec![layer(gradient(64, 48)), over]),
+            0.99,
+        );
+    }
+
     let mut masked = layer(gradient(64, 64));
     let mut mask = Frame::transparent(32, 32);
     for y in 0..32u32 {

@@ -418,13 +418,18 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
             })?;
         let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
+        // Where the stream's clock starts: taken off what is read, put
+        // back on the seek, so the in-point is measured from the sound's
+        // own first sample. See `ffi::start_of`.
+        let start = ffi::start_of(&stream).as_f64();
         let decoder = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| ffi::fail("open decoder", path, error))?;
         // Near the in-point: the packet at or before it. The graph cuts the
         // rest, by the lead measured off the first frame below.
         if clip.source_start > 0.0 {
-            let target = (clip.source_start * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
+            let target =
+                ((clip.source_start + start) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
             let _ = input.seek(target, ..=target);
         }
         let label = format!("{index}:a");
@@ -448,7 +453,7 @@ pub fn mix_to_file(clips: &[AudioClip], duration: f64, destination: &Path) -> Re
         let landed = first
             .timestamp()
             .and_then(|ticks| ffi::seconds(ticks, time_base))
-            .map_or(clip.source_start, |at| at.as_f64());
+            .map_or(clip.source_start, |at| at.as_f64() - start);
         let lead = (clip.source_start - landed).max(0.0);
         leads.push(lead);
         // Our continuous PTS: sample count from the start of this clip.

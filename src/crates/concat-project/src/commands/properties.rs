@@ -155,7 +155,7 @@ pub(super) fn apply(
                 .filter(|set| crate::animation::index_of(slot, &set.preset).is_some())
                 .map(|set| ClipAnimation {
                     preset: set.preset,
-                    duration: set.duration.clamp(0.05, 60.0),
+                    duration: set.duration.clamp(MIN_ANIMATION, MAX_ANIMATION),
                 });
             let field = match slot {
                 AnimationSlot::In => &mut clip.animation_in,

@@ -108,20 +108,53 @@ fn vs_main(in: VsIn) -> VsOut {
 @group(0) @binding(1) var layer_sampler: sampler;
 @group(1) @binding(0) var mask_texture: texture_2d<f32>;
 @group(1) @binding(1) var mask_sampler: sampler;
+// The ground as it stood before this layer, for the two blends that need
+// to see it; bound only for their pipelines.
+@group(2) @binding(0) var ground_texture: texture_2d<f32>;
+@group(2) @binding(1) var ground_sampler: sampler;
 
-@fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+// The layer's straight colour and its alpha at this fragment, before any
+// blend: the same lines the CPU reference computes.
+fn shade(in: VsOut) -> vec4<f32> {
     let colour = textureSample(layer_texture, layer_sampler, in.uv);
     let mask = textureSample(mask_texture, mask_sampler, in.pic);
     // The wipes: a pixel past the moving edge is not drawn at all.
     let kept = select(0.0, 1.0, in.pic.x < in.edges.x && in.pic.x >= in.edges.y);
     let alpha = colour.a * in.opacity * mask.a * kept;
-    // The fades: the colour scaled and offset, the same line the CPU
-    // reference computes.
+    // The fades: the colour scaled and offset.
     let shaded = colour.rgb * in.scale + in.offset;
+    return vec4<f32>(shaded, alpha);
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let s = shade(in);
     // Premultiplied output; the pipeline blends ONE / ONE_MINUS_SRC_ALPHA,
     // which together is the same source-over the CPU path computes.
-    return vec4<f32>(shaded * alpha, alpha);
+    return vec4<f32>(s.rgb * s.a, s.a);
+}
+
+fn ground_at(position: vec4<f32>) -> vec3<f32> {
+    let size = vec2<f32>(textureDimensions(ground_texture));
+    return textureSample(ground_texture, ground_sampler, position.xy / size).rgb;
+}
+
+// Lighten and Darken weigh the lighter (darker) of the layer and the
+// ground in by the layer's alpha - a white layer at 30 % over mid grey
+// lightens it 30 % of the way to white - which no fixed-function blend
+// expresses. The ground is a copy taken just before this draw; the
+// result is premultiplied and blended source-over, so what lands is
+// max(colour, ground) * alpha + ground * (1 - alpha), the CPU's own line.
+@fragment
+fn fs_lighten(in: VsOut) -> @location(0) vec4<f32> {
+    let s = shade(in);
+    return vec4<f32>(max(s.rgb, ground_at(in.position)) * s.a, s.a);
+}
+
+@fragment
+fn fs_darken(in: VsOut) -> @location(0) vec4<f32> {
+    let s = shade(in);
+    return vec4<f32>(min(s.rgb, ground_at(in.position)) * s.a, s.a);
 }
 "#;
 
@@ -142,6 +175,10 @@ struct Draw {
     texture: usize,
     blend: Blend,
     mask: (u32, u32, usize),
+    /// For a Lighten or Darken layer: the pooled texture, at the output
+    /// size, that the ground is copied into just before the draw, for its
+    /// fragment stage to sample. See `fs_lighten` in [`SHADER`].
+    ground: Option<usize>,
 }
 
 /// A cached layer texture and its bind group, reusable for any layer of the
@@ -183,6 +220,9 @@ pub struct WgpuCompositor {
     queue: wgpu::Queue,
     /// One pipeline per blend mode, indexed as `Blend::ALL` is.
     pipelines: Vec<wgpu::RenderPipeline>,
+    /// Lighten, then Darken: the two blends that sample the ground, drawn
+    /// with a third bind group and plain source-over.
+    ground_pipelines: [wgpu::RenderPipeline; 2],
     bind_layout: wgpu::BindGroupLayout,
     /// Group 1 of a shader pass: the frame block and the package's params.
     uniform_layout: wgpu::BindGroupLayout,
@@ -460,6 +500,49 @@ impl WgpuCompositor {
             })
             .collect();
 
+        // Lighten and Darken: source-over of a fragment that has already
+        // taken the max or min against a copy of the ground, bound as a
+        // third group of the same shape as the layer and its mask.
+        let ground_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("concat compositor ground"),
+            bind_group_layouts: &[Some(&bind_layout), Some(&bind_layout), Some(&bind_layout)],
+            immediate_size: 0,
+        });
+        let ground_pipelines = ["fs_lighten", "fs_darken"].map(|entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&ground_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: std::slice::from_ref(&vertex_layout),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("concat layer"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -480,6 +563,7 @@ impl WgpuCompositor {
             device,
             queue,
             pipelines,
+            ground_pipelines,
             bind_layout,
             uniform_layout,
             lut_layout,
@@ -676,11 +760,14 @@ impl WgpuCompositor {
             )
         };
         let mask = self.mask_of(layer.mask.as_deref());
+        let ground = matches!(layer.blend, Blend::Lighten | Blend::Darken)
+            .then(|| self.claim(plan.width, plan.height));
         draws.push(Draw {
             size,
             texture,
             blend: layer.blend,
             mask,
+            ground,
         });
         vertices.extend_from_slice(&Self::quad(
             &geometry,
@@ -723,6 +810,7 @@ impl WgpuCompositor {
             size: source_size,
             texture: source,
             blend: Blend::Normal,
+            ground: None,
             mask,
         }];
         let corner = |x: f32, y: f32, u: f32, v: f32| {
@@ -764,6 +852,7 @@ impl WgpuCompositor {
             size: (width, height),
             texture: index,
             blend: Blend::Normal,
+            ground: None,
             mask,
         });
         let corner = |x: f32, y: f32, u: f32, v: f32| Vertex {
@@ -817,10 +906,9 @@ impl WgpuCompositor {
     ) -> usize {
         let target = self.claim(width, height);
         self.write_vertices(vertices);
-        let view = self.pool[&(width, height)][target]
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, draws, clear);
+        let texture = &self.pool[&(width, height)][target].texture;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder = self.encode(&view, texture, draws, clear);
         self.queue.submit([encoder.finish()]);
         target
     }
@@ -839,7 +927,7 @@ impl WgpuCompositor {
         self.write_vertices(&vertices);
         let texture = self.presentable(plan.width, plan.height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &draws, wgpu::Color::BLACK);
+        let encoder = self.encode(&view, &texture, &draws, wgpu::Color::BLACK);
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(texture)
@@ -887,7 +975,7 @@ impl WgpuCompositor {
         self.write_vertices(&vertices);
         let texture = self.presentable(side, side);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &draws, wgpu::Color::BLACK);
+        let encoder = self.encode(&view, &texture, &draws, wgpu::Color::BLACK);
         self.queue.submit([encoder.finish()]);
         let waited = self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
@@ -909,11 +997,16 @@ impl WgpuCompositor {
         }
     }
 
-    /// The render pass: every draw over `clear` into `view`. Returns the
-    /// encoder so the caller can add a readback before submitting.
+    /// The render passes: every draw over `clear` into `view`, which is a
+    /// view of `target`. One pass, except that a Lighten or Darken layer
+    /// needs the ground as it stands: the pass ends, the target is copied
+    /// into the draw's ground texture, and a new pass loads what is there
+    /// and carries on. Returns the encoder so the caller can add a readback
+    /// before submitting.
     fn encode(
         &self,
         view: &wgpu::TextureView,
+        target: &wgpu::Texture,
         draws: &[Draw],
         clear: wgpu::Color,
     ) -> wgpu::CommandEncoder {
@@ -922,38 +1015,82 @@ impl WgpuCompositor {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("concat composite"),
             });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("concat composite"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (index, draw) in draws.iter().enumerate() {
-                let which = Blend::ALL
-                    .iter()
-                    .position(|mode| *mode == draw.blend)
-                    .unwrap_or(0);
-                pass.set_pipeline(&self.pipelines[which]);
-                pass.set_bind_group(0, &self.pool[&draw.size][draw.texture].bind_group, &[]);
-                let (mask_w, mask_h, mask) = draw.mask;
-                pass.set_bind_group(1, &self.pool[&(mask_w, mask_h)][mask].bind_group, &[]);
-                let first = (index * 6) as u32;
-                pass.draw(first..first + 6, 0..1);
-            }
+        let size = (target.width(), target.height());
+        let mut load = wgpu::LoadOp::Clear(clear);
+        let mut pending: Vec<(usize, &Draw)> = Vec::new();
+        for (index, draw) in draws.iter().enumerate() {
+            let Some(ground) = draw.ground else {
+                pending.push((index, draw));
+                continue;
+            };
+            self.draw_segment(&mut encoder, view, size, load, &pending);
+            pending.clear();
+            load = wgpu::LoadOp::Load;
+            encoder.copy_texture_to_texture(
+                target.as_image_copy(),
+                self.pool[&size][ground].texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.draw_segment(&mut encoder, view, size, load, &[(index, draw)]);
+        }
+        if !pending.is_empty() || matches!(load, wgpu::LoadOp::Clear(_)) {
+            self.draw_segment(&mut encoder, view, size, load, &pending);
         }
         encoder
+    }
+
+    /// One render pass over `view`, `size` pixels: these draws, in order,
+    /// each with the pipeline its blend wants.
+    fn draw_segment(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        size: (u32, u32),
+        load: wgpu::LoadOp<wgpu::Color>,
+        draws: &[(usize, &Draw)],
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("concat composite"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        for &(index, draw) in draws {
+            match draw.ground {
+                Some(ground) => {
+                    let which = usize::from(draw.blend == Blend::Darken);
+                    pass.set_pipeline(&self.ground_pipelines[which]);
+                    pass.set_bind_group(2, &self.pool[&size][ground].bind_group, &[]);
+                }
+                None => {
+                    let which = Blend::ALL
+                        .iter()
+                        .position(|mode| *mode == draw.blend)
+                        .unwrap_or(0);
+                    pass.set_pipeline(&self.pipelines[which]);
+                }
+            }
+            pass.set_bind_group(0, &self.pool[&draw.size][draw.texture].bind_group, &[]);
+            let (mask_w, mask_h, mask) = draw.mask;
+            pass.set_bind_group(1, &self.pool[&(mask_w, mask_h)][mask].bind_group, &[]);
+            let first = (index * 6) as u32;
+            pass.draw(first..first + 6, 0..1);
+        }
     }
 
     /// Retires texture sizes the timeline has moved past. 300 unclaimed
@@ -1810,7 +1947,7 @@ impl WgpuCompositor {
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.encode(&view, draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&view, &target.texture, draws, wgpu::Color::BLACK);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,

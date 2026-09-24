@@ -101,9 +101,15 @@ pub(super) fn apply(
             // slot freeze-frames on its last frame downstream, which is the
             // renderer's existing behaviour for a trim past the media's end.
             // All timelines, like RemoveMedia: slots are not per-timeline.
-            for timeline in project.timelines.iter_mut().map(Arc::make_mut) {
-                for clip in timeline.clips_mut() {
-                    if clip.media_id == media_id {
+            for timeline in project.timelines.iter_mut() {
+                // A timeline with no clip of this media stays the
+                // snapshot's.
+                if !timeline.clips.iter().any(|clip| clip.media_id == media_id) {
+                    continue;
+                }
+                let timeline = Arc::make_mut(timeline);
+                for clip in timeline.clips_where(|clip| clip.media_id == media_id) {
+                    {
                         clip.source_start = 0.0;
                         clip.kind = kind;
                         clip.name = item.name.clone();

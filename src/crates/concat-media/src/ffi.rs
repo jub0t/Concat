@@ -156,6 +156,19 @@ pub(crate) fn seconds(ticks: i64, time_base: ffmpeg::Rational) -> Option<Rationa
     )
 }
 
+/// Where a stream's timestamps start, in seconds: what its frames are
+/// measured from. Zero for a stream that starts at zero or does not say;
+/// 1.4 s for MPEG-TS by default and the MTS files cameras write, which
+/// read as 1.4 s into the picture unless this is taken off every
+/// timestamp and put back on every seek (audit 2026-09-23, #9).
+pub(crate) fn start_of(stream: &ffmpeg::format::stream::Stream<'_>) -> Rational {
+    let ticks = stream.start_time();
+    if ticks == ffmpeg::sys::AV_NOPTS_VALUE || ticks <= 0 {
+        return Rational::from_int(0);
+    }
+    seconds(ticks, stream.time_base()).unwrap_or_else(|| Rational::from_int(0))
+}
+
 /// Seconds in `AV_TIME_BASE` units, which is what container-level seeks take.
 pub(crate) fn av_ticks(seconds: Rational) -> i64 {
     let scaled = seconds * Rational::from_int(i64::from(ffmpeg::sys::AV_TIME_BASE));

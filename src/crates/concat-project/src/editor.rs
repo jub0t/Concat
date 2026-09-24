@@ -26,7 +26,7 @@ use serde_json::Value;
 
 use crate::commands::{Command, CommandError, IdMint, Outcome, apply};
 use crate::doc::{DocumentSettings, from_document, to_document};
-use crate::model::Project;
+use crate::model::{Clip, Project};
 
 const UNDO_DEPTH: usize = 200;
 
@@ -118,6 +118,7 @@ impl Editor {
         if !outcome.applied {
             return Ok(outcome);
         }
+        self.tidy_touched(&before);
         let continues = match (gesture, self.undo.back()) {
             (Some(gesture), Some(last)) => last.gesture.as_deref() == Some(gesture),
             _ => false,
@@ -133,6 +134,40 @@ impl Editor {
         }
         self.redo.clear();
         Ok(outcome)
+    }
+
+    /// Runs [`Clip::tidy`] over every clip the command wrote, so the clamps
+    /// live in one place and a document is the same on screen as it is
+    /// after a save and a reopen (audit 2026-09-23, #13). Only a clip
+    /// whose `Arc` the command replaced is looked at: the rest are still
+    /// the snapshot's, and were tidy already.
+    fn tidy_touched(&mut self, before: &Project) {
+        use std::collections::HashSet;
+        use std::sync::Arc;
+        let previous: std::collections::HashMap<&str, &Arc<crate::model::Timeline>> = before
+            .timelines
+            .iter()
+            .map(|timeline| (timeline.id.as_str(), timeline))
+            .collect();
+        for timeline in &mut self.project.timelines {
+            let old = previous.get(timeline.id.as_str()).copied();
+            if old.is_some_and(|old| Arc::ptr_eq(old, timeline)) {
+                continue;
+            }
+            let kept: HashSet<*const Clip> = old
+                .map(|old| old.clips.iter().map(Arc::as_ptr).collect())
+                .unwrap_or_default();
+            let timeline = Arc::make_mut(timeline);
+            for clip in &mut timeline.clips {
+                if kept.contains(&Arc::as_ptr(clip)) {
+                    continue;
+                }
+                let tidied = (**clip).clone().tidy();
+                if tidied != **clip {
+                    *clip = Arc::new(tidied);
+                }
+            }
+        }
     }
 
     /// Ends the gesture in progress, if any: the next command naming it

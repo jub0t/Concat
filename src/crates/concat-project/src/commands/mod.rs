@@ -37,8 +37,8 @@ const DEFAULT_LAYER_DURATION: f64 = 5.0;
 /// Default hold for a freeze frame when the caller omits duration.
 const DEFAULT_FREEZE_DURATION: f64 = 1.0;
 pub(crate) use crate::model::ranges::{
-    MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_CLIP_DURATION, MIN_SCALE, MIN_SPEED,
-    MIN_STRETCH, wrap_rotation,
+    MAX_ANIMATION, MAX_OFFSET, MAX_SCALE, MAX_SPEED, MAX_STRETCH, MIN_ANIMATION, MIN_CLIP_DURATION,
+    MIN_SCALE, MIN_SPEED, MIN_STRETCH, wrap_rotation,
 };
 
 /// Which end of a clip a trim drags. The two are not symmetric: see

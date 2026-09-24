@@ -242,10 +242,10 @@ pub(super) fn apply(
                 }
             };
             if ripple && applied && by != 0.0 {
-                for other in timeline.clips_mut() {
-                    if other.id != clip_id && other.track_id == track_id && other.start >= behind {
-                        other.start = (other.start + by).max(0.0);
-                    }
+                for other in timeline.clips_where(|other| {
+                    other.id != clip_id && other.track_id == track_id && other.start >= behind
+                }) {
+                    other.start = (other.start + by).max(0.0);
                 }
             }
             Ok(Outcome {
@@ -465,10 +465,9 @@ pub(super) fn apply(
 
             // Ripple every later placement on this track (including the new
             // tail) so the freeze does not sit on top of the remainder.
-            for clip in timeline.clips_mut() {
-                if clip.track_id == track_id && clip.start >= time {
-                    clip.start += hold;
-                }
+            for clip in timeline.clips_where(|clip| clip.track_id == track_id && clip.start >= time)
+            {
+                clip.start += hold;
             }
 
             // The still is the source clip turned into a picture: cloning it
@@ -593,7 +592,12 @@ const JOIN_EPSILON: f64 = 1e-6;
 /// zero.
 /// https://github.com/jub0t/Concat/issues/106
 fn close_gaps(timeline: &mut Timeline, removed: &[(String, f64, f64)]) {
-    for clip in timeline.clips_mut() {
+    let behind_a_span = |clip: &Clip| {
+        removed
+            .iter()
+            .any(|(track, start, _)| *track == clip.track_id && *start < clip.start)
+    };
+    for clip in timeline.clips_where(behind_a_span) {
         let mut spans: Vec<(f64, f64)> = removed
             .iter()
             .filter(|(track, start, _)| *track == clip.track_id && *start < clip.start)
@@ -649,10 +653,7 @@ fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &
     if !overlaps {
         return;
     }
-    for clip in timeline
-        .clips_mut()
-        .filter(|clip| clip.track_id == track_id && clip.start >= start)
-    {
+    for clip in timeline.clips_where(|clip| clip.track_id == track_id && clip.start >= start) {
         clip.start += duration;
     }
 }

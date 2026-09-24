@@ -1262,6 +1262,71 @@ mod tests {
         );
     }
 
+    /// A ripple delete moves the clips behind the gap and copies those
+    /// alone: the clip in front is still the snapshot's.
+    #[test]
+    fn a_ripple_copies_only_the_clips_it_moves() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![clip_id.clone()],
+                time: 4.0,
+            })
+            .expect("splits");
+        editor
+            .apply(Command::SplitClips {
+                clip_ids: vec![editor.project().active().clips[1].id.clone()],
+                time: 7.0,
+            })
+            .expect("splits again");
+        let head = std::sync::Arc::clone(&editor.project().active().clips[0]);
+        let middle = editor.project().active().clips[1].id.clone();
+        let last = std::sync::Arc::clone(&editor.project().active().clips[2]);
+        editor
+            .apply(Command::RemoveClips {
+                clip_ids: vec![middle],
+                ripple: true,
+            })
+            .expect("ripple deletes");
+        let clips = &editor.project().active().clips;
+        assert_eq!(clips.len(), 2);
+        assert!(
+            std::sync::Arc::ptr_eq(&head, &clips[0]),
+            "the clip in front of the gap is still shared with the snapshot"
+        );
+        assert!(
+            !std::sync::Arc::ptr_eq(&last, &clips[1]),
+            "the moved clip was copied"
+        );
+        assert_eq!(clips[1].start, 4.0);
+    }
+
+    /// Every command's result goes through `Clip::tidy`: a key set past the
+    /// field's range comes out clamped, the way the field itself would.
+    #[test]
+    fn a_command_leaves_a_tidy_clip_behind() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::SetClipKey {
+                clip_id: clip_id.clone(),
+                property: crate::model::KeyProperty::OffsetX,
+                at: 0.5,
+                value: 99.0,
+                ease: Default::default(),
+            })
+            .expect("sets a key");
+        let clip = &editor.project().active().clips[0];
+        let key = clip
+            .keys_on(crate::model::KeyProperty::OffsetX)
+            .next()
+            .expect("the key");
+        assert_eq!(
+            key.value,
+            crate::model::ranges::MAX_OFFSET,
+            "clamped like the field"
+        );
+    }
+
     #[test]
     fn a_command_copies_only_what_it_writes() {
         let (mut editor, _, clip_id) = fixture();

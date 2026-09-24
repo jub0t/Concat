@@ -636,7 +636,8 @@ impl ClipAnimation {
             return None;
         }
         self.duration = if self.duration.is_finite() {
-            self.duration.max(0.0)
+            self.duration
+                .clamp(ranges::MIN_ANIMATION, ranges::MAX_ANIMATION)
         } else {
             default_animation_duration()
         };
@@ -1103,6 +1104,10 @@ pub mod ranges {
     pub const MAX_OFFSET: f64 = 3.0;
     /// A transition can be no shorter than this, in seconds.
     pub const MIN_TRANSITION: f64 = 0.1;
+    /// The shortest a clip animation runs, in seconds.
+    pub const MIN_ANIMATION: f64 = 0.05;
+    /// The longest a clip animation runs, in seconds.
+    pub const MAX_ANIMATION: f64 = 60.0;
 
     /// A rotation kept in (-180, 180] so a full drag never accumulates
     /// turns.
@@ -1401,6 +1406,20 @@ impl Clip {
         }
         self.keys
             .retain(|key| (0.0..=1.0).contains(&key.at) && key.value.is_finite());
+        // A key holds what the field itself may hold. Rotation is the one
+        // exception: a key past a full turn is a spin, and wrapping it
+        // would take the spin away.
+        for key in &mut self.keys {
+            key.value = match key.property {
+                KeyProperty::Scale => key.value.clamp(MIN_SCALE, MAX_SCALE),
+                KeyProperty::Opacity => key.value.clamp(0.0, 1.0),
+                KeyProperty::Volume => key.value.max(0.0),
+                KeyProperty::OffsetX | KeyProperty::OffsetY => {
+                    key.value.clamp(-MAX_OFFSET, MAX_OFFSET)
+                }
+                KeyProperty::Rotation => key.value,
+            };
+        }
         self.sort_keys();
         for chain in [&mut self.filters, &mut self.video_effects] {
             for entry in chain.iter_mut() {
@@ -1961,10 +1980,18 @@ impl Timeline {
         Arc::make_mut(&mut self.clips[index])
     }
 
-    /// Every clip, mutable, each copied out of any snapshot sharing it as
-    /// it is reached.
-    pub fn clips_mut(&mut self) -> impl Iterator<Item = &mut Clip> {
-        self.clips.iter_mut().map(Arc::make_mut)
+    /// The clips `keep` picks, mutable, each copied out of any snapshot
+    /// sharing it only once picked: a ripple that moves ten clips of five
+    /// thousand copies ten, and the undo step stays the size of the edit
+    /// (audit 2026-09-23, #8).
+    pub fn clips_where(
+        &mut self,
+        mut keep: impl FnMut(&Clip) -> bool,
+    ) -> impl Iterator<Item = &mut Clip> {
+        self.clips
+            .iter_mut()
+            .filter(move |clip| keep(clip))
+            .map(Arc::make_mut)
     }
 
     /// The track with this id, or None if it was removed.
