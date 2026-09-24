@@ -105,7 +105,7 @@ Optional models download from the settings panel on first use and then never nee
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=timeline&releases=&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
