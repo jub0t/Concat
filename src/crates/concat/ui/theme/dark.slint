@@ -227,9 +227,11 @@ export global Dark {
     /// lanes now carry while staying under `line-strong`, so the rules place a
     /// clip without competing with it.
     out property <color> grid: #ffffff24;
-    // Red, and used for nothing else. A playhead that shared the accent would
-    // be one more blue line among the selection outlines.
-    out property <color> playhead: #ff453a;
+    // Lime: the palette's first accent, as a colour of its own rather than a
+    // read of the accent, so a change of accent leaves the playhead where the
+    // eye learnt to find it. Settings > Appearance can put any colour in its
+    // place (theme.slint, `playhead-custom`).
+    out property <color> playhead: #cbf53f;
     // Drawn on the audio clip's own dark ground, so it is a light wash of the
     // kind's hue rather than the vivid mark itself.
     out property <color> wave: #a7f0c2b3;      // 0.7 alpha

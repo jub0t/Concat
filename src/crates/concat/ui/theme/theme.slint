@@ -70,6 +70,16 @@ export global Theme {
     /// remembered under in settings.json, lower-cased; the dialog holds the
     /// same list wrapped for translation, in this order.
     out property <[string]> accent-names: ["Lime", "Sky", "Violet", "Rose", "Amber", "Mint"];
+    /// The playhead's colour when one was picked by hand in Settings >
+    /// Appearance, in place of the palette's own. Read only while
+    /// `playhead-is-custom`, and one colour under both palettes, for the
+    /// reason the custom accent is: whoever picked it picked what they see.
+    /// Grey until picked, so the dot that offers it reads as a blank.
+    in-out property <color> playhead-custom: #808080;
+    /// The playhead wears `playhead-custom` rather than the palette's own.
+    /// Settings > Appearance sets both (lib.rs, `on_settings_playhead_changed`)
+    /// and clears this one to put the palette's back.
+    in-out property <bool> playhead-is-custom: false;
 
     // ── type ─────────────────────────────────────────────────────────────
     //
@@ -221,7 +231,10 @@ export global Theme {
     out property <color> lane-alt: dark ? Dark.lane-alt : Light.lane-alt;
     out property <color> ruler: dark ? Dark.ruler : Light.ruler;
     out property <color> grid: dark ? Dark.grid : Light.grid;
-    out property <color> playhead: dark ? Dark.playhead : Light.playhead;
+    /// The palette's own playhead, for the dot in Settings that offers it
+    /// back while a picked colour is on.
+    out property <color> playhead-default: dark ? Dark.playhead : Light.playhead;
+    out property <color> playhead: playhead-is-custom ? playhead-custom : playhead-default;
     out property <color> wave: dark ? Dark.wave : Light.wave;
     out property <color> wave-video: dark ? Dark.wave-video : Light.wave-video;
     out property <color> wave-hot: dark ? Dark.wave-hot : Light.wave-hot;

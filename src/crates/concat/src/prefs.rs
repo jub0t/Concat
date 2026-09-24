@@ -22,6 +22,9 @@ pub struct Preferences {
     /// `None`, or a name no longer on the list, is the first one, which is
     /// Lime.
     pub accent: Option<String>,
+    /// The playhead's colour as "#rrggbb", when one was picked by hand in
+    /// Settings > Appearance. `None` is the palette's own, which is lime.
+    pub playhead: Option<String>,
     /// The chosen transcriber model id, e.g. "base.en".
     pub transcriber_model: Option<String>,
     /// The chosen speech model id.
@@ -251,5 +254,21 @@ mod tests {
         assert_eq!(back.dark, Some(false));
         assert_eq!(back.accent, None);
         assert_eq!(back.accent_index(NAMES), 0);
+    }
+
+    /// A picked playhead colour is written as its hex and read back as
+    /// one, and a file from before it existed reads as the palette's own.
+    #[test]
+    fn a_picked_playhead_round_trips_and_an_older_file_has_none() {
+        let prefs = Preferences {
+            playhead: Some("#ff453a".to_owned()),
+            ..Preferences::default()
+        };
+        let text = serde_json::to_string(&prefs).unwrap();
+        assert!(text.contains("\"playhead\":\"#ff453a\""), "{text}");
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.playhead.as_deref(), Some("#ff453a"));
+        let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
+        assert_eq!(older.playhead, None);
     }
 }

@@ -451,6 +451,10 @@ export component SettingsDialog inherits Modal {
     callback accent-changed(index: int);
     /// A colour picked by hand in place of any on the list.
     callback accent-custom-changed(colour: color);
+    /// The playhead's colour, picked by hand in place of the palette's own.
+    callback playhead-changed(colour: color);
+    /// The palette's own playhead colour, back in place of a picked one.
+    callback playhead-reset();
     callback playhead-stops-changed(on: bool);
     callback custom-context-actions-changed(on: bool);
     callback magnetic-changed(on: bool);
@@ -848,6 +852,79 @@ export component SettingsDialog inherits Modal {
 
                         if Theme.accent-is-custom: Text {
                             text: Fmt.hex-of(Theme.accent-custom, false);
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // The playhead: the one line over the lanes that has to be
+                // found at a glance, whatever the clips under it are wearing.
+                // The palette's own is lime. The second dot opens the same
+                // picker the accent does, and the picked colour replaces the
+                // palette's under both palettes until the first dot puts it
+                // back. Read off the Theme global for the same reason the
+                // accent is, and the hex is always shown: what the line is
+                // wearing is the whole point of the row.
+                DialogSection {
+                    title: I18n.t("Playhead");
+                    hint: I18n.t("The line across the lanes that marks the current time. Pick any colour for it, or the first dot to go back to the theme's own.");
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+
+                        AccentSwatch {
+                            colour: Theme.playhead-default;
+                            label: I18n.t("Default");
+                            chosen: !Theme.playhead-is-custom;
+                            clicked => { root.playhead-reset(); }
+                        }
+
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+
+                            AccentSwatch {
+                                colour: Theme.playhead-is-custom ? Theme.playhead-custom : Theme.fg-dim;
+                                label: I18n.t("Custom");
+                                chosen: Theme.playhead-is-custom;
+                                blank: !Theme.playhead-is-custom;
+                                clicked => { playhead-picker.show(); }
+                            }
+
+                            playhead-picker := PopupWindow {
+                                x: 0;
+                                y: parent.height + 4px;
+                                width: 236px;
+                                close-policy: close-on-click-outside;
+
+                                Rectangle {
+                                    background: Theme.raised;
+                                    border-width: 1px;
+                                    border-color: Theme.line-strong;
+                                    border-radius: Theme.r;
+
+                                    ColorPicker {
+                                        value: Theme.playhead;
+                                        alpha: false;
+                                        changed(next) => { root.playhead-changed(next); }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: Theme.playhead-is-custom ? I18n.t("Custom") : I18n.t("Default");
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: Fmt.hex-of(Theme.playhead, false);
                             color: Theme.fg-dim;
                             font-family: Theme.font-technical;
                             font-size: Theme.fs-sm;

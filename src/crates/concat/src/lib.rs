@@ -158,6 +158,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
             }
         }
     }
+    // A picked playhead colour is remembered as its hex; none remembered,
+    // or one that will not parse, is the palette's own.
+    if let Some(colour) = studio.prefs.playhead.as_deref().and_then(format::parse_colour) {
+        let theme = app.global::<Theme>();
+        theme.set_playhead_custom(colour);
+        theme.set_playhead_is_custom(true);
+    }
 
     let shell = Rc::new(Shell {
         app: app.as_weak(),
@@ -1158,6 +1165,32 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 theme.set_accent_choice(count as i32);
                 let mut studio = shell.studio.borrow_mut();
                 studio.prefs.accent = Some(format::hex_of(colour));
+                studio.prefs.save(&studio.host.dirs);
+            });
+        }
+    });
+    // The playhead's colour is the same shape of thing as the custom accent:
+    // a colour on the Theme global, remembered as its hex, behind a flag
+    // that says it is on. A reset clears the flag and forgets the hex, so
+    // the palette's own comes back and the file no longer names one.
+    app.on_settings_playhead_changed({
+        move |colour| {
+            Shell::with(|shell, app| {
+                let theme = app.global::<Theme>();
+                theme.set_playhead_custom(colour);
+                theme.set_playhead_is_custom(true);
+                let mut studio = shell.studio.borrow_mut();
+                studio.prefs.playhead = Some(format::hex_of(colour));
+                studio.prefs.save(&studio.host.dirs);
+            });
+        }
+    });
+    app.on_settings_playhead_reset({
+        move || {
+            Shell::with(|shell, app| {
+                app.global::<Theme>().set_playhead_is_custom(false);
+                let mut studio = shell.studio.borrow_mut();
+                studio.prefs.playhead = None;
                 studio.prefs.save(&studio.host.dirs);
             });
         }
