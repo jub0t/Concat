@@ -551,7 +551,9 @@ impl Engine {
         let mut embeds = voice.features.1.clone();
         embeds.extend_from_slice(&text_embeds);
         let mut seq_len = embeds.len() / width;
-        let mut total_len = seq_len;
+        // The prompt: the recording's tokens and the text's, which every
+        // step's mask covers along with one token per step before it.
+        let prompt_len = seq_len;
         let mut position = 0usize;
 
         let mut cache: Vec<Option<ort::value::Value>> = (0..LAYERS * 2).map(|_| None).collect();
@@ -565,6 +567,7 @@ impl Engine {
             if cancel.load(Ordering::Relaxed) {
                 return Err("speech generation cancelled".to_owned());
             }
+            let total_len = prompt_len + step;
             let mut inputs: Vec<Fed> = Vec::with_capacity(3 + LAYERS * 2);
             inputs.push(feed(
                 "inputs_embeds",
@@ -632,7 +635,6 @@ impl Engine {
             let (_, next_embed) = embed_ids(&mut embed, &[next])?;
             embeds = next_embed;
             seq_len = 1;
-            total_len += 1;
         }
         Ok(spoken(&generated))
     }

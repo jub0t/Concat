@@ -290,7 +290,7 @@ impl MediaBin {
         match self.sort {
             // Added: the import order, as the document keeps it.
             0 => {}
-            1 => visible.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            1 => visible.sort_by_key(|item| item.name.to_lowercase()),
             // Video, then audio, then stills; each by name.
             2 => visible.sort_by(|a, b| {
                 let rank = |kind: model::MediaKind| match kind {
