@@ -57,35 +57,28 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 - 🤖 **Scriptable.** JSON-RPC, gRPC and MCP API, plus a CLI. AI agents can cut video with it.
 - 🖥️ **macOS, Windows, Linux, Android.** 14 languages. Same app, same project files.
 
-## Get started
+## Download
 
-Concat is currently in **Beta version (pre-release)**. **Download** the latest build from [Releases](https://github.com/jub0t/Concat/releases).
+Two ways in:
 
-**Reporting something:** every run writes a log, and Settings › About has the button that opens it along with the one that copies your system information. Attach both to an [issue](https://github.com/jub0t/Concat/issues) and the report arrives with everything it needs. The last ten runs are kept, so yesterday's is still there; nothing is ever sent anywhere on its own.
+1. **[The website](https://concatenate.pages.dev/#download)** hands you the right build for your machine. Start here.
+2. **[GitHub Releases](https://github.com/jub0t/Concat/releases)** has every build for every platform, with installers, packages and checksums. For when you want to pick.
 
-**Platform support:**
+Concat is in **beta**: it works, and it still has edges. [Say so](https://github.com/jub0t/Concat/issues) when you find one.
 
-- ✅ **Windows**
-  - ✅ x86_64
-- ✅ **macOS** — unsigned binaries; run:
-  `xattr -dr com.apple.quarantine /Applications/Concat.app`
-  - ✅ Intel
-  - ✅ Silicon
-- ✅ **Linux**
-  - ✅ ARM
-  - ✅ x86_64
-- ✅ **Android**
-  - ✅ Phones
-  - ✅ Tablets
-- 🧪 **iOS / iPadOS**
-  - 🧪 iPhone
-  - 🧪 iPad
+**Platforms**
 
-**Status:** ✅ Supported · 🚧 Work in progress · 🧪 To be tested
+- ✅ **Windows** · x86_64
+- ✅ **macOS** · Intel and Apple silicon. The binaries are unsigned, so if macOS refuses to open it: `xattr -dr com.apple.quarantine /Applications/Concat.app`
+- ✅ **Linux** · x86_64 and ARM. `.deb`, `.rpm`, `.AppImage` and an Arch package
+- ✅ **Android** · phones and tablets
+- 🧪 **iOS / iPadOS** · iPhone and iPad, sideloaded
 
-**System requirements:**
+✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
-Concat runs everything on your machine, so the hardware sets the ceiling. The minimum column is what a build will run on at all; the recommended column is what makes 1080p editing feel smooth and keeps 4K exports and captions from being a wait.
+**System requirements**
+
+Concat runs everything on your machine, so the hardware sets the ceiling. Minimum is what a build runs on at all; recommended is what makes 1080p editing feel smooth and keeps 4K exports and captions from being a wait.
 
 | | Minimum | Recommended |
 |---|---|---|
@@ -94,7 +87,13 @@ Concat runs everything on your machine, so the hardware sets the ceiling. The mi
 | **RAM** | **4 GB** | **16 GB** for 4K timelines and the larger caption models |
 | **Storage** | **500 MB** for the app and the smallest caption model | **2 GB** for every optional model, plus room for projects and exports |
 
-Optional models download from the settings panel on first use and then never need the network again: auto-captions 78 MB to 488 MB depending on the whisper size you pick, text-to-speech 132 MB or 349 MB, person cutout 15 MB, object cutout 179 MB, and the cutout brush 40 MB.
+Optional models download from Settings on first use and then never need the network again: auto-captions 78 MB to 488 MB depending on the whisper size you pick, text-to-speech 132 MB or 349 MB, person cutout 15 MB, object cutout 179 MB, and the cutout brush 40 MB.
+
+## Get started
+
+Download it, open it, drop footage in, cut. No account, no setup.
+
+**Reporting something:** every run writes a log, and Settings › About has the button that opens it along with the one that copies your system information. Attach both to an [issue](https://github.com/jub0t/Concat/issues) and the report arrives with everything it needs. The last ten runs are kept, so yesterday's is still there; nothing is ever sent anywhere on its own.
 
 ## How to Contribute
 
