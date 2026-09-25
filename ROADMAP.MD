@@ -2,6 +2,7 @@
 
 - [ ] Raise capital for Concat to assure continued development and updates.
 - [ ] Release on Apple Store and Windows Store (needs capital).
+- [ ] Create a platform for individual users to share, and sell custom effects.
 
 ### Costs
 
