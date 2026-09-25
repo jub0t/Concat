@@ -17,30 +17,30 @@
 <table width="100%">
   <tr>
     <td align="center" width="33%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
     <td align="center" width="34%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
     <td align="center" width="33%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="33%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
     <td align="center" width="34%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
     <td align="center" width="33%">
-      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
-      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="#sponsoring"><b>Your logo here</b></a><br />
+      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
   </tr>
 </table>
@@ -51,7 +51,7 @@
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.4-b394ff?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.4" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-b394ff?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
-  <a href="#sponsoring"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Sponsor Concat on Patreon" /></a>
+  <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Sponsor Concat on Patreon" /></a>
 </p>
 
 
@@ -163,7 +163,7 @@ Monthly through Patreon, or straight to a wallet.
 
 | Method | Address |
 |---|---|
-| 🧡 **Patreon** | [patreon.com/5012480/join](https://www.patreon.com/5012480/join) |
+| 🧡 **Patreon** | <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Become a patron of Concat" /></a> |
 | ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
 | ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
 | Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
