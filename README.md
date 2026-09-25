@@ -158,12 +158,7 @@ Concat has no paywall and never will: no watermark, no account, no paid tier. Sp
 
 **Where it goes**
 
-- 🍎 **Apple Developer Program.** A signed, notarised macOS build that opens without the `xattr` dance, and Concat on the App Store.
-- 🤖 **Google Play.** Android from the store rather than a sideloaded APK.
-- 🌐 **The website.** Domain, hosting, and the shared library of community effects, filters and sounds it will host.
-- 🛠️ **Tooling and time.** The developer tools behind every release, and the hours that go into it.
-
-The [roadmap](./ROADMAP.MD) has the numbers.
+The [ROADMAP](./ROADMAP.MD) lays out what sponsorship pays for, and what each piece costs.
 
 **Crypto**
 
