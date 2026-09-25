@@ -37,7 +37,7 @@ type='^[a-z]+(\([^)]*\))?!?: '
 # subject with neither carries no mark rather than a wrong one.
 marks='text=📝 speech=🗣️ enhance=🗣️ keyframes=🎞️ effects=✨ render=✨ colour=✨ color=✨ timeline=✂️ media=📁 export=📤 settings=⚙️ i18n=🌍 locales=🌍 api=🤖 server=🤖 android=📱 ios=📱 models=📦 inspector=🖥️ window=🖥️ workspace=🖥️ ui=🖥️ start=🖥️ feat=✨ fix=🐛 perf=⚡'
 changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
-  | grep -Ev '^(Update [^ ]+\.[a-z]+|Lock the flake|Format the workspace|Changelog for|Merge )' \
+  | grep -Ev '^(Update [^ ]+\.[a-z]+|Version [0-9]|Lock the flake|Format the workspace|Changelog for|Merge )' \
   | grep -Ev 'in the (export|pool) tests$' \
   | grep -Eiv '^(test|chore|ci|build|refactor|style|docs)(\([^)]*\))?!?: ' \
   | grep -Eiv "${type}.*(clippy|lint|rustfmt|(unused|duplicate|missing) [A-Za-z]* ?import|non-existent|does not compile|before test module|green again)" \
