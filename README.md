@@ -4,7 +4,7 @@
     <td align="left" width="120">
       <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/logo-dark.png" alt="Concat" width="100" />
     </td>
-    <td align="right">
+    <td align="">
       <h1>Concat</h1>
       <h3 style="margin-top: -10px;">The truly free, and open-source cross-platform CapCut replacement.</h3>
     </td>
