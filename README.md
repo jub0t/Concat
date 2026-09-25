@@ -152,20 +152,17 @@ Download it, open it, drop footage in, cut. No account, no setup.
 
 Concat has no paywall and never will: no watermark, no account, no paid tier. Sponsoring is what stands in for one. If Concat has taken the place of a subscription for you, a fraction of that keeps it going.
 
-<p align="center">
-  <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Become a patron of Concat" /></a>
-</p>
-
 **Where it goes**
 
 The [ROADMAP](./ROADMAP.MD) lays out what sponsorship pays for, and what each piece costs.
 
-**Crypto**
+**Payment Methods**
 
-Prefer to send it straight? Any of these works.
+Monthly through Patreon, or straight to a wallet.
 
-| | Address |
+| Method | Address |
 |---|---|
+| 🧡 **Patreon** | [patreon.com/5012480/join](https://www.patreon.com/5012480/join) |
 | ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
 | ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
 | Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
