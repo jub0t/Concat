@@ -14,8 +14,36 @@
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
 
----
-
+<table width="100%">
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+    <td align="center" width="34%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+    <td align="center" width="34%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.patreon.com/5012480/join"><b>Your logo here</b></a><br />
+      <sub><a href="https://www.patreon.com/5012480/join">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+    </td>
+  </tr>
+</table>
 
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=b394ff" alt="Total Downloads" /></a>
@@ -119,3 +147,32 @@ Download it, open it, drop footage in, cut. No account, no setup.
    <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
  </picture>
 </a>
+
+## Sponsoring
+
+Concat has no paywall and never will: no watermark, no account, no paid tier. Sponsoring is what stands in for one. If Concat has taken the place of a subscription for you, a fraction of that keeps it going.
+
+<p align="center">
+  <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Become a patron of Concat" /></a>
+</p>
+
+**Where it goes**
+
+- 🍎 **Apple Developer Program.** A signed, notarised macOS build that opens without the `xattr` dance, and Concat on the App Store.
+- 🤖 **Google Play.** Android from the store rather than a sideloaded APK.
+- 🌐 **The website.** Domain, hosting, and the shared library of community effects, filters and sounds it will host.
+- 🛠️ **Tooling and time.** The developer tools behind every release, and the hours that go into it.
+
+The [roadmap](./ROADMAP.MD) has the numbers.
+
+**Crypto**
+
+Prefer to send it straight? Any of these works.
+
+| | Address |
+|---|---|
+| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
+| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
+| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
+
+Not in a position to chip in? A star, a bug report, or a word to someone who edits video counts for a lot too.
