@@ -55,6 +55,12 @@ export enum Glyph {
     copy,
     flip-h,
     flip-v,
+    /// the tray's picture verbs, freeze, mirror and rotate, behind one
+    /// mark; and the quarter turn among them
+    mirror-rotate,
+    rotate,
+    /// the turn the other way: a clip played backwards
+    reverse,
     keyframe,
     /// the Keyframes pane's two views: bars stepping down a sheet, and an
     /// arc between two nodes
@@ -690,6 +696,26 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.frame: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M 4 8 L 20 8 M 4 16 L 20 16 M 8 4 L 8 20 M 16 4 L 16 20";
+    }
+
+    // lucide/flip-horizontal-2: two triangles either side of a dashed
+    // axis, the mark over freeze, mirror and rotate on the tray.
+    if root.glyph == Glyph.mirror-rotate: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "m3 7 5 5-5 5V7 M21 7l-5 5 5 5V7 M12 20v2 M12 14v2 M12 8v2 M12 2v2";
+    }
+
+    // lucide/rotate-cw
+    if root.glyph == Glyph.rotate: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8 M21 3v5h-5";
+    }
+
+    // lucide/rotate-ccw: the turn the other way, for a clip played
+    // backwards.
+    if root.glyph == Glyph.reverse: Stroked {
+        size: root.size; tint: root.tint; weight: root.weight;
+        commands: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5";
     }
 
     // hand-drawn: no library carries it

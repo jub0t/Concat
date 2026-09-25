@@ -772,6 +772,8 @@ pub struct Studio {
     /// Enhance at work, by clip id: whether the model is still
     /// downloading, and how far along. One at a time, like every long job.
     enhance_jobs: HashMap<String, (bool, f32)>,
+    /// Reverse writing a clip's backwards copy, by clip: how far along.
+    reverse_jobs: HashMap<String, f32>,
     /// The smart stroke being read, by the same name, while one is.
     region_job: Option<String>,
     /// The last smart stroke as the stage drew it, kept on screen from the
@@ -1508,6 +1510,7 @@ impl Studio {
             painting: true,
             cutout_jobs: HashMap::new(),
             enhance_jobs: HashMap::new(),
+            reverse_jobs: HashMap::new(),
             region_job: None,
             pending_stroke: None,
             host,
@@ -4825,6 +4828,127 @@ impl Studio {
         );
     }
 
+    /// Writes the span clip `id` covers of its file backwards into the
+    /// project's cache, and points the clip at the copy when it is there;
+    /// see `concat_host::reverse`. The import is never touched.
+    pub fn reverse_clip(&mut self, id: &str) {
+        if !self.reverse_jobs.is_empty() || self.host.reversers.is_busy() {
+            self.notify(&t("Reverse is already at work; one clip at a time"), true);
+            return;
+        }
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        let audio_only = match clip.kind {
+            model::ClipKind::Video => false,
+            model::ClipKind::Audio => true,
+            _ => return,
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let Some(media) = self
+            .project()
+            .media
+            .iter()
+            .find(|item| item.id == clip.media_id)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let project = std::path::PathBuf::from(session.path());
+        // The span the clip covers of the file: its in-point, and its
+        // length at its rate - the curve's mean when it has one, which is
+        // what `speed` holds then.
+        let start = clip.source_start;
+        let covered = clip.duration * clip.speed;
+        let Some(target) =
+            concat_host::reverse::target_for(&project, &media.path, start, covered, audio_only)
+        else {
+            self.notify(&tf("Could not read {0}", &[&media.path]), true);
+            return;
+        };
+        let request = concat_host::ReverseRequest {
+            media_path: media.path.clone(),
+            audio_only,
+            start,
+            duration: covered,
+            target,
+        };
+        let clip_id = clip.id.clone();
+        self.reverse_jobs.insert(clip_id.clone(), 0.0);
+        self.notify(&tf("Reversing {0}…", &[&media.name]), false);
+        let reversers = Arc::clone(&self.host.reversers);
+        let epoch = crate::host::project_epoch();
+        spawn_in_project(
+            move || {
+                let mut last = -1.0f32;
+                let reporting = clip_id.clone();
+                let result = reversers.reverse(&request, &mut |fraction| {
+                    if fraction - last >= 0.01 {
+                        last = fraction;
+                        let id = reporting.clone();
+                        on_ui_in_project(epoch, move |studio, _, _| {
+                            if let Some(held) = studio.reverse_jobs.get_mut(&id) {
+                                *held = fraction;
+                            }
+                        });
+                    }
+                });
+                (clip_id, start, covered, result)
+            },
+            |studio, _, _, (clip_id, start, covered, result)| {
+                studio.reverse_jobs.remove(&clip_id);
+                match result {
+                    Ok(path) => studio.adopt_reversed(&clip_id, &path, start, covered),
+                    Err(error) if error.contains("cancelled") => {}
+                    Err(error) => studio.notify(&tf("Reverse: {0}", &[&error]), true),
+                }
+            },
+        );
+    }
+
+    /// Points clip `id` at the reversed copy at `path`, its in-point at
+    /// the copy's own zero, and shows it - unless the clip has moved on
+    /// its file meanwhile, in which case the copy covers a span the clip
+    /// no longer shows, and the ask has to be made again.
+    fn adopt_reversed(&mut self, id: &str, path: &std::path::Path, start: f64, covered: f64) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        if (clip.source_start - start).abs() > 1e-6
+            || (clip.duration * clip.speed - covered).abs() > 1e-6
+        {
+            self.notify(
+                &t("The clip changed while it was being reversed; reverse it again"),
+                true,
+            );
+            return;
+        }
+        let summary = match media::probe(&path.to_string_lossy()) {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.notify(&tf("Reverse: {0}", &[&error]), true);
+                return;
+            }
+        };
+        let mut item = summary.to_new_media();
+        if let Some(original) = self.project().media.iter().find(|m| m.id == clip.media_id) {
+            item.name = format!("{} (reversed)", original.name);
+        }
+        item.origin = Some(model::MediaOrigin::Processed);
+        self.apply(Command::ReplaceClipMedia {
+            clip_id: id.to_owned(),
+            item,
+            source_start: Some(0.0),
+        });
+        self.request_preview();
+        self.notify(&t("Reversed; the clip now shows the copy"), false);
+    }
+
     /// Points clip `id` at the enhanced copy at `path`, probed the way an
     /// import is, and shows it.
     fn adopt_enhanced(&mut self, id: &str, path: &std::path::Path) {
@@ -4847,6 +4971,7 @@ impl Studio {
         self.apply(Command::ReplaceClipMedia {
             clip_id: id.to_owned(),
             item,
+            source_start: None,
         });
         self.request_preview();
         self.notify(&t("Enhanced; the clip now shows the copy"), false);
@@ -5322,6 +5447,43 @@ impl Studio {
         )
     }
 
+    /// What the selection offers the tray's picture verbs: a picture on an
+    /// unlocked lane, to mirror or turn; with one clip selected, a video or
+    /// a still the playhead is inside of, to freeze there; and one video
+    /// or sound clip to reverse, while no reverse is running.
+    fn transform_tools(&self) -> (bool, bool, bool) {
+        let at = f64::from(self.playhead);
+        let edge = f64::from(MIN_DURATION);
+        let sole = self.selection.len() == 1;
+        let mut picture = false;
+        let mut freezable = false;
+        let mut reversible = false;
+        for clip in self.selection.iter().filter_map(|id| self.clip(id)) {
+            if self.locked(&clip.track_id) {
+                continue;
+            }
+            let video = clip.kind == model::ClipKind::Video;
+            if sole
+                && self.reverse_jobs.is_empty()
+                && (video || clip.kind == model::ClipKind::Audio)
+            {
+                reversible = true;
+            }
+            if clip.kind == model::ClipKind::Audio {
+                continue;
+            }
+            picture = true;
+            if sole
+                && (video || clip.kind == model::ClipKind::Image)
+                && at > clip.start + edge
+                && at < clip.start + clip.duration - edge
+            {
+                freezable = true;
+            }
+        }
+        (picture, freezable, reversible)
+    }
+
     /// Where a clip's sound is: whether it is a video clip whose sound is
     /// still on its picture, to take off, and whether it is a picture whose
     /// sound is off it - or that sound itself - to put back.
@@ -5475,7 +5637,9 @@ impl Studio {
         self.pause();
         self.host.cutouts.cancel();
         self.host.enhancers.cancel();
+        self.host.reversers.cancel();
         self.enhance_jobs.clear();
+        self.reverse_jobs.clear();
         self.cutout_jobs.clear();
         self.region_job = None;
         if let Some(session) = self.session.as_mut() {
@@ -6061,6 +6225,10 @@ impl Studio {
         let (sound_selected, title_selected) = self.sound_tools();
         editor.set_sound_selected(sound_selected);
         editor.set_title_selected(title_selected);
+        let (picture_selected, freezable, reversible) = self.transform_tools();
+        editor.set_picture_selected(picture_selected);
+        editor.set_freezable(freezable);
+        editor.set_reversible(reversible);
         editor.set_merge_blocked_because(match self.merge_blocked() {
             Some(reason) => reason.into(),
             None => SharedString::new(),
@@ -7027,6 +7195,7 @@ impl Studio {
                 .enhance_jobs
                 .get(&clip.id)
                 .is_some_and(|(fetching, _)| *fetching),
+            reverse_progress: self.reverse_jobs.get(&clip.id).copied().unwrap_or(-1.0),
         }
     }
 
@@ -7901,6 +8070,59 @@ impl Studio {
         }
     }
 
+    /// A quarter turn clockwise on every selected picture, at the playhead:
+    /// a keyed rotation gets a key there and a constant one turns whole, as
+    /// the stage's own rotate grip writes it. One undo step for the lot.
+    pub fn rotate_selected(&mut self) {
+        self.flush_commit();
+        let playhead = self.playhead;
+        let ids: Vec<String> = self
+            .selection
+            .iter()
+            .filter(|id| {
+                self.clip(id).is_some_and(|clip| {
+                    clip.kind != model::ClipKind::Audio && !self.locked(&clip.track_id)
+                })
+            })
+            .cloned()
+            .collect();
+        let mut commands = Vec::new();
+        for id in ids {
+            let Some(before) = self.clip(&id).cloned() else {
+                continue;
+            };
+            let mut after = before.clone();
+            let at = place_in(&after, playhead);
+            // Kept in the inspector's range, wrapping rather than stopping,
+            // as the grip does.
+            let next = (shown(&after, model::KeyProperty::Rotation, at) + 90.0 + 180.0)
+                .rem_euclid(360.0)
+                - 180.0;
+            write_keyable(&mut after, model::KeyProperty::Rotation, next, at);
+            if after.rotation != before.rotation {
+                commands.push(Command::SetClipTransform {
+                    clip_id: id.clone(),
+                    scale: Some(after.scale),
+                    offset_x: Some(after.offset_x),
+                    offset_y: Some(after.offset_y),
+                    rotation: Some(after.rotation),
+                    stretch_x: Some(after.stretch_x),
+                    stretch_y: Some(after.stretch_y),
+                });
+            }
+            commands.extend(key_commands(&id, &before, &after));
+        }
+        match commands.len() {
+            0 => {}
+            1 => {
+                self.apply(commands.remove(0));
+            }
+            _ => {
+                self.apply(Command::Batch { commands });
+            }
+        }
+    }
+
     pub fn toggle_flip_h(&mut self) {
         if self.selection.is_empty() {
             return;
@@ -8006,6 +8228,20 @@ impl Studio {
             }
             "flip-h" => self.toggle_flip_h(),
             "flip-v" => self.toggle_flip_v(),
+            // The tray's picture verbs. Mirror is the flip the H key does,
+            // without the setting that gates the key: a button on the tray
+            // is not a key someone might press by accident.
+            "mirror" => self.toggle_flip_h(),
+            "rotate" => self.rotate_selected(),
+            "reverse" => {
+                if let Some(id) = self.sole_selection() {
+                    self.reverse_clip(&id);
+                }
+            }
+            "freeze" => {
+                self.menu_target = None;
+                self.freeze_at_playhead();
+            }
             "paste" => {
                 let Some(held) = self.clipboard.clone() else {
                     return;

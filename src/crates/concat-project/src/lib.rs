@@ -620,6 +620,47 @@ mod tests {
     }
 
     #[test]
+    fn replace_clip_media_can_move_the_in_point_to_the_copy() {
+        let (mut editor, _, clip_id) = fixture();
+        editor
+            .apply(Command::TrimClip {
+                clip_id: clip_id.clone(),
+                edge: TrimEdge::Start,
+                delta: 2.0,
+                ripple: false,
+            })
+            .expect("trims");
+        let trimmed = editor.project().active().clip(&clip_id).expect("clip");
+        assert_eq!((trimmed.source_start, trimmed.duration), (2.0, 8.0));
+        let copy = NewMedia {
+            path: "/project/cache/reverse-1-2000-8000.mp4".into(),
+            name: "a.mp4 (reversed)".into(),
+            duration: Some(8.0),
+            kind: MediaKind::Video,
+            width: Some(1920),
+            height: Some(1080),
+            frame_rate: Some(30.0),
+            frame_rate_fraction: Some("30/1".into()),
+            video_codec: Some("h264".into()),
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: Vec::new(),
+            origin: None,
+        };
+        let outcome = editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip_id.clone(),
+                item: copy,
+                source_start: Some(0.0),
+            })
+            .expect("replaces");
+        assert!(outcome.applied);
+        let clip = editor.project().active().clip(&clip_id).expect("clip");
+        assert_eq!(clip.source_start, 0.0, "the copy starts at its own zero");
+        assert_eq!(clip.duration, 8.0, "the length is kept");
+    }
+
+    #[test]
     fn replace_clip_media_points_the_clip_at_the_copy_and_keeps_the_original() {
         let (mut editor, media_id, clip_id) = fixture();
         let copy = NewMedia {
@@ -641,6 +682,7 @@ mod tests {
             .apply(Command::ReplaceClipMedia {
                 clip_id: clip_id.clone(),
                 item: copy.clone(),
+                source_start: None,
             })
             .expect("replaces");
         assert!(outcome.applied);
@@ -664,6 +706,7 @@ mod tests {
             .apply(Command::ReplaceClipMedia {
                 clip_id: clip_id.clone(),
                 item: copy.clone(),
+                source_start: None,
             })
             .expect("no-op");
         assert!(!again.applied);
@@ -677,6 +720,7 @@ mod tests {
                     path: "/elsewhere.mp4".into(),
                     ..copy
                 },
+                source_start: None,
             })
             .expect("no-op");
         assert!(!nobody.applied);
@@ -707,6 +751,7 @@ mod tests {
                 .apply(Command::ReplaceClipMedia {
                     clip_id: clip_id.clone(),
                     item: bad,
+                    source_start: None,
                 })
                 .is_err()
         );

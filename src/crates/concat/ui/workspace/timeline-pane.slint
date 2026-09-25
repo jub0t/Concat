@@ -47,6 +47,9 @@ export component TimelinePane inherits Rectangle {
     in property <string> merge-blocked-because;
     in property <bool> sound-selected;
     in property <bool> title-selected;
+    in property <bool> picture-selected;
+    in property <bool> freezable;
+    in property <bool> reversible;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -59,6 +62,10 @@ export component TimelinePane inherits Rectangle {
     callback hover-ended();
     /// Bumped to open the preview axis menu; see ContextMenu.token.
     property <int> axis-token;
+    /// Bumped to open the freeze, mirror and rotate menu.
+    property <int> transform-token;
+    /// One of that menu's verbs, by name: freeze, mirror, rotate.
+    callback clip-verb(action: string);
     callback undo();
     callback redo();
     callback split();
@@ -199,6 +206,63 @@ export component TimelinePane inherits Rectangle {
         selected(id) => { root.preview-axis-audio-changed(id == "axis-audio"); }
     }
 
+    // The tray's picture verbs, hosted here for the same reason.
+    transform-menu := ContextMenu {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        items: [
+            {
+                id: "freeze",
+                label: I18n.t("Freeze"),
+                kind: MenuRow.action,
+                glyph: Glyph.frame,
+                shortcut: "",
+                enabled: root.freezable,
+                danger: false,
+                checkable: false,
+                checked: false,
+            },
+            {
+                id: "reverse",
+                label: I18n.t("Reverse"),
+                kind: MenuRow.action,
+                glyph: Glyph.reverse,
+                shortcut: "",
+                enabled: root.reversible,
+                danger: false,
+                checkable: false,
+                checked: false,
+            },
+            {
+                id: "mirror",
+                label: I18n.t("Mirror"),
+                kind: MenuRow.action,
+                glyph: Glyph.flip-h,
+                shortcut: "",
+                enabled: root.picture-selected,
+                danger: false,
+                checkable: false,
+                checked: false,
+            },
+            {
+                id: "rotate",
+                label: I18n.t("Rotate"),
+                kind: MenuRow.action,
+                glyph: Glyph.rotate,
+                shortcut: "",
+                enabled: root.picture-selected,
+                danger: false,
+                checkable: false,
+                checked: false,
+            },
+        ];
+        menu-height: 4 * MenuMetrics.action + MenuMetrics.padding;
+        token: root.transform-token;
+        selected(id) => { root.clip-verb(id); }
+    }
+
     Pane {
         // The one edge kept when the outlines came off. The timeline sits
         // under the three panes above it rather than beside anything, so its
@@ -244,6 +308,8 @@ export component TimelinePane inherits Rectangle {
             merge-blocked-because: root.merge-blocked-because;
             sound-selected: root.sound-selected;
             title-selected: root.title-selected;
+            picture-selected: root.picture-selected;
+            freezable: root.freezable;
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
@@ -258,6 +324,12 @@ export component TimelinePane inherits Rectangle {
                 axis-menu.request-y = tray.absolute-position.y - root.absolute-position.y
                     + tray.height;
                 root.axis-token += 1;
+            }
+            transform-menu-requested(x) => {
+                transform-menu.request-x = tray.absolute-position.x - root.absolute-position.x + x;
+                transform-menu.request-y = tray.absolute-position.y - root.absolute-position.y
+                    + tray.height;
+                root.transform-token += 1;
             }
             undo => { root.undo(); }
             redo => { root.redo(); }

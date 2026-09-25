@@ -475,17 +475,23 @@ pub enum Command {
         /// The cut point, in timeline seconds.
         time: f64,
     },
-    /// Points a clip at another file - the enhanced copy of its media -
-    /// adding the file to the bin first when it is not there. The clip's
-    /// in-point, length, looks and name are kept: the copy stands in for
-    /// the original frame for frame, at the same rate and length. The bin
-    /// keeps the original, since other clips may show it and undo may
-    /// want it back. An unknown clip is a no-op.
+    /// Points a clip at another file - the enhanced or reversed copy of
+    /// its media - adding the file to the bin first when it is not there.
+    /// The clip's length, looks and name are kept, and its in-point unless
+    /// `source_start` moves it: an enhanced copy stands in for the original
+    /// frame for frame, a reversed one covers the span the clip showed and
+    /// starts at its own zero. The bin keeps the original, since other
+    /// clips may show it and undo may want it back. An unknown clip is a
+    /// no-op.
     ReplaceClipMedia {
         /// The clip to re-point.
         clip_id: String,
         /// The probed copy, as described by the host.
         item: NewMedia,
+        /// A new in-point in the copy, in seconds, floored at 0. Absent
+        /// keeps the clip's.
+        #[serde(default)]
+        source_start: Option<f64>,
     },
     /// A freeze frame at `time`: splits `clip_id`, inserts a still of
     /// `duration` on the same track, and ripples later clips on that track
@@ -899,7 +905,9 @@ impl Command {
             Command::TrimClip { delta, .. } => bad([*delta]),
             Command::SplitClips { time, .. } => bad([*time]),
             Command::FreezeFrame { time, duration, .. } => bad([*time]) || bad(*duration),
-            Command::ReplaceClipMedia { item, .. } => bad(item.duration) || bad(item.frame_rate),
+            Command::ReplaceClipMedia {
+                item, source_start, ..
+            } => bad(item.duration) || bad(item.frame_rate) || bad(*source_start),
             Command::UpdateClip { patch, .. } => {
                 bad(patch.volume)
                     || bad(patch.fade_in)

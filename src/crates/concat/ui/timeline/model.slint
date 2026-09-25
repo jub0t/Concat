@@ -320,6 +320,9 @@ export struct SelectedClipData {
     // than frames being restored
     enhance-progress: float,
     enhance-fetching: bool,
+    /// Reverse writing this clip's backwards copy: -1 when it is not,
+    /// else how far along
+    reverse-progress: float,
 
     // the overlay, when this is a text clip
     content: string,

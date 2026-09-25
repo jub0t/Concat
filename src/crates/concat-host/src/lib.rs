@@ -31,6 +31,7 @@ pub mod playback;
 pub mod preview;
 pub mod projects;
 pub mod proxy;
+pub mod reverse;
 pub mod session;
 pub mod templates;
 pub mod titles;
@@ -41,6 +42,7 @@ pub use dirs::AppDirs;
 pub use enhance::{EnhanceRequest, Enhancers};
 pub use jobs::{Job, SingleFlight};
 pub use projects::ProjectInfo;
+pub use reverse::{ReverseRequest, Reversers};
 pub use session::{EditorView, Session, SettingsView};
 pub use titles::{TitleClip, Titles};
 

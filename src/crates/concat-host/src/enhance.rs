@@ -288,7 +288,7 @@ fn footage(
 
 /// `frame` cut to `width` by `height` from its top-left, or the frame
 /// itself when it is that size already.
-fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> concat_core::Frame {
+pub(crate) fn crop(frame: &concat_core::Frame, width: u32, height: u32) -> concat_core::Frame {
     if frame.width() == width && frame.height() == height {
         return frame.clone();
     }

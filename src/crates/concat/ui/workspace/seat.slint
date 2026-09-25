@@ -341,6 +341,9 @@ export component Seat inherits Rectangle {
             merge-blocked-because: Editor.merge-blocked-because;
             sound-selected: Editor.sound-selected;
             title-selected: Editor.title-selected;
+            picture-selected: Editor.picture-selected;
+            freezable: Editor.freezable;
+            reversible: Editor.reversible;
             playhead: Editor.playhead;
             frame-rate: Editor.frame-rate;
             scroll-left: Editor.scroll-left;
@@ -357,6 +360,7 @@ export component Seat inherits Rectangle {
             pan-changed(on) => { Editor.pan-changed(on); }
             preview-axis-changed(on) => { Editor.preview-axis-changed(on); }
             preview-axis-audio-changed(on) => { Editor.preview-axis-audio-changed(on); }
+            clip-verb(action) => { Editor.shortcut(action); }
             hovered(seconds) => { Editor.hovered(seconds); }
             hover-ended => { Editor.hover-ended(); }
             undo => { Editor.undo(); }

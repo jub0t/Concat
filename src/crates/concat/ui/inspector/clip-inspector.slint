@@ -803,6 +803,20 @@ component EnhanceRow inherits Row {
     }
 }
 
+/// Reverse at work on the clip's media: the span read forwards and written
+/// back, into the copy the clip will show.
+component ReverseRow inherits Row {
+    in property <float> progress;
+
+    label: I18n.t("Reverse");
+    Text {
+        text: I18n.t1("Reversing… {0}%", "\{Math.round(root.progress * 100)}");
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+}
+
 // A rule between blocks inside one section, inset to the section's padding
 // where a Section's own hairline runs edge to edge.
 component Hairline inherits HorizontalLayout {
@@ -1595,6 +1609,10 @@ export component SpeedPanel inherits VerticalLayout {
         }
 
         if speed.open: SectionBody {
+            if root.selected.reverse-progress >= 0: ReverseRow {
+                progress: root.selected.reverse-progress;
+            }
+
             Param {
                 label: I18n.t("Rate");
                 value <=> root.speed;

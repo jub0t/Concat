@@ -148,13 +148,15 @@ the export alike. Stored in the document; absent means "as tagged".
 ### `replaceClipMedia`
 
 Points a clip at another file, adding it to the bin first if it is not
-there. The clip keeps its in-point, length, looks and name; the copy stands
-in frame for frame. The bin keeps the original.
+there. The clip keeps its length, looks and name, and its in-point unless
+`sourceStart` moves it: an enhanced copy stands in frame for frame, a
+reversed span starts at its own zero. The bin keeps the original.
 
 | Field | Type | Meaning |
 |---|---|---|
 | `clipId` | string | The clip. Unknown id: no-op |
 | `item` | *NewMedia* | The probed file |
+| `sourceStart` | number | *optional*. A new in-point in the copy, in seconds |
 
 ---
 

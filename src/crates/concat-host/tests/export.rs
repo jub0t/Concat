@@ -37,7 +37,7 @@ use concat_host::dirs::AppDirs;
 use concat_host::export::{self, ExportSpec};
 use concat_host::session::Session;
 use concat_host::titles::Titles;
-use concat_host::{media, projects};
+use concat_host::{media, projects, reverse};
 use concat_media::audio::{self as sound, AudioClip};
 use concat_media::{
     AudioDecoder, AudioOptions, DecodeOptions, Decoder, EncodeOptions, Encoder,
@@ -1314,4 +1314,102 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
         exported.expect_tone(5.5);
         exported.expect_quiet(4.5);
     }
+}
+
+/// A reversed copy of a span plays its seconds backwards, picture and
+/// sound, and comes out of the host's reverse job as one file the
+/// timeline reads like any other. The screen recording's seconds 1 to 6
+/// are three hundred frames, which span two of the job's segments, so the
+/// segments come back in the right order too; the clock's tone, on the
+/// source's odd seconds, falls where those seconds land in the copy.
+/// Asked again, the copy already written is handed back untouched. A
+/// sound clip's span comes back as a file of sound alone.
+#[test]
+fn a_reversed_span_plays_its_seconds_backwards() {
+    let scratch = Scratch::new("reverse");
+    let sources = Sources::make(scratch.path());
+    let project = scratch.path().join("project");
+    let reversers = reverse::Reversers::new();
+
+    let peek = sources.peek.to_string_lossy().into_owned();
+    let request = reverse::ReverseRequest {
+        target: reverse::target_for(&project, &peek, 1.0, 5.0, false).expect("named"),
+        media_path: peek,
+        audio_only: false,
+        start: 1.0,
+        duration: 5.0,
+    };
+    let mut last = 0.0f32;
+    let written = reversers
+        .reverse(&request, &mut |fraction| {
+            assert!(
+                fraction >= last,
+                "progress went back from {last} to {fraction}"
+            );
+            last = fraction;
+        })
+        .expect("reverses the span");
+    assert_eq!(written, request.target);
+    assert!(!reversers.is_busy(), "the slot is free again");
+
+    let copy = Exported::read("reversed", &written, (60, 1));
+    copy.expect_length(5.0);
+    copy.expect_sound(5.0);
+    // The copy's second t is the source's 6 - t: seconds 5, 4, 3, 2, 1.
+    copy.expect_second(0.25, 5);
+    copy.expect_second(2.5, 3);
+    copy.expect_second(4.75, 1);
+    // The clock rang on the odd seconds, which now open and close the
+    // copy with a quiet even second between each pair.
+    copy.expect_tone(0.25);
+    copy.expect_quiet(1.5);
+    copy.expect_tone(2.5);
+    copy.expect_quiet(3.5);
+    copy.expect_tone(4.75);
+
+    let again = reversers
+        .reverse(&request, &mut |_| {
+            panic!("a copy on disk is not written again")
+        })
+        .expect("finds the copy");
+    assert_eq!(again, written);
+
+    let aac = sources.aac.to_string_lossy().into_owned();
+    let sound_request = reverse::ReverseRequest {
+        target: reverse::target_for(&project, &aac, 2.0, 3.0, true).expect("named"),
+        media_path: aac,
+        audio_only: true,
+        start: 2.0,
+        duration: 3.0,
+    };
+    let sound = reversers
+        .reverse(&sound_request, &mut |_| {})
+        .expect("reverses the sound");
+    let info = concat_media::probe(&sound).expect("probes the sound");
+    assert!(
+        info.video.is_none() && info.audio.is_some(),
+        "a sound clip's copy is sound alone"
+    );
+    let mut decoder = AudioDecoder::open(
+        &sound,
+        &AudioOptions {
+            rate: RATE,
+            channels: 2,
+            format: SampleFormat::F32,
+            ..AudioOptions::default()
+        },
+    )
+    .expect("opens the sound");
+    let heard = Exported {
+        label: "reversed sound".to_owned(),
+        fps: 1.0,
+        frames: Vec::new(),
+        audio: Some(decoder.collect_f32().expect("decodes the sound")),
+    };
+    heard.expect_sound(3.0);
+    // Seconds 2 to 5 backwards: the copy's second t is the source's 5 - t,
+    // so the odd second, 3, rings in the middle with quiet either side.
+    heard.expect_quiet(0.5);
+    heard.expect_tone(1.5);
+    heard.expect_quiet(2.5);
 }

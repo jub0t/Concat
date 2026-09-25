@@ -74,6 +74,11 @@ export component TimelineTray inherits Rectangle {
     /// clip's worth of truth, decided by Rust; see the Editor global.
     in property <bool> sound-selected;
     in property <bool> title-selected;
+    /// What the selection offers the picture verbs behind one mark: a
+    /// picture to mirror or turn, and one the playhead is inside, to
+    /// freeze. Rust's answers, like the two above.
+    in property <bool> picture-selected;
+    in property <bool> freezable;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -84,6 +89,9 @@ export component TimelineTray inherits Rectangle {
     /// at this x, in the tray's coordinates. The pane hosts the menu; see
     /// there for why.
     callback axis-menu-requested(x: length);
+    /// The mark over freeze, mirror and rotate: open its menu under the
+    /// button at this x, hosted by the pane like the axis menu.
+    callback transform-menu-requested(x: length);
     callback undo();
     callback redo();
     callback split();
@@ -179,6 +187,30 @@ export component TimelineTray inherits Rectangle {
             font-size: Theme.fs-sm;
             horizontal-alignment: center;
             vertical-alignment: center;
+        }
+
+        // Freeze, mirror and rotate behind one mark: three verbs about the
+        // selected clip's picture, and a tray has no room for three more
+        // buttons. The mark and the chevron both open the menu, set flush
+        // like the preview axis pair so they read as one control.
+        verbs := HorizontalLayout {
+            spacing: 0;
+
+            TrayButton {
+                glyph: Glyph.mirror-rotate;
+                label: I18n.t("Freeze, mirror or rotate the selected clip");
+                icon-size: 16px;
+                enabled: root.selected-count > 0;
+                clicked => { root.transform-menu-requested(verbs.x); }
+            }
+            TrayButton {
+                width: 16px;
+                glyph: Glyph.chevron-down;
+                label: I18n.t("Freeze, mirror or rotate the selected clip");
+                icon-size: 11px;
+                enabled: root.selected-count > 0;
+                clicked => { root.transform-menu-requested(verbs.x); }
+            }
         }
 
         Divider { }

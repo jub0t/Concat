@@ -305,7 +305,11 @@ pub(super) fn apply(
             })
         }
 
-        Command::ReplaceClipMedia { clip_id, item } => {
+        Command::ReplaceClipMedia {
+            clip_id,
+            item,
+            source_start,
+        } => {
             if project.active().clip(&clip_id).is_none() {
                 return Ok(Outcome::default());
             }
@@ -341,10 +345,13 @@ pub(super) fn apply(
             let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
                 return Ok(Outcome::default());
             };
-            if timeline.clips[index].media_id == media_id {
+            let clip = timeline.clip_at_mut(index);
+            // Bitwise so no assignment is short-circuited away.
+            let applied = assign(&mut clip.media_id, media_id.clone())
+                | source_start.is_some_and(|start| assign(&mut clip.source_start, start.max(0.0)));
+            if !applied {
                 return Ok(Outcome::default());
             }
-            timeline.clip_at_mut(index).media_id = media_id.clone();
             Ok(Outcome {
                 created_id: Some(media_id),
                 applied: true,
