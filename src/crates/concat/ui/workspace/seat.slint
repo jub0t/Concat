@@ -333,6 +333,7 @@ export component Seat inherits Rectangle {
             snap: Editor.snap;
             magnetic: Editor.magnetic;
             pan-mode: Editor.pan-mode;
+            trim-follow: Editor.trim-follow;
             preview-axis: Editor.preview-axis;
             preview-axis-audio: Editor.preview-axis-audio;
             selected-count: Editor.selected-count;
@@ -358,6 +359,7 @@ export component Seat inherits Rectangle {
             snap-changed(snap) => { Editor.snap-changed(snap); }
             magnetic-changed(on) => { Editor.magnetic-changed(on); }
             pan-changed(on) => { Editor.pan-changed(on); }
+            trim-follow-changed(on) => { Editor.trim-follow-changed(on); }
             preview-axis-changed(on) => { Editor.preview-axis-changed(on); }
             preview-axis-audio-changed(on) => { Editor.preview-axis-audio-changed(on); }
             clip-verb(action) => { Editor.shortcut(action); }

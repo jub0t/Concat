@@ -50,6 +50,10 @@ pub struct Preferences {
     /// sometimes the point; ⇧⌫ ripples either way.
     /// https://github.com/jub0t/Concat/issues/106
     pub magnetic: bool,
+    /// Trim follow: while a clip's edge is dragged, the playhead rides the
+    /// edge, so the monitor shows the exact frame the cut lands on. Off by
+    /// default; the tray's button beside the hand turns it on.
+    pub trim_follow: bool,
     /// The preview axis: the monitor shows the frame under the pointer as
     /// it crosses the lanes, the playhead staying where it is. Off by
     /// default: a monitor that jumps with the pointer startles whoever has

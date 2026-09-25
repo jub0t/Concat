@@ -39,6 +39,7 @@ export component TimelinePane inherits Rectangle {
     in property <bool> snap: true;
     in property <bool> magnetic: false;
     in property <bool> pan-mode: false;
+    in property <bool> trim-follow: false;
     in property <bool> preview-axis: false;
     in property <bool> preview-axis-audio;
     in property <int> selected-count;
@@ -55,6 +56,7 @@ export component TimelinePane inherits Rectangle {
     callback snap-changed(snap: bool);
     callback magnetic-changed(on: bool);
     callback pan-changed(on: bool);
+    callback trim-follow-changed(on: bool);
     callback preview-axis-changed(on: bool);
     callback preview-axis-audio-changed(on: bool);
     /// The preview axis: the pointer over the lanes, and then not.
@@ -301,6 +303,7 @@ export component TimelinePane inherits Rectangle {
             snap: root.snap;
             magnetic: root.magnetic;
             pan-mode: root.pan-mode;
+            trim-follow: root.trim-follow;
             preview-axis: root.preview-axis;
             selected-count: root.selected-count;
             can-undo: root.can-undo;
@@ -315,6 +318,7 @@ export component TimelinePane inherits Rectangle {
             snap-changed(snap) => { root.snap-changed(snap); }
             magnetic-changed(on) => { root.magnetic-changed(on); }
             pan-changed(on) => { root.pan-changed(on); }
+            trim-follow-changed(on) => { root.trim-follow-changed(on); }
             preview-axis-changed(on) => { root.preview-axis-changed(on); }
             axis-menu-requested(x) => {
                 // Under the button, in the pane's own coordinates: the tray

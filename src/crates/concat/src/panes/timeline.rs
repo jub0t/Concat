@@ -60,6 +60,7 @@ pub enum TimelineMsg {
     MagneticToggled,
     /// The tray's preview axis button: the monitor follows the pointer.
     /// A preference, remembered.
+    TrimFollowChanged(bool),
     PreviewAxisChanged(bool),
     /// The button's menu: whether the sound under the pointer plays too.
     PreviewAxisAudioChanged(bool),
@@ -129,6 +130,10 @@ impl TimelinePane {
             }
             TimelineMsg::MagneticToggled => {
                 studio.prefs.magnetic = !studio.prefs.magnetic;
+                studio.prefs.save(&studio.host.dirs);
+            }
+            TimelineMsg::TrimFollowChanged(on) => {
+                studio.prefs.trim_follow = on;
                 studio.prefs.save(&studio.host.dirs);
             }
             TimelineMsg::PreviewAxisChanged(on) => {
