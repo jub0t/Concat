@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "curves=all='0/0.040 1/0.985',eq=contrast=0.940,colorbalance=rh=0.040:bh=-0.025:bs=0.020,split[dreama0][dreamb0];[dreamb0]gblur=sigma=14[dreamg0];[dreama0][dreamg0]blend=all_mode=screen:all_opacity=0.150"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.30273, 0.21045, 0.13452, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "curves=all='0/0.000 1/1.000',eq=contrast=1.000,colorbalance=rh=0.000:bh=0.000:bs=0.000,split[dreama0][dreamb0];[dreamb0]gblur=sigma=14[dreamg0];[dreama0][dreamg0]blend=all_mode=screen:all_opacity=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0.080 1/0.970',eq=contrast=0.880,colorbalance=rh=0.080:bh=-0.050:bs=0.040,split[dreama0][dreamb0];[dreamb0]gblur=sigma=14[dreamg0];[dreama0][dreamg0]blend=all_mode=screen:all_opacity=0.300"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.11346, 0.1037, 0.10028, 1]

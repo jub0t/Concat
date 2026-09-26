@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.blur-dissolve"
 name = "Blur Dissolve"

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.sage"
 name = "Sage"
@@ -16,8 +18,6 @@ default = 60
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "eq=saturation={fixed(1 - amount / 100 * 0.3, 3)},colorbalance=gm={fixed(amount / 100 * 0.06, 3)}:bm={fixed(amount / 100 * 0.04, 3)}:rm={fixed(0 - amount / 100 * 0.04, 3)},curves=all='0/0.02 0.5/0.48 1/0.98'"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

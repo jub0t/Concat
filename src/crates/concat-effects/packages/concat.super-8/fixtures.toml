@@ -1,3 +1,8 @@
-[[case]]
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
+# The grain at the middle pixel is format 2's: the same on every GPU.
+
+[[probe]]
 name = "default"
-chain = "curves=all='0/0.08 1/0.9',colorbalance=rh=0.08:bh=-0.06,noise=alls=8:allf=t"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.35303, 0.23511, 0.14404, 1]

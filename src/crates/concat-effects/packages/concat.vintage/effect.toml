@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.vintage"
 name = "Vintage"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "curves=all='0/{fixed(age / 100 * 0.12, 3)} 1/{fixed(1 - age / 100 * 0.06, 3)}',eq=saturation={fixed(1 - age / 100 * 0.35, 3)}:contrast={fixed(1 - age / 100 * 0.1, 3)},selectivecolor=greens='0 0 {fixed(tint / 100 * 0.4, 3)} 0':cyans='0 0 {fixed(tint / 100 * 0.2, 3)} 0',colorbalance=rm={fixed(tint / 100 * 0.05, 3)}:bm={fixed(0 - tint / 100 * 0.08, 3)},vignette=a={fixed(age / 100 * 0.5, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.vivid"
 name = "Vivid"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "eq=contrast={fixed(1 + punch / 100 * 0.35, 3)},vibrance=intensity={fixed(colour / 100 * 1.4, 3)},unsharp=5:5:{fixed(punch / 100 * 0.7, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

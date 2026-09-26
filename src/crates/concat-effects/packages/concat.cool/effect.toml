@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.cool"
 name = "Cool"
@@ -17,8 +19,6 @@ default = 8500
 step = 50
 unit = "K"
 
-[ffmpeg]
-chain = "colortemperature=temperature={round(temperature)}:pl=1"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.matcha"
 name = "Matcha"
@@ -16,8 +18,6 @@ default = 60
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "curves=all='0/{fixed(amount / 100 * 0.06, 3)} 1/{fixed(1 - amount / 100 * 0.03, 3)}',eq=saturation={fixed(1 - amount / 100 * 0.25, 3)},colorbalance=gm={fixed(amount / 100 * 0.08, 3)}:rm={fixed(0 - amount / 100 * 0.03, 3)}:gh={fixed(amount / 100 * 0.06, 3)}:bh={fixed(0 - amount / 100 * 0.03, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -1354,14 +1354,66 @@ impl WgpuCompositor {
         let side = side.max(1);
         self.used.values_mut().for_each(|used| *used = 0);
         self.composites += 1;
-        let source = self.claim(side, side);
+        let source = self.filled(side, colour);
+        let drawn = self.run_passes(side, side, source, passes, seconds, seconds);
+        self.middle_of(side, drawn)
+    }
+
+    /// [`WgpuCompositor::probe`] for a transition: `pass` combining a
+    /// picture of `from` with one of `to`, and the middle pixel of the cut.
+    /// None when the device is dead, the shader will not build, or the
+    /// read-back fails.
+    pub fn probe_transition(
+        &mut self,
+        pass: &TransitionPass,
+        from: [f32; 4],
+        to: [f32; 4],
+        side: u32,
+        seconds: f32,
+    ) -> Option<[f32; 4]> {
+        if self.dead {
+            return None;
+        }
+        let side = side.max(1);
+        self.used.values_mut().for_each(|used| *used = 0);
+        self.composites += 1;
+        let from_index = self.filled(side, from);
+        let to_index = self.filled(side, to);
+        let target = self.claim(side, side);
+        let pool = &self.pool[&(side, side)];
+        let view = |index: usize| {
+            pool[index]
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let (from_view, to_view, target_view) = (view(from_index), view(to_index), view(target));
+        let Some(encoder) = self.encode_transition(
+            side,
+            side,
+            seconds,
+            &from_view,
+            &to_view,
+            pass,
+            &target_view,
+        ) else {
+            self.retire();
+            return None;
+        };
+        self.queue.submit([encoder.finish()]);
+        self.middle_of(side, target)
+    }
+
+    /// A pooled texture `side` square claimed and filled with `colour`,
+    /// written straight into its half floats.
+    fn filled(&mut self, side: u32, colour: [f32; 4]) -> usize {
+        let index = self.claim(side, side);
         let texel: Vec<u8> = colour
             .iter()
             .flat_map(|channel| half::f16::from_f32(*channel).to_le_bytes())
             .collect();
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.pool[&(side, side)][source].texture,
+                texture: &self.pool[&(side, side)][index].texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1378,8 +1430,12 @@ impl WgpuCompositor {
                 depth_or_array_layers: 1,
             },
         );
-        let drawn = self.run_passes(side, side, source, passes, seconds, seconds);
+        index
+    }
 
+    /// The middle texel of the pooled texture at `index`, `side` square,
+    /// read back as floats; the composite retired whether or not it reads.
+    fn middle_of(&mut self, side: u32, index: usize) -> Option<[f32; 4]> {
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("concat probe"),
             size: wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.into(),
@@ -1393,7 +1449,7 @@ impl WgpuCompositor {
             });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.pool[&(side, side)][drawn].texture,
+                texture: &self.pool[&(side, side)][index].texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: side / 2,

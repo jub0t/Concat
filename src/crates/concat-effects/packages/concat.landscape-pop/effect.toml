@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.landscape-pop"
 name = "Vivid Landscape"
@@ -6,8 +8,6 @@ category = "Scenery"
 order = 57
 description = "Greens and blues pushed richer, the punch a travel shot wants."
 
-[ffmpeg]
-chain = "selectivecolor=greens='0 0 0.15 0':cyans='0.1 0 0 0',eq=contrast=1.12:saturation=1.15"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

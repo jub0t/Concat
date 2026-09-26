@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = split_tone(out, vec3<f32>(-0.05, 0.0, 0.12), vec3<f32>(0.0), d);
     out = tint_midtones(out, vec3<f32>(0.0, 0.0, 0.08), d);
     out = out + grain_at(uv, params.grain / 100.0 * 0.1);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.noir"
 name = "Noir"
@@ -6,8 +8,6 @@ category = "Cinematic"
 order = 50
 description = "Desaturated and heavy, with a cold cast into the shadows and the corners dimmed."
 
-[ffmpeg]
-chain = "hue=s=0,eq=contrast=1.3:brightness=-0.04,colorbalance=bs=0.06:bm=0.04,vignette=angle=0.6"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

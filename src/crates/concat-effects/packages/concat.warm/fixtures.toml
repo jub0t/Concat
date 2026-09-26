@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "colortemperature=temperature=4600:pl=1"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.40088, 0.18835, 0.08435, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "colortemperature=temperature=3000:pl=1"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.91748, 0.34326, 0.0993, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "colortemperature=temperature=6000:pl=1"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.08527, 0.06909, 0.05612, 1]

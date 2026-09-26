@@ -10,5 +10,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = contrast(out, 1.0 - haze * 0.12);
     out = split_tone(out, vec3<f32>(0.0, 0.0, 0.04), vec3<f32>(0.08, 0.02, -0.05), w * keep);
     out = halation(uv, out, 0.55, 14.0, vec3<f32>(1.0, 0.9, 0.75), haze * 0.5);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

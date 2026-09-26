@@ -15,5 +15,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let row = fract(uv.y * frame.size.y / 3.0);
     out = out * (1.0 - lines * 0.25 * step(0.5, row));
     out = out + grain_at(uv, lines * 0.08);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

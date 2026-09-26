@@ -11,5 +11,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = split_tone(out, vec3<f32>(0.0, 0.0, 0.1), vec3<f32>(0.0), ch);
     out = tint_midtones(out, vec3<f32>(0.0, 0.0, 0.06), ch);
     out = halation(uv, out, 0.65, 12.0, vec3<f32>(0.85, 0.92, 1.0), h * 0.45);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

@@ -220,6 +220,26 @@ pub struct Wgsl {
     /// Render passes, in order. Empty means one pass to the output.
     #[serde(default, rename = "pass")]
     pub passes: Vec<Pass>,
+    /// What a format 2 shader works in; see [`Space`].
+    #[serde(default)]
+    pub space: Space,
+}
+
+/// What a format 2 shader's `sample()` hands it, and what its result is
+/// read back as.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Space {
+    /// The working space as it is: linear light, 1.0 the white of an SDR
+    /// picture. Where light is added, scaled, blurred or keyed.
+    #[default]
+    Linear,
+    /// The display encoding: BT.1886's 2.4 gamma over the working space,
+    /// SDR white at 1.0, but extended - a highlight climbs past 1.0 and a
+    /// colour outside Rec. 709 keeps its negative channel - and nothing
+    /// clipped. Where a colour look drawn by eye on an SDR picture reads as
+    /// it was drawn; its result is taken back into light and mixed there.
+    Display,
 }
 
 /// The `[transition]` table: a two-input shader that combines the outgoing
@@ -481,6 +501,15 @@ impl Manifest {
             if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
                 return Err(self.invalid("a [wgsl] package cannot be audio"));
             }
+            if let Some(wgsl) = &self.wgsl
+                && wgsl.space != Space::Linear
+                && !self.scene_linear()
+            {
+                return Err(self.invalid(format!(
+                    "[wgsl] space is a format {SCENE_LINEAR} setting: a format 1 shader \
+                     is handed the gamma-encoded 0..1 picture already"
+                )));
+            }
             // The picture is drawn on the GPU, in light, and nowhere else:
             // a chain would run on eight bits the shader never sees.
             if self.scene_linear() && self.effect.kind.is_visual() && self.ffmpeg.is_some() {
@@ -607,6 +636,23 @@ mod tests {
         rejects(&format!("format = {}\n{GOOD}", FORMAT + 1), "newer Concat");
         rejects(&format!("format = 0\n{GOOD}"), "format is 0");
         rejects(&format!("format = \"1\"\n{GOOD}"), "format");
+    }
+
+    /// A shader may work in the display encoding from format 2, where the
+    /// host has one to hand it.
+    #[test]
+    fn a_display_space_is_a_format_2_setting() {
+        let display = GOOD.replace(
+            "[ffmpeg]\n        chain = \"gblur=sigma={fixed(radius, 1)}\"",
+            "[wgsl]\n        entry = \"effect.wgsl\"\n        space = \"display\"",
+        );
+        let manifest = Manifest::parse(&format!("format = 2\n{display}")).expect("parses");
+        assert_eq!(manifest.wgsl.map(|wgsl| wgsl.space), Some(Space::Display));
+        rejects(&display, "format 2 setting");
+        rejects(
+            &format!("format = 2\n{}", display.replace("\"display\"", "\"log\"")),
+            "unknown variant",
+        );
     }
 
     /// From format 2 a picture is drawn on the GPU alone, so a chain beside

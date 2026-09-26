@@ -1,13 +1,20 @@
-[[case]]
-name = "default"
-chain = "curves=all='0/0 0.6/0.690 0.85/0.928 1/1',eq=saturation=1.180:contrast=1.090,colorbalance=bh=0.036:gh=0.024,unsharp=5:5:1.28,noise=alls=9:allf=t"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
+# The grain at the middle pixel is format 2's: the same on every GPU.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.35645, 0.22302, 0.11841, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "curves=all='0/0 0.6/0.600 0.85/0.850 1/1',eq=saturation=1.000:contrast=1.000,colorbalance=bh=0.000:gh=0.000,unsharp=5:5:0.80,noise=alls=0:allf=t"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0 0.6/0.750 0.85/0.980 1/1',eq=saturation=1.300:contrast=1.150,colorbalance=bh=0.060:gh=0.040,unsharp=5:5:1.60,noise=alls=22:allf=t"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.06622, 0.05313, 0.04077, 1]

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.high-contrast-mono"
 name = "High-Contrast Mono"
@@ -6,8 +8,6 @@ category = "Black & White"
 order = 64
 description = "Black and white pushed hard: deep blacks, bright whites, nothing in between."
 
-[ffmpeg]
-chain = "hue=s=0,eq=contrast=1.6:brightness=-0.03"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

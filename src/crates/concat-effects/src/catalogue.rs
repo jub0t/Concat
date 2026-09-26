@@ -127,10 +127,12 @@ pub struct Fixture {
 
 /// One pinned colour from `fixtures.toml`'s `[[probe]]`s: a picture of one
 /// colour through the package's shader at these parameters comes out as
-/// this colour. Both are in the compositor's working space - linear light,
-/// 1.0 the white of an SDR picture - and the check is made on a GPU, where
-/// the shader runs: concat-render's suite for the built-ins, `concat-cli
-/// check` for anyone's.
+/// this colour - or, for a transition, a cut from a picture of one colour
+/// to a picture of another, at one point of it. Every colour is in the
+/// compositor's working space - linear light, 1.0 the white of an SDR
+/// picture - and the check is made on a GPU, where the shader runs:
+/// concat-render's suite for the built-ins, `concat-cli check` for
+/// anyone's.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Probe {
@@ -143,8 +145,15 @@ pub struct Probe {
     /// Parameters set on top of `at`, a filter's `intensity` among them.
     #[serde(default)]
     pub params: BTreeMap<String, f64>,
-    /// The colour of every pixel going in, straight RGBA.
+    /// The colour of every pixel going in, straight RGBA: a transition's
+    /// outgoing picture.
     pub input: [f32; 4],
+    /// A transition's incoming picture, and nothing else's.
+    #[serde(default)]
+    pub to: Option<[f32; 4]>,
+    /// How far through a transition's cut, `0..=1`, and nothing else's.
+    #[serde(default)]
+    pub progress: Option<f32>,
     /// The colour the middle pixel must come out as.
     pub expect: [f32; 4],
     /// How far a channel may land from `expect`, as a fraction of the
@@ -345,13 +354,26 @@ impl Package {
                 (file.cases, file.probes)
             }
         };
-        if !probes.is_empty() && shader.is_none() {
+        if !probes.is_empty() && shader.is_none() && transition.is_none() {
             return Err(invalid(
-                "fixtures: a [[probe]] pins what a [wgsl] shader draws, and the package has none"
+                "fixtures: a [[probe]] pins what a shader draws, and the package has none"
                     .to_owned(),
             ));
         }
         for (n, probe) in probes.iter().enumerate() {
+            let cut = probe.to.is_some() || probe.progress.is_some();
+            if transition.is_some() && (probe.to.is_none() || probe.progress.is_none()) {
+                return Err(invalid(format!(
+                    "fixtures: probe `{}` of a transition needs `to` and `progress`",
+                    probe.label(n)
+                )));
+            }
+            if transition.is_none() && cut {
+                return Err(invalid(format!(
+                    "fixtures: probe `{}` sets `to` or `progress`, which only a transition has",
+                    probe.label(n)
+                )));
+            }
             let filter = manifest.effect.kind == Kind::Filter;
             if let Some(key) = probe
                 .params
@@ -566,6 +588,19 @@ impl Package {
     /// its own set on top. None for a package with no shader.
     pub fn probe_pass(&self, probe: &Probe) -> Option<ShaderPass> {
         self.pass(&self.set_at(probe.at, &probe.params), None)
+    }
+
+    /// The combine a transition's probe checks, at its progress. None for
+    /// a package that is not a transition.
+    pub fn probe_transition(&self, probe: &Probe) -> Option<TransitionPass> {
+        let shader = self.transition.as_ref()?;
+        let values = self.resolve(&self.set_at(probe.at, &probe.params));
+        Some(shader.pass(
+            &values,
+            &self.manifest.params,
+            probe.progress.unwrap_or(0.0).clamp(0.0, 1.0),
+            self.lut.clone(),
+        ))
     }
 
     /// The shader, when the package renders on the GPU.

@@ -8,5 +8,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = hsl_band(out, 225.0, 60.0, -25.0 * water, 1.0 + water * 0.4, 1.0 + water * 0.12);
     out = hsl_band(out, 185.0, 50.0, 0.0, 1.0 + water * 0.5, 1.0 + water * 0.08);
     out = saturation(out, 1.0 + water * 0.06);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

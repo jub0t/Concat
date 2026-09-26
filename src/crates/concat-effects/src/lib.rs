@@ -37,7 +37,7 @@ mod builtins {
 }
 
 pub use catalogue::{At, Catalogue, Fixture, Package, Probe, package_folders, package_stamp};
-pub use manifest::{FORMAT, Kind, Manifest, Param, ParamType};
+pub use manifest::{FORMAT, Kind, Manifest, Param, ParamType, Space};
 pub use shader::{Contract, Shader, TransitionShader};
 
 /// Why a package could not be loaded.
@@ -87,12 +87,25 @@ mod tests {
     /// never mixes: intensity is a filter's word.
     #[test]
     fn a_filter_mixes_by_its_intensity_and_an_effect_does_not() {
-        let catalogue = Catalogue::builtin();
-        let full = catalogue.video_chain(&[applied("concat.warm", &[])]);
+        // A format 1 look of someone's own: the built-in looks are shaders
+        // alone.
+        let mut catalogue = Catalogue::builtin().clone();
+        catalogue
+            .add(
+                Package::from_sources(
+                    "[effect]\nid = \"alice.warm\"\nname = \"Warm\"\nkind = \"filter\"\n\
+                     [ffmpeg]\nchain = \"colortemperature=temperature=4600:pl=1\"\n",
+                    None,
+                    None,
+                )
+                .expect("loads"),
+            )
+            .expect("a new id");
+        let full = catalogue.video_chain(&[applied("alice.warm", &[])]);
         assert_eq!(full, "colortemperature=temperature=4600:pl=1");
         let half = catalogue.video_chain(&[
             applied("concat.sepia", &[]),
-            applied("concat.warm", &[("intensity", 50.0)]),
+            applied("alice.warm", &[("intensity", 50.0)]),
         ]);
         assert!(half.starts_with("colorchannelmixer"), "{half}");
         assert!(
@@ -201,7 +214,8 @@ mod tests {
         let mut gaps = Vec::new();
         let mut linear = 0;
         for package in Catalogue::builtin().packages() {
-            if !package.manifest.scene_linear() || package.shader().is_none() {
+            let drawn = package.shader().is_some() || package.transition().is_some();
+            if !package.manifest.scene_linear() || !drawn {
                 continue;
             }
             linear += 1;
@@ -268,7 +282,41 @@ mod tests {
         let error = Package::from_sources(TINT, Some(&probe("hue = 1")), None)
             .expect_err("a chain has no shader to probe")
             .to_string();
-        assert!(error.contains("[wgsl]"), "{error}");
+        assert!(
+            error.contains("no shader") || error.contains("has none"),
+            "{error}"
+        );
+        let error = Package::from_sources(
+            EXPOSED,
+            Some(&probe("stops = 1").replace("[[probe]]", "[[probe]]\nprogress = 0.5")),
+            Some(EXPOSE),
+        )
+        .expect_err("an effect has no cut")
+        .to_string();
+        assert!(error.contains("only a transition"), "{error}");
+    }
+
+    /// A transition's probe is a cut between two colours at one point of
+    /// it, so it names both and the point.
+    #[test]
+    fn a_transition_probe_names_its_cut() {
+        const CUT: &str = "format = 2\n[effect]\nid = \"a.cut\"\nname = \"Cut\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n";
+        const MIX: &str = "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> { return mix(from_at(uv), to_at(uv), progress); }";
+        let probe = "[[probe]]\ninput = [1, 1, 1, 1]\nto = [0, 0, 0, 1]\nprogress = 0.25\nexpect = [0.75, 0.75, 0.75, 1]\n";
+        let package = Package::from_sources(CUT, Some(probe), Some(MIX)).expect("loads");
+        let pass = package
+            .probe_transition(&package.probes[0])
+            .expect("a transition's combine");
+        assert_eq!(pass.progress, 0.25);
+        assert!(package.probe_pass(&package.probes[0]).is_none());
+        let error = Package::from_sources(
+            CUT,
+            Some(&probe.replace("progress = 0.25\n", "")),
+            Some(MIX),
+        )
+        .expect_err("no progress")
+        .to_string();
+        assert!(error.contains("`to` and `progress`"), "{error}");
     }
 
     /// A probe allows a fraction of the expected value, with a floor near
@@ -280,6 +328,8 @@ mod tests {
             at: At::Default,
             params: BTreeMap::new(),
             input: [0.0; 4],
+            to: None,
+            progress: None,
             expect: [2.0, 0.5, 0.0, 1.0],
             tolerance: 0.01,
         };

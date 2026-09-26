@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.delicious"
 name = "Delicious"
@@ -6,8 +8,6 @@ category = "Food"
 order = 54
 description = "Warm and saturated, the appetising push every food shot wants."
 
-[ffmpeg]
-chain = "colortemperature=temperature=5200:pl=1,eq=saturation=1.3:contrast=1.1"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

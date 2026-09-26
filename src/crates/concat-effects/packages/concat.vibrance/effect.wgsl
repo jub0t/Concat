@@ -6,5 +6,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let c = sample(uv);
     let boosted = vibrance(c.rgb, params.amount);
     let out = mix(boosted, c.rgb, skin_mask(c.rgb) * 0.6);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

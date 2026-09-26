@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.cyberpunk"
 name = "Cyberpunk"
@@ -6,8 +8,6 @@ category = "Cinematic"
 order = 52
 description = "Magenta into the shadows, cyan into the light, pushed hard and neon-bright."
 
-[ffmpeg]
-chain = "colorbalance=rs=0.08:bs=0.12:gs=-0.05:rh=-0.05:gh=0.06:bh=0.1,eq=contrast=1.15:saturation=1.15"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "selectivecolor=blues='0.180 -0.120 0 -0.090':cyans='0.210 -0.060 0 -0.060',curves=all='0/0 0.5/0.524 1/1',eq=saturation=1.072"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.33154, 0.22473, 0.13733, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "selectivecolor=blues='0.000 0.000 0 0.000':cyans='0.000 0.000 0 0.000',curves=all='0/0 0.5/0.500 1/1',eq=saturation=1.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "selectivecolor=blues='0.300 -0.200 0 -0.150':cyans='0.350 -0.100 0 -0.100',curves=all='0/0 0.5/0.560 1/1',eq=saturation=1.120"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.12256, 0.10895, 0.09503, 1]

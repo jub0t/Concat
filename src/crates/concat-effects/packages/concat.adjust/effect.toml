@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.adjust"
 name = "Adjust"
@@ -145,15 +147,6 @@ default = 0
 step = 1
 unit = "%"
 
-[ffmpeg]
-let = [
-  "lift = fade / 100 * 0.25",
-  "low = clamp(0.25 + shadows / 100 * 0.18, 0.05, 0.45)",
-  "high = clamp(0.75 + highlights / 100 * 0.18, 0.55, 0.95)",
-  "black = clamp(0.1 + blacks / 100 * 0.1, 0, 0.2)",
-  "white = clamp(0.9 + whites / 100 * 0.1, 0.8, 1)",
-]
-chain = "exposure=exposure={fixed(exposure, 2)},eq=brightness={fixed(brightness / 100 * 0.5, 3)}:contrast={fixed(1 + contrast / 100, 3)}:saturation={fixed(1 + saturation / 100 * 2, 3)},colortemperature=temperature={round(temperature)},colorbalance=gm={fixed(0 - tint / 100 * 0.5, 3)},curves=all='0/{fixed(lift, 3)} 0.1/{fixed(black, 3)} 0.25/{fixed(low, 3)} 0.75/{fixed(high, 3)} 0.9/{fixed(white, 3)} 1/1',unsharp=5:5:{fixed(sharpen / 100 * 2, 2)},vignette=a={fixed(vignette / 100 * 1.2, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

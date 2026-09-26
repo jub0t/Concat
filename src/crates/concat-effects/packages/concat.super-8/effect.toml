@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.super-8"
 name = "Super 8"
@@ -6,8 +8,6 @@ category = "Film"
 order = 62
 description = "Faded, warm and grainy: an old home movie run through a projector."
 
-[ffmpeg]
-chain = "curves=all='0/0.08 1/0.9',colorbalance=rh=0.08:bh=-0.06,noise=alls=8:allf=t"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

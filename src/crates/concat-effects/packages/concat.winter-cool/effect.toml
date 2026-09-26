@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.winter-cool"
 name = "Winter Cool"
@@ -6,8 +8,6 @@ category = "Scenery"
 order = 59
 description = "Desaturated and blue, the blacks lifted to a matte wintry haze."
 
-[ffmpeg]
-chain = "colortemperature=temperature=8800:pl=1,curves=all='0/0.06 1/0.95',eq=saturation=0.8"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

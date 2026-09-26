@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "colorbalance=rs=0.108:gs=-0.060:bs=0.108:rh=-0.060:gh=0.060:bh=0.090,eq=contrast=1.250:saturation=1.300,split[neona0][neonb0];[neonb0]gblur=sigma=10[neong0];[neona0][neong0]blend=all_mode=screen:all_opacity=0.150"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.36597, 0.20288, 0.09357, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "colorbalance=rs=0.000:gs=0.000:bs=0.000:rh=0.000:gh=0.000:bh=0.000,eq=contrast=1.000:saturation=1.000,split[neona0][neonb0];[neonb0]gblur=sigma=10[neong0];[neona0][neong0]blend=all_mode=screen:all_opacity=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "colorbalance=rs=0.180:gs=-0.100:bs=0.180:rh=-0.100:gh=0.100:bh=0.150,eq=contrast=1.500:saturation=1.600,split[neona0][neonb0];[neonb0]gblur=sigma=10[neong0];[neona0][neong0]blend=all_mode=screen:all_opacity=0.250"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.16907, 0.01057, 0.0993, 1]

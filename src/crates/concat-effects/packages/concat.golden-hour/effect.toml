@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.golden-hour"
 name = "Golden Hour"
@@ -25,8 +27,6 @@ default = 4600
 step = 50
 unit = "K"
 
-[ffmpeg]
-chain = "colortemperature=temperature={round(warmth)}:pl=1,colorbalance=rh={fixed(glow / 100 * 0.14, 3)}:gh={fixed(glow / 100 * 0.05, 3)}:rs={fixed(glow / 100 * 0.05, 3)}:bs={fixed(glow / 100 * 0.04, 3)},curves=all='0/{fixed(glow / 100 * 0.04, 3)} 1/1'"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

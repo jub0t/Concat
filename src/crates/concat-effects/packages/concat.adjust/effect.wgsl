@@ -63,5 +63,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         c = c * (1.0 - fall * (0.4 + 0.6 * v));
     }
 
-    return vec4<f32>(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)), src.a);
+    return vec4<f32>(c, src.a);
 }

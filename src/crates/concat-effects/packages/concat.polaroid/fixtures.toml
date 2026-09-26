@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "curves=all='0/0.060 1/0.970',eq=contrast=0.940:saturation=0.910,colorbalance=rh=0.050:gh=0.025:bh=-0.030:gs=0.030:bs=0.048:rs=-0.036,vignette=a=0.210"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.29736, 0.21692, 0.14417, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "curves=all='0/0.000 1/1.000',eq=contrast=1.000:saturation=1.000,colorbalance=rh=0.000:gh=0.000:bh=0.000:gs=0.000:bs=0.000:rs=0.000,vignette=a=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0.100 1/0.950',eq=contrast=0.900:saturation=0.850,colorbalance=rh=0.100:gh=0.050:bh=-0.060:gs=0.050:bs=0.080:rs=-0.060,vignette=a=0.350"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.10364, 0.11523, 0.11169, 1]

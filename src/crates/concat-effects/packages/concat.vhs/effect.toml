@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.vhs"
 name = "VHS"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "chromashift=crh={round(0 - bleed / 100 * 6)}:cbh={round(bleed / 100 * 6)},gblur=sigma={fixed(0.2 + bleed / 100 * 0.8, 2)},eq=saturation=1.3,noise=alls={round(lines / 100 * 20)}:allf=t"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

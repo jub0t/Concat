@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.tropical"
 name = "Tropical"
@@ -6,8 +8,6 @@ category = "Scenery"
 order = 60
 description = "Saturated and bright, the water pushed teal."
 
-[ffmpeg]
-chain = "colorbalance=rh=-0.06:gh=0.05:bh=0.08,eq=saturation=1.35:contrast=1.1"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

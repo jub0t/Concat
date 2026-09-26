@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "curves=all='0/0.050 1/0.980',eq=contrast=0.910:saturation=0.940,colorbalance=rh=0.028:bh=-0.024,split[softa0][softb0];[softb0]gblur=sigma=10[softg0];[softa0][softg0]blend=all_mode=screen:all_opacity=0.100"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.29614, 0.21289, 0.1416, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "curves=all='0/0.000 1/1.000',eq=contrast=1.000:saturation=1.000,colorbalance=rh=0.000:bh=0.000,split[softa0][softb0];[softb0]gblur=sigma=10[softg0];[softa0][softg0]blend=all_mode=screen:all_opacity=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0.100 1/0.960',eq=contrast=0.820:saturation=0.880,colorbalance=rh=0.070:bh=-0.060,split[softa0][softb0];[softb0]gblur=sigma=10[softg0];[softa0][softg0]blend=all_mode=screen:all_opacity=0.200"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.12244, 0.11432, 0.10583, 1]

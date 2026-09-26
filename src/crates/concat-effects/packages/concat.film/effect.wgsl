@@ -8,5 +8,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = tint_midtones(out, vec3<f32>(0.06, 0.0, -0.06), w);
     out = halation(uv, out, 0.7, 8.0, vec3<f32>(1.0, 0.6, 0.3), 0.15 + w * 0.1);
     out = out + grain_at(uv, params.grain / 100.0 * 0.12);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

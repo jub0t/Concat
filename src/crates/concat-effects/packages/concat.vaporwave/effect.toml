@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.vaporwave"
 name = "Vaporwave"
@@ -6,8 +8,6 @@ category = "Vibe"
 order = 67
 description = "Magenta and cyan pushed hard, a saturated retro-synth cast."
 
-[ffmpeg]
-chain = "colorbalance=rs=0.1:bs=0.15:rh=0.08:bh=0.12,eq=saturation=1.3"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"
