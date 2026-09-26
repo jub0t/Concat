@@ -1,13 +1,78 @@
-[[case]]
-name = "default"
-chain = "pixelize=w=10:h=10,eq=contrast=1.5:brightness=-0.05"
+# The probe's middle pixel, (4.5, 4.5) in pixels, lies 2.12 pixels from the
+# middle of its dot's cell at the default size and the least: inside a grey's
+# dot, on a light grey's soft edge, and clear of white's, which has none. At
+# the most it lies far outside every dot, on the paper. Where the picture is
+# brighter than white, so is the paper.
 
-[[case]]
-name = "min"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "default, a light grey"
+input = [0.6, 0.6, 0.6, 1]
+expect = [0.506252, 0.506252, 0.506252, 1]
+
+[[probe]]
+name = "default, white"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "minimum, a grey"
 at = "min"
-chain = "pixelize=w=4:h=4,eq=contrast=1.5:brightness=-0.05"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.293287, 0.293287, 0.293287, 1]
 
-[[case]]
-name = "max"
+[[probe]]
+name = "minimum, a light grey"
+at = "min"
+input = [0.6, 0.6, 0.6, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "minimum, white"
+at = "min"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "maximum, a grey"
 at = "max"
-chain = "pixelize=w=40:h=40,eq=contrast=1.5:brightness=-0.05"
+input = [0.18, 0.18, 0.18, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "maximum, a light grey"
+at = "max"
+input = [0.6, 0.6, 0.6, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "maximum, white"
+at = "max"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "twelve pixels, a light grey"
+params = { size = 12 }
+input = [0.6, 0.6, 0.6, 1]
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "default, a light grey half transparent"
+input = [0.6, 0.6, 0.6, 0.5]
+expect = [0.506252, 0.506252, 0.506252, 0.5]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 4, 4, 1]
+expect = [4, 4, 4, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4, 4, 4, 1]
+expect = [4, 4, 4, 1]

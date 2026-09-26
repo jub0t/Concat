@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.pixelate"
 name = "Pixelate"
+version = 2
 kind = "effect"
 category = "Distort"
 order = 50
@@ -17,9 +20,6 @@ max = 64
 default = 16
 step = 1
 unit = "px"
-
-[ffmpeg]
-chain = "pixelize=width={round(size)}:height={round(size)}"
 
 [wgsl]
 entry = "effect.wgsl"

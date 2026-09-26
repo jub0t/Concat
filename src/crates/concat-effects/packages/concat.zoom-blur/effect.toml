@@ -1,0 +1,49 @@
+format = 2
+
+[effect]
+id = "concat.zoom-blur"
+name = "Zoom Blur"
+kind = "effect"
+category = "Blur"
+order = 23
+intensity = "amount"
+description = "A rush towards a point, as if the lens zoomed during the shot."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 25
+step = 1
+unit = "%"
+animate = true
+
+[[param]]
+key = "x"
+label = "Centre X"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "y"
+label = "Centre Y"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+
+# Sixteen scales a pass, each pass filling in between two of the next
+# one's: four thousand and ninety-six along each streak.
+[[wgsl.pass]]
+target = "fine"
+
+[[wgsl.pass]]
+target = "middle"

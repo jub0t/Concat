@@ -1,0 +1,65 @@
+# The key reads the display level's luma: a pixel under the threshold is
+# taken out, fading back in over the softness below it, so at 0 nothing is;
+# inverted, a pixel over it, fading over the softness above. A pixel half way
+# down the fade keeps half its alpha, and its colour as it came.
+
+[[probe]]
+name = "default, black"
+input = [0, 0, 0, 1]
+expect = [0, 0, 0, 0]
+
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.180054, 0.180054, 0.180054, 1]
+
+[[probe]]
+name = "default, half way down the fade"
+input = [0.000754356, 0.000754356, 0.000754356, 1]
+expect = [0.000754356, 0.000754356, 0.000754356, 0.500035]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.0499878, 1]
+
+[[probe]]
+name = "minimum, black stays"
+at = "min"
+input = [0, 0, 0, 1]
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "maximum, a grey stays under the threshold, inverted"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.180054, 0.180054, 0.180054, 1]
+
+[[probe]]
+name = "maximum, a highlight past white is taken out, inverted"
+at = "max"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.0499878, 0.866206]
+
+[[probe]]
+name = "inverted, white"
+params = { invert = 1 }
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 0]
+
+[[probe]]
+name = "inverted, black"
+params = { invert = 1 }
+input = [0, 0, 0, 1]
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "threshold 35, half way down the fade"
+params = { threshold = 35 }
+input = [0.055603, 0.055603, 0.055603, 1]
+expect = [0.055603, 0.055603, 0.055603, 0.500032]
+
+[[probe]]
+name = "default, half transparent black"
+input = [0, 0, 0, 0.5]
+expect = [0, 0, 0, 0]

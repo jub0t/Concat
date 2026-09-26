@@ -1,13 +1,37 @@
-[[case]]
-name = "default"
-chain = "vignette=angle=0.775"
+# The light falls off towards the corners and not at all in the middle, where
+# a probe reads: what these pin is that the middle stays as it came at every
+# strength, the light past white and the alpha with it. The fall itself is
+# the card's to show.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "vignette=angle=0.355"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "vignette=angle=1.300"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]

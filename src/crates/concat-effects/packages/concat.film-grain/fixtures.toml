@@ -1,13 +1,49 @@
-[[case]]
-name = "default"
-chain = "noise=alls=12:allf=t+u"
+# Grain moves every level by the same share of a stop, in log: a grey and a
+# highlight past white alike, and in the toe by the same step of log, so a
+# channel below black moves too. At the probe's middle pixel, (4, 4), at the
+# start of a clip, the grain's hash is 0.43225 - a little under the middle -
+# so there it darkens. Pinned from a model of the shader in doubles.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.166379, 0.166379, 0.166379, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [3.69622, 0.924055, 0.0461915, 1]
+
+[[probe]]
+name = "minimum, a grey"
 at = "min"
-chain = "noise=alls=2:allf=t+u"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.177699, 0.177699, 0.177699, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "minimum, a highlight past white"
+at = "min"
+input = [4, 1, 0.05, 1]
+expect = [3.94769, 0.986922, 0.0493341, 1]
+
+[[probe]]
+name = "maximum, a grey"
 at = "max"
-chain = "noise=alls=40:allf=t+u"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.138376, 0.138376, 0.138376, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4, 1, 0.05, 1]
+expect = [3.07411, 0.768527, 0.038417, 1]
+
+[[probe]]
+name = "default, a shadow in the toe and a channel below black"
+input = [0.004, 0.002, -0.01, 1]
+expect = [0.00338455, 0.00138375, -0.0106192, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.462027, 0.184766, 0.0923829, 0.5]

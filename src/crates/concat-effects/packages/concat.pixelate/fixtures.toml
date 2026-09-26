@@ -1,13 +1,36 @@
-[[case]]
-name = "default"
-chain = "pixelize=width=16:height=16"
+# A flat picture averages to itself in a square of any size: what these pin
+# is that the light past white and the alpha come out as they went in -
+# averaged in light, the alpha weighing each colour.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "pixelize=width=2:height=2"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "pixelize=width=64:height=64"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]

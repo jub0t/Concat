@@ -225,6 +225,8 @@ export component Seat inherits Rectangle {
             adjust-curves: Editor.adjust-curves;
             visual-wheels: Editor.visual-wheels;
             visual-curves: Editor.visual-curves;
+            visual-colours: Editor.visual-colours;
+            chain-set-colour(index, key, value) => { Editor.chain-set-colour(index, key, value); }
             curve-point(entry, key, point, x, y) => { Editor.curve-point(entry, key, point, x, y); }
             curve-remove(entry, key, point) => { Editor.curve-remove(entry, key, point); }
             jump-token: Editor.inspector-jump-token;

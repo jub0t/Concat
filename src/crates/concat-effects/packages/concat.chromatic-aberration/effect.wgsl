@@ -1,12 +1,14 @@
 struct Params { shift: f32 }
 
-// Red taken from a little to one side and blue from the other: the two ends
-// of the spectrum land apart, as a lens that cannot bring them together
-// leaves them.
+// Lateral chromatic aberration: the red image a little larger than the
+// green and the blue a little smaller, about the middle, so the fringes
+// grow towards the edges - `shift` pixels at the edge of the picture's
+// width - in light.
 fn effect(uv: vec2<f32>) -> vec4<f32> {
-    let d = vec2<f32>(params.shift * texel().x, 0.0);
     let c = sample(uv);
-    let r = sample(uv + d).r;
-    let b = sample(uv - d).b;
-    return vec4<f32>(r, c.g, b, c.a);
+    let scale = params.shift / (0.5 * frame.size.x);
+    let from_middle = uv - vec2<f32>(0.5);
+    let red = sample(vec2<f32>(0.5) + from_middle / (1.0 + scale));
+    let blue = sample(vec2<f32>(0.5) + from_middle / max(1.0 - scale, 0.01));
+    return vec4<f32>(red.r, c.g, blue.b, c.a);
 }

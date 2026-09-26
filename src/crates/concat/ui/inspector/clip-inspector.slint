@@ -16,6 +16,7 @@ import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import {
     Check,
+    ColourField,
     HelpButton,
     InspectorFmt,
     Note,
@@ -153,6 +154,17 @@ export struct AppliedParamData {
     next: bool,
 }
 
+/// One colour knob of one link - a key's screen colour - drawn as a swatch
+/// that opens the picker, with the hex beside it.
+export struct ColourKnobData {
+    /// Which link, as an index into the applied list.
+    entry: int,
+    /// The manifest's key; what Rust is handed back with the new colour.
+    key: string,
+    label: string,
+    value: color,
+}
+
 /// The favourites chip: a star that filters the shelf down to what is on it.
 component StarChip inherits Rectangle {
     in property <bool> on;
@@ -203,6 +215,8 @@ export component PresetStack inherits VerticalLayout {
     /// The links' wheels and curves, a group a link that has any.
     in property <[WheelGroupData]> wheel-groups;
     in property <[CurveGroupData]> curve-groups;
+    /// The links' colour knobs, a row each.
+    in property <[ColourKnobData]> colours;
 
     /// Which of the three libraries this is: 0 filters, 1 effects, 2 audio.
     /// The index its view state and its callbacks are keyed by.
@@ -224,6 +238,8 @@ export component PresetStack inherits VerticalLayout {
     callback remove(index: int);
     /// One knob moved. The value lands on the echo; `commit` makes it real.
     callback set-param(index: int, key: string, value: float);
+    /// A colour knob picked, likewise.
+    callback set-colour(index: int, key: string, value: color);
     /// A curve's point moved, or put down when `point` is -1, or taken off.
     callback curve-point(index: int, key: string, point: int, x: float, y: float);
     callback curve-remove(index: int, key: string, point: int);
@@ -384,6 +400,23 @@ export component PresetStack inherits VerticalLayout {
                                 enabled: item.on;
                                 changed(v) => {
                                     root.set-param(index, p.key, v);
+                                    root.commit();
+                                }
+                            }
+                        }
+
+                        // The link's colours: a swatch that opens the
+                        // picker, and the hex, typed as well as read.
+                        for c in root.colours: Rectangle {
+                            visible: c.entry == index;
+                            height: c.entry == index ? swatch.preferred-height : 0;
+
+                            swatch := ColourField {
+                                label: c.label;
+                                value: c.value;
+                                alpha: false;
+                                changed(colour) => {
+                                    root.set-colour(index, c.key, colour);
                                     root.commit();
                                 }
                             }

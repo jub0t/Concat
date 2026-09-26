@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.film-grain"
 name = "Film Grain"
+version = 2
 kind = "effect"
 category = "Stylize"
 order = 41
@@ -16,9 +19,6 @@ min = 2
 max = 40
 default = 12
 step = 1
-
-[ffmpeg]
-chain = "noise=alls={round(amount)}:allf=t+u"
 
 [wgsl]
 entry = "effect.wgsl"

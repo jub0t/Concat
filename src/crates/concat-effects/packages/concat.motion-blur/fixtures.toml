@@ -1,13 +1,43 @@
-[[case]]
-name = "default"
-chain = "gblur=sigma=18.0:sigmaV=0.1"
+# A flat picture streaks to itself at any length and angle, through both
+# passes: what these pin is that the light past white and the alpha come out
+# as they went in. How the streak spreads a picture is held to a direct
+# Gaussian along its line in concat-render's suite.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "gblur=sigma=2.0:sigmaV=0.1"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "gblur=sigma=60.0:sigmaV=0.1"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "a diagonal streak, a highlight past white"
+params = { length = 30, angle = 45 }
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]

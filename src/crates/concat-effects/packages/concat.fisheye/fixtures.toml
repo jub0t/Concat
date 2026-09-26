@@ -1,13 +1,37 @@
-[[case]]
-name = "default"
-chain = "lenscorrection=k1=-0.275:k2=-0.100:i=bilinear"
+# A flat picture bulges to itself, every pixel drawn from somewhere inside the
+# frame: what these pin is that the light past white and the alpha come
+# through as they went in. concat-render's suite holds that for every pixel
+# of the frame at full strength, where earlier builds drew black holes.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "lenscorrection=k1=-0.028:k2=-0.010:i=bilinear"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "lenscorrection=k1=-0.550:k2=-0.200:i=bilinear"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]

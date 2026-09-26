@@ -9,7 +9,8 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
-    CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
+    CatalogueEntryData, ColourKnobData, FilterPanel, PresetStack, SpeedPanel,
+    VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
@@ -158,6 +159,9 @@ export component ConfigPane inherits Rectangle {
     in property <[CurveData]> adjust-curves;
     in property <[WheelGroupData]> visual-wheels;
     in property <[CurveGroupData]> visual-curves;
+    /// The picture chain's colour knobs, and one of them picked.
+    in property <[ColourKnobData]> visual-colours;
+    callback chain-set-colour(index: int, key: string, value: color);
     /// A curve's point moved, or put down when `point` is -1, or taken off:
     /// `entry` -1 is the colour panel's, else a link of the picture's chain.
     callback curve-point(entry: int, key: string, point: int, x: float, y: float);
@@ -638,6 +642,7 @@ export component ConfigPane inherits Rectangle {
                     params: root.visual-params;
                     wheel-groups: root.visual-wheels;
                     curve-groups: root.visual-curves;
+                    colours: root.visual-colours;
 
                     add(id) => { root.chain-add(false, id); }
                     toggle(index) => { root.chain-toggle(false, index); }
@@ -645,6 +650,9 @@ export component ConfigPane inherits Rectangle {
                     remove(index) => { root.chain-remove(false, index); }
                     set-param(index, key, value) => {
                         root.chain-set-param(false, index, key, value);
+                    }
+                    set-colour(index, key, value) => {
+                        root.chain-set-colour(index, key, value);
                     }
                     curve-point(index, key, point, x, y) => {
                         root.curve-point(index, key, point, x, y);
