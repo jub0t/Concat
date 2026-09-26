@@ -203,6 +203,13 @@ struct PooledTexture {
 /// frames at 1080p, or 256 at the monitor's usual 960 by 540.
 const POOL_BUDGET: u64 = 512 * 1024 * 1024;
 
+/// The LUTs and the reveal maps kept on the device, at most: a look is a
+/// megabyte at 65 a side, and each one a person tries stayed on the device
+/// for the life of the compositor. The least recently used go first, never
+/// one the composite in hand uses.
+const LUT_CACHE: usize = 32;
+const REVEAL_CACHE: usize = 64;
+
 /// And at most this many textures, whatever their size: many small
 /// distinct frames - a title's layers, masks - would otherwise pile up
 /// under the byte budget for as long as none of them is a megabyte.
@@ -252,9 +259,13 @@ pub struct WgpuCompositor {
     transition_layout: wgpu::BindGroupLayout,
     /// Uploaded tables by their id, the identity among them; see `lut_group`.
     luts: HashMap<u64, wgpu::BindGroup>,
+    /// The composite each cached LUT was last used in; see [`LUT_CACHE`].
+    luts_drawn: HashMap<u64, u64>,
     /// Uploaded reveal maps by their id, the identity among them; see
     /// `reveal_group`.
     reveals: HashMap<u64, wgpu::BindGroup>,
+    /// The composite each cached reveal map was last used in.
+    reveals_drawn: HashMap<u64, u64>,
     /// Compiled passes by their key; see `ShaderPass::key`.
     shaders: HashMap<String, CompiledShader>,
     /// Compiled transitions by their key; see `TransitionPass::key`.
@@ -599,7 +610,9 @@ impl WgpuCompositor {
             reveal_layout,
             transition_layout,
             luts: HashMap::new(),
+            luts_drawn: HashMap::new(),
             reveals: HashMap::new(),
+            reveals_drawn: HashMap::new(),
             shaders: HashMap::new(),
             transitions: HashMap::new(),
             refused: std::collections::HashSet::new(),
@@ -1152,6 +1165,18 @@ impl WgpuCompositor {
             self.used.remove(&key);
             self.idle.remove(&key);
         }
+        Self::trim(
+            &mut self.luts,
+            &mut self.luts_drawn,
+            LUT_CACHE,
+            self.composites,
+        );
+        Self::trim(
+            &mut self.reveals,
+            &mut self.reveals_drawn,
+            REVEAL_CACHE,
+            self.composites,
+        );
         // Back under budget, least recently drawn first, never a texture
         // this composite claimed: a pool grows past the budget only when
         // one composite needs that much.
@@ -1173,6 +1198,29 @@ impl WgpuCompositor {
                 .swap_remove(slot);
             self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * 4;
             self.pool_textures -= 1;
+        }
+    }
+
+    /// `cache` down to `cap` entries, least recently used first by `drawn`,
+    /// keeping whatever composite `now` used.
+    fn trim(
+        cache: &mut HashMap<u64, wgpu::BindGroup>,
+        drawn: &mut HashMap<u64, u64>,
+        cap: usize,
+        now: u64,
+    ) {
+        if cache.len() <= cap {
+            return;
+        }
+        let mut oldest: Vec<(u64, u64)> = cache
+            .keys()
+            .map(|id| (drawn.get(id).copied().unwrap_or(0), *id))
+            .filter(|(when, _)| *when < now)
+            .collect();
+        oldest.sort_unstable();
+        for (_, id) in oldest.into_iter().take(cache.len() - cap) {
+            cache.remove(&id);
+            drawn.remove(&id);
         }
     }
 
@@ -1732,6 +1780,7 @@ impl WgpuCompositor {
     fn lut_group(&mut self, lut: Option<&Lut>) -> u64 {
         static IDENTITY: std::sync::OnceLock<Lut> = std::sync::OnceLock::new();
         let lut = lut.unwrap_or_else(|| IDENTITY.get_or_init(|| Lut::identity(2)));
+        self.luts_drawn.insert(lut.id, self.composites);
         if self.luts.contains_key(&lut.id) {
             return lut.id;
         }
@@ -1795,6 +1844,7 @@ impl WgpuCompositor {
     fn reveal_group(&mut self, reveal: Option<&RevealMap>) -> u64 {
         static IDENTITY: std::sync::OnceLock<RevealMap> = std::sync::OnceLock::new();
         let reveal = reveal.unwrap_or_else(|| IDENTITY.get_or_init(RevealMap::identity));
+        self.reveals_drawn.insert(reveal.id, self.composites);
         if self.reveals.contains_key(&reveal.id) {
             return reveal.id;
         }
@@ -1851,9 +1901,14 @@ impl WgpuCompositor {
     }
 
     /// Runs `passes` over the pooled texture `source` of `width` × `height`,
-    /// each drawing into a fresh pooled texture of the same size, and
-    /// returns the index of the last one drawn. Each pass is its own
-    /// submission so the uniforms it wrote are the ones it reads.
+    /// and returns the index of the last texture drawn. The passes take
+    /// turns between two pooled textures of the same size - each reads the
+    /// one the pass before it drew and draws into the other - so a stack of
+    /// effects costs two textures, not one a pass: at 8K a pass's texture
+    /// is 133 MB. `source` is only ever read, so a cached frame stays as it
+    /// was. Each pass is its own submission, which is what makes drawing
+    /// into the texture two passes back safe, and keeps the uniforms a pass
+    /// wrote the ones it reads.
     fn run_passes(
         &mut self,
         width: u32,
@@ -1864,8 +1919,19 @@ impl WgpuCompositor {
         clip_start: f32,
     ) -> usize {
         let mut current = source;
+        let mut turns: [Option<usize>; 2] = [None, None];
+        let mut drawn = 0;
         for pass in passes {
-            let target = self.claim(width, height);
+            // A pass the driver refused does not take a turn, so the next
+            // one never draws into the texture it reads.
+            let target = match turns[drawn % 2] {
+                Some(target) => target,
+                None => {
+                    let target = self.claim(width, height);
+                    turns[drawn % 2] = Some(target);
+                    target
+                }
+            };
             self.shader(pass);
             let lut_id = self.lut_group(pass.lut.as_deref());
             let reveal_id = self.reveal_group(pass.reveal_map.as_deref());
@@ -1924,6 +1990,7 @@ impl WgpuCompositor {
             }
             self.queue.submit([encoder.finish()]);
             current = target;
+            drawn += 1;
         }
         current
     }

@@ -731,3 +731,75 @@ fn the_pool_stays_within_its_limits() {
     let counted: usize = gpu.pool.values().map(Vec::len).sum();
     assert_eq!(counted, gpu.pool_textures, "the count is the pool's");
 }
+
+/// A stack of passes takes turns between two textures and still applies
+/// every pass in order: invert, turn the channels, invert again is the
+/// turn alone, and five inverts are one. The stack claims two textures of
+/// the layer's size whatever its length, beside the frame it reads.
+#[test]
+fn a_stack_of_passes_takes_turns_between_two_textures() {
+    let Some(mut gpu) = gpu() else { return };
+    const TURN: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(c.g, c.b, c.r, c.a); }";
+    let invert = || package("concat.invert", INVERT, "", &[], 1.0);
+    let turn = || package("concat.turn", TURN, "", &[], 1.0);
+    let colour = [200, 90, 30, 255];
+    let stacked = |effects: Vec<ShaderPass>| {
+        let mut picture = layer(solid(8, 8, colour));
+        picture.effects = effects;
+        plan(8, 8, vec![picture])
+    };
+
+    let out = gpu.render(&stacked(vec![invert(), turn(), invert()]));
+    let got = &out.pixels()[..3];
+    assert!(
+        got.iter()
+            .zip([90, 30, 200])
+            .all(|(got, want)| got.abs_diff(want) <= 1),
+        "invert, turn, invert gave {got:?}"
+    );
+    // The frame and the two turns; the output target is its own.
+    let after_three = gpu.pool[&(8, 8)].len();
+    assert!(after_three <= 3, "{after_three} textures for three passes");
+
+    let out = gpu.render(&stacked((0..5).map(|_| invert()).collect()));
+    let got = &out.pixels()[..3];
+    assert!(
+        got.iter()
+            .zip([55, 165, 225])
+            .all(|(got, want)| got.abs_diff(want) <= 1),
+        "five inverts gave {got:?}"
+    );
+    // One more: the new frame, the first still cached; the turns are reused.
+    let after_five = gpu.pool[&(8, 8)].len();
+    assert!(
+        after_five <= after_three + 1,
+        "{after_five} textures after five passes, {after_three} after three"
+    );
+}
+
+/// The LUTs kept on the device are bounded: a run of more distinct looks
+/// than the cache holds leaves it at its cap, the one just drawn among
+/// them.
+#[test]
+fn the_lut_cache_keeps_the_recent_looks_only() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(lut(c.rgb), c.a); }";
+    let mut last = 0;
+    for index in 0..(LUT_CACHE as u32 + 8) {
+        let shade = index as f32 / 64.0;
+        let table = Arc::new(Lut::from_rgb(2, &[shade, 0.5, 0.25].repeat(8)).expect("a table"));
+        last = table.id;
+        let mut looked = layer(solid(4, 4, [255, 0, 0, 255]));
+        let mut pass = package("test.table", body, "", &[], 1.0);
+        pass.lut = Some(table);
+        looked.effects = vec![pass];
+        gpu.render(&plan(4, 4, vec![looked]));
+    }
+    assert!(
+        gpu.luts.len() <= LUT_CACHE,
+        "{} looks cached",
+        gpu.luts.len()
+    );
+    assert!(gpu.luts.contains_key(&last), "the look just drawn is kept");
+    assert_eq!(gpu.luts.len(), gpu.luts_drawn.len());
+}
