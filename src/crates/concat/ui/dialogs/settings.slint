@@ -54,11 +54,6 @@ export struct SettingsData {
     playhead-stops: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
-    /// the voices run on the machine's accelerator rather than the CPU
-    speech-accelerated: bool,
-    /// this build has an accelerator to offer the voices; off, the switch
-    /// is not shown
-    speech-acceleration-offered: bool,
     /// where model downloads look first: automatic, Concat's mirror,
     /// hf-mirror.com, the original source, a custom URL
     download-source: int,
@@ -428,7 +423,6 @@ export component SettingsDialog inherits Modal {
     callback playhead-reset();
     callback playhead-stops-changed(on: bool);
     callback magnetic-changed(on: bool);
-    callback speech-accelerated-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
     callback server-enabled-changed(on: bool);
@@ -854,19 +848,6 @@ export component SettingsDialog inherits Modal {
                         cancel => { root.model-cancel(model.id); }
                         remove => { root.model-remove(model.id); }
                     }
-                }
-
-                // The machine's own accelerator, where the build has one.
-                // A bet rather than a default: CoreML takes the parts of a
-                // network it knows and hands the rest to the CPU, so how
-                // much faster a read gets is the model's business.
-                if root.data.speech-acceleration-offered: DialogSection {
-                    title: I18n.t("Engine");
-                    hint: I18n.t("On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.");
-                    switchable: true;
-                    on: root.data.speech-accelerated;
-                    open: false;
-                    switched(on) => { root.speech-accelerated-changed(on); }
                 }
             }
 

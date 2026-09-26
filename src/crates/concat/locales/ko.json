@@ -578,7 +578,6 @@
   "Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.": "Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.",
   "Oil Paint": "유화",
   "On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.": "켜면 클립을 삭제할 때 같은 트랙의 뒤따르는 클립이 빈틈으로 당겨지고, 가장자리를 다듬으면 트랙의 나머지가 함께 움직입니다. 끄면 삭제는 빈틈을 남기고 다듬기는 가장자리만 움직입니다. Shift-Delete는 어느 쪽이든 빈틈을 닫습니다.",
-  "On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.": "켜면 모델이 허용하는 곳에서는 CoreML을 통해 이 Mac의 GPU와 Neural Engine에서 목소리를 실행하고, 그렇지 않은 곳에서는 CPU에서 실행합니다. 끄면 모든 것이 CPU에서 실행됩니다. 다음 읽기부터 적용되며, 이미 불러온 모델은 다시 불러옵니다.",
   "One repeat, fading.": "한 번 반복하며 사라집니다.",
   "One title per phrase spoken, cut to the words' own timing, on the first lane with room.": "말한 구절마다 자막 하나씩, 말의 타이밍에 맞춰, 자리가 있는 첫 레인에 놓습니다.",
   "One title per sentence, held for as long as it takes to read, one after another on the first lane with room.": "One title per sentence, held for as long as it takes to read, one after another on the first lane with room.",

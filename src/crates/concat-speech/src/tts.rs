@@ -415,9 +415,6 @@ enum Engine {
 
 struct CachedEngine {
     model_id: String,
-    /// Loaded for the accelerator, or for the CPU; a change of mind loads
-    /// the model again.
-    accelerated: bool,
     tts: Engine,
 }
 
@@ -695,30 +692,45 @@ impl Speech {
             .engine
             .lock()
             .map_err(|_| "speech state poisoned".to_owned())?;
-        let accelerated = crate::accelerated();
-        let stale = engine.as_ref().is_none_or(|cached| {
-            cached.model_id != request.model_id || cached.accelerated != accelerated
-        });
+        let stale = engine
+            .as_ref()
+            .is_none_or(|cached| cached.model_id != request.model_id);
         if stale {
             // Load before overwriting: a failed load keeps the old engine.
             let loading = std::time::Instant::now();
-            log::info!(
-                "tts: loading {} from {} for the {}",
-                request.model_id,
-                dir.display(),
-                if accelerated { "accelerator" } else { "CPU" }
-            );
-            let tts = match family {
-                Family::Kokoro => Engine::Sherpa(load_kokoro(&dir, accelerated)?),
-                Family::Pocket => Engine::Sherpa(load_pocket(&dir, accelerated)?),
-                #[cfg(feature = "chatterbox")]
-                Family::Chatterbox => Engine::Chatterbox(Box::new(
-                    crate::chatterbox::Engine::load(&dir, accelerated)?,
-                )),
-                #[cfg(not(feature = "chatterbox"))]
-                Family::Chatterbox => {
-                    return Err("Chatterbox is not part of this build".to_owned());
+            let load = |accelerated: bool| -> Result<Engine, String> {
+                log::info!(
+                    "tts: loading {} from {} for the {}",
+                    request.model_id,
+                    dir.display(),
+                    if accelerated { "accelerator" } else { "CPU" }
+                );
+                Ok(match family {
+                    Family::Kokoro => Engine::Sherpa(load_kokoro(&dir, accelerated)?),
+                    Family::Pocket => Engine::Sherpa(load_pocket(&dir, accelerated)?),
+                    #[cfg(feature = "chatterbox")]
+                    Family::Chatterbox => Engine::Chatterbox(Box::new(
+                        crate::chatterbox::Engine::load(&dir, accelerated)?,
+                    )),
+                    #[cfg(not(feature = "chatterbox"))]
+                    Family::Chatterbox => {
+                        return Err("Chatterbox is not part of this build".to_owned());
+                    }
+                })
+            };
+            // The accelerator where there is one, and the CPU when a model
+            // will not load for it: slower is better than not at all, and
+            // nobody should have to find a setting to get the voice back.
+            let tts = match load(crate::accelerated()) {
+                Ok(tts) => tts,
+                Err(error) if crate::accelerated() => {
+                    log::warn!(
+                        "tts: {} would not load on the accelerator ({error}); loading it for the CPU",
+                        request.model_id
+                    );
+                    load(false)?
                 }
+                Err(error) => return Err(error),
             };
             log::info!(
                 "tts: {} loaded in {:.1}s",
@@ -727,7 +739,6 @@ impl Speech {
             );
             *engine = Some(CachedEngine {
                 model_id: request.model_id.clone(),
-                accelerated,
                 tts,
             });
         }
@@ -1008,8 +1019,8 @@ fn load_pocket(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
         .ok_or_else(|| "the speech engine failed to load - try re-downloading the model".to_owned())
 }
 
-/// The ONNX Runtime provider sherpa is asked for: CoreML on a Mac that
-/// wants the accelerator, the CPU otherwise. sherpa falls back to the CPU
+/// The ONNX Runtime provider sherpa is asked for: CoreML on a Mac, the CPU
+/// otherwise, and the CPU when the load for CoreML failed. sherpa falls back to the CPU
 /// itself, with a line in the log, where its runtime was built without
 /// the one asked for.
 fn provider(accelerated: bool) -> &'static str {

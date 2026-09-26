@@ -578,7 +578,6 @@
   "Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.": "Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.",
   "Oil Paint": "油彩",
   "On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.": "オンのとき、クリップを削除すると同じトラックの後続が隙間に引き寄せられ、端をトリミングするとトラックの残りも一緒に動きます。オフのとき、削除は隙間を残し、トリミングは端だけを動かします。Shift-Delete はどちらでも隙間を詰めます。",
-  "On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.": "オンのとき、モデルが許す範囲で声は CoreML を通じてこの Mac の GPU と Neural Engine で動き、許さない部分は CPU で動きます。オフのとき、すべて CPU で動きます。次の読み上げから反映され、すでに読み込まれたモデルは再度読み込まれます。",
   "One repeat, fading.": "一回の繰り返しがフェードします。",
   "One title per phrase spoken, cut to the words' own timing, on the first lane with room.": "発話されたフレーズごとにタイトルを一つ、言葉のタイミングどおりに、空いている最初のレーンへ。",
   "One title per sentence, held for as long as it takes to read, one after another on the first lane with room.": "One title per sentence, held for as long as it takes to read, one after another on the first lane with room.",

@@ -273,9 +273,9 @@ struct Voice {
 
 /// One network, opened for the CPU or, when asked and where the build has
 /// it, for CoreML: the Mac's GPU and Neural Engine. CoreML takes the parts
-/// of a graph it knows and hands the rest back to the CPU, and a graph it
-/// cannot take at all still runs - slower, not broken - so asking for it
-/// is safe; the log says which it got.
+/// of a graph it knows and hands the rest back to the CPU; a network it
+/// refuses outright fails here, and the caller loads the bundle for the
+/// CPU instead. The log says which it got.
 fn session(path: &Path, accelerated: bool) -> Result<Session, String> {
     let threads = std::thread::available_parallelism()
         .map(|count| count.get())

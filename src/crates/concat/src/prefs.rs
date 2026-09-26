@@ -60,11 +60,6 @@ pub struct Preferences {
     /// default: a burst of sound on every pass of the pointer is a lot to
     /// ask of a room.
     pub preview_axis_audio: bool,
-    /// The voices run on the machine's own accelerator - CoreML on a Mac -
-    /// rather than the CPU. Off by default: what the accelerator takes of
-    /// a network is the network's business, and the CPU is the answer that
-    /// is always right.
-    pub speech_accelerated: bool,
     /// Where model downloads look first: a `SourcePreference` by name.
     /// Absent is automatic.
     pub download_source: Option<String>,

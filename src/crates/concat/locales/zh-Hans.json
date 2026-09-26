@@ -578,7 +578,6 @@
   "Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.": "关闭时，在标尺上点击最后一个片段之后的位置，播放头会停在那里，放置在播放头处的片段也随之落在该处。开启时，播放头始终不会离开内容范围。",
   "Oil Paint": "油画",
   "On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.": "开启时，删除片段会把同一轨道上其后的内容拉进空隙，修剪边缘时轨道上的其余内容也随之移动。关闭时，删除会留下空隙，修剪只移动边缘。无论开关与否，Shift-Delete 都会合拢空隙。",
-  "On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.": "开启时，只要模型允许，语音就会通过 CoreML 在这台 Mac 的 GPU 和神经网络引擎上运行，不允许的部分则在 CPU 上运行。关闭时，全部在 CPU 上运行。下次朗读时生效；已加载的模型会重新加载。",
   "One repeat, fading.": "重复一次，逐渐淡出。",
   "One title per phrase spoken, cut to the words' own timing, on the first lane with room.": "每个口语短语一个标题，按词语本身的时间切分，放在第一条有空位的轨道上。",
   "One title per sentence, held for as long as it takes to read, one after another on the first lane with room.": "每句一个标题，停留足够阅读的时长，依次排列在第一条有空位的轨道上。",

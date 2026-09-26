@@ -41,8 +41,6 @@ pub enum SettingsMsg {
     PlayheadStopsChanged(bool),
     /// The magnetic timeline switch; the tray's button is the same fact.
     MagneticChanged(bool),
-    /// The voices run on the accelerator.
-    SpeechAcceleratedChanged(bool),
     DownloadSourceChanged(i32),
     DownloadBaseEdited(String),
     ServerEnabledChanged(bool),
@@ -135,8 +133,6 @@ pub struct SettingsPane {
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
-    /// The voices run on the machine's accelerator.
-    pub speech_accelerated: bool,
     /// Index into `SourcePreference::ALL`: where model downloads look first.
     pub download_source: usize,
     /// The base URL of a custom download source.
@@ -169,8 +165,6 @@ impl SettingsPane {
                 // in software (concat_media::hardware). Linux has no default
                 // device, so there this is software as before.
                 concat_media::set_hardware_decode(true);
-                self.speech_accelerated = studio.prefs.speech_accelerated;
-                concat_speech::set_accelerated(self.speech_accelerated);
                 self.download_source = Self::download_source(studio).0;
                 self.download_base = studio.prefs.download_base.clone().unwrap_or_default();
                 Self::apply_download_source(studio);
@@ -218,14 +212,6 @@ impl SettingsPane {
             SettingsMsg::MagneticChanged(on) => {
                 studio.prefs.magnetic = on;
                 studio.prefs.save(&studio.host.dirs);
-            }
-            SettingsMsg::SpeechAcceleratedChanged(on) => {
-                self.speech_accelerated = on;
-                studio.prefs.speech_accelerated = on;
-                studio.prefs.save(&studio.host.dirs);
-                // An engine already loaded the other way is loaded again on
-                // the next read; nothing running is disturbed.
-                concat_speech::set_accelerated(on);
             }
             SettingsMsg::DownloadSourceChanged(index) => {
                 let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
@@ -562,8 +548,6 @@ impl SettingsPane {
             language: self.language as i32,
             playhead_stops: self.playhead_stops,
             magnetic: studio.prefs.magnetic,
-            speech_accelerated: self.speech_accelerated,
-            speech_acceleration_offered: concat_speech::acceleration_offered(),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,

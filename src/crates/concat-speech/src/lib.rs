@@ -25,28 +25,15 @@ pub mod tts;
 pub use transcribe::Transcriber;
 pub use tts::Speech;
 
-/// Whether the voices run on the machine's own accelerator where the build
-/// has one, or on the CPU. Process-wide, the way `concat_media`'s hardware
-/// decode preference is: Settings › Speech sets it, and an engine reads it
-/// as it loads - one already loaded the other way is loaded again on the
-/// next read. Off until asked, because the accelerator is a bet: CoreML
-/// runs the parts of a network it knows and hands the rest back to the
-/// CPU, and which parts those are is the model's business.
-static ACCELERATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Asks the engines to run on the accelerator, or not to.
-pub fn set_accelerated(on: bool) {
-    ACCELERATED.store(on, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// Whether the engines are asked to run on the accelerator.
-pub fn accelerated() -> bool {
-    ACCELERATED.load(std::sync::atomic::Ordering::Relaxed)
-}
-
-/// Whether this build has an accelerator to offer at all: CoreML, on a
-/// Mac. Elsewhere the switch is not shown, since it would do nothing.
-pub const fn acceleration_offered() -> bool {
+/// Whether the voices ask for the machine's own accelerator: CoreML, the
+/// Mac's GPU and Neural Engine. Not a setting. Measured on an M5 against
+/// the CPU, a warm read took 10.3 s against 14.8 for Kokoro (and came out
+/// sample for sample the same), 5.6 against 6.5 for Pocket and 48.6
+/// against 60.6 for Chatterbox. The one cost is Chatterbox's load, about
+/// eleven seconds longer while CoreML compiles its networks, paid once per
+/// run since the engine stays loaded. A model that will not load for CoreML
+/// at all loads for the CPU instead (tts.rs).
+pub const fn accelerated() -> bool {
     cfg!(target_os = "macos")
 }
 
