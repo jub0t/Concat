@@ -673,3 +673,61 @@ fn a_transition_kept_on_the_device_matches_the_read_back_one() {
         package.id()
     );
 }
+
+/// A frame the device has drawn is found on it again when a later
+/// composite asks for it - a scrub back over ground the monitor showed -
+/// rather than uploaded again: the layer pool keeps what it uploaded until
+/// its budget is spent.
+#[test]
+fn a_frame_drawn_before_is_not_uploaded_again() {
+    let Some(mut gpu) = gpu() else { return };
+    let frames: Vec<Arc<Frame>> = (0..10u8)
+        .map(|shade| Arc::new(solid(64, 36, [shade * 20, 40, 90, 255])))
+        .collect();
+    let draw = |gpu: &mut WgpuCompositor, frame: &Arc<Frame>| {
+        let plan = FramePlan {
+            time: concat_core::time::Rational::new(0, 1),
+            width: 64,
+            height: 36,
+            layers: vec![PlannedLayer::picture(detached_clip(), Arc::clone(frame))],
+            treatments: Vec::new(),
+        };
+        gpu.render_texture(&plan).expect("draws");
+    };
+    for frame in &frames {
+        draw(&mut gpu, frame);
+    }
+    let first_pass = gpu.uploads;
+    assert!(first_pass >= 10, "each new frame is uploaded once");
+    for frame in frames.iter().rev() {
+        draw(&mut gpu, frame);
+    }
+    assert_eq!(gpu.uploads, first_pass, "the way back is all cache hits");
+}
+
+/// The pool keeps what it uploaded only up to its limits: a long run of
+/// distinct frames - here more small ones than the texture cap - leaves it
+/// holding no more than the cap and the byte budget allow.
+#[test]
+fn the_pool_stays_within_its_limits() {
+    let Some(mut gpu) = gpu() else { return };
+    for index in 0..(POOL_TEXTURES as u32 + 76) {
+        let frame = Arc::new(solid(4, 4, [(index % 251) as u8, 7, 9, 255]));
+        let plan = FramePlan {
+            time: concat_core::time::Rational::new(0, 1),
+            width: 4,
+            height: 4,
+            layers: vec![PlannedLayer::picture(detached_clip(), frame)],
+            treatments: Vec::new(),
+        };
+        gpu.render_texture(&plan).expect("draws");
+    }
+    assert!(
+        gpu.pool_textures <= POOL_TEXTURES,
+        "{} textures",
+        gpu.pool_textures
+    );
+    assert!(gpu.pool_bytes <= POOL_BUDGET);
+    let counted: usize = gpu.pool.values().map(Vec::len).sum();
+    assert_eq!(counted, gpu.pool_textures, "the count is the pool's");
+}

@@ -330,11 +330,12 @@ time to present a token.
   compositor baked into the decoder's chain, not through the plan (see §2).
 - `ExportClip` remains the CLI and API wire type and the title rasteriser's
   output.
-- Cached frames are uploaded to the GPU again unless they were drawn in the
-  previous composite (`WgpuCompositor::upload` reuses a texture by frame id);
-  a source-texture cache with its own budget, so a scrub back over cached
-  ground skips the upload too, is the follow-up now that both compositors
-  read a plan. The frame pool is `concat-media/src/pool.rs`.
+- The GPU compositor's layer pool is also its source-texture cache: a frame
+  uploaded stays in its texture until the texture is wanted for something
+  else, least recently drawn first, within `POOL_BUDGET` (512 MB) and
+  `POOL_TEXTURES` (1024), so a scrub back over ground the monitor showed
+  finds its frames on the device (`WgpuCompositor::upload`, by frame id). The
+  CPU frame pool is `concat-media/src/pool.rs`.
 - Zero-copy hardware frames (IOSurface into wgpu) are not done; a hardware
   frame is transferred to memory first, and the libavfilter stage between
   the download and the upload (rotation, fit, crop, colour range, RGBA) would

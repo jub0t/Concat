@@ -188,9 +188,25 @@ struct PooledTexture {
     bind_group: wgpu::BindGroup,
     /// The identity of the frame uploaded into it, or zero for a texture
     /// a pass drew: what lets a frame the device already holds - a still,
-    /// a title, a paused clip - skip its upload.
+    /// a title, a paused clip, a frame scrubbed back over - skip its upload.
     holds: u64,
+    /// The composite it was last drawn in, counted by `prepare`: what the
+    /// least recently used frame is picked by when the pool is full.
+    drawn: u64,
 }
+
+/// What the layer pool may hold, in bytes, before it overwrites a frame it
+/// still has rather than growing: the source-texture cache's budget. The
+/// pool is also the cache - a frame uploaded stays in its texture until
+/// the texture is wanted for something else - so a scrub back over ground
+/// the monitor has shown finds its frames on the device. 512 MB is 64
+/// frames at 1080p, or 256 at the monitor's usual 960 by 540.
+const POOL_BUDGET: u64 = 512 * 1024 * 1024;
+
+/// And at most this many textures, whatever their size: many small
+/// distinct frames - a title's layers, masks - would otherwise pile up
+/// under the byte budget for as long as none of them is a megabyte.
+const POOL_TEXTURES: usize = 1024;
 
 /// The reusable output target and its readback buffer, for one output size.
 struct Target {
@@ -254,6 +270,14 @@ pub struct WgpuCompositor {
     /// composites a size has gone unclaimed: a timeline moves past a clip
     /// size forever, and its textures should not outlive that by much.
     pool: HashMap<(u32, u32), Vec<PooledTexture>>,
+    /// What the pool's textures hold, in bytes; see [`POOL_BUDGET`].
+    pool_bytes: u64,
+    /// How many textures the pool holds; see [`POOL_TEXTURES`].
+    pool_textures: usize,
+    /// Composites drawn so far; see [`PooledTexture::drawn`].
+    composites: u64,
+    /// Frames uploaded so far: what a cache hit does not add to.
+    uploads: u64,
     used: HashMap<(u32, u32), usize>,
     idle: HashMap<(u32, u32), u32>,
     target: Option<Target>,
@@ -264,7 +288,7 @@ pub struct WgpuCompositor {
     /// the second picture's plan would draw over the first. By size.
     stages: Option<(u32, u32, [wgpu::Texture; 2])>,
     /// A one-pixel opaque white picture: the mask of a layer without one.
-    white: Frame,
+    white: std::sync::Arc<Frame>,
     /// Set when a readback fails - a lost or reset device. The compositor
     /// then answers every composite from the CPU reference instead: slower,
     /// always correct, and never a panic in the middle of an export.
@@ -583,15 +607,21 @@ impl WgpuCompositor {
             vertices,
             vertex_capacity: 6 * 8,
             pool: HashMap::new(),
+            pool_bytes: 0,
+            pool_textures: 0,
+            composites: 0,
+            uploads: 0,
             used: HashMap::new(),
             target: None,
             presentable: None,
             stages: None,
             idle: HashMap::new(),
+            // Shared, never cloned: a cloned Frame is a new picture with a
+            // new identity, and every composite would upload it again.
             white: {
                 let mut white = Frame::transparent(1, 1);
                 white.fill([255, 255, 255, 255]);
-                white
+                std::sync::Arc::new(white)
             },
             dead: false,
         }
@@ -652,6 +682,7 @@ impl WgpuCompositor {
     /// final render, into whichever target the caller wants.
     fn prepare(&mut self, plan: &FramePlan) -> (Vec<Draw>, Vec<Vertex>) {
         self.used.values_mut().for_each(|used| *used = 0);
+        self.composites += 1;
         let (width, height) = (plan.width, plan.height);
         let seconds = plan.seconds();
         let mut treatments: Vec<&PlannedTreatment> = plan.treatments.iter().collect();
@@ -792,7 +823,7 @@ impl WgpuCompositor {
         match mask {
             Some(mask) => (mask.width(), mask.height(), self.upload(mask)),
             None => {
-                let white = self.white.clone();
+                let white = std::sync::Arc::clone(&self.white);
                 (1, 1, self.upload(&white))
             }
         }
@@ -1114,9 +1145,34 @@ impl WgpuCompositor {
             .map(|(key, _)| *key)
             .collect();
         for key in doomed {
-            self.pool.remove(&key);
+            if let Some(pool) = self.pool.remove(&key) {
+                self.pool_bytes -= pool.len() as u64 * u64::from(key.0) * u64::from(key.1) * 4;
+                self.pool_textures -= pool.len();
+            }
             self.used.remove(&key);
             self.idle.remove(&key);
+        }
+        // Back under budget, least recently drawn first, never a texture
+        // this composite claimed: a pool grows past the budget only when
+        // one composite needs that much.
+        while self.pool_bytes > POOL_BUDGET || self.pool_textures > POOL_TEXTURES {
+            let oldest = self
+                .pool
+                .iter()
+                .flat_map(|(key, pool)| {
+                    let claimed = self.used.get(key).copied().unwrap_or(0);
+                    (claimed..pool.len()).map(move |slot| (*key, slot, pool[slot].drawn))
+                })
+                .min_by_key(|(_, _, drawn)| *drawn);
+            let Some((key, slot, _)) = oldest else {
+                break;
+            };
+            self.pool
+                .get_mut(&key)
+                .expect("found above")
+                .swap_remove(slot);
+            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * 4;
+            self.pool_textures -= 1;
         }
     }
 
@@ -1170,10 +1226,12 @@ impl WgpuCompositor {
             && let Some(found) = (used..pool.len()).find(|&slot| pool[slot].holds == identity)
         {
             pool.swap(used, found);
+            pool[used].drawn = self.composites;
             *self.used.entry(key).or_insert(0) = used + 1;
             return used;
         }
         let index = self.claim(frame.width(), frame.height());
+        self.uploads += 1;
         let pooled = &mut self.pool.get_mut(&key).expect("just claimed")[index];
         pooled.holds = identity;
         let texture = &pooled.texture;
@@ -1202,10 +1260,23 @@ impl WgpuCompositor {
     /// Claims a pooled texture of this size, blank, for a pass to draw into.
     fn claim(&mut self, width: u32, height: u32) -> usize {
         let key = (width, height);
-        let used = self.used.entry(key).or_insert(0);
+        let bytes = u64::from(width) * u64::from(height) * 4;
+        let used = *self.used.entry(key).or_insert(0);
         let pool = self.pool.entry(key).or_default();
-
-        if *used == pool.len() {
+        // The texture to draw into, from the ones not claimed yet this
+        // composite: one holding no frame, first; else a new one, while the
+        // pool is under budget, so the frames it holds stay cached; else
+        // the least recently drawn frame gives its texture up.
+        let spare = (used..pool.len())
+            .find(|&slot| pool[slot].holds == 0)
+            .or_else(|| {
+                (self.pool_bytes + bytes > POOL_BUDGET || self.pool_textures >= POOL_TEXTURES)
+                    .then(|| (used..pool.len()).min_by_key(|&slot| pool[slot].drawn))
+                    .flatten()
+            });
+        if let Some(slot) = spare {
+            pool.swap(used, slot);
+        } else {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("concat layer"),
                 size: wgpu::Extent3d {
@@ -1243,14 +1314,20 @@ impl WgpuCompositor {
                 texture,
                 bind_group,
                 holds: 0,
+                drawn: 0,
             });
+            let last = pool.len() - 1;
+            pool.swap(used, last);
+            self.pool_bytes += bytes;
+            self.pool_textures += 1;
         }
 
-        let index = *used;
-        *used += 1;
+        let pool = self.pool.get_mut(&key).expect("claimed from above");
         // Whatever is drawn into it next is not the frame it held.
-        pool[index].holds = 0;
-        index
+        pool[used].holds = 0;
+        pool[used].drawn = self.composites;
+        *self.used.get_mut(&key).expect("counted above") = used + 1;
+        used
     }
 
     /// The compiled pipeline for a pass, built the first time its key is
