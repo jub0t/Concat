@@ -94,12 +94,22 @@ export component PaneBody inherits VerticalLayout {
 // the scroller is worse than losing kinetic scrolling, and a wheel is what a
 // desktop editor is driven with anyway.
 export component PaneScroll inherits Rectangle {
+    /// A finger drags the column as well: a press that no control took -
+    /// on a label, a note, a heading, the air between rows - scrolls. Not
+    /// a Flickable, which would take the drag off a control as well; a
+    /// finger has no wheel, and this is the sheet a phone reads its
+    /// Settings in.
+    in property <bool> finger;
+
     // The offset is clamped on read rather than only on write, so a pane that
     // shrinks under the content — or content that gets shorter — cannot leave
     // the viewport parked past the end.
     property <length> overflow: Math.max(0px, content.preferred-height - root.height);
     property <length> offset;
     property <length> at: Math.max(-root.overflow, Math.min(0px, root.offset));
+    /// Where the column was when the finger landed, and where the finger did.
+    property <length> press-at;
+    property <length> press-y;
 
     clip: true;
 
@@ -110,6 +120,17 @@ export component PaneScroll inherits Rectangle {
         scroll-event(event) => {
             root.offset = root.at + event.delta-y;
             return EventResult.accept;
+        }
+        pointer-event(event) => {
+            if (root.finger && event.kind == PointerEventKind.down) {
+                root.press-at = root.at;
+                root.press-y = self.mouse-y;
+            }
+        }
+        moved => {
+            if (root.finger && self.pressed) {
+                root.offset = root.press-at + (self.mouse-y - root.press-y);
+            }
         }
 
         content := VerticalLayout {
