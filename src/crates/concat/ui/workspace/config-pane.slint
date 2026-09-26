@@ -534,6 +534,7 @@ export component ConfigPane inherits Rectangle {
                     selected: root.selected;
                     applied: root.applied-visual;
                     params: root.visual-params;
+                    colours: root.visual-colours;
                     brush-tool: root.brush-tool;
                     brush-size: root.brush-size;
                     painting: root.painting;
@@ -543,6 +544,9 @@ export component ConfigPane inherits Rectangle {
                     chain-remove(index) => { root.chain-remove(false, index); }
                     chain-set-param(index, key, value) => {
                         root.chain-set-param(false, index, key, value);
+                    }
+                    chain-set-colour(index, key, value) => {
+                        root.chain-set-colour(index, key, value);
                     }
                     cutout-mode(mode) => { root.cutout-mode(mode); }
                     cutout-tool(index) => { root.cutout-tool(index); }

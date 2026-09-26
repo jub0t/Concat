@@ -93,13 +93,13 @@ enum Command {
     /// Draw one effect's card - a still through the package's own shader
     /// on the GPU, at its defaults or its manifest's `[card]` settings,
     /// the way the window draws the catalogue's - and write it as a JPEG:
-    /// `concat-cli preview still.jpg out.jpg --effect concat.emboss`.
+    /// `concat-cli preview still.jpg out.jpg --effect concat.vignette`.
     Preview {
         /// A still, or the first frame of a video.
         input: PathBuf,
         /// Where to write the JPEG.
         output: PathBuf,
-        /// The package's catalogue id or alias, e.g. `concat.emboss`.
+        /// The package's catalogue id or alias, e.g. `concat.vignette`.
         #[arg(long)]
         effect: String,
         /// Card width in pixels; the picture is scaled before the effect

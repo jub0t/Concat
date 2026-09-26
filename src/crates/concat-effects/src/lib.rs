@@ -83,56 +83,19 @@ mod tests {
         }
     }
 
-    /// A filter below full intensity is split, looked at on one copy and
-    /// blended back; at full intensity it is the bare fragment. An effect
-    /// never mixes: intensity is a filter's word.
     #[test]
-    fn a_filter_mixes_by_its_intensity_and_an_effect_does_not() {
-        // A format 1 look of someone's own: the built-in looks are shaders
-        // alone.
-        let mut catalogue = Catalogue::builtin().clone();
-        catalogue
-            .add(
-                Package::from_sources(
-                    "[effect]\nid = \"alice.warm\"\nname = \"Warm\"\nkind = \"filter\"\n\
-                     [ffmpeg]\nchain = \"colortemperature=temperature=4600:pl=1\"\n",
-                    None,
-                    None,
-                )
-                .expect("loads"),
-            )
-            .expect("a new id");
-        let full = catalogue.video_chain(&[applied("alice.warm", &[])]);
-        assert_eq!(full, "colortemperature=temperature=4600:pl=1");
-        let half = catalogue.video_chain(&[
-            applied("concat.sepia", &[]),
-            applied("alice.warm", &[("intensity", 50.0)]),
-        ]);
-        assert!(half.starts_with("colorchannelmixer"), "{half}");
-        assert!(
-            half.ends_with(
-                "split[m1a][m1b];[m1b]colortemperature=temperature=4600:pl=1[m1c];\
-                 [m1a][m1c]blend=all_mode=normal:all_opacity=0.500"
-            ),
-            "{half}"
-        );
-        let effect = catalogue.video_chain(&[applied("concat.sepia", &[("intensity", 50.0)])]);
-        assert!(!effect.contains("blend"), "{effect}");
-    }
-
-    #[test]
-    fn a_folder_package_with_a_table_loads_and_names_its_file() {
+    fn a_folder_package_with_a_table_loads_and_carries_it() {
         let dir = std::env::temp_dir().join(format!("concat-lut-{}", std::process::id()));
         let folder = dir.join("test.table");
         std::fs::create_dir_all(&folder).expect("temp dir");
         std::fs::write(
             folder.join("effect.toml"),
-            "[effect]\nid = \"test.table\"\nname = \"Table\"\nkind = \"filter\"\n\n[lut]\nfile = \"look.cube\"\n\n[ffmpeg]\nchain = \"lut3d=file={lut}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n",
+            "format = 2\n[effect]\nid = \"test.table\"\nname = \"Table\"\nkind = \"filter\"\n\n[lut]\nfile = \"look.cube\"\n\n[wgsl]\nentry = \"effect.wgsl\"\nspace = \"display\"\n",
         )
         .expect("manifest");
         std::fs::write(
             folder.join("effect.wgsl"),
-            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(lut(c.rgb), c.a); }",
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(look(c.rgb), c.a); }",
         )
         .expect("shader");
         let mut cube = String::from("LUT_3D_SIZE 2\n");
@@ -150,14 +113,6 @@ mod tests {
         assert!(errors.is_empty(), "{errors:?}");
         let package = catalogue.get("test.table").expect("loaded");
         assert_eq!(package.lut().map(|lut| lut.size), Some(2));
-        let chain = package
-            .ffmpeg_fragment(&BTreeMap::new(), 0)
-            .expect("renders")
-            .expect("has a chain");
-        assert!(
-            chain.starts_with("lut3d=file='") && chain.ends_with("look.cube'"),
-            "{chain}"
-        );
         assert_eq!(
             catalogue.shader_passes(&[AppliedFilter::new("test.table")], None)[0]
                 .lut
@@ -388,76 +343,56 @@ mod tests {
     }
 
     #[test]
-    fn stacked_effects_join_with_commas_in_applied_order() {
+    fn stacked_filters_join_with_commas_in_applied_order() {
         let catalogue = Catalogue::builtin();
+        let (near, far) = (applied("echo", &[]), applied("echo", &[("delay", 0.5)]));
         assert_eq!(
-            catalogue.video_chain(&[applied("box-blur", &[]), applied("black-white", &[])]),
-            "boxblur=6:1,hue=s=0"
+            catalogue.audio_chain(&[near.clone(), far.clone()]),
+            "aecho=0.8:0.85:250:0.40,aecho=0.8:0.85:500:0.40"
         );
         assert_eq!(
-            catalogue.video_chain(&[applied("black-white", &[]), applied("box-blur", &[])]),
-            "hue=s=0,boxblur=6:1"
+            catalogue.audio_chain(&[far, near]),
+            "aecho=0.8:0.85:500:0.40,aecho=0.8:0.85:250:0.40"
         );
     }
 
     #[test]
-    fn a_bypassed_entry_contributes_nothing_and_consumes_no_index() {
+    fn a_bypassed_entry_contributes_nothing() {
         let catalogue = Catalogue::builtin();
-        let mut sepia = applied("sepia", &[]);
-        sepia.enabled = false;
+        let mut near = applied("echo", &[]);
+        near.enabled = false;
         assert_eq!(
-            catalogue.video_chain(&[
-                applied("invert", &[]),
-                sepia.clone(),
-                applied("black-white", &[])
-            ]),
-            "negate,hue=s=0"
+            catalogue.audio_chain(&[near, applied("echo", &[("delay", 0.5)])]),
+            "aecho=0.8:0.85:500:0.40"
         );
-        let skipped = catalogue.video_chain(&[sepia, applied("mirror", &[])]);
-        assert!(skipped.contains("[mirl0]"), "was: {skipped}");
     }
 
-    #[test]
-    fn stacking_one_labelled_effect_twice_keeps_its_graph_labels_distinct() {
-        let chain = Catalogue::builtin()
-            .video_chain(&[applied("concat.bokeh", &[]), applied("concat.bokeh", &[])]);
-        assert!(chain.contains("[bka0]"), "was: {chain}");
-        assert!(chain.contains("[bka1]"), "was: {chain}");
-    }
-
+    /// A sound's chain takes neither an id nothing answers to nor a
+    /// picture package, which is drawn and never heard.
     #[test]
     fn unknown_ids_and_wrong_kinds_are_skipped() {
         let catalogue = Catalogue::builtin();
         assert_eq!(
-            catalogue.video_chain(&[applied("from-the-future", &[]), applied("invert", &[])]),
-            "negate"
-        );
-        // An audio filter in the video list is not a video effect.
-        assert_eq!(
-            catalogue.video_chain(&[applied("bass", &[]), applied("invert", &[])]),
-            "negate"
-        );
-        assert_eq!(
-            catalogue.audio_chain(&[applied("invert", &[]), applied("echo", &[])]),
+            catalogue.audio_chain(&[
+                applied("from-the-future", &[]),
+                applied("concat.glow", &[]),
+                applied("echo", &[])
+            ]),
             "aecho=0.8:0.85:250:0.40"
         );
-        assert_eq!(catalogue.video_chain(&[]), "");
+        assert_eq!(catalogue.audio_chain(&[]), "");
     }
 
     #[test]
     fn stray_parameter_keys_are_dropped_and_missing_ones_default() {
         let catalogue = Catalogue::builtin();
         assert_eq!(
-            catalogue.video_chain(&[applied("hue-shift", &[("angle", 90.0), ("bogus", 99.0)])]),
-            "hue=h=90"
-        );
-        assert_eq!(
-            catalogue.video_chain(&[applied("shake", &[("amount", 20.0)])]),
-            "crop=iw-40:ih-40:20+20*sin(t*13):20+20*cos(t*17)"
-        );
-        assert_eq!(
-            catalogue.audio_chain(&[applied("echo", &[("delay", 0.5)])]),
+            catalogue.audio_chain(&[applied("echo", &[("delay", 0.5), ("bogus", 99.0)])]),
             "aecho=0.8:0.85:500:0.40"
+        );
+        assert_eq!(
+            catalogue.audio_chain(&[applied("echo", &[])]),
+            "aecho=0.8:0.85:250:0.40"
         );
     }
 
@@ -470,6 +405,7 @@ mod tests {
         std::fs::write(
             good.join("effect.toml"),
             r#"
+            format = 2
             [effect]
             id = "alice.tint"
             name = "Tint"
@@ -479,25 +415,44 @@ mod tests {
             label = "Hue"
             max = 360
             default = 90
-            [ffmpeg]
-            chain = "hue=h={round(hue)}"
+            [wgsl]
+            entry = "effect.wgsl"
             "#,
+        )
+        .expect("write");
+        std::fs::write(
+            good.join("effect.wgsl"),
+            "struct Params { hue: f32 }\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
         )
         .expect("write");
         let bad = dir.join("bob.broken");
         std::fs::create_dir_all(&bad).expect("mkdir");
         std::fs::write(bad.join("effect.toml"), "[effect]\nid = \"bob.broken\"\n").expect("write");
+        // A picture package of the old kind, a chain: no longer drawn.
+        let old = dir.join("carol.old");
+        std::fs::create_dir_all(&old).expect("mkdir");
+        std::fs::write(
+            old.join("effect.toml"),
+            "[effect]\nid = \"carol.old\"\nname = \"Old\"\nkind = \"effect\"\n[ffmpeg]\nchain = \"negate\"\n",
+        )
+        .expect("write");
 
         let mut catalogue = Catalogue::new();
-        let errors = catalogue.load_dir(&dir);
-        assert_eq!(errors.len(), 1, "{errors:?}");
+        let mut errors: Vec<String> = catalogue
+            .load_dir(&dir)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        errors.sort();
+        assert_eq!(errors.len(), 2, "{errors:?}");
         assert!(
-            errors[0].to_string().contains("bob.broken") || errors[0].to_string().contains("?")
+            errors[0].contains("bob.broken") || errors[0].contains('?'),
+            "{errors:?}"
         );
-        assert_eq!(
-            catalogue.video_chain(&[applied("alice.tint", &[("hue", 45.0)])]),
-            "hue=h=45"
-        );
+        assert!(errors[1].contains("format 1"), "{errors:?}");
+        let passes = catalogue.shader_passes(&[applied("alice.tint", &[("hue", 45.0)])], None);
+        assert_eq!(passes.len(), 1);
+        assert_eq!(passes[0].values.get("hue"), Some(&45.0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -506,7 +461,7 @@ mod tests {
         let with = |chain: &str| {
             Package::from_sources(
                 &format!(
-                    "[effect]\nid = \"a.b\"\nname = \"B\"\nkind = \"effect\"\n[[param]]\nkey = \"hue\"\nlabel = \"Hue\"\nmax = 360\n[ffmpeg]\nchain = {chain:?}\n"
+                    "[effect]\nid = \"a.b\"\nname = \"B\"\nkind = \"audio\"\n[[param]]\nkey = \"hue\"\nlabel = \"Hue\"\nmax = 360\n[ffmpeg]\nchain = {chain:?}\n"
                 ),
                 None,
                 None,
@@ -536,7 +491,7 @@ mod tests {
         let mut catalogue = Catalogue::new();
         let package = || {
             Package::from_sources(
-                "[effect]\nid = \"a.b\"\nname = \"B\"\nkind = \"effect\"\n[ffmpeg]\nchain = \"negate\"\n",
+                "[effect]\nid = \"a.b\"\nname = \"B\"\nkind = \"audio\"\n[ffmpeg]\nchain = \"volume=2\"\n",
                 None,
                 None,
             )
@@ -544,7 +499,7 @@ mod tests {
         };
         catalogue.add(package()).expect("first");
         assert!(catalogue.add(package()).is_err());
-        assert_eq!(catalogue.video_chain(&[applied("a.b", &[])]), "negate");
+        assert_eq!(catalogue.audio_chain(&[applied("a.b", &[])]), "volume=2");
         let _ = BTreeMap::<String, f64>::new();
     }
 
@@ -560,9 +515,9 @@ mod tests {
         folder
     }
 
-    const TINT: &str = "[effect]\nid = \"alice.tint\"\nname = \"Tint\"\nkind = \"effect\"\n\
+    const TINT: &str = "[effect]\nid = \"alice.tint\"\nname = \"Tint\"\nkind = \"audio\"\n\
         [[param]]\nkey = \"hue\"\nlabel = \"Hue\"\nmax = 360\ndefault = 90\n\
-        [ffmpeg]\nchain = \"hue=h={round(hue)}\"\n";
+        [ffmpeg]\nchain = \"volume={round(hue)}\"\n";
 
     #[test]
     fn a_sound_package_checks_clean() {
@@ -572,7 +527,7 @@ mod tests {
                 ("effect.toml", TINT),
                 (
                     "fixtures.toml",
-                    "[[case]]\nname = \"default\"\nchain = \"hue=h=90\"\n[[case]]\nat = \"max\"\nchain = \"hue=h=360\"\n",
+                    "[[case]]\nname = \"default\"\nchain = \"volume=90\"\n[[case]]\nat = \"max\"\nchain = \"volume=360\"\n",
                 ),
             ],
         );
@@ -603,22 +558,22 @@ mod tests {
                 ("effect.toml", &TINT.replace("alice.tint", "carol.pinned")),
                 (
                     "fixtures.toml",
-                    "[[case]]\nname = \"wrong\"\nchain = \"hue=h=0\"\n",
+                    "[[case]]\nname = \"wrong\"\nchain = \"volume=0\"\n",
                 ),
             ],
         );
         let problems = Package::check_folder(&folder, Catalogue::builtin());
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
-            problems[0].contains("wrong") && problems[0].contains("hue=h=90"),
+            problems[0].contains("wrong") && problems[0].contains("volume=90"),
             "{problems:?}"
         );
         let _ = std::fs::remove_dir_all(folder.parent().unwrap());
 
         // The built-ins' author, as an id and as an alias.
         let folder = scratch(
-            "concat.sepia",
-            &[("effect.toml", &TINT.replace("alice.tint", "concat.sepia"))],
+            "concat.echo",
+            &[("effect.toml", &TINT.replace("alice.tint", "concat.echo"))],
         );
         let problems = Package::check_folder(&folder, Catalogue::builtin());
         assert_eq!(problems.len(), 1, "{problems:?}");
@@ -629,14 +584,14 @@ mod tests {
             &[(
                 "effect.toml",
                 &TINT.replace("alice.tint", "frank.alias").replace(
-                    "kind = \"effect\"\n",
-                    "kind = \"effect\"\naliases = [\"concat.sepia\"]\n",
+                    "kind = \"audio\"\n",
+                    "kind = \"audio\"\naliases = [\"concat.echo\"]\n",
                 ),
             )],
         );
         let problems = Package::check_folder(&folder, Catalogue::builtin());
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("concat.sepia"), "{problems:?}");
+        assert!(problems[0].contains("concat.echo"), "{problems:?}");
         let _ = std::fs::remove_dir_all(folder.parent().unwrap());
 
         // An id the catalogue it would join already answers to.
@@ -657,7 +612,7 @@ mod tests {
             &[
                 (
                     "effect.toml",
-                    "[effect]\nid = \"dave.shady\"\nname = \"Shady\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
+                    "format = 2\n[effect]\nid = \"dave.shady\"\nname = \"Shady\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n",
                 ),
                 (
                     "effect.wgsl",
@@ -692,14 +647,14 @@ mod tests {
         // not ticked over.
         std::fs::write(
             folder.join("fixtures.toml"),
-            "[[case]]\nchain = \"hue=h=90\"\n",
+            "[[case]]\nchain = \"volume=90\"\n",
         )
         .expect("write");
         let second = package_stamp(&dir);
         assert_ne!(second, first, "a file was added");
         std::fs::write(
             folder.join("fixtures.toml"),
-            "[[case]]\nchain = \"hue=h=90\"\n\n",
+            "[[case]]\nchain = \"volume=90\"\n\n",
         )
         .expect("write");
         let third = package_stamp(&dir);

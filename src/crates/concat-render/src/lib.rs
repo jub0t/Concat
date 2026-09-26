@@ -20,8 +20,6 @@
 
 pub mod compositor;
 pub mod gpu;
-#[cfg(test)]
-mod kernels;
 pub mod metrics;
 pub mod plan;
 #[cfg(test)]

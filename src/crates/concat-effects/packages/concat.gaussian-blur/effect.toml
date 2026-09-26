@@ -35,3 +35,11 @@ shrink = ["radius / 3", "1"]
 [[wgsl.pass]]
 target = "down"
 shrink = ["if(radius < 6, 64, radius / 3)", "if(radius < 6, 64, radius / 3)"]
+
+# The box blur this stands in for: FFmpeg's boxblur of `radius`, once, is a
+# box `2 radius + 1` wide, whose spread a Gaussian of sigma
+# sqrt(radius (radius + 1) / 3) matches.
+[[replaces]]
+id = "concat.box-blur"
+defaults = { radius = 6 }
+knobs = { radius = "sqrt(radius * (radius + 1) / 3)" }

@@ -841,7 +841,7 @@ fn scrub(media: &Media) -> Vec<Measure> {
 }
 
 /// The plan the compositors are timed on: a 1080p ground, a placed and
-/// turned picture over it through the sepia kernel, and a small one on top.
+/// turned picture over it through a look, and a small one on top.
 fn compose_plan() -> FramePlan {
     let mut plan = FramePlan::empty(1920, 1080);
     plan.layers.push(PlannedLayer::picture(
@@ -860,7 +860,7 @@ fn compose_plan() -> FramePlan {
         ..Transform::default()
     };
     placed.effects = concat_effects::Catalogue::builtin().shader_passes_at(
-        &[AppliedFilter::new("concat.sepia")],
+        &[AppliedFilter::new("concat.vintage")],
         0.0,
         None,
     );
@@ -895,7 +895,7 @@ fn compose_gpu() -> Option<Measure> {
     let plan = compose_plan();
     let millis = time_render(&mut gpu, &plan, 20);
     Some(Measure {
-        name: "compose 1080p, 3 layers, sepia, on the GPU",
+        name: "compose 1080p, 3 layers, a look, on the GPU",
         value: millis,
         unit: "ms",
         budget: Budget::AtMost(25.0),

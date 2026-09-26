@@ -929,6 +929,8 @@ export component VideoPanel inherits VerticalLayout {
     /// it a switch and a name.
     in property <[AppliedEntryData]> applied;
     in property <[AppliedParamData]> params;
+    /// The chain's colour knobs: the key's screen colour among them.
+    in property <[ColourKnobData]> colours;
     /// The custom cutout's brush; see Editor.
     in property <int> brush-tool;
     in property <float> brush-size;
@@ -940,6 +942,7 @@ export component VideoPanel inherits VerticalLayout {
     callback chain-add(id: string);
     callback chain-remove(index: int);
     callback chain-set-param(index: int, key: string, value: float);
+    callback chain-set-colour(index: int, key: string, value: color);
     /// The cutout: its mode (0 off, 1 automatic, 2 custom), and the brush.
     callback cutout-mode(mode: int);
     callback cutout-tool(index: int);
@@ -967,29 +970,27 @@ export component VideoPanel inherits VerticalLayout {
             : root.applied.length > 7 && root.applied[7].id == id ? 7
             : -1;
     }
-    property <int> green: root.keyer-at("concat.green-screen");
-    property <int> blue: root.keyer-at("concat.blue-screen");
-    /// 0 off, 1 green, 2 blue: which chroma package is on.
-    property <int> keyer: root.green >= 0 ? 1 : root.blue >= 0 ? 2 : 0;
-    property <int> keyer-index: root.green >= 0 ? root.green : root.blue;
-    /// The Mode row: 0 off, 1 automatic, 2 custom, 3 green screen, 4 blue
-    /// screen. A keyer on the chain wins, since a cutout under a key would
-    /// be two removals at once.
-    property <int> removal: root.keyer == 1 ? 3 : root.keyer == 2 ? 4 : root.selected.cutout;
+    /// Where the chroma key is on the chain, -1 for nowhere; its screen
+    /// colour is a knob of its own, drawn below as a swatch.
+    property <int> keyer-index: root.keyer-at("concat.chroma-key");
+    /// 0 off, 1 on: whether the chroma key is.
+    property <int> keyer: root.keyer-index >= 0 ? 1 : 0;
+    /// The Mode row: 0 off, 1 automatic, 2 custom, 3 chroma key. A key on
+    /// the chain wins, since a cutout under a key would be two removals at
+    /// once.
+    property <int> removal: root.keyer == 1 ? 3 : root.selected.cutout;
     property <bool> masked: root.removal == 1 || root.removal == 2;
 
     /// Puts one removal on and the others off: 0 none, 1 auto, 2 custom,
-    /// 3 green key, 4 blue key. The keyer comes off the chain before
-    /// anything else goes on, and the cutout is set or cleared to match.
+    /// 3 chroma key. The key comes off the chain before anything else goes
+    /// on, and the cutout is set or cleared to match.
     function remove-by(index: int) {
         if (root.keyer-index >= 0) {
             root.chain-remove(root.keyer-index);
         }
         root.cutout-mode(index == 1 ? 1 : index == 2 ? 2 : 0);
         if (index == 3) {
-            root.chain-add("concat.green-screen");
-        } else if (index == 4) {
-            root.chain-add("concat.blue-screen");
+            root.chain-add("concat.chroma-key");
         }
         root.commit();
     }
@@ -1346,12 +1347,21 @@ export component VideoPanel inherits VerticalLayout {
                 toggled(on) => { root.remove-by(on ? 3 : 0); }
             }
 
-            if root.keyer > 0: Row {
-                label: I18n.t("common.color");
-                Select {
-                    options: [I18n.t("clipInspector.green"), I18n.t("clipInspector.blue")];
-                    current: root.keyer - 1;
-                    changed(index) => { root.remove-by(index + 3); }
+            // The screen's colour: broadcast green to begin with, any
+            // colour at all from the picker.
+            for c in root.colours: Rectangle {
+                visible: root.keyer-index >= 0 && c.entry == root.keyer-index;
+                height: root.keyer-index >= 0 && c.entry == root.keyer-index
+                    ? swatch.preferred-height : 0;
+
+                swatch := ColourField {
+                    label: I18n.t("common.color");
+                    value: c.value;
+                    alpha: false;
+                    changed(colour) => {
+                        root.chain-set-colour(root.keyer-index, c.key, colour);
+                        root.commit();
+                    }
                 }
             }
 

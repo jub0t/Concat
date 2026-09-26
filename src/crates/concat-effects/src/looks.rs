@@ -229,7 +229,7 @@ mod tests {
 
     /// A look an earlier build imported is rewritten onto the format 2 look,
     /// once; a package of the same shape written by hand with anything
-    /// more in it is left as it was.
+    /// more in it is left as it was, and is refused at load.
     #[test]
     fn an_earlier_import_is_rewritten_once() {
         let dir = scratch("upgrade");
@@ -276,10 +276,12 @@ mod tests {
         assert_eq!(package.manifest.effect.name, "Old");
         assert!(package.manifest.ffmpeg.is_none());
         assert!(!dir.join("user.old").join("preview.png").exists());
-        let mine = Package::from_folder(&dir.join("user.mine")).expect("loads");
-        assert!(!mine.manifest.scene_linear(), "a package of someone's own");
+        // A package of someone's own is left as it was - and, a format 1
+        // picture, is no longer drawn.
+        let mine = Package::from_folder(&dir.join("user.mine")).expect_err("format 1");
+        assert!(mine.to_string().contains("format 1"), "{mine}");
         let mut catalogue = Catalogue::new();
-        assert!(catalogue.load_dir(&dir).is_empty());
+        assert_eq!(catalogue.load_dir(&dir).len(), 1, "user.mine alone");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

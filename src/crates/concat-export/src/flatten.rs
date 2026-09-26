@@ -17,7 +17,7 @@ use std::path::Path;
 
 use concat_project::model::{ClipKind as ModelClipKind, KeyProperty, Project, Timeline};
 
-use crate::chains::{audio_filter_chain, video_effect_chain};
+use crate::chains::audio_filter_chain;
 use crate::{ClipKind, ExportClip, ExportKey, TransitionSpec};
 
 /// Flattens one timeline of `project` for the exporter - the active one
@@ -64,7 +64,6 @@ pub fn flatten_timeline_in(
                     fade_out: clip.fade_out,
                     effects: clip.video_effects.clone(),
                     opacity: clip.opacity,
-                    video_filter_chain: video_effect_chain(&clip.video_effects),
                     has_audio: Some(false),
                     ..ExportClip::blank(ClipKind::Layer, clip.start, clip.duration, index)
                 });
@@ -116,7 +115,6 @@ pub fn flatten_timeline_in(
                 stretch_x: clip.stretch_x,
                 stretch_y: clip.stretch_y,
                 opacity: export_base(clip, KeyProperty::Opacity),
-                video_filter_chain: video_effect_chain(&clip.video_effects),
                 // Passed through unconditionally: `resolve_transitions` is
                 // the one adjacency judge (frame/2 tolerance). A fixed
                 // 1/60 s gate here would agree at 30fps and disagree at
@@ -268,7 +266,7 @@ mod tests {
         assert_eq!(clip.media_width, Some(1920));
         assert_eq!(clip.has_audio, Some(true));
         assert_eq!(clip.filter_chain, "");
-        assert_eq!(clip.video_filter_chain, "");
+        assert!(clip.effects.is_empty());
     }
 
     #[test]
@@ -295,26 +293,19 @@ mod tests {
     }
 
     #[test]
-    fn chains_build_from_the_stored_effects() {
+    fn the_stored_effects_ride_along() {
         let (mut editor, _, clip_id) = project_with_clip();
         editor
             .apply(Command::UpdateClip {
                 clip_id,
                 patch: ClipPatch {
-                    video_effects: Some(vec![AppliedFilter::new("sepia")]),
+                    video_effects: Some(vec![AppliedFilter::new("concat.mono")]),
                     ..Default::default()
                 },
             })
             .expect("applies effect");
         let flat = flatten_timeline(editor.project(), None);
-        // The exact string is chains.rs's contract, pinned there; here
-        // only that flattening routes through it.
-        assert!(
-            flat[0].video_filter_chain.contains("color_channel_mixer")
-                || !flat[0].video_filter_chain.is_empty(),
-            "sepia must produce a chain, got {:?}",
-            flat[0].video_filter_chain
-        );
+        assert_eq!(flat[0].effects, vec![AppliedFilter::new("concat.mono")]);
     }
 
     #[test]

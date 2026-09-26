@@ -141,10 +141,8 @@ pub struct ExportClip {
     /// is fitted; absent for none.
     #[serde(default)]
     pub crop: Option<[f64; 4]>,
-    /// The clip's applied effects, as the document holds them. When present
-    /// they take precedence over `video_filter_chain`: the renderer builds
-    /// the chain for its own backend from them, and runs the ones with
-    /// shaders on the GPU.
+    /// The clip's applied effects, as the document holds them: each one's
+    /// shader runs on the GPU. A link no package answers to draws nothing.
     #[serde(default)]
     pub effects: Vec<AppliedFilter>,
     /// The fades to a colour and the wipes transition resolution gives the
@@ -174,10 +172,6 @@ pub struct ExportClip {
     /// requests from a UI that predates it.
     #[serde(default = "unity")]
     pub opacity: f64,
-    /// FFmpeg *video* filter chain from the Effects tab, or empty. Applied at
-    /// decode, after scaling - see `DecodeOptions::filter_chain`.
-    #[serde(default)]
-    pub video_filter_chain: String,
     /// The transition into this clip's cut, when the UI put one there. The
     /// clip before it on the same track is found here, by adjacency - the UI
     /// only says what it wants, never how to overlap decoders.
@@ -259,7 +253,6 @@ impl ExportClip {
             stretch_x: 1.0,
             stretch_y: 1.0,
             opacity: 1.0,
-            video_filter_chain: String::new(),
             transition: None,
             video_fade_in: 0.0,
             media_width: None,
@@ -1075,9 +1068,9 @@ fn ground_layer(ground: Frame) -> PlannedLayer {
 /// The compositor an export draws with: the machine's GPU, or its software
 /// adapter where it has none (see [`WgpuCompositor::new`]). The one error is
 /// a machine with neither, which is said in words a person can act on.
-fn best_compositor() -> Result<(Box<dyn Compositor>, bool), String> {
+fn best_compositor() -> Result<Box<dyn Compositor>, String> {
     WgpuCompositor::new()
-        .map(|gpu| (Box::new(gpu) as Box<dyn Compositor>, true))
+        .map(|gpu| Box::new(gpu) as Box<dyn Compositor>)
         .ok_or_else(|| NO_RENDERER.to_owned())
 }
 
@@ -1110,16 +1103,14 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
-    let (mut compositor, gpu) = best_compositor()?;
+    let mut compositor = best_compositor()?;
     let BuiltTimeline {
         timeline,
         stills,
         decode_sizes,
-        filter_chains,
         tracks,
         treatments,
         transitions,
-        pre_chains,
         geometry,
         shapes,
         ranges,
@@ -1127,7 +1118,7 @@ fn render_picture(
         reveal_maps,
         cutouts,
         highlight: _,
-    } = build_timeline(request, rate, visible, gpu, transitions);
+    } = build_timeline(request, rate, visible, transitions);
 
     let options = EncodeOptions {
         crf: request.crf,
@@ -1183,16 +1174,14 @@ fn render_picture(
                     .get(&layer.clip)
                     .copied()
                     .unwrap_or((request.width, request.height));
-                let chain = filter_chains.get(&layer.clip).map(String::as_str);
-                let pre = pre_chains.get(&layer.clip).map(String::as_str);
                 if let Ok(frame) = sought.frame_at(
                     &layer.media,
                     layer.source_time,
                     decode_width,
                     decode_height,
                     stills.contains(&layer.clip),
-                    chain,
-                    pre,
+                    None,
+                    None,
                     ranges.get(&layer.clip).copied(),
                     // Deep where the frame goes to the GPU as it is: a
                     // cutout cuts eight bits.
@@ -1245,16 +1234,6 @@ fn render_picture(
                         .in_range(ranges.get(&layer.clip).copied())
                         .deep(!cutouts.contains_key(&layer.clip));
 
-                    // Effects and transition fades, as one FFmpeg chain. The
-                    // decoder guards the frame size after it, so an effect
-                    // that resizes cannot shear the pipe.
-                    if let Some(chain) = filter_chains.get(&layer.clip) {
-                        options = options.filtered(chain.clone());
-                    }
-                    if let Some(pre) = pre_chains.get(&layer.clip) {
-                        options = options.prefiltered(pre.clone());
-                    }
-
                     // A still is a one-frame stream. Without looping it would
                     // contribute a single frame and then disappear.
                     if stills.contains(&layer.clip) {
@@ -1303,7 +1282,6 @@ fn render_picture(
             },
             &treatments,
             &transitions,
-            hdr,
         );
         if compositor.lost() {
             return Err("the GPU device was lost part way through the export".to_owned());
@@ -1346,29 +1324,14 @@ fn passes_at(
     Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned())
 }
 
-/// `a` towards `b` by `amount`, per channel.
-fn mix(a: &Frame, b: &Frame, amount: f32) -> Frame {
-    let amount = amount.clamp(0.0, 1.0);
-    let mut out = a.clone();
-    for (pixel, over) in out.pixels_mut().iter_mut().zip(b.pixels().iter()) {
-        let base = f32::from(*pixel);
-        *pixel = (base + (f32::from(*over) - base) * amount).round() as u8;
-    }
-    out
-}
-
 /// Draws `plan` with every treatment live at its instant applied to the
-/// stack beneath its track. A treatment that is shaders alone goes into
-/// the plan, and either compositor applies it where it draws; one that
-/// needs FFmpeg for a package with no shader cannot, so the stack is
-/// drawn up to its track, run through its chain here, blended back by
-/// its strength, and used as the ground for the rest.
+/// stack beneath its track: each goes into the plan, and the compositor
+/// applies it where it draws.
 fn composite_treated(
     compositor: &mut dyn Compositor,
     mut plan: FramePlan,
     treatments: &[Treatment],
     transitions: &[TransitionSpan],
-    hdr: bool,
 ) -> Frame {
     let time = plan.time;
     // A packaged transition live at this instant combines the outgoing stack
@@ -1393,76 +1356,15 @@ fn composite_treated(
         return compositor.render(&plan);
     }
     live.sort_by_key(|treatment| treatment.track);
-    // An HDR file stays on the GPU in its own light: an old package's
-    // FFmpeg chain, which works on eight-bit SDR, is left out of it until
-    // those packages are retired (step 5, slice 8).
-    if hdr || live.iter().all(|treatment| treatment.chain.is_empty()) {
-        plan.treatments = live
-            .iter()
-            .map(|treatment| PlannedTreatment {
-                track: treatment.track,
-                effects: treatment.passes_at(time),
-                strength: treatment.strength_at(time),
-            })
-            .collect();
-        return compositor.render(&plan);
-    }
-
-    let (width, height, output) = (plan.width, plan.height, plan.output);
-    let stage = |layers: Vec<PlannedLayer>| FramePlan {
-        time,
-        width,
-        height,
-        layers,
-        treatments: Vec::new(),
-        output,
-    };
-    let layers = std::mem::take(&mut plan.layers);
-    let mut ground: Option<Frame> = None;
-    let mut next = 0;
-    for treatment in live {
-        let below = {
-            let mut stack: Vec<PlannedLayer> =
-                ground.take().map(ground_layer).into_iter().collect();
-            while next < layers.len() && layers[next].track < treatment.track {
-                stack.push(layers[next].clone());
-                next += 1;
-            }
-            compositor.render(&stage(stack))
-        };
-        let strength = treatment.strength_at(time);
-        let treated = if strength <= 0.0 {
-            below
-        } else {
-            // Shader passes run through the compositor over the ground as a
-            // layer of its own; whatever is left for FFmpeg runs after.
-            let passes = treatment.passes_at(time);
-            let shaded = if passes.is_empty() {
-                below.clone()
-            } else {
-                let mut layer = ground_layer(below.clone());
-                layer.effects = passes;
-                compositor.render(&stage(vec![layer]))
-            };
-            let result = if treatment.chain.is_empty() {
-                Ok(shaded)
-            } else {
-                concat_media::treat(&shaded, &treatment.chain)
-            };
-            match result {
-                Ok(treated) if strength >= 1.0 => treated,
-                Ok(treated) => mix(&below, &treated, strength),
-                // A chain FFmpeg refuses leaves the picture as it was
-                // rather than blanking it; the export says nothing because
-                // the catalogue validated every template at load.
-                Err(_) => below,
-            }
-        };
-        ground = Some(treated);
-    }
-    let mut stack: Vec<PlannedLayer> = ground.map(ground_layer).into_iter().collect();
-    stack.extend(layers.into_iter().skip(next));
-    compositor.render(&stage(stack))
+    plan.treatments = live
+        .iter()
+        .map(|treatment| PlannedTreatment {
+            track: treatment.track,
+            effects: treatment.passes_at(time),
+            strength: treatment.strength_at(time),
+        })
+        .collect();
+    compositor.render(&plan)
 }
 
 /// The two pictures a packaged transition combines: the outgoing stack,
@@ -1583,7 +1485,7 @@ pub fn preview_frame(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
-    let sources = preview_sources(pool, request, true)?;
+    let sources = preview_sources(pool, request)?;
     // The window composites on its own device through `preview_sources`;
     // this is the API's and the command line's frame, on the shared
     // headless compositor.
@@ -1610,17 +1512,12 @@ impl PreviewSources {
 
     /// Whether the frame cannot be drawn from [`PreviewSources::plan`]
     /// alone, and can only be drawn whole through
-    /// [`PreviewSources::composite`]: a live treatment needs FFmpeg for a
-    /// package with no shader, or a live transition is a two-input combine
-    /// a plain `FramePlan` has no way to describe.
+    /// [`PreviewSources::composite`]: a live transition is a two-input
+    /// combine a plain `FramePlan` has no way to describe.
     pub fn needs_cpu(&self) -> bool {
-        self.treatments
+        self.transitions
             .iter()
-            .any(|treatment| treatment.covers(self.plan.time) && !treatment.chain.is_empty())
-            || self
-                .transitions
-                .iter()
-                .any(|span| span.covers(self.plan.time))
+            .any(|span| span.covers(self.plan.time))
     }
 
     /// The instant, in seconds.
@@ -1635,7 +1532,6 @@ impl PreviewSources {
             self.plan.clone(),
             &self.treatments,
             &self.transitions,
-            false,
         )
     }
 
@@ -1686,30 +1582,24 @@ impl PreviewSources {
 pub fn preview_sources(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
-    gpu: bool,
 ) -> Result<PreviewSources, String> {
-    preview_sources_of(pool, &preview_timeline(request, gpu), request.time, false)
+    preview_sources_of(pool, &preview_timeline(request), request.time, false)
 }
 
 /// The pool's request for one planned layer: the source frame at the
-/// level that covers the output, cropped, fitted and run through its
-/// chain on the way out, so the cached picture is the file's and no knob
-/// invalidates it. `proxy` reads the file's stand-in where it has one:
-/// for a picture that is moving, never for the paused monitor.
+/// level that covers the output, so the cached picture is the file's and
+/// no knob invalidates it. `proxy` reads the file's stand-in where it has
+/// one: for a picture that is moving, never for the paused monitor.
 fn frame_request(
     plan: &PreviewPlan,
     layer: &concat_render::PlannedLayer,
     (width, height): (u32, u32),
-    chain: Option<&str>,
-    pre: Option<&str>,
     still: bool,
     proxy: bool,
 ) -> concat_media::FrameRequest {
     concat_media::FrameRequest::new(&layer.media, layer.source_time, width, height)
         .covering(plan.width.max(width), plan.height.max(height))
         .as_still(still)
-        .prefiltered(pre)
-        .filtered(chain)
         .from_proxy(proxy)
         .in_range(plan.built.ranges.get(&layer.clip).copied())
         // The compositor fits the picture into its place, so an untreated
@@ -1732,11 +1622,9 @@ pub fn preview_sources_of(
         timeline,
         stills,
         decode_sizes,
-        filter_chains,
         tracks,
         treatments,
         transitions,
-        pre_chains,
         geometry,
         shapes,
         ranges: _,
@@ -1756,16 +1644,12 @@ pub fn preview_sources_of(
             .get(&layer.clip)
             .copied()
             .unwrap_or((plan.width, plan.height));
-        let chain = filter_chains.get(&layer.clip).map(String::as_str);
-        let pre = pre_chains.get(&layer.clip).map(String::as_str);
         // A source that fails to decode contributes nothing rather than
         // blanking the monitor - same grace the exporter extends.
         match pool.frame(&frame_request(
             plan,
             layer,
             (decode_width, decode_height),
-            chain,
-            pre,
             stills.contains(&layer.clip),
             proxy,
         )) {
@@ -1813,26 +1697,20 @@ pub fn preview_sources_of(
         treatments: Vec::new(),
         output: plan.output,
     };
-    // Every treatment that is shaders alone goes into the plan now, so a
-    // caller drawing the plan itself has them; see
-    // `PreviewSources::needs_cpu` for the one kind that cannot.
-    let live: Vec<&Treatment> = treatments
+    // Every live treatment goes into the plan now, so a caller drawing the
+    // plan itself has them.
+    frame_plan.treatments = treatments
         .iter()
         .filter(|treatment| treatment.covers(time))
+        .map(|treatment| PlannedTreatment {
+            track: treatment.track,
+            effects: treatment.passes_at(time),
+            strength: treatment.strength_at(time),
+        })
         .collect();
-    if live.iter().all(|treatment| treatment.chain.is_empty()) {
-        frame_plan.treatments = live
-            .iter()
-            .map(|treatment| PlannedTreatment {
-                track: treatment.track,
-                effects: treatment.passes_at(time),
-                strength: treatment.strength_at(time),
-            })
-            .collect();
-        frame_plan
-            .treatments
-            .sort_by_key(|treatment| treatment.track);
-    }
+    frame_plan
+        .treatments
+        .sort_by_key(|treatment| treatment.track);
     Ok(PreviewSources {
         plan: frame_plan,
         treatments: treatments.clone(),
@@ -1864,7 +1742,6 @@ pub fn preview_plan(
     rate_num: i64,
     rate_den: i64,
     color_space: ColorSpace,
-    gpu: bool,
 ) -> PreviewPlan {
     let rate = FrameRate::new(Rational::new(rate_num, rate_den));
     let mut resolved = clips.to_vec();
@@ -1894,7 +1771,7 @@ pub fn preview_plan(
         clips: Vec::new(),
     };
     PreviewPlan {
-        built: build_timeline(&shim, rate, &visible, gpu, transitions),
+        built: build_timeline(&shim, rate, &visible, transitions),
         rate,
         width,
         height,
@@ -1903,7 +1780,7 @@ pub fn preview_plan(
 }
 
 /// The plan a request describes; see [`preview_plan`].
-fn preview_timeline(request: &PreviewFrameRequest, gpu: bool) -> PreviewPlan {
+fn preview_timeline(request: &PreviewFrameRequest) -> PreviewPlan {
     preview_plan(
         &request.clips,
         request.width,
@@ -1911,7 +1788,6 @@ fn preview_timeline(request: &PreviewFrameRequest, gpu: bool) -> PreviewPlan {
         request.rate_num,
         request.rate_den,
         request.color_space,
-        gpu,
     )
 }
 
@@ -1930,9 +1806,8 @@ pub fn preview_prefetch(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
     frames: u32,
-    gpu: bool,
 ) {
-    preview_prefetch_of(pool, &preview_timeline(request, gpu), request.time, frames);
+    preview_prefetch_of(pool, &preview_timeline(request), request.time, frames);
 }
 
 /// [`preview_prefetch`] from a plan already built: every frame of the
@@ -1965,8 +1840,6 @@ pub fn preview_moments(
         timeline,
         stills,
         decode_sizes,
-        filter_chains,
-        pre_chains,
         ..
     } = &plan.built;
     let fps = rate.fps().as_f64();
@@ -1984,15 +1857,7 @@ pub fn preview_moments(
                             .get(&layer.clip)
                             .copied()
                             .unwrap_or((plan.width, plan.height));
-                        frame_request(
-                            plan,
-                            layer,
-                            size,
-                            filter_chains.get(&layer.clip).map(String::as_str),
-                            pre_chains.get(&layer.clip).map(String::as_str),
-                            stills.contains(&layer.clip),
-                            proxy,
-                        )
+                        frame_request(plan, layer, size, stills.contains(&layer.clip), proxy)
                     })
                     .collect(),
             }
@@ -2002,74 +1867,6 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
-    /// Every built-in package's FFmpeg chain builds a filter graph.
-    ///
-    /// A package's fixtures compare its chain as *text*, so a chain FFmpeg
-    /// cannot parse passes them for as long as the fixture is wrong in the
-    /// same way - which is what had happened to the two colour keys, where
-    /// `color=0x00FF00:similarity=` was written `color=0x00FF00ty=`: the
-    /// fixtures agreed with the template, and nothing asked FFmpeg until a
-    /// frame was rendered and the whole preview failed. This asks it, for
-    /// every package at its defaults.
-    ///
-    /// Video kinds only, and only the chains that fit a clip's slot in the
-    /// graph: a chain with pads of its own (`split[a][b];...`) is refused
-    /// by `validate_chain` by design and is carried by a shader pass
-    /// instead.
-    #[test]
-    fn every_package_chain_builds_a_filter_graph() {
-        use concat_effects::manifest::Kind;
-        use concat_project::model::AppliedFilter;
-
-        let path =
-            std::env::temp_dir().join(format!("concat-chain-test-{}.mp4", std::process::id()));
-        let mut encoder =
-            Encoder::create(&path, 64, 64, FrameRate::THIRTY, &EncodeOptions::default())
-                .expect("encodes");
-        let mut frame = Frame::black(64, 64);
-        frame.fill([40, 160, 90, 255]);
-        for _ in 0..4 {
-            encoder.write_frame(&frame).expect("writes");
-        }
-        encoder.finish().expect("finishes");
-
-        let catalogue = Catalogue::builtin();
-        let mut failures: Vec<String> = Vec::new();
-        for package in catalogue.packages() {
-            let kind = package.kind();
-            if kind != Kind::Effect && kind != Kind::Filter {
-                continue;
-            }
-            let applied = [AppliedFilter::new(&package.manifest.effect.id)];
-            let chain = catalogue.video_chain(&applied);
-            if chain.is_empty() || chain.contains('[') || chain.contains(';') {
-                continue;
-            }
-            let decoded = Decoder::open(
-                &path,
-                &DecodeOptions::default().scaled_to(64, 64).filtered(&chain),
-            )
-            .and_then(|mut decoder| decoder.next_frame());
-            match decoded {
-                Ok(Some(_)) => {}
-                Ok(None) => failures.push(format!(
-                    "{}: no frame from {chain}",
-                    package.manifest.effect.id
-                )),
-                Err(error) => failures.push(format!(
-                    "{}: {error} from {chain}",
-                    package.manifest.effect.id
-                )),
-            }
-        }
-        let _ = std::fs::remove_file(&path);
-        assert!(
-            failures.is_empty(),
-            "chains that do not build:\n{}",
-            failures.join("\n")
-        );
-    }
-
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]
@@ -2108,12 +1905,11 @@ mod tests {
                 output: concat_core::frame::Signal::Sdr,
             }
         };
-        let negate = Treatment {
+        let mono = Treatment {
             start: Rational::ZERO,
             end: Rational::from_int(10),
             track: 1,
-            chain: "negate".to_owned(),
-            effects: Vec::new(),
+            effects: vec![AppliedFilter::new("concat.mono")],
             strength: 1.0,
             ramp_in: 0.0,
             ramp_out: 0.0,
@@ -2124,40 +1920,32 @@ mod tests {
         let out = composite_treated(
             &mut compositor,
             stack(Rational::from_int(1)),
-            std::slice::from_ref(&negate),
+            std::slice::from_ref(&mono),
             &[],
-            false,
         );
-        // Red negated is cyan where nothing sits on top...
-        let at = |x: usize, y: usize| &out.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
-        assert_eq!(at(7, 7), &[0, 255, 255]);
+        // Red through Mono is grey where nothing sits on top...
+        let grey = at_of(&out, 7, 7);
+        assert!(
+            grey[0].abs_diff(grey[1]) <= 3 && grey[1].abs_diff(grey[2]) <= 3 && grey[0] < 200,
+            "{grey:?}"
+        );
         // ...and the blue square above the treatment is untouched.
-        assert_eq!(at(0, 0), &[0, 0, 255]);
+        assert_eq!(at_of(&out, 0, 0), [0, 0, 255]);
 
-        // At half strength the ground is halfway between red and cyan.
+        // At half strength the ground is between red and that grey.
         let half = Treatment {
             strength: 0.5,
-            ..negate.clone()
+            ..mono.clone()
         };
-        let out = composite_treated(
-            &mut compositor,
-            stack(Rational::from_int(1)),
-            &[half],
-            &[],
-            false,
+        let out = composite_treated(&mut compositor, stack(Rational::from_int(1)), &[half], &[]);
+        let pixel = at_of(&out, 7, 7);
+        assert!(
+            pixel[0] > pixel[1] + 60 && pixel[1] > grey[1] / 4 && pixel[0] < 255,
+            "{pixel:?}"
         );
-        let pixel = &out.pixels()[(7 * 8 + 7) * 4..(7 * 8 + 7) * 4 + 3];
-        assert!(pixel[0] > 120 && pixel[0] < 136, "{pixel:?}");
-        assert!(pixel[1] > 120 && pixel[1] < 136, "{pixel:?}");
 
         // Outside its span the treatment does nothing.
-        let out = composite_treated(
-            &mut compositor,
-            stack(Rational::from_int(20)),
-            &[negate],
-            &[],
-            false,
-        );
+        let out = composite_treated(&mut compositor, stack(Rational::from_int(20)), &[mono], &[]);
         assert_eq!(at_of(&out, 7, 7), [255, 0, 0]);
         fn at_of(frame: &Frame, x: usize, y: usize) -> [u8; 3] {
             let p = &frame.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -2427,14 +2215,14 @@ mod tests {
             &bytes[centre..centre + 4],
         );
 
-        // A clip with an effect chain: the paused monitor must show the
-        // processed pixels, not the raw decode. Negating red footage has to
-        // come back cyan-ish.
+        // A clip with an effect: the paused monitor must show the treated
+        // pixels, not the raw decode. Red footage through Mono comes back
+        // grey.
         let mut effected = clip("video", 0, 0.0, 1.0, 0.0);
         effected.path = path.to_string_lossy().into_owned();
         effected.media_width = Some(64);
         effected.media_height = Some(64);
-        effected.video_filter_chain = "negate".to_owned();
+        effected.effects = vec![AppliedFilter::new("concat.mono")];
         let filtered = PreviewFrameRequest {
             time: 0.5,
             width: 64,
@@ -2444,10 +2232,10 @@ mod tests {
             clips: vec![effected],
             color_space: concat_project::model::ColorSpace::Sdr,
         };
-        let bytes = preview_frame(&pool, &filtered).expect("previews with a chain");
+        let bytes = preview_frame(&pool, &filtered).expect("previews with an effect");
         assert!(
-            bytes[centre] < 90 && bytes[centre + 1] > 120,
-            "the chain must be baked into the paused frame, got {:?}",
+            bytes[centre] < 200 && bytes[centre].abs_diff(bytes[centre + 1]) < 16,
+            "the effect must be drawn into the paused frame, got {:?}",
             &bytes[centre..centre + 4],
         );
 
@@ -2781,21 +2569,19 @@ mod tests {
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("video", 0, 2.0, 2.0, 0.0),
         ];
-        clips[1].video_filter_chain = "hue=s=0".to_owned();
+        clips[1].effects = vec![AppliedFilter::new("concat.mono")];
         clips[1].transition = spec("fade-black", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         // The fade is the plan's, drawn over the treated picture; the
-        // decoder's chain is the effects alone.
-        assert_eq!(resolve::full_chain(&clips[1], false), "hue=s=0");
+        // clip's effects are as they were.
+        assert_eq!(clips[1].effects, vec![AppliedFilter::new("concat.mono")]);
         assert_eq!(clips[1].transition_shapes.len(), 1);
     }
 
-    /// The crop and flips go to the frame plan when nothing in the chain
-    /// comes after them, and stay first in the decoder's filters when
-    /// something does: an FFmpeg effect must see the picture as it is
-    /// seen.
+    /// The crop and flips are the frame plan's, drawn before the clip's
+    /// effects run over the picture; a clip with neither plans none.
     #[test]
-    fn geometry_goes_to_the_plan_unless_the_chain_runs_after_it() {
+    fn geometry_goes_to_the_plan() {
         let mut clips = [
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("video", 0, 2.0, 2.0, 0.0),
@@ -2803,18 +2589,15 @@ mod tests {
         clips[0].flip_h = true;
         clips[0].crop = Some([0.25, 0.0, 0.0, 0.5]);
         clips[1].flip_v = true;
-        let planned = resolve::planned_geometry(&clips[0], true).expect("planned");
+        clips[1].effects = vec![AppliedFilter::new("concat.mono")];
+        let planned = resolve::planned_geometry(&clips[0]).expect("planned");
         assert!(planned.flip_h && !planned.flip_v);
         assert_eq!(planned.crop, concat_render::Crop::of([0.25, 0.0, 0.0, 0.5]));
-        assert_eq!(resolve::full_chain(&clips[0], true), "");
-
-        clips[1].video_filter_chain = "hue=s=0".to_owned();
-        assert_eq!(resolve::planned_geometry(&clips[1], true), None);
-        let chain = resolve::full_chain(&clips[1], true);
-        assert!(chain.starts_with("vflip,"), "was: {chain}");
+        let planned = resolve::planned_geometry(&clips[1]).expect("planned, effects or not");
+        assert!(planned.flip_v);
 
         let untouched = clip("video", 0, 0.0, 2.0, 0.0);
-        assert_eq!(resolve::planned_geometry(&untouched, true), None);
+        assert_eq!(resolve::planned_geometry(&untouched), None);
     }
 
     #[test]
@@ -2850,6 +2633,6 @@ mod tests {
         clips[1].transition = spec("spiral", 1.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 2.0);
-        assert!(clips[1].video_filter_chain.is_empty());
+        assert!(clips[1].transition_shapes.is_empty());
     }
 }

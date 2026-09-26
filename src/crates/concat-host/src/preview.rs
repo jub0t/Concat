@@ -61,7 +61,6 @@ struct PlanEntry {
     height: u32,
     rate: (i64, i64),
     color_space: ColorSpace,
-    gpu: bool,
     plan: Arc<concat_export::PreviewPlan>,
 }
 
@@ -162,7 +161,7 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<concat_export::PreviewSources, String> {
-        let plan = self.plan_for(clips, settings, spec, true);
+        let plan = self.plan_for(clips, settings, spec);
         concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)
     }
 
@@ -248,7 +247,6 @@ impl Monitor {
         clips: Arc<Vec<ExportClip>>,
         settings: &DocumentSettings,
         spec: FrameSpec,
-        gpu: bool,
     ) -> Arc<concat_export::PreviewPlan> {
         let rate = (settings.rate_num, settings.rate_den);
         let mut slot = self
@@ -260,7 +258,6 @@ impl Monitor {
             && entry.height == spec.height
             && entry.rate == rate
             && entry.color_space == spec.color_space
-            && entry.gpu == gpu
             && (Arc::ptr_eq(&entry.clips, &clips) || *entry.clips == *clips)
         {
             return Arc::clone(&entry.plan);
@@ -272,7 +269,6 @@ impl Monitor {
             rate.0,
             rate.1,
             spec.color_space,
-            gpu,
         ));
         *slot = Some(PlanEntry {
             clips,
@@ -280,7 +276,6 @@ impl Monitor {
             height: spec.height,
             rate,
             color_space: spec.color_space,
-            gpu,
             plan: Arc::clone(&plan),
         });
         plan
@@ -294,7 +289,7 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
-        let plan = self.plan_for(clips, settings, spec, true);
+        let plan = self.plan_for(clips, settings, spec);
         let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)?;
         sources.pixels()
     }
@@ -312,7 +307,7 @@ impl Monitor {
         spec: FrameSpec,
         frames: u32,
     ) {
-        let plan = self.plan_for(clips, settings, spec, self.has_gpu());
+        let plan = self.plan_for(clips, settings, spec);
         let moments = concat_export::preview_moments(&plan, spec.time, frames.min(8), spec.moving);
         let fps = (settings.rate_num as f64 / settings.rate_den.max(1) as f64).max(1.0);
         crate::scheduler().advance(

@@ -77,8 +77,6 @@ enum Drawing {
     Title(ShaderPass),
     /// A cut from the still to its turned copy.
     Cut(TransitionPass),
-    /// The still through an FFmpeg chain.
-    Chain(String),
 }
 
 /// One package's card: where it is kept, and what it draws.
@@ -95,8 +93,7 @@ pub struct Card {
 
 impl Card {
     /// The card `package` has, kept under `dir`, or None for a package
-    /// with nothing to draw: a sound, or a package with neither a shader
-    /// nor a chain.
+    /// with nothing to draw: a sound, or a package with no shader.
     pub fn of(catalogue: &Catalogue, package: &Package, dir: &Path) -> Option<Card> {
         if !package.kind().is_visual() {
             return None;
@@ -111,7 +108,8 @@ impl Card {
                 &settings.params,
                 settings.progress.unwrap_or(f64::from(CUT_AT)),
             )?)
-        } else if let Some(pass) = package.pass(&set, None) {
+        } else {
+            let pass = package.pass(&set, None)?;
             if package.category().eq_ignore_ascii_case("Text") {
                 Drawing::Title(pass)
             } else {
@@ -120,8 +118,6 @@ impl Card {
                     screen: settings.screen_rgb(),
                 }
             }
-        } else {
-            Drawing::Chain(package.ffmpeg_fragment(&set, 0).ok().flatten()?)
         };
         let name = format!(
             "{}-{:016x}.jpg",
@@ -225,10 +221,6 @@ fn fingerprint(drawing: &Drawing, moment: f64) -> u64 {
             feed(&cut.progress.to_le_bytes());
             feed(&cut.lut.as_ref().map_or(0, |lut| lut.id).to_le_bytes());
         }
-        Drawing::Chain(chain) => {
-            feed(b"chain");
-            feed(chain.as_bytes());
-        }
     }
     hash
 }
@@ -327,9 +319,6 @@ impl Painter {
                     cut,
                 )
                 .ok_or("the transition's shader would not run")?,
-            Drawing::Chain(chain) => {
-                concat_media::treat(&self.still, chain).map_err(|error| error.to_string())?
-            }
         };
         if self.compositor.lost() {
             return Err("the GPU device was lost".to_owned());

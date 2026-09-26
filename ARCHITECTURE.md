@@ -21,7 +21,7 @@ graph BT
     project["concat-project<br/>the document: model, commands, undo, serde"]
     media["concat-media<br/>FFmpeg: probe, decode, encode, pool, prefetch, hardware"]
     effects["concat-effects<br/>packages: manifest + WGSL, catalogue, budgets"]
-    render["concat-render<br/>FramePlan, CPU and GPU compositors, kernels, SSIM"]
+    render["concat-render<br/>FramePlan, the GPU compositor, scopes, SSIM"]
     vision["concat-vision<br/>cutout masks, brushes"]
     text["concat-text<br/>title rasteriser"]
     export["concat-export<br/>document to engine timeline; render loop; preview"]
@@ -119,44 +119,45 @@ flowchart LR
   on Rec. 2020 - HLG for a 1000-nit display, or PQ - as sixteen-bit
   integers, read back as RGBA64 and written by `Encoder::create_hdr`: HEVC
   or AV1 in ten bits, BT.2020 tags, and for PQ the mastering display and
-  the MaxCLL and MaxFALL measured as it is written. A clip with an FFmpeg
-  chain or a cutout keeps the eight-bit tone map in the decoder, and an HDR
-  export leaves an old package's FFmpeg chain out.
+  the MaxCLL and MaxFALL measured as it is written. A clip with a cutout
+  keeps the eight-bit tone map in the decoder.
 - The scopes (`concat-render/src/scopes.rs`) count the monitor's canvas in
   a compute pass as it is drawn (`WgpuCompositor::render_texture_scoped`),
   its light before anything is clipped: the display level on an SDR
   timeline, nits on PQ's scale on an HDR one. The counts come back without
   the window waiting (`take_scope`, polled), are drawn on the CPU, and are
   shown in the Scopes pane (`concat/ui/workspace/scopes-pane.slint`).
-  Effect packages written for
-  gamma-encoded `0..1` see that through the prelude's `legacy_in` and
-  `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects
-  replace them.
 - **One compositor.** The GPU one draws every frame, the monitor's and the
   export's; a machine without a GPU runs it on the platform's software
   adapter (WARP on Windows, lavapipe on Linux), and a machine with neither
   is told so. The CPU compositor that was the reference is kept in the tests
   alone (`concat-render/src/reference.rs`), the oracle the parity suite
-  (`concat-render/src/gpu/tests.rs`) holds the GPU to at a structural
-  similarity above 0.99, blending in light as the GPU does. Geometry (crop, fit, centre, scale, turn) and
+  (`concat-render/src/gpu/tests.rs`) holds the GPU's geometry, masks,
+  transitions and blending to at a structural similarity above 0.99,
+  blending in light as the GPU does; effects are the GPU's alone, held to
+  their packages' probes. Geometry (crop, fit, centre, scale, turn) and
   weighing (fades folded into a scale and offset, wipes into edges, mask,
   opacity) are computed once in the plan.
 
-The export and the monitor fill a clip's crop and flips into the plan
-(`resolve::planned_geometry`) whenever nothing in its FFmpeg chain runs after
-them; the decoder then delivers the whole picture, at the scale that fits the
-part the crop keeps. A clip whose chain does run after them - an FFmpeg-chain
-effect - keeps its crop and flips in the decoder's chain until the effects
-are GPU-only. The fades to a colour and the wipes are `TransitionShape`s on
+The export and the monitor put a clip's crop and flips into the plan
+(`resolve::planned_geometry`); the decoder delivers the whole picture, at the
+scale that fits the part the crop keeps, and the clip's effects run over the
+picture as it is cropped and flipped. The fades to a colour and the wipes are
+`TransitionShape`s on
 the clip, turned into the plan's `transitions` at each instant from the
 clip's own time, so the monitor draws them exactly as the export does.
 
 ## 3. Effects
 
 An effect is a folder under `concat-effects/packages/`: a manifest
-(`effect.toml`) naming its knobs, a WGSL shader (`effect.wgsl`) declaring a
-`Params` struct and `fn effect(uv)`, and an FFmpeg chain template for audio
-and for the CPU path's history.
+(`effect.toml`, `format = 2`) naming its knobs, and a WGSL shader
+(`effect.wgsl`) declaring a `Params` struct and `fn effect(uv)`, drawn on the
+GPU in light. A sound filter is an FFmpeg chain template instead. The
+picture packages written for format 1 - the gamma-encoded contract, and
+chains run on the CPU - were ported or retired (phase 2, step 5); a
+project's link to a retired one opens as the package that stands in for it
+where one does (`[[replaces]]`, `Editor::upgrade_links`), and otherwise
+stays in its clip, not installed, named in a notice as the project opens.
 
 ```mermaid
 flowchart TD
@@ -164,12 +165,10 @@ flowchart TD
     cat["Catalogue<br/>(concat-effects::catalogue)<br/>parsed, validated, kept"]
     pass["ShaderPass<br/>package id, compiled source,<br/>params bytes laid out to the struct,<br/>values by key, intensity, LUT,<br/>stages before the last"]
     gpu["GPU: the shader runs<br/>params as a uniform buffer"]
-    cpu["CPU: kernels.rs<br/>a kernel per known package,<br/>else untreated, said once"]
 
     pkg --> cat
     cat -- "shader_passes_at(effects, t)" --> pass
     pass --> gpu
-    pass --> cpu
 ```
 
 At load, `concat-effects/src/shader.rs` stitches the host's prelude round the
@@ -389,7 +388,7 @@ time to present a token.
 | what an edit does | `concat-project/src/commands/` |
 | the file format | `concat-project/src/doc.rs` |
 | how a frame is planned | `concat-render/src/plan.rs` |
-| how it is drawn | `concat-render/src/compositor.rs`, `gpu.rs`, `kernels.rs` |
+| how it is drawn | `concat-render/src/compositor.rs`, `gpu.rs`, `scopes.rs` |
 | an effect | `concat-effects/packages/<id>/` |
 | decoding, the cache | `concat-media/src/decode.rs`, `pool.rs`, `prefetch.rs`, `hardware.rs` |
 | the export loop | `concat-export/src/lib.rs` (`render_picture`), `resolve.rs` |
@@ -403,8 +402,6 @@ time to present a token.
 ## 10. Known gaps
 
 - The gestures and the stage still live on the controller.
-- The crop and flips of a clip with an FFmpeg-chain effect still reach the
-  compositor baked into the decoder's chain, not through the plan (see §2).
 - `ExportClip` remains the CLI and API wire type and the title rasteriser's
   output.
 - The GPU compositor's layer pool is also its source-texture cache: a frame

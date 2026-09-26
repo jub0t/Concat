@@ -65,8 +65,9 @@ fn plan(width: u32, height: u32, layers: Vec<PlannedLayer>) -> FramePlan {
     }
 }
 
-/// A real package's pass: `id` with `body` as its shader and `params` as
-/// the manifest's parameter table, resolved to `values`.
+/// A package's pass: `id` with `body` as its shader and `params` as the
+/// manifest's parameter table, resolved to `values`, drawn on the display
+/// level - the picture a look written by eye reads.
 fn package(
     id: &str,
     body: &str,
@@ -75,7 +76,7 @@ fn package(
     intensity: f32,
 ) -> ShaderPass {
     let manifest = concat_effects::Manifest::parse(&format!(
-        "[effect]\nid = \"{id}\"\nname = \"Test\"\nkind = \"effect\"\n{params}\n[wgsl]\nentry = \"effect.wgsl\"\n"
+        "format = 2\n[effect]\nid = \"{id}\"\nname = \"Test\"\nkind = \"effect\"\n{params}\n[wgsl]\nentry = \"effect.wgsl\"\nspace = \"display\"\n"
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
@@ -143,7 +144,8 @@ fn plain_layers_match_the_cpu_reference_to_the_pixel() {
 }
 
 /// A pass runs over the layer before it is placed: an invert shader
-/// over a red frame composites cyan, and at half intensity the mix.
+/// over a red frame composites cyan, and at half intensity the mix, in
+/// light - half of each channel, which BT.1886's 2.4 gamma stores at 191.
 #[test]
 fn a_pass_treats_the_layer_before_it_is_placed() {
     let Some(mut gpu) = gpu() else { return };
@@ -157,7 +159,7 @@ fn a_pass_treats_the_layer_before_it_is_placed() {
     let out = gpu.render(&plan(4, 4, vec![half]));
     let p = &out.pixels()[..3];
     assert!(
-        p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
+        p.iter().all(|channel| (189..=193).contains(channel)),
         "{p:?}"
     );
 }
@@ -218,19 +220,12 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
         p.iter().all(|channel| (189..=193).contains(channel)),
         "{p:?}"
     );
-    // The CPU reference agrees on the whole picture.
-    assert_parity("treatment", &treated(0.5), 0.99);
 }
 
-/// The parity suite: one plan per thing a frame can ask for, drawn by
-/// both compositors, alike by SSIM.
+/// The parity suite: one plan per thing a frame is made of besides its
+/// effects, drawn by both compositors, alike by SSIM.
 #[test]
 fn every_kind_of_layer_matches_the_cpu_reference() {
-    let sepia = include_str!("../../../concat-effects/packages/concat.sepia/effect.wgsl");
-    let blur = include_str!("../../../concat-effects/packages/concat.box-blur/effect.wgsl");
-    let radius =
-        "[[param]]\nkey = \"radius\"\nlabel = \"Radius\"\nmin = 0\nmax = 20\ndefault = 4\n";
-
     assert_parity("plain", &plan(64, 48, vec![layer(gradient(64, 48))]), 0.999);
 
     // Fitted: a wide picture inside a square, letterboxed.
@@ -314,50 +309,6 @@ fn every_kind_of_layer_matches_the_cpu_reference() {
         },
     ];
     assert_parity("faded and wiped", &plan(64, 48, vec![cut]), 0.99);
-
-    let mut toned = layer(gradient(64, 48));
-    toned.effects = vec![package("concat.sepia", sepia, "", &[], 1.0)];
-    assert_parity("sepia kernel", &plan(64, 48, vec![toned]), 0.99);
-
-    let mut keyed = layer(gradient(64, 48));
-    keyed.effects = vec![package("concat.sepia", sepia, "", &[], 0.4)];
-    assert_parity(
-        "sepia at a keyed intensity",
-        &plan(64, 48, vec![keyed]),
-        0.99,
-    );
-
-    // A blur over a cropped, flipped picture: the effects have to see it
-    // made first, on both sides.
-    let mut prepared = layer(gradient(64, 48));
-    prepared.crop = Crop::of([0.1, 0.0, 0.1, 0.2]);
-    prepared.flip_h = true;
-    prepared.effects = vec![package(
-        "concat.box-blur",
-        blur,
-        radius,
-        &[("radius", 3.0)],
-        1.0,
-    )];
-    assert_parity(
-        "blur over a made picture",
-        &plan(80, 60, vec![prepared]),
-        0.98,
-    );
-
-    let mut under = layer(gradient(64, 48));
-    under.track = 0;
-    let mut over = layer(solid(16, 16, [0, 0, 255, 255]));
-    over.track = 2;
-    let treated = FramePlan {
-        treatments: vec![PlannedTreatment {
-            track: 1,
-            effects: vec![package("concat.sepia", sepia, "", &[], 1.0)],
-            strength: 0.6,
-        }],
-        ..plan(64, 48, vec![under, over])
-    };
-    assert_parity("treated stack", &treated, 0.99);
 }
 
 /// What cannot be drawn is not drawn, the same way on both sides: a
@@ -476,7 +427,7 @@ fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
 fn a_transition_combines_its_two_inputs_by_progress() {
     let Some(mut gpu) = gpu() else { return };
     let manifest = concat_effects::Manifest::parse(
-        "[effect]\nid = \"test.dissolve\"\nname = \"Dissolve\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n",
+        "format = 2\n[effect]\nid = \"test.dissolve\"\nname = \"Dissolve\"\nkind = \"transition\"\n[transition]\nentry = \"effect.wgsl\"\n",
     )
     .expect("a manifest");
     let shader = concat_effects::TransitionShader::compile(
@@ -494,15 +445,14 @@ fn a_transition_combines_its_two_inputs_by_progress() {
     };
     assert_eq!(&at(0.0).pixels()[..3], &[255, 0, 0], "all outgoing at 0");
     assert_eq!(&at(1.0).pixels()[..3], &[0, 0, 255], "all incoming at 1");
-    // The package mixes in the gamma it was written for (the legacy
-    // wrapper), so its half is the half of the stored levels, give or take
-    // the level the round trip through linear light can round to.
+    // The package mixes in light, so its half is half of each light,
+    // which BT.1886's 2.4 gamma stores at 191.
     let half = at(0.5);
     assert!(
         half.pixels()[..3]
             .iter()
-            .zip([128u8, 0, 128])
-            .all(|(got, want)| got.abs_diff(want) <= 1),
+            .zip([191u8, 0, 191])
+            .all(|(got, want)| got.abs_diff(want) <= 2),
         "the half mix: {:?}",
         &half.pixels()[..3]
     );
@@ -1165,8 +1115,7 @@ fn every_package_probe_holds() {
 
 /// A format 2 stack hands its light on unclipped: four times the light and
 /// a quarter of it again is the picture it was, a highlight far above
-/// white in between. The same stack in format 1 is clipped to white at the
-/// second pass, as those packages always were.
+/// white in between.
 #[test]
 fn a_scene_linear_stack_keeps_the_light_above_white() {
     let Some(mut gpu) = gpu() else { return };
@@ -1181,13 +1130,6 @@ fn a_scene_linear_stack_keeps_the_light_above_white() {
     assert!(near(between, [2.8, 1.4, 0.4, 1.0], 0.004), "{between:?}");
     let got = gpu.probe(&linear, colour, 8, 0.0).expect("reads back");
     assert!(near(got, colour, 0.004), "there and back gave {got:?}");
-
-    let legacy = [
-        package("test.up", UP, "", &[], 1.0),
-        package("test.down", DOWN, "", &[], 1.0),
-    ];
-    let clipped = gpu.probe(&legacy, colour, 8, 0.0).expect("reads back");
-    assert!(clipped[0] < 0.1, "format 1 clips at white: {clipped:?}");
 }
 
 /// `to_log` puts middle grey, SDR white and black where ACEScct does, and
