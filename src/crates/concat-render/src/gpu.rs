@@ -512,6 +512,14 @@ impl WgpuCompositor {
         Some(Self::with_device(device, queue))
     }
 
+    /// A second compositor on this one's device, with pipelines, pools and
+    /// caches of its own: work on another thread - the effect cards -
+    /// shares the GPU's time with this one and nothing else, so it never
+    /// waits on this one's lock or evicts what this one keeps.
+    pub fn sibling(&self) -> Self {
+        Self::with_device(self.device.clone(), self.queue.clone())
+    }
+
     /// Builds a compositor on a device the caller owns - the window's, so a
     /// texture this draws is one the window can show.
     pub fn with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {

@@ -150,3 +150,7 @@ unit = "%"
 [wgsl]
 entry = "effect.wgsl"
 space = "display"
+
+# At its defaults the panel changes nothing; the card shows it at work.
+[card]
+params = { contrast = 30, saturation = 30 }

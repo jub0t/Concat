@@ -21,3 +21,7 @@ animate = true
 
 [wgsl]
 entry = "effect.wgsl"
+
+# At its default the picture is as shot; the card shows a stop up.
+[card]
+params = { stops = 1 }

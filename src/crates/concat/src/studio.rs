@@ -36,7 +36,7 @@ use concat_host::{
     AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
     templates,
 };
-use concat_media::{DecodeOptions, Decoder, FrameSource, Pyramid, jpeg};
+use concat_media::{Pyramid, jpeg};
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
@@ -807,11 +807,22 @@ pub struct Studio {
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
     shelf_stamp: std::cell::RefCell<Option<ShelfStamp>>,
-    /// The card stills of the user's own looks, by package id, loaded once
-    /// from the package folder's `preview.png` and kept: the shelves are
-    /// rebuilt on every publish and a picture read from disk each time
-    /// would be the slowest thing in the window.
+    /// Every card still on the shelves, by package id, loaded once - an
+    /// author's own `preview.png`, else the card drawn for the package -
+    /// and kept: the shelves are rebuilt on every publish and a picture
+    /// read from disk each time would be the slowest thing in the window.
+    /// A card not drawn yet is kept as no picture until it arrives.
     look_art: std::cell::RefCell<HashMap<String, slint::Image>>,
+    /// Where each picture package's card is kept, by package id; see
+    /// `concat_host::cards`. Planned whenever the catalogue loads.
+    card_paths: HashMap<String, std::path::PathBuf>,
+    /// How many cards have arrived since the window opened: part of the
+    /// shelf stamp, so a card that lands rebuilds the shelves.
+    cards_drawn: u64,
+    /// Whether cards are being drawn, and whether the catalogue changed
+    /// while they were, which makes for another round when this one ends.
+    cards_busy: bool,
+    cards_again: bool,
     /// The watch on the user's effects folder: a poll every couple of
     /// seconds of what is in it, cheaper than a file-system watcher and
     /// one dependency fewer, at a cost nobody will notice.
@@ -932,6 +943,7 @@ fn shelves(
     view: &LibraryView,
     favourites: &[String],
     look_art: &std::cell::RefCell<HashMap<String, slint::Image>>,
+    card_paths: &HashMap<String, std::path::PathBuf>,
 ) -> (Vec<SharedString>, Vec<CatalogueEntryData>) {
     let mut groups: Vec<String> = Vec::new();
     let mut entries = Vec::new();
@@ -980,21 +992,25 @@ fn shelves(
         if !shown {
             continue;
         }
-        // A user's look brings its own still, read once from its folder;
-        // a built-in's is compiled into the window and looked up by id there.
-        let art = match &package.folder {
-            Some(folder) => look_art
-                .borrow_mut()
-                .entry(meta.id.clone())
-                .or_insert_with(|| {
-                    // The author's own still, or the one rendered for them.
-                    slint::Image::load_from_path(&folder.join("preview.png"))
-                        .or_else(|_| slint::Image::load_from_path(&folder.join("preview.jpg")))
-                        .unwrap_or_default()
-                })
-                .clone(),
-            None => slint::Image::default(),
-        };
+        // An author's own still from the package's folder, else the card
+        // drawn for the package by its own shader; read once and kept.
+        let art = look_art
+            .borrow_mut()
+            .entry(meta.id.clone())
+            .or_insert_with(|| {
+                package
+                    .folder
+                    .as_deref()
+                    .and_then(|folder| {
+                        slint::Image::load_from_path(&folder.join("preview.png")).ok()
+                    })
+                    .or_else(|| {
+                        let card = card_paths.get(&meta.id)?;
+                        slint::Image::load_from_path(card).ok()
+                    })
+                    .unwrap_or_default()
+            })
+            .clone();
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
             name: name.into(),
@@ -1096,6 +1112,7 @@ fn key_field_of(property: model::KeyProperty) -> ClipField {
 #[derive(PartialEq)]
 struct ShelfStamp {
     catalogue: usize,
+    cards: u64,
     lang: String,
     views: Vec<(String, i32, bool, String)>,
     favourites: Vec<String>,
@@ -1103,9 +1120,6 @@ struct ShelfStamp {
 
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
-
-/// The picture every look's card is rendered from.
-const REFERENCE_STILL: &[u8] = include_bytes!("../ui/assets/effect-previews/sharpen.jpg");
 
 /// Makes a package folder under `dir` from the table at `path`, and
 /// returns the package's id. The id is `user.` and the file's name slugged;
@@ -1129,7 +1143,7 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
     }
     let id = format!("user.{slug}");
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    let lut = concat_effects::cube::parse(&text)?;
+    concat_effects::cube::parse(&text)?;
     let folder = dir.join(&id);
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let name = stem.trim().to_owned();
@@ -1149,75 +1163,10 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
     )
     .map_err(|error| error.to_string())?;
     std::fs::write(folder.join("look.cube"), &text).map_err(|error| error.to_string())?;
-    // The card still: the reference picture through the table, the same
-    // arithmetic the GPU's sampler does. Read through Slint's decoder from
-    // a copy on disk, since the bytes live in the binary.
-    let reference = reference_still(dir)?;
-    let image = slint::Image::load_from_path(&reference).map_err(|error| error.to_string())?;
-    let Some(pixels) = image.to_rgba8() else {
-        return Err("the reference picture would not decode".to_owned());
-    };
-    let (width, height) = (pixels.width(), pixels.height());
-    let mut out = Vec::with_capacity((width * height * 4) as usize);
-    for pixel in pixels.as_slice() {
-        let rgb = lut.sample([
-            f32::from(pixel.r) / 255.0,
-            f32::from(pixel.g) / 255.0,
-            f32::from(pixel.b) / 255.0,
-        ]);
-        for channel in rgb {
-            out.push((channel.clamp(0.0, 1.0) * 255.0).round() as u8);
-        }
-        out.push(255);
-    }
-    let file =
-        std::fs::File::create(folder.join("preview.png")).map_err(|error| error.to_string())?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
-    writer
-        .write_image_data(&out)
-        .map_err(|error| error.to_string())?;
+    // A still an earlier import drew for this name: the card drawn from
+    // the package's own shader replaces it.
+    let _ = std::fs::remove_file(folder.join("preview.png"));
     Ok(id)
-}
-
-/// The reference picture every card is rendered from, as a file in the
-/// effects folder: the bytes live in the binary, and both Slint's decoder
-/// and FFmpeg's want a path.
-fn reference_still(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
-    let reference = dir.join("reference.jpg");
-    if !reference.is_file() {
-        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-        std::fs::write(&reference, REFERENCE_STILL).map_err(|error| error.to_string())?;
-    }
-    Ok(reference)
-}
-
-/// The card still for a package of the user's own that brought none: the
-/// reference picture through the package's own chain at its defaults,
-/// written beside its manifest as `preview.jpg`, the way the built-ins'
-/// cards were made. A package with a shader and no chain has no CPU
-/// rendering to be had here, so its card stays blank until its author
-/// puts a `preview.png` beside the manifest.
-fn render_card(
-    dir: &std::path::Path,
-    package: &concat_effects::Package,
-    chain: &str,
-) -> Result<(), String> {
-    let Some(folder) = package.folder.as_deref() else {
-        return Ok(());
-    };
-    let reference = reference_still(dir)?;
-    let mut decoder = Decoder::open(&reference, &DecodeOptions::default().scaled_to(320, 180))
-        .map_err(|error| error.to_string())?;
-    let frame = decoder
-        .next_frame()
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "the reference picture holds no frame".to_owned())?;
-    let treated = concat_media::treat(&frame, chain).map_err(|error| error.to_string())?;
-    let bytes = jpeg(&treated, 3).map_err(|error| error.to_string())?;
-    std::fs::write(folder.join("preview.jpg"), bytes).map_err(|error| error.to_string())
 }
 
 /// The ease a key put on at `at` inherits: that of whichever key it joins
@@ -1582,6 +1531,10 @@ impl Studio {
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
+            card_paths: HashMap::new(),
+            cards_drawn: 0,
+            cards_busy: false,
+            cards_again: false,
             packages_watch: slint::Timer::default(),
             packages_seen: 0,
             packages_pending: None,
@@ -5886,6 +5839,67 @@ impl Studio {
         dirs.config.join("effects")
     }
 
+    /// Where the effect cards are kept: drawn once, read on every launch.
+    pub fn cards_dir(dirs: &concat_host::dirs::AppDirs) -> std::path::PathBuf {
+        dirs.data.join("cards")
+    }
+
+    /// Plans every picture package's card against the catalogue as it
+    /// stands, sweeps away the cards no package draws any more, and draws
+    /// the missing ones on a thread of their own, on a compositor sharing
+    /// the monitor's device - or, while a round is drawing already, asks
+    /// for another when it ends.
+    fn plan_cards(&mut self) {
+        let dir = Self::cards_dir(&self.host.dirs);
+        let cards = concat_host::cards::cards(Catalogue::builtin(), &dir);
+        concat_host::cards::prune(&dir, &cards);
+        self.card_paths = cards
+            .iter()
+            .map(|card| (card.id.clone(), card.path.clone()))
+            .collect();
+        let missing: Vec<concat_host::cards::Card> =
+            cards.into_iter().filter(|card| !card.is_drawn()).collect();
+        if missing.is_empty() {
+            return;
+        }
+        if self.cards_busy {
+            self.cards_again = true;
+            return;
+        }
+        self.cards_busy = true;
+        let compositor = self.host.monitor.sibling();
+        let spawned = std::thread::Builder::new()
+            .name("concat cards".to_owned())
+            .spawn(move || {
+                concat_host::cards::draw_all(&dir, &missing, compositor, |ids, done| {
+                    crate::host::on_ui(move |studio, _, _| studio.cards_arrived(ids, done));
+                });
+            });
+        if let Err(error) = spawned {
+            log::warn!("cards: {error}");
+            self.cards_busy = false;
+        }
+    }
+
+    /// Cards have landed: `ids` are read again the next time the shelves
+    /// are built. With `done` the round is over, and another is planned
+    /// when the catalogue changed while it drew.
+    fn cards_arrived(&mut self, ids: Vec<String>, done: bool) {
+        {
+            let mut art = self.look_art.borrow_mut();
+            for id in &ids {
+                art.remove(id);
+            }
+        }
+        self.cards_drawn += ids.len() as u64;
+        if done {
+            self.cards_busy = false;
+            if std::mem::take(&mut self.cards_again) {
+                self.plan_cards();
+            }
+        }
+    }
+
     /// Rebuilds the catalogue from the built-ins and the packages in
     /// `looks_dir`, and says in the window what would not load: the first
     /// reason and how many more, with every reason in the log, so an
@@ -5915,29 +5929,9 @@ impl Studio {
         for error in &errors {
             log::warn!("package: {error}");
         }
-        // A card for every package of the user's own that has none and
-        // can have one. A card that fails is a line in the log, not a
-        // notice: the package itself loaded.
-        let catalogue = Catalogue::builtin();
-        for package in catalogue.packages() {
-            let Some(folder) = package.folder.as_deref() else {
-                continue;
-            };
-            if !package.kind().is_visual()
-                || package.kind() == PackageKind::Transition
-                || folder.join("preview.png").is_file()
-                || folder.join("preview.jpg").is_file()
-            {
-                continue;
-            }
-            let chain = catalogue.video_chain(&[AppliedFilter::new(package.id().to_owned())]);
-            if chain.is_empty() {
-                continue;
-            }
-            if let Err(error) = render_card(&dir, package, &chain) {
-                log::warn!("package {}: card: {error}", package.id());
-            }
-        }
+        // Every picture package's card: those drawn before are read as the
+        // shelves need them, the rest drawn on a thread of their own.
+        self.plan_cards();
         // A changed shader means a changed card: the stills are read again.
         self.look_art.borrow_mut().clear();
         // The folder as the watch will next see it, cards included, so a
@@ -7447,6 +7441,7 @@ impl Studio {
         let starred = &self.prefs.favourites;
         let stamp = ShelfStamp {
             catalogue: std::ptr::from_ref(Catalogue::builtin()) as usize,
+            cards: self.cards_drawn,
             lang: i18n::current(),
             views: self
                 .library
@@ -7463,20 +7458,40 @@ impl Studio {
             favourites: starred.clone(),
         };
         if self.shelf_stamp.borrow().as_ref() != Some(&stamp) {
-            let (groups, entries) =
-                shelves(SHELF_KINDS[0], &self.library[0], starred, &self.look_art);
+            let (groups, entries) = shelves(
+                SHELF_KINDS[0],
+                &self.library[0],
+                starred,
+                &self.look_art,
+                &self.card_paths,
+            );
             sync(&models.filter_groups, groups);
             sync(&models.catalogue_filters, entries);
-            let (groups, entries) =
-                shelves(SHELF_KINDS[1], &self.library[1], starred, &self.look_art);
+            let (groups, entries) = shelves(
+                SHELF_KINDS[1],
+                &self.library[1],
+                starred,
+                &self.look_art,
+                &self.card_paths,
+            );
             sync(&models.effect_groups, groups);
             sync(&models.catalogue_effects, entries);
-            let (groups, entries) =
-                shelves(SHELF_KINDS[2], &self.library[2], starred, &self.look_art);
+            let (groups, entries) = shelves(
+                SHELF_KINDS[2],
+                &self.library[2],
+                starred,
+                &self.look_art,
+                &self.card_paths,
+            );
             sync(&models.audio_groups, groups);
             sync(&models.catalogue_audio, entries);
-            let (groups, entries) =
-                shelves(SHELF_KINDS[3], &self.library[3], starred, &self.look_art);
+            let (groups, entries) = shelves(
+                SHELF_KINDS[3],
+                &self.library[3],
+                starred,
+                &self.look_art,
+                &self.card_paths,
+            );
             sync(&models.transition_groups, groups);
             sync(&models.catalogue_transitions, entries);
             *self.shelf_stamp.borrow_mut() = Some(stamp);

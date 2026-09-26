@@ -90,9 +90,6 @@ slint = { version = "1.18", default-features = false, features = [
 ] }
 
 [dependencies]
-# Writes the card still an imported look gets, rendered here from the
-# reference picture through the table.
-png = "0.17"
 # The log facade. The window writes `log::warn!`; where that ends up is
 # concat-host's logs.rs, opened by whichever entry point started this run.
 log = "0.4"

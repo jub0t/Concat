@@ -19,6 +19,7 @@
 //! and cancels through flags, and the caller decides which thread it runs on.
 
 pub mod brush;
+pub mod cards;
 pub mod cutout;
 pub mod dirs;
 pub mod enhance;

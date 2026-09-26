@@ -21,3 +21,7 @@ unit = "%"
 entry = "effect.wgsl"
 xfade = "fadewhite"
 fallback = "cross-fade"
+
+# By the usual point of the cut the flash has burned the frame white.
+[card]
+progress = 0.15

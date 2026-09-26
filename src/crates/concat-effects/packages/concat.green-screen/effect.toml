@@ -30,3 +30,10 @@ chain = "chromakey=color=0x00FF00:similarity={fixed(similarity / 100, 3)}:blend=
 
 [wgsl]
 entry = "effect.wgsl"
+
+# The reference picture has no screen; the card stands it before a
+# broadcast one, which the key takes out from a similarity of about 40 -
+# its default, 25, keys only a purer colour.
+[card]
+screen = "#00b140"
+params = { similarity = 42 }

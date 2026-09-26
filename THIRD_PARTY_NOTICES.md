@@ -169,9 +169,9 @@ of it.
 
 ## Effect preview photograph
 
-The effect catalogue thumbnails are rendered from a photograph by
-Vitaly Gariev on Unsplash (https://unsplash.com/@silverkblack), used
-under the Unsplash License. The source still lives at
-`assets/effect-preview-source.jpg`; the tiles are each effect's real FFmpeg
-chain (`concat-export`'s `chains.rs`) run over it, and are embedded from
-`src/crates/concat/ui/assets/effect-previews/`.
+The effect catalogue cards are drawn from a photograph by Vitaly Gariev on
+Unsplash (https://unsplash.com/@silverkblack), used under the Unsplash
+License. The still lives at `src/crates/concat-host/assets/card-still.jpg`
+and is embedded in the app; each card is the effect's own shader run over
+it on the GPU when the app first needs the card (`concat-host`'s
+`cards.rs`).

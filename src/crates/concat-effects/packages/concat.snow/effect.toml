@@ -29,3 +29,7 @@ chain = "noise=alls={round(density / 100 * 30)}:allf=t,eq=brightness={fixed(dens
 
 [wgsl]
 entry = "effect.wgsl"
+
+# A card is small; it shows the snow at its thickest.
+[card]
+params = { density = 100 }
