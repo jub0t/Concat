@@ -570,3 +570,106 @@ fn every_packaged_transition_combines_across_its_progress_range() {
         }
     }
 }
+
+/// A texture read back into a frame, for comparing a picture that stayed
+/// on the device with one that was read back on the way.
+fn read_texture(gpu: &WgpuCompositor, texture: &wgpu::Texture) -> Frame {
+    let (width, height) = (texture.width(), texture.height());
+    let padded = (width as usize * 4).div_ceil(256) * 256;
+    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test readback"),
+        size: (padded * height as usize) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded as u32),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    gpu.queue.submit([encoder.finish()]);
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("the device answers");
+    let data = slice.get_mapped_range().expect("mapped");
+    let mut frame = Frame::transparent(width, height);
+    let row = width as usize * 4;
+    for y in 0..height as usize {
+        frame.pixels_mut()[y * row..(y + 1) * row]
+            .copy_from_slice(&data[y * padded..y * padded + row]);
+    }
+    frame
+}
+
+/// A packaged transition drawn whole on the device is the picture the
+/// read-back path makes: the same stacks, the same shader, only without
+/// the round trips through memory.
+#[test]
+fn a_transition_kept_on_the_device_matches_the_read_back_one() {
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (32, 18);
+    let plan = |colour: [u8; 4]| FramePlan {
+        time: concat_core::time::Rational::new(1, 2),
+        width,
+        height,
+        layers: vec![PlannedLayer::picture(
+            detached_clip(),
+            Arc::new(solid(width, height, colour)),
+        )],
+        treatments: Vec::new(),
+    };
+    let (from, to) = (plan([220, 30, 30, 255]), plan([30, 30, 220, 255]));
+    let catalogue = concat_effects::Catalogue::builtin();
+    let package = catalogue
+        .packages()
+        .find(|package| package.kind() == concat_effects::Kind::Transition)
+        .expect("a transition package");
+    let pass = catalogue
+        .transition_pass(package.id(), &Default::default(), 0.5)
+        .expect("a pass");
+
+    let from_frame = gpu.render(&from);
+    let to_frame = gpu.render(&to);
+    let read_back = gpu
+        .combine(width, height, from.seconds(), &from_frame, &to_frame, &pass)
+        .expect("combines");
+    let texture = gpu
+        .render_transition_texture(&from, &to, &pass)
+        .expect("combines on the device");
+    let kept = read_texture(&gpu, &texture);
+    let worst = kept
+        .pixels()
+        .iter()
+        .zip(read_back.pixels())
+        .enumerate()
+        .filter(|(index, _)| index % 4 != 3)
+        .map(|(_, (a, b))| a.abs_diff(*b))
+        .max()
+        .unwrap_or(0);
+    assert!(
+        worst <= 1,
+        "{}: the two paths differ by {worst} a channel",
+        package.id()
+    );
+}
