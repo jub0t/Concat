@@ -20,6 +20,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use concat_core::frame::Signal;
 use concat_media::decode::{DecodeOptions, Decoder, FrameSource};
 use concat_media::{ColorRange, EncodeOptions, Encoder, FrameSink, Priority, RateMode, VideoCodec};
 
@@ -51,15 +52,25 @@ pub fn size_for(width: u32, height: u32) -> (u32, u32) {
 /// Where the proxy of `media` lives under `project`: named by the file's
 /// path, size and modification time, and by the range it is read as,
 /// since the copy is written from the corrected picture and a correction
-/// changed is a different copy. None for a file that cannot be stat'ed,
+/// changed is a different copy - and by whether the file is HDR, whose
+/// proxy keeps its signal, so the tone-mapped copies earlier builds wrote
+/// of one are written again. None for a file that cannot be stat'ed,
 /// which cannot be read either.
-pub fn path_for(project: &Path, media: &str, range: Option<ColorRange>) -> Option<PathBuf> {
+pub fn path_for(
+    project: &Path,
+    media: &str,
+    range: Option<ColorRange>,
+    hdr: bool,
+) -> Option<PathBuf> {
     let meta = std::fs::metadata(media).ok()?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
     if let Some(range) = range {
         range.name().hash(&mut hasher);
+    }
+    if hdr {
+        "hdr".hash(&mut hasher);
     }
     if let Ok(modified) = meta.modified()
         && let Ok(since) = modified.duration_since(std::time::UNIX_EPOCH)
@@ -75,9 +86,13 @@ pub fn path_for(project: &Path, media: &str, range: Option<ColorRange>) -> Optio
 }
 
 /// The proxy of `media` under `project`, read as `range`, when it has
-/// been written.
+/// been written - an HDR one or an SDR one, whichever there is: a
+/// filmstrip reads either.
 pub fn existing(project: &Path, media: &str, range: Option<ColorRange>) -> Option<PathBuf> {
-    path_for(project, media, range).filter(|path| path.is_file())
+    [true, false]
+        .into_iter()
+        .filter_map(|hdr| path_for(project, media, range, hdr))
+        .find(|path| path.is_file())
 }
 
 /// Sees to it that `media` - `width` by `height`, read as `range` - has
@@ -91,11 +106,12 @@ pub fn ensure(
     width: u32,
     height: u32,
     range: Option<ColorRange>,
+    hdr: bool,
 ) -> bool {
     if !wanted(width, height) {
         return false;
     }
-    let Some(target) = path_for(project, media, range) else {
+    let Some(target) = path_for(project, media, range, hdr) else {
         return false;
     };
     let pool = crate::scheduler().pool();
@@ -173,7 +189,10 @@ pub fn sweep(project: &Path, keep: &HashSet<PathBuf>) -> usize {
 /// H.264, a fast preset, two threads, in software, into a temporary name
 /// that is moved into place only when whole, so a copy that is there is a
 /// copy that is complete. The copy is tagged video range and converted to
-/// match, so it is read as it is and needs no correction of its own.
+/// match, so it is read as it is and needs no correction of its own. An
+/// HDR source's copy keeps its signal - HEVC in ten bits, HLG or PQ as the
+/// source is, on the hardware encoder where there is one - so an HDR
+/// timeline plays it as the original draws when paused.
 pub fn write(
     source: &str,
     target: &Path,
@@ -181,11 +200,12 @@ pub fn write(
     range: Option<ColorRange>,
 ) -> Result<(), String> {
     let info = concat_media::probe(source).map_err(|error| error.to_string())?;
-    let rate = info
+    let (rate, signal) = info
         .video
         .as_ref()
-        .map(|video| video.frame_rate)
+        .map(|video| (video.frame_rate, video.signal))
         .ok_or_else(|| "no video stream".to_owned())?;
+    let hdr = matches!(signal, Signal::Hlg | Signal::Pq);
     if let Some(folder) = target.parent() {
         std::fs::create_dir_all(folder)
             .map_err(|error| format!("{}: {error}", folder.display()))?;
@@ -197,27 +217,33 @@ pub fn write(
         .scaled_to(width, height)
         .in_software()
         .threaded(2)
-        .in_range(range);
+        .in_range(range)
+        .deep(hdr);
     let mut decoder = Decoder::open(source, &options).map_err(|error| error.to_string())?;
-    let mut encoder = Encoder::create(
-        &partial,
-        width,
-        height,
-        rate,
-        &EncodeOptions {
-            codec: VideoCodec::H264,
-            preset: "veryfast".to_owned(),
-            crf: 23,
-            // A proxy is a working copy: the CRF says how good, and no
-            // bitrate target ever applies to it.
-            rate_mode: RateMode::Vbr,
-            bitrate_kbps: 0,
-            ten_bit: false,
-            color_range: ColorRange::Limited,
-            hardware: false,
-            threads: 2,
+    let encoding = EncodeOptions {
+        codec: if hdr {
+            VideoCodec::Hevc
+        } else {
+            VideoCodec::H264
         },
-    )
+        preset: "veryfast".to_owned(),
+        crf: 23,
+        // A proxy is a working copy: the CRF says how good, and no
+        // bitrate target ever applies to it.
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
+        ten_bit: false,
+        color_range: ColorRange::Limited,
+        // HEVC in ten bits costs the CPU far more than H.264 does; the
+        // media engine does it for nothing where there is one.
+        hardware: hdr,
+        threads: 2,
+    };
+    let mut encoder = if hdr {
+        Encoder::create_hdr(&partial, width, height, rate, &encoding, signal)
+    } else {
+        Encoder::create(&partial, width, height, rate, &encoding)
+    }
     .map_err(|error| error.to_string())?;
     let result = (|| {
         while let Some(frame) = decoder.next_frame().map_err(|error| error.to_string())? {
@@ -240,6 +266,73 @@ pub fn write(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An HDR file's proxy keeps its signal: HEVC, HLG as the file is,
+    /// its grey coming back as the same signal - under a name of its own,
+    /// so the tone-mapped copy an earlier build wrote is written again.
+    #[test]
+    fn an_hdr_file_gets_an_hdr_proxy() {
+        use concat_core::frame::{Depth, Frame};
+        use concat_core::time::FrameRate;
+        if !VideoCodec::Hevc.available() {
+            eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("concat-proxy-hdr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let media = dir.join("iphone.mp4");
+        let value = (0.6f64 * 65_535.0).round() as u16;
+        {
+            let mut encoder = Encoder::create_hdr(
+                &media,
+                640,
+                360,
+                FrameRate::THIRTY,
+                &EncodeOptions {
+                    codec: VideoCodec::Hevc,
+                    preset: "ultrafast".to_owned(),
+                    hardware: false,
+                    ..EncodeOptions::default()
+                },
+                Signal::Hlg,
+            )
+            .expect("encodes");
+            let pixel: Vec<u8> = [value, value, value, u16::MAX]
+                .iter()
+                .flat_map(|channel| channel.to_le_bytes())
+                .collect();
+            let frame = Frame::from_rgba64(640, 360, pixel.repeat(640 * 360), Signal::Hlg)
+                .expect("a deep frame");
+            for _ in 0..6 {
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+        }
+        let source = media.to_string_lossy().into_owned();
+        let project = dir.join("project");
+        let target = path_for(&project, &source, None, true).expect("a path");
+        assert_ne!(
+            Some(&target),
+            path_for(&project, &source, None, false).as_ref()
+        );
+        write(&source, &target, (320, 180), None).expect("writes the proxy");
+        let info = concat_media::probe(&target).expect("probes");
+        let video = info.video.expect("has pictures");
+        assert_eq!((video.codec.as_str(), video.signal), ("hevc", Signal::Hlg));
+        let mut decoder =
+            Decoder::open(&target, &DecodeOptions::default().deep(true)).expect("opens");
+        let frame = decoder.next_frame().expect("decodes").expect("a frame");
+        assert_eq!(frame.depth(), Depth::Sixteen);
+        let at = ((90 * 320 + 160) * 8) as usize;
+        let got = u16::from_le_bytes([frame.pixels()[at], frame.pixels()[at + 1]]);
+        assert!(
+            got.abs_diff(value) < 1_000,
+            "the HLG grey {value} came back {got}"
+        );
+        assert_eq!(existing(&project, &source, None), Some(target));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn only_files_larger_than_hd_get_a_proxy() {
@@ -297,7 +390,10 @@ mod tests {
         }
         let project = dir.join("project");
         let source = media.to_string_lossy().into_owned();
-        assert!(ensure(&project, &source, 2560, 1440, None), "worth a proxy");
+        assert!(
+            ensure(&project, &source, 2560, 1440, None, false),
+            "worth a proxy"
+        );
         crate::scheduler().drain();
         let proxy = existing(&project, &source, None).expect("the proxy was written");
         let info = concat_media::probe(&proxy).expect("probes");
@@ -309,7 +405,7 @@ mod tests {
             Some(proxy.as_path())
         );
         // Second time round: nothing to write, still adopted.
-        assert!(ensure(&project, &source, 2560, 1440, None));
+        assert!(ensure(&project, &source, 2560, 1440, None, false));
         let time = FrameRate::THIRTY.time_of_frame(2);
         let moving = pool
             .frame(&concat_media::FrameRequest::new(&source, time, 480, 270).from_proxy(true))
@@ -320,7 +416,7 @@ mod tests {
             .expect("reads the original");
         assert_eq!((paused.width(), paused.height()), (480, 270));
         // A file not worth a proxy is left alone.
-        assert!(!ensure(&project, &source, 1280, 720, None));
+        assert!(!ensure(&project, &source, 1280, 720, None, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -331,18 +427,31 @@ mod tests {
         let media = dir.join("clip.mp4");
         std::fs::write(&media, b"one").expect("writes");
         let project = dir.join("project");
-        let first = path_for(&project, &media.to_string_lossy(), None).expect("a path");
+        let first = path_for(&project, &media.to_string_lossy(), None, false).expect("a path");
         assert!(first.starts_with(project.join("cache").join("proxy")));
         assert!(existing(&project, &media.to_string_lossy(), None).is_none());
         // Read as another range, the file is another proxy too: the copy
         // holds the corrected picture.
-        let full =
-            path_for(&project, &media.to_string_lossy(), Some(ColorRange::Full)).expect("a path");
+        let full = path_for(
+            &project,
+            &media.to_string_lossy(),
+            Some(ColorRange::Full),
+            false,
+        )
+        .expect("a path");
         assert_ne!(first, full, "a file read as full range is another proxy");
         std::fs::write(&media, b"one more byte").expect("writes");
-        let second = path_for(&project, &media.to_string_lossy(), None).expect("a path");
+        let second = path_for(&project, &media.to_string_lossy(), None, false).expect("a path");
         assert_ne!(first, second, "a changed file is another proxy");
-        assert!(path_for(&project, &dir.join("missing.mp4").to_string_lossy(), None).is_none());
+        assert!(
+            path_for(
+                &project,
+                &dir.join("missing.mp4").to_string_lossy(),
+                None,
+                false
+            )
+            .is_none()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
