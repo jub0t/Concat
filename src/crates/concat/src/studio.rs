@@ -1121,54 +1121,6 @@ struct ShelfStamp {
 /// The built-in colour package's id; see `adjust_rows` and `Studio::adjust_set`.
 const ADJUST_ID: &str = "concat.adjust";
 
-/// Makes a package folder under `dir` from the table at `path`, and
-/// returns the package's id. The id is `user.` and the file's name slugged;
-/// a second import of the same name replaces the first.
-fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, String> {
-    let stem = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let mut slug: String = stem
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    if slug.is_empty() {
-        slug = "look".to_owned();
-    }
-    let id = format!("user.{slug}");
-    let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    concat_effects::cube::parse(&text)?;
-    let folder = dir.join(&id);
-    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let name = stem.trim().to_owned();
-    // Format 1: a table is made for the gamma-encoded picture, which is
-    // what a format 1 shader is handed. The look-up effect with a log
-    // shaper (phase 2, step 5) is what takes an imported table into light.
-    let manifest = format!(
-        "format = 1\n\n[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
-         description = \"A look imported from a .cube table.\"\n\n[lut]\nfile = \"look.cube\"\n\n\
-         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n"
-    );
-    std::fs::write(folder.join("effect.toml"), manifest).map_err(|error| error.to_string())?;
-    std::fs::write(
-        folder.join("effect.wgsl"),
-        "// The table, and nothing else; the host mixes it by intensity.\n\
-         fn effect(uv: vec2<f32>) -> vec4<f32> {\n    let c = sample(uv);\n    return vec4<f32>(lut(c.rgb), c.a);\n}\n",
-    )
-    .map_err(|error| error.to_string())?;
-    std::fs::write(folder.join("look.cube"), &text).map_err(|error| error.to_string())?;
-    // A still an earlier import drew for this name: the card drawn from
-    // the package's own shader replaces it.
-    let _ = std::fs::remove_file(folder.join("preview.png"));
-    Ok(id)
-}
-
 /// The ease a key put on at `at` inherits: that of whichever key it joins
 /// behind, so laying a run of keys down does not alternate between shapes.
 /// The first key on a parameter has nothing to inherit and gets the
@@ -5901,6 +5853,10 @@ impl Studio {
         /// How long that trial may take before the package is refused.
         const TRIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
         let dir = Self::looks_dir(&self.host.dirs);
+        // Looks an earlier build imported, onto the format 2 look first.
+        for id in concat_effects::looks::upgrade(&dir) {
+            log::info!("{id}: the imported look now reads its table in light");
+        }
         let monitor = &self.host.monitor;
         let errors = Catalogue::install_with(&dir, &mut |package| {
             let Some(pass) = package.trial_pass() else {
@@ -5981,9 +5937,10 @@ impl Studio {
     }
 
     /// Imports one or more `.cube` tables as looks: each becomes a package
-    /// folder under `looks_dir` - a manifest that names the table and a
-    /// shader that reads it - with a card still rendered through the table
-    /// here, and the catalogue is rebuilt so the Filters page shows them.
+    /// folder under `looks_dir` - a manifest that names the table, a shader
+    /// that reads it, the table (see `concat_effects::looks`) - and the
+    /// catalogue is rebuilt so the Filters page shows them, their cards
+    /// drawn by their own shaders.
     pub fn import_lut(&mut self) {
         let Some(paths) = crate::platform::pick_files(
             &t("studio.importLut"),
@@ -5994,7 +5951,7 @@ impl Studio {
         let dir = Self::looks_dir(&self.host.dirs);
         let mut imported = 0;
         for path in paths {
-            match import_cube(&dir, &path) {
+            match concat_effects::looks::import(&dir, &path) {
                 Ok(id) => {
                     self.look_art.borrow_mut().remove(&id);
                     imported += 1;

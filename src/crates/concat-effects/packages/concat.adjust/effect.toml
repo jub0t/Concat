@@ -11,11 +11,16 @@ description = "The manual colour panel every picture clip carries: exposure, ton
 
 # Three groups, in the order the panel lists them. Colour: temperature in
 # kelvin with 6500 the picture as shot, tint green to magenta, saturation
-# as a signed percent. Lightness: exposure in stops, then brightness,
-# contrast, highlights, shadows, whites and blacks as signed percents; the
-# last four lift or crush their end of the curve, highlights and shadows
-# the broad upper and lower halves, whites and blacks the narrow extremes.
-# Effects: sharpen, fade and vignette add from zero.
+# as a signed percent. Lightness: exposure in stops of light, then
+# brightness, contrast, highlights, shadows, whites and blacks as signed
+# percents; the last four lift or crush their end of the curve, highlights
+# and shadows the broad upper and lower halves, whites and blacks the
+# narrow extremes. Effects: sharpen, fade and vignette add from zero.
+#
+# 2: drawn in light. Exposure is in true stops of light, where it scaled
+# the display encoding, some 2.4 stops an EV; the rest reads as it did at
+# a moderate setting, without clipping.
+version = 2
 
 [[param]]
 key = "temperature"
@@ -149,7 +154,6 @@ unit = "%"
 
 [wgsl]
 entry = "effect.wgsl"
-space = "display"
 
 # At its defaults the panel changes nothing; the card shows it at work.
 [card]

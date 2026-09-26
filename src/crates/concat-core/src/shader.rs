@@ -131,36 +131,40 @@ pub struct TransitionPass {
     pub xfade: Option<String>,
 }
 
-/// A 3D look-up table: `size` texels a side, RGBA8, red fastest, then
+/// A 3D look-up table: `size` texels a side, RGBA floats, red fastest, then
 /// green, then blue - the order a `.cube` file lists its rows in and the
 /// layout a `texture_3d` is uploaded from. A colour is looked up by its
 /// own components: the table maps every input colour to an output one.
+/// Floats, not bytes: a table read in log spreads seventeen stops over its
+/// range, and eight bits of that would be steps a fifteenth of a stop
+/// apart - bands in any sky.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Lut {
     /// A hash of the contents, so a renderer can cache the upload.
     pub id: u64,
     /// Texels a side, at least 2.
     pub size: u32,
-    /// `size³ × 4` bytes.
-    pub rgba: Arc<[u8]>,
+    /// `size³ × 4` floats, alpha 1.
+    pub rgba: Arc<[f32]>,
 }
 
 impl Lut {
-    /// A table from `size³` RGB triples in 0..=1, red fastest. Values
-    /// outside the range are clamped; a table of the wrong length is None.
+    /// A table from `size³` RGB triples, red fastest, as the table gives
+    /// them - usually 0..=1, though a table made for log or for HDR may
+    /// reach past either end. A table of the wrong length, or with a value
+    /// that is not a number, is None.
     pub fn from_rgb(size: u32, rgb: &[f32]) -> Option<Lut> {
         let texels = (size as usize).checked_pow(3)?;
-        if size < 2 || rgb.len() != texels * 3 {
+        if size < 2 || rgb.len() != texels * 3 || !rgb.iter().all(|value| value.is_finite()) {
             return None;
         }
         let mut rgba = Vec::with_capacity(texels * 4);
         for triple in rgb.chunks_exact(3) {
-            for channel in triple {
-                rgba.push((channel.clamp(0.0, 1.0) * 255.0).round() as u8);
-            }
-            rgba.push(255);
+            rgba.extend_from_slice(triple);
+            rgba.push(1.0);
         }
-        let id = fnv64(&rgba) ^ u64::from(size);
+        let bytes: Vec<u8> = rgba.iter().flat_map(|value| value.to_le_bytes()).collect();
+        let id = fnv64(&bytes) ^ u64::from(size);
         Some(Lut {
             id,
             size,
@@ -198,11 +202,7 @@ impl Lut {
         let (bi, bf) = at(rgb[2]);
         let texel = |r: usize, g: usize, b: usize| {
             let o = ((b * n + g) * n + r) * 4;
-            [
-                f32::from(self.rgba[o]) / 255.0,
-                f32::from(self.rgba[o + 1]) / 255.0,
-                f32::from(self.rgba[o + 2]) / 255.0,
-            ]
+            [self.rgba[o], self.rgba[o + 1], self.rgba[o + 2]]
         };
         let lerp = |a: [f32; 3], b: [f32; 3], t: f32| {
             [
@@ -314,6 +314,23 @@ mod tests {
     fn a_table_of_the_wrong_length_is_refused() {
         assert!(Lut::from_rgb(3, &[0.0; 26 * 3]).is_none());
         assert!(Lut::from_rgb(1, &[0.0; 3]).is_none());
+        let mut broken = [0.5; 8 * 3];
+        broken[4] = f32::NAN;
+        assert!(Lut::from_rgb(2, &broken).is_none(), "not a number");
+    }
+
+    /// A table keeps its values as the file gave them, past either end and
+    /// finer than eight bits.
+    #[test]
+    fn a_table_keeps_its_values_as_given() {
+        let lut = Lut::from_rgb(2, &[0.1234567, -0.25, 1.75].repeat(8)).expect("a table");
+        assert_eq!(lut.sample([0.3, 0.6, 0.9]), [0.1234567, -0.25, 1.75]);
+        assert_ne!(
+            lut.id,
+            Lut::from_rgb(2, &[0.1234568, -0.25, 1.75].repeat(8))
+                .expect("a table")
+                .id
+        );
     }
 
     #[test]

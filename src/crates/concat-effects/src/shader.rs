@@ -122,6 +122,17 @@ fn sample(uv: vec2<f32>) -> vec4<f32> {
 }
 "#;
 
+/// An effect's `sample` under the scene-linear contract in log.
+const EFFECT_SAMPLE_LOG: &str = r#"
+/// The layer's colour at `uv`, straight alpha, in log (see `to_log`): the
+/// space a table made for ACEScct reads, and where every level of light,
+/// far past white, has a place between 0 and 1.
+fn sample(uv: vec2<f32>) -> vec4<f32> {
+    let c = textureSample(source, source_sampler, uv);
+    return vec4<f32>(to_log(c.rgb), c.a);
+}
+"#;
+
 /// What a transition's shader binds: the outgoing picture and the incoming
 /// one at group 0, the frame block - its spare slot the progress - and the
 /// parameters at group 1, the table at group 2, and no reveal map.
@@ -793,6 +804,23 @@ fn to_display(rgb: vec3<f32>) -> vec3<f32> {
 fn from_display(encoded: vec3<f32>) -> vec3<f32> {
     return sign(encoded) * pow(abs(encoded), vec3<f32>(2.4));
 }
+
+/// A colour held to what the working space's half floats store: a knob
+/// pushed to its end makes the brightest light there is, never infinity,
+/// which every pass after it would carry on as no number at all.
+fn held(colour: vec4<f32>) -> vec4<f32> {
+    return clamp(colour, vec4<f32>(-65504.0), vec4<f32>(65504.0));
+}
+
+/// The package's look-up table over a colour of the space its shader works
+/// in - the display encoding, or log - whose table spans 0 to 1: a level
+/// past either end is carried on past it by as much, where `lut` holds it
+/// at the end, so a highlight past white keeps its place above the table's
+/// white. The colour as it was when the package ships no table.
+fn look(rgb: vec3<f32>) -> vec3<f32> {
+    let inside = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return lut(inside) + (rgb - inside);
+}
 "#;
 
 /// The format 2 library: helpers that hold for any level of light.
@@ -832,12 +860,14 @@ fn from_log(log: vec3<f32>) -> vec3<f32> {
     return select(curve, toe, log <= vec3<f32>(0.155251141552511));
 }
 
-/// Contrast about middle grey, in log: 1 as shot, 0 flat grey, 2 every
-/// level twice as many stops from grey. Grey stays where it is, and a
-/// highlight above white is pushed or pulled like any other level.
+/// Contrast about middle grey, in stops: 1 as shot, 0 flat grey, 2 every
+/// level twice as many stops from grey. Grey stays where it is, a highlight
+/// above white is pushed or pulled like any other level, and however hard
+/// the push, a level of light never goes below black: a channel with none
+/// is left as it was.
 fn contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
-    let grey = to_log(vec3<f32>(MID_GREY));
-    return from_log((to_log(rgb) - grey) * amount + grey);
+    let pushed = MID_GREY * pow(max(rgb, vec3<f32>(1e-10)) / MID_GREY, vec3<f32>(amount));
+    return select(rgb, min(pushed, vec3<f32>(65504.0)), rgb > vec3<f32>(0.0));
 }
 
 /// Saturation about luminance, in light: 1 as shot, 0 grey, above 1
@@ -845,6 +875,75 @@ fn contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
 /// channel rather than clipping, so turning it back down restores it.
 fn saturation(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return mix(vec3<f32>(luma(rgb)), rgb, amount);
+}
+
+/// CIE XYZ into cone responses, by Bradford's matrix: where a white balance
+/// is worked out, as the eye adapts to the light.
+const BRADFORD: mat3x3<f32> = mat3x3<f32>(
+    vec3<f32>(0.8951, -0.7502, 0.0389),
+    vec3<f32>(0.2664, 1.7135, -0.0685),
+    vec3<f32>(-0.1614, 0.0367, 1.0296),
+);
+
+/// Light on Rec. 709's primaries into Bradford's cone responses, and back.
+const CONES: mat3x3<f32> = mat3x3<f32>(
+    vec3<f32>(0.4227252927, 0.0556997770, 0.0213826437),
+    vec3<f32>(0.4913453244, 0.9615340509, 0.0876418678),
+    vec3<f32>(0.0273579445, 0.0231838105, 0.9805081326),
+);
+const FROM_CONES: mat3x3<f32> = mat3x3<f32>(
+    vec3<f32>(2.5380445168, -0.1460040576, -0.0422985104),
+    vec3<f32>(-1.2932769979, 1.1166483055, -0.0716072203),
+    vec3<f32>(-0.0402368843, -0.0223290262, 1.0227526883),
+);
+
+/// Where a black body at `kelvin` sits in CIE 1960's (u, v): Kim et al.'s
+/// cubic fit to the Planckian locus, 1667 K to 25000 K.
+fn planckian(kelvin: f32) -> vec2<f32> {
+    let t = clamp(kelvin, 1667.0, 25000.0);
+    let k = 1000.0 / t;
+    var x: f32;
+    if (t <= 4000.0) {
+        x = ((-0.2661239 * k - 0.2343589) * k + 0.8776956) * k + 0.179910;
+    } else {
+        x = ((-3.0258469 * k + 2.1070379) * k + 0.2226347) * k + 0.240390;
+    }
+    var y: f32;
+    if (t <= 2222.0) {
+        y = ((-1.1063814 * x - 1.34811020) * x + 2.18555832) * x - 0.20219683;
+    } else if (t <= 4000.0) {
+        y = ((-0.9549476 * x - 1.37418593) * x + 2.09137015) * x - 0.16748867;
+    } else {
+        y = ((3.0817580 * x - 5.87338670) * x + 3.75112997) * x - 0.37001483;
+    }
+    return vec2<f32>(4.0 * x, 6.0 * y) / (-2.0 * x + 12.0 * y + 3.0);
+}
+
+/// The white of light at `kelvin`, moved `tint` across the locus towards
+/// magenta - 100 is 0.07 in (u, v), minus towards green - as cone
+/// responses.
+fn white_cones(kelvin: f32, tint: f32) -> vec3<f32> {
+    let here = planckian(kelvin);
+    let along = normalize(planckian(kelvin * 1.01) - here);
+    let across = vec2<f32>(along.y, -along.x);
+    let magenta = select(across, -across, across.y > 0.0);
+    let uv = here + magenta * (tint * 0.0007);
+    let d = 2.0 * uv.x - 8.0 * uv.y + 4.0;
+    let x = 3.0 * uv.x / d;
+    let y = 2.0 * uv.y / d;
+    return BRADFORD * vec3<f32>(x / y, 1.0, (1.0 - x - y) / y);
+}
+
+/// White balance: the picture as if lit at `kelvin` - lower warmer, 6500
+/// as shot - and `tint` towards magenta, minus towards green, 0 as shot.
+/// The eye's own adaptation, a von Kries scaling of Bradford's cone
+/// responses from the light at 6500 K to the light asked for, in light,
+/// so a highlight is balanced like any other level; a grey keeps its
+/// brightness.
+fn white_balance(rgb: vec3<f32>, kelvin: f32, tint: f32) -> vec3<f32> {
+    let gains = white_cones(kelvin, tint) / white_cones(6500.0, 0.0);
+    let adapt = FROM_CONES * mat3x3<f32>(CONES[0] * gains, CONES[1] * gains, CONES[2] * gains);
+    return adapt * rgb / luma(adapt * vec3<f32>(1.0));
 }
 "#;
 
@@ -879,13 +978,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 "#;
 
 /// An effect's fragment under the scene-linear contract: the package's
-/// colour mixed over the untouched layer by intensity, in light.
+/// colour mixed over the untouched layer by intensity, in light, and held
+/// to what the working space's half floats store (see `held`).
 const EFFECT_FRAGMENT_LINEAR: &str = r#"
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base = sample(in.uv);
     let treated = effect(in.uv);
-    return mix(base, treated, clamp(frame.intensity, 0.0, 1.0));
+    return held(mix(base, treated, clamp(frame.intensity, 0.0, 1.0)));
 }
 "#;
 
@@ -897,7 +997,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base = textureSample(source, source_sampler, in.uv);
     let treated = effect(in.uv);
     let light = vec4<f32>(from_display(treated.rgb), treated.a);
-    return mix(base, light, clamp(frame.intensity, 0.0, 1.0));
+    return held(mix(base, light, clamp(frame.intensity, 0.0, 1.0)));
+}
+"#;
+
+/// An effect's fragment in log: the package's colour taken back into light,
+/// then mixed over the untouched layer by intensity there.
+const EFFECT_FRAGMENT_LOG: &str = r#"
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let base = textureSample(source, source_sampler, in.uv);
+    let treated = effect(in.uv);
+    let light = vec4<f32>(from_log(treated.rgb), treated.a);
+    return held(mix(base, light, clamp(frame.intensity, 0.0, 1.0)));
 }
 "#;
 
@@ -932,19 +1044,24 @@ pub enum Contract {
     /// encoding, unclipped, the display-space library, and the result
     /// taken back into light and mixed there.
     Display,
+    /// Format 2 on, `space = "log"`: the picture in log (ACEScct), the
+    /// scene-linear library, and the result taken back into light and mixed
+    /// there - where a table made for ACEScct is read.
+    Log,
 }
 
 impl Contract {
     /// The edition `manifest` asks for.
     pub fn of(manifest: &Manifest) -> Contract {
-        let display = manifest
+        let space = manifest
             .wgsl
             .as_ref()
-            .is_some_and(|wgsl| wgsl.space == Space::Display);
-        match (manifest.scene_linear(), display) {
+            .map_or(Space::Linear, |wgsl| wgsl.space);
+        match (manifest.scene_linear(), space) {
             (false, _) => Contract::Legacy,
-            (true, false) => Contract::Linear,
-            (true, true) => Contract::Display,
+            (true, Space::Linear) => Contract::Linear,
+            (true, Space::Display) => Contract::Display,
+            (true, Space::Log) => Contract::Log,
         }
     }
 
@@ -961,13 +1078,14 @@ impl Contract {
             (Entry::Effect, Contract::Display) => {
                 (EFFECT_HEAD, EFFECT_SAMPLE_DISPLAY, EFFECT_FRAGMENT_DISPLAY)
             }
+            (Entry::Effect, Contract::Log) => (EFFECT_HEAD, EFFECT_SAMPLE_LOG, EFFECT_FRAGMENT_LOG),
             (Entry::Transition, Contract::Legacy) => (
                 TRANSITION_HEAD,
                 TRANSITION_SAMPLE_LEGACY,
                 TRANSITION_FRAGMENT_LEGACY,
             ),
             // A transition has no [wgsl] table to ask for another space.
-            (Entry::Transition, Contract::Linear | Contract::Display) => (
+            (Entry::Transition, Contract::Linear | Contract::Display | Contract::Log) => (
                 TRANSITION_HEAD,
                 TRANSITION_SAMPLE_LINEAR,
                 TRANSITION_FRAGMENT_LINEAR,
@@ -1833,8 +1951,8 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         assert!(
             linear
                 .source()
-                .contains("return mix(base, treated, clamp(frame.intensity, 0.0, 1.0));"),
-            "mixed in light"
+                .contains("return held(mix(base, treated, clamp(frame.intensity, 0.0, 1.0)));"),
+            "mixed in light, and held to what half floats store"
         );
         let clipping = Shader::compile(
             &linear_manifest("effect", "wgsl"),
@@ -1854,6 +1972,25 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
                 .contains("return legacy_in(textureSample(source, source_sampler, uv));")
         );
         assert!(legacy.source().contains("return legacy_out(mix("));
+
+        let log = Manifest::parse(
+            "format = 2\n[effect]\nid = \"test.log\"\nname = \"Log\"\nkind = \"filter\"\n\
+             [wgsl]\nentry = \"effect.wgsl\"\nspace = \"log\"\n",
+        )
+        .expect("a valid manifest");
+        assert_eq!(Contract::of(&log), Contract::Log);
+        let table = Shader::compile(
+            &log,
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(look(c.rgb), c.a); }",
+        )
+        .expect("a table read in log");
+        assert!(
+            table
+                .source()
+                .contains("return vec4<f32>(to_log(c.rgb), c.a);")
+                && table.source().contains("from_log(treated.rgb)"),
+            "sampled in log and taken back into light"
+        );
 
         let transition = TransitionShader::compile(
             &linear_manifest("transition", "transition"),

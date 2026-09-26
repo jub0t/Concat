@@ -1,22 +1,45 @@
 # Colours in the working space: linear light, 1.0 the white of an SDR
-# picture. Pinned from the format 1 shader, so the look is what it was.
+# picture. Exposure, white balance and contrast are in light and in stops;
+# brightness, saturation, the four tonal bands, fade and sharpness by the
+# display level, unclipped. Every knob at its default is the picture as it
+# came.
 
 [[probe]]
 name = "default"
 input = [0.3, 0.2, 0.12, 1]
-expect = [0.30005, 0.19995, 0.12, 1]
+expect = [0.3, 0.2, 0.12, 1]
 
+# Three stops down, the black lifted away and the contrast flat: a grey.
 [[probe]]
 name = "minimum"
 at = "min"
-input = [0.45, 0.4, 0.35, 1]
-expect = [0.18945, 0.18945, 0.18945, 1]
+input = [6.0, 5.0, 4.0, 1]
+expect = [0.130138, 0.130138, 0.130138, 1]
 
-# Every knob up is far past white, where format 1 clipped it: the panel's
-# exposure scales the display encoding, +3 EV eight times over, until its
-# maths moves into light with the colour sliders (phase 2, step 5).
+# Every knob up: three true stops, brightness, contrast twice the stops,
+# three times the saturation. Far past white, as light asked for it is.
 [[probe]]
 name = "maximum"
 at = "max"
 input = [0.08, 0.07, 0.06, 1]
-expect = [40.8125, 31.71875, 122.25, 1]
+expect = [447.66, 0.00821351, 310.039, 1]
+
+# A moderate grade: a stop up, a little contrast and colour, a warm light.
+[[probe]]
+name = "a grade"
+params = { exposure = 1, contrast = 30, saturation = 30, temperature = 5000, tint = 10 }
+input = [0.18, 0.12, 0.08, 1]
+expect = [0.775977, 0.217197, 0.0563556, 1]
+
+[[probe]]
+name = "a grade, past white"
+params = { exposure = 1, contrast = 30, saturation = 30, temperature = 5000, tint = 10 }
+input = [4.0, 3.0, 2.0, 1]
+expect = [42.5604, 14.6572, 3.87784, 1]
+
+# Fade lifts the black and leaves a level past white where it was.
+[[probe]]
+name = "fade, past white"
+params = { fade = 50 }
+input = [4.0, 4.0, 4.0, 1]
+expect = [4.0, 4.0, 4.0, 1]

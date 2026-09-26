@@ -1,0 +1,28 @@
+format = 2
+
+[effect]
+id = "concat.saturation"
+name = "Saturation"
+kind = "effect"
+category = "Color"
+order = 12
+intensity = "amount"
+description = "Richer or greyer colour, about each pixel's own brightness."
+
+[[param]]
+key = "amount"
+label = "Saturation"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# At its default the picture is as shot; the card shows a push.
+[card]
+params = { amount = 50 }
