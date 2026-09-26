@@ -98,6 +98,11 @@ impl Session {
             // project, since the next save would replace what was edited.
             Err(error) => return Err(error),
         };
+        // A link to a retired effect opens as a link to the one that stands
+        // in for it, its knobs carried over (`[[replaces]]`).
+        let mut editor = editor;
+        let catalogue = concat_effects::Catalogue::builtin();
+        editor.upgrade_links(|link| catalogue.upgrade(link));
         Ok(Session {
             path: path.to_owned(),
             settings,

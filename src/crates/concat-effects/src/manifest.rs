@@ -22,9 +22,9 @@ use crate::Error;
 /// Format 2 is the scene-linear contract: the shader samples the working
 /// space as it is - linear light, unclipped, 1.0 the white of an SDR
 /// picture - and a package that draws the picture runs on the GPU alone,
-/// with no `[ffmpeg]` chain. Format 1 packages still load, and their
-/// shaders are handed the gamma-encoded `0..1` picture they were written
-/// for (see `concat-effects/src/shader.rs`).
+/// with no `[ffmpeg]` chain. A picture package must be format 2; format 1
+/// is left to sound packages, which are FFmpeg chains, and still parses so
+/// the looks an earlier build imported can be rewritten (`crate::looks`).
 pub const FORMAT: u32 = 2;
 
 /// The first format whose shaders sample the working space as it is.
@@ -61,6 +61,36 @@ pub struct Manifest {
     /// alone would show little.
     #[serde(default)]
     pub card: Option<CardSettings>,
+    /// The retired packages this one stands in for, and how their knobs
+    /// become this one's; see [`Replaces`].
+    #[serde(default, rename = "replaces")]
+    pub replaces: Vec<Replaces>,
+}
+
+/// A `[[replaces]]` table: a retired package this one stands in for. A
+/// project's link naming `id` - or `id` without its `concat.` - is read as
+/// a link to this package when the project opens, each of this package's
+/// knobs in `knobs` worked out from the old link's: an expression over the
+/// old knobs by name, a knob the old link left out taking its value from
+/// `defaults`. A knob not in `knobs` takes this package's own default.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Replaces {
+    /// The retired package's id.
+    pub id: String,
+    /// The retired package's knobs at their defaults.
+    #[serde(default)]
+    pub defaults: std::collections::BTreeMap<String, f64>,
+    /// This package's knobs, each an expression over the old ones.
+    #[serde(default)]
+    pub knobs: std::collections::BTreeMap<String, String>,
+}
+
+impl Replaces {
+    /// Whether a link's `id` names the retired package.
+    pub fn names(&self, id: &str) -> bool {
+        self.id == id || self.id.strip_prefix("concat.") == Some(id)
+    }
 }
 
 /// The `[card]` table. A card is the reference picture through the package
@@ -456,6 +486,22 @@ impl Manifest {
     }
 
     fn validate(&self) -> Result<(), Error> {
+        for replaced in &self.replaces {
+            for (knob, source) in &replaced.knobs {
+                if self.owner(knob).is_none() {
+                    return Err(self.invalid(format!(
+                        "[[replaces]] {}: {knob} is not a knob of this package",
+                        replaced.id
+                    )));
+                }
+                if let Err(error) = crate::expr::Expr::parse(source) {
+                    return Err(self.invalid(format!(
+                        "[[replaces]] {}: {knob} = {source:?}: {}",
+                        replaced.id, error.0
+                    )));
+                }
+            }
+        }
         if self.format == 0 {
             return Err(self.invalid("format is 0; the first package format is 1"));
         }

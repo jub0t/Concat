@@ -38,36 +38,6 @@ struct Chain {
 /// look is applied, as a percent. Absent means all of it.
 pub const INTENSITY: &str = "intensity";
 
-/// A filter's fragment, mixed back with the untouched picture by its
-/// intensity. At a hundred the fragment is returned as it was; below it the
-/// picture is split, the look runs on one copy, and the two are blended by
-/// the fraction - which is what one intensity slider means on every look
-/// there is, and why no package has to implement it. The labels carry the
-/// fragment's index so two mixed links in one chain never share a name.
-fn mixed(
-    package: &Package,
-    params: &BTreeMap<String, f64>,
-    fragment: String,
-    index: usize,
-) -> String {
-    if package.kind() != Kind::Filter {
-        return fragment;
-    }
-    let mix = params
-        .get(INTENSITY)
-        .copied()
-        .unwrap_or(100.0)
-        .clamp(0.0, 100.0)
-        / 100.0;
-    if mix >= 1.0 {
-        return fragment;
-    }
-    format!(
-        "split[m{index}a][m{index}b];[m{index}b]{fragment}[m{index}c];\
-         [m{index}a][m{index}c]blend=all_mode=normal:all_opacity={mix:.3}"
-    )
-}
-
 /// One effect, ready to use.
 #[derive(Clone, Debug)]
 pub struct Package {
@@ -230,6 +200,24 @@ impl Package {
             id: manifest.effect.id.clone(),
             message,
         };
+        // A picture is drawn by its shader on the GPU, in light: a picture
+        // package written for format 1, or one that is an FFmpeg chain, is
+        // one this Concat no longer draws. Sound is still FFmpeg's.
+        if manifest.effect.kind.is_visual() {
+            if !manifest.scene_linear() {
+                return Err(invalid(
+                    "a picture package written for format 1, which this Concat no longer \
+                     draws: it needs `format = 2` and a shader (see the package guide)"
+                        .to_owned(),
+                ));
+            }
+            if manifest.ffmpeg.is_some() {
+                return Err(invalid(
+                    "a picture package is drawn by its shader: it carries no [ffmpeg] chain"
+                        .to_owned(),
+                ));
+            }
+        }
 
         // The shader file beside the manifest, if any: a `[wgsl]` effect's
         // body, or a `[transition]`'s two-input body.
@@ -446,17 +434,7 @@ impl Package {
             "Featured" => {
                 cat.eq_ignore_ascii_case("Featured")
                     || self.manifest.effect.order < 10
-                    || matches!(
-                        self.id(),
-                        "concat.camera-shake"
-                            | "concat.rgb-glitch"
-                            | "concat.sparkle"
-                            | "concat.light-leak"
-                            | "concat.tilt-shift"
-                            | "concat.strobe-flash"
-                            | "concat.glow"
-                            | "concat.bloom-pulse"
-                    )
+                    || matches!(self.id(), "concat.glow" | "concat.bloom-pulse")
             }
             "Retro & Film" => {
                 cat.eq_ignore_ascii_case("Retro")
@@ -465,15 +443,7 @@ impl Package {
                     || cat.eq_ignore_ascii_case("Retro & Film")
                     || matches!(
                         self.id(),
-                        "concat.crt-scanlines"
-                            | "concat.film-reel"
-                            | "concat.camcorder-90s"
-                            | "concat.halation"
-                            | "concat.vhs"
-                            | "concat.film-grain"
-                            | "concat.scanlines"
-                            | "concat.dust"
-                            | "concat.falling-dust"
+                        "concat.vhs" | "concat.film-grain" | "concat.falling-dust"
                     )
             }
             "Optical & Lens" => {
@@ -483,65 +453,26 @@ impl Package {
                     || cat.eq_ignore_ascii_case("Optical & Lens")
                     || matches!(
                         self.id(),
-                        "concat.tilt-shift"
-                            | "concat.prism-dispersion"
-                            | "concat.fisheye"
-                            | "concat.lens-flare"
-                            | "concat.bokeh"
-                            | "concat.gaussian-blur"
-                            | "concat.box-blur"
-                            | "concat.motion-blur"
+                        "concat.fisheye" | "concat.gaussian-blur" | "concat.motion-blur"
                     )
             }
             "Distortion & Glitch" => {
                 cat.eq_ignore_ascii_case("Distort")
                     || cat.eq_ignore_ascii_case("Glitch")
                     || cat.eq_ignore_ascii_case("Distortion & Glitch")
-                    || matches!(
-                        self.id(),
-                        "concat.wave-warp"
-                            | "concat.vortex-swirl"
-                            | "concat.prism-dispersion"
-                            | "concat.fisheye"
-                            | "concat.mirror-tile"
-                            | "concat.rgb-glitch"
-                            | "concat.datamosh"
-                            | "concat.ripple"
-                            | "concat.twirl"
-                            | "concat.bulge-pinch"
-                            | "concat.swirl"
-                            | "concat.mirror"
-                    )
+                    || matches!(self.id(), "concat.fisheye" | "concat.swirl")
             }
             "Party & Club" => {
                 cat.eq_ignore_ascii_case("Party")
                     || cat.eq_ignore_ascii_case("Club")
                     || cat.eq_ignore_ascii_case("Party & Club")
-                    || matches!(
-                        self.id(),
-                        "concat.bass-shockwave"
-                            | "concat.laser-beams"
-                            | "concat.neon-glow"
-                            | "concat.color-cycle"
-                            | "concat.strobe-flash"
-                            | "concat.neon"
-                            | "concat.neon-edges"
-                    )
+                    || matches!(self.id(), "concat.neon")
             }
             "Light & Shadow" => {
                 cat.eq_ignore_ascii_case("Light")
                     || cat.eq_ignore_ascii_case("Shadow")
                     || cat.eq_ignore_ascii_case("Light & Shadow")
-                    || matches!(
-                        self.id(),
-                        "concat.sparkle"
-                            | "concat.light-leak"
-                            | "concat.strobe-flash"
-                            | "concat.halation"
-                            | "concat.glow"
-                            | "concat.bloom-pulse"
-                            | "concat.lens-flare"
-                    )
+                    || matches!(self.id(), "concat.glow" | "concat.bloom-pulse")
             }
             _ => false,
         }
@@ -613,32 +544,52 @@ impl Package {
         self.transition.as_ref()
     }
 
-    /// The legacy transition id this package degrades to where its shader
-    /// cannot run - the CPU reference and export without a GPU. `cross-fade`
-    /// unless the manifest names another.
-    pub fn transition_fallback(&self) -> &str {
-        self.manifest
-            .transition
-            .as_ref()
-            .and_then(|table| table.fallback.as_deref())
-            .unwrap_or("cross-fade")
-    }
-
-    /// The FFmpeg `xfade` name this transition declares as its shape for a
-    /// compositor that runs no shaders - the CPU reference, and an export
-    /// or monitor without a GPU - if it declares one. The name is FFmpeg's
-    /// so a manifest can be checked against a known list at load, but what
-    /// draws it is `concat_render`, in the shipped shader's own terms.
-    pub fn transition_xfade(&self) -> Option<&str> {
-        self.manifest
-            .transition
-            .as_ref()
-            .and_then(|table| table.xfade.as_deref())
-    }
-
     /// Whether `id` is this package's id or one of its aliases.
     pub fn answers_to(&self, id: &str) -> bool {
         self.id() == id || self.manifest.effect.aliases.iter().any(|alias| alias == id)
+    }
+
+    /// `link`, a link to a retired package this one stands in for (its
+    /// `[[replaces]]`), made a link to this one: its knobs worked out from
+    /// the old ones and held to this package's ranges, its keys dropped - a
+    /// chain's knobs could not carry them. `None` when this package does
+    /// not replace the link's.
+    pub fn replacing(&self, link: &AppliedFilter) -> Option<AppliedFilter> {
+        let replaced = self
+            .manifest
+            .replaces
+            .iter()
+            .find(|replaced| replaced.names(&link.id))?;
+        let old: BTreeMap<String, Value> = replaced
+            .defaults
+            .iter()
+            .map(|(knob, default)| {
+                let value = link.params.get(knob).copied().unwrap_or(*default);
+                (knob.clone(), Value::Float(value))
+            })
+            .collect();
+        let params = replaced
+            .knobs
+            .iter()
+            .filter_map(|(knob, source)| {
+                let value = match Expr::parse(source).and_then(|expr| expr.eval(&old)).ok()? {
+                    Value::Int(value) => value as f64,
+                    Value::Float(value) => value,
+                    Value::Text(_) => return None,
+                };
+                let held = match self.manifest.params.iter().find(|param| &param.key == knob) {
+                    Some(param) => value.clamp(param.min, param.max),
+                    None => value,
+                };
+                Some((knob.clone(), held))
+            })
+            .collect();
+        Some(AppliedFilter {
+            id: self.id().to_owned(),
+            params,
+            enabled: link.enabled,
+            keys: BTreeMap::new(),
+        })
     }
 
     /// Every declared parameter at `at`: a wheel's master there too, its
@@ -1094,6 +1045,18 @@ impl Catalogue {
         self.by_id.get(id).map(|&index| &self.packages[index])
     }
 
+    /// `link` read as a link to the package that stands in for its retired
+    /// one, if any does (see `Package::replacing`). Returns whether it was.
+    pub fn upgrade(&self, link: &mut AppliedFilter) -> bool {
+        match self.packages().find_map(|package| package.replacing(link)) {
+            Some(replaced) => {
+                *link = replaced;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Every package, in catalogue order.
     pub fn packages(&self) -> impl Iterator<Item = &Package> {
         self.packages.iter()
@@ -1114,19 +1077,6 @@ impl Catalogue {
     ) -> impl Iterator<Item = &'a Package> {
         self.of_kind(kind)
             .filter(move |package| package.matches_category(category))
-    }
-
-    /// The complete FFmpeg video filter string for a clip's effects, or the
-    /// empty string if it has none. Effects apply in the order they were
-    /// added.
-    pub fn video_chain(&self, effects: &[AppliedFilter]) -> String {
-        self.compose(&[Kind::Effect, Kind::Filter], effects, false)
-    }
-
-    /// The video chain for a renderer that runs shaders: every package with
-    /// one is left out, because [`Catalogue::shader_passes`] carries it.
-    pub fn video_chain_gpu(&self, effects: &[AppliedFilter]) -> String {
-        self.compose(&[Kind::Effect, Kind::Filter], effects, true)
     }
 
     /// The shader passes of a clip's chain, in applied order: one per enabled
@@ -1196,7 +1146,7 @@ impl Catalogue {
     /// empty string if it has none. Filters apply in the order they were
     /// added: EQ before a limiter is a different sound from the reverse.
     pub fn audio_chain(&self, filters: &[AppliedFilter]) -> String {
-        self.compose(&[Kind::Audio], filters, false)
+        self.compose(&[Kind::Audio], filters)
     }
 
     /// Enabled entries of these `kinds` in applied order, comma-joined. Bypassed
@@ -1204,7 +1154,7 @@ impl Catalogue {
     /// an FFmpeg backend contribute nothing. The index each fragment is
     /// rendered at is its *emitted* position, so labels stay stable when a
     /// bypassed entry sits earlier in the list.
-    fn compose(&self, kinds: &[Kind], applied: &[AppliedFilter], skip_shaders: bool) -> String {
+    fn compose(&self, kinds: &[Kind], applied: &[AppliedFilter]) -> String {
         let mut fragments: Vec<String> = Vec::new();
         for applied in applied.iter().filter(|applied| applied.enabled) {
             let Some(package) = self.get(&applied.id) else {
@@ -1213,14 +1163,8 @@ impl Catalogue {
             if !kinds.contains(&package.kind()) {
                 continue;
             }
-            if skip_shaders && package.shader().is_some() {
-                continue;
-            }
             match package.ffmpeg_fragment(&applied.params, fragments.len()) {
-                Ok(Some(fragment)) => {
-                    let index = fragments.len();
-                    fragments.push(mixed(package, &applied.params, fragment, index));
-                }
+                Ok(Some(fragment)) => fragments.push(fragment),
                 Ok(None) => {}
                 // Every template was rendered at load; a failure here is a
                 // package whose expression only breaks for some value. Drop
@@ -1235,6 +1179,41 @@ impl Catalogue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A link to a retired key or blur opens as its stand-in, its knobs
+    /// carried over as the `[[replaces]]` table says - the screen's colour,
+    /// FFmpeg's distances doubled and held to the new ranges, a box's
+    /// spread as a Gaussian's - under either spelling of the old id; a link
+    /// nothing replaces is left as it was.
+    #[test]
+    fn a_retired_link_opens_as_its_stand_in() {
+        let catalogue = Catalogue::builtin();
+        let link = |id: &str, params: &[(&str, f64)]| AppliedFilter {
+            id: id.to_owned(),
+            params: params.iter().map(|(k, v)| ((*k).to_owned(), *v)).collect(),
+            enabled: false,
+            keys: BTreeMap::new(),
+        };
+        let mut green = link("concat.green-screen", &[("similarity", 40.0)]);
+        assert!(catalogue.upgrade(&mut green));
+        assert_eq!(green.id, "concat.chroma-key");
+        assert!(!green.enabled, "a bypassed link stays bypassed");
+        assert_eq!(green.params["color"], f64::from(0x00ff_00ffu32));
+        assert_eq!(green.params["similarity"], 60.0, "80, held to the new most");
+        assert_eq!(green.params["softness"], 20.0, "the old default, doubled");
+        assert_eq!(green.params["spill"], 0.0);
+        let mut blue = link("blue-screen", &[]);
+        assert!(catalogue.upgrade(&mut blue), "the alias spelling");
+        assert_eq!(blue.params["color"], f64::from(0x0000_ffffu32));
+        assert_eq!(blue.params["similarity"], 50.0);
+        let mut boxed = link("concat.box-blur", &[("radius", 6.0)]);
+        assert!(catalogue.upgrade(&mut boxed));
+        assert_eq!(boxed.id, "concat.gaussian-blur");
+        assert!((boxed.params["radius"] - 14f64.sqrt()).abs() < 1e-9);
+        let mut kept = link("concat.sepia", &[("amount", 50.0)]);
+        assert!(!catalogue.upgrade(&mut kept));
+        assert_eq!(kept.id, "concat.sepia");
+    }
 
     /// A chain reads the frame and its own table and no other file.
     #[test]

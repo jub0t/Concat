@@ -23,7 +23,6 @@ use std::sync::{Arc, Mutex};
 use concat_core::frame::Frame;
 use concat_core::shader::RevealMap;
 
-use concat_export::chains::video_effect_chain;
 use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{ClipKind as ModelClipKind, Project, TextAlign, TextStyle};
 use concat_text::{Align, Fonts, TitleStyle, WordRect};
@@ -170,7 +169,6 @@ impl Titles {
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
                     opacity: (clip.opacity * text.opacity).clamp(0.0, 1.0),
-                    video_filter_chain: video_effect_chain(&clip.video_effects),
                     media_width: Some(width),
                     media_height: Some(height),
                     has_audio: Some(false),

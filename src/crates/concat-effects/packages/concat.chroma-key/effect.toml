@@ -52,3 +52,17 @@ space = "display"
 # The still before a broadcast green screen, for the key to take out.
 [card]
 screen = "#00b140"
+
+# The two screen keys this stands in for, keyed to the colours they took out.
+# FFmpeg's chromakey measured the distance between two colours at half the
+# scale this key does, so its similarity and softness come across doubled;
+# neither cleaned spill, so the key's starts at none.
+[[replaces]]
+id = "concat.green-screen"
+defaults = { similarity = 25, softness = 10 }
+knobs = { color = "16711935", similarity = "similarity * 2", softness = "softness * 2", spill = "0" }
+
+[[replaces]]
+id = "concat.blue-screen"
+defaults = { similarity = 25, softness = 10 }
+knobs = { color = "65535", similarity = "similarity * 2", softness = "softness * 2", spill = "0" }

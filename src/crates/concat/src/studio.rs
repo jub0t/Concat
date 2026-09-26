@@ -1654,7 +1654,34 @@ fn partners_moved(
         .collect()
 }
 
+/// The effects a project's clips name that no package answers to - retired
+/// ones, or packages not installed here - by name, each once, in the order
+/// they first appear.
+fn retired_effects(project: &Project) -> Vec<String> {
+    let catalogue = Catalogue::builtin();
+    let mut names: Vec<String> = Vec::new();
+    for timeline in &project.timelines {
+        for clip in &timeline.clips {
+            for link in &clip.video_effects {
+                if catalogue
+                    .packages()
+                    .any(|package| package.answers_to(&link.id))
+                {
+                    continue;
+                }
+                let name = label_of(&link.id);
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    names
+}
+
 fn label_of(id: &str) -> String {
+    // The name after the namespace: `concat.camera-shake` is Camera Shake.
+    let id = id.rsplit('.').next().unwrap_or(id);
     id.split(['-', '_'])
         .map(|word| {
             let mut chars = word.chars();
@@ -2215,7 +2242,6 @@ impl Studio {
         // whole way along, at full strength. The timeline is as it was.
         if let Some(filter_id) = self.audition.clone() {
             let effects = vec![AppliedFilter::new(filter_id)];
-            let video_filter_chain = concat_export::chains::video_effect_chain(&effects);
             let track = clips
                 .iter()
                 .map(|flat| flat.track)
@@ -2226,7 +2252,6 @@ impl Studio {
                     muted: true,
                     volume: 0.0,
                     effects,
-                    video_filter_chain,
                     has_audio: Some(false),
                     ..concat_export::ExportClip::blank(
                         concat_export::ClipKind::Layer,
@@ -5957,6 +5982,17 @@ impl Studio {
                 self.request_preview();
                 self.ensure_cutouts();
                 self.ensure_regions();
+
+                // Effects this build no longer has, named once as the project
+                // opens: their links stay in the clips, marked not installed.
+                let retired = self
+                    .session
+                    .as_ref()
+                    .map(|session| retired_effects(session.project()))
+                    .unwrap_or_default();
+                if !retired.is_empty() {
+                    self.notify(&tf("studio.retiredEffects", &[&retired.join(", ")]), false);
+                }
 
                 // Log missing media to file for debugging
                 if let Some(session) = &self.session {

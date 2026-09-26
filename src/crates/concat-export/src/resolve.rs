@@ -91,22 +91,17 @@ pub(crate) struct BuiltTimeline {
     pub(crate) stills: std::collections::HashSet<ClipId>,
     /// Contain-fitted decode size per clip, where the source's size is known.
     pub(crate) decode_sizes: HashMap<ClipId, (u32, u32)>,
-    /// The clip's effect chain, where it has one.
-    pub(crate) filter_chains: HashMap<ClipId, String>,
     /// Each picture's track, so a treatment knows what lies beneath it.
     pub(crate) tracks: HashMap<ClipId, usize>,
-    /// The clip's pre-fit chain - its crop - where it has one.
-    pub(crate) pre_chains: HashMap<ClipId, String>,
-    /// The crop and flips the frame plan draws, for the clips whose chain
-    /// does not run after them. See [`planned_geometry`].
+    /// The crop and flips the frame plan draws. See [`planned_geometry`].
     pub(crate) geometry: HashMap<ClipId, PlannedGeometry>,
     /// The fades to a colour and wipes the frame plan draws, per clip.
     pub(crate) shapes: HashMap<ClipId, Vec<crate::TransitionShape>>,
     /// The levels the clip's file is read as, where the person has said.
     pub(crate) ranges: HashMap<ClipId, concat_media::ColorRange>,
-    /// The clip's applied effects, on a GPU renderer: the passes are
-    /// resolved from them at each frame, because a knob with keys is worth
-    /// something different each frame and the resolution is cheap.
+    /// The clip's applied effects: the passes are resolved from them at
+    /// each frame, because a knob with keys is worth something different
+    /// each frame and the resolution is cheap.
     pub(crate) chains: HashMap<ClipId, Vec<AppliedFilter>>,
     /// A title's per-word reveal order, for the clips that have one -
     /// carried beside `chains` rather than inside it, since it is baked
@@ -152,16 +147,14 @@ impl TransitionSpan {
 }
 
 /// A layer clip, as the compositor needs it: when, over which tracks, what
-/// chain, and how hard.
+/// effects, and how hard.
 #[derive(Clone, Debug)]
 pub(crate) struct Treatment {
     pub(crate) start: Rational,
     pub(crate) end: Rational,
     pub(crate) track: usize,
-    pub(crate) chain: String,
-    /// The layer's applied effects, when the renderer runs shaders; the
-    /// chain is then whatever the GPU cannot. Resolved to passes at each
-    /// frame, so a keyed knob rides.
+    /// The layer's applied effects, resolved to passes at each frame, so a
+    /// keyed knob rides.
     pub(crate) effects: Vec<AppliedFilter>,
     pub(crate) strength: f32,
     pub(crate) ramp_in: f64,
@@ -206,16 +199,13 @@ pub(crate) fn build_timeline(
     request: &ExportRequest,
     rate: FrameRate,
     visible: &[&ExportClip],
-    gpu: bool,
     transitions: Vec<TransitionSpan>,
 ) -> BuiltTimeline {
     let mut timeline = Timeline::new(request.width, request.height, rate);
     let mut stills = std::collections::HashSet::new();
     let mut decode_sizes: HashMap<ClipId, (u32, u32)> = HashMap::new();
-    let mut filter_chains: HashMap<ClipId, String> = HashMap::new();
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
-    let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut geometry: HashMap<ClipId, PlannedGeometry> = HashMap::new();
     let mut shapes: HashMap<ClipId, Vec<crate::TransitionShape>> = HashMap::new();
     let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
@@ -242,18 +232,12 @@ pub(crate) fn build_timeline(
         // A layer has no pixels to decode: it is a treatment over the
         // stack, kept beside the timeline rather than in it.
         if clip.kind == ClipKind::Layer {
-            let chain = layer_chain(clip, gpu);
-            let effects = if gpu {
-                shaded(&clip.effects)
-            } else {
-                Vec::new()
-            };
-            if !chain.is_empty() || !effects.is_empty() {
+            let effects = shaded(&clip.effects);
+            if !effects.is_empty() {
                 treatments.push(Treatment {
                     start,
                     end: start + duration,
                     track: clip.track,
-                    chain,
                     effects,
                     strength: clip.opacity.clamp(0.0, 1.0) as f32,
                     ramp_in: clip.fade_in.max(0.0),
@@ -292,36 +276,25 @@ pub(crate) fn build_timeline(
             if clip.kind == ClipKind::Image {
                 stills.insert(id);
             }
-            let planned = planned_geometry(clip, gpu);
+            let planned = planned_geometry(clip);
             if let Some(size) = fitted_size(request, clip, planned.is_some()) {
                 decode_sizes.insert(id, size);
-            }
-            let chain = full_chain(clip, gpu);
-            if !chain.is_empty() {
-                filter_chains.insert(id, chain);
             }
             if !clip.transition_shapes.is_empty() {
                 shapes.insert(id, clip.transition_shapes.clone());
             }
             if let Some(planned) = planned {
                 geometry.insert(id, planned);
-            } else {
-                let pre = pre_chain(clip);
-                if !pre.is_empty() {
-                    pre_chains.insert(id, pre);
-                }
             }
             if let Some(range) = clip.color_range {
                 ranges.insert(id, crate::engine_range(range));
             }
-            if gpu {
-                let effects = shaded(&clip.effects);
-                if !effects.is_empty() {
-                    chains.insert(id, effects);
-                }
-                if let Some(map) = &clip.reveal_map {
-                    reveal_maps.insert(id, Arc::clone(map));
-                }
+            let effects = shaded(&clip.effects);
+            if !effects.is_empty() {
+                chains.insert(id, effects);
+            }
+            if let Some(map) = &clip.reveal_map {
+                reveal_maps.insert(id, Arc::clone(map));
             }
             if let Some(job) = CutoutJob::of(clip, planned.is_none()) {
                 cutouts.insert(id, job);
@@ -336,11 +309,9 @@ pub(crate) fn build_timeline(
         timeline,
         stills,
         decode_sizes,
-        filter_chains,
         tracks: tracks_of,
         treatments,
         transitions,
-        pre_chains,
         geometry,
         shapes,
         ranges,
@@ -349,36 +320,6 @@ pub(crate) fn build_timeline(
         cutouts,
         highlight,
     }
-}
-
-/// The chain that runs in the source's own pixels before the fit: the crop.
-pub(crate) fn pre_chain(clip: &ExportClip) -> String {
-    match clip.crop {
-        Some([left, top, right, bottom])
-            if left > 0.0 || top > 0.0 || right > 0.0 || bottom > 0.0 =>
-        {
-            let w = (1.0 - left - right).max(0.1);
-            let h = (1.0 - top - bottom).max(0.1);
-            // Even sizes, for the same reason `fitted_size` wants them.
-            format!(
-                "crop=w=floor(iw*{w:.4}/2)*2:h=floor(ih*{h:.4}/2)*2:x=floor(iw*{left:.4}):y=floor(ih*{top:.4})"
-            )
-        }
-        _ => String::new(),
-    }
-}
-
-/// The clip's FFmpeg chain for one backend: flips first - a flip is a
-/// treatment of the picture like any other, and comes first so the effects
-/// see the picture the viewer will - then the effects this backend runs as
-/// chains, then the transition fades. On the GPU every effect with a shader
-/// is left out here and carried by [`shader_passes`] instead, and the flips
-/// are left out when the frame plan draws them ([`planned_geometry`]).
-pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
-    if planned_geometry(clip, gpu).is_some() {
-        return after_flips(clip, gpu);
-    }
-    layer_chain(clip, gpu)
 }
 
 /// The crop and flips the frame plan draws for a clip.
@@ -390,21 +331,15 @@ pub(crate) struct PlannedGeometry {
 }
 
 /// The crop and flips the frame plan draws for this clip, or `None` when
-/// it has neither or they stay in the decoder's filters.
-///
-/// The plan draws them when nothing is left in the chain after them. The
-/// crop and the flips come before the effects and the transition fades -
-/// a vignette is centred on the picture as cropped, a wipe on a mirrored
-/// clip still wipes the way the frame is seen - and the plan crops and
-/// flips the picture as it draws it, which is after whatever the decoder
-/// ran. Shader effects are no hindrance: the compositor prepares a picture
-/// before its passes. So the FFmpeg chain's effects and the baked fades
-/// keep the geometry in the decoder until they move into the plan too.
-pub(crate) fn planned_geometry(clip: &ExportClip, gpu: bool) -> Option<PlannedGeometry> {
+/// it has neither. The plan crops and flips the picture as it draws it,
+/// before the clip's effects run over it: a vignette is centred on the
+/// picture as cropped, a wipe on a mirrored clip still wipes the way the
+/// frame is seen.
+pub(crate) fn planned_geometry(clip: &ExportClip) -> Option<PlannedGeometry> {
     let crop = clip
         .crop
         .map_or(concat_render::Crop::NONE, concat_render::Crop::of);
-    if (crop.is_none() && !clip.flip_h && !clip.flip_v) || !after_flips(clip, gpu).is_empty() {
+    if crop.is_none() && !clip.flip_h && !clip.flip_v {
         return None;
     }
     Some(PlannedGeometry {
@@ -414,41 +349,9 @@ pub(crate) fn planned_geometry(clip: &ExportClip, gpu: bool) -> Option<PlannedGe
     })
 }
 
-/// The chain with the flips always in it: a layer's, which treats the
-/// stack beneath and is not drawn from a planned picture of its own.
-fn layer_chain(clip: &ExportClip, gpu: bool) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if clip.flip_h {
-        parts.push("hflip".to_owned());
-    }
-    if clip.flip_v {
-        parts.push("vflip".to_owned());
-    }
-    let rest = after_flips(clip, gpu);
-    if !rest.is_empty() {
-        parts.push(rest);
-    }
-    parts.join(",")
-}
-
-/// What runs after the flips: the backend's chain effects.
-fn after_flips(clip: &ExportClip, gpu: bool) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let effects = if clip.effects.is_empty() {
-        clip.video_filter_chain.clone()
-    } else if gpu {
-        Catalogue::builtin().video_chain_gpu(&clip.effects)
-    } else {
-        Catalogue::builtin().video_chain(&clip.effects)
-    };
-    if !effects.is_empty() {
-        parts.push(effects);
-    }
-    parts.join(",")
-}
-
-/// The enabled entries of a chain whose package has a shader: the ones a
-/// renderer that runs shaders resolves to passes each frame.
+/// The enabled entries of a chain whose package has a shader: the ones
+/// resolved to passes each frame. A link to a package not installed here
+/// draws nothing.
 pub(crate) fn shaded(effects: &[AppliedFilter]) -> Vec<AppliedFilter> {
     let catalogue = Catalogue::builtin();
     effects

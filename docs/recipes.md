@@ -131,7 +131,7 @@ Find a filter, then set it on each video clip.
 
 ```python
 looks = c.call("catalogue.list", kind="filter")
-print([p["id"] for p in looks])            # e.g. concat.warm, concat.film, concat.black-white …
+print([p["id"] for p in looks])            # e.g. concat.warm, concat.film, concat.mono …
 
 view = c.call("project.get", path="/edits/Reel")
 timeline = next(t for t in view["project"]["timelines"] if t["id"] == view["project"]["activeTimelineId"])

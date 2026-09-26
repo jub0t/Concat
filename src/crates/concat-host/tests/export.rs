@@ -1393,7 +1393,7 @@ fn every_edit_still_exports() {
     studio.apply(Command::UpdateClip {
         clip_id: cam_clip.clone(),
         patch: ClipPatch {
-            video_effects: Some(vec![effect("concat.vhs"), effect("concat.hologram")]),
+            video_effects: Some(vec![effect("concat.vhs"), effect("concat.film-grain")]),
             filters: Some(vec![effect("concat.bass")]),
             ..ClipPatch::default()
         },

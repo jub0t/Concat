@@ -19,7 +19,6 @@ use concat_core::shader::{ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
 use crate::compositor::Compositor;
-use crate::kernels;
 use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
 
 /// A straightforward CPU compositor.
@@ -44,79 +43,16 @@ impl Compositor for CpuCompositor {
     }
 
     fn render(&mut self, plan: &FramePlan) -> Frame {
+        // Geometry, masks, transitions and blending: what a frame is made of
+        // besides its effects, which are the GPU's alone and are held to
+        // their packages' probes instead.
         let mut ground = Frame::black(plan.width, plan.height);
-        let mut treatments: Vec<&PlannedTreatment> = plan.treatments.iter().collect();
-        treatments.sort_by_key(|treatment| treatment.track);
-
-        // The stack is drawn up to each treatment's track, treated, and
-        // blended back by the strength; the result is the ground the rest
-        // is drawn on.
-        let mut next = 0;
-        for treatment in treatments {
-            while next < plan.layers.len() && plan.layers[next].track < treatment.track {
-                draw(&mut ground, plan, &plan.layers[next]);
-                next += 1;
-            }
-            let strength = treatment.strength.clamp(0.0, 1.0);
-            if strength <= 0.0 || treatment.effects.is_empty() {
-                continue;
-            }
-            let treated = run_effects(&ground, &treatment.effects, plan.seconds());
-            ground = if strength >= 1.0 {
-                treated
-            } else {
-                mix_light(&ground, &treated, strength)
-            };
-        }
+        let next = 0;
         for layer in &plan.layers[next..] {
             draw(&mut ground, plan, layer);
         }
         ground
     }
-}
-
-/// `picture` through `effects` in order: each package's kernel at full
-/// strength, mixed back over the untouched picture by the pass's intensity
-/// the way the shader's last line does. A package without a kernel leaves
-/// the picture as it was.
-pub(crate) fn run_effects(picture: &Frame, effects: &[ShaderPass], seconds: f32) -> Frame {
-    let mut current = picture.clone();
-    for pass in effects {
-        let Some(treated) = kernels::run(pass, &current, seconds) else {
-            kernels::fallback_once(&pass.package);
-            continue;
-        };
-        let intensity = pass.intensity.clamp(0.0, 1.0);
-        current = if intensity >= 1.0 {
-            treated
-        } else {
-            mix_frames(&current, &treated, intensity)
-        };
-    }
-    current
-}
-
-/// `a` towards `b` by `amount`, per channel.
-/// `a` towards `b` by `amount`, in linear light: a treatment's strength,
-/// which the GPU weighs over the working space.
-pub(crate) fn mix_light(a: &Frame, b: &Frame, amount: f32) -> Frame {
-    let amount = amount.clamp(0.0, 1.0);
-    let mut out = a.clone();
-    for (index, (pixel, over)) in out
-        .pixels_mut()
-        .iter_mut()
-        .zip(b.pixels().iter())
-        .enumerate()
-    {
-        if index % 4 == 3 {
-            let base = f32::from(*pixel);
-            *pixel = (base + (f32::from(*over) - base) * amount).round() as u8;
-            continue;
-        }
-        let base = linear(f32::from(*pixel));
-        *pixel = encoded(base + (linear(f32::from(*over)) - base) * amount).round() as u8;
-    }
-    out
 }
 
 /// `a` towards `b` by `amount` in their stored gamma: the old transition
@@ -147,11 +83,7 @@ fn draw(output: &mut Frame, plan: &FramePlan, layer: &PlannedLayer) {
     let (picture, geometry, flip_h, flip_v): (Cow<'_, Frame>, Geometry, bool, bool) =
         if layer.needs_preparing(&geometry) {
             let made = prepare(source, &geometry, layer.flip_h, layer.flip_v);
-            let treated = run_effects(&made, &layer.effects, plan.seconds());
-            (Cow::Owned(treated), geometry.prepared(), false, false)
-        } else if !layer.effects.is_empty() {
-            let treated = run_effects(source, &layer.effects, plan.seconds());
-            (Cow::Owned(treated), geometry, layer.flip_h, layer.flip_v)
+            (Cow::Owned(made), geometry.prepared(), false, false)
         } else {
             (
                 Cow::Borrowed(source.as_ref()),

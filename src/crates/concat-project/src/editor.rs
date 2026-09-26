@@ -20,6 +20,7 @@
 //!   history: undo steps back through what changed the picture, not
 //!   through what the person was looking at.
 
+use crate::model::AppliedFilter;
 use std::collections::VecDeque;
 
 use serde_json::Value;
@@ -79,6 +80,30 @@ impl Editor {
             undo: VecDeque::new(),
             redo: Vec::new(),
         })
+    }
+
+    /// Rewrites the picture links `upgrade` changes - one to a retired
+    /// effect, read as a link to the effect that stands in for it - as the
+    /// document is read, before any edit: not a step to undo, since it is
+    /// what the document means now. Returns whether any link changed.
+    pub fn upgrade_links(&mut self, mut upgrade: impl FnMut(&mut AppliedFilter) -> bool) -> bool {
+        use std::sync::Arc;
+        let mut changed = false;
+        for timeline in &mut self.project.timelines {
+            for index in 0..timeline.clips.len() {
+                let mut links = timeline.clips[index].video_effects.clone();
+                let mut any = false;
+                for link in &mut links {
+                    any |= upgrade(link);
+                }
+                if any {
+                    let timeline = Arc::make_mut(timeline);
+                    Arc::make_mut(&mut timeline.clips[index]).video_effects = links;
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     /// The current state, read-only: all mutation goes through
