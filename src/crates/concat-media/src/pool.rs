@@ -89,6 +89,11 @@ pub struct FrameRequest {
     /// and a second cache entry per size; the level is never smaller than
     /// `cover`, so nothing is lost. See [`FrameRequest::at_any_size`].
     pub any_size: bool,
+    /// Served deep where the source is wide and nothing treats it here:
+    /// its own signal at sixteen bits a channel, for a caller whose frames
+    /// go straight to the GPU. Only with `any_size`, since a fit here is
+    /// FFmpeg on eight bits. See [`DecodeOptions::deep`].
+    pub deep: bool,
 }
 
 impl FrameRequest {
@@ -106,6 +111,7 @@ impl FrameRequest {
             proxy: false,
             range: None,
             any_size: false,
+            deep: false,
         }
     }
 
@@ -152,6 +158,12 @@ impl FrameRequest {
         self
     }
 
+    /// Served deep where it can be; see [`FrameRequest::deep`].
+    pub fn deep_when_untreated(mut self, deep: bool) -> Self {
+        self.deep = deep;
+        self
+    }
+
     /// Reads the proxy where there is one. See [`FrameRequest::proxy`].
     pub fn from_proxy(mut self, proxy: bool) -> Self {
         self.proxy = proxy;
@@ -171,6 +183,10 @@ struct SourceKey {
     /// The range the file was read as: the same frame read as full and
     /// as video range is two different pictures.
     range: Option<ColorRange>,
+    /// Read deep: a wide source in its own signal, sixteen bits a channel
+    /// (see [`DecodeOptions::deep`]) - a different picture from the
+    /// tone-mapped eight bits.
+    deep: bool,
 }
 
 /// A treated frame's identity: the source frame and what was done to it.
@@ -339,6 +355,7 @@ impl Reader {
         chain: Option<&str>,
         pre: Option<&str>,
         range: Option<ColorRange>,
+        deep: bool,
         rate: FrameRate,
         still: bool,
         index: i64,
@@ -349,7 +366,8 @@ impl Reader {
         let mut options = DecodeOptions::default()
             .starting_at(rate.time_of_frame(index))
             .scaled_to(width, height)
-            .in_range(range);
+            .in_range(range)
+            .deep(deep);
         if still {
             // One frame, served for every time, and never sought: a seek
             // on a single-image JPEG leaves FFmpeg's image demuxer with
@@ -432,6 +450,7 @@ type ReaderKey = (
     Option<String>,
     Option<String>,
     Option<ColorRange>,
+    bool,
 );
 
 /// The warm readers and their recency, behind one short lock. A reader is
@@ -696,6 +715,10 @@ impl ReaderPool {
         // A proxy is read as it is tagged: it was written from the
         // corrected picture, so the correction applied twice would undo it.
         let range = (path == request.path).then_some(request.range).flatten();
+        // Deep only where the frame is served as it is: a fit or a chain
+        // here is FFmpeg, which takes eight bits.
+        let deep =
+            request.deep && request.any_size && request.pre.is_none() && request.chain.is_none();
         Ok((
             facts,
             SourceKey {
@@ -704,6 +727,7 @@ impl ReaderPool {
                 height,
                 index,
                 range,
+                deep,
             },
         ))
     }
@@ -767,6 +791,9 @@ impl ReaderPool {
     /// the same options makes. The monitor asks through
     /// [`ReaderPool::frame`] instead, whose cache the chain does not
     /// invalidate. Without a crop or a chain the two are the same request.
+    /// `deep` reads a wide source in its own signal where there is no crop
+    /// and no chain; see [`DecodeOptions::deep`].
+    #[allow(clippy::too_many_arguments)]
     pub fn frame_at(
         &self,
         path: &Path,
@@ -777,6 +804,7 @@ impl ReaderPool {
         chain: Option<&str>,
         pre: Option<&str>,
         range: Option<ColorRange>,
+        deep: bool,
     ) -> Result<Arc<Frame>> {
         let chain = chain.filter(|chain| !chain.trim().is_empty());
         let pre = pre.filter(|pre| !pre.trim().is_empty());
@@ -788,6 +816,7 @@ impl ReaderPool {
             height,
             index,
             range,
+            deep: deep && chain.is_none() && pre.is_none(),
         };
         if chain.is_none() && pre.is_none() {
             return self.source_frame(&facts, &source_key);
@@ -817,7 +846,7 @@ impl ReaderPool {
             self.remember_treated(key, Arc::clone(&frame));
             return Ok(frame);
         }
-        let shared = self.reader(path, width, height, chain, pre, range, &facts, index)?;
+        let shared = self.reader(path, width, height, chain, pre, range, false, &facts, index)?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
         })?;
@@ -853,7 +882,7 @@ impl ReaderPool {
             return Ok(frame);
         }
         let shared = self.reader(
-            path, key.width, key.height, None, None, key.range, facts, key.index,
+            path, key.width, key.height, None, None, key.range, key.deep, facts, key.index,
         )?;
         let mut reader = shared.lock().map_err(|_| crate::error::Error::NoFrame {
             path: path.to_path_buf(),
@@ -1016,6 +1045,7 @@ impl ReaderPool {
         chain: Option<&str>,
         pre: Option<&str>,
         range: Option<ColorRange>,
+        deep: bool,
         facts: &MediaFacts,
         target: i64,
     ) -> Result<Arc<Mutex<Reader>>> {
@@ -1026,6 +1056,7 @@ impl ReaderPool {
             chain.map(str::to_owned),
             pre.map(str::to_owned),
             range,
+            deep,
         );
         {
             let mut readers = self
@@ -1051,6 +1082,7 @@ impl ReaderPool {
             chain,
             pre,
             range,
+            deep,
             facts.rate,
             facts.still,
             target,
@@ -1158,6 +1190,7 @@ pub(crate) mod tests {
             height: 2,
             index,
             range: None,
+            deep: false,
         };
         cache.insert(key(0), Arc::new(Frame::black(2, 2)));
         cache.insert(key(1), Arc::new(Frame::black(2, 2)));
@@ -1185,7 +1218,7 @@ pub(crate) mod tests {
         first.fill([255, 0, 0, 255]);
         pool.hold_still(path, Arc::new(first));
         let same = pool
-            .frame_at(path, Rational::ZERO, 64, 32, true, None, None, None)
+            .frame_at(path, Rational::ZERO, 64, 32, true, None, None, None, false)
             .expect("its own size");
         assert_eq!((same.width(), same.height()), (64, 32));
         assert_eq!(&same.pixels()[..4], &[255, 0, 0, 255]);
@@ -1217,6 +1250,7 @@ pub(crate) mod tests {
                 height: 2,
                 index: 0,
                 range: None,
+                deep: false,
             },
             Arc::new(Frame::black(2, 2)),
         );
@@ -1266,6 +1300,7 @@ pub(crate) mod tests {
                     None,
                     None,
                     None,
+                    false,
                 )
                 .expect("frame decodes");
             i64::from(frame.pixel(32, 32).expect("in bounds")[0])

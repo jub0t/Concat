@@ -916,6 +916,63 @@ fn fades_and_wipes_reach_the_picture() {
     }
 }
 
+/// An iPhone's HDR - ten-bit HEVC tagged HLG - exports through the new road:
+/// decoded deep in its own signal, converted and conformed to the SDR
+/// timeline on the GPU as it uploads. The picture is the grey it was
+/// written as, conformed: neither black nor blown out, and not tinted.
+#[test]
+fn an_hlg_clip_exports_through_the_gpu_conversion() {
+    if !VideoCodec::Hevc.available() {
+        eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+        return;
+    }
+    let scratch = Scratch::new("hlg");
+    let path = scratch.path().join("hlg.mp4");
+    {
+        let options = EncodeOptions {
+            codec: VideoCodec::Hevc,
+            preset: "ultrafast".to_owned(),
+            crf: 12,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            ten_bit: true,
+            color_range: concat_media::ColorRange::Limited,
+            hardware: false,
+            threads: 0,
+        };
+        let mut encoder = Encoder::create_mislabelled_hdr(
+            &path,
+            WIDTH,
+            HEIGHT,
+            FrameRate::THIRTY,
+            &options,
+            false,
+        )
+        .expect("an HEVC encoder");
+        let mut frame = Frame::black(WIDTH, HEIGHT);
+        frame.fill([160, 160, 160, 255]);
+        for _ in 0..30 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+    }
+    let mut studio = Studio::new(scratch.path(), "HLG", video(WIDTH, HEIGHT, 30, 1));
+    let media = studio.import(&path);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: media,
+        start: 0.0,
+    });
+    let exported = studio.export("an HLG clip");
+    let [r, g, b] = exported.colour_at(0.5);
+    assert!(
+        [r, g, b].iter().all(|channel| (40..=240).contains(channel))
+            && r.abs_diff(g) <= 6
+            && g.abs_diff(b) <= 6,
+        "the HLG grey exported as {:?}",
+        [r, g, b]
+    );
+}
+
 /// Issue #103: the levels a file is read as reach the export. A source
 /// written video range reads as it is by default; told it is full range,
 /// its levels expand and the colour of a second is no longer the colour

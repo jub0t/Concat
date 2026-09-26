@@ -213,6 +213,116 @@ fn fs_resolve(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// A deep frame (sixteen bits a channel, Rec. 2020, its source's own signal)
+/// copied into the working space: the upload of an HDR or wide-gamut clip.
+/// One entry a signal (`concat_core::frame::Signal`): the transfer undone
+/// into light, 1.0 the white of an SDR picture (203 nits, ITU-R BT.2408),
+/// and the primaries brought to Rec. 709's, where a colour outside them is
+/// negative rather than clipped.
+///
+/// Every timeline is SDR for now, so an HDR clip is conformed to SDR as it
+/// arrives, as Final Cut does a clip at a time: BT.2390's roll-off (ITU-R
+/// BT.2390, the EETF) takes its highlights from a 1000-nit master down to
+/// SDR white, on the brightest channel so a hue keeps its place. An HDR
+/// timeline will skip it and keep the highlights.
+const DEEP_SHADER: &str = r#"
+@group(0) @binding(0) var deep: texture_2d<u32>;
+
+@vertex
+fn vs_full(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+
+fn deep_at(at: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(textureLoad(deep, vec2<i32>(at.xy), 0)) / 65535.0;
+}
+
+// Rec. 2020 primaries to Rec. 709's, linear light (ITU-R BT.2087's matrix
+// inverted, to full precision).
+fn from_2020(rgb: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        dot(vec3<f32>(1.660491002, -0.587641139, -0.072849863), rgb),
+        dot(vec3<f32>(-0.124550475, 1.132899897, -0.008349423), rgb),
+        dot(vec3<f32>(-0.018150763, -0.100578898, 1.118729661), rgb),
+    );
+}
+
+// SMPTE ST 2084: a signal to nits, and back.
+const PQ_M1: f32 = 0.1593017578125;
+const PQ_M2: f32 = 78.84375;
+const PQ_C1: f32 = 0.8359375;
+const PQ_C2: f32 = 18.8515625;
+const PQ_C3: f32 = 18.6875;
+
+fn pq_nits(signal: vec3<f32>) -> vec3<f32> {
+    let e = pow(clamp(signal, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / PQ_M2));
+    let y = pow(max(e - PQ_C1, vec3<f32>(0.0)) / (PQ_C2 - PQ_C3 * e), vec3<f32>(1.0 / PQ_M1));
+    return y * 10000.0;
+}
+
+fn pq_signal(nits: f32) -> f32 {
+    let y = pow(clamp(nits / 10000.0, 0.0, 1.0), PQ_M1);
+    return pow((PQ_C1 + PQ_C2 * y) / (1.0 + PQ_C3 * y), PQ_M2);
+}
+
+// BT.2390's EETF from a 1000-nit master to SDR white (203 nits), on the
+// brightest channel, the colour scaled with it.
+fn to_sdr(nits: vec3<f32>) -> vec3<f32> {
+    let peak = max(nits.r, max(nits.g, nits.b));
+    if (peak <= 0.0) {
+        return nits;
+    }
+    let master = pq_signal(1000.0);
+    let e1 = pq_signal(peak) / master;
+    let top = pq_signal(203.0) / master;
+    let knee = 1.5 * top - 0.5;
+    var e2 = e1;
+    if (e1 > knee) {
+        let t = (min(e1, 1.0) - knee) / (1.0 - knee);
+        let t2 = t * t;
+        let t3 = t2 * t;
+        e2 = (2.0 * t3 - 3.0 * t2 + 1.0) * knee
+            + (t3 - 2.0 * t2 + t) * (1.0 - knee)
+            + (-2.0 * t3 + 3.0 * t2) * top;
+    }
+    let mapped = pq_nits(vec3<f32>(e2 * master)).r;
+    return nits * (mapped / peak);
+}
+
+@fragment
+fn fs_upload_sdr_wide(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    let lin = pow(max(colour.rgb, vec3<f32>(0.0)), vec3<f32>(2.4));
+    return vec4<f32>(from_2020(lin), colour.a);
+}
+
+@fragment
+fn fs_upload_pq(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    let nits = to_sdr(pq_nits(colour.rgb));
+    return vec4<f32>(from_2020(nits / 203.0), colour.a);
+}
+
+// ARIB STD-B67's inverse OETF to scene light, then BT.2100's OOTF for a
+// 1000-nit display (a system gamma of 1.2), which puts HLG's reference
+// white - 75 % of the signal - at 203 nits.
+@fragment
+fn fs_upload_hlg(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    let a = 0.17883277;
+    let b = 0.28466892;
+    let c = 0.55991073;
+    let e = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = e * e / 3.0;
+    let high = (exp((e - c) / a) + b) / 12.0;
+    let scene = select(high, low, e <= vec3<f32>(0.5));
+    let ys = dot(scene, vec3<f32>(0.2627, 0.6780, 0.0593));
+    let nits = to_sdr(1000.0 * pow(max(ys, 1e-6), 0.2) * scene);
+    return vec4<f32>(from_2020(nits / 203.0), colour.a);
+}
+"#;
+
 /// One package's shader, compiled once and kept: its pipeline, and the two
 /// uniform buffers every pass through it rewrites.
 struct CompiledShader {
@@ -308,6 +418,14 @@ pub struct WgpuCompositor {
     /// The eight-bit textures frames are written into on their way to the
     /// pool, one a size, each with its bind group.
     staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
+    /// A deep frame into the working space, by signal: Rec. 2020 gamma,
+    /// HLG, PQ (see `DEEP_SHADER`).
+    deep_pipelines: [wgpu::RenderPipeline; 3],
+    /// The layout a deep staging texture is bound with: sixteen-bit
+    /// integers, read texel by texel.
+    deep_layout: wgpu::BindGroupLayout,
+    /// The sixteen-bit staging textures, one a size.
+    deep_staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
     bind_layout: wgpu::BindGroupLayout,
     /// Group 1 of a shader pass: the frame block and the package's params.
     uniform_layout: wgpu::BindGroupLayout,
@@ -691,6 +809,56 @@ impl WgpuCompositor {
         let upload_pipeline = copy_into(WORK, "fs_upload");
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
 
+        let deep_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("concat deep"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Uint,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let deep_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("concat deep"),
+            source: wgpu::ShaderSource::Wgsl(DEEP_SHADER.into()),
+        });
+        let deep_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("concat deep"),
+            bind_group_layouts: &[Some(&deep_layout)],
+            immediate_size: 0,
+        });
+        let deep_pipelines = ["fs_upload_sdr_wide", "fs_upload_hlg", "fs_upload_pq"].map(|entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&deep_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &deep_shader,
+                    entry_point: Some("vs_full"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &deep_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: WORK,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("concat layer"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -715,6 +883,9 @@ impl WgpuCompositor {
             upload_pipeline,
             resolve_pipeline,
             staging: HashMap::new(),
+            deep_pipelines,
+            deep_layout,
+            deep_staging: HashMap::new(),
             bind_layout,
             uniform_layout,
             lut_layout,
@@ -1281,6 +1452,7 @@ impl WgpuCompositor {
             self.used.remove(&key);
             self.idle.remove(&key);
             self.staging.remove(&key);
+            self.deep_staging.remove(&key);
         }
         Self::trim(
             &mut self.luts,
@@ -1404,7 +1576,12 @@ impl WgpuCompositor {
         // a clip's own colour will be brought into the working space. The
         // write lands before the submit that copies it, and the next
         // upload's write after it, so one staging texture a size serves.
-        let (staging, staging_group) = self.staging_for(frame.width(), frame.height());
+        let deep = frame.depth() == concat_core::frame::Depth::Sixteen;
+        let (staging, staging_group) = if deep {
+            self.deep_staging_for(frame.width(), frame.height())
+        } else {
+            self.staging_for(frame.width(), frame.height())
+        };
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &staging,
@@ -1415,7 +1592,7 @@ impl WgpuCompositor {
             frame.pixels(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(frame.width() * 4),
+                bytes_per_row: Some(frame.width() * frame.bytes_per_pixel() as u32),
                 rows_per_image: Some(frame.height()),
             },
             wgpu::Extent3d {
@@ -1432,7 +1609,17 @@ impl WgpuCompositor {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("concat upload"),
             });
-        Self::copy(&mut encoder, &self.upload_pipeline, &staging_group, &view);
+        let pipeline = if deep {
+            use concat_core::frame::Signal;
+            &self.deep_pipelines[match frame.signal() {
+                Signal::Hlg => 1,
+                Signal::Pq => 2,
+                Signal::Sdr | Signal::SdrWide => 0,
+            }]
+        } else {
+            &self.upload_pipeline
+        };
+        Self::copy(&mut encoder, pipeline, &staging_group, &view);
         self.queue.submit([encoder.finish()]);
         index
     }
@@ -1463,6 +1650,40 @@ impl WgpuCompositor {
             &self.pool[&size][canvas].bind_group,
             into,
         );
+    }
+
+    /// This size's sixteen-bit staging texture and its bind group, made on
+    /// first use.
+    fn deep_staging_for(&mut self, width: u32, height: u32) -> (wgpu::Texture, wgpu::BindGroup) {
+        if let Some((texture, group)) = self.deep_staging.get(&(width, height)) {
+            return (texture.clone(), group.clone());
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat deep staging"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Uint,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat deep staging"),
+            layout: &self.deep_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        self.deep_staging
+            .insert((width, height), (texture.clone(), group.clone()));
+        (texture, group)
     }
 
     /// This size's staging texture and its bind group, made on first use.
