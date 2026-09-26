@@ -9,6 +9,7 @@ import { Glyph, Icon } from "icons.slint";
 import { ThinScrollbar } from "primitives/scrollbar.slint";
 import { Tip } from "primitives/tooltip.slint";
 import { Focus } from "util.slint";
+import { NumberField } from "primitives/number-field.slint";
 
 // The launch screen: a launcher with a rail, and the window's own ground
 // under all of it — no card around the whole thing, no shadow. A setup
@@ -103,6 +104,12 @@ export struct StartData {
     rate: int,
     /// "1920 x 1080"
     size-readout: string,
+    /// The frame and rate as numbers, for the custom fields: the typed
+    /// ones when Custom is picked, the preset's otherwise, so picking
+    /// Custom starts the fields from the frame that was showing.
+    custom-width: float,
+    custom-height: float,
+    custom-fps: float,
     /// The chosen frame's width over its height, for the swatch beside the
     /// readout that shows its shape: 1.78 for landscape HD, 0.56 upright.
     frame-aspect: float,
@@ -341,6 +348,10 @@ component Chip inherits Rectangle {
 // which answer it is on.
 component ChipRow inherits Rectangle {
     in property <[ChipOption]> options;
+    /// A last chip after the options, at index `options.length`: Custom,
+    /// on the rows that can be typed. Named here rather than carried in
+    /// `options` so its word is translated where it is drawn.
+    in property <string> extra;
     in property <int> current;
     in property <bool> enabled: true;
     /// The chips share the width rather than take their own: the phone
@@ -350,11 +361,12 @@ component ChipRow inherits Rectangle {
     callback changed(index: int);
 
     property <bool> ring;
+    property <int> count: root.options.length + (root.extra != "" ? 1 : 0);
 
     height: 32px;
 
     function select(index: int) {
-        if (index >= 0 && index < root.options.length) {
+        if (index >= 0 && index < root.count) {
             root.changed(index);
         }
     }
@@ -370,12 +382,11 @@ component ChipRow inherits Rectangle {
         }
         key-pressed(event) => {
             if (event.text == Key.RightArrow || event.text == Key.DownArrow) {
-                root.select(Math.mod(root.current + 1, root.options.length));
+                root.select(Math.mod(root.current + 1, root.count));
                 return EventResult.accept;
             }
             if (event.text == Key.LeftArrow || event.text == Key.UpArrow) {
-                root.select(Math.mod(root.current - 1 + root.options.length,
-                    root.options.length));
+                root.select(Math.mod(root.current - 1 + root.count, root.count));
                 return EventResult.accept;
             }
             return EventResult.reject;
@@ -396,6 +407,18 @@ component ChipRow inherits Rectangle {
             clicked => {
                 fs.focus();
                 root.select(index);
+            }
+        }
+
+        if root.extra != "": Chip {
+            label: root.extra;
+            selected: root.current == root.options.length;
+            enabled: root.enabled;
+            block: root.block;
+            ring: root.ring && root.current == root.options.length;
+            clicked => {
+                fs.focus();
+                root.select(root.options.length);
             }
         }
     }
@@ -1102,6 +1125,9 @@ export component NewProjectDialog inherits Modal {
     callback aspect-changed(index: int);
     callback size-changed(index: int);
     callback rate-changed(index: int);
+    callback custom-width-edited(width: float);
+    callback custom-height-edited(height: float);
+    callback custom-fps-edited(fps: float);
     callback create();
     callback dismiss-error();
 
@@ -1119,9 +1145,9 @@ export component NewProjectDialog inherits Modal {
     // sheet dismissed out from under a create is a create nobody hears
     // about.
     dismissable: !root.data.busy;
-    // Wide enough for five rates and their readout beside an 84px label,
-    // and no wider than the window less a margin, on a phone.
-    surface-width: Math.min(600px, root.width - 32px);
+    // Wide enough for five rates, Custom and their readout beside an 84px
+    // label, and no wider than the window less a margin, on a phone.
+    surface-width: Math.min(640px, root.width - 32px);
 
     // The caret goes to the name each time the sheet comes up, with the
     // name selected, so the default is replaced by typing over it. From
@@ -1210,7 +1236,8 @@ export component NewProjectDialog inherits Modal {
                     horizontal-stretch: 1;
                     options: root.aspects;
                     current: root.data.aspect;
-                    enabled: !root.data.busy;
+                    // A typed frame is its own shape.
+                    enabled: !root.data.busy && root.data.size < root.sizes.length;
                     block: root.narrow;
                     changed(index) => { root.aspect-changed(index); }
                 }
@@ -1233,26 +1260,66 @@ export component NewProjectDialog inherits Modal {
             label: I18n.upper("Size");
             stacked: root.narrow;
 
-            HorizontalLayout {
-                spacing: 16px;
+            VerticalLayout {
+                spacing: 10px;
 
-                ChipRow {
-                    horizontal-stretch: 1;
-                    options: root.sizes;
-                    current: root.data.size;
-                    enabled: !root.data.busy;
-                    block: root.narrow;
-                    changed(index) => { root.size-changed(index); }
+                HorizontalLayout {
+                    spacing: 16px;
+
+                    ChipRow {
+                        horizontal-stretch: 1;
+                        options: root.sizes;
+                        extra: I18n.t("Custom");
+                        current: root.data.size;
+                        enabled: !root.data.busy;
+                        block: root.narrow;
+                        changed(index) => { root.size-changed(index); }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        Text {
+                            text: root.data.size-readout;
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                        }
+                    }
                 }
 
-                VerticalLayout {
-                    alignment: center;
-                    horizontal-stretch: 0;
+                // The typed frame: width by height, each side even and
+                // within 16 to 8192, which Rust rounds a typed number to.
+                if root.data.size == root.sizes.length: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    NumberField {
+                        width: 96px;
+                        value: root.data.custom-width;
+                        minimum: 16;
+                        maximum: 8192;
+                        step: 2;
+                        unit: "W";
+                        enabled: !root.data.busy;
+                        changed(value) => { root.custom-width-edited(value); }
+                    }
+
                     Text {
-                        text: root.data.size-readout;
+                        text: "×";
                         color: Theme.fg-dim;
-                        font-family: Theme.font-technical;
-                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+
+                    NumberField {
+                        width: 96px;
+                        value: root.data.custom-height;
+                        minimum: 16;
+                        maximum: 8192;
+                        step: 2;
+                        unit: "H";
+                        enabled: !root.data.busy;
+                        changed(value) => { root.custom-height-edited(value); }
                     }
                 }
             }
@@ -1263,26 +1330,49 @@ export component NewProjectDialog inherits Modal {
             last: true;
             stacked: root.narrow;
 
-            HorizontalLayout {
-                spacing: 16px;
+            VerticalLayout {
+                spacing: 10px;
 
-                ChipRow {
-                    horizontal-stretch: 1;
-                    options: root.rates;
-                    current: root.data.rate;
-                    enabled: !root.data.busy;
-                    block: root.narrow;
-                    changed(index) => { root.rate-changed(index); }
+                HorizontalLayout {
+                    spacing: 16px;
+
+                    ChipRow {
+                        horizontal-stretch: 1;
+                        options: root.rates;
+                        extra: I18n.t("Custom");
+                        current: root.data.rate;
+                        enabled: !root.data.busy;
+                        block: root.narrow;
+                        changed(index) => { root.rate-changed(index); }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        Text {
+                            text: root.data.rate-readout;
+                            color: Theme.fg-dim;
+                            font-family: Theme.font-technical;
+                            font-size: Theme.fs-sm;
+                        }
+                    }
                 }
 
-                VerticalLayout {
-                    alignment: center;
-                    horizontal-stretch: 0;
-                    Text {
-                        text: root.data.rate-readout;
-                        color: Theme.fg-dim;
-                        font-family: Theme.font-technical;
-                        font-size: Theme.fs-sm;
+                // The typed rate, from 1 to 240. The readout above says the
+                // fraction it is kept as: 23.976 is 24000/1001.
+                if root.data.rate == root.rates.length: HorizontalLayout {
+                    alignment: start;
+
+                    NumberField {
+                        width: 112px;
+                        value: root.data.custom-fps;
+                        minimum: 1;
+                        maximum: 240;
+                        step: 1;
+                        precision: 3;
+                        unit: "fps";
+                        enabled: !root.data.busy;
+                        changed(value) => { root.custom-fps-edited(value); }
                     }
                 }
             }

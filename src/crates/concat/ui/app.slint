@@ -136,6 +136,9 @@ export component App inherits Window {
     callback start-aspect-changed(index: int);
     callback start-size-changed(index: int);
     callback start-rate-changed(index: int);
+    callback start-custom-width-edited(width: float);
+    callback start-custom-height-edited(height: float);
+    callback start-custom-fps-edited(fps: float);
     callback start-create();
     /// Open a project that already exists, picked from disk.
     callback start-open();
@@ -244,6 +247,9 @@ export component App inherits Window {
     callback project-name-edited(name: string);
     callback project-size-changed(index: int);
     callback project-rate-changed(index: int);
+    callback project-custom-width-edited(width: float);
+    callback project-custom-height-edited(height: float);
+    callback project-custom-fps-edited(fps: float);
     callback project-apply();
 
     /// The two speech sheets: captions from a clip's sound, and a title's
@@ -527,6 +533,9 @@ export component App inherits Window {
         aspect-changed(index) => { root.start-aspect-changed(index); }
         size-changed(index) => { root.start-size-changed(index); }
         rate-changed(index) => { root.start-rate-changed(index); }
+        custom-width-edited(width) => { root.start-custom-width-edited(width); }
+        custom-height-edited(height) => { root.start-custom-height-edited(height); }
+        custom-fps-edited(fps) => { root.start-custom-fps-edited(fps); }
         create => { root.start-create(); }
         dismiss-error => { root.start-dismiss-error(); }
     }
@@ -607,6 +616,9 @@ export component App inherits Window {
         name-edited(name) => { root.project-name-edited(name); }
         size-changed(index) => { root.project-size-changed(index); }
         rate-changed(index) => { root.project-rate-changed(index); }
+        custom-width-edited(width) => { root.project-custom-width-edited(width); }
+        custom-height-edited(height) => { root.project-custom-height-edited(height); }
+        custom-fps-edited(fps) => { root.project-custom-fps-edited(fps); }
         apply => { root.project-apply(); }
     }
 

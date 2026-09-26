@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph } from "../icons.slint";
 import { Button, DialogRow, DialogSection, Field, Modal } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
+import { NumberField } from "../primitives/number-field.slint";
 
 // The project sheet: what the Details panel's Modify button opens.
 //
@@ -21,10 +22,16 @@ export struct ProjectSheetData {
     /// active one, named so the sheet never looks like it is setting the
     /// whole project's.
     timeline: string,
-    /// Row in the frame list, or -1 for a size the list does not carry.
+    /// Row in the frame list; one past its six rows is Custom.
     size: int,
-    /// Row in the rate list.
+    /// Row in the rate list; one past its eight rows is Custom.
     rate: int,
+    /// The frame and rate as numbers, for the custom fields.
+    custom-width: float,
+    custom-height: float,
+    custom-fps: float,
+    /// The rate as the fraction it is kept as: "24000/1001".
+    rate-readout: string,
 }
 
 export component ProjectDialog inherits Modal {
@@ -33,6 +40,9 @@ export component ProjectDialog inherits Modal {
     callback name-edited(name: string);
     callback size-changed(index: int);
     callback rate-changed(index: int);
+    callback custom-width-edited(width: float);
+    callback custom-height-edited(height: float);
+    callback custom-fps-edited(fps: float);
     callback apply();
 
     open: root.data.open;
@@ -71,16 +81,47 @@ export component ProjectDialog inherits Modal {
 
             // The same six frames the monitor's picker offers, in the same
             // order, so the two controls can never disagree about what a
-            // row means.
+            // row means; then Custom, for any frame at all.
             DialogRow {
                 label: I18n.t("Frame");
                 Select {
                     current: root.data.size;
-                    placeholder: I18n.t("Custom");
                     options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
-                        "1080 × 1080", "1440 × 1080", "2560 × 1080"];
-                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
+                        "1080 × 1080", "1440 × 1080", "2560 × 1080", I18n.t("Custom")];
+                    details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9", ""];
                     changed(index) => { root.size-changed(index); }
+                }
+            }
+
+            // Each side even and within 16 to 8192: Rust rounds what is
+            // typed to the nearest frame the project can hold.
+            if root.data.size == 6: DialogRow {
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    NumberField {
+                        value: root.data.custom-width;
+                        minimum: 16;
+                        maximum: 8192;
+                        step: 2;
+                        unit: "W";
+                        changed(value) => { root.custom-width-edited(value); }
+                    }
+
+                    Text {
+                        text: "×";
+                        color: Theme.fg-dim;
+                        vertical-alignment: center;
+                    }
+
+                    NumberField {
+                        value: root.data.custom-height;
+                        minimum: 16;
+                        maximum: 8192;
+                        step: 2;
+                        unit: "H";
+                        changed(value) => { root.custom-height-edited(value); }
+                    }
                 }
             }
 
@@ -88,8 +129,36 @@ export component ProjectDialog inherits Modal {
                 label: I18n.t("Frame rate");
                 Select {
                     current: root.data.rate;
-                    options: ["24 fps", "25 fps", "29.97 fps", "30 fps", "60 fps"];
+                    options: ["23.976 fps", "24 fps", "25 fps", "29.97 fps", "30 fps",
+                        "50 fps", "59.94 fps", "60 fps", I18n.t("Custom")];
                     changed(index) => { root.rate-changed(index); }
+                }
+            }
+
+            // From 1 to 240, kept as the exact fraction beside it: 23.976
+            // is 24000/1001, as a camera records it.
+            if root.data.rate == 8: DialogRow {
+                HorizontalLayout {
+                    spacing: 10px;
+
+                    NumberField {
+                        value: root.data.custom-fps;
+                        minimum: 1;
+                        maximum: 240;
+                        step: 1;
+                        precision: 3;
+                        unit: "fps";
+                        changed(value) => { root.custom-fps-edited(value); }
+                    }
+
+                    Text {
+                        horizontal-stretch: 0;
+                        text: root.data.rate-readout;
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }

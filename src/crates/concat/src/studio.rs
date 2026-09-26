@@ -181,7 +181,12 @@ pub const ASPECTS: [(&str, u32, u32); 4] = [
 /// and 1080p vertical is 1080 x 1920, the same number of lines either way.
 /// Naming the long edge instead would make a vertical 1080p a 1080 x 1920
 /// frame at one moment and a 608 x 1080 frame at another.
-pub const SIZES: [(&str, u32); 3] = [("720p", 720), ("1080p", 1080), ("4K", 2160)];
+pub const SIZES: [(&str, u32); 4] = [
+    ("720p", 720),
+    ("1080p", 1080),
+    ("1440p", 1440),
+    ("4K", 2160),
+];
 
 /// The frame an aspect and a size name, in pixels.
 ///
@@ -219,6 +224,77 @@ pub const START_RATES: [(&str, i64, i64); 5] = [
     ("30", 30, 1),
     ("60", 60, 1),
 ];
+
+/// The project sheet's rates: the launch sheet's five and the three a
+/// camera also records at, in order. A list, not chips, so it can carry
+/// them all; anything else is typed in as a custom rate.
+pub const RATES: [(&str, i64, i64); 8] = [
+    ("23.976", 24000, 1001),
+    ("24", 24, 1),
+    ("25", 25, 1),
+    ("29.97", 30000, 1001),
+    ("30", 30, 1),
+    ("50", 50, 1),
+    ("59.94", 60000, 1001),
+    ("60", 60, 1),
+];
+
+/// The smallest and largest side a typed frame may have, in pixels. The
+/// floor is a frame that still has a picture in it; the ceiling is 8K,
+/// the texture size every GPU the compositor runs on can hold (the wgpu
+/// floor), and past what any encoder the export drives will take.
+pub const FRAME_SIDES: (u32, u32) = (16, 8192);
+
+/// The slowest and fastest rate that may be typed, in frames a second.
+pub const FRAME_RATES: (f64, f64) = (1.0, 240.0);
+
+/// A typed frame as the project can hold it: each side within
+/// [`FRAME_SIDES`] and even, rounded to the nearest even number rather
+/// than down, so 1081 becomes 1082 and not a frame a line short.
+pub fn custom_frame(width: f32, height: f32) -> (u32, u32) {
+    let side = |value: f32| {
+        let (low, high) = FRAME_SIDES;
+        let value = if value.is_finite() { value } else { low as f32 };
+        let nearest = ((value / 2.0).round() * 2.0) as i64;
+        nearest.clamp(i64::from(low), i64::from(high)) as u32
+    };
+    (side(width), side(height))
+}
+
+/// A typed rate as the exact fraction a project stores. The NTSC rates are
+/// the /1001 fractions cameras record at, so 29.97 and 23.976 come out as
+/// 30000/1001 and 24000/1001 however they are rounded when typed; anything
+/// else is kept to a thousandth, in lowest terms.
+pub fn custom_rate(fps: f64) -> (i64, i64) {
+    let (low, high) = FRAME_RATES;
+    let fps = if fps.is_finite() {
+        fps.clamp(low, high)
+    } else {
+        30.0
+    };
+    for whole in [24_i64, 30, 48, 60, 120, 240] {
+        let ntsc = whole as f64 * 1000.0 / 1001.0;
+        if (fps - ntsc).abs() < 0.006 {
+            return (whole * 1000, 1001);
+        }
+    }
+    let num = (fps * 1000.0).round() as i64;
+    let divisor = gcd(num, 1000);
+    (num / divisor, 1000 / divisor)
+}
+
+/// A rate as frames a second, for a field to show.
+pub fn fps_of(num: i64, den: i64) -> f64 {
+    num as f64 / den.max(1) as f64
+}
+
+fn gcd(a: i64, b: i64) -> i64 {
+    if b == 0 {
+        a.abs().max(1)
+    } else {
+        gcd(b, a % b)
+    }
+}
 
 /// What one effect library is showing: the words typed into it, the shelf
 /// picked, and whether the star is down.
@@ -8372,8 +8448,32 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        Command, Footprint, Studio, home_folder, key_commands, place_in, shown, write_keyable,
+        Command, Footprint, Studio, custom_frame, custom_rate, fps_of, home_folder, key_commands,
+        place_in, shown, write_keyable,
     };
+
+    /// A typed frame is even on both sides and inside the limits.
+    #[test]
+    fn a_typed_frame_is_even_and_bounded() {
+        assert_eq!(custom_frame(1920.0, 1080.0), (1920, 1080));
+        assert_eq!(custom_frame(1081.0, 1079.0), (1082, 1080));
+        assert_eq!(custom_frame(3.0, 99999.0), (16, 8192));
+        assert_eq!(custom_frame(f32::NAN, -5.0), (16, 16));
+    }
+
+    /// A typed rate is the exact fraction: the NTSC ones as cameras record
+    /// them, the rest to a thousandth in lowest terms, within the limits.
+    #[test]
+    fn a_typed_rate_is_an_exact_fraction() {
+        assert_eq!(custom_rate(29.97), (30000, 1001));
+        assert_eq!(custom_rate(23.976), (24000, 1001));
+        assert_eq!(custom_rate(59.94), (60000, 1001));
+        assert_eq!(custom_rate(30.0), (30, 1));
+        assert_eq!(custom_rate(12.5), (25, 2));
+        assert_eq!(custom_rate(0.2), (1, 1));
+        assert_eq!(custom_rate(1000.0), (240, 1));
+        assert!((fps_of(30000, 1001) - 29.97).abs() < 0.001);
+    }
 
     const FRAME: (u32, u32) = (1920, 1080);
 

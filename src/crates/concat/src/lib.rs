@@ -429,6 +429,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_start_size_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Start(StartMsg::SizeChanged(index)));
     }));
+    app.on_start_custom_width_edited(on_window!(|state, width: f32| {
+        state.handle(Msg::Start(StartMsg::CustomWidth(width)));
+    }));
+    app.on_start_custom_height_edited(on_window!(|state, height: f32| {
+        state.handle(Msg::Start(StartMsg::CustomHeight(height)));
+    }));
+    app.on_start_custom_fps_edited(on_window!(|state, fps: f32| {
+        state.handle(Msg::Start(StartMsg::CustomFps(fps)));
+    }));
     app.on_start_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Start(StartMsg::RateChanged(index)));
     }));
@@ -1123,6 +1132,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_project_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Project(ProjectMsg::RateChanged(index)));
+    }));
+    app.on_project_custom_width_edited(on_window!(|state, width: f32| {
+        state.handle(Msg::Project(ProjectMsg::CustomWidth(width)));
+    }));
+    app.on_project_custom_height_edited(on_window!(|state, height: f32| {
+        state.handle(Msg::Project(ProjectMsg::CustomHeight(height)));
+    }));
+    app.on_project_custom_fps_edited(on_window!(|state, fps: f32| {
+        state.handle(Msg::Project(ProjectMsg::CustomFps(fps)));
     }));
     app.on_project_apply(on_window!(|state| {
         state.handle(Msg::Project(ProjectMsg::Apply));

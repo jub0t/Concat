@@ -9,7 +9,9 @@ use concat_host::projects;
 
 use crate::i18n::{t, tf};
 use crate::platform;
-use crate::studio::{ASPECTS, SIZES, START_RATES, Studio, frame_size, home_folder};
+use crate::studio::{
+    ASPECTS, SIZES, START_RATES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
+};
 use crate::ui::StartData;
 
 /// Everything that can happen to the launch screen's sheet.
@@ -26,6 +28,10 @@ pub enum StartMsg {
     /// The frame's size, as the short edge: 720p, 1080p, 4K.
     SizeChanged(i32),
     RateChanged(i32),
+    /// The custom frame's sides and rate, as typed.
+    CustomWidth(f32),
+    CustomHeight(f32),
+    CustomFps(f32),
     DismissError,
     /// Pick where the project folder goes.
     Browse,
@@ -46,9 +52,15 @@ pub struct StartPane {
     pub location: String,
     /// Index into [`ASPECTS`].
     pub aspect: usize,
-    /// Index into [`SIZES`].
+    /// Index into [`SIZES`], or one past its end for a custom frame.
     pub size: usize,
+    /// Index into [`START_RATES`], or one past its end for a custom rate.
     pub rate: usize,
+    /// The custom frame, even on both sides; seeded from the preset that
+    /// was picked when Custom was, so the fields start from a real frame.
+    pub custom_size: (u32, u32),
+    /// The custom rate, as an exact fraction.
+    pub custom_rate: (i64, i64),
     pub busy: bool,
     pub error: String,
 }
@@ -70,6 +82,8 @@ impl Default for StartPane {
             // in the app assumes, and the one a phone and a desk agree on.
             size: 1,
             rate: 3,
+            custom_size: (1920, 1080),
+            custom_rate: (30, 1),
             busy: false,
             error: String::new(),
         }
@@ -94,11 +108,26 @@ impl StartPane {
                 self.aspect = (index.max(0) as usize).min(ASPECTS.len() - 1);
             }
             StartMsg::SizeChanged(index) => {
-                self.size = (index.max(0) as usize).min(SIZES.len() - 1);
+                let index = (index.max(0) as usize).min(SIZES.len());
+                if index == SIZES.len() && !self.custom_frame() {
+                    self.custom_size = self.frame();
+                }
+                self.size = index;
             }
             StartMsg::RateChanged(index) => {
-                self.rate = (index.max(0) as usize).min(START_RATES.len() - 1);
+                let index = (index.max(0) as usize).min(START_RATES.len());
+                if index == START_RATES.len() && !self.custom_rate_on() {
+                    self.custom_rate = self.rate();
+                }
+                self.rate = index;
             }
+            StartMsg::CustomWidth(width) => {
+                self.custom_size = custom_frame(width, self.custom_size.1 as f32);
+            }
+            StartMsg::CustomHeight(height) => {
+                self.custom_size = custom_frame(self.custom_size.0 as f32, height);
+            }
+            StartMsg::CustomFps(fps) => self.custom_rate = custom_rate(f64::from(fps)),
             StartMsg::DismissError => self.error.clear(),
             StartMsg::Browse => {
                 if let Some(folder) =
@@ -137,8 +166,8 @@ impl StartPane {
         } else {
             name
         };
-        let (width, height) = frame_size(self.aspect, self.size);
-        let (_, num, den) = START_RATES[self.rate.min(START_RATES.len() - 1)];
+        let (width, height) = self.frame();
+        let (num, den) = self.rate();
         if self.location.trim().is_empty() {
             self.error = t("Choose where the project folder should go");
             return;
@@ -181,10 +210,40 @@ impl StartPane {
         }
     }
 
+    /// Whether the frame is typed rather than picked.
+    fn custom_frame(&self) -> bool {
+        self.size >= SIZES.len()
+    }
+
+    /// Whether the rate is typed rather than picked.
+    fn custom_rate_on(&self) -> bool {
+        self.rate >= START_RATES.len()
+    }
+
+    /// The frame the sheet describes: the typed one, or the shape at the
+    /// size.
+    fn frame(&self) -> (u32, u32) {
+        if self.custom_frame() {
+            self.custom_size
+        } else {
+            frame_size(self.aspect, self.size)
+        }
+    }
+
+    /// The rate the sheet describes, as an exact fraction.
+    fn rate(&self) -> (i64, i64) {
+        if self.custom_rate_on() {
+            self.custom_rate
+        } else {
+            let (_, num, den) = START_RATES[self.rate];
+            (num, den)
+        }
+    }
+
     /// The sheet as Slint shows it.
     pub fn data(&self) -> StartData {
-        let (width, height) = frame_size(self.aspect, self.size);
-        let (_, num, den) = START_RATES[self.rate.min(START_RATES.len() - 1)];
+        let (width, height) = self.frame();
+        let (num, den) = self.rate();
         StartData {
             composing: self.composing,
             name: self.name.as_str().into(),
@@ -193,6 +252,9 @@ impl StartPane {
             size: self.size as i32,
             rate: self.rate as i32,
             size_readout: format!("{width} x {height}").into(),
+            custom_width: width as f32,
+            custom_height: height as f32,
+            custom_fps: fps_of(num, den) as f32,
             frame_aspect: width as f32 / height.max(1) as f32,
             rate_readout: format!("{num}/{den} fps").into(),
             busy: self.busy,
