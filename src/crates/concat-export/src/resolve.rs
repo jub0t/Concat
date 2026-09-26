@@ -100,6 +100,8 @@ pub(crate) struct BuiltTimeline {
     /// The crop and flips the frame plan draws, for the clips whose chain
     /// does not run after them. See [`planned_geometry`].
     pub(crate) geometry: HashMap<ClipId, PlannedGeometry>,
+    /// The fades to a colour and wipes the frame plan draws, per clip.
+    pub(crate) shapes: HashMap<ClipId, Vec<crate::TransitionShape>>,
     /// The levels the clip's file is read as, where the person has said.
     pub(crate) ranges: HashMap<ClipId, concat_media::ColorRange>,
     /// The clip's applied effects, on a GPU renderer: the passes are
@@ -215,6 +217,7 @@ pub(crate) fn build_timeline(
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
     let mut geometry: HashMap<ClipId, PlannedGeometry> = HashMap::new();
+    let mut shapes: HashMap<ClipId, Vec<crate::TransitionShape>> = HashMap::new();
     let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
@@ -297,6 +300,9 @@ pub(crate) fn build_timeline(
             if !chain.is_empty() {
                 filter_chains.insert(id, chain);
             }
+            if !clip.transition_shapes.is_empty() {
+                shapes.insert(id, clip.transition_shapes.clone());
+            }
             if let Some(planned) = planned {
                 geometry.insert(id, planned);
             } else {
@@ -336,6 +342,7 @@ pub(crate) fn build_timeline(
         transitions,
         pre_chains,
         geometry,
+        shapes,
         ranges,
         chains,
         reveal_maps,
@@ -424,8 +431,7 @@ fn layer_chain(clip: &ExportClip, gpu: bool) -> String {
     parts.join(",")
 }
 
-/// What runs after the flips: the backend's chain effects, then the
-/// transition fades.
+/// What runs after the flips: the backend's chain effects.
 fn after_flips(clip: &ExportClip, gpu: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     let effects = if clip.effects.is_empty() {
@@ -437,9 +443,6 @@ fn after_flips(clip: &ExportClip, gpu: bool) -> String {
     };
     if !effects.is_empty() {
         parts.push(effects);
-    }
-    if !clip.transition_chain.is_empty() {
-        parts.push(clip.transition_chain.clone());
     }
     parts.join(",")
 }

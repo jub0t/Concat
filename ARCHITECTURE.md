@@ -116,9 +116,10 @@ The export and the monitor fill a clip's crop and flips into the plan
 (`resolve::planned_geometry`) whenever nothing in its FFmpeg chain runs after
 them; the decoder then delivers the whole picture, at the scale that fits the
 part the crop keeps. A clip whose chain does run after them - an FFmpeg-chain
-effect, or a baked wipe or fade - keeps its crop and flips in the decoder's
-chain, as the transition fades still are, until those move into the plan
-too.
+effect - keeps its crop and flips in the decoder's chain until the effects
+are GPU-only. The fades to a colour and the wipes are `TransitionShape`s on
+the clip, turned into the plan's `transitions` at each instant from the
+clip's own time, so the monitor draws them exactly as the export does.
 
 ## 3. Effects
 
@@ -325,9 +326,8 @@ time to present a token.
 ## 10. Known gaps
 
 - The gestures and the stage still live on the controller.
-- The transition fades reach the compositor baked into the decoder's chain,
-  not through the plan, and so do the crop and flips of a clip whose chain
-  runs after them (see §2).
+- The crop and flips of a clip with an FFmpeg-chain effect still reach the
+  compositor baked into the decoder's chain, not through the plan (see §2).
 - `ExportClip` remains the CLI and API wire type and the title rasteriser's
   output.
 - Cached frames are uploaded to the GPU again unless they were drawn in the
@@ -339,8 +339,6 @@ time to present a token.
   frame is transferred to memory first, and the libavfilter stage between
   the download and the upload (rotation, fit, crop, colour range, RGBA) would
   have to move to the GPU with it.
-- The preview resolves transitions with fades off, so fade-black, fade-white
-  and the wipes are absent from the monitor until they come through the plan.
 - Filmstrips are one image per media item drawn as up to 120 tile images per
   clip, and waveforms one path per clip drawn twice; one texture per track
   per zoom level is not done, and the Slint repaint itself is not measured

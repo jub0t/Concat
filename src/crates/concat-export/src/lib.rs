@@ -44,7 +44,7 @@ use concat_media::{
 };
 use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{
-    Compositor, CpuCompositor, FramePlan, PlannedLayer, PlannedTreatment, plan_frame,
+    Compositor, CpuCompositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -147,10 +147,10 @@ pub struct ExportClip {
     /// shaders on the GPU.
     #[serde(default)]
     pub effects: Vec<AppliedFilter>,
-    /// The fades transition resolution bakes in, kept apart from the effects
-    /// so either can be rebuilt without the other.
+    /// The fades to a colour and the wipes transition resolution gives the
+    /// clip, which the frame plan draws; see [`TransitionShape`].
     #[serde(skip)]
-    pub transition_chain: String,
+    pub transition_shapes: Vec<TransitionShape>,
     /// Multiplier over the fitted size. 1 fills the frame, preserving aspect.
     #[serde(default = "unity")]
     pub scale: f64,
@@ -251,7 +251,7 @@ impl ExportClip {
             blend: String::new(),
             crop: None,
             effects: Vec::new(),
-            transition_chain: String::new(),
+            transition_shapes: Vec::new(),
             scale: 1.0,
             offset_x: 0.0,
             offset_y: 0.0,
@@ -429,6 +429,72 @@ impl Reporter<'_> {
     }
 }
 
+/// What a fade to a colour or a wipe does to one clip, in the timeline's
+/// frames counted from the clip's own start: kept with the clip, and turned
+/// into the frame plan's [`Transition`] at each instant ([`transitions_at`]),
+/// so the monitor and the export draw it alike.
+///
+/// The counts reproduce the FFmpeg filters these replaced, frame for frame:
+/// `fade` weighs the picture `(n - start) / frames` into a fade and the
+/// colour the rest, and the wipe's edge stands at `(n + 1) / frames`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TransitionShape {
+    /// The clip's last `frames` pulled towards `colour`, from `start`.
+    FadeOut {
+        /// The colour faded to, `0..=1` a channel.
+        colour: [f32; 3],
+        /// The first frame of the fade.
+        start: i64,
+        /// Its length.
+        frames: i64,
+    },
+    /// The clip's first `frames` coming out of `colour`.
+    FadeIn {
+        /// The colour faded from.
+        colour: [f32; 3],
+        /// The fade's length.
+        frames: i64,
+    },
+    /// The clip's first `frames` uncovered behind a moving edge.
+    Wipe {
+        /// The shown part grows from the right edge rather than the left.
+        from_right: bool,
+        /// The wipe's length.
+        frames: i64,
+    },
+}
+
+/// The frame plan's transitions for a clip at `frame`, counted in the
+/// timeline's frames from the clip's start.
+pub(crate) fn transitions_at(shapes: &[TransitionShape], frame: i64) -> Vec<Transition> {
+    shapes
+        .iter()
+        .filter_map(|shape| match *shape {
+            TransitionShape::FadeOut {
+                colour,
+                start,
+                frames,
+            } if frame >= start => Some(Transition::FadeTo {
+                colour,
+                amount: ((frame - start) as f32 / frames as f32).min(1.0),
+            }),
+            TransitionShape::FadeIn { colour, frames } if frame < frames => {
+                Some(Transition::FadeTo {
+                    colour,
+                    amount: 1.0 - frame.max(0) as f32 / frames as f32,
+                })
+            }
+            TransitionShape::Wipe { from_right, frames } if frame < frames => {
+                Some(Transition::Wipe {
+                    uncovered: ((frame.max(0) + 1) as f32 / frames as f32).min(1.0),
+                    from_right,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Turns per-cut transition requests into things the renderer already knows
 /// how to draw: overlapping clips, opacity ramps, placement keys, and fade
 /// and mask filters. Returns the packaged transitions found along the way,
@@ -448,11 +514,9 @@ impl Reporter<'_> {
 /// ramps the incoming clip's opacity, a push slides both, a zoom scales
 /// both under a dissolve, a wipe uncovers the incoming one behind a moving
 /// edge. The slides and scales are keys on the clips' animations, which
-/// the plan already plays for the monitor and the export alike; the wipe is
-/// a mask filter, which only the export bakes (`bake_fades`), and the
-/// monitor shows a dissolve in its place - the same split the fades to a
-/// colour make, and for the same reason: the filter counts frames from the
-/// clip's start, which the monitor's pooled seeks do not.
+/// the plan already plays for the monitor and the export alike; the wipe
+/// and the fades to a colour are [`TransitionShape`]s, which the frame plan
+/// draws at each instant from the clip's own time, the same way for both.
 ///
 /// An id the catalogue knows as a transition package gets the same overlap
 /// plus a dissolve ramp, but the returned [`TransitionSpan`] tells the
@@ -460,11 +524,7 @@ impl Reporter<'_> {
 /// `combine_transition`. Legacy ids are matched first and never reach this
 /// path, so a project saved before packaged transitions existed renders
 /// exactly as it always did.
-fn resolve_transitions(
-    clips: &mut [ExportClip],
-    rate: FrameRate,
-    bake_fades: bool,
-) -> Vec<TransitionSpan> {
+fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<TransitionSpan> {
     for clip in clips.iter_mut() {
         clip.track *= 2;
     }
@@ -589,26 +649,17 @@ fn resolve_transitions(
                             }
                     }
                     // A straight edge sweeps across and uncovers the new
-                    // picture behind it. Baked only where the frame count
-                    // means something; see the function's docs.
-                    "wipe-left" | "wipe-right" if bake_fades => {
+                    // picture behind it, from the clip's new, earlier start.
+                    "wipe-left" | "wipe-right" => {
                         let frames = ((d * fps).round() as i64).max(1);
-                        // `N` counts the decoded frames from the clip's new,
-                        // earlier start, so the edge is at the left at 0 and
-                        // off the far side by `frames`; after that the filter
-                        // is switched off and the picture is whole.
-                        let uncovered = if cut.kind == "wipe-right" {
-                            format!("lt(X,W*(N+1)/{frames})")
-                        } else {
-                            format!("gte(X,W*(1-(N+1)/{frames}))")
-                        };
-                        append_filter(
-                            &mut clips[cut.incoming].transition_chain,
-                            &format!(
-                                "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':\
-                                 a='alpha(X,Y)*{uncovered}':enable='lt(n,{frames})'"
-                            ),
-                        );
+                        clips[cut.incoming]
+                            .transition_shapes
+                            .push(TransitionShape::Wipe {
+                                // A wipe to the left uncovers the new picture
+                                // from the right edge.
+                                from_right: cut.kind == "wipe-left",
+                                frames,
+                            });
                         true
                     }
                     _ => false,
@@ -617,36 +668,31 @@ fn resolve_transitions(
                     clips[cut.incoming].video_fade_in = d;
                 }
             }
-            "fade-black" | "fade-white" if bake_fades => {
-                // Half the duration on each side of the cut, as fade filters
-                // at decode. Frame-based, because the decoder emits exactly
-                // one frame per output frame - so the fade lands on the same
-                // frames the timeline arithmetic says it covers.
+            "fade-black" | "fade-white" => {
+                // Half the duration on each side of the cut, counted in the
+                // timeline's frames, so the fade lands on the frames the
+                // timeline arithmetic says it covers.
                 let colour = if cut.kind == "fade-white" {
-                    ":color=white"
+                    [1.0; 3]
                 } else {
-                    ""
+                    [0.0; 3]
                 };
                 let half = cut.duration / 2.0;
                 {
                     let a = &mut clips[cut.outgoing];
                     let frames = ((half.min(a.duration) * fps).round() as i64).max(1);
                     let total = (a.duration * fps).round() as i64;
-                    append_filter(
-                        &mut a.transition_chain,
-                        &format!(
-                            "fade=t=out:start_frame={}:nb_frames={frames}{colour}",
-                            (total - frames).max(0)
-                        ),
-                    );
+                    a.transition_shapes.push(TransitionShape::FadeOut {
+                        colour,
+                        start: (total - frames).max(0),
+                        frames,
+                    });
                 }
                 {
                     let b = &mut clips[cut.incoming];
                     let frames = ((half.min(b.duration) * fps).round() as i64).max(1);
-                    append_filter(
-                        &mut b.transition_chain,
-                        &format!("fade=t=in:start_frame=0:nb_frames={frames}{colour}"),
-                    );
+                    b.transition_shapes
+                        .push(TransitionShape::FadeIn { colour, frames });
                 }
             }
             // A packaged transition: overlap the incoming clip onto the
@@ -750,15 +796,6 @@ fn ride(
     true
 }
 
-/// Appends one filter to a chain, comma-separated. Effects the user stacked
-/// come first; a transition fades the styled picture, not the raw one.
-fn append_filter(chain: &mut String, filter: &str) {
-    if !chain.is_empty() {
-        chain.push(',');
-    }
-    chain.push_str(filter);
-}
-
 /// Renders `request` and returns the path written.
 pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<String, String> {
     if request.clips.is_empty() {
@@ -772,7 +809,7 @@ pub fn render(request: &ExportRequest, mut reporter: Reporter<'_>) -> Result<Str
     // else reads the clip list, so the picture and sound paths below never
     // know transitions exist.
     let mut resolved = request.clips.clone();
-    let transitions = resolve_transitions(&mut resolved, rate, true);
+    let transitions = resolve_transitions(&mut resolved, rate);
 
     // Stills composite exactly like footage; they only differ in how they are
     // decoded, which is handled where the decoder is opened.
@@ -987,11 +1024,13 @@ fn filled(
     track: usize,
     effects: Vec<ShaderPass>,
     geometry: Option<&resolve::PlannedGeometry>,
+    transitions: Vec<Transition>,
 ) -> PlannedLayer {
     let mut filled = PlannedLayer {
         source: Some(frame),
         track,
         effects,
+        transitions,
         ..layer.clone()
     };
     if let Some(geometry) = geometry {
@@ -1000,6 +1039,22 @@ fn filled(
         filled.flip_v = geometry.flip_v;
     }
     filled
+}
+
+/// The plan's transitions for `layer` at `time`, from its clip's shapes.
+fn shapes_at(
+    shapes: &std::collections::HashMap<concat_core::timeline::ClipId, Vec<TransitionShape>>,
+    layer: &PlannedLayer,
+    time: Rational,
+    rate: FrameRate,
+) -> Vec<Transition> {
+    match shapes.get(&layer.clip) {
+        Some(shapes) => {
+            let frame = ((time - layer.clip_start).as_f64() * rate.fps().as_f64()).round() as i64;
+            transitions_at(shapes, frame)
+        }
+        None => Vec::new(),
+    }
 }
 
 /// A stack already drawn, as a layer over the whole frame on the lowest
@@ -1040,6 +1095,7 @@ fn render_picture(
         transitions,
         pre_chains,
         geometry,
+        shapes,
         ranges,
         chains,
         reveal_maps,
@@ -1112,6 +1168,7 @@ fn render_picture(
                         tracks.get(&layer.clip).copied().unwrap_or(0),
                         passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                         geometry.get(&layer.clip),
+                        shapes_at(&shapes, layer, time, rate),
                     ));
                 }
                 continue;
@@ -1185,6 +1242,7 @@ fn render_picture(
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
                     geometry.get(&layer.clip),
+                    shapes_at(&shapes, layer, time, rate),
                 ));
             }
         }
@@ -1556,6 +1614,7 @@ pub fn preview_sources_of(
         transitions,
         pre_chains,
         geometry,
+        shapes,
         ranges: _,
         chains,
         reveal_maps,
@@ -1604,6 +1663,7 @@ pub fn preview_sources_of(
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(chains, reveal_maps, timeline, layer.clip, time),
                     geometry.get(&layer.clip),
+                    shapes_at(shapes, layer, time, rate),
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -1680,7 +1740,7 @@ pub fn preview_plan(
 ) -> PreviewPlan {
     let rate = FrameRate::new(Rational::new(rate_num, rate_den));
     let mut resolved = clips.to_vec();
-    let transitions = resolve_transitions(&mut resolved, rate, false);
+    let transitions = resolve_transitions(&mut resolved, rate);
     let visible: Vec<&ExportClip> = resolved
         .iter()
         .filter(|clip| (clip.kind.is_visual() || clip.kind == ClipKind::Layer) && !clip.hidden)
@@ -1984,6 +2044,89 @@ mod tests {
         })
     }
 
+    /// The monitor draws a wipe and a fade to black as the export does:
+    /// halfway through the wipe the old picture on one side and the new on
+    /// the other, and black at the fade's cut. It used to show a dissolve
+    /// for the wipe and nothing at all for the fade, whose filters counted
+    /// decoded frames the monitor's pooled seeks never had.
+    #[test]
+    fn the_monitor_draws_wipes_and_fades_as_the_export_does() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let (width, height) = (64_u32, 36_u32);
+        let solid = |name: &str, colour: [u8; 3]| -> Option<String> {
+            let path = std::env::temp_dir()
+                .join(format!("concat-preview-{name}-{}.mp4", std::process::id()));
+            let mut encoder = Encoder::create(
+                &path,
+                width,
+                height,
+                FrameRate::THIRTY,
+                &EncodeOptions {
+                    crf: 12,
+                    ..EncodeOptions::default()
+                },
+            )
+            .ok()?;
+            let mut frame = Frame::black(width, height);
+            frame.fill([colour[0], colour[1], colour[2], 255]);
+            for _ in 0..90 {
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            Some(path.to_string_lossy().into_owned())
+        };
+        let (Some(red), Some(blue)) = (solid("red", [220, 30, 30]), solid("blue", [30, 30, 220]))
+        else {
+            return; // no ffmpeg here
+        };
+        let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
+        let look = |kind: &str, time: f64, x: f64| -> [u8; 3] {
+            let mut first = clip("video", 0, 0.0, 2.0, 0.0);
+            first.path = red.clone();
+            let mut second = clip("video", 0, 2.0, 1.0, 1.0);
+            second.path = blue.clone();
+            second.transition = spec(kind, 1.0);
+            for one in [&mut first, &mut second] {
+                one.media_width = Some(width);
+                one.media_height = Some(height);
+            }
+            let request = PreviewFrameRequest {
+                time,
+                width,
+                height,
+                rate_num: 30,
+                rate_den: 1,
+                clips: vec![first, second],
+            };
+            let bytes = preview_frame(&pool, &request).expect("previews");
+            let (px, py) = ((f64::from(width) * x) as u32, height / 2);
+            let i = ((py * width + px) * 4) as usize;
+            [bytes[i], bytes[i + 1], bytes[i + 2]]
+        };
+        let near = |got: [u8; 3], want: [u8; 3]| {
+            got.iter()
+                .zip(want)
+                .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
+        };
+        for (kind, time, x, want) in [
+            ("wipe-left", 1.5, 0.2, [220, 30, 30]),
+            ("wipe-left", 1.5, 0.8, [30, 30, 220]),
+            ("wipe-right", 1.5, 0.2, [30, 30, 220]),
+            ("wipe-right", 1.5, 0.8, [220, 30, 30]),
+            ("fade-black", 2.0, 0.5, [0, 0, 0]),
+        ] {
+            let got = look(kind, time, x);
+            assert!(
+                near(got, want),
+                "{kind} at {time}s, {x} across: the monitor shows {got:?}, not {want:?}"
+            );
+        }
+        let _ = std::fs::remove_file(&red);
+        let _ = std::fs::remove_file(&blue);
+    }
+
     /// The monitor draws a crop and a flip as the export does: the crop in
     /// the source's own terms, then the mirror, the kept part fitted and
     /// centred with bars around it. The monitor reads an untreated frame
@@ -2170,7 +2313,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
         assert_eq!(b.start, 3.0, "extends backwards over the cut");
@@ -2195,7 +2338,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("concat.dissolve", 1.0);
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
         assert_eq!(
@@ -2224,7 +2367,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 0.25),
         ];
         clips[1].transition = spec("cross-fade", 2.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         // Even with limited handle, the transition preserves its full duration,
         // clamping source_start to 0.0 rather than shortening the dissolve.
@@ -2241,7 +2384,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 0.0),
         ];
         clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
         assert_eq!(b.start, 3.0);
@@ -2257,7 +2400,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 0.0),
         ];
         clips[1].transition = spec("concat.dissolve", 1.0);
-        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
         assert_eq!(b.start, 3.0);
@@ -2274,7 +2417,7 @@ mod tests {
             clip("image", 0, 4.0, 4.0, 0.0),
         ];
         clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].video_fade_in, 1.0);
         assert_eq!(
             clips[1].source_start, 0.0,
@@ -2299,7 +2442,7 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("push", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         // The overlap is the dissolve's: a second of pre-roll on the lane
         // above, sound fading in with it - but no picture fade.
@@ -2334,7 +2477,7 @@ mod tests {
             ease: linear_ease(),
         });
         clips[1].transition = spec("push", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].video_fade_in, 1.0, "falls back to the dissolve");
         assert!(
             keys_on(&clips[1], "offsetX").is_empty(),
@@ -2354,73 +2497,110 @@ mod tests {
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("zoom", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].video_fade_in, 1.0);
         assert_eq!(keys_on(&clips[1], "scale"), vec![(0.0, 1.25), (0.2, 1.0)]);
         assert_eq!(keys_on(&clips[0], "scale"), vec![(0.75, 1.0), (1.0, 1.4)]);
     }
 
     #[test]
-    fn a_wipe_is_a_mask_that_switches_off_after_the_overlap() {
+    fn a_wipe_is_an_edge_the_plan_draws_until_the_overlap_ends() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("wipe-right", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         let b = &clips[1];
         assert_eq!((b.start, b.duration), (3.5, 4.5));
         assert_eq!(b.video_fade_in, 0.0, "the edge does the revealing");
         assert_eq!(
-            b.transition_chain,
-            "format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':\
-             a='alpha(X,Y)*lt(X,W*(N+1)/15)':enable='lt(n,15)'"
+            b.transition_shapes,
+            vec![TransitionShape::Wipe {
+                from_right: false,
+                frames: 15
+            }]
         );
-        assert_eq!(
-            clips[0].transition_chain, "",
+        assert!(
+            clips[0].transition_shapes.is_empty(),
             "the outgoing picture is untouched"
         );
+        // The edge stands at (n + 1) / 15 of the width, as the mask filter
+        // it replaced did, and is gone once the overlap is over.
+        let at = |frame| transitions_at(&clips[1].transition_shapes, frame);
+        assert_eq!(
+            at(0),
+            vec![Transition::Wipe {
+                uncovered: 1.0 / 15.0,
+                from_right: false
+            }]
+        );
+        assert_eq!(
+            at(14),
+            vec![Transition::Wipe {
+                uncovered: 1.0,
+                from_right: false
+            }]
+        );
+        assert!(at(15).is_empty());
 
-        // The other direction sweeps from the right edge.
+        // The other direction uncovers from the right edge.
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 2.0),
         ];
         clips[1].transition = spec("wipe-left", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        assert!(clips[1].transition_chain.contains("gte(X,W*(1-(N+1)/15))"));
-
-        // Unbaked - the monitor - a wipe shows as a dissolve, like a fade
-        // to a colour shows as the UI's veil.
-        let mut clips = vec![
-            clip("video", 0, 0.0, 4.0, 0.0),
-            clip("video", 0, 4.0, 4.0, 2.0),
-        ];
-        clips[1].transition = spec("wipe-right", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, false);
-        assert_eq!(clips[1].transition_chain, "");
-        assert_eq!(clips[1].video_fade_in, 0.5);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert_eq!(
+            clips[1].transition_shapes,
+            vec![TransitionShape::Wipe {
+                from_right: true,
+                frames: 15
+            }]
+        );
     }
 
     #[test]
-    fn a_fade_to_black_splits_across_the_cut_as_fade_filters() {
+    fn a_fade_to_black_splits_across_the_cut() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 0.0),
         ];
         clips[1].transition = spec("fade-black", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         // Half a second each side at 30fps is 15 frames.
+        let black = [0.0; 3];
         assert_eq!(
-            clips[0].transition_chain,
-            "fade=t=out:start_frame=105:nb_frames=15"
+            clips[0].transition_shapes,
+            vec![TransitionShape::FadeOut {
+                colour: black,
+                start: 105,
+                frames: 15
+            }]
         );
         assert_eq!(
-            clips[1].transition_chain,
-            "fade=t=in:start_frame=0:nb_frames=15"
+            clips[1].transition_shapes,
+            vec![TransitionShape::FadeIn {
+                colour: black,
+                frames: 15
+            }]
         );
         assert_eq!(clips[1].start, 4.0, "nothing moves for an edge fade");
+
+        // Weighed as FFmpeg's fade did: the picture whole at the fade's
+        // first frame out, the colour whole at the first frame in.
+        let fade = |shapes: &[TransitionShape], frame| match transitions_at(shapes, frame)[..] {
+            [Transition::FadeTo { amount, .. }] => Some(amount),
+            _ => None,
+        };
+        assert_eq!(fade(&clips[0].transition_shapes, 104), None);
+        assert_eq!(fade(&clips[0].transition_shapes, 105), Some(0.0));
+        assert_eq!(fade(&clips[0].transition_shapes, 119), Some(14.0 / 15.0));
+        assert_eq!(fade(&clips[1].transition_shapes, 0), Some(1.0));
+        let last = fade(&clips[1].transition_shapes, 14).expect("still fading");
+        assert!((last - 1.0 / 15.0).abs() < 1e-6, "was {last}");
+        assert_eq!(fade(&clips[1].transition_shapes, 15), None);
     }
 
     #[test]
@@ -2430,33 +2610,45 @@ mod tests {
             clip("video", 0, 2.0, 2.0, 0.0),
         ];
         clips[1].transition = spec("fade-white", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        assert!(clips[0].transition_chain.ends_with(":color=white"));
-        assert!(clips[1].transition_chain.contains("t=in"));
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+        assert!(matches!(
+            clips[0].transition_shapes[..],
+            [TransitionShape::FadeOut {
+                colour: [1.0, 1.0, 1.0],
+                ..
+            }]
+        ));
+        assert!(matches!(
+            clips[1].transition_shapes[..],
+            [TransitionShape::FadeIn {
+                colour: [1.0, 1.0, 1.0],
+                ..
+            }]
+        ));
     }
 
     #[test]
-    fn transition_fades_append_after_the_clips_own_effects() {
+    fn transition_fades_leave_the_clips_own_effects_alone() {
         let mut clips = vec![
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("video", 0, 2.0, 2.0, 0.0),
         ];
         clips[1].video_filter_chain = "hue=s=0".to_owned();
         clips[1].transition = spec("fade-black", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        // The fade lives beside the effects and joins after them when the
-        // decoder's chain is built.
-        let chain = resolve::full_chain(&clips[1], false);
-        assert!(chain.starts_with("hue=s=0,fade=t=in"), "was: {chain}");
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+        // The fade is the plan's, drawn over the treated picture; the
+        // decoder's chain is the effects alone.
+        assert_eq!(resolve::full_chain(&clips[1], false), "hue=s=0");
+        assert_eq!(clips[1].transition_shapes.len(), 1);
     }
 
     /// The crop and flips go to the frame plan when nothing in the chain
     /// comes after them, and stay first in the decoder's filters when
-    /// something does: a wipe on a mirrored clip must still wipe the way
-    /// the frame is seen.
+    /// something does: an FFmpeg effect must see the picture as it is
+    /// seen.
     #[test]
     fn geometry_goes_to_the_plan_unless_the_chain_runs_after_it() {
-        let mut clips = vec![
+        let mut clips = [
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("video", 0, 2.0, 2.0, 0.0),
         ];
@@ -2468,8 +2660,7 @@ mod tests {
         assert_eq!(planned.crop, concat_render::Crop::of([0.25, 0.0, 0.0, 0.5]));
         assert_eq!(resolve::full_chain(&clips[0], true), "");
 
-        clips[1].transition = spec("wipe-left", 0.5);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        clips[1].video_filter_chain = "hue=s=0".to_owned();
         assert_eq!(resolve::planned_geometry(&clips[1], true), None);
         let chain = resolve::full_chain(&clips[1], true);
         assert!(chain.starts_with("vflip,"), "was: {chain}");
@@ -2485,7 +2676,7 @@ mod tests {
             clip("video", 0, 5.0, 2.0, 0.0),
         ];
         clips[1].transition = spec("cross-fade", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 5.0);
         assert_eq!(clips[1].video_fade_in, 0.0);
     }
@@ -2496,7 +2687,7 @@ mod tests {
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("audio", 3, 0.0, 2.0, 0.0),
         ];
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[0].track, 0);
         assert_eq!(clips[1].track, 6);
     }
@@ -2509,7 +2700,7 @@ mod tests {
         ];
         // A kind no build knows - the wipes are known now.
         clips[1].transition = spec("spiral", 1.0);
-        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
         assert_eq!(clips[1].start, 2.0);
         assert!(clips[1].video_filter_chain.is_empty());
     }
