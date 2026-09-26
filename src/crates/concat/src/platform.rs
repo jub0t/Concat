@@ -440,6 +440,33 @@ pub fn pick_files_async(
     }
 }
 
+/// Asks where to write a file, starting in `directory` with `name` filled
+/// in, limited to the family `filter` names. None when the dialog was
+/// dismissed - and on a phone, which has no such dialog: the caller writes
+/// where it would have suggested, and says where.
+pub fn save_file(
+    title: &str,
+    directory: &std::path::Path,
+    name: &str,
+    filter: (&str, &[&str]),
+) -> Option<PathBuf> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let (family, extensions) = filter;
+        rfd::FileDialog::new()
+            .set_title(title)
+            .set_directory(directory)
+            .set_file_name(name)
+            .add_filter(family, extensions)
+            .save_file()
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (title, directory, name, filter);
+        None
+    }
+}
+
 /// Asks for files. `filter` names a family and its extensions, and limits
 /// the dialog to them.
 pub fn pick_files(title: &str, filter: Option<(&str, &[&str])>) -> Option<Vec<PathBuf>> {

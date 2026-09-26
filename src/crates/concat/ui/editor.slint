@@ -77,6 +77,13 @@ export global Editor {
     in-out property <int> media-count-processed;
     in-out property <int> media-selected-count;
     in-out property <bool> importing;
+    /// What the bin is narrowed to. Rust's, so the editor can point the
+    /// bin at a file it just made; the sidebar reports a pick through
+    /// `media-filter-changed` and reads the answer back from here.
+    in-out property <MediaFilter> media-filter;
+    /// Bumped when the library should turn to its Media page: a file the
+    /// editor made and put in the bin, selected, is there to be seen.
+    in-out property <int> media-jump-token;
 
     callback import-media();
     callback media-filter-changed(filter: MediaFilter);

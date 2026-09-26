@@ -797,6 +797,9 @@ pub struct Studio {
     /// Where the inspector should go, and a count that changes every time
     /// something is applied from the library; see `Editor.inspector-jump-token`.
     pub inspector_jump: (i32, &'static str, &'static str),
+    /// Bumped when the library should show its Media page: a file the
+    /// editor just made and put in the bin. See `Editor.media-jump-token`.
+    pub media_jump: i32,
     /// A look being shown before it is laid down: the filter's id. It is
     /// drawn into the frames the monitor asks for as a layer over the whole
     /// picture, and nowhere else - the timeline does not have it until the
@@ -1763,6 +1766,7 @@ impl Studio {
             gesture: Gesture::None,
             stage_guides: Vec::new(),
             inspector_jump: (0, "", ""),
+            media_jump: 0,
             audition: None,
             revision: 0,
             flat: None,
@@ -5186,7 +5190,16 @@ impl Studio {
     /// project is flattened with just this clip on its timeline, the one
     /// export clip that comes out is moved to the origin, and the mixer
     /// writes it the way it writes an export's soundtrack.
-    pub fn render_clip_sound(&mut self, id: &str) {
+    /// The clip's menu: its sound as it plays - trimmed, at its speed, with
+    /// its level, fades and effects baked in - written to a WAV the user
+    /// names, and brought into the bin as a file of its own, selected,
+    /// with the bin showing all its media so the new file is in view.
+    ///
+    /// A plain import, not a Generated › Processed one: the user picked
+    /// where the file goes and what it is called, which makes it theirs
+    /// the way a file dragged in is. On a phone, which has no save dialog,
+    /// it goes in the project's audio folder under the clip's name.
+    pub fn export_clip_audio(&mut self, id: &str) {
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
@@ -5216,26 +5229,53 @@ impl Studio {
         let duration = piece.duration;
         let pieces = concat_export::audio_pieces(&piece);
 
+        // Where it goes: the user's choice, offered under the clip's name
+        // in the project's audio folder; a phone takes the offer.
         let out_dir = project_dir.join("audio");
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis())
-            .unwrap_or(0);
         let slug: String = clip
             .name
             .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '-' })
-            .take(40)
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .take(60)
             .collect();
-        let file = out_dir.join(format!("processed-{slug}-{stamp}.wav"));
-        let name = format!("{} · {}", clip.name, t("studio.processed"));
+        let suggested = format!("{}.wav", slug.trim());
+        let file = if cfg!(any(target_os = "android", target_os = "ios")) {
+            out_dir.join(&suggested)
+        } else {
+            let Some(chosen) = crate::platform::save_file(
+                &t("lib.exportAudio"),
+                &out_dir,
+                &suggested,
+                (t("lib.wavAudio").as_str(), &["wav"]),
+            ) else {
+                return;
+            };
+            if chosen
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+            {
+                chosen
+            } else {
+                chosen.with_extension("wav")
+            }
+        };
+        let out_dir = file
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or(out_dir);
+        let written = file.to_string_lossy().into_owned();
         log::info!(
-            "render: {} ({duration:.2}s, {} piece(s)) to {}",
+            "export audio: {} ({duration:.2}s, {} piece(s)) to {written}",
             clip.name,
             pieces.len(),
-            file.display()
         );
-        self.notify(&t("studio.renderingTheSound"), false);
+        self.notify(&t("studio.exportingAudio"), false);
         spawn_in_project(
             move || -> Result<concat_host::media::MediaSummary, String> {
                 std::fs::create_dir_all(&out_dir)
@@ -5246,15 +5286,29 @@ impl Studio {
             },
             move |studio, _, _, result| match result {
                 Ok(summary) => {
-                    let mut item = summary.to_new_media();
-                    item.name = name;
-                    item.origin = Some(model::MediaOrigin::Processed);
-                    studio.apply(Command::AddMedia { item });
-                    studio.notify(&t("studio.soundRenderedGeneratedProcessed"), false);
+                    let item = summary.to_new_media();
+                    let path = item.path.clone();
+                    let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
+                        studio
+                            .project()
+                            .media
+                            .iter()
+                            .find(|item| item.path == path)
+                            .map(|item| item.id.clone())
+                    });
+                    // In view and in hand: the bin on all its media, with
+                    // the new file the one thing selected.
+                    studio.media.filter = MediaFilter::All;
+                    studio.media.selected.clear();
+                    if let Some(id) = minted {
+                        studio.media.selected.insert(id);
+                    }
+                    studio.media_jump += 1;
+                    studio.notify(&tf("studio.audioExported", &[&written]), false);
                 }
                 Err(error) => {
-                    log::warn!("render: {error}");
-                    studio.notify(&tf("studio.couldNotRenderSound", &[&error]), true);
+                    log::warn!("export audio: {error}");
+                    studio.notify(&tf("studio.couldNotExportAudio", &[&error]), true);
                 }
             },
         );
@@ -8241,6 +8295,8 @@ impl Studio {
                 .count() as i32,
         );
         editor.set_media_selected_count(self.media.selected.len() as i32);
+        editor.set_media_filter(self.media.filter);
+        editor.set_media_jump_token(self.media_jump);
         editor.set_importing(false);
 
         let (width, height) = self.output_size();
@@ -8475,8 +8531,8 @@ impl Studio {
         // mix's.
         if clip.kind == model::ClipKind::Audio || clip.kind == model::ClipKind::Video {
             rows.push(action(
-                "render-sound",
-                t("studio.renderSoundFile"),
+                "export-audio",
+                t("studio.exportAudio"),
                 Glyph::Waveform,
                 "",
                 self.clip_has_sound(clip),
@@ -9068,7 +9124,7 @@ impl Studio {
             }
             "freeze" => self.freeze_at_playhead(),
             "enhance" => self.enhance_clip(id),
-            "render-sound" => self.render_clip_sound(id),
+            "export-audio" => self.export_clip_audio(id),
             "detach" => {
                 self.apply(Command::DetachAudio {
                     clip_id: id.to_owned(),
