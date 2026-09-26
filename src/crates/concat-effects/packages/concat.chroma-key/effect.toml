@@ -1,0 +1,54 @@
+format = 2
+
+[effect]
+id = "concat.chroma-key"
+name = "Chroma Key"
+kind = "effect"
+category = "Cutout"
+order = 58
+intensity = "similarity"
+description = "Keys out the screen colour you pick, leaving the picture over whatever is beneath, its spill cleaned off."
+
+# 0x00B140FF: broadcast green, the screen a studio paints.
+[[param]]
+key = "color"
+label = "Key colour"
+type = "color"
+min = 0
+max = 4294967295
+default = 11616511
+
+[[param]]
+key = "similarity"
+label = "Similarity"
+min = 1
+max = 60
+default = 30
+step = 1
+unit = "%"
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 50
+default = 10
+step = 1
+unit = "%"
+
+[[param]]
+key = "spill"
+label = "Spill"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# The still before a broadcast green screen, for the key to take out.
+[card]
+screen = "#00b140"

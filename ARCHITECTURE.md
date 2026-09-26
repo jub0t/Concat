@@ -181,7 +181,12 @@ the layer's pixels (`concat.gaussian-blur`, `concat.glow`). The pass carries
 its stages (`concat_core::Stage`); `WgpuCompositor::run_stages` draws them
 in one submission into pictures claimed from the pool and handed on from
 one package to the next of a layer's stack, and only the last pass mixes by
-intensity.
+intensity. A blur or an average reads the layer through
+`sample_premultiplied`, which weighs each pixel by its alpha before pixels
+are mixed, so a transparent pixel's colour never bleeds; the motion blur
+(a coarse Gaussian, then straight lines between its samples) and the zoom
+blur (three passes of sixteen scales, 4096 in all) are held to direct sums
+in concat-render's suite.
 
 A format 2 shader works in light (`space = "linear"`, the default), in the
 display encoding (`"display"`, the colour looks), or in log (`"log"`,
@@ -202,7 +207,10 @@ are several: a `wheel` is its puck, `<key>.x` and `<key>.y`, and its master,
 with the slopes that keep it from overshooting (`grade_wheels`,
 `grade_curves`). The window draws them with widgets of their own
 (`concat/ui/inspector/grading.slint`) in the Adjust tab and in the effect
-stack, and edits them through `concat/src/grading.rs`.
+stack, and edits them through `concat/src/grading.rs`. A `color` knob is
+RGBA packed into one number, red in the top byte, unpacked into a
+`vec4<f32>` for the shader and drawn in the effect stack as a swatch that
+opens the picker (`ColourKnobData`); the chroma key's is its screen colour.
 
 ## 4. Decoding, caching and scheduling
 

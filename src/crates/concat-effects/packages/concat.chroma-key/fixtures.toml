@@ -1,0 +1,72 @@
+# Broadcast green, #00b140, is (0, 0.416, 0.036) in light. At its defaults the
+# key takes it out, in shadow as well as lit, and keeps skin and grey; what
+# it keeps has the green leaned out of it by half, so a grey with green
+# spilled on it comes out greyer, and the colour of what it takes out has
+# the same done to it, for the soft edge between. A colour knob's least is
+# black and its most white, each a key colour of no hue, which takes out
+# the greys. Pinned from a model of the shader in doubles.
+
+[[probe]]
+name = "default, a broadcast green screen"
+input = [0, 0.416332, 0.0362356, 1]
+expect = [0.0384438, 0.29853, 0.0997654, 0]
+
+[[probe]]
+name = "default, the screen in shadow"
+input = [0, 0.18, 0.012, 1]
+expect = [0.0170975, 0.128594, 0.0367308, 0]
+
+[[probe]]
+name = "default, the screen in deep shadow"
+input = [0, 0.0788574, 0.00686646, 1]
+expect = [0.00728244, 0.0565548, 0.0189067, 0]
+
+[[probe]]
+name = "default, skin"
+input = [0.6, 0.35, 0.25, 1]
+expect = [0.600086, 0.350102, 0.249991, 1]
+
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.180054, 0.180054, 0.180054, 1]
+
+[[probe]]
+name = "default, a grey with green spilled on it"
+input = [0.2, 0.28, 0.2, 1]
+expect = [0.231019, 0.267552, 0.215542, 1]
+
+[[probe]]
+name = "default, the screen half transparent"
+input = [0, 0.41626, 0.0362244, 0.5]
+expect = [0.0384438, 0.29853, 0.0997654, 0]
+
+[[probe]]
+name = "minimum, a black key takes out a grey"
+at = "min"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.180054, 0.180054, 0.180054, 0]
+
+[[probe]]
+name = "minimum, and keeps the green"
+at = "min"
+input = [0, 0.416332, 0.0362356, 1]
+expect = [0, 0.416252, 0.0362368, 1]
+
+[[probe]]
+name = "maximum, a white key takes out skin"
+at = "max"
+input = [0.6, 0.35, 0.25, 1]
+expect = [0.600086, 0.350102, 0.249991, 0]
+
+[[probe]]
+name = "a blue screen, keyed to its blue"
+params = { color = 4701183 }
+input = [0, 0.0464862, 0.475033, 1]
+expect = [0.00694118, 0.0413712, 0.182929, 0]
+
+[[probe]]
+name = "no spill taken, a grey with green on it"
+params = { spill = 0 }
+input = [0.2, 0.28, 0.2, 1]
+expect = [0.199946, 0.280029, 0.199955, 1]

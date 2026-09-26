@@ -216,6 +216,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_adjust_curves(ModelRc::from(models.adjust_curves.clone()));
         editor.set_visual_wheels(ModelRc::from(models.visual_wheels.clone()));
         editor.set_visual_curves(ModelRc::from(models.visual_curves.clone()));
+        editor.set_visual_colours(ModelRc::from(models.visual_colours.clone()));
         app.global::<Keyframes>()
             .set_rows(ModelRc::from(models.key_rows.clone()));
         app.global::<KeyEditor>()
@@ -993,6 +994,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_chain_set_param(on_lanes!(
         |state, audio: bool, index: i32, key: SharedString, value: f32| {
             state.chain_set_param(audio, index, key.as_str(), value);
+        }
+    ));
+
+    editor.on_chain_set_colour(on_lanes!(
+        |state, index: i32, key: SharedString, value: slint::Color| {
+            state.chain_set_colour(index, key.as_str(), value);
         }
     ));
 

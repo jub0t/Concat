@@ -1,12 +1,15 @@
+format = 2
+
 [effect]
 id = "concat.motion-blur"
 name = "Motion Blur"
 kind = "effect"
 category = "Blur"
 order = 22
+version = 2
 intensity = "length"
 aliases = ["motion-blur"]
-description = "A horizontal streak, as if the camera panned."
+description = "A streak along a line, as if the camera panned."
 
 [[param]]
 key = "length"
@@ -17,8 +20,19 @@ default = 18
 step = 1
 unit = "px"
 
-[ffmpeg]
-chain = "gblur=sigma={fixed(length, 1)}:sigmaV=0.1"
+[[param]]
+key = "angle"
+label = "Angle"
+min = -90
+max = 90
+default = 0
+step = 1
+unit = "°"
 
 [wgsl]
 entry = "effect.wgsl"
+
+# A coarse Gaussian along the line, then straight lines drawn between its
+# samples.
+[[wgsl.pass]]
+target = "coarse"

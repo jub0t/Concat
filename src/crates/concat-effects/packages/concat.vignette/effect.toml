@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.vignette"
 name = "Vignette"
+version = 2
 kind = "effect"
 category = "Stylize"
 order = 40
@@ -16,9 +19,6 @@ max = 100
 default = 50
 step = 1
 unit = "%"
-
-[ffmpeg]
-chain = "vignette=angle={fixed(0.25 + (strength / 100) * 1.05, 3)}"
 
 [wgsl]
 entry = "effect.wgsl"

@@ -1,13 +1,48 @@
-[[case]]
-name = "default"
-chain = "lutrgb=r=trunc(val/64)*64:g=trunc(val/64)*64:b=trunc(val/64)*64"
+# Each channel rounded on the display level to one of `levels` steps from
+# black to white, and on at the same spacing past white, so a highlight keeps
+# a band of its own.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a warm colour"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.377904, 0.377904, 0.0715993, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [3.40751, 1, 0.0715993, 1]
+
+[[probe]]
+name = "minimum, a warm colour"
 at = "min"
-chain = "lutrgb=r=trunc(val/128)*128:g=trunc(val/128)*128:b=trunc(val/128)*128"
+input = [0.3, 0.2, 0.12, 1]
+expect = [1, 1, 0, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "minimum, a highlight past white"
+at = "min"
+input = [4, 1, 0.05, 1]
+expect = [5.27803, 1, 0, 1]
+
+[[probe]]
+name = "maximum, a warm colour"
 at = "max"
-chain = "lutrgb=r=trunc(val/32)*32:g=trunc(val/32)*32:b=trunc(val/32)*32"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.261041, 0.261041, 0.130875, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4, 1, 0.05, 1]
+expect = [3.64586, 1, 0.049458, 1]
+
+[[probe]]
+name = "five levels, a warm colour"
+params = { levels = 5 }
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.189465, 0.189465, 0.189465, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.377904, 0.377904, 0.0715993, 0.5]

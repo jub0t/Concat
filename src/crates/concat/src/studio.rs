@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use concat_effects::Catalogue;
 use concat_effects::manifest::Kind as PackageKind;
+use concat_effects::manifest::ParamType;
 use concat_host::playback::ClipSpec;
 use concat_host::{
     AnalyseRequest, Cutouts, EnhanceRequest, ProjectInfo, RegionRequest, Session, media, projects,
@@ -578,6 +579,8 @@ pub struct Models {
     pub adjust_curves: Rc<VecModel<CurveData>>,
     pub visual_wheels: Rc<VecModel<WheelGroupData>>,
     pub visual_curves: Rc<VecModel<CurveGroupData>>,
+    /// The picture's chain's colour knobs, a row each.
+    pub visual_colours: Rc<VecModel<ColourKnobData>>,
     /// A link's wheels and curves, and a curve's points, by the link - -1
     /// the colour panel - and the curve's key: kept like the rest, so a
     /// wheel or a point being dragged is not dropped when it is published
@@ -641,6 +644,7 @@ impl Models {
             adjust_wheels: Rc::new(VecModel::default()),
             adjust_curves: Rc::new(VecModel::default()),
             visual_wheels: Rc::new(VecModel::default()),
+            visual_colours: Rc::new(VecModel::default()),
             visual_curves: Rc::new(VecModel::default()),
             link_wheels: RefCell::new(HashMap::new()),
             link_curves: RefCell::new(HashMap::new()),
@@ -1337,6 +1341,54 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
         .collect()
 }
 
+/// A colour knob's value as the document holds it: RGBA packed into one
+/// number, red in the top byte, as the shader unpacks it.
+fn packed(colour: slint::Color) -> f64 {
+    let bytes = [colour.red(), colour.green(), colour.blue(), colour.alpha()];
+    f64::from(u32::from_be_bytes(bytes))
+}
+
+/// The colour a knob's packed number holds.
+fn unpacked(value: f64) -> slint::Color {
+    let [r, g, b, a] = (value.clamp(0.0, f64::from(u32::MAX)) as u32).to_be_bytes();
+    slint::Color::from_argb_u8(a, r, g, b)
+}
+
+/// A chain's colour knobs, a row each, holding the document's colour or
+/// the default.
+fn chain_colours(chain: &[AppliedFilter]) -> Vec<ColourKnobData> {
+    let catalogue = Catalogue::builtin();
+    chain
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let package = catalogue
+                .packages()
+                .find(|package| package.answers_to(&entry.id))?;
+            Some((index, entry, package))
+        })
+        .flat_map(|(index, entry, package)| {
+            package
+                .manifest
+                .params
+                .iter()
+                .filter(|param| param.kind == ParamType::Color)
+                .map(move |param| ColourKnobData {
+                    entry: index as i32,
+                    key: param.key.as_str().into(),
+                    label: i18n::shelf_text("labels", &param.label).into(),
+                    value: unpacked(
+                        entry
+                            .params
+                            .get(&param.key)
+                            .copied()
+                            .unwrap_or(param.default),
+                    ),
+                })
+        })
+        .collect()
+}
+
 /// A chain as the inspector's stack draws it: one row per link, and one per
 /// knob its package declares, holding the document's value or the default.
 /// A link no package answers to keeps its row - so it can be removed - and
@@ -1390,11 +1442,13 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                 next: false,
             });
         }
+        // A colour is a swatch of its own (see `chain_colours`), and a wheel
+        // or a curve is drawn apart (see `chain_grading`).
         for param in package
             .manifest
             .params
             .iter()
-            .filter(|param| !param.kind.is_compound())
+            .filter(|param| !param.kind.is_compound() && param.kind != ParamType::Color)
         {
             let step = if param.step > 0.0 {
                 param.step
@@ -1439,7 +1493,6 @@ fn grading_rows(
     entry: i32,
     keys: Option<Option<f64>>,
 ) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
-    use concat_effects::manifest::ParamType;
     let empty = std::collections::BTreeMap::new();
     let params = link.map_or(&empty, |link| &link.params);
     let mut wheels = Vec::new();
@@ -1538,7 +1591,6 @@ fn chain_grading(
 /// with no key: a wheel's three - named by the wheel or by any of its own -
 /// else the knob's own.
 fn adjust_key_names(key: &str) -> Vec<(String, f64)> {
-    use concat_effects::manifest::ParamType;
     let Some(package) = Catalogue::builtin().get(ADJUST_ID) else {
         return vec![(key.to_owned(), 0.0)];
     };
@@ -3310,6 +3362,14 @@ impl Studio {
     pub fn chain_curve_remove(&mut self, index: i32, key: &str, point: i32) {
         self.edit_chain_link(index, |link| {
             grading::remove_curve_point(&mut link.params, key, point);
+        });
+    }
+
+    /// A colour knob of the picture chain's link `index`, on the echo:
+    /// packed into the knob's number (see `packed`).
+    pub fn chain_set_colour(&mut self, index: i32, key: &str, colour: slint::Color) {
+        self.edit_chain_link(index, |link| {
+            link.params.insert(key.to_owned(), packed(colour));
         });
     }
 
@@ -6589,6 +6649,13 @@ impl Studio {
             };
         sync(&models.applied_visual, visual);
         sync(&models.visual_params, visual_params);
+        sync(
+            &models.visual_colours,
+            match self.sole_selection().and_then(|id| self.clip(&id)) {
+                Some(clip) => chain_colours(&clip.video_effects),
+                None => Vec::new(),
+            },
+        );
         sync(&models.applied_audio, sound);
         sync(&models.audio_params, sound_params);
         sync(
@@ -8855,8 +8922,9 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        Command, Footprint, Studio, adjust_key_names, custom_frame, custom_rate, fps_of,
-        grading_rows, home_folder, key_commands, place_in, shown, wheel_partners, write_keyable,
+        Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
+        custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
+        wheel_partners, write_keyable,
     };
 
     /// A wheel is keyed as one knob: named by itself or by any of its own
@@ -8913,6 +8981,29 @@ mod tests {
         assert_eq!((wheels[2].x, wheels[2].master), (0.25, -0.5));
         assert!(!wheels[2].keyable, "a stack's wheels take no keys");
         assert_eq!(curves[1].1.len(), 3, "the ends and the point put down");
+    }
+
+    /// A colour knob is a swatch in the stack, not a slider: broadcast
+    /// green at the chroma key's default, and a colour picked is packed into
+    /// the knob's number as the shader unpacks it, and read back the same.
+    #[test]
+    fn a_colour_knob_is_a_swatch() {
+        use concat_project::model::AppliedFilter;
+        let mut link = AppliedFilter::new("concat.chroma-key");
+        let (_, knobs) = chain_rows(std::slice::from_ref(&link));
+        assert!(knobs.iter().all(|knob| knob.key != "color"), "no slider");
+        assert!(knobs.iter().any(|knob| knob.key == "similarity"));
+        let colours = chain_colours(std::slice::from_ref(&link));
+        assert_eq!(colours.len(), 1);
+        assert_eq!(colours[0].key, "color");
+        assert_eq!(
+            colours[0].value,
+            slint::Color::from_argb_u8(255, 0x00, 0xb1, 0x40)
+        );
+        let blue = slint::Color::from_argb_u8(255, 0x00, 0x47, 0xbb);
+        link.params.insert("color".to_owned(), packed(blue));
+        assert_eq!(link.params["color"], f64::from(0x0047_bbffu32));
+        assert_eq!(chain_colours(&[link])[0].value, blue);
     }
 
     /// A typed frame is even on both sides and inside the limits.

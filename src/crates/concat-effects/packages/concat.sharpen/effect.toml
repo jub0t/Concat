@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.sharpen"
 name = "Sharpen"
+version = 2
 kind = "effect"
 category = "Basic"
 order = 13
@@ -16,8 +19,6 @@ max = 3
 default = 1
 step = 0.05
 
-[ffmpeg]
-chain = "unsharp=5:5:{fixed(amount, 2)}:5:5:0"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

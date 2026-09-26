@@ -1186,6 +1186,95 @@ fn gaussian_at(
     sum.map(|value| value / total)
 }
 
+/// A picture `size` pixels with everything a blur can get wrong in it: a
+/// gradient, a checkerboard, dots of light `peak` times white, a hard edge
+/// past white, a half-transparent strip down the left, and a transparent
+/// band whose colour must not bleed into anything.
+fn busy(size: (u32, u32), peak: f32) -> Vec<[f32; 4]> {
+    (0..size.1)
+        .flat_map(|y| (0..size.0).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let checker = if (x / 6 + y / 6) % 2 == 0 { 0.1 } else { 0.6 };
+            let mut rgb = [
+                0.02 + 0.9 * x as f32 / size.0 as f32,
+                checker,
+                0.05 + 0.5 * y as f32 / size.1 as f32,
+            ];
+            if x >= 150 {
+                rgb = [1.5, 0.05, 0.05];
+            }
+            if x % 40 / 2 == 10 && y % 30 / 2 == 7 {
+                rgb = [peak; 3];
+            }
+            match y {
+                80..90 => [5.0, 5.0, 5.0, 0.0],
+                _ if x < 20 => [rgb[0], rgb[1], rgb[2], 0.5],
+                _ => [rgb[0], rgb[1], rgb[2], 1.0],
+            }
+        })
+        .collect()
+}
+
+/// `picture`, `size` pixels, at `(x, y)` in pixels - a pixel's centre at
+/// its whole number - read between its pixels as `sample_premultiplied`
+/// reads it: the four about it premultiplied and mixed bilinearly, the edge
+/// clamped as the GPU's sampler clamps it; in doubles.
+fn premultiplied_at(
+    picture: &[[f32; 4]],
+    (width, height): (u32, u32),
+    (x, y): (f64, f64),
+) -> [f64; 4] {
+    let x = x.clamp(0.0, f64::from(width - 1));
+    let y = y.clamp(0.0, f64::from(height - 1));
+    let (left, top) = (x.floor(), y.floor());
+    let (fx, fy) = (x - left, y - top);
+    let mut mixed = [0.0f64; 4];
+    for (down, wy) in [(0, 1.0 - fy), (1, fy)] {
+        for (across, wx) in [(0, 1.0 - fx), (1, fx)] {
+            let column = (left as i64 + across).min(i64::from(width) - 1);
+            let row = (top as i64 + down).min(i64::from(height) - 1);
+            let [r, g, b, a] = picture[(row * i64::from(width) + column) as usize].map(f64::from);
+            for (into, value) in mixed.iter_mut().zip([r * a, g * a, b * a, a]) {
+                *into += wx * wy * value;
+            }
+        }
+    }
+    mixed
+}
+
+/// How far `got` is from `want` at a grid of pixels - every `stride`th of
+/// each row and column, and the last, where `want` has an answer -
+/// premultiplied: the worst, where, and the root mean square.
+fn measured(
+    got: &[[f32; 4]],
+    (width, height): (u32, u32),
+    stride: usize,
+    want: impl Fn(i64, i64) -> Option<[f64; 4]>,
+) -> (f64, (i64, i64), f64) {
+    let along = |length: u32| {
+        (0..i64::from(length))
+            .step_by(stride)
+            .chain([i64::from(length) - 1])
+            .collect::<Vec<_>>()
+    };
+    let (mut worst, mut at, mut squares, mut count) = (0.0f64, (0, 0), 0.0f64, 0);
+    for &y in &along(height) {
+        for &x in &along(width) {
+            let Some(want) = want(x, y) else { continue };
+            let [r, g, b, a] = got[(y * i64::from(width) + x) as usize].map(f64::from);
+            for (got, want) in [r * a, g * a, b * a, a].into_iter().zip(want) {
+                let error = (got - want).abs();
+                squares += error * error;
+                count += 1;
+                if error > worst {
+                    (worst, at) = (error, (x, y));
+                }
+            }
+        }
+    }
+    (worst, at, (squares / f64::from(count)).sqrt())
+}
+
 /// The Gaussian blur - across and then down, at a power of two fewer
 /// pixels where its radius is wide, and read back over the layer - is the
 /// 2-D Gaussian summed directly, at every radius from its least to its
@@ -1200,28 +1289,7 @@ fn the_gaussian_blur_is_a_direct_gaussian() {
         .get("concat.gaussian-blur")
         .expect("a built-in");
     let size = (192, 108);
-    let picture: Vec<[f32; 4]> = (0..size.1)
-        .flat_map(|y| (0..size.0).map(move |x| (x, y)))
-        .map(|(x, y)| {
-            let checker = if (x / 6 + y / 6) % 2 == 0 { 0.1 } else { 0.6 };
-            let mut rgb = [
-                0.02 + 0.9 * x as f32 / size.0 as f32,
-                checker,
-                0.05 + 0.5 * y as f32 / size.1 as f32,
-            ];
-            if x >= 150 {
-                rgb = [1.5, 0.05, 0.05];
-            }
-            if x % 40 / 2 == 10 && y % 30 / 2 == 7 {
-                rgb = [PEAK as f32; 3];
-            }
-            match y {
-                80..90 => [5.0, 5.0, 5.0, 0.0],
-                _ if x < 20 => [rgb[0], rgb[1], rgb[2], 0.5],
-                _ => [rgb[0], rgb[1], rgb[2], 1.0],
-            }
-        })
-        .collect();
+    let picture = busy(size, PEAK as f32);
     // Below a radius of six the last pass blurs down `across` itself, and
     // `down` is a sliver nothing reads.
     for (radius, across, down) in [
@@ -1246,28 +1314,9 @@ fn the_gaussian_blur_is_a_direct_gaussian() {
         // Every pixel where the sum is quick, a grid of them - the edges
         // among them - where it is not.
         let stride = (radius / 4.0).max(1.0) as usize;
-        let along = |length: u32| {
-            (0..length as i64)
-                .step_by(stride)
-                .chain([i64::from(length) - 1])
-                .collect::<Vec<_>>()
-        };
-        let (mut worst, mut at, mut squares, mut count) = (0.0f64, (0, 0), 0.0f64, 0);
-        for &y in &along(size.1) {
-            for &x in &along(size.0) {
-                let want = gaussian_at(&picture, size, (x, y), radius);
-                let [r, g, b, a] = got[(y * i64::from(size.0) + x) as usize].map(f64::from);
-                for (got, want) in [r * a, g * a, b * a, a].into_iter().zip(want) {
-                    let error = (got - want).abs();
-                    squares += error * error;
-                    count += 1;
-                    if error > worst {
-                        (worst, at) = (error, (x, y));
-                    }
-                }
-            }
-        }
-        let rms = (squares / f64::from(count)).sqrt();
+        let (worst, at, rms) = measured(&got, size, stride, |x, y| {
+            Some(gaussian_at(&picture, size, (x, y), radius))
+        });
         eprintln!("radius {radius}: worst {worst:.5} at {at:?}, rms {rms:.6}");
         // Half floats, the fetch between two pixels, and the sum cut at
         // three sigmas each leave a trace; together they come to a quarter
@@ -1396,4 +1445,171 @@ fn a_table_is_read_in_its_space_and_carried_past_its_ends() {
         near(got, [want[0], want[1], want[2], 1.0], 0.004),
         "{got:?} against {want:?}"
     );
+}
+
+/// The motion blur - a coarse Gaussian along its line, then straight lines
+/// drawn between its samples - is the Gaussian of sigma `length` along the
+/// line summed directly, over the busy picture: along the rows, down the
+/// columns and at a slant, from its shortest streak to its longest.
+#[test]
+fn a_motion_blur_is_a_gaussian_along_its_line() {
+    const PEAK: f64 = 6.0;
+    let Some(mut gpu) = gpu() else { return };
+    let blur = concat_effects::Catalogue::builtin()
+        .get("concat.motion-blur")
+        .expect("a built-in");
+    let size = (192, 108);
+    let picture = busy(size, PEAK as f32);
+    for (length, angle) in [
+        (2.0, 0.0),
+        (5.0, 0.0),
+        (18.0, 0.0),
+        (60.0, 0.0),
+        (18.0, 90.0),
+        (12.0, 30.0),
+    ] {
+        let pass = blur
+            .pass(
+                &BTreeMap::from([("length".to_owned(), length), ("angle".to_owned(), angle)]),
+                None,
+            )
+            .expect("a shader");
+        let got = treated(&mut gpu, size, &picture, &[pass]);
+        let (sin, cos) = f64::to_radians(angle).sin_cos();
+        let step = (length / 16.0).min(0.25);
+        let reach = (5.0 * length / step).ceil() as i64;
+        let streak = |x: i64, y: i64| {
+            let (mut sum, mut total) = ([0.0f64; 4], 0.0f64);
+            for k in -reach..=reach {
+                let t = k as f64 * step;
+                let weight = (-t * t / (2.0 * length * length)).exp();
+                let seen =
+                    premultiplied_at(&picture, size, (x as f64 + t * cos, y as f64 - t * sin));
+                for (into, value) in sum.iter_mut().zip(seen) {
+                    *into += weight * value;
+                }
+                total += weight;
+            }
+            sum.map(|value| value / total)
+        };
+        let (worst, at, rms) = measured(&got, size, 3, |x, y| Some(streak(x, y)));
+        eprintln!("length {length} at {angle}°: worst {worst:.5} at {at:?}, rms {rms:.6}");
+        assert!(
+            worst < 0.01 * PEAK,
+            "length {length} at {angle}°: {worst} off at {at:?}"
+        );
+        assert!(
+            rms < 0.0015 * PEAK,
+            "length {length} at {angle}°: rms {rms}"
+        );
+    }
+}
+
+/// The zoom blur - three passes of sixteen scales - is the four thousand
+/// and ninety-six scales of the picture about its centre summed directly,
+/// about the middle and about a corner: to the half float over a ramp,
+/// where the passes compose exactly, and over the busy picture as near as
+/// passes that read each other between pixels come - they soften a streak
+/// across its line by about half a pixel, which shows only where a streak
+/// grazes a dot six times white.
+#[test]
+fn a_zoom_blur_is_its_scales_summed() {
+    const PEAK: f64 = 6.0;
+    let Some(mut gpu) = gpu() else { return };
+    let zoom = concat_effects::Catalogue::builtin()
+        .get("concat.zoom-blur")
+        .expect("a built-in");
+    let size = (192, 108);
+    let ramp: Vec<[f32; 4]> = (0..size.1)
+        .flat_map(|y| {
+            (0..size.0).map(move |x| [x as f32 / size.0 as f32, 0.5, y as f32 / size.1 as f32, 1.0])
+        })
+        .collect();
+    for (picture, worst_of, rms_of) in [
+        (ramp, 0.002, 0.0005),
+        (busy(size, PEAK as f32), 0.025 * PEAK, 0.002 * PEAK),
+    ] {
+        for (amount, centre) in [
+            (25.0, (50.0, 50.0)),
+            (100.0, (50.0, 50.0)),
+            (60.0, (10.0, 90.0)),
+        ] {
+            let pass = zoom
+                .pass(
+                    &BTreeMap::from([
+                        ("amount".to_owned(), amount),
+                        ("x".to_owned(), centre.0),
+                        ("y".to_owned(), centre.1),
+                    ]),
+                    None,
+                )
+                .expect("a shader");
+            let got = treated(&mut gpu, size, &picture, &[pass]);
+            let span = -(1.0 - f64::min(amount / 100.0, 0.99)).ln();
+            let (cx, cy) = (centre.0 / 100.0, centre.1 / 100.0);
+            let (width, height) = (f64::from(size.0), f64::from(size.1));
+            let (worst, at, rms) = measured(&got, size, 4, |x, y| {
+                let (u, v) = ((x as f64 + 0.5) / width, (y as f64 + 0.5) / height);
+                let mut sum = [0.0f64; 4];
+                for k in 0..4096 {
+                    let scale = (-span * f64::from(k) / 4096.0).exp();
+                    let (su, sv) = (cx + (u - cx) * scale, cy + (v - cy) * scale);
+                    let seen =
+                        premultiplied_at(&picture, size, (su * width - 0.5, sv * height - 0.5));
+                    for (into, value) in sum.iter_mut().zip(seen) {
+                        *into += value / 4096.0;
+                    }
+                }
+                Some(sum)
+            });
+            eprintln!("zoom {amount} about {centre:?}: worst {worst:.5} at {at:?}, rms {rms:.6}");
+            assert!(worst < worst_of, "zoom {amount}: {worst} off at {at:?}");
+            assert!(rms < rms_of, "zoom {amount}: rms {rms}");
+        }
+    }
+}
+
+/// The fisheye draws every pixel of the frame from somewhere inside it, at
+/// full strength and at any shape of frame - no black holes, as earlier
+/// builds drew - and pulls the picture in towards the middle without ever
+/// folding it back: a ramp across the frame still climbs from left to
+/// right along the middle row, the middle and the corners where they were.
+#[test]
+fn the_fisheye_fills_the_frame() {
+    let Some(mut gpu) = gpu() else { return };
+    let fisheye = concat_effects::Catalogue::builtin()
+        .get("concat.fisheye")
+        .expect("a built-in");
+    let pass = fisheye
+        .pass(&BTreeMap::from([("strength".to_owned(), 100.0)]), None)
+        .expect("a shader");
+    for size in [(96, 54), (54, 96), (64, 64)] {
+        let flat = vec![[0.3f32, 0.5, 0.7, 1.0]; (size.0 * size.1) as usize];
+        let got = treated(&mut gpu, size, &flat, std::slice::from_ref(&pass));
+        for (n, pixel) in got.iter().enumerate() {
+            assert!(
+                near(*pixel, [0.3, 0.5, 0.7, 1.0], 0.004),
+                "{size:?}: pixel {n} is {pixel:?}"
+            );
+        }
+        let ramp: Vec<[f32; 4]> = (0..size.1)
+            .flat_map(|_| (0..size.0).map(|x| [(x as f32 + 0.5) / size.0 as f32, 0.0, 0.0, 1.0]))
+            .collect();
+        let got = treated(&mut gpu, size, &ramp, std::slice::from_ref(&pass));
+        let row = &got[(size.1 / 2 * size.0) as usize..][..size.0 as usize];
+        assert!(
+            row.windows(2).all(|pair| pair[1][0] >= pair[0][0]),
+            "{size:?}: the middle row folds back"
+        );
+        let quarter = row[(size.0 / 4) as usize][0];
+        assert!(
+            quarter > 0.3 && quarter < 0.5,
+            "{size:?}: a quarter of the way across reads {quarter}, not pulled towards the middle"
+        );
+        let corner = got[0][0];
+        assert!(
+            (corner - ramp[0][0]).abs() < 0.01,
+            "{size:?}: the corner moved to {corner}"
+        );
+    }
 }

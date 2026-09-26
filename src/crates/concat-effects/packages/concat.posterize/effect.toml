@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.posterize"
 name = "Posterize"
+version = 2
 kind = "effect"
 category = "Stylize"
 order = 43
@@ -17,11 +20,6 @@ max = 8
 default = 4
 step = 1
 
-[ffmpeg]
-let = [
-  "size = round(256 / max(round(levels), 2))",
-]
-chain = "lutrgb=r=trunc(val/{size})*{size}:g=trunc(val/{size})*{size}:b=trunc(val/{size})*{size}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

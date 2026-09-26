@@ -1,6 +1,9 @@
+format = 2
+
 [effect]
 id = "concat.halftone"
 name = "Halftone"
+version = 2
 kind = "effect"
 category = "Retro"
 order = 76
@@ -13,12 +16,10 @@ label = "Dot size"
 type = "int"
 min = 4
 max = 40
-default = 10
+default = 6
 step = 1
 unit = "px"
 
-[ffmpeg]
-chain = "pixelize=w={round(size)}:h={round(size)},eq=contrast=1.5:brightness=-0.05"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

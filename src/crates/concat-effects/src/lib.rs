@@ -448,8 +448,8 @@ mod tests {
     fn stray_parameter_keys_are_dropped_and_missing_ones_default() {
         let catalogue = Catalogue::builtin();
         assert_eq!(
-            catalogue.video_chain(&[applied("sharpen", &[("amount", 2.0), ("bogus", 99.0)])]),
-            "unsharp=5:5:2.00:5:5:0"
+            catalogue.video_chain(&[applied("hue-shift", &[("angle", 90.0), ("bogus", 99.0)])]),
+            "hue=h=90"
         );
         assert_eq!(
             catalogue.video_chain(&[applied("shake", &[("amount", 20.0)])]),

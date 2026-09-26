@@ -1,0 +1,43 @@
+# A flat picture zooms to itself about any centre, through all three passes:
+# what these pin is that the light past white and the alpha come out as they
+# went in. How the zoom streaks a picture is held to the scales summed
+# directly in concat-render's suite.
+
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
+at = "min"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "off to a corner, a highlight past white"
+params = { amount = 60, x = 10, y = 90 }
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]

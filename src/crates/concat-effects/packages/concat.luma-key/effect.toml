@@ -1,0 +1,45 @@
+format = 2
+
+[effect]
+id = "concat.luma-key"
+name = "Luma Key"
+kind = "effect"
+category = "Cutout"
+order = 59
+intensity = "threshold"
+description = "Keys out the dark of the picture - fire, smoke or sparks shot on black - or, inverted, the light."
+
+[[param]]
+key = "threshold"
+label = "Threshold"
+min = 0
+max = 100
+default = 10
+step = 1
+unit = "%"
+
+[[param]]
+key = "softness"
+label = "Softness"
+min = 0
+max = 50
+default = 10
+step = 1
+unit = "%"
+
+[[param]]
+key = "invert"
+label = "Invert"
+type = "bool"
+min = 0
+max = 1
+default = 0
+step = 1
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# The still's shadows taken out, for the card.
+[card]
+params = { threshold = 35 }

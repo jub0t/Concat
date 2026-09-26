@@ -1,9 +1,11 @@
 struct Params { amount: f32 }
 
-// Per-pixel noise that changes every frame, scaled by the amount.
+// Grain in log, where film's is: every pixel moved up or down by the same
+// share of a stop whatever its level, so a highlight grains like a shadow,
+// and a level past white stays past it. New every frame, and the same on
+// every GPU for the same frame (see `hash`).
 fn effect(uv: vec2<f32>) -> vec4<f32> {
     let c = sample(uv);
-    let n = hash(uv * frame.size, fract(frame.time * 7.31)) - 0.5;
-    let grain = n * params.amount / 100.0;
-    return vec4<f32>(clamp(c.rgb + vec3<f32>(grain), vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+    let n = hash(floor(uv * frame.size), fract(frame.time * 7.31)) - 0.5;
+    return vec4<f32>(from_log(to_log(c.rgb) + vec3<f32>(n * params.amount * 0.008)), c.a);
 }

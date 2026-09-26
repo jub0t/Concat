@@ -106,7 +106,13 @@ const EFFECT_SAMPLE_LINEAR: &str = r#"
 /// outside Rec. 709's gamut, above 1.0 in a highlight - with 1.0 the white
 /// of an SDR picture (203 nits).
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(source, source_sampler, uv);
+    return into_space(textureSample(source, source_sampler, uv));
+}
+
+/// A colour of the layer as the texture holds it, in the space `sample`
+/// hands it over in: here, as it is.
+fn into_space(c: vec4<f32>) -> vec4<f32> {
+    return c;
 }
 "#;
 
@@ -117,7 +123,12 @@ const EFFECT_SAMPLE_DISPLAY: &str = r#"
 /// (see `to_display`): the picture a look drawn by eye on an SDR display
 /// reads, not clipped at white.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    let c = textureSample(source, source_sampler, uv);
+    return into_space(textureSample(source, source_sampler, uv));
+}
+
+/// A colour of the layer as the texture holds it, in the space `sample`
+/// hands it over in: here, the display encoding.
+fn into_space(c: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(to_display(c.rgb), c.a);
 }
 "#;
@@ -128,8 +139,45 @@ const EFFECT_SAMPLE_LOG: &str = r#"
 /// space a table made for ACEScct reads, and where every level of light,
 /// far past white, has a place between 0 and 1.
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    let c = textureSample(source, source_sampler, uv);
+    return into_space(textureSample(source, source_sampler, uv));
+}
+
+/// A colour of the layer as the texture holds it, in the space `sample`
+/// hands it over in: here, log.
+fn into_space(c: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(to_log(c.rgb), c.a);
+}
+"#;
+
+/// What every format 2 effect can read besides `sample`, in whichever
+/// space it asked for (`into_space`).
+const EFFECT_SAMPLE_PREMULTIPLIED: &str = r#"
+/// The layer at `uv` as `sample` reads it, but with each of the four
+/// pixels it lies among premultiplied by its alpha before they are mixed,
+/// and handed back premultiplied: what a blur or an average sums, so that
+/// a transparent pixel's colour never bleeds into the pixels beside it.
+/// Where the four are as opaque as each other - all of an opaque picture -
+/// it is the one fetch. Read without derivatives, so the reading may turn
+/// on what it reads.
+fn sample_premultiplied(uv: vec2<f32>) -> vec4<f32> {
+    let c = into_space(textureSampleLevel(source, source_sampler, uv, 0.0));
+    if (abs(c.a - round(c.a)) < 1e-4) {
+        return vec4<f32>(c.rgb * c.a, c.a);
+    }
+    let p = uv * frame.size - vec2<f32>(0.5);
+    let f = fract(p);
+    let first = vec2<i32>(floor(p));
+    let last = vec2<i32>(frame.size) - vec2<i32>(1);
+    var mixed = vec4<f32>(0.0);
+    for (var y = 0; y < 2; y++) {
+        for (var x = 0; x < 2; x++) {
+            let at = clamp(first + vec2<i32>(x, y), vec2<i32>(0), last);
+            let t = into_space(textureLoad(source, at, 0));
+            let w = select(1.0 - f.x, f.x, x == 1) * select(1.0 - f.y, f.y, y == 1);
+            mixed += vec4<f32>(t.rgb * t.a, t.a) * w;
+        }
+    }
+    return mixed;
 }
 "#;
 
@@ -1184,9 +1232,21 @@ impl Contract {
             (Entry::Effect, Contract::Display) => &[FORMAT2_BASICS, DISPLAY_LIBRARY],
             _ => &[FORMAT2_BASICS, LINEAR_LIBRARY],
         };
-        [&[head, sampling, BASICS][..], library, &[VERTEX, fragment]]
-            .concat()
-            .concat()
+        let reading: &[&str] = match (entry, self) {
+            (Entry::Effect, Contract::Linear | Contract::Display | Contract::Log) => {
+                &[EFFECT_SAMPLE_PREMULTIPLIED]
+            }
+            _ => &[],
+        };
+        [
+            &[head, sampling][..],
+            reading,
+            &[BASICS],
+            library,
+            &[VERTEX, fragment],
+        ]
+        .concat()
+        .concat()
     }
 }
 

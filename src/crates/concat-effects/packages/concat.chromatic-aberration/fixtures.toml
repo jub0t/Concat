@@ -1,13 +1,36 @@
-[[case]]
-name = "default"
-chain = "rgbashift=rh=-4:bh=4"
+# A flat picture has no edge to fringe: what these pin is that the light past
+# white and the alpha come through as they went in, whichever way red and
+# blue are pulled. The fringes themselves are the card's to show.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "rgbashift=rh=-1:bh=1"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "rgbashift=rh=-24:bh=24"
+input = [4, 1, 0.05, 1]
+expect = [4, 1, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
