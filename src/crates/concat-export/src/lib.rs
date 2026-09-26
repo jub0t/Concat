@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_core::SpeedCurve;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
-use concat_core::frame::Frame;
+use concat_core::frame::{Frame, Signal};
 use concat_core::shader::{RevealMap, ShaderPass};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
@@ -42,7 +42,7 @@ use concat_media::audio::{self, AudioClip};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, RateMode, VideoCodec,
 };
-use concat_project::model::{AppliedFilter, Cutout};
+use concat_project::model::{AppliedFilter, ColorSpace, Cutout};
 use concat_render::{
     Compositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor, plan_frame,
 };
@@ -357,6 +357,11 @@ pub struct ExportRequest {
     /// https://github.com/jub0t/Concat/issues/103
     #[serde(default, deserialize_with = "range_by_name")]
     pub color_range: concat_media::ColorRange,
+    /// What the timeline is output in. SDR when a request does not say.
+    /// Until the HDR export lands an HDR timeline is written tone-mapped
+    /// to SDR, as the monitor shows it.
+    #[serde(default)]
+    pub color_space: ColorSpace,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -1279,6 +1284,7 @@ fn render_picture(
                 height: request.height,
                 layers,
                 treatments: Vec::new(),
+                output: output_of(request.color_space),
             },
             &treatments,
             &transitions,
@@ -1382,13 +1388,14 @@ fn composite_treated(
         return compositor.render(&plan);
     }
 
-    let (width, height) = (plan.width, plan.height);
+    let (width, height, output) = (plan.width, plan.height, plan.output);
     let stage = |layers: Vec<PlannedLayer>| FramePlan {
         time,
         width,
         height,
         layers,
         treatments: Vec::new(),
+        output,
     };
     let layers = std::mem::take(&mut plan.layers);
     let mut ground: Option<Frame> = None;
@@ -1449,6 +1456,7 @@ fn transition_stages(plan: &FramePlan, span: &TransitionSpan) -> (FramePlan, Fra
         height: plan.height,
         layers,
         treatments: Vec::new(),
+        output: plan.output,
     };
     let from = plan
         .layers
@@ -1483,13 +1491,14 @@ fn combine_transition(
 ) -> Option<Frame> {
     let pass =
         Catalogue::builtin().transition_pass(&span.id, &span.params, span.progress(plan.time))?;
-    let (width, height, time) = (plan.width, plan.height, plan.time);
+    let (width, height, time, output) = (plan.width, plan.height, plan.time, plan.output);
     let stage = |layers: Vec<PlannedLayer>| FramePlan {
         time,
         width,
         height,
         layers,
         treatments: Vec::new(),
+        output,
     };
     let (from_plan, to_plan) = transition_stages(plan, span);
     let from = compositor.render(&from_plan);
@@ -1528,6 +1537,18 @@ pub struct PreviewFrameRequest {
     pub rate_den: i64,
     /// The flattened clip list, exactly as an export would take it.
     pub clips: Vec<ExportClip>,
+    /// What the timeline is output in; SDR when a request does not say.
+    #[serde(default)]
+    pub color_space: ColorSpace,
+}
+
+/// The signal a timeline of `space` is drawn for (`FramePlan::output`).
+pub fn output_of(space: ColorSpace) -> Signal {
+    match space {
+        ColorSpace::Sdr => Signal::Sdr,
+        ColorSpace::Hlg => Signal::Hlg,
+        ColorSpace::Pq => Signal::Pq,
+    }
 }
 
 /// Composites the true frame at one instant, for the paused monitor.
@@ -1769,6 +1790,7 @@ pub fn preview_sources_of(
         height: plan.height,
         layers,
         treatments: Vec::new(),
+        output: plan.output,
     };
     // Every treatment that is shaders alone goes into the plan now, so a
     // caller drawing the plan itself has them; see
@@ -1806,6 +1828,8 @@ pub struct PreviewPlan {
     rate: FrameRate,
     width: u32,
     height: u32,
+    /// What the timeline is output in.
+    output: Signal,
 }
 
 /// Builds the plan for `clips` at one output size and rate. The costly
@@ -1818,6 +1842,7 @@ pub fn preview_plan(
     height: u32,
     rate_num: i64,
     rate_den: i64,
+    color_space: ColorSpace,
     gpu: bool,
 ) -> PreviewPlan {
     let rate = FrameRate::new(Rational::new(rate_num, rate_den));
@@ -1843,6 +1868,7 @@ pub fn preview_plan(
         rate_mode: RateMode::Vbr,
         bitrate_kbps: 0,
         color_range: concat_media::ColorRange::Limited,
+        color_space,
         clips: Vec::new(),
     };
     PreviewPlan {
@@ -1850,6 +1876,7 @@ pub fn preview_plan(
         rate,
         width,
         height,
+        output: output_of(color_space),
     }
 }
 
@@ -1861,6 +1888,7 @@ fn preview_timeline(request: &PreviewFrameRequest, gpu: bool) -> PreviewPlan {
         request.height,
         request.rate_num,
         request.rate_den,
+        request.color_space,
         gpu,
     )
 }
@@ -2055,6 +2083,7 @@ mod tests {
                 height: 8,
                 layers: vec![ground, top],
                 treatments: Vec::new(),
+                output: concat_core::frame::Signal::Sdr,
             }
         };
         let negate = Treatment {
@@ -2183,6 +2212,7 @@ mod tests {
                 rate_num: 30,
                 rate_den: 1,
                 clips: vec![first, second],
+                color_space: concat_project::model::ColorSpace::Sdr,
             };
             let bytes = preview_frame(&pool, &request).expect("previews");
             let (px, py) = ((f64::from(width) * x) as u32, height / 2);
@@ -2268,6 +2298,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
+            color_space: concat_project::model::ColorSpace::Sdr,
         };
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
         let bytes = preview_frame(&pool, &request).expect("previews");
@@ -2332,6 +2363,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![request_clip],
+            color_space: concat_project::model::ColorSpace::Sdr,
         };
 
         let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
@@ -2356,6 +2388,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![outliving],
+            color_space: concat_project::model::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &late).expect("previews past the media's end");
         assert!(
@@ -2379,6 +2412,7 @@ mod tests {
             rate_num: 30,
             rate_den: 1,
             clips: vec![effected],
+            color_space: concat_project::model::ColorSpace::Sdr,
         };
         let bytes = preview_frame(&pool, &filtered).expect("previews with a chain");
         assert!(

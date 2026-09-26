@@ -651,6 +651,7 @@ fn a_transition_kept_on_the_device_matches_the_read_back_one() {
             Arc::new(solid(width, height, colour)),
         )],
         treatments: Vec::new(),
+        output: concat_core::frame::Signal::Sdr,
     };
     let (from, to) = (plan([220, 30, 30, 255]), plan([30, 30, 220, 255]));
     let catalogue = concat_effects::Catalogue::builtin();
@@ -704,6 +705,7 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
             height: 36,
             layers: vec![PlannedLayer::picture(detached_clip(), Arc::clone(frame))],
             treatments: Vec::new(),
+            output: concat_core::frame::Signal::Sdr,
         };
         gpu.render_texture(&plan).expect("draws");
     };
@@ -732,6 +734,7 @@ fn the_pool_stays_within_its_limits() {
             height: 4,
             layers: vec![PlannedLayer::picture(detached_clip(), frame)],
             treatments: Vec::new(),
+            output: concat_core::frame::Signal::Sdr,
         };
         gpu.render_texture(&plan).expect("draws");
     }
@@ -896,6 +899,83 @@ fn an_hdr_frame_is_conformed_to_sdr_on_the_way_in() {
     assert!(
         pq_peak.iter().all(|channel| *channel >= 250),
         "PQ 1000 nits came out {pq_peak:?}"
+    );
+}
+
+/// `plan` drawn into the working space and read back as it stands there,
+/// before the resolve: light, 1.0 SDR white, nothing clipped.
+fn working(gpu: &mut WgpuCompositor, plan: &FramePlan) -> Vec<[f32; 4]> {
+    let (draws, vertices) = gpu.prepare(plan);
+    gpu.write_vertices(&vertices);
+    let (canvas, texture, view) = gpu.canvas(plan.width, plan.height);
+    let encoder = gpu.encode(&view, &texture, &draws, wgpu::Color::BLACK);
+    gpu.queue.submit([encoder.finish()]);
+    let out = read_floats(gpu, (plan.width, plan.height), canvas);
+    gpu.retire();
+    out
+}
+
+/// On an HDR timeline an HDR clip keeps its light above white: HLG's peak
+/// is 1000 nits, 4.93 times SDR white, and its reference white SDR white
+/// itself - where on an SDR timeline the peak is conformed down to white.
+/// The same frame drawn for both is two pictures, kept apart. For the SDR
+/// screen the resolve rolls the HDR timeline off with the maths the SDR
+/// timeline's upload uses, so a lone clip looks the same on either; an SDR
+/// clip's white goes a little under white there, leaving room above it.
+#[test]
+fn an_hdr_timeline_keeps_the_light_above_white() {
+    use concat_core::frame::Signal;
+    let Some(mut gpu) = gpu() else { return };
+    let peak = deep(4, 4, 1.0, Signal::Hlg);
+    let hdr = |layers| FramePlan {
+        output: Signal::Hlg,
+        ..plan(4, 4, layers)
+    };
+    let level = |pixels: Vec<[f32; 4]>| pixels[5];
+    let sdr_light = level(working(&mut gpu, &plan(4, 4, vec![layer(peak.clone())])));
+    assert!(
+        (sdr_light[1] - 1.0).abs() < 0.01,
+        "conformed: {sdr_light:?}"
+    );
+    let hdr_light = level(working(&mut gpu, &hdr(vec![layer(peak.clone())])));
+    assert!(
+        hdr_light[..3]
+            .iter()
+            .all(|channel| (channel - 1000.0 / 203.0).abs() < 0.05),
+        "kept: {hdr_light:?}"
+    );
+    let white = level(working(
+        &mut gpu,
+        &hdr(vec![layer(deep(4, 4, 0.75, Signal::Hlg))]),
+    ));
+    assert!(
+        (white[1] - 1.0).abs() < 0.01,
+        "HLG reference white: {white:?}"
+    );
+
+    let shown = |gpu: &mut WgpuCompositor, plan: &FramePlan| {
+        let out = gpu.render(plan);
+        let p = out.pixel(1, 1).expect("in the frame");
+        [p[0], p[1], p[2]]
+    };
+    for signal_level in [0.75, 1.0, 0.5] {
+        let frame = deep(4, 4, signal_level, Signal::Hlg);
+        let on_sdr = shown(&mut gpu, &plan(4, 4, vec![layer(frame.clone())]));
+        let on_hdr = shown(&mut gpu, &hdr(vec![layer(frame)]));
+        assert!(
+            on_sdr.iter().zip(on_hdr).all(|(a, b)| a.abs_diff(b) <= 1),
+            "HLG {signal_level}: {on_sdr:?} on SDR, {on_hdr:?} on HDR"
+        );
+    }
+    let sdr_white = shown(
+        &mut gpu,
+        &hdr(vec![layer(solid(4, 4, [255, 255, 255, 255]))]),
+    );
+    assert!(
+        sdr_white
+            .iter()
+            .all(|channel| (225..=240).contains(channel)),
+        "SDR white on an HDR timeline: {sdr_white:?}"
     );
 }
 

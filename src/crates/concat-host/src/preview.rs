@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use concat_export::ExportClip;
 use concat_project::DocumentSettings;
+use concat_project::model::ColorSpace;
 
 /// A frame request: the instant and the size, with the clips coming from
 /// the session that owns them.
@@ -36,6 +37,9 @@ pub struct FrameSpec {
     /// what reads a file's proxy where it has one, and tells the
     /// scheduler which way to decode ahead.
     pub moving: bool,
+    /// What the timeline is output in: an HDR one keeps its clips' light
+    /// above white and is rolled off for the SDR screen.
+    pub color_space: ColorSpace,
 }
 
 /// The reader pool behind the monitor, shareable across threads.
@@ -56,6 +60,7 @@ struct PlanEntry {
     width: u32,
     height: u32,
     rate: (i64, i64),
+    color_space: ColorSpace,
     gpu: bool,
     plan: Arc<concat_export::PreviewPlan>,
 }
@@ -227,6 +232,7 @@ impl Monitor {
             && entry.width == spec.width
             && entry.height == spec.height
             && entry.rate == rate
+            && entry.color_space == spec.color_space
             && entry.gpu == gpu
             && (Arc::ptr_eq(&entry.clips, &clips) || *entry.clips == *clips)
         {
@@ -238,6 +244,7 @@ impl Monitor {
             spec.height,
             rate.0,
             rate.1,
+            spec.color_space,
             gpu,
         ));
         *slot = Some(PlanEntry {
@@ -245,6 +252,7 @@ impl Monitor {
             width: spec.width,
             height: spec.height,
             rate,
+            color_space: spec.color_space,
             gpu,
             plan: Arc::clone(&plan),
         });

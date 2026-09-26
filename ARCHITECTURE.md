@@ -111,9 +111,12 @@ flowchart LR
   iPhone's HLG, HDR10's PQ - is decoded deep (`DecodeOptions::deep`: sixteen
   bits a channel, its own signal, no CPU tone map) wherever its frame goes
   straight to the GPU, and converted as it uploads (`DEEP_SHADER`): the
-  transfer undone, the primaries brought to Rec. 709's, and, while every
-  timeline is SDR, conformed to it by BT.2390's roll-off. A clip with an
-  FFmpeg chain or a cutout keeps the eight-bit tone map in the decoder.
+  transfer undone, the primaries brought to Rec. 709's, and, on an SDR
+  timeline, conformed to it by BT.2390's roll-off. On an HDR timeline it
+  keeps its light above white (`FramePlan::output`), and the resolve rolls
+  the whole frame off for an SDR screen instead, with the same maths. A clip
+  with an FFmpeg chain or a cutout keeps the eight-bit tone map in the
+  decoder.
   Effect packages written for
   gamma-encoded `0..1` see that through the prelude's `legacy_in` and
   `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects
