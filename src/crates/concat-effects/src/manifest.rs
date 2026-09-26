@@ -256,7 +256,10 @@ pub struct Ffmpeg {
 pub struct Wgsl {
     /// The shader file, beside the manifest.
     pub entry: String,
-    /// Render passes, in order. Empty means one pass to the output.
+    /// The passes drawn before `effect`, in order, each into a picture of
+    /// its own (see [`Pass`]); `effect` is always the last, drawing the
+    /// result. Empty - most packages - is `effect` alone. A format 2
+    /// setting.
     #[serde(default, rename = "pass")]
     pub passes: Vec<Pass>,
     /// What a format 2 shader works in; see [`Space`].
@@ -366,19 +369,33 @@ pub const XFADE_NAMES: &[&str] = &[
     "revealdown",
 ];
 
-/// One render pass of a WGSL package.
+/// One `[[wgsl.pass]]`: a pass drawn before `effect`, into a picture of its
+/// own that every pass after it reads.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Pass {
-    /// The texture the pass writes, readable by later passes. Absent for
-    /// the final pass, which writes the output.
+    /// The picture the pass draws, by name. The shader's
+    /// `fn <target>(uv: vec2<f32>) -> vec4<f32>` draws it, and the passes
+    /// after it read it through `<target>_at(uv)`.
+    pub target: String,
+    /// How many times smaller than the layer the picture is, across and
+    /// down: two expressions over the knobs, each rounded down to a power
+    /// of two from 1 to [`MAX_SHRINK`]. Absent is the layer's own size.
     #[serde(default)]
-    pub target: Option<String>,
-    /// The target's size as an expression over `WIDTH` and `HEIGHT`; absent
-    /// means the output size.
-    #[serde(default)]
-    pub size: Option<String>,
+    pub shrink: Option<[String; 2]>,
 }
+
+/// The most passes a package may draw before `effect`: each is a picture
+/// bound beside the layer, and a pass may bind sixteen.
+pub const MAX_PASSES: usize = 8;
+
+/// The most times smaller than the layer a pass's picture may be, across
+/// or down.
+pub const MAX_SHRINK: u32 = 64;
+
+/// Names a pass's picture may not have: the last pass's function, and the
+/// entry point that draws it.
+const TAKEN_TARGETS: &[&str] = &["effect", "main"];
 
 fn is_ident(text: &str) -> bool {
     let mut chars = text.chars();
@@ -552,6 +569,9 @@ impl Manifest {
                      is handed the gamma-encoded 0..1 picture already"
                 )));
             }
+            if let Some(wgsl) = &self.wgsl {
+                self.validate_passes(&wgsl.passes)?;
+            }
             // The picture is drawn on the GPU, in light, and nowhere else:
             // a chain would run on eight bits the shader never sees.
             if self.scene_linear() && self.effect.kind.is_visual() && self.ffmpeg.is_some() {
@@ -568,6 +588,44 @@ impl Manifest {
     /// rather than the gamma-encoded `0..1` a format 1 shader is given.
     pub fn scene_linear(&self) -> bool {
         self.format >= SCENE_LINEAR
+    }
+
+    /// The passes before `effect` name their pictures once each, with
+    /// names a shader can spell and the host has not taken, a few of them,
+    /// and only from format 2. What their functions read, and what their
+    /// shrinks say, is the shader's to check (`crate::shader`).
+    fn validate_passes(&self, passes: &[Pass]) -> Result<(), Error> {
+        if passes.is_empty() {
+            return Ok(());
+        }
+        if !self.scene_linear() {
+            return Err(self.invalid(format!("[[wgsl.pass]] is a format {SCENE_LINEAR} setting")));
+        }
+        if passes.len() > MAX_PASSES {
+            return Err(self.invalid(format!(
+                "{} passes before `effect`; a package may draw {MAX_PASSES}",
+                passes.len()
+            )));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for pass in passes {
+            let target = pass.target.as_str();
+            if !is_ident(target) || !target.starts_with(|c: char| c.is_ascii_lowercase()) {
+                return Err(self.invalid(format!(
+                    "pass target `{target}` must be a lower-case letter, then letters, digits \
+                     and underscores"
+                )));
+            }
+            if TAKEN_TARGETS.contains(&target) {
+                return Err(self.invalid(format!(
+                    "pass target `{target}` is taken: `effect` is the last pass"
+                )));
+            }
+            if !seen.insert(target) {
+                return Err(self.invalid(format!("pass target `{target}` is drawn twice")));
+            }
+        }
+        Ok(())
     }
 
     /// A `[card]` table sets only knobs the package has, within their
@@ -813,6 +871,51 @@ mod tests {
         rejects(&format!("format = 2\n{GOOD}"), "drop the [ffmpeg] table");
         let audio = GOOD.replace("kind = \"effect\"", "kind = \"audio\"");
         Manifest::parse(&format!("format = 2\n{audio}")).expect("audio keeps its chain");
+    }
+
+    /// Passes before `effect` are a format 2 setting; each names a picture
+    /// once, a name a shader can spell and the host has not taken, and a
+    /// package draws a few of them.
+    #[test]
+    fn passes_name_their_pictures_once_from_format_2() {
+        let shader = GOOD.replace(
+            "[ffmpeg]\n        chain = \"gblur=sigma={fixed(radius, 1)}\"",
+            "[wgsl]\n        entry = \"effect.wgsl\"",
+        );
+        let with = |passes: &str| format!("format = 2\n{shader}\n{passes}");
+        let pass = |target: &str| format!("[[wgsl.pass]]\ntarget = \"{target}\"\n");
+        let manifest = Manifest::parse(&with(&format!(
+            "{}shrink = [\"radius / 3\", \"1\"]\n{}",
+            pass("across"),
+            pass("down")
+        )))
+        .expect("parses");
+        let passes = manifest.wgsl.expect("a shader").passes;
+        assert_eq!(passes.len(), 2);
+        assert_eq!(
+            passes[0].shrink,
+            Some(["radius / 3".to_owned(), "1".to_owned()])
+        );
+        assert_eq!(passes[1].shrink, None);
+
+        rejects(
+            &format!("format = 1\n{shader}\n{}", pass("across")),
+            "format 2 setting",
+        );
+        for name in ["Across", "2x", "_x", "a-b", ""] {
+            rejects(&with(&pass(name)), "must be a lower-case letter");
+        }
+        for name in ["effect", "main"] {
+            rejects(&with(&pass(name)), "is taken");
+        }
+        rejects(&with(&format!("{}{}", pass("x"), pass("x"))), "drawn twice");
+        let many: String = (0..=MAX_PASSES).map(|n| pass(&format!("p{n}"))).collect();
+        rejects(&with(&many), "a package may draw 8");
+        rejects(&with(&format!("{}shrink = [\"2\"]\n", pass("x"))), "length");
+        rejects(
+            &with(&format!("{}size = \"WIDTH / 2\"\n", pass("x"))),
+            "unknown field",
+        );
     }
 
     #[test]

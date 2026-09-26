@@ -1051,3 +1051,307 @@ fn every_look_carries_a_highlight_past_white() {
     }
     assert!(clipped.is_empty(), "\n{}", clipped.join("\n"));
 }
+
+/// `pixels`, straight RGBA in the working space and row by row, written
+/// into a pooled texture `width` by `height` as half floats: a picture
+/// with the light past white and the alpha an eight-bit frame cannot hold.
+fn written(gpu: &mut WgpuCompositor, (width, height): (u32, u32), pixels: &[[f32; 4]]) -> usize {
+    let index = gpu.claim(width, height);
+    let texels: Vec<u8> = pixels
+        .iter()
+        .flatten()
+        .flat_map(|channel| half::f16::from_f32(*channel).to_le_bytes())
+        .collect();
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &gpu.pool[&(width, height)][index].texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &texels,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * WORK_BYTES as u32),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    index
+}
+
+/// The pooled texture at `index`, `width` by `height`, read back whole in
+/// the half floats it holds.
+fn read_floats(gpu: &WgpuCompositor, (width, height): (u32, u32), index: usize) -> Vec<[f32; 4]> {
+    let row = width as usize * WORK_BYTES as usize;
+    let padded = row.div_ceil(ROW_ALIGN) * ROW_ALIGN;
+    let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test float readback"),
+        size: (padded * height as usize) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = gpu
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        gpu.pool[&(width, height)][index].texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded as u32),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    gpu.queue.submit([encoder.finish()]);
+    let slice = buffer.slice(..);
+    slice.map_async(wgpu::MapMode::Read, |_| {});
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("the device answers");
+    let data = slice.get_mapped_range().expect("mapped");
+    (0..height as usize)
+        .flat_map(|y| data[y * padded..y * padded + row].chunks_exact(8))
+        .map(|texel| {
+            let channel = |at: usize| half::f16::from_le_bytes([texel[at], texel[at + 1]]).to_f32();
+            [channel(0), channel(2), channel(4), channel(6)]
+        })
+        .collect()
+}
+
+/// `passes` over `picture`, `size` pixels, as a layer's effects run: the
+/// last picture drawn, read back in floats.
+fn treated(
+    gpu: &mut WgpuCompositor,
+    size: (u32, u32),
+    picture: &[[f32; 4]],
+    passes: &[ShaderPass],
+) -> Vec<[f32; 4]> {
+    gpu.used.values_mut().for_each(|used| *used = 0);
+    gpu.composites += 1;
+    let source = written(gpu, size, picture);
+    let drawn = gpu.run_passes(size.0, size.1, source, passes, 0.0, 0.0);
+    let out = read_floats(gpu, size, drawn);
+    gpu.retire();
+    out
+}
+
+/// A pass of a format 2 package drawn in several passes: `body` as its
+/// shader, `passes` its `[[wgsl.pass]]` tables, `params` its knobs, at
+/// `intensity`.
+fn in_passes(body: &str, passes: &str, params: &str, intensity: f32) -> ShaderPass {
+    let manifest = concat_effects::Manifest::parse(&format!(
+        "format = 2\n[effect]\nid = \"test.passes\"\nname = \"Test\"\nkind = \"effect\"\n{params}\n[wgsl]\nentry = \"effect.wgsl\"\n{passes}"
+    ))
+    .expect("a manifest");
+    let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
+    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+}
+
+/// The picture `picture`, `size` pixels, blurred by a Gaussian of `sigma`
+/// pixels summed directly over both axes at `(x, y)`, out to five sigmas,
+/// the edge clamped as the GPU's sampler clamps it: premultiplied colour,
+/// then alpha, in doubles.
+fn gaussian_at(
+    picture: &[[f32; 4]],
+    (width, height): (u32, u32),
+    (x, y): (i64, i64),
+    sigma: f64,
+) -> [f64; 4] {
+    let reach = (5.0 * sigma).ceil() as i64;
+    let (mut sum, mut total) = ([0.0f64; 4], 0.0f64);
+    for dy in -reach..=reach {
+        let row = (y + dy).clamp(0, i64::from(height) - 1);
+        for dx in -reach..=reach {
+            let column = (x + dx).clamp(0, i64::from(width) - 1);
+            let weight = (-((dx * dx + dy * dy) as f64) / (2.0 * sigma * sigma)).exp();
+            let [r, g, b, a] = picture[(row * i64::from(width) + column) as usize].map(f64::from);
+            for (into, value) in sum.iter_mut().zip([r * a, g * a, b * a, a]) {
+                *into += weight * value;
+            }
+            total += weight;
+        }
+    }
+    sum.map(|value| value / total)
+}
+
+/// The Gaussian blur - across and then down, at a power of two fewer
+/// pixels where its radius is wide, and read back over the layer - is the
+/// 2-D Gaussian summed directly, at every radius from its least to its
+/// most: over a picture with a gradient, a checkerboard, dots of light six
+/// times white, a hard edge past white, a half-transparent strip, and a
+/// transparent band whose colour must not bleed into anything.
+#[test]
+fn the_gaussian_blur_is_a_direct_gaussian() {
+    const PEAK: f64 = 6.0;
+    let Some(mut gpu) = gpu() else { return };
+    let blur = concat_effects::Catalogue::builtin()
+        .get("concat.gaussian-blur")
+        .expect("a built-in");
+    let size = (192, 108);
+    let picture: Vec<[f32; 4]> = (0..size.1)
+        .flat_map(|y| (0..size.0).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let checker = if (x / 6 + y / 6) % 2 == 0 { 0.1 } else { 0.6 };
+            let mut rgb = [
+                0.02 + 0.9 * x as f32 / size.0 as f32,
+                checker,
+                0.05 + 0.5 * y as f32 / size.1 as f32,
+            ];
+            if x >= 150 {
+                rgb = [1.5, 0.05, 0.05];
+            }
+            if x % 40 / 2 == 10 && y % 30 / 2 == 7 {
+                rgb = [PEAK as f32; 3];
+            }
+            match y {
+                80..90 => [5.0, 5.0, 5.0, 0.0],
+                _ if x < 20 => [rgb[0], rgb[1], rgb[2], 0.5],
+                _ => [rgb[0], rgb[1], rgb[2], 1.0],
+            }
+        })
+        .collect();
+    // Below a radius of six the last pass blurs down `across` itself, and
+    // `down` is a sliver nothing reads.
+    for (radius, across, down) in [
+        (1.0, 1, 64),
+        (4.0, 1, 64),
+        (10.0, 2, 2),
+        (24.0, 8, 8),
+        (50.0, 16, 16),
+    ] {
+        let pass = blur
+            .pass(&BTreeMap::from([("radius".to_owned(), radius)]), None)
+            .expect("a shader");
+        assert_eq!(
+            pass.stages
+                .iter()
+                .map(|stage| stage.shrink)
+                .collect::<Vec<_>>(),
+            [[across, 1], [down, down]],
+            "radius {radius}"
+        );
+        let got = treated(&mut gpu, size, &picture, &[pass]);
+        // Every pixel where the sum is quick, a grid of them - the edges
+        // among them - where it is not.
+        let stride = (radius / 4.0).max(1.0) as usize;
+        let along = |length: u32| {
+            (0..length as i64)
+                .step_by(stride)
+                .chain([i64::from(length) - 1])
+                .collect::<Vec<_>>()
+        };
+        let (mut worst, mut at, mut squares, mut count) = (0.0f64, (0, 0), 0.0f64, 0);
+        for &y in &along(size.1) {
+            for &x in &along(size.0) {
+                let want = gaussian_at(&picture, size, (x, y), radius);
+                let [r, g, b, a] = got[(y * i64::from(size.0) + x) as usize].map(f64::from);
+                for (got, want) in [r * a, g * a, b * a, a].into_iter().zip(want) {
+                    let error = (got - want).abs();
+                    squares += error * error;
+                    count += 1;
+                    if error > worst {
+                        (worst, at) = (error, (x, y));
+                    }
+                }
+            }
+        }
+        let rms = (squares / f64::from(count)).sqrt();
+        eprintln!("radius {radius}: worst {worst:.5} at {at:?}, rms {rms:.6}");
+        // Half floats, the fetch between two pixels, and the sum cut at
+        // three sigmas each leave a trace; together they come to a quarter
+        // of a percent of the brightest light at worst.
+        assert!(
+            worst < 0.0025 * PEAK,
+            "radius {radius}: {worst} off at {at:?}"
+        );
+        assert!(rms < 0.0005 * PEAK, "radius {radius}: rms {rms}");
+    }
+}
+
+/// A pass's picture is the layer's size divided by its shrink, rounded
+/// up, and a later pass measures it through `<target>_texel`.
+#[test]
+fn a_pass_draws_its_picture_at_its_shrunk_size() {
+    let Some(mut gpu) = gpu() else { return };
+    let pass = in_passes(
+        "fn small(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+         fn effect(uv: vec2<f32>) -> vec4<f32> { let seen = small_at(uv); return vec4<f32>(1.0 / small_texel(), seen.b, 1.0); }",
+        "[[wgsl.pass]]\ntarget = \"small\"\nshrink = [\"4\", \"2\"]\n",
+        "",
+        1.0,
+    );
+    for (side, want) in [(8, [2.0, 4.0]), (10, [3.0, 5.0])] {
+        let got = gpu
+            .probe(std::slice::from_ref(&pass), [0.1, 0.2, 0.3, 1.0], side, 0.0)
+            .expect("reads back");
+        assert!(
+            near(got, [want[0], want[1], 0.3, 1.0], 0.004),
+            "{side}: {got:?}"
+        );
+    }
+}
+
+/// A pass's picture holds what its function returned - past white and
+/// below zero, nothing clipped or mixed - and only the last pass mixes
+/// by intensity: a quarter of the way from 0.2 to the picture, once.
+#[test]
+fn only_the_last_pass_mixes_by_intensity() {
+    let Some(mut gpu) = gpu() else { return };
+    let at = |intensity: f32| {
+        in_passes(
+            "fn light(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(6.0, -0.5, 1.0, 1.0); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return light_at(uv); }",
+            "[[wgsl.pass]]\ntarget = \"light\"\nshrink = [\"2\", \"2\"]\n",
+            "",
+            intensity,
+        )
+    };
+    let whole = gpu
+        .probe(&[at(1.0)], [0.2, 0.2, 0.2, 1.0], 8, 0.0)
+        .expect("reads back");
+    assert!(near(whole, [6.0, -0.5, 1.0, 1.0], 0.004), "{whole:?}");
+    let quarter = gpu
+        .probe(&[at(0.25)], [0.2, 0.2, 0.2, 1.0], 8, 0.0)
+        .expect("reads back");
+    assert!(near(quarter, [1.65, 0.025, 0.4, 1.0], 0.004), "{quarter:?}");
+}
+
+/// A stack of packages drawn in passes hands its pictures from one package
+/// to the next: five blurs claim no more textures than two, and draw a
+/// flat picture as it was.
+#[test]
+fn a_stack_of_blurs_shares_its_pictures() {
+    let Some(mut gpu) = gpu() else { return };
+    let blur = concat_effects::Catalogue::builtin()
+        .get("concat.gaussian-blur")
+        .expect("a built-in")
+        .trial_pass()
+        .expect("a shader");
+    let colour = [0.3, 2.0, 0.05, 1.0];
+    let two = gpu
+        .probe(&vec![blur.clone(); 2], colour, 64, 0.0)
+        .expect("reads back");
+    let after_two = gpu.pool_textures;
+    let five = gpu
+        .probe(&vec![blur; 5], colour, 64, 0.0)
+        .expect("reads back");
+    assert_eq!(gpu.pool_textures, after_two, "five blurs claimed more");
+    for got in [two, five] {
+        assert!(near(got, colour, 0.004), "{got:?}");
+    }
+    // At the default radius, ten: across at half the width, then down at
+    // half of both.
+    assert!(gpu.pool.contains_key(&(32, 64)) && gpu.pool.contains_key(&(32, 32)));
+}

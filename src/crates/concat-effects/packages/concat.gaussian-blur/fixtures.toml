@@ -1,13 +1,37 @@
-[[case]]
-name = "default"
-chain = "gblur=sigma=10.0"
+# A flat picture blurs to itself at any radius, through every pass: what
+# these pin is that the light past white and the alpha come out as they went
+# in, at every size the passes' pictures take. How the blur spreads a
+# picture is held to a direct 2-D Gaussian in concat-render's suite.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.05, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]
+
+[[probe]]
+name = "minimum, a highlight past white"
 at = "min"
-chain = "gblur=sigma=1.0"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.05, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a highlight past white"
 at = "max"
-chain = "gblur=sigma=50.0"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.05, 1]
+
+[[probe]]
+name = "maximum, half transparent"
+at = "max"
+input = [0.5, 0.2, 0.1, 0.5]
+expect = [0.5, 0.2, 0.1, 0.5]

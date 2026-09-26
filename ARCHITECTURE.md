@@ -148,7 +148,7 @@ and for the CPU path's history.
 flowchart TD
     pkg["package folder<br/>effect.toml + effect.wgsl"]
     cat["Catalogue<br/>(concat-effects::catalogue)<br/>parsed, validated, kept"]
-    pass["ShaderPass<br/>package id, compiled source,<br/>params bytes laid out to the struct,<br/>values by key, intensity, LUT"]
+    pass["ShaderPass<br/>package id, compiled source,<br/>params bytes laid out to the struct,<br/>values by key, intensity, LUT,<br/>stages before the last"]
     gpu["GPU: the shader runs<br/>params as a uniform buffer"]
     cpu["CPU: kernels.rs<br/>a kernel per known package,<br/>else untreated, said once"]
 
@@ -169,6 +169,19 @@ GPU over a 512-pixel picture against a three-second timeout
 (`Catalogue::install_with`, `WgpuCompositor::trial_at`) and leaves out one
 that fails; a pipeline the driver refuses at draw time is caught in an
 error scope and the pass skipped, never an uncaptured error.
+
+A format 2 package may draw in several passes. Each `[[wgsl.pass]]` names a
+picture, `fn <target>(uv)` draws it, and every pass after it - `effect`, the
+last, among them - reads it through `<target>_at(uv)` and measures it with
+`<target>_texel()`; the pictures are bound in group 0 after the layer, and a
+pass that reads a picture not drawn before it is refused at load. A
+picture's `shrink` is two expressions over the knobs, rounded down to a
+power of two up to 64, so a blur is drawn across and down at a fraction of
+the layer's pixels (`concat.gaussian-blur`, `concat.glow`). The pass carries
+its stages (`concat_core::Stage`); `WgpuCompositor::run_stages` draws them
+in one submission into pictures claimed from the pool and handed on from
+one package to the next of a layer's stack, and only the last pass mixes by
+intensity.
 
 ## 4. Decoding, caching and scheduling
 
@@ -367,9 +380,8 @@ time to present a token.
   fast path at its per-frame step (`concat-host/src/enhance.rs`, the
   `enhancer.enhance` call), never as a second feature. Frame interpolation
   does not fit that step: it changes the frame count and the encoder's rate.
-- A package's `[[wgsl.pass]]` list (`target`, `size` over `WIDTH` and
-  `HEIGHT`; `concat-effects/src/manifest.rs`) is parsed and never read:
-  `run_passes` (`concat-render/src/gpu.rs`) runs one pass per applied effect
-  at the source's size, with no named intermediates. Wiring it up is what a
-  GPU upscaler package (FSR 1.0, Anime4K, both MIT with WGSL ports) needs to
-  write a larger picture than it reads.
+- A package's passes draw pictures at most the layer's size
+  (`[[wgsl.pass]]` `shrink`), and the last draws the layer's size: a GPU
+  upscaler package (FSR 1.0, Anime4K, both MIT with WGSL ports) needs a
+  pass that writes a larger picture than it reads, and a layer whose size
+  can change on its way through its effects.

@@ -1,13 +1,42 @@
-[[case]]
-name = "default"
-chain = "split[blma0][blmb0];[blmb0]gblur=sigma=14[blmg0];[blma0][blmg0]blend=all_mode=screen:all_opacity=0.500"
+# A flat picture blooms by its own highlights: nothing below the knee (a
+# display level of 0.55), a share of the level above it, screened over the
+# picture by the amount and the pulse - 0.6 at the timeline's start - and a
+# level past white stays where it was.
 
-[[case]]
-name = "min"
+[[probe]]
+name = "default, a grey below the knee"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a bright grey"
+input = [0.8, 0.8, 0.8, 1]
+expect = [0.84673, 0.84673, 0.84673, 1]
+
+[[probe]]
+name = "default, a warm white"
+input = [1.0, 0.6, 0.2, 1]
+expect = [1.0, 0.65718, 0.2506, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.079617, 1]
+
+[[probe]]
+name = "minimum, no bloom at all"
 at = "min"
-chain = "split[blma0][blmb0];[blmb0]gblur=sigma=14[blmg0];[blma0][blmg0]blend=all_mode=screen:all_opacity=0.000"
+input = [1.0, 0.6, 0.2, 1]
+expect = [1.0, 0.6, 0.2, 1]
 
-[[case]]
-name = "max"
+[[probe]]
+name = "maximum, a bright grey"
 at = "max"
-chain = "split[blma0][blmb0];[blmb0]gblur=sigma=14[blmg0];[blma0][blmg0]blend=all_mode=screen:all_opacity=1.000"
+input = [0.8, 0.8, 0.8, 1]
+expect = [0.89501, 0.89501, 0.89501, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.11753, 1]

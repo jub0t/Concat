@@ -196,6 +196,13 @@ fn fingerprint(drawing: &Drawing, moment: f64) -> u64 {
         feed(&pass.params);
         feed(&pass.intensity.to_le_bytes());
         feed(&pass.lut.as_ref().map_or(0, |lut| lut.id).to_le_bytes());
+        // A package drawn in several passes: the size of each picture is
+        // the manifest's, not the shader's, so it is fed on its own.
+        for stage in &pass.stages {
+            feed(stage.entry.as_bytes());
+            feed(&stage.shrink[0].to_le_bytes());
+            feed(&stage.shrink[1].to_le_bytes());
+        }
     };
     match drawing {
         Drawing::Picture {
@@ -546,6 +553,22 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(&*dir.join("a.gain-").to_string_lossy())
         );
+
+        // A package drawn in passes: the same shader with its picture drawn
+        // at another size is another card.
+        let in_passes = |shrink: &str| {
+            let manifest = format!(
+                "{}[[wgsl.pass]]\ntarget = \"half\"\nshrink = [\"{shrink}\", \"{shrink}\"]\n",
+                manifest(2.0)
+            );
+            let body = "struct Params { gain: f32 }\n\
+                fn half(uv: vec2<f32>) -> vec4<f32> { return sample(uv) * params.gain; }\n\
+                fn effect(uv: vec2<f32>) -> vec4<f32> { return half_at(uv); }";
+            let package = Package::from_sources(&manifest, None, Some(body)).expect("loads");
+            Card::of(catalogue, &package, dir).expect("a card").path
+        };
+        assert_eq!(in_passes("2"), in_passes("2"));
+        assert_ne!(in_passes("2"), in_passes("4"), "another size of picture");
     }
 
     /// Pruning sweeps away a card no package draws any more and leaves the
