@@ -910,6 +910,18 @@ export component Lanes inherits Rectangle {
     in property <float> seconds-per-pixel: 0.05;
     in property <length> track-scroll;
     in property <length> ruler-height: 28px;
+    /// How close to a clip's edge counts as taking hold of it. A pointer
+    /// finds six pixels; a finger wants more.
+    in property <length> edge-grab: 6px;
+    /// The lanes are driven by a finger: a phone. The floor and the ruler
+    /// are then one surface for one gesture - a drag along the cut scrubs,
+    /// the lanes sliding under a playhead Rust holds at their middle, and a
+    /// drag down the stack scrolls it - and a tap on an empty lane clears
+    /// the selection, as an empty band does. No band is drawn: there is no
+    /// modifier to add with and no pointer to aim a marquee by. Off, the
+    /// floor draws a band and the ruler scrubs where it is pressed, as on
+    /// a desk.
+    in property <bool> finger: false;
 
     callback scrubbed(seconds: float);
     /// A ruler diamond dragged from one instant to another.
@@ -1001,6 +1013,48 @@ export component Lanes inherits Rectangle {
     pure function at(seconds: float) -> length {
         return (seconds - root.scroll-left) * root.px-per-second;
     }
+    // ── a finger on the lanes ─────────────────────────────────────────
+    //
+    // Which way a press went is decided once it has travelled far enough to
+    // say, and then held: a drag that wanders a little does not change jobs
+    // halfway. 0 is undecided - a tap, if it lets go like that - 1 is along
+    // the cut, 2 is down the stack.
+    property <int> finger-axis;
+    /// The playhead when the finger landed: what the drag is measured from,
+    /// so a view that has moved since does not double the distance.
+    property <float> finger-playhead;
+    property <length> finger-x;
+    property <length> finger-y;
+    property <length> finger-last-y;
+
+    function finger-down(x: length, y: length) {
+        root.finger-axis = 0;
+        root.finger-playhead = root.playhead;
+        root.finger-x = x;
+        root.finger-y = y;
+        root.finger-last-y = y;
+    }
+    /// The finger is at (`x`, `y`) now. `down-too` allows the vertical
+    /// job: the floor scrolls the stack, the ruler does not.
+    function finger-moved(x: length, y: length, down-too: bool) {
+        if (root.finger-axis == 0) {
+            if (Math.abs(x - root.finger-x) > 6px) {
+                root.finger-axis = 1;
+            } else if (down-too && Math.abs(y - root.finger-y) > 6px) {
+                root.finger-axis = 2;
+            }
+        }
+        if (root.finger-axis == 1) {
+            // The cut follows the finger: dragging it right brings earlier
+            // material under the playhead.
+            root.scrubbed(Math.max(0,
+                root.finger-playhead - (x - root.finger-x) / root.px-per-second));
+        } else if (root.finger-axis == 2) {
+            root.track-scrolled(root.finger-last-y - y);
+            root.finger-last-y = y;
+        }
+    }
+
     // ── scrolling at the edge ─────────────────────────────────────────
     // A scrub or a clip drag that reaches the lanes' edge scrolls the view
     // that way, a dozen pixels a tick, and re-reports the pointer so the
@@ -1138,7 +1192,10 @@ export component Lanes inherits Rectangle {
             width: 1px;
             height: root.lanes-h;
             background: Theme.grid;
-            visible: root.tick > 0 && self.x >= 0px && self.x < parent.width;
+            // Nothing before the start of the cut: a centred view begins
+            // half a screen before it, and that half is empty ground.
+            visible: root.tick > 0 && self.seconds >= 0
+                && self.x >= 0px && self.x < parent.width;
         }
 
         // Declared before the clips, so each clip takes its own press and what
@@ -1164,7 +1221,11 @@ export component Lanes inherits Rectangle {
                     self.from-y = self.mouse-y;
                     self.to-x = self.mouse-x;
                     self.to-y = self.mouse-y;
-                    self.drawing = true;
+                    if (root.finger) {
+                        root.finger-down(self.mouse-x, self.mouse-y);
+                    } else {
+                        self.drawing = true;
+                    }
                 } else if (event.kind == PointerEventKind.up
                     || event.kind == PointerEventKind.cancel) {
                     if (self.drawing) {
@@ -1175,6 +1236,15 @@ export component Lanes inherits Rectangle {
                             root.stack-y(Math.min(self.from-y, self.to-y)),
                             root.stack-y(Math.max(self.from-y, self.to-y)),
                             self.additive);
+                    } else if (root.finger && root.finger-axis == 0
+                        && event.kind == PointerEventKind.up) {
+                        // A tap on an empty lane: the empty band a press
+                        // that never moved would have closed, which is
+                        // what clears the selection.
+                        root.band-selected(
+                            root.seconds-at(self.from-x), root.seconds-at(self.from-x),
+                            root.stack-y(self.from-y), root.stack-y(self.from-y),
+                            false);
                     }
                 }
             }
@@ -1182,6 +1252,9 @@ export component Lanes inherits Rectangle {
             moved => {
                 self.to-x = self.mouse-x;
                 self.to-y = self.mouse-y;
+                if (root.finger && self.pressed) {
+                    root.finger-moved(self.mouse-x, self.mouse-y, true);
+                }
             }
 
             changed mouse-x => {
@@ -1207,6 +1280,7 @@ export component Lanes inherits Rectangle {
             px-per-second: root.px-per-second;
             viewport-width: parent.width;
             tool: root.tool;
+            edge-grab: root.edge-grab;
             // Read back through the lane the clip sits on rather than carried
             // on the clip: locking is a property of the lane, and copying it
             // onto every clip would be one more thing to keep in step.
@@ -1365,7 +1439,8 @@ export component Lanes inherits Rectangle {
                 width: 64px;
                 height: root.ruler-height;
                 background: Colors.transparent;
-                visible: root.tick > 0 && self.x < parent.width;
+                // And none before the cut starts; see the grid.
+                visible: root.tick > 0 && self.seconds >= 0 && self.x < parent.width;
 
                 Rectangle {
                     x: 0;
@@ -1408,6 +1483,17 @@ export component Lanes inherits Rectangle {
                     if (!self.has-hover) { root.hover-off(); }
                 }
                 pointer-event(event) => {
+                    if (root.finger) {
+                        // The ruler slides with the lanes under a finger;
+                        // a tap on it goes to the instant tapped.
+                        if (event.kind == PointerEventKind.down) {
+                            root.finger-down(self.mouse-x, self.mouse-y);
+                        } else if (event.kind == PointerEventKind.up
+                            && root.finger-axis == 0) {
+                            root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));
+                        }
+                        return;
+                    }
                     if (event.kind == PointerEventKind.down) {
                         root.scrubbing = true;
                         root.pointer-x = self.mouse-x;
@@ -1417,6 +1503,12 @@ export component Lanes inherits Rectangle {
                     }
                 }
                 moved => {
+                    if (root.finger) {
+                        if (self.pressed) {
+                            root.finger-moved(self.mouse-x, self.mouse-y, false);
+                        }
+                        return;
+                    }
                     if (self.pressed) {
                         root.pointer-x = self.mouse-x;
                         root.scrubbed(Math.max(0, root.seconds-at(self.mouse-x)));

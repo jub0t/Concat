@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+
+// The phone shell's own controls.
+//
+// Everything here is sized for a finger. Forty-four pixels is the smallest
+// target a thumb lands on reliably, so no button below is smaller, and
+// nothing answers a hover: a finger has none, and a control that lights
+// under a pointer lights under a finger only for as long as it presses.
+// The panes' controls - the inspector's fields, the library's cards - are
+// used as they are, inside a sheet that scrolls under a finger; these are
+// the shell round them.
+
+/// A round button: the top bar's, and the transport's.
+export component RoundButton inherits Rectangle {
+    in property <Glyph> glyph;
+    /// The accessible name.
+    in property <string> label;
+    in property <bool> enabled: true;
+    /// Filled with the accent: the one control on its row worth reaching
+    /// for blind, which is Play.
+    in property <bool> accent;
+    in property <length> size: 44px;
+    in property <length> icon-size: 18px;
+
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.size / 2;
+    opacity: root.enabled ? 1.0 : 0.35;
+    background: root.accent
+        ? (touch.pressed ? Theme.accent-hover : Theme.accent)
+        : touch.pressed ? Theme.field-active
+        : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: root.icon-size;
+        tint: root.accent ? Theme.on-accent : Theme.fg;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// One verb on the bar along the foot of the screen: a mark over its word,
+/// the way every phone editor lays its tools out, because a word alone is
+/// a menu and a mark alone is a guess.
+export component ToolItem inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <string> label;
+    in property <bool> enabled: true;
+    /// Lit: the sheet this opens is the one up.
+    in property <bool> current;
+
+    callback clicked();
+
+    width: 68px;
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.35;
+    background: touch.pressed ? Theme.field-active : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 5px;
+        padding-left: 4px;
+        padding-right: 4px;
+
+        HorizontalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 22px;
+                tint: root.current ? Theme.accent : Theme.fg;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: root.current ? Theme.accent : Theme.fg-muted;
+            font-size: Theme.fs-sm;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// A row of ToolItems that slides sideways under a finger when there are
+/// more of them than the screen is wide - which, with the clip's verbs,
+/// there are.
+export component ToolStrip inherits Flickable {
+    content-width: row.width;
+    content-height: self.height;
+
+    row := HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: Math.max(root.width, self.preferred-width);
+        height: root.height;
+        alignment: start;
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 2px;
+
+        @children
+    }
+}
+
+/// A column that scrolls under a finger.
+///
+/// A Flickable, unlike the panes' wheel scroller: it takes a drag off its
+/// children once the drag has travelled far enough to be one, which is the
+/// only way a finger scrolls a column that is mostly controls. It takes
+/// only the axis it can move on, so a slider dragged sideways keeps its
+/// drag and a column dragged up and down scrolls.
+export component PhoneScroll inherits Flickable {
+    content-width: self.width;
+    content-height: column.height;
+
+    column := VerticalLayout {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: Math.max(root.height, self.preferred-height);
+        alignment: start;
+
+        @children
+    }
+}

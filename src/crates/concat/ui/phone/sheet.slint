@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { PhoneScroll } from "controls.slint";
+
+// The sheet: where the phone shows a panel.
+//
+// A desk has room for the library, the inspector and the timeline at once.
+// A phone held upright has room for the picture and the lanes, and every
+// panel is a sheet that rises from the foot of the screen over the lanes
+// and the bar, leaving the monitor in view - so a knob turned in the sheet
+// is seen in the picture above it. One sheet at a time; the tick in its
+// corner closes it, and so does a tap on what is left of the screen above.
+//
+// The panels inside are the panes' own - the inspector's pages, the
+// library's shelves, the bin's cards - on a column that scrolls under a
+// finger. See ui/phone/editor.slint for what goes in one.
+export component PhoneSheet inherits Rectangle {
+    in property <bool> open;
+    in property <string> title;
+    /// How much of the screen the sheet takes: enough for a panel, with
+    /// the monitor still in view above it.
+    in property <length> sheet-height: root.height * 0.6;
+
+    callback closed();
+
+    visible: root.open;
+    background: transparent;
+
+    // What is left above the sheet. A tap there is a dismissal; declared
+    // first, so the surface takes its own presses.
+    TouchArea {
+        clicked => { root.closed(); }
+    }
+
+    surface := Rectangle {
+        x: 0;
+        y: root.height - self.height;
+        width: root.width;
+        height: root.sheet-height;
+        background: Theme.panel;
+        border-top-left-radius: Theme.r-xl;
+        border-top-right-radius: Theme.r-xl;
+        border-width: 1px;
+        border-color: Theme.line-strong;
+        clip: true;
+
+        // Swallows presses that land on the sheet, so they do not reach the
+        // dismissal underneath.
+        TouchArea { }
+
+        VerticalLayout {
+            // ── the header ────────────────────────────────────────────────
+            Rectangle {
+                height: 50px;
+
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 1px;
+                    width: parent.width;
+                    height: 1px;
+                    background: Theme.line;
+                }
+
+                // The grab bar every phone sheet wears at its top edge. It
+                // says "this slides"; the tap above it is what slides it.
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: 6px;
+                    width: 36px;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: Theme.line-strong;
+                }
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 6px;
+                    padding-top: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.title;
+                        color: Theme.fg;
+                        font-size: Theme.fs-xl;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 44px;
+                            height: 40px;
+                            border-radius: Theme.r;
+                            background: done.pressed ? Theme.field-active : Colors.transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.check;
+                                size: 18px;
+                                weight: 2.2;
+                                tint: Theme.accent;
+                            }
+
+                            done := TouchArea {
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── the body ──────────────────────────────────────────────────
+            PhoneScroll {
+                vertical-stretch: 1;
+                @children
+            }
+        }
+    }
+}

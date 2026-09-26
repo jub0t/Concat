@@ -1,0 +1,1150 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { Editor } from "../editor.slint";
+import { Lanes } from "../timeline/lanes.slint";
+import { ClipKind } from "../timeline/model.slint";
+import { PreviewPane } from "../workspace/preview-pane.slint";
+import { ContextMenu } from "../primitives/context-menu.slint";
+import {
+    CategoryPillBar, MediaCard, MediaItemData, PresetGrid, ShelfGrid, ShelfSearch,
+} from "../workspace/media-pane.slint";
+import {
+    AdjustPanel, AudioPanel, FilterPanel, Library, PresetStack, ProcessorRows, SpeedPanel,
+    VideoPanel,
+} from "../inspector/clip-inspector.slint";
+import { TextPanel } from "../inspector/text-panel.slint";
+import { RoundButton, ToolItem, ToolStrip } from "controls.slint";
+import { PhoneSheet } from "sheet.slint";
+
+// The editor as a phone shows it: one screen, held upright, driven by a
+// finger. Shown in place of the title strip and the dock wherever the
+// window is a phone's - see `App.phone` and `platform::phone` - and never
+// beside them: the desk's layout is the desk's, and this one is not a
+// squeezed copy of it but the shape every phone editor has arrived at,
+// because a thumb and a portrait screen leave no other.
+//
+// Top to bottom:
+//
+//   - a bar with the way out, the project's name, Settings and Export;
+//   - the monitor, which takes whatever height the rest leaves;
+//   - the transport: where the playhead is, Play, undo and redo;
+//   - the lanes, with the playhead held at their middle and the cut
+//     sliding under it - a drag scrubs, a tap on a clip selects it, a
+//     tap on empty lane lets go, a clip dragged moves (see `finger` in
+//     lanes.slint, and `centred` in the timeline pane on the Rust side);
+//   - the bar of tools. With nothing selected it is the library's pages
+//     and the project's verbs; with a clip selected it is the clip's
+//     verbs, with a way back at its head.
+//
+// Every tool that has more to say than a press opens a sheet over the
+// lanes and the bar (sheet.slint) holding the same panel the desk shows
+// for it - the inspector's page, the library's shelf - so the phone and
+// the desk edit through one set of controls and one set of callbacks.
+// Everything read and everything reported goes through the Editor global,
+// the way the seats do it; there is no phone-only state on the Rust side
+// beyond the two facts named above.
+
+/// A grid of the bin's cards for a finger: a tap on a card puts the file
+/// on the timeline at the playhead, which on a phone is the whole of what
+/// the bin is for - there is nowhere to drag a card to.
+component PhoneMediaGrid inherits Rectangle {
+    in property <[MediaItemData]> items;
+
+    callback picked(id: int);
+
+    property <length> gap: 8px;
+    property <length> min-card: 100px;
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.card-w * 9 / 16 + 4px + 14px;
+    property <int> rows: Math.ceil(root.items.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.items: MediaCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        item: entry;
+        removable: false;
+
+        clicked(additive) => { root.picked(entry.id); }
+        activated => { root.picked(entry.id); }
+    }
+}
+
+/// A worded button the width of its sheet: Import, Add a title, Modify.
+component SheetButton inherits Rectangle {
+    in property <string> label;
+    in property <Glyph> glyph;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+
+    callback clicked();
+
+    height: 44px;
+    border-radius: Theme.r;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: root.primary
+        ? (touch.pressed ? Theme.accent-hover : Theme.accent)
+        : (touch.pressed ? Theme.field-active : Theme.field);
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        padding-left: 16px;
+        padding-right: 16px;
+
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: root.glyph;
+                size: 16px;
+                tint: root.primary ? Theme.on-accent : Theme.fg;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: root.primary ? Theme.on-accent : Theme.fg;
+            font-size: Theme.fs-lg;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// A line of quiet words in a sheet: what a page is for, or why it is
+/// empty.
+component SheetNote inherits Text {
+    color: Theme.fg-dim;
+    font-size: Theme.fs;
+    wrap: word-wrap;
+}
+
+/// One of the project's facts: the label, then the value against the
+/// trailing edge.
+component Fact inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+
+    spacing: 12px;
+    min-height: 30px;
+
+    Text {
+        text: root.label;
+        color: Theme.fg-muted;
+        font-size: Theme.fs;
+        vertical-alignment: center;
+    }
+
+    Text {
+        horizontal-stretch: 1;
+        text: root.value;
+        color: Theme.fg;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs;
+        horizontal-alignment: right;
+        vertical-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+/// A round chip over the lanes: the zoom, since a finger cannot pinch
+/// here - Slint sees one finger at a time.
+component LaneChip inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <string> label;
+
+    callback clicked();
+
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    background: touch.pressed ? Theme.field-active : Theme.raised;
+    border-width: 1px;
+    border-color: Theme.line-strong;
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        glyph: root.glyph;
+        size: 14px;
+        tint: Theme.fg;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component PhoneEditor inherits Rectangle {
+    in property <string> project-name;
+    /// "saved", "saving…": the little truth under the name.
+    in property <string> status;
+
+    callback export-clicked();
+    callback open-settings();
+    /// Back to the launch screen; the window saves on the way.
+    callback close-project();
+
+    /// Which sheet is up, by name, or empty for none. The names are the
+    /// library's pages - "media", "text", "effects", "filters",
+    /// "transitions" - the project's own, and a "clip-" page of the
+    /// inspector for the selected clip.
+    property <string> sheet;
+    /// The sheet up is one of the clip's, and goes with the clip.
+    property <bool> sheet-needs-clip;
+
+    property <bool> has-clip: Editor.selected-clip.present;
+    property <ClipKind> kind: Editor.selected-clip.kind;
+    property <bool> is-video: root.kind == ClipKind.video;
+    property <bool> is-audio: root.kind == ClipKind.audio;
+    property <bool> is-image: root.kind == ClipKind.image;
+    property <bool> is-text: root.kind == ClipKind.text;
+    property <bool> is-layer: root.kind == ClipKind.filter;
+    /// A picture: what has a placement, a colour and a chain of effects.
+    property <bool> is-picture: root.is-video || root.is-image;
+
+    // A clip's sheet closes with the clip - deleted, or let go of by a tap
+    // on the floor - rather than staying up over a selection it no longer
+    // describes.
+    changed has-clip => {
+        if (!root.has-clip && root.sheet-needs-clip) {
+            root.hide();
+        }
+    }
+
+    function show(name: string, needs-clip: bool) {
+        root.sheet = name;
+        root.sheet-needs-clip = needs-clip;
+    }
+    function hide() {
+        root.sheet = "";
+        root.sheet-needs-clip = false;
+    }
+
+    pure function sheet-title(name: string) -> string {
+        return name == "media" ? I18n.t("common.media")
+            : name == "text" || name == "clip-text" ? I18n.t("common.text")
+            : name == "effects" || name == "clip-effects" ? I18n.t("common.effects")
+            : name == "filters" ? I18n.t("mediaPane.filters")
+            : name == "transitions" ? I18n.t("mediaPane.transitions")
+            : name == "project" ? I18n.t("phone.project")
+            : name == "clip-video" ? I18n.t("phone.edit")
+            : name == "clip-speed" ? I18n.t("common.speed")
+            : name == "clip-audio" ? I18n.t("common.audio")
+            : name == "clip-adjust" ? I18n.t("common.adjust")
+            : name == "clip-layer" ? I18n.t("configPane.filter")
+            : "";
+    }
+
+    background: Theme.page;
+
+    // Placed rather than laid out. The lanes take a share of the screen's
+    // height, and a layout that read the height of the thing it is sizing
+    // is a binding loop - the launch screen has the same note. Five rows,
+    // each at a height of its own: the bar and the lanes are measured up
+    // from the foot, the top bar and the transport down from the head, and
+    // the monitor is what is left between.
+    property <length> top-h: 48px;
+    property <length> transport-h: 56px;
+    /// A third of the screen, and never less than a ruler and two lanes.
+    property <length> lanes-h: Math.max(170px, root.height * 0.3);
+    property <length> bar-h: 74px;
+    property <length> lanes-y: root.height - root.bar-h - root.lanes-h;
+    property <length> transport-y: root.lanes-y - root.transport-h;
+
+    // ── the top bar ──────────────────────────────────────────────────
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.top-h;
+
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 8px;
+            spacing: 2px;
+
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.close;
+                    label: I18n.t("studio.closeProject");
+                    clicked => { root.close-project(); }
+                }
+            }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 1px;
+
+                Text {
+                    text: root.project-name;
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    font-weight: Theme.weight-title;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.status;
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    horizontal-alignment: center;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.settings;
+                    label: I18n.t("common.settings");
+                    clicked => { root.open-settings(); }
+                }
+            }
+
+            // The one filled control on the bar: what the edit is for.
+            VerticalLayout {
+                alignment: center;
+                padding-left: 4px;
+
+                Rectangle {
+                    width: export-label.preferred-width + export-icon.width + 32px;
+                    height: 36px;
+                    border-radius: 18px;
+                    background: export-touch.pressed ? Theme.accent-hover : Theme.accent;
+
+                    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            export-icon := Icon {
+                                glyph: Glyph.export;
+                                size: 14px;
+                                tint: Theme.on-accent;
+                            }
+                        }
+                        export-label := Text {
+                            text: I18n.t("common.export");
+                            color: Theme.on-accent;
+                            font-size: Theme.fs-lg;
+                            font-weight: Theme.weight-title;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    export-touch := TouchArea {
+                        clicked => { root.export-clicked(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── the monitor ──────────────────────────────────────────────────
+    //
+    // The pane's stage alone, with 8px of the ground either side so it
+    // reads as a card on the page like the lanes under it. The stage
+    // keeps its gestures: a drag moves the selected picture, a press
+    // on the well pans the view, a double tap fits it again.
+    Rectangle {
+        x: 0;
+        y: root.top-h;
+        width: root.width;
+        height: Math.max(0px, root.transport-y - root.top-h);
+
+        monitor := PreviewPane {
+            x: 8px;
+            y: 0;
+            width: parent.width - 16px;
+            height: parent.height;
+            bare: true;
+
+            output-width: Editor.output-width;
+            output-height: Editor.output-height;
+            frame-rate: Editor.frame-rate;
+            ratio-index: Editor.ratio-index;
+            quality-index: Editor.quality-index;
+            playhead: Editor.playhead;
+            duration: Editor.preview-duration;
+            playhead-free: Editor.playhead-free;
+            playing: Editor.playing;
+            has-picture: Editor.has-picture;
+            clip-name: Editor.preview-clip-name;
+            frame: Editor.preview-frame;
+            stage-items: Editor.stage-items;
+            stage-guides: Editor.stage-guides;
+            stroke-path: Editor.stroke-path;
+            stroke-width: Editor.stroke-width;
+            stroke-erase: Editor.stroke-erase;
+            painting: Editor.painting && Editor.selected-clip.cutout == 2;
+
+            play-toggled => { Editor.play-toggled(); }
+            seek(seconds) => { Editor.seek(seconds); }
+            step(frames) => { Editor.step-frames(frames); }
+            ratio-changed(index) => { Editor.ratio-changed(index); }
+            quality-changed(index) => { Editor.quality-changed(index); }
+            stage-pressed(x, y, additive) => {
+                Editor.blur();
+                Editor.stage-pressed(x, y, additive);
+            }
+            stage-grip-pressed(id, grip, x, y) => {
+                Editor.blur();
+                Editor.stage-grip-pressed(id, grip, x, y);
+            }
+            stage-dragged(x, y, snap) => { Editor.stage-dragged(x, y, snap); }
+            stage-released => { Editor.stage-released(); }
+        }
+    }
+
+    // ── the transport ────────────────────────────────────────────────
+    //
+    // Where the playhead is on the leading edge, the view's way back
+    // and the history's two steps on the trailing one, and Play in the
+    // middle of the row - placed against the whole row rather than laid
+    // out, so it stays under the thumb whatever the timecode's width.
+    Rectangle {
+        x: 0;
+        y: root.transport-y;
+        width: root.width;
+        height: root.transport-h;
+
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 8px;
+            spacing: 2px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: Fmt.short-duration(Editor.playhead)
+                    + " / " + Fmt.short-duration(Editor.preview-duration);
+                color: Theme.fg;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-lg;
+                vertical-alignment: center;
+            }
+
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.fit;
+                    label: I18n.t("previewPane.fitFramePane");
+                    size: 40px;
+                    icon-size: 16px;
+                    clicked => { monitor.fit-view(); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.undo;
+                    label: I18n.t("phone.undo");
+                    enabled: Editor.can-undo;
+                    size: 40px;
+                    icon-size: 17px;
+                    clicked => { Editor.undo(); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                RoundButton {
+                    glyph: Glyph.redo;
+                    label: I18n.t("phone.redo");
+                    enabled: Editor.can-redo;
+                    size: 40px;
+                    icon-size: 17px;
+                    clicked => { Editor.redo(); }
+                }
+            }
+        }
+
+        RoundButton {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            size: 46px;
+            icon-size: 20px;
+            accent: true;
+            glyph: Editor.playing ? Glyph.pause : Glyph.play;
+            label: Editor.playing ? I18n.t("previewPane.pause") : I18n.t("previewPane.play");
+            clicked => { Editor.play-toggled(); }
+        }
+    }
+
+    // ── the lanes ────────────────────────────────────────────────────
+    //
+    // No lane headers: a lane is untyped and its switches are the desk's
+    // business; the clips are the whole of what a thumb needs here.
+    stack := Rectangle {
+        x: 0;
+        y: root.lanes-y;
+        width: root.width;
+        height: root.lanes-h;
+
+        // The stack scrolls here rather than in Rust, as it does in the
+        // timeline pane and for the same reason: it is a property of
+        // looking at the lanes, not of the edit. Clamped on read, so a
+        // stack that gets shorter cannot leave the view parked past its
+        // end.
+        property <length> track-scroll;
+        property <length> stack-h: Editor.tracks.length > 0
+            ? Editor.tracks[Editor.tracks.length - 1].top
+                + Editor.tracks[Editor.tracks.length - 1].height
+            : 0px;
+        property <length> overflow: Math.max(0px,
+            self.stack-h - Math.max(0px, lanes.height - lanes.ruler-height));
+        property <length> at: Math.max(0px, Math.min(self.overflow, self.track-scroll));
+
+        Rectangle {
+            x: 8px;
+            y: 0;
+            width: parent.width - 16px;
+            height: parent.height;
+            background: Theme.panel;
+            border-radius: Theme.r-lg;
+            clip: true;
+
+            lanes := Lanes {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+
+                finger: true;
+                edge-grab: 14px;
+                ruler-height: 24px;
+                track-scroll: stack.at;
+
+                tracks: Editor.tracks;
+                clips: Editor.clips;
+                key-marks: Editor.key-marks;
+                tool: Editor.tool;
+                playhead: Editor.playhead;
+                frame-rate: Editor.frame-rate;
+                scroll-left: Editor.scroll-left;
+                seconds-per-pixel: Editor.seconds-per-pixel;
+                pan-mode: false;
+                preview-axis: false;
+                drop: Editor.drop;
+                menu-items: Editor.menu-items;
+                menu-height: Editor.menu-height;
+                menu-token: Editor.menu-token;
+
+                scrubbed(seconds) => {
+                    Editor.blur();
+                    Editor.scrubbed(seconds);
+                }
+                key-mark-moved(from, to) => { Editor.key-mark-moved(from, to); }
+                hovered(seconds) => { Editor.hovered(seconds); }
+                hover-ended => { Editor.hover-ended(); }
+                floor-pressed => { Editor.blur(); }
+                clip-pressed(id, additive, edge) => {
+                    Editor.blur();
+                    Editor.clip-pressed(id, additive, edge);
+                }
+                clip-dragged(seconds, pixels) => { Editor.clip-dragged(seconds, pixels); }
+                clip-released => { Editor.clip-released(); }
+                clip-context(id) => { Editor.clip-context(id); }
+                menu-selected(id) => { Editor.menu-selected(id); }
+                band-selected(a, b, c, d, additive) => {
+                    Editor.band-selected(a, b, c, d, additive);
+                }
+                scrolled(seconds) => { Editor.scrolled(seconds); }
+                track-scrolled(pixels) => {
+                    stack.track-scroll = Math.max(0px,
+                        Math.min(stack.overflow, stack.at + pixels));
+                }
+                zoomed(factor, anchor) => { Editor.zoom(factor, anchor); }
+                drag-hovered(payload, seconds, row) => {
+                    Editor.drag-hovered(payload, seconds, row);
+                }
+                dropped(payload, seconds, row) => { Editor.dropped(payload, seconds, row); }
+                // How wide the lanes are decides which clips Rust sends,
+                // and where their middle is.
+                changed width => { Editor.lanes-resized(self.width / 1px); }
+                init => { Editor.lanes-resized(self.width / 1px); }
+            }
+
+            // An empty cut says where to start. Takes no presses, so the
+            // lanes under it still do.
+            if Editor.clips.length == 0: Text {
+                x: 16px;
+                y: lanes.ruler-height + 14px;
+                width: parent.width - 32px;
+                text: I18n.t("phone.emptyLanes");
+                color: Theme.fg-dim;
+                font-size: Theme.fs;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+
+            // The zoom, about the playhead - which is the middle, so the
+            // cut grows and shrinks around what is under it.
+            HorizontalLayout {
+                x: parent.width - self.preferred-width - 8px;
+                y: parent.height - 34px - 8px;
+                width: self.preferred-width;
+                height: 34px;
+                spacing: 6px;
+
+                LaneChip {
+                    glyph: Glyph.minus;
+                    label: I18n.t("common.zoomOut");
+                    clicked => { Editor.zoom(1.4, Editor.playhead); }
+                }
+                LaneChip {
+                    glyph: Glyph.plus;
+                    label: I18n.t("common.zoomIn");
+                    clicked => { Editor.zoom(1 / 1.4, Editor.playhead); }
+                }
+            }
+        }
+    }
+
+    // ── the bar ──────────────────────────────────────────────────────
+    Rectangle {
+        x: 0;
+        y: root.height - root.bar-h;
+        width: root.width;
+        height: root.bar-h;
+
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+        }
+
+        // Nothing selected: what can be brought into the cut, and the
+        // project's own verbs.
+        if !root.has-clip: ToolStrip {
+            x: 0;
+            y: 1px;
+            width: parent.width;
+            height: parent.height - 1px;
+
+            ToolItem {
+                glyph: Glyph.film;
+                label: I18n.t("common.media");
+                current: root.sheet == "media";
+                clicked => { root.show("media", false); }
+            }
+            ToolItem {
+                glyph: Glyph.text-mark;
+                label: I18n.t("common.text");
+                current: root.sheet == "text";
+                clicked => { root.show("text", false); }
+            }
+            ToolItem {
+                glyph: Glyph.sparkle;
+                label: I18n.t("common.effects");
+                current: root.sheet == "effects";
+                clicked => { root.show("effects", false); }
+            }
+            ToolItem {
+                glyph: Glyph.filter;
+                label: I18n.t("mediaPane.filters");
+                current: root.sheet == "filters";
+                clicked => { root.show("filters", false); }
+            }
+            ToolItem {
+                glyph: Glyph.transition;
+                label: I18n.t("mediaPane.transitions");
+                current: root.sheet == "transitions";
+                clicked => { root.show("transitions", false); }
+            }
+            ToolItem {
+                glyph: Glyph.waveform;
+                label: I18n.t("phone.captions");
+                clicked => { Editor.captions(); }
+            }
+            ToolItem {
+                glyph: Glyph.volume;
+                label: I18n.t("phone.speak");
+                clicked => { Editor.speak(); }
+            }
+            ToolItem {
+                glyph: Glyph.info;
+                label: I18n.t("phone.project");
+                current: root.sheet == "project";
+                clicked => { root.show("project", false); }
+            }
+        }
+
+        // A clip selected: its verbs, in the order they are reached for,
+        // with the way back at the head. Which appear depends on what
+        // the clip is - a still has no speed, a sound no picture, a
+        // title only its words and its effects - the same rule the
+        // inspector's tabs follow.
+        if root.has-clip: ToolStrip {
+            x: 0;
+            y: 1px;
+            width: parent.width;
+            height: parent.height - 1px;
+
+            ToolItem {
+                glyph: Glyph.chevron-left;
+                label: I18n.t("phone.back");
+                clicked => {
+                    root.hide();
+                    Editor.shortcut("deselect");
+                }
+            }
+            ToolItem {
+                glyph: Glyph.split;
+                label: I18n.t("phone.split");
+                clicked => { Editor.shortcut("split-selected"); }
+            }
+            ToolItem {
+                glyph: Glyph.trash;
+                label: I18n.t("common.delete");
+                clicked => { Editor.delete-selected(); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.fit;
+                label: I18n.t("phone.edit");
+                current: root.sheet == "clip-video";
+                clicked => { root.show("clip-video", true); }
+            }
+            if root.is-text: ToolItem {
+                glyph: Glyph.text-mark;
+                label: I18n.t("common.text");
+                current: root.sheet == "clip-text";
+                clicked => { root.show("clip-text", true); }
+            }
+            if root.is-layer: ToolItem {
+                glyph: Glyph.filter;
+                label: I18n.t("configPane.filter");
+                current: root.sheet == "clip-layer";
+                clicked => { root.show("clip-layer", true); }
+            }
+            if root.is-video || root.is-audio: ToolItem {
+                glyph: Glyph.clock;
+                label: I18n.t("common.speed");
+                current: root.sheet == "clip-speed";
+                clicked => { root.show("clip-speed", true); }
+            }
+            if root.is-video || root.is-audio: ToolItem {
+                glyph: Glyph.volume;
+                label: I18n.t("common.audio");
+                current: root.sheet == "clip-audio";
+                clicked => { root.show("clip-audio", true); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.sun;
+                label: I18n.t("common.adjust");
+                current: root.sheet == "clip-adjust";
+                clicked => { root.show("clip-adjust", true); }
+            }
+            if root.is-picture || root.is-text: ToolItem {
+                glyph: Glyph.sparkle;
+                label: I18n.t("common.effects");
+                current: root.sheet == "clip-effects";
+                clicked => { root.show("clip-effects", true); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.transition;
+                label: I18n.t("mediaPane.transitions");
+                current: root.sheet == "transitions";
+                clicked => { root.show("transitions", true); }
+            }
+            ToolItem {
+                glyph: Glyph.copy;
+                label: I18n.t("phone.duplicate");
+                clicked => { Editor.shortcut("duplicate"); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.frame;
+                label: I18n.t("timelinePane.freeze");
+                enabled: Editor.freezable;
+                clicked => { Editor.shortcut("freeze"); }
+            }
+            if root.is-video || root.is-audio: ToolItem {
+                glyph: Glyph.reverse;
+                label: I18n.t("common.reverse");
+                enabled: Editor.reversible;
+                clicked => { Editor.shortcut("reverse"); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.flip-h;
+                label: I18n.t("timelinePane.mirror");
+                enabled: Editor.picture-selected;
+                clicked => { Editor.shortcut("mirror"); }
+            }
+            if root.is-picture: ToolItem {
+                glyph: Glyph.rotate;
+                label: I18n.t("timelinePane.rotate");
+                enabled: Editor.picture-selected;
+                clicked => { Editor.shortcut("rotate"); }
+            }
+            if Editor.sound-selected: ToolItem {
+                glyph: Glyph.waveform;
+                label: I18n.t("phone.captions");
+                clicked => { Editor.captions(); }
+            }
+            if Editor.title-selected: ToolItem {
+                glyph: Glyph.volume;
+                label: I18n.t("phone.speak");
+                clicked => { Editor.speak(); }
+            }
+            // The rest of the clip's menu - copy, paste, its sound taken
+            // off its picture - as the menu itself, hung over the bar.
+            ToolItem {
+                glyph: Glyph.chevron-up;
+                label: I18n.t("phone.more");
+                clicked => {
+                    more-menu.request-x = self.absolute-position.x - root.absolute-position.x;
+                    more-menu.request-y = root.height - 74px;
+                    Editor.clip-context(Editor.selected-clip.id);
+                }
+            }
+        }
+    }
+
+    // ── the sheet ────────────────────────────────────────────────────────
+    //
+    // One sheet, one body, chosen by name. Each page is the desk's own
+    // panel bound to the Editor global the way the seats bind it; the
+    // library's pages close themselves once something is placed, so what
+    // was placed is seen, and the inspector's stay up to be worked in.
+    PhoneSheet {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        open: root.sheet != "";
+        title: root.sheet-title(root.sheet);
+        closed => { root.hide(); }
+
+        // ── the bin ──
+        if root.sheet == "media": VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            SheetButton {
+                glyph: Glyph.import;
+                primary: true;
+                enabled: !Editor.importing;
+                label: Editor.importing ? I18n.t("mediaPane.importing") : I18n.t("phone.importMedia");
+                clicked => { Editor.import-media(); }
+            }
+            SheetNote {
+                text: Editor.media.length == 0
+                    ? I18n.t("phone.noMediaYet") : I18n.t("phone.tapToAdd");
+            }
+            PhoneMediaGrid {
+                items: Editor.media;
+                picked(id) => {
+                    Editor.media-activate(id);
+                    root.hide();
+                }
+            }
+        }
+
+        // ── titles ──
+        if root.sheet == "text": VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+
+            SheetButton {
+                glyph: Glyph.plus;
+                primary: true;
+                label: I18n.t("phone.addATitle");
+                clicked => {
+                    Editor.library-add-text("default");
+                    root.hide();
+                }
+            }
+            SheetNote { text: I18n.t("phone.looks"); }
+            PresetGrid {
+                items: Editor.text-presets;
+                applied(id) => {
+                    Editor.library-add-text(id);
+                    root.hide();
+                }
+            }
+        }
+
+        // ── effects, with nothing selected ──
+        if root.sheet == "effects": VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            if !root.has-clip: SheetNote { text: I18n.t("phone.selectClipFirst"); }
+            ShelfSearch {
+                shelf: 1;
+                placeholder: I18n.t1("common.searchKind", I18n.t("common.effect"));
+            }
+            CategoryPillBar {
+                current: Library.view(1).category;
+                picked(cat) => { Library.category-changed(1, cat); }
+            }
+            ShelfGrid {
+                entries: Editor.catalogue-effects;
+                glyph: Glyph.sparkle;
+                auditions: false;
+                applied(id, label) => { Editor.library-apply-effect(id); }
+            }
+        }
+
+        // ── the selected clip's effects: its chain, then the shelf ──
+        if root.sheet == "clip-effects": VerticalLayout {
+            spacing: 0px;
+
+            PresetStack {
+                noun: I18n.t("common.effect");
+                library-title: I18n.t("common.effects");
+                library: false;
+                empty-note: I18n.t("phone.noEffectYet");
+                shelf: 1;
+                group-labels: Editor.effect-groups;
+                catalogue: Editor.catalogue-effects;
+                applied: Editor.applied-visual;
+                params: Editor.visual-params;
+                wheel-groups: Editor.visual-wheels;
+                curve-groups: Editor.visual-curves;
+                colours: Editor.visual-colours;
+
+                add(id) => { Editor.chain-add(false, id); }
+                toggle(index) => { Editor.chain-toggle(false, index); }
+                move-by(index, delta) => { Editor.chain-move-by(false, index, delta); }
+                remove(index) => { Editor.chain-remove(false, index); }
+                set-param(index, key, value) => {
+                    Editor.chain-set-param(false, index, key, value);
+                }
+                set-colour(index, key, value) => {
+                    Editor.chain-set-colour(index, key, value);
+                }
+                curve-point(index, key, point, x, y) => {
+                    Editor.curve-point(index, key, point, x, y);
+                }
+                curve-remove(index, key, point) => {
+                    Editor.curve-remove(index, key, point);
+                }
+                commit => { Editor.clip-commit(); }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Theme.line;
+            }
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                ShelfSearch {
+                    shelf: 1;
+                    placeholder: I18n.t1("common.searchKind", I18n.t("common.effect"));
+                }
+                CategoryPillBar {
+                    current: Library.view(1).category;
+                    picked(cat) => { Library.category-changed(1, cat); }
+                }
+                ShelfGrid {
+                    entries: Editor.catalogue-effects;
+                    glyph: Glyph.sparkle;
+                    auditions: false;
+                    applied(id, label) => { Editor.library-apply-effect(id); }
+                }
+            }
+        }
+
+        // ── filters: a look laid over the cut at the playhead ──
+        if root.sheet == "filters": VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            ShelfSearch {
+                shelf: 0;
+                placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.filter"));
+            }
+            ShelfGrid {
+                entries: Editor.catalogue-filters;
+                auditions: false;
+                applied(id, label) => {
+                    Editor.library-apply-filter(id, label);
+                    root.hide();
+                }
+            }
+        }
+
+        // ── transitions: onto the cut into the selected clip ──
+        if root.sheet == "transitions": VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            if !root.has-clip: SheetNote { text: I18n.t("phone.selectClipFirst"); }
+            ShelfSearch {
+                shelf: 3;
+                placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.transition"));
+            }
+            ShelfGrid {
+                entries: Editor.catalogue-transitions;
+                glyph: Glyph.transition;
+                auditions: false;
+                applied(id, label) => { Editor.library-apply-transition(id); }
+            }
+        }
+
+        // ── the inspector's pages ──
+        if root.sheet == "clip-video": VideoPanel {
+            selected: Editor.selected-clip;
+            applied: Editor.applied-visual;
+            params: Editor.visual-params;
+            colours: Editor.visual-colours;
+            brush-tool: Editor.brush-tool;
+            brush-size: Editor.brush-size;
+            painting: Editor.painting;
+            set(field, value) => { Editor.clip-set(field, value); }
+            commit => { Editor.clip-commit(); }
+            chain-add(id) => { Editor.chain-add(false, id); }
+            chain-remove(index) => { Editor.chain-remove(false, index); }
+            chain-set-param(index, key, value) => {
+                Editor.chain-set-param(false, index, key, value);
+            }
+            chain-set-colour(index, key, value) => {
+                Editor.chain-set-colour(index, key, value);
+            }
+            cutout-mode(mode) => { Editor.cutout-mode(mode); }
+            cutout-tool(index) => { Editor.cutout-tool(index); }
+            cutout-size(size) => { Editor.cutout-size(size); }
+            cutout-painting(on) => { Editor.cutout-painting(on); }
+            cutout-subject(index) => { Editor.cutout-subject(index); }
+            cutout-clear => { Editor.cutout-clear(); }
+            transition-remove => { Editor.transition-remove(); }
+            transition-duration-set(seconds) => { Editor.transition-duration-set(seconds); }
+        }
+
+        if root.sheet == "clip-speed": SpeedPanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            commit => { Editor.clip-commit(); }
+        }
+
+        if root.sheet == "clip-audio": VerticalLayout {
+            AudioPanel {
+                selected: Editor.selected-clip;
+                audio-tracks: Editor.audio-tracks;
+                set(field, value) => { Editor.clip-set(field, value); }
+                commit => { Editor.clip-commit(); }
+            }
+            ProcessorRows {
+                applied: Editor.applied-audio;
+                params: Editor.audio-params;
+                add(id) => { Editor.chain-add(true, id); }
+                remove(index) => { Editor.chain-remove(true, index); }
+                set-param(index, key, value) => {
+                    Editor.chain-set-param(true, index, key, value);
+                }
+                commit => { Editor.clip-commit(); }
+            }
+            PresetStack {
+                noun: I18n.t("common.audioEffect");
+                library-title: I18n.t("configPane.audioEffects");
+                shelf: 2;
+                hidden: ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
+                group-labels: Editor.audio-groups;
+                catalogue: Editor.catalogue-audio;
+                applied: Editor.applied-audio;
+                params: Editor.audio-params;
+
+                add(id) => { Editor.chain-add(true, id); }
+                toggle(index) => { Editor.chain-toggle(true, index); }
+                move-by(index, delta) => { Editor.chain-move-by(true, index, delta); }
+                remove(index) => { Editor.chain-remove(true, index); }
+                set-param(index, key, value) => {
+                    Editor.chain-set-param(true, index, key, value);
+                }
+                commit => { Editor.clip-commit(); }
+            }
+        }
+
+        if root.sheet == "clip-adjust": AdjustPanel {
+            params: Editor.adjust-params;
+            wheels: Editor.adjust-wheels;
+            curves: Editor.adjust-curves;
+            set(key, value) => { Editor.adjust-set(key, value); }
+            curve-point(key, point, x, y) => { Editor.curve-point(-1, key, point, x, y); }
+            curve-remove(key, point) => { Editor.curve-remove(-1, key, point); }
+            commit => { Editor.clip-commit(); }
+        }
+
+        if root.sheet == "clip-text": TextPanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            set-text(field, value) => { Editor.clip-set-text(field, value); }
+            set-colour(field, value) => { Editor.clip-set-colour(field, value); }
+            commit => { Editor.clip-commit(); }
+        }
+
+        if root.sheet == "clip-layer": FilterPanel {
+            selected: Editor.selected-clip;
+            set(field, value) => { Editor.clip-set(field, value); }
+            commit => { Editor.clip-commit(); }
+        }
+
+        // ── the project's facts, and the sheet that changes them ──
+        if root.sheet == "project": VerticalLayout {
+            padding: 16px;
+            spacing: 0px;
+
+            Fact { label: I18n.t("common.name"); value: Editor.project-name; }
+            Fact { label: I18n.t("configPane.folder"); value: Editor.project-folder; }
+            Fact { label: I18n.t("configPane.timeline"); value: Editor.timeline-name; }
+            Fact { label: I18n.t("common.frame"); value: Editor.project-output; }
+            Fact { label: I18n.t("common.rate"); value: Editor.project-rate; }
+            Fact { label: I18n.t("common.duration"); value: Editor.project-duration; }
+            Fact { label: I18n.t("common.media"); value: "\{Editor.count-media}"; }
+            Fact { label: I18n.t("configPane.tracks"); value: "\{Editor.count-tracks}"; }
+            Fact { label: I18n.t("configPane.clips"); value: "\{Editor.count-clips}"; }
+
+            Rectangle { height: 16px; }
+
+            SheetButton {
+                glyph: Glyph.settings;
+                label: I18n.t("configPane.modify");
+                clicked => {
+                    root.hide();
+                    Editor.modify-project();
+                }
+            }
+        }
+    }
+
+    // ── the clip's menu ──────────────────────────────────────────────────
+    //
+    // Over everything, so it can hang above the bar. Opened by the token
+    // Rust bumps once it has filled the rows; the lanes' own copy of this
+    // menu stays shut, since it opens only for a request it made itself.
+    more-menu := ContextMenu {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        items: Editor.menu-items;
+        menu-height: Editor.menu-height;
+        token: Editor.menu-token;
+        selected(id) => { Editor.menu-selected(id); }
+    }
+}

@@ -32,6 +32,7 @@ import { Editor } from "editor.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
 import { ChipOption, NewProjectDialog, RecentProjectData, StartData, StartScreen } from "start.slint";
 import { TitleBar } from "title-bar.slint";
+import { PhoneEditor } from "phone/editor.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData, Library, LibraryViewData,
 } from "inspector/clip-inspector.slint";
@@ -78,12 +79,16 @@ export component App inherits Window {
     // One line rather than a weight on every Text: everything inherits the
     // compensated body weight, and only titles override it. See theme.slint.
     default-font-weight: Theme.weight-body;
-    preferred-width: 1400px;
-    preferred-height: 900px;
+    // A phone's window is its screen, whatever these say; on a desk asked
+    // for the phone shell (CONCAT_PHONE, see platform.rs) they are a
+    // phone's shape, so the layout is seen as a phone would show it.
+    preferred-width: root.phone ? 420px : 1400px;
+    preferred-height: root.phone ? 880px : 900px;
     // Below this the three columns cannot all hold their minimum and the panes
-    // start eating each other.
-    min-width: 900px;
-    min-height: 560px;
+    // start eating each other. The phone shell has no columns, and a phone
+    // is narrower than this on every side.
+    min-width: root.phone ? 320px : 900px;
+    min-height: root.phone ? 480px : 560px;
     // So the shortcuts work before anything has been clicked. Without it the
     // window opens with nothing focused, and a key would have nowhere to be
     // delivered from until the first press landed somewhere.
@@ -153,6 +158,11 @@ export component App inherits Window {
     in property <string> project-name: I18n.t("common.untitledProject");
     in property <string> project-status: I18n.t("common.saved");
     in property <bool> macos;
+    /// The window is a phone's: one screen, held upright, driven by a
+    /// finger. The editor is then the phone shell (ui/phone/) - no title
+    /// strip, no dock - and the launch screen carries its own verbs, as it
+    /// does whenever it is narrow. Set once from Rust; see platform::phone.
+    in property <bool> phone;
 
     /// The File / Edit / View menus. Built in Rust like every other menu here,
     /// because what belongs on them depends on the project.
@@ -461,7 +471,10 @@ export component App inherits Window {
             padding-left: root.safe-area-insets.left;
             padding-right: root.safe-area-insets.right;
 
-            TitleBar {
+            // No strip on a phone: its menus, its window buttons and its
+            // drag region are all a desk's, and the phone shell's top bar
+            // carries the two verbs that are not.
+            if !root.phone: TitleBar {
                 macos: root.macos;
                 minimal: root.on-start;
                 deep: root.on-start;
@@ -505,8 +518,21 @@ export component App inherits Window {
             // nothing is passed to it: it is a box with four seats in it, and
             // the views inside those seats reach the state directly. See
             // editor.slint.
-            if !root.on-start: Workspace {
+            if !root.on-start && !root.phone: Workspace {
                 vertical-stretch: 1;
+            }
+
+            // The phone's editor reads the same global; only the shell round
+            // it differs. Its three verbs that are the window's - export,
+            // settings, closing the project - go where the strip's went.
+            if !root.on-start && root.phone: PhoneEditor {
+                vertical-stretch: 1;
+                project-name: root.project-name;
+                status: root.project-status;
+
+                export-clicked => { root.export-clicked(); }
+                open-settings => { root.open-settings(); }
+                close-project => { root.app-menu-selected("close-project"); }
             }
         }
     }

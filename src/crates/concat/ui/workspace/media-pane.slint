@@ -382,8 +382,12 @@ component ImportButton inherits Rectangle {
 
 // ── one card ─────────────────────────────────────────────────────────────────
 
-component MediaCard inherits Rectangle {
+export component MediaCard inherits Rectangle {
     in property <MediaItemData> item;
+    /// The cross that takes the file out of the bin, shown while the card
+    /// is under the pointer. Off on a phone, where a finger on a card is a
+    /// hover for as long as it presses and the cross would sit under it.
+    in property <bool> removable: true;
 
     /// Faded while it is in the air, so the ghost on the timeline reads as
     /// this card moved rather than as a second copy of it.
@@ -542,7 +546,7 @@ component MediaCard inherits Rectangle {
 
                 // Hover-only: a permanent delete button on every card in a
                 // full bin is one bin's worth of invitations to lose work.
-                if card.has-hover: Rectangle {
+                if card.has-hover && root.removable: Rectangle {
                     x: parent.width - self.width - 4px;
                     y: 4px;
                     width: 18px;
@@ -1180,7 +1184,7 @@ component PresetCard inherits Rectangle {
 // and starred by the same `Library` view the inspector reads - with the
 // same auto-fill arithmetic as MediaGrid. Each entry carries its card,
 // drawn by the package's own shader (concat_host::cards).
-component ShelfGrid inherits Rectangle {
+export component ShelfGrid inherits Rectangle {
     in property <[CatalogueEntryData]> entries;
     /// The mark for an entry with no artwork; see CatalogueItemData.
     in property <Glyph> glyph: Glyph.sparkle;
@@ -1237,7 +1241,7 @@ component ShelfGrid inherits Rectangle {
 // TextInput assigns to `text`, and an assignment replaces the binding
 // declared on it - so the box is put back by hand when Rust clears the
 // query, which picking a shelf does.
-component ShelfSearch inherits HorizontalLayout {
+export component ShelfSearch inherits HorizontalLayout {
     in property <int> shelf;
     in property <string> placeholder;
 
@@ -1287,7 +1291,7 @@ component CategoryPill inherits Rectangle {
     }
 }
 
-component CategoryPillBar inherits Rectangle {
+export component CategoryPillBar inherits Rectangle {
     in property <[string]> categories: [
         "All",
         "Featured",
@@ -1344,7 +1348,7 @@ component CategoryPillBar inherits Rectangle {
 }
 
 // The Presets shelf: the same auto-fill arithmetic as the other grids.
-component PresetGrid inherits Rectangle {
+export component PresetGrid inherits Rectangle {
     in property <[TextPresetData]> items;
 
     callback applied(id: string);

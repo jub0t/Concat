@@ -2316,7 +2316,12 @@ impl Studio {
                         // The view follows: a playhead that runs off the
                         // right edge, or sits off the left, pages the lanes
                         // to it, the way every editor keeps the cut in view.
-                        if let Some((low, high)) = studio.lanes.published_span() {
+                        // A phone's lanes glide instead, the playhead held
+                        // at their middle.
+                        if studio.lanes.centred {
+                            let playhead = studio.playhead;
+                            studio.lanes.recentre(playhead);
+                        } else if let Some((low, high)) = studio.lanes.published_span() {
                             let screen = (high - low) / 3.0;
                             let left = studio.lanes.scroll_left;
                             if screen > 0.0
@@ -2354,6 +2359,8 @@ impl Studio {
         if self.prefs.playhead_stops_at_end {
             self.playhead = self.playhead.min(self.duration().max(0.0));
         }
+        // A phone's lanes move under a playhead held at their middle.
+        self.lanes.recentre(self.playhead);
         self.host.playback.seek(f64::from(self.playhead));
         self.request_preview();
     }
@@ -6431,6 +6438,14 @@ impl Studio {
         sync(&models.dividers, out.dividers);
     }
 
+    /// The window is a phone's: the lanes keep the playhead at their middle
+    /// and glide under it. See `platform::phone` and `TimelinePane::centred`.
+    pub fn set_phone(&mut self, phone: bool) {
+        self.lanes.centred = phone;
+        let playhead = self.playhead;
+        self.lanes.recentre(playhead);
+    }
+
     /// Shows the compact dock, or the wide one, keeping whichever is put
     /// away whole; see `COMPACT_WIDTH`.
     pub fn set_compact(&mut self, compact: bool) {
@@ -8858,6 +8873,12 @@ impl Studio {
                 self.split_at(at, true);
             }
             "select-all" => self.select_all(),
+            // The phone's way out of the clip tools: nothing selected, the
+            // way a press on an empty lane leaves it.
+            "deselect" => {
+                self.flush_commit();
+                self.selection.clear();
+            }
             // ⇧⌫, from the key table; plain ⌫ comes in as its own callback.
             "ripple-delete" => self.ripple_delete_selected(),
             "copy" | "duplicate" | "mute" => {
