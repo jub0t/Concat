@@ -103,6 +103,8 @@ export component Seat inherits Rectangle {
             count-processed: Editor.media-count-processed;
             selected-count: Editor.media-selected-count;
             importing: Editor.importing;
+            filter: Editor.media-filter;
+            jump-token: Editor.media-jump-token;
 
             import-media => { Editor.import-media(); }
             filter-changed(filter) => { Editor.media-filter-changed(filter); }

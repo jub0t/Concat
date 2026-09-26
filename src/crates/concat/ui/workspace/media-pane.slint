@@ -1420,7 +1420,13 @@ export component MediaPane inherits Rectangle {
     in property <int> selected-count;
     in property <bool> importing;
 
-    out property <MediaFilter> filter: MediaFilter.all;
+    /// What the bin is narrowed to. Rust's: a row of the sidebar reports
+    /// its pick and the answer comes back here, so the editor can narrow
+    /// the bin itself - to all its media, for a file it just made.
+    in property <MediaFilter> filter: MediaFilter.all;
+    /// See Editor.media-jump-token: turn to the Media page.
+    in property <int> jump-token;
+    changed jump-token => { root.tab = 0; }
 
     callback import-media();
     callback filter-changed(filter: MediaFilter);
@@ -1527,7 +1533,6 @@ export component MediaPane inherits Rectangle {
     // `catalogue-transitions`/`transition-groups` below.
 
     function narrow(to: MediaFilter) {
-        root.filter = to;
         root.filter-changed(to);
     }
 
