@@ -251,9 +251,19 @@ pub const SHELF_KINDS: [PackageKind; 4] = [
 
 /// `name` under the home directory, as a path string; empty when there is
 /// no home to speak of, and the form then asks for a folder outright.
+///
+/// The platform's own answer, not `$HOME`: Windows does not set that, so
+/// every folder the app suggested there came up empty. `name` is written
+/// with `/` and joined a part at a time, so the separators match.
 pub(crate) fn home_folder(name: &str) -> String {
-    std::env::var("HOME")
-        .map(|home| format!("{home}/{name}"))
+    std::env::home_dir()
+        .filter(|home| !home.as_os_str().is_empty())
+        .map(|home| {
+            name.split('/')
+                .fold(home, |path, part| path.join(part))
+                .to_string_lossy()
+                .into_owned()
+        })
         .unwrap_or_default()
 }
 
@@ -8388,9 +8398,23 @@ impl Studio {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, Footprint, Studio, key_commands, place_in, shown, write_keyable};
+    use super::{
+        Command, Footprint, Studio, home_folder, key_commands, place_in, shown, write_keyable,
+    };
 
     const FRAME: (u32, u32) = (1920, 1080);
+
+    /// A suggested folder sits under the home directory, with the
+    /// platform's separators throughout, and is never empty on a machine
+    /// that has a home: the launch sheet's Location starts from it.
+    #[test]
+    fn home_folder_is_under_home_with_native_separators() {
+        let home = std::env::home_dir().expect("a home directory");
+        let folder = std::path::PathBuf::from(home_folder("Desktop/Concat"));
+        assert_eq!(folder, home.join("Desktop").join("Concat"));
+        #[cfg(windows)]
+        assert!(!folder.to_string_lossy().contains('/'));
+    }
 
     /// A quarter turn swaps the bounds' pixel extents, which in fractions
     /// of a 16:9 frame is not a swap of the numbers.

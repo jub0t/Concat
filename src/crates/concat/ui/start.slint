@@ -8,6 +8,7 @@ import { FocusRing } from "primitives/focus-ring.slint";
 import { Glyph, Icon } from "icons.slint";
 import { ThinScrollbar } from "primitives/scrollbar.slint";
 import { Tip } from "primitives/tooltip.slint";
+import { Focus } from "util.slint";
 
 // The launch screen: a launcher with a rail, and the window's own ground
 // under all of it — no card around the whole thing, no shadow. A setup
@@ -1184,7 +1185,15 @@ export component NewProjectDialog inherits Modal {
                     LinkButton {
                         label: I18n.t("Choose…");
                         enabled: !root.data.busy;
-                        clicked => { root.browse(); }
+                        // The field beside this ignores a new value while it
+                        // holds the caret (see PlainInput), so a folder picked
+                        // with the caret still in it never showed. Let go of
+                        // it first; the window's press-away blur only covers
+                        // a mouse, not a touch, a pen or the keyboard.
+                        clicked => {
+                            Focus.release();
+                            root.browse();
+                        }
                     }
                 }
             }
