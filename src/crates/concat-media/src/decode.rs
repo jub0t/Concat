@@ -26,7 +26,7 @@
 
 use std::path::{Path, PathBuf};
 
-use concat_core::frame::Frame;
+use concat_core::frame::{Frame, Signal};
 use concat_core::time::{FrameRate, Rational};
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::decoder;
@@ -132,6 +132,13 @@ pub struct DecodeOptions {
     /// is none, takes video range the way a player does. See
     /// [`ColorRange`].
     pub color_range: Option<ColorRange>,
+    /// Keep a wide or HDR source's own signal, at sixteen bits a channel,
+    /// rather than tone-map it to eight-bit Rec. 709 on the CPU: for a
+    /// caller whose frames go straight to the GPU, which converts them as it
+    /// uploads. Ignored for a narrow source, and where a chain or a
+    /// pre-chain runs, since those are FFmpeg filters on eight bits. See
+    /// [`Frame::signal`].
+    pub deep: bool,
 }
 
 impl DecodeOptions {
@@ -201,6 +208,12 @@ impl DecodeOptions {
     /// Decodes in software, whatever the preference says.
     pub fn in_software(mut self) -> Self {
         self.hardware = HwPolicy::Software;
+        self
+    }
+
+    /// Keeps a wide or HDR source deep; see [`DecodeOptions::deep`].
+    pub fn deep(mut self, deep: bool) -> Self {
+        self.deep = deep;
         self
     }
 
@@ -431,6 +444,47 @@ impl ColorSignal {
              :out_color_matrix=bt709:out_range=tv:intent=perceptual"
         )
     }
+
+    /// What a deep frame of this source says it holds, when the source is
+    /// one the compositor converts on the GPU: Rec. 2020 primaries, with
+    /// PQ, HLG or a gamma. `None` for anything else - a P3 source, say -
+    /// which keeps the eight-bit conversion here.
+    pub fn deep_signal(&self) -> Option<Signal> {
+        use ffmpeg::color::{Primaries, TransferCharacteristic as Transfer};
+        match self.transfer {
+            Transfer::SMPTE2084 => Some(Signal::Pq),
+            Transfer::ARIB_STD_B67 => Some(Signal::Hlg),
+            _ if self.primaries == Primaries::BT2020 => Some(Signal::SdrWide),
+            _ => None,
+        }
+    }
+
+    /// The `scale` filter's arguments for a deep frame: the source's own
+    /// matrix and range, to RGB and nothing more - its primaries and
+    /// transfer are left as they are, for the GPU to convert.
+    fn native_args(self) -> String {
+        use ffmpeg::color::{Range, Space};
+        let matrix = match self.matrix {
+            Space::BT2020CL => "bt2020c",
+            Space::BT709 => "bt709",
+            _ => "bt2020nc",
+        };
+        let range = match self.range {
+            Range::JPEG => "pc",
+            _ => "tv",
+        };
+        format!(":in_color_matrix={matrix}:in_range={range}")
+    }
+}
+
+/// The signal a deep frame is decoded in, when `options` asks for one and
+/// the source is one the compositor converts: nothing in the decoder's
+/// graph may need eight bits, so no chain and no pre-chain.
+fn deep_output(options: &DecodeOptions, color: Option<&ColorSignal>) -> Option<Signal> {
+    if !options.deep || options.filter_chain.is_some() || options.pre_chain.is_some() {
+        return None;
+    }
+    color?.deep_signal()
 }
 
 /// The filtergraph between the decoder and the caller, as one string.
@@ -462,7 +516,9 @@ fn video_filter(
     // for a file that lies about it. A range read off the codec in place
     // of a tag is named only when it is full: the frames carry no tag for
     // swscale to read, and untagged already means limited to it.
+    let deep = deep_output(options, color);
     let convert = match (color, options.color_range) {
+        (Some(signal), _) if deep.is_some() => signal.native_args(),
         (Some(signal), _) if signal.is_wide() => signal.bt709_args(),
         (_, Some(range)) => format!(":in_range={}", range.scale_name()),
         (Some(signal), None) if signal.implied && signal.range == ffmpeg::color::Range::JPEG => {
@@ -475,7 +531,14 @@ fn video_filter(
         parts.push(chain.clone());
         parts.push(format!("scale={width}:{height}:flags=bilinear"));
     }
-    parts.push("format=rgba".to_owned());
+    parts.push(
+        if deep.is_some() {
+            "format=rgba64le"
+        } else {
+            "format=rgba"
+        }
+        .to_owned(),
+    );
     parts.join(",")
 }
 
@@ -884,18 +947,24 @@ impl Decoder {
                 .map_err(|error| ffi::fail("filter output", &self.path, error))?;
         }
 
-        // The sink's picture is RGBA already; only its row padding differs
-        // from the packed buffer a Frame is.
+        // The sink's picture is RGBA already - sixteen bits a channel for a
+        // deep frame - and only its row padding differs from the packed
+        // buffer a Frame is.
+        let deep = deep_output(&self.options, Some(&self.color));
         let width = filtered.width();
         let height = filtered.height();
-        let row = width as usize * 4;
+        let row = width as usize * if deep.is_some() { 8 } else { 4 };
         let stride = filtered.stride(0);
         let data = filtered.data(0);
         let mut pixels = Vec::with_capacity(row * height as usize);
         for y in 0..height as usize {
             pixels.extend_from_slice(&data[y * stride..y * stride + row]);
         }
-        Frame::from_rgba(width, height, pixels).ok_or_else(|| Error::Probe {
+        let frame = match deep {
+            Some(signal) => Frame::from_rgba64(width, height, pixels, signal),
+            None => Frame::from_rgba(width, height, pixels),
+        };
+        frame.ok_or_else(|| Error::Probe {
             path: self.path.clone(),
             detail: "the filtergraph produced a frame of the wrong size".to_owned(),
         })
@@ -1353,9 +1422,36 @@ mod tests {
         let mut decoder = Decoder::open(&path, &DecodeOptions::default()).expect("opens");
         assert!(decoder.color().is_hdr(), "{:?}", decoder.color());
         let decoded = decoder.next_frame().expect("decodes").expect("a frame");
-        let _ = std::fs::remove_file(&path);
         let luma = decoded.pixels()[0];
         assert!(luma > 8 && luma < 250, "tone-mapped grey came out {luma}");
+
+        // Asked deep, the same file comes out in its own signal at sixteen
+        // bits a channel, its grey where it was written - about 180 of 255
+        // of full scale - rather than tone-mapped.
+        let mut deep = Decoder::open(&path, &DecodeOptions::default().deep(true)).expect("opens");
+        let frame = deep.next_frame().expect("decodes").expect("a frame");
+        assert_eq!(frame.depth(), concat_core::frame::Depth::Sixteen);
+        assert_eq!(frame.signal(), concat_core::frame::Signal::Pq);
+        assert_eq!(frame.pixels().len(), 64 * 64 * 8);
+        let channel = |at: usize| u16::from_le_bytes([frame.pixels()[at], frame.pixels()[at + 1]]);
+        let (r, g, b) = (channel(0), channel(2), channel(4));
+        let written = 180.0 / 255.0 * 65535.0;
+        for value in [r, g, b] {
+            assert!(
+                (f64::from(value) - written).abs() < 65535.0 * 0.03,
+                "the deep grey came out {r}, {g}, {b}"
+            );
+        }
+
+        // A chain runs on eight bits, so it keeps the tone-mapped frame.
+        let mut chained = Decoder::open(
+            &path,
+            &DecodeOptions::default().deep(true).filtered("negate"),
+        )
+        .expect("opens");
+        let frame = chained.next_frame().expect("decodes").expect("a frame");
+        assert_eq!(frame.depth(), concat_core::frame::Depth::Eight);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

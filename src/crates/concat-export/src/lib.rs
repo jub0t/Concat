@@ -1174,6 +1174,9 @@ fn render_picture(
                     chain,
                     pre,
                     ranges.get(&layer.clip).copied(),
+                    // Deep where the frame goes to the GPU as it is: a
+                    // cutout cuts eight bits.
+                    !cutouts.contains_key(&layer.clip),
                 ) {
                     let frame = cutouts
                         .get(&layer.clip)
@@ -1212,11 +1215,15 @@ fn render_picture(
                         FrameRate::new(rate.fps() / layer.speed)
                     };
 
+                    // Deep - an HDR clip in its own signal, converted on
+                    // the GPU - unless a cutout has to cut it in eight bits;
+                    // the decoder keeps eight bits for a chain itself.
                     let mut options = DecodeOptions::default()
                         .starting_at(layer.source_time)
                         .scaled_to(decode_width, decode_height)
                         .at_rate(decode_rate)
-                        .in_range(ranges.get(&layer.clip).copied());
+                        .in_range(ranges.get(&layer.clip).copied())
+                        .deep(!cutouts.contains_key(&layer.clip));
 
                     // Effects and transition fades, as one FFmpeg chain. The
                     // decoder guards the frame size after it, so an effect
@@ -1664,8 +1671,10 @@ fn frame_request(
         .from_proxy(proxy)
         .in_range(plan.built.ranges.get(&layer.clip).copied())
         // The compositor fits the picture into its place, so an untreated
-        // frame is drawn at the level it was decoded at.
+        // frame is drawn at the level it was decoded at - deep, for an HDR
+        // clip, unless a cutout has to cut it in eight bits.
         .at_any_size(true)
+        .deep_when_untreated(!plan.built.cutouts.contains_key(&layer.clip))
 }
 
 /// [`preview_sources`] for one instant of a plan already built. With

@@ -107,7 +107,14 @@ flowchart LR
   Windows calls scRGB and Apple extended linear sRGB. A frame is converted
   into it on the GPU as it is uploaded and out of it once, at the resolve
   (`concat-render/src/gpu.rs`, `COPY_SHADER`); blending, opacity and fades
-  happen in light, as in Resolve and Final Cut. Effect packages written for
+  happen in light, as in Resolve and Final Cut. A Rec. 2020 source - an
+  iPhone's HLG, HDR10's PQ - is decoded deep (`DecodeOptions::deep`: sixteen
+  bits a channel, its own signal, no CPU tone map) wherever its frame goes
+  straight to the GPU, and converted as it uploads (`DEEP_SHADER`): the
+  transfer undone, the primaries brought to Rec. 709's, and, while every
+  timeline is SDR, conformed to it by BT.2390's roll-off. A clip with an
+  FFmpeg chain or a cutout keeps the eight-bit tone map in the decoder.
+  Effect packages written for
   gamma-encoded `0..1` see that through the prelude's `legacy_in` and
   `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects
   replace them.

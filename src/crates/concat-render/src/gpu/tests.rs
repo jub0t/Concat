@@ -842,3 +842,59 @@ fn a_stack_keeps_its_precision_between_passes() {
         "down and up again gave {got:?}"
     );
 }
+
+/// A deep frame of `level` a channel, sixteen bits, in `signal`.
+fn deep(width: u32, height: u32, level: f32, signal: concat_core::frame::Signal) -> Frame {
+    let value = (level.clamp(0.0, 1.0) * 65535.0).round() as u16;
+    let pixel: Vec<u8> = [value, value, value, u16::MAX]
+        .iter()
+        .flat_map(|channel| channel.to_le_bytes())
+        .collect();
+    Frame::from_rgba64(
+        width,
+        height,
+        pixel.repeat((width * height) as usize),
+        signal,
+    )
+    .expect("a deep frame")
+}
+
+/// An HDR clip is converted into the working space on the GPU as it
+/// uploads, and conformed to the SDR timeline there: HLG's reference white
+/// (75 % of the signal, 203 nits) lands a little under SDR white, where
+/// BT.2390's roll-off leaves room for the highlights above it, grey still;
+/// the master's peak - all of HLG's signal, or 1000 nits of PQ - is SDR
+/// white; black is black.
+#[test]
+fn an_hdr_frame_is_conformed_to_sdr_on_the_way_in() {
+    use concat_core::frame::Signal;
+    let Some(mut gpu) = gpu() else { return };
+    let mut drawn = |frame: Frame| {
+        let out = gpu.render(&plan(4, 4, vec![layer(frame)]));
+        let p = out.pixel(1, 1).expect("in the frame");
+        [p[0], p[1], p[2]]
+    };
+    let white = drawn(deep(4, 4, 0.75, Signal::Hlg));
+    assert!(
+        white.iter().all(|channel| (205..=245).contains(channel))
+            && white[0].abs_diff(white[1]) <= 2
+            && white[1].abs_diff(white[2]) <= 2,
+        "HLG reference white came out {white:?}"
+    );
+    let peak = drawn(deep(4, 4, 1.0, Signal::Hlg));
+    assert!(
+        peak.iter().all(|channel| *channel >= 252),
+        "HLG peak came out {peak:?}"
+    );
+    let black = drawn(deep(4, 4, 0.0, Signal::Hlg));
+    assert!(
+        black.iter().all(|channel| *channel <= 2),
+        "HLG black came out {black:?}"
+    );
+    // 1000 nits in PQ is 0.7518 of the signal.
+    let pq_peak = drawn(deep(4, 4, 0.7518, Signal::Pq));
+    assert!(
+        pq_peak.iter().all(|channel| *channel >= 250),
+        "PQ 1000 nits came out {pq_peak:?}"
+    );
+}

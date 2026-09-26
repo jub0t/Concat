@@ -3,20 +3,54 @@
 
 //! Decoded image buffers.
 //!
-//! One pixel format, everywhere: 8-bit RGBA, straight (non-premultiplied)
-//! alpha, sRGB, rows packed tightly with no padding. Every decoder converts to
-//! it and every encoder converts from it.
+//! One pixel format almost everywhere: 8-bit RGBA, straight (non-premultiplied)
+//! alpha, gamma-encoded Rec. 709, rows packed tightly with no padding. Every
+//! encoder converts from it, and every consumer but the compositor's upload
+//! reads it.
 //!
-//! That is a deliberate simplification, not an oversight. A real grade needs
-//! higher precision and a linear working space, and when that day comes it
-//! arrives as a second frame type next to this one - not as a `format` field
-//! that every call site has to branch on.
+//! The exception is a deep frame ([`Depth::Sixteen`]): sixteen bits a
+//! channel, still RGBA, in the source's own signal ([`Signal`]) - an HDR clip
+//! as it was shot, not tone-mapped to eight bits on the CPU. The decoder
+//! makes one only when a caller asks (`DecodeOptions::deep`) and the source
+//! is wide, and the only caller that asks is the one whose frames go
+//! straight to the GPU, which brings them into its working space as it
+//! uploads them. Nothing else ever sees one, so no call site branches on
+//! the depth: the note that once said a deeper frame would arrive as a
+//! type of its own gave way to that, since a second type would have run
+//! through the frame pool, the plan and every cache for one reader.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Bytes per pixel in the one format Concat uses.
+/// Bytes per pixel of an eight-bit frame, the format nearly everything uses.
 pub const BYTES_PER_PIXEL: usize = 4;
+
+/// How many bits a channel a frame's pixels hold.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Depth {
+    /// Eight: `u8` channels, four bytes a pixel.
+    #[default]
+    Eight,
+    /// Sixteen: little-endian `u16` channels, eight bytes a pixel.
+    Sixteen,
+}
+
+/// What a frame's RGB values mean: the transfer they are encoded with and
+/// the primaries they are on. An eight-bit frame is always [`Signal::Sdr`];
+/// a deep one carries its source's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Signal {
+    /// Gamma-encoded (BT.1886, 2.4) on Rec. 709 primaries.
+    #[default]
+    Sdr,
+    /// Gamma-encoded (BT.1886, 2.4) on Rec. 2020 primaries: a wide-gamut
+    /// SDR source.
+    SdrWide,
+    /// ARIB STD-B67 hybrid log-gamma on Rec. 2020: an iPhone's HDR.
+    Hlg,
+    /// SMPTE ST 2084 perceptual quantiser on Rec. 2020: HDR10.
+    Pq,
+}
 
 /// The next frame identity; see [`Frame::id`].
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -36,6 +70,10 @@ pub struct Frame {
     pixels: Vec<u8>,
     /// Which picture this is; see [`Frame::id`].
     id: u64,
+    /// Eight bits a channel, or sixteen for a deep frame.
+    depth: Depth,
+    /// What the values mean.
+    signal: Signal,
 }
 
 impl Clone for Frame {
@@ -47,6 +85,8 @@ impl Clone for Frame {
             height: self.height,
             pixels: self.pixels.clone(),
             id: mint(),
+            depth: self.depth,
+            signal: self.signal,
         }
     }
 }
@@ -54,7 +94,11 @@ impl Clone for Frame {
 impl PartialEq for Frame {
     /// The same picture, whatever its identity.
     fn eq(&self, other: &Self) -> bool {
-        self.width == other.width && self.height == other.height && self.pixels == other.pixels
+        self.width == other.width
+            && self.height == other.height
+            && self.depth == other.depth
+            && self.signal == other.signal
+            && self.pixels == other.pixels
     }
 }
 
@@ -85,6 +129,8 @@ impl Frame {
             height,
             pixels,
             id: mint(),
+            depth: Depth::Eight,
+            signal: Signal::Sdr,
         }
     }
 
@@ -95,6 +141,8 @@ impl Frame {
             height,
             pixels: vec![0u8; Self::byte_len(width, height)],
             id: mint(),
+            depth: Depth::Eight,
+            signal: Signal::Sdr,
         }
     }
 
@@ -108,7 +156,40 @@ impl Frame {
             height,
             pixels,
             id: mint(),
+            depth: Depth::Eight,
+            signal: Signal::Sdr,
         })
+    }
+
+    /// Wraps a deep buffer: little-endian `u16` RGBA, exactly `width *
+    /// height * 8` bytes, in `signal`. `None` if the size is wrong.
+    pub fn from_rgba64(width: u32, height: u32, pixels: Vec<u8>, signal: Signal) -> Option<Self> {
+        (pixels.len() == Self::byte_len(width, height) * 2).then_some(Self {
+            width,
+            height,
+            pixels,
+            id: mint(),
+            depth: Depth::Sixteen,
+            signal,
+        })
+    }
+
+    /// Eight bits a channel, or sixteen.
+    pub const fn depth(&self) -> Depth {
+        self.depth
+    }
+
+    /// What the values mean: see [`Signal`].
+    pub const fn signal(&self) -> Signal {
+        self.signal
+    }
+
+    /// Bytes a pixel of this frame takes.
+    pub const fn bytes_per_pixel(&self) -> usize {
+        match self.depth {
+            Depth::Eight => BYTES_PER_PIXEL,
+            Depth::Sixteen => BYTES_PER_PIXEL * 2,
+        }
     }
 
     /// Width in pixels.
@@ -152,15 +233,27 @@ impl Frame {
         Some((y as usize * self.width as usize + x as usize) * BYTES_PER_PIXEL)
     }
 
-    /// Reads one pixel as `[r, g, b, a]`.
+    /// Reads one pixel as `[r, g, b, a]`: a deep frame's to eight bits, its
+    /// channels' high bytes, for a test or a log to look at.
     pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
         let offset = self.offset_of(x, y)?;
-        Some([
-            self.pixels[offset],
-            self.pixels[offset + 1],
-            self.pixels[offset + 2],
-            self.pixels[offset + 3],
-        ])
+        Some(match self.depth {
+            Depth::Eight => [
+                self.pixels[offset],
+                self.pixels[offset + 1],
+                self.pixels[offset + 2],
+                self.pixels[offset + 3],
+            ],
+            Depth::Sixteen => {
+                let at = offset * 2;
+                [
+                    self.pixels[at + 1],
+                    self.pixels[at + 3],
+                    self.pixels[at + 5],
+                    self.pixels[at + 7],
+                ]
+            }
+        })
     }
 
     /// Writes one pixel. Out-of-bounds writes are ignored.
@@ -215,6 +308,8 @@ impl fmt::Debug for Frame {
             .field("width", &self.width)
             .field("height", &self.height)
             .field("bytes", &self.pixels.len())
+            .field("depth", &self.depth)
+            .field("signal", &self.signal)
             .finish()
     }
 }

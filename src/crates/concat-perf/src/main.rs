@@ -716,6 +716,13 @@ fn decode_4k() -> Vec<Measure> {
         &DecodeOptions::default().scaled_to(960, 540),
         hlg.frames,
     );
+    // The same stream the way the monitor now reads it: deep, in its own
+    // signal, the conversion left to the GPU's upload.
+    let (deep_fps, deep_on) = decode_with(
+        &hlg.path,
+        &DecodeOptions::default().scaled_to(960, 540).deep(true),
+        hlg.frames,
+    );
     concat_media::set_hardware_decode(false);
     vec![
         Measure {
@@ -750,11 +757,24 @@ fn decode_4k() -> Vec<Measure> {
             note: format!("the slowest stream; {}", used(three_on, &hevc)),
         },
         Measure {
-            name: "decode 4K HLG to the SDR monitor, 960x540",
+            name: "decode 4K HLG tone-mapped on the CPU, 960x540",
             value: hlg_fps,
             unit: "fps",
+            budget: Budget::AtLeast(15.0),
+            note: format!(
+                "the eight-bit fallback, for a clip with a chain or a cutout; {}",
+                used(hlg_on, &hlg)
+            ),
+        },
+        Measure {
+            name: "decode 4K HLG deep for the GPU, 960x540",
+            value: deep_fps,
+            unit: "fps",
             budget: Budget::AtLeast(30.0),
-            note: format!("tone-mapped on the CPU; {}", used(hlg_on, &hlg)),
+            note: format!(
+                "converted on the GPU as it uploads; {}",
+                used(deep_on, &hlg)
+            ),
         },
     ]
 }
