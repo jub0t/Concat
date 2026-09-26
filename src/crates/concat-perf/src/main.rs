@@ -26,7 +26,9 @@ use concat_core::frame::Frame;
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_media::decode::{DecodeOptions, Decoder, FrameSource};
-use concat_media::{EncodeOptions, Encoder, FrameRequest, FrameSink, ReaderPool};
+use concat_media::{
+    EncodeOptions, Encoder, FrameRequest, FrameSink, RateMode, ReaderPool, VideoCodec,
+};
 use concat_project::model::AppliedFilter;
 use concat_project::{Command, Editor};
 use concat_render::{Compositor, CpuCompositor, FramePlan, PlannedLayer, plan_frame};
@@ -77,6 +79,7 @@ fn main() {
         if let Some(measure) = decode_hardware(&media) {
             results.push(measure);
         }
+        results.extend(decode_4k());
         results.extend(scrub(&media));
         results.push(compose_cpu());
         if let Some(measure) = compose_gpu() {
@@ -439,26 +442,55 @@ impl Media {
     const HEIGHT: u32 = 1080;
 
     fn synthesise() -> Media {
-        let dir = std::env::temp_dir().join(format!("concat-perf-{}", std::process::id()));
+        Self::synthesise_as(
+            "perf-1080p",
+            (Self::WIDTH, Self::HEIGHT),
+            90,
+            VideoCodec::H264,
+            false,
+            false,
+        )
+    }
+
+    /// `frames` of a `width` x `height` gradient in `codec`, in a folder of
+    /// its own so each file's drop takes only its own.
+    fn synthesise_as(
+        name: &str,
+        (width, height): (u32, u32),
+        frames: u32,
+        codec: VideoCodec,
+        ten_bit: bool,
+        grain: bool,
+    ) -> Media {
+        let dir = std::env::temp_dir().join(format!("concat-perf-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a temp dir");
-        let path = dir.join("perf-1080p.mp4");
-        let frames = 90;
+        let path = dir.join(format!("{name}.mp4"));
         let mut encoder = Encoder::create(
             &path,
-            Self::WIDTH,
-            Self::HEIGHT,
+            width,
+            height,
             FrameRate::THIRTY,
             &EncodeOptions {
+                codec,
+                ten_bit,
                 preset: "veryfast".to_owned(),
                 hardware: false,
+                // Grain stands for a phone's footage, and so does its rate:
+                // held at the 50 Mb/s an iPhone records 4K at 30 with,
+                // rather than whatever a codec's quality target lands on.
+                rate_mode: if grain { RateMode::Cbr } else { RateMode::Vbr },
+                bitrate_kbps: if grain { 50_000 } else { 0 },
                 ..EncodeOptions::default()
             },
         )
-        .expect("the linked FFmpeg encodes h264");
+        .expect("the linked FFmpeg encodes the codec");
         for index in 0..frames {
-            encoder
-                .write_frame(&gradient(Self::WIDTH, Self::HEIGHT, index as u8))
-                .expect("writes");
+            let picture = if grain {
+                grainy(width, height, index as u8)
+            } else {
+                gradient(width, height, index as u8)
+            };
+            encoder.write_frame(&picture).expect("writes");
         }
         encoder.finish().expect("finishes");
         Media { path, frames }
@@ -474,6 +506,26 @@ impl Drop for Media {
 }
 
 /// A picture with something in it everywhere, different per `seed`.
+/// [`gradient`] with grain on it: a few levels of noise per pixel, new each
+/// frame, as a camera's sensor gives. A clean gradient compresses to next
+/// to nothing and decodes at several times the rate of real footage; the
+/// grain brings the bitrate, and so the decoder's work, near a phone's.
+fn grainy(width: u32, height: u32, seed: u8) -> Frame {
+    let mut frame = gradient(width, height, seed);
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64 ^ u64::from(seed);
+    for pixel in frame.pixels_mut().chunks_exact_mut(4) {
+        // xorshift64: cheap, and all that is wanted is noise.
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        let grain = (state & 0x07) as i16 - 4;
+        for channel in &mut pixel[..3] {
+            *channel = (i16::from(*channel) + grain).clamp(0, 255) as u8;
+        }
+    }
+    frame
+}
+
 fn gradient(width: u32, height: u32, seed: u8) -> Frame {
     let mut frame = Frame::black(width, height);
     let stride = width as usize * 4;
@@ -548,6 +600,82 @@ fn decode_hardware(media: &Media) -> Option<Measure> {
             None => "fell back to software".to_owned(),
         },
     })
+}
+
+/// 4K with grain, as phones and cameras record it, through the decoder choice the app
+/// makes (`HwPolicy::Preference` with hardware decode on): 8-bit H.264,
+/// which the CPU takes, and 10-bit HEVC, which the chip takes where there
+/// is one - with 10-bit HEVC in software beside it, for what the chip buys.
+/// The floors are 4K at 30, the rate a phone records 4K at by default, and
+/// 24 for software alone: kept low enough for an older laptop. On an M5 at
+/// 50 Mb/s, H.264 read 186 fps in software and 10-bit HEVC 114 on the chip
+/// against 56 without it; every hardware frame is still copied back and
+/// converted on the CPU, which the zero-copy phase of the HDR plan removes.
+fn decode_4k() -> Vec<Measure> {
+    concat_media::set_hardware_decode(true);
+    let h264 = Media::synthesise_as(
+        "perf-4k-h264",
+        (3840, 2160),
+        60,
+        VideoCodec::H264,
+        false,
+        true,
+    );
+    let hevc = Media::synthesise_as(
+        "perf-4k-hevc10",
+        (3840, 2160),
+        60,
+        VideoCodec::Hevc,
+        true,
+        true,
+    );
+    // The bitrate beside where it decoded, so a reading can be held against
+    // a phone's: an iPhone's 4K at 30 is about 50 Mb/s.
+    let rate = |media: &Media| {
+        let bytes = std::fs::metadata(&media.path).map_or(0, |meta| meta.len());
+        bytes as f64 * 8.0 / 1e6 / (f64::from(media.frames) / 30.0)
+    };
+    let used = |device: Option<concat_media::HwDevice>, media: &Media| {
+        let on = match device {
+            Some(device) => format!("on {}", device.label()),
+            None => "in software".to_owned(),
+        };
+        format!("{on}, {:.0} Mb/s", rate(media))
+    };
+    let (h264_fps, h264_on) = decode_with(&h264.path, &DecodeOptions::default(), h264.frames);
+    let (hevc_fps, hevc_on) = decode_with(&hevc.path, &DecodeOptions::default(), hevc.frames);
+    let (soft_fps, _) = decode_with(
+        &hevc.path,
+        &DecodeOptions::default().in_software(),
+        hevc.frames,
+    );
+    concat_media::set_hardware_decode(false);
+    vec![
+        Measure {
+            name: "decode 4K h264, the app's choice",
+            value: h264_fps,
+            unit: "fps",
+            budget: Budget::AtLeast(30.0),
+            note: used(h264_on, &h264),
+        },
+        Measure {
+            name: "decode 4K HEVC 10-bit, the app's choice",
+            value: hevc_fps,
+            unit: "fps",
+            budget: Budget::AtLeast(30.0),
+            note: used(hevc_on, &hevc),
+        },
+        Measure {
+            name: "decode 4K HEVC 10-bit in software",
+            value: soft_fps,
+            unit: "fps",
+            budget: Budget::AtLeast(24.0),
+            note: format!(
+                "what a machine without the chip gets, {:.0} Mb/s",
+                rate(&hevc)
+            ),
+        },
+    ]
 }
 
 /// A scrub through the reader pool: forward over the file, back over it,
