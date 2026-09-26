@@ -1,0 +1,39 @@
+# Curves on the display level. With no points a curve is the line from
+# black to white, at every bound; an S on luma darkens the shadows and
+# brightens the highlights and keeps each colour's hue; a level past white
+# is carried on past the curve's white.
+
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.3, 0.2, 0.12, 1]
+
+[[probe]]
+name = "minimum"
+at = "min"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.3, 0.2, 0.12, 1]
+
+[[probe]]
+name = "maximum"
+at = "max"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.3, 0.2, 0.12, 1]
+
+[[probe]]
+name = "an S on luma"
+params = { "luma.0.x" = 0, "luma.0.y" = 0, "luma.1.x" = 0.25, "luma.1.y" = 0.18, "luma.2.x" = 0.75, "luma.2.y" = 0.84, "luma.3.x" = 1, "luma.3.y" = 1 }
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.334194, 0.222796, 0.133677, 1]
+
+[[probe]]
+name = "an S on luma, past white"
+params = { "luma.0.x" = 0, "luma.0.y" = 0, "luma.1.x" = 0.25, "luma.1.y" = 0.18, "luma.2.x" = 0.75, "luma.2.y" = 0.84, "luma.3.x" = 1, "luma.3.y" = 1 }
+input = [4.0, 2.0, 1.0, 1]
+expect = [4.0, 2.0, 1.0, 1]
+
+[[probe]]
+name = "red lifted at black and held down at white"
+params = { "red.0.x" = 0, "red.0.y" = 0.1, "red.1.x" = 1, "red.1.y" = 0.9 }
+input = [0.0, 0.5, 1.0, 1]
+expect = [0.00398107, 0.5, 1.0, 1]

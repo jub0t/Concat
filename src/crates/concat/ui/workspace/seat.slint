@@ -221,6 +221,12 @@ export component Seat inherits Rectangle {
             audio-params: Editor.audio-params;
             adjust-params: Editor.adjust-params;
             adjust-set(key, value) => { Editor.adjust-set(key, value); }
+            adjust-wheels: Editor.adjust-wheels;
+            adjust-curves: Editor.adjust-curves;
+            visual-wheels: Editor.visual-wheels;
+            visual-curves: Editor.visual-curves;
+            curve-point(entry, key, point, x, y) => { Editor.curve-point(entry, key, point, x, y); }
+            curve-remove(entry, key, point) => { Editor.curve-remove(entry, key, point); }
             jump-token: Editor.inspector-jump-token;
             jump-tab: Editor.inspector-jump-tab;
             jump-section: Editor.inspector-jump-section;

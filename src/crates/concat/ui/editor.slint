@@ -5,6 +5,9 @@ import { EffectData } from "demo/effects-panel.slint";
 import {
     AppliedEntryData, AppliedParamData, CatalogueEntryData,
 } from "inspector/clip-inspector.slint";
+import {
+    CurveData, CurveGroupData, WheelData, WheelGroupData,
+} from "inspector/grading.slint";
 import { MediaFilter, MediaItemData, TextPresetData } from "workspace/media-pane.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
@@ -147,6 +150,16 @@ export global Editor {
     /// The Adjust tab: the colour package's knobs for the selected clip.
     in-out property <[AppliedParamData]> adjust-params;
     callback adjust-set(key: string, value: float);
+    /// The Adjust tab's wheels and curves, and the picture chain's, a
+    /// group a link: see `grading.slint`. A wheel's puck and master are set
+    /// as knobs, `<key>.x`, `<key>.y` and `<key>.m`; a curve's points by
+    /// these two, `entry` -1 for the Adjust tab's.
+    in-out property <[WheelData]> adjust-wheels;
+    in-out property <[CurveData]> adjust-curves;
+    in-out property <[WheelGroupData]> visual-wheels;
+    in-out property <[CurveGroupData]> visual-curves;
+    callback curve-point(entry: int, key: string, point: int, x: float, y: float);
+    callback curve-remove(entry: int, key: string, point: int);
 
     /// Something was just applied from the library: the inspector should
     /// show it. The token changes with every application; the tab and

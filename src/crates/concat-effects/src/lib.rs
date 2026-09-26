@@ -242,6 +242,36 @@ mod tests {
         assert!(gaps.is_empty(), "\n{}", gaps.join("\n"));
     }
 
+    /// A compound knob's dotted keys reach its shader: a wheel's puck and a
+    /// curve's points go through `resolve` with the knobs, and keys the
+    /// package does not own stay behind.
+    #[test]
+    fn a_compound_knob_is_resolved_whole() {
+        let package = Catalogue::builtin()
+            .get("concat.color-wheels")
+            .expect("a built-in");
+        let set: BTreeMap<String, f64> = [
+            ("lift.x", 0.5),
+            ("lift.m", -0.25),
+            ("lift.q", 9.0),
+            ("stray", 1.0),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect();
+        let values = package.resolve(&set);
+        assert_eq!(values.get("lift.x"), Some(&0.5));
+        assert_eq!(values.get("lift.m"), Some(&-0.25));
+        assert!(!values.contains_key("lift.q") && !values.contains_key("stray"));
+        let bounds = package.params_at(At::Max);
+        assert_eq!(
+            bounds.get("gain.m"),
+            Some(&1.0),
+            "a wheel's master at its bound"
+        );
+        assert_eq!(bounds.get("gain.x"), Some(&0.0), "its puck in the middle");
+    }
+
     const EXPOSED: &str = "format = 2\n[effect]\nid = \"a.lift\"\nname = \"Lift\"\nkind = \"effect\"\n\
         [[param]]\nkey = \"stops\"\nlabel = \"Stops\"\nmin = -2\nmax = 2\n\
         [wgsl]\nentry = \"effect.wgsl\"\n";

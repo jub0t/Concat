@@ -12,6 +12,13 @@ struct Params {
     sharpen: f32,
     vignette: f32,
     fade: f32,
+    lift: vec3<f32>,
+    gamma: vec3<f32>,
+    gain: vec3<f32>,
+    luma: array<vec4<f32>, 8>,
+    red: array<vec4<f32>, 8>,
+    green: array<vec4<f32>, 8>,
+    blue: array<vec4<f32>, 8>,
 }
 
 // The manual colour panel, in the order a colourist works: exposure and
@@ -19,9 +26,9 @@ struct Params {
 // does is done in light - exposure in stops, the white balance, the
 // vignette - and contrast in stops about middle grey; what an eye judges
 // on the picture - brightness, saturation, the four tonal bands, the fade,
-// sharpness - in the display encoding its sliders were drawn in, which
-// here is never clipped: a highlight past white is carried on past it.
-// Every knob at its default is the picture as it came.
+// the wheels and curves, sharpness - in the display encoding its sliders
+// were drawn in, which here is never clipped: a highlight past white is
+// carried on past it. Every knob at its default is the picture as it came.
 
 /// `by` added to a display-encoded colour, as far down as black and no
 /// further: a channel that is lit is not taken below nothing.
@@ -59,9 +66,13 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let black = (1.0 - smoothstep(0.0, 0.25, l)) * params.blacks / 100.0 * 0.1;
     let white = smoothstep(0.75, 1.0, l) * params.whites / 100.0 * 0.1;
     d = lifted(d, low + high + black + white);
-    let lift = params.fade / 100.0 * 0.25;
+    let matte = params.fade / 100.0 * 0.25;
     let below = min(d, vec3<f32>(1.0));
-    d = below * (1.0 - lift) + vec3<f32>(lift) + (d - below);
+    d = below * (1.0 - matte) + vec3<f32>(matte) + (d - below);
+
+    // The wheels, then the curves, on the display level too.
+    d = grade_wheels(d, params.lift, params.gamma, params.gain);
+    d = grade_curves(d, params.luma, params.red, params.green, params.blue);
 
     // Sharpen: the picture's difference from a small blur of it, scaled.
     if (params.sharpen > 0.0) {

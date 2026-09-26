@@ -235,6 +235,28 @@ pub enum ParamType {
     /// A position on the picture, stored as two keys `<key>.x` and `<key>.y`
     /// in the 0..1 square.
     Point,
+    /// A colour wheel: a puck on a disc of hues, stored as `<key>.x` and
+    /// `<key>.y` - where it sits in the unit disc, the middle being grey -
+    /// and a master, `<key>.m`, between `min` and `max` from `default`. The
+    /// shader reads a `vec3<f32>`: x, y and the master. Keyed as one knob.
+    Wheel,
+    /// A curve through up to [`MAX_CURVE_POINTS`] points of the unit square,
+    /// stored as `<key>.<n>.x` and `<key>.<n>.y`; none stored is the line
+    /// from black to white. The shader reads an `array<vec4<f32>, 8>`: each
+    /// point's x and y, the slope the curve leaves it at, and the count of
+    /// points. It holds for the clip: it takes no keys.
+    Curve,
+}
+
+/// The most points a curve may have.
+pub const MAX_CURVE_POINTS: usize = 8;
+
+impl ParamType {
+    /// Whether the knob is stored as several numbers under dotted keys of
+    /// its own, rather than as one number under its key.
+    pub fn is_compound(self) -> bool {
+        matches!(self, ParamType::Point | ParamType::Wheel | ParamType::Curve)
+    }
 }
 
 /// The `[ffmpeg]` table: a filter chain template.
@@ -506,6 +528,12 @@ impl Manifest {
                     param.key, param.default, param.min, param.max
                 )));
             }
+            if param.kind == ParamType::Curve && param.animate {
+                return Err(self.invalid(format!(
+                    "curve `{}` holds for the clip: it cannot be animated",
+                    param.key
+                )));
+            }
             if param.kind == ParamType::Enum {
                 if param.values.is_empty() {
                     return Err(self.invalid(format!("enum `{}` lists no values", param.key)));
@@ -640,13 +668,11 @@ impl Manifest {
             return Err(self.invalid("[card] is for a package that draws the picture"));
         }
         for (key, value) in &card.params {
-            let point = key
-                .split_once('.')
-                .filter(|(_, axis)| *axis == "x" || *axis == "y")
-                .and_then(|(name, _)| self.param(name))
-                .filter(|param| param.kind == ParamType::Point);
-            let range = match (self.param(key), point) {
+            let range = match (self.param(key), self.owner(key)) {
                 (Some(param), _) => param.min..=param.max,
+                // A wheel's master is its range; its puck is the unit disc's.
+                (None, Some(param)) if key.ends_with(".m") => param.min..=param.max,
+                (None, Some(param)) if param.kind == ParamType::Wheel => -1.0..=1.0,
                 (None, Some(_)) => 0.0..=1.0,
                 (None, None) if key == "intensity" && self.effect.kind == Kind::Filter => {
                     0.0..=100.0
@@ -700,6 +726,26 @@ impl Manifest {
     /// The declared parameter with this key.
     pub fn param(&self, key: &str) -> Option<&Param> {
         self.params.iter().find(|param| param.key == key)
+    }
+
+    /// The parameter a document key belongs to: a declared key's own, or a
+    /// compound knob's for one of its dotted keys - a point's `<key>.x`, a
+    /// wheel's `<key>.m`, a curve's `<key>.3.y`. None for anything else.
+    pub fn owner(&self, key: &str) -> Option<&Param> {
+        if let Some(param) = self.param(key) {
+            return Some(param);
+        }
+        let (name, rest) = key.split_once('.')?;
+        let param = self.param(name)?;
+        let owned = match param.kind {
+            ParamType::Point => matches!(rest, "x" | "y"),
+            ParamType::Wheel => matches!(rest, "x" | "y" | "m"),
+            ParamType::Curve => rest.split_once('.').is_some_and(|(n, axis)| {
+                n.parse::<usize>().is_ok_and(|n| n < MAX_CURVE_POINTS) && matches!(axis, "x" | "y")
+            }),
+            _ => false,
+        };
+        owned.then_some(param)
     }
 }
 
@@ -927,6 +973,43 @@ mod tests {
         rejects(
             &with(&format!("{}size = \"WIDTH / 2\"\n", pass("x"))),
             "unknown field",
+        );
+    }
+
+    /// A wheel owns its puck and master and a curve its points, each under
+    /// its own key; a curve takes no keys.
+    #[test]
+    fn a_compound_knob_owns_its_dotted_keys() {
+        let manifest = Manifest::parse(
+            "format = 2\n[effect]\nid = \"test.grade\"\nname = \"Grade\"\nkind = \"effect\"\n\
+             [[param]]\nkey = \"lift\"\nlabel = \"Lift\"\ntype = \"wheel\"\nmin = -1\nmax = 1\n\
+             [[param]]\nkey = \"luma\"\nlabel = \"Luma\"\ntype = \"curve\"\n\
+             [[param]]\nkey = \"amount\"\nlabel = \"Amount\"\n\
+             [wgsl]\nentry = \"effect.wgsl\"\n",
+        )
+        .expect("parses");
+        for key in [
+            "lift", "lift.x", "lift.y", "lift.m", "luma", "luma.0.x", "luma.7.y", "amount",
+        ] {
+            assert!(manifest.owner(key).is_some(), "{key}");
+        }
+        for key in [
+            "lift.z", "luma.8.x", "luma.0", "luma.x", "amount.x", "other",
+        ] {
+            assert!(manifest.owner(key).is_none(), "{key}");
+        }
+        assert!(ParamType::Wheel.is_compound() && ParamType::Curve.is_compound());
+        assert!(!ParamType::Float.is_compound());
+        rejects(
+            &format!(
+                "format = 2\n{}",
+                GOOD.replace(
+                    "[ffmpeg]\n        chain = \"gblur=sigma={fixed(radius, 1)}\"",
+                    "[wgsl]\n        entry = \"effect.wgsl\""
+                )
+                .replace("unit = \"px\"", "type = \"curve\"\n        animate = true")
+            ),
+            "cannot be animated",
         );
     }
 

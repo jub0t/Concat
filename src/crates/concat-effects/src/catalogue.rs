@@ -19,7 +19,7 @@ use crate::Error;
 use crate::expr::{Expr, Value};
 use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
-use crate::manifest::{Kind, Manifest};
+use crate::manifest::{Kind, Manifest, ParamType};
 use crate::shader::{Shader, TransitionShader};
 use crate::template::Template;
 
@@ -378,7 +378,7 @@ impl Package {
             if let Some(key) = probe
                 .params
                 .keys()
-                .find(|key| manifest.param(key).is_none() && !(filter && key.as_str() == INTENSITY))
+                .find(|key| manifest.owner(key).is_none() && !(filter && key.as_str() == INTENSITY))
             {
                 return Err(invalid(format!(
                     "fixtures: probe `{}` sets `{key}`, which is not a parameter",
@@ -641,20 +641,24 @@ impl Package {
         self.id() == id || self.manifest.effect.aliases.iter().any(|alias| alias == id)
     }
 
-    /// Every declared parameter at `at`.
+    /// Every declared parameter at `at`: a wheel's master there too, its
+    /// puck at the middle; a curve is the straight line at every one.
     pub fn params_at(&self, at: At) -> BTreeMap<String, f64> {
-        self.manifest
-            .params
-            .iter()
-            .map(|param| {
-                let value = match at {
-                    At::Default => param.default,
-                    At::Min => param.min,
-                    At::Max => param.max,
-                };
-                (param.key.clone(), value)
-            })
-            .collect()
+        let mut params = BTreeMap::new();
+        for param in &self.manifest.params {
+            let value = match at {
+                At::Default => param.default,
+                At::Min => param.min,
+                At::Max => param.max,
+            };
+            params.insert(param.key.clone(), value);
+            if param.kind == ParamType::Wheel {
+                params.insert(format!("{}.x", param.key), 0.0);
+                params.insert(format!("{}.y", param.key), 0.0);
+                params.insert(format!("{}.m", param.key), value);
+            }
+        }
+        params
     }
 
     /// Every declared parameter at `at`, with `set` on top.
@@ -664,17 +668,26 @@ impl Package {
         params
     }
 
-    /// Every declared parameter: the value in `set`, or the default. Keys
-    /// the manifest does not declare are dropped.
+    /// Every declared parameter: the value in `set`, or the default, and a
+    /// compound knob's dotted keys as `set` has them - a wheel's puck and
+    /// master, a curve's points. Keys the manifest does not own are
+    /// dropped.
     pub fn resolve(&self, set: &BTreeMap<String, f64>) -> BTreeMap<String, f64> {
-        self.manifest
-            .params
-            .iter()
-            .map(|param| {
-                let value = set.get(&param.key).copied().unwrap_or(param.default);
-                (param.key.clone(), value)
-            })
-            .collect()
+        let mut values = BTreeMap::new();
+        for param in &self.manifest.params {
+            let value = set.get(&param.key).copied().unwrap_or(param.default);
+            values.insert(param.key.clone(), value);
+            if param.kind.is_compound() {
+                let prefix = format!("{}.", param.key);
+                values.extend(
+                    set.range(prefix.clone()..)
+                        .take_while(|(key, _)| key.starts_with(&prefix))
+                        .filter(|(key, _)| self.manifest.owner(key).is_some())
+                        .map(|(key, value)| (key.clone(), *value)),
+                );
+            }
+        }
+        values
     }
 
     /// The FFmpeg fragment for these parameters, or `None` when the package

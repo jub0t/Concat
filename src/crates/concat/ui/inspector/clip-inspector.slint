@@ -29,6 +29,14 @@ import {
     SwitchRow,
 } from "controls.slint";
 import {
+    ColorWheel,
+    CurveData,
+    CurveEditor,
+    CurveGroupData,
+    WheelData,
+    WheelGroupData,
+} from "grading.slint";
+import {
     ClipField,
     ClipKind,
     Keyframes,
@@ -192,6 +200,9 @@ export component PresetStack inherits VerticalLayout {
     /// spliced from the language.
     in property <[AppliedEntryData]> applied;
     in property <[AppliedParamData]> params;
+    /// The links' wheels and curves, a group a link that has any.
+    in property <[WheelGroupData]> wheel-groups;
+    in property <[CurveGroupData]> curve-groups;
 
     /// Which of the three libraries this is: 0 filters, 1 effects, 2 audio.
     /// The index its view state and its callbacks are keyed by.
@@ -213,6 +224,9 @@ export component PresetStack inherits VerticalLayout {
     callback remove(index: int);
     /// One knob moved. The value lands on the echo; `commit` makes it real.
     callback set-param(index: int, key: string, value: float);
+    /// A curve's point moved, or put down when `point` is -1, or taken off.
+    callback curve-point(index: int, key: string, point: int, x: float, y: float);
+    callback curve-remove(index: int, key: string, point: int);
     callback commit();
 
     // The grid. Three columns at the inspector's width, which puts a tile at
@@ -370,6 +384,51 @@ export component PresetStack inherits VerticalLayout {
                                 enabled: item.on;
                                 changed(v) => {
                                     root.set-param(index, p.key, v);
+                                    root.commit();
+                                }
+                            }
+                        }
+
+                        // The link's wheels, three in a row, and its curves.
+                        for g in root.wheel-groups: Rectangle {
+                            visible: g.entry == index;
+                            height: g.entry == index ? trio.preferred-height : 0;
+
+                            trio := HorizontalLayout {
+                                padding-left: Theme.pad;
+                                padding-right: Theme.pad;
+                                spacing: 8px;
+
+                                for w in g.wheels: ColorWheel {
+                                    data: w;
+                                    enabled: item.on;
+                                    moved(x, y) => {
+                                        root.set-param(index, w.key + ".x", x);
+                                        root.set-param(index, w.key + ".y", y);
+                                        root.commit();
+                                    }
+                                    master-changed(v) => {
+                                        root.set-param(index, w.key + ".m", v);
+                                        root.commit();
+                                    }
+                                }
+                            }
+                        }
+                        for g in root.curve-groups: Rectangle {
+                            visible: g.entry == index;
+                            height: g.entry == index ? graph.preferred-height : 0;
+
+                            graph := CurveEditor {
+                                padding-left: Theme.pad;
+                                padding-right: Theme.pad;
+                                curves: g.curves;
+                                enabled: item.on;
+                                point(key, point, x, y) => {
+                                    root.curve-point(index, key, point, x, y);
+                                    root.commit();
+                                }
+                                remove(key, point) => {
+                                    root.curve-remove(index, key, point);
                                     root.commit();
                                 }
                             }
@@ -1639,8 +1698,13 @@ export component SpeedPanel inherits VerticalLayout {
 /// manifest, so a knob added there appears here without a line of UI.
 export component AdjustPanel inherits VerticalLayout {
     in property <[AppliedParamData]> params;
+    in property <[WheelData]> wheels;
+    in property <[CurveData]> curves;
 
     callback set(key: string, value: float);
+    /// A curve's point moved, or put down when `point` is -1, or taken off.
+    callback curve-point(key: string, point: int, x: float, y: float);
+    callback curve-remove(key: string, point: int);
     callback commit();
 
     Section {
@@ -1686,6 +1750,57 @@ export component AdjustPanel inherits VerticalLayout {
                             next: p.next,
                         };
                         changed(v) => { root.set(p.key, v); root.commit(); }
+                    }
+                }
+            }
+
+            // The wheels, three in a row: a puck is two knobs of the panel,
+            // `<key>.x` and `<key>.y`, and the master a third.
+            if root.wheels.length > 0: VerticalLayout {
+                spacing: Theme.gap;
+
+                Subhead {
+                    title: root.wheels[0].group;
+                }
+
+                HorizontalLayout {
+                    padding-left: Theme.pad;
+                    padding-right: Theme.pad;
+                    spacing: 8px;
+
+                    for w in root.wheels: ColorWheel {
+                        data: w;
+                        moved(x, y) => {
+                            root.set(w.key + ".x", x);
+                            root.set(w.key + ".y", y);
+                            root.commit();
+                        }
+                        master-changed(v) => {
+                            root.set(w.key + ".m", v);
+                            root.commit();
+                        }
+                    }
+                }
+            }
+
+            if root.curves.length > 0: VerticalLayout {
+                spacing: Theme.gap;
+
+                Subhead {
+                    title: root.curves[0].group;
+                }
+
+                CurveEditor {
+                    padding-left: Theme.pad;
+                    padding-right: Theme.pad;
+                    curves: root.curves;
+                    point(key, point, x, y) => {
+                        root.curve-point(key, point, x, y);
+                        root.commit();
+                    }
+                    remove(key, point) => {
+                        root.curve-remove(key, point);
+                        root.commit();
                     }
                 }
             }

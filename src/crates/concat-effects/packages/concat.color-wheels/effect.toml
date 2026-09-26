@@ -1,0 +1,51 @@
+format = 2
+
+[effect]
+id = "concat.color-wheels"
+name = "Color Wheels"
+kind = "effect"
+category = "Color"
+order = 14
+description = "Lift, gamma and gain: the shadows, midtones and highlights each pushed towards a hue and made brighter or darker."
+
+[[param]]
+key = "lift"
+group = "Wheels"
+label = "Lift"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[[param]]
+key = "gamma"
+group = "Wheels"
+label = "Gamma"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[[param]]
+key = "gain"
+group = "Wheels"
+label = "Gain"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# At rest the picture is as shot; the card shows a teal shadow and a warm
+# highlight.
+[card]
+params = { "lift.x" = 0.0, "lift.y" = -0.6, "gain.x" = 0.35, "gain.y" = 0.45 }

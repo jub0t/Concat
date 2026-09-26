@@ -195,6 +195,15 @@ ACEScct, in log; tables are kept in floats and uploaded as half floats.
 Looks an earlier build imported as format 1 are rewritten onto this when
 the window loads its packages.
 
+Knobs are numbers in the document (`AppliedFilter::params`), and two kinds
+are several: a `wheel` is its puck, `<key>.x` and `<key>.y`, and its master,
+`<key>.m`, keyed together as one knob; a `curve` is up to eight points,
+`<key>.<n>.x` and `<key>.<n>.y`, which the catalogue lays into the shader
+with the slopes that keep it from overshooting (`grade_wheels`,
+`grade_curves`). The window draws them with widgets of their own
+(`concat/ui/inspector/grading.slint`) in the Adjust tab and in the effect
+stack, and edits them through `concat/src/grading.rs`.
+
 ## 4. Decoding, caching and scheduling
 
 Export decodes every frame once, in order, with one decoder per clip. Everything
