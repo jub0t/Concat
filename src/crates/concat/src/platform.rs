@@ -149,7 +149,11 @@ pub const MACOS: bool = cfg!(target_os = "macos");
 /// the strip and the dock, whatever the screen's size - a tablet is a big
 /// phone here, not a small desk. True on Android and iOS; on a desk,
 /// `CONCAT_PHONE=1` in the environment asks for the same shell in a window,
-/// which is how the phone layout is worked on without a phone.
+/// which is how the phone layout is worked on without a phone. That window
+/// keeps the platform's own title bar - the phone shell has no strip to
+/// drag by and no window buttons, and a phone has no such buttons to show
+/// over its screen - so the desk's chrome sits above the phone's screen,
+/// the way a simulator's does, and never on it.
 pub fn phone() -> bool {
     cfg!(any(target_os = "android", target_os = "ios"))
         || std::env::var_os("CONCAT_PHONE").is_some_and(|value| !value.is_empty() && value != "0")
@@ -238,8 +242,13 @@ pub fn select_backend(
     // without it GNOME's bar came back above the strip:
     // https://github.com/jub0t/Concat/issues/97
     // https://github.com/jub0t/Concat/issues/145
+    //
+    // None of it for the phone shell shown on a desk: that has no strip of
+    // its own, so the platform's title bar stays, buttons and all, above
+    // the phone's screen rather than over it. See `phone`.
+    let desk = !phone();
     #[cfg(target_os = "macos")]
-    {
+    if desk {
         use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
         selector = selector.with_winit_window_attributes_hook(|attributes| {
             attributes
@@ -249,7 +258,7 @@ pub fn select_backend(
         });
     }
     #[cfg(target_os = "windows")]
-    {
+    if desk {
         use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
         selector = selector.with_winit_window_attributes_hook(|attributes| {
             attributes
@@ -258,7 +267,7 @@ pub fn select_backend(
         });
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "android")))]
-    {
+    if desk {
         selector = selector
             .with_winit_window_attributes_hook(|attributes| attributes.with_decorations(false));
     }
