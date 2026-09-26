@@ -72,7 +72,9 @@ export component App inherits Window {
     // a hook alone left GNOME drawing its bar above ours:
     // https://github.com/jub0t/Concat/issues/97
     // https://github.com/jub0t/Concat/issues/145
-    no-frame: root.own-window-buttons;
+    // Not for the phone shell on a desk, which draws no buttons of its own
+    // and keeps the platform's bar above the phone's screen; see platform.rs.
+    no-frame: root.own-window-buttons && !root.phone;
     background: Theme.page;
     default-font-family: Theme.font;
     default-font-size: Theme.fs;
