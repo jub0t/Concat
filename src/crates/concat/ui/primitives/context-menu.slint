@@ -94,6 +94,26 @@ export component ContextMenu inherits Rectangle {
 
     background: transparent;
 
+    /// What the row that was pressed asked for, held for the beat between
+    /// the surface closing and the report going out.
+    ///
+    /// Reported after the close, not before. The report goes to Rust, which
+    /// rebuilds the rows on its way back - a delete empties them - and rows
+    /// rebuilt under an open surface left it standing over the window,
+    /// collapsed to its padding, taking every press until one landed
+    /// outside it (#160). So the id is copied out of the row, the surface
+    /// closes, and the report goes on the next turn of the loop, when there
+    /// is no surface left for the rows to change under.
+    property <string> chosen;
+    report := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.selected(root.chosen);
+        }
+    }
+
     surface := PopupWindow {
         x: root.at-x;
         y: root.at-y;
@@ -202,10 +222,11 @@ export component ContextMenu inherits Rectangle {
                             enabled: item.enabled;
                             mouse-cursor: pointer;
                             clicked => {
-                                // Report first, then close: the row's data is
-                                // certain while the row still exists.
-                                root.selected(item.id);
+                                // The id first, while the row still exists;
+                                // the report after the close - see `chosen`.
+                                root.chosen = item.id;
                                 surface.close();
+                                report.running = true;
                             }
                         }
                     }
