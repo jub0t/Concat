@@ -722,6 +722,11 @@ component Rail inherits Rectangle {
 // it yet, rather than as a button that wandered into a list.
 component NewProjectCard inherits Rectangle {
     in property <bool> enabled: true;
+    /// A row rather than a cell: the plus beside the verb, on a card the
+    /// width of the page and the height of a button. The phone's shape,
+    /// where a poster's height for a plus and a word is a screen's worth
+    /// of nothing.
+    in property <bool> banner;
 
     callback clicked();
 
@@ -735,7 +740,7 @@ component NewProjectCard inherits Rectangle {
 
     animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
-    VerticalLayout {
+    if !root.banner: VerticalLayout {
         alignment: center;
         spacing: 12px;
 
@@ -754,6 +759,28 @@ component NewProjectCard inherits Rectangle {
             font-size: Theme.fs-xl;
             font-weight: Theme.weight-title;
             horizontal-alignment: center;
+        }
+    }
+
+    if root.banner: HorizontalLayout {
+        alignment: center;
+        spacing: 10px;
+
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.plus;
+                size: 20px;
+                tint: Theme.accent;
+            }
+        }
+
+        Text {
+            text: I18n.t("start.newProject");
+            color: Theme.fg;
+            font-size: Theme.fs-xl;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
         }
     }
 
@@ -907,24 +934,37 @@ component ProjectsGrid inherits Rectangle {
     /// poster + the name, the detail and the when under it — and the
     /// new-project card is the same box, so the grid has one row height.
     property <length> card-h: root.card-w * 9 / 16 + 74px;
-    /// The new-project card and every project after it.
-    property <int> count: root.recents.length + 1;
+    /// On a phone the new-project card is a row across the top of the grid
+    /// instead of its first cell - height is the scarce axis there, and a
+    /// poster's worth of it for a plus and a word is too much of it. The
+    /// posters then start from the grid's first cell, under the row.
+    property <bool> banner: root.touchy;
+    property <length> banner-h: 52px;
+    property <length> top: root.banner
+        ? root.banner-h + (root.recents.length > 0 ? root.gap : 0px)
+        : 0px;
+    /// Which cell the first poster takes: the second, after the card, or
+    /// the first under the row.
+    property <int> first: root.banner ? 0 : 1;
+    /// The new-project card, where it is a cell, and every project after it.
+    property <int> count: root.recents.length + root.first;
     property <int> rows: Math.ceil(root.count / root.cols);
 
-    height: root.rows * (root.card-h + root.gap) - root.gap;
+    height: root.top + Math.max(0px, root.rows * (root.card-h + root.gap) - root.gap);
 
     NewProjectCard {
         x: 0;
         y: 0;
-        width: root.card-w;
-        height: root.card-h;
+        width: root.banner ? root.width : root.card-w;
+        height: root.banner ? root.banner-h : root.card-h;
+        banner: root.banner;
         enabled: root.enabled;
         clicked => { root.compose(); }
     }
 
     for project[index] in root.recents: PosterCard {
-        x: Math.mod(index + 1, root.cols) * (root.card-w + root.gap);
-        y: Math.floor((index + 1) / root.cols) * (root.card-h + root.gap);
+        x: Math.mod(index + root.first, root.cols) * (root.card-w + root.gap);
+        y: root.top + Math.floor((index + root.first) / root.cols) * (root.card-h + root.gap);
         width: root.card-w;
         height: root.card-h;
         project: project;
@@ -959,8 +999,9 @@ export component StartScreen inherits Rectangle {
     /// phone's 20px and the desktop's 56px.
     property <length> pad: Math.max(20px, Math.min(56px, root.width / 14));
     /// Room above the heading. The site opens on a screen of air; a window
-    /// has less of it to give, and a phone less again.
-    property <length> pad-top: root.narrow ? 24px
+    /// has less of it to give. A phone has the least, and still wants the
+    /// heading well clear of the top edge and whatever bar sits on it.
+    property <length> pad-top: root.narrow ? 40px
         : Math.max(32px, Math.min(88px, root.height / 9));
     /// The content column: wide enough that the cards read as a shelf.
     property <length> content-w: 1120px;
