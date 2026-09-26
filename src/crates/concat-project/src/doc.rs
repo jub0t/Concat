@@ -32,7 +32,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
-use crate::model::{Clip, MediaItem, Project, Timeline, VideoSettings};
+use crate::model::{Clip, ColorSpace, MediaItem, Project, Timeline, VideoSettings};
 
 /// Bumped only when a change cannot be absorbed by defaulting. Read back
 /// on load: a document from a later version is refused whole rather than
@@ -305,6 +305,7 @@ impl DocumentSettings {
             height: self.height,
             rate_num: self.rate_num,
             rate_den: self.rate_den,
+            color_space: ColorSpace::Sdr,
         }
     }
 }

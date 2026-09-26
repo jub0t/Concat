@@ -41,6 +41,7 @@ pub(super) fn apply(
                 origin: item.origin,
                 placeholder: false,
                 color_range: None,
+                color_space: item.color_space,
                 extra: Default::default(),
             });
             Ok(Outcome {
@@ -88,6 +89,7 @@ pub(super) fn apply(
             media.audio_codec = item.audio_codec;
             media.has_audio = item.has_audio;
             media.audio_tracks = item.audio_tracks;
+            media.color_space = item.color_space;
             media.placeholder = false;
             let kind = match item.kind {
                 MediaKind::Video => ClipKind::Video,

@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use concat_core::frame::Signal;
 use concat_core::time::{FrameRate, Rational};
 use ffmpeg_the_third as ffmpeg;
 
@@ -30,6 +31,9 @@ pub struct VideoStream {
     /// says nothing - which a player then takes for video range. What a
     /// person compares the picture against when it looks washed out.
     pub color_range: Option<ColorRange>,
+    /// What the stream's tags say its picture is: HLG or PQ by its
+    /// transfer, a wide SDR by its primaries, SDR where they say nothing.
+    pub signal: Signal,
 }
 
 /// What an audio stream looks like.
@@ -174,8 +178,21 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
         })?;
 
     // SAFETY: the parameters are live for as long as `stream` is, and the
-    // range is a plain field libavformat filled from the container.
-    let range = unsafe { (*parameters.as_ptr()).color_range };
+    // range, the transfer and the primaries are plain fields libavformat
+    // filled from the container.
+    let (range, transfer, primaries) = unsafe {
+        let raw = &*parameters.as_ptr();
+        (raw.color_range, raw.color_trc, raw.color_primaries)
+    };
+    let signal = {
+        use ffmpeg::color::{Primaries, TransferCharacteristic as Transfer};
+        match (Transfer::from(transfer), Primaries::from(primaries)) {
+            (Transfer::ARIB_STD_B67, _) => Signal::Hlg,
+            (Transfer::SMPTE2084, _) => Signal::Pq,
+            (_, Primaries::BT2020) => Signal::SdrWide,
+            _ => Signal::Sdr,
+        }
+    };
     Ok(VideoStream {
         index: stream.index() as u32,
         codec: parameters.id().name().to_owned(),
@@ -183,6 +200,7 @@ fn video_stream(stream: &ffmpeg::format::stream::Stream<'_>, path: &Path) -> Res
         height,
         frame_rate: FrameRate::new(frame_rate),
         color_range: ColorRange::from_ffmpeg(ffmpeg::color::Range::from(range)),
+        signal,
     })
 }
 
@@ -260,5 +278,47 @@ mod tests {
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
         assert!(probe("does-not-exist.mp4").is_err());
+    }
+
+    /// The probe reads what a file's tags say its picture is: HLG, PQ, or
+    /// SDR where it is BT.709 - the fact a timeline turns HDR by.
+    #[test]
+    fn the_probe_reads_a_files_hdr_tags() {
+        use crate::encode::{EncodeOptions, Encoder, FrameSink, RateMode, VideoCodec};
+        use concat_core::frame::Frame;
+        let dir = std::env::temp_dir().join(format!("concat-probe-hdr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let options = EncodeOptions {
+            codec: VideoCodec::Hevc,
+            preset: "ultrafast".to_owned(),
+            crf: 28,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            ten_bit: false,
+            color_range: crate::ColorRange::Limited,
+            hardware: false,
+            threads: 0,
+        };
+        let rate = FrameRate::from_int(25);
+        for (name, hdr, want) in [
+            ("sdr.mp4", None, Signal::Sdr),
+            ("hlg.mp4", Some(false), Signal::Hlg),
+            ("pq.mp4", Some(true), Signal::Pq),
+        ] {
+            let path = dir.join(name);
+            let mut encoder = match hdr {
+                None => Encoder::create(&path, 64, 64, rate, &options),
+                Some(pq) => Encoder::create_mislabelled_hdr(&path, 64, 64, rate, &options, pq),
+            }
+            .expect("encodes");
+            for _ in 0..3 {
+                encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            let info = probe(&path).expect("probes");
+            assert_eq!(info.video.expect("a picture").signal, want, "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

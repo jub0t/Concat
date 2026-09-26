@@ -168,6 +168,12 @@ pub struct MediaItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub color_range: Option<ColorRange>,
+    /// What the probe found the picture recorded in: HLG or PQ for HDR.
+    /// Left out of the document for SDR - and absent from one written
+    /// before it was kept, which reads as SDR.
+    #[serde(default, skip_serializing_if = "ColorSpace::is_sdr")]
+    #[serde(deserialize_with = "wire::color_space")]
+    pub color_space: ColorSpace,
     /// Where the file came from when the editor made it; see
     /// [`MediaOrigin`]. Absent, and left out of the document, for an
     /// import, and read as absent when it names an origin this build does
@@ -970,7 +976,7 @@ pub(crate) mod wire {
     use serde::{Deserialize, Deserializer};
     use serde_json::Value;
 
-    use super::{ClipKind, MediaKind, ParamKey, TextAlign};
+    use super::{ClipKind, ColorSpace, MediaKind, ParamKey, TextAlign};
 
     /// The entries of a list that parse, in order; not a list at all is
     /// an empty one.
@@ -1044,6 +1050,12 @@ pub(crate) mod wire {
     pub fn media_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<MediaKind, D::Error> {
         let value = Value::deserialize(deserializer)?;
         Ok(serde_json::from_value(value).unwrap_or(MediaKind::Video))
+    }
+
+    /// A colour space by name, SDR for one this build does not know.
+    pub fn color_space<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ColorSpace, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or_default())
     }
 
     /// A text alignment by name, centred for one this build does not know.
@@ -1666,13 +1678,42 @@ impl Default for Timeline {
     }
 }
 
-/// A timeline's output frame and rate.
+/// The colour a picture is in: SDR on Rec. 709, or HDR on Rec. 2020 with
+/// the hybrid log-gamma or the perceptual quantiser transfer. A timeline's
+/// is what it is output in; a media file's, what it was recorded in.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ColorSpace {
+    /// Rec. 709, SDR: every timeline until its first HDR clip.
+    #[default]
+    Sdr,
+    /// Rec. 2020 with HLG: what an iPhone records, and what a timeline
+    /// becomes on its first HDR clip.
+    Hlg,
+    /// Rec. 2020 with PQ: HDR10.
+    Pq,
+}
+
+impl ColorSpace {
+    /// Standard dynamic range: what a document that says nothing is in.
+    pub fn is_sdr(&self) -> bool {
+        *self == ColorSpace::Sdr
+    }
+
+    /// High dynamic range, HLG or PQ.
+    pub fn is_hdr(&self) -> bool {
+        !self.is_sdr()
+    }
+}
+
+/// A timeline's output frame, rate and colour.
 ///
 /// The same four numbers the document's top-level `video` block has always
-/// carried, now one set per timeline. The top-level block is still written,
-/// as the active timeline's, so a build that predates this reads the
-/// document it always did, and a document from such a build gives every
-/// timeline that block on the way in.
+/// carried, now one set per timeline, and the colour it is output in. The
+/// top-level block is still written, as the active timeline's frame and
+/// rate, so a build that predates this reads the document it always did,
+/// and a document from such a build gives every timeline that block on the
+/// way in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoSettings {
@@ -1684,16 +1725,25 @@ pub struct VideoSettings {
     pub rate_num: i64,
     /// Denominator of the frame rate, e.g. 1001 for 29.97 fps.
     pub rate_den: i64,
+    /// The colour the timeline is output in: SDR for every timeline from
+    /// before HDR, and until its first HDR clip (see
+    /// `Editor::follow_first_hdr`). Left out of the document for SDR, so
+    /// those documents stay as they were.
+    #[serde(default, skip_serializing_if = "ColorSpace::is_sdr")]
+    #[serde(deserialize_with = "wire::color_space")]
+    pub color_space: ColorSpace,
 }
 
 impl Default for VideoSettings {
-    /// 1080p at 30, the frame a fresh project has always been born with.
+    /// 1080p at 30 in SDR, the frame a fresh project has always been born
+    /// with.
     fn default() -> Self {
         VideoSettings {
             width: 1920,
             height: 1080,
             rate_num: 30,
             rate_den: 1,
+            color_space: ColorSpace::Sdr,
         }
     }
 }
@@ -1729,6 +1779,7 @@ impl VideoSettings {
             } else {
                 fallback.rate_den
             },
+            color_space: self.color_space,
         }
     }
 

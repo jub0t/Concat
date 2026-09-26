@@ -250,6 +250,7 @@ export component App inherits Window {
     callback project-custom-width-edited(width: float);
     callback project-custom-height-edited(height: float);
     callback project-custom-fps-edited(fps: float);
+    callback project-color-space-changed(index: int);
     callback project-apply();
 
     /// The two speech sheets: captions from a clip's sound, and a title's
@@ -619,6 +620,7 @@ export component App inherits Window {
         custom-width-edited(width) => { root.project-custom-width-edited(width); }
         custom-height-edited(height) => { root.project-custom-height-edited(height); }
         custom-fps-edited(fps) => { root.project-custom-fps-edited(fps); }
+        color-space-changed(index) => { root.project-color-space-changed(index); }
         apply => { root.project-apply(); }
     }
 

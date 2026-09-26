@@ -322,6 +322,11 @@ flowchart LR
   merge by re-anchoring the fractions in those commands, so the document
   stays version 1.
 - Selecting or moving a timeline is view state and does not enter undo.
+- Each timeline has a colour it is output in (`VideoSettings::color_space`:
+  SDR, HLG or PQ; left out of the document for SDR), and each media item the
+  one its probe read from the file's tags. `Editor::follow_first_hdr` turns
+  an SDR timeline HLG when a command puts its first HDR clip on it, in that
+  command's undo step; the Modify sheet sets it back or to PQ.
 
 ## 7. The API and the three doors
 

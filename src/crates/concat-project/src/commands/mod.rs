@@ -13,9 +13,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{
-    AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, Crop, CustomFont, Cutout, CutoutMode,
-    KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, SpeedPoint, Stroke,
-    TextStyle, Timeline, Track, Transition, VideoSettings,
+    AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
+    CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, SpeedPoint,
+    Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -210,6 +210,11 @@ pub struct NewMedia {
     /// nothing.
     #[serde(default)]
     pub origin: Option<MediaOrigin>,
+    /// What the probe found the picture recorded in; see
+    /// `MediaItem::color_space`. Defaulted, for a caller from before it,
+    /// to SDR.
+    #[serde(default)]
+    pub color_space: ColorSpace,
 }
 
 /// Every edit, as the window sends it: a tagged `op` plus camelCase

@@ -119,6 +119,7 @@ impl Editor {
             return Ok(outcome);
         }
         self.tidy_touched(&before);
+        self.follow_first_hdr(&before);
         let continues = match (gesture, self.undo.back()) {
             (Some(gesture), Some(last)) => last.gesture.as_deref() == Some(gesture),
             _ => false,
@@ -166,6 +167,56 @@ impl Editor {
                 if tidied != **clip {
                     *clip = Arc::new(tidied);
                 }
+            }
+        }
+    }
+
+    /// Makes an SDR timeline HLG when the command put its first HDR clip on
+    /// it - a clip of a file recorded in HLG or PQ, where before it had
+    /// none - in the same step, so an undo takes both back. A timeline set
+    /// back to SDR with HDR clips already on it stays SDR (decided 26 Sept:
+    /// the Modify sheet can change it back), and only a timeline the
+    /// command wrote, and did not make, is looked at.
+    fn follow_first_hdr(&mut self, before: &Project) {
+        use std::collections::HashSet;
+        use std::sync::Arc;
+        let hdr = |project: &Project| -> HashSet<String> {
+            project
+                .media
+                .iter()
+                .filter(|media| media.color_space.is_hdr())
+                .map(|media| media.id.clone())
+                .collect()
+        };
+        let now = hdr(&self.project);
+        if now.is_empty() {
+            return;
+        }
+        let then = hdr(before);
+        let previous: std::collections::HashMap<&str, &Arc<crate::model::Timeline>> = before
+            .timelines
+            .iter()
+            .map(|timeline| (timeline.id.as_str(), timeline))
+            .collect();
+        for timeline in &mut self.project.timelines {
+            if timeline.video.color_space.is_hdr() {
+                continue;
+            }
+            // A timeline the command made keeps the colour it was made
+            // with - a copy of one set back to SDR stays SDR.
+            let Some(old) = previous.get(timeline.id.as_str()).copied() else {
+                continue;
+            };
+            if Arc::ptr_eq(old, timeline) {
+                continue;
+            }
+            let had = old.clips.iter().any(|clip| then.contains(&clip.media_id));
+            let has = timeline
+                .clips
+                .iter()
+                .any(|clip| now.contains(&clip.media_id));
+            if has && !had {
+                Arc::make_mut(timeline).video.color_space = crate::model::ColorSpace::Hlg;
             }
         }
     }

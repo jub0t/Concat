@@ -7,9 +7,10 @@
 
 use std::path::{Path, PathBuf};
 
-use concat_core::frame::Frame;
+use concat_core::frame::{Frame, Signal};
 use concat_core::time::Rational;
 use concat_media::{DecodeOptions, Decoder, FrameSource, SeekableSource};
+use concat_project::model::ColorSpace;
 use serde::Serialize;
 
 use crate::projects;
@@ -35,6 +36,9 @@ pub struct VideoStreamInfo {
     /// for limited.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color_range: Option<String>,
+    /// What the picture was recorded in: HLG or PQ for HDR, absent for SDR.
+    #[serde(skip_serializing_if = "ColorSpace::is_sdr")]
+    pub color_space: ColorSpace,
 }
 
 /// An audio stream, as the UI sees it.
@@ -125,6 +129,11 @@ impl MediaSummary {
                 .map(AudioStreamInfo::to_track)
                 .collect(),
             origin: None,
+            color_space: self
+                .video
+                .as_ref()
+                .map(|video| video.color_space)
+                .unwrap_or_default(),
         }
     }
 }
@@ -194,6 +203,11 @@ impl From<concat_media::MediaInfo> for MediaSummary {
                     video.frame_rate.fps().denominator()
                 ),
                 color_range: video.color_range.map(|range| range.name().to_owned()),
+                color_space: match video.signal {
+                    Signal::Hlg => ColorSpace::Hlg,
+                    Signal::Pq => ColorSpace::Pq,
+                    Signal::Sdr | Signal::SdrWide => ColorSpace::Sdr,
+                },
             }),
             audio: info.audio.map(AudioStreamInfo::from_stream),
             audio_tracks: info
@@ -843,6 +857,7 @@ mod tests {
                 height: 1080,
                 frame_rate: concat_core::time::FrameRate::from_int(25),
                 color_range: None,
+                signal: Signal::Sdr,
             }),
             audio: None,
             audio_streams: Vec::new(),
@@ -1029,6 +1044,7 @@ mod tests {
                         has_audio: false,
                         audio_tracks: Vec::new(),
                         origin: None,
+                        color_space: Default::default(),
                     },
                 })
                 .expect("adds")

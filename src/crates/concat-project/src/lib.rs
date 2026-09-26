@@ -59,6 +59,7 @@ mod tests {
                 has_audio,
                 audio_tracks: Vec::new(),
                 origin: None,
+                color_space: Default::default(),
             },
         }
     }
@@ -134,6 +135,104 @@ mod tests {
             Command::UpdateClip { patch, .. } => assert_eq!(patch.crop, None),
             _ => panic!("not an update"),
         }
+    }
+
+    /// A timeline turns HLG with its first HDR clip, in the same undo step
+    /// as the clip; one set back to SDR with HDR clips on it stays SDR; and
+    /// a file recorded in HDR that is only in the bin changes nothing.
+    #[test]
+    fn a_timeline_turns_hdr_with_its_first_hdr_clip() {
+        use crate::model::ColorSpace;
+        let (mut editor, _, _) = fixture();
+        assert!(editor.project().active().video.color_space.is_sdr());
+        let Command::AddMedia { mut item } = media("/iphone.mov", 10.0, true) else {
+            unreachable!()
+        };
+        item.color_space = ColorSpace::Hlg;
+        let hdr = editor
+            .apply(Command::AddMedia { item })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        assert!(
+            editor.project().active().video.color_space.is_sdr(),
+            "in the bin only"
+        );
+        let track_id = editor.project().active().tracks[0].id.clone();
+        let add = |start: f64| Command::AddClip {
+            media_id: hdr.clone(),
+            track_id: track_id.clone(),
+            start,
+            ripple: false,
+        };
+        editor.apply(add(20.0)).expect("adds");
+        assert_eq!(editor.project().active().video.color_space, ColorSpace::Hlg);
+        assert!(editor.undo());
+        assert!(
+            editor.project().active().video.color_space.is_sdr()
+                && editor.project().active().clips.len() == 1,
+            "one step takes both back"
+        );
+        assert!(editor.redo());
+        let timeline_id = editor.project().active_timeline_id.clone();
+        let mut video = editor.project().active().video;
+        video.color_space = ColorSpace::Sdr;
+        editor
+            .apply(Command::SetTimelineVideo { timeline_id, video })
+            .expect("sets");
+        editor.apply(add(40.0)).expect("adds");
+        assert!(
+            editor.project().active().video.color_space.is_sdr(),
+            "set back to SDR, it stays"
+        );
+    }
+
+    /// A timeline's colour is left out of the document for SDR, kept
+    /// through a save and an open for HDR, and read as SDR from a document
+    /// naming one this build does not know; a file's likewise.
+    #[test]
+    fn a_colour_space_round_trips() {
+        use crate::model::{ColorSpace, VideoSettings};
+        let sdr = serde_json::to_value(VideoSettings::default()).expect("writes");
+        assert!(sdr.get("colorSpace").is_none(), "SDR documents unchanged");
+        let hlg = VideoSettings {
+            color_space: ColorSpace::Hlg,
+            ..VideoSettings::default()
+        };
+        let written = serde_json::to_value(hlg).expect("writes");
+        assert_eq!(written["colorSpace"], "hlg");
+        assert_eq!(
+            serde_json::from_value::<VideoSettings>(written).expect("reads"),
+            hlg
+        );
+        let unknown: VideoSettings = serde_json::from_value(json!({
+            "width": 1920, "height": 1080, "rateNum": 30, "rateDen": 1,
+            "colorSpace": "dolbyVision"
+        }))
+        .expect("reads");
+        assert!(unknown.color_space.is_sdr());
+
+        let (mut editor, _, _) = fixture();
+        let timeline_id = editor.project().active_timeline_id.clone();
+        editor
+            .apply(Command::SetTimelineVideo {
+                timeline_id,
+                video: VideoSettings {
+                    color_space: ColorSpace::Pq,
+                    ..editor.project().active().video
+                },
+            })
+            .expect("sets");
+        let Command::AddMedia { mut item } = media("/hdr10.mkv", 5.0, false) else {
+            unreachable!()
+        };
+        item.color_space = ColorSpace::Pq;
+        editor.apply(Command::AddMedia { item }).expect("adds");
+        let document = crate::to_document(&settings(), editor.project());
+        let loaded = Editor::from_document(&document).expect("loads");
+        assert_eq!(loaded.project().active().video.color_space, ColorSpace::Pq);
+        assert_eq!(loaded.project().media[1].color_space, ColorSpace::Pq);
+        assert!(loaded.project().media[0].color_space.is_sdr());
     }
 
     /// Editor with one media item and one clip at [0, 10) on track one.
@@ -646,6 +745,7 @@ mod tests {
             has_audio: false,
             audio_tracks: Vec::new(),
             origin: None,
+            color_space: Default::default(),
         };
         let outcome = editor
             .apply(Command::ReplaceClipMedia {
@@ -677,6 +777,7 @@ mod tests {
             has_audio: true,
             audio_tracks: Vec::new(),
             origin: None,
+            color_space: Default::default(),
         };
         let outcome = editor
             .apply(Command::ReplaceClipMedia {
@@ -744,6 +845,7 @@ mod tests {
                 has_audio: false,
                 audio_tracks: Vec::new(),
                 origin: None,
+                color_space: Default::default(),
             }
         };
         assert!(
@@ -787,6 +889,7 @@ mod tests {
             has_audio: false,
             audio_tracks: Vec::new(),
             origin: None,
+            color_space: Default::default(),
         };
         let freeze_id = editor
             .apply(Command::FreezeFrame {
@@ -864,6 +967,7 @@ mod tests {
                     has_audio: false,
                     audio_tracks: Vec::new(),
                     origin: None,
+                    color_space: Default::default(),
                 }),
             })
             .expect("freezes")
@@ -2346,6 +2450,7 @@ mod tests {
                     has_audio: false,
                     audio_tracks: Vec::new(),
                     origin: None,
+                    color_space: Default::default(),
                 },
             })
             .expect("fills");
@@ -2386,6 +2491,7 @@ mod tests {
                 has_audio: false,
                 audio_tracks: Vec::new(),
                 origin: None,
+                color_space: Default::default(),
             },
         });
         assert!(
@@ -3635,6 +3741,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            color_space: Default::default(),
             origin: None,
             extra: Default::default(),
         });
@@ -3673,6 +3780,7 @@ mod tests {
             audio_tracks: vec![],
             placeholder: false,
             color_range: None,
+            color_space: Default::default(),
             origin: None,
             extra: Default::default(),
         });

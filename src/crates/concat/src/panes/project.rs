@@ -4,6 +4,7 @@
 //! The project sheet: the Details panel's Modify button, as a form.
 
 use concat_project::Command;
+use concat_project::model::ColorSpace;
 use slint::SharedString;
 
 use crate::studio::{OUTPUTS, RATES, Studio, custom_frame, custom_rate, fps_of};
@@ -22,6 +23,8 @@ pub enum ProjectMsg {
     CustomWidth(f32),
     CustomHeight(f32),
     CustomFps(f32),
+    /// A row of the colour list: SDR, HDR HLG, HDR PQ.
+    ColorSpaceChanged(i32),
     Apply,
 }
 
@@ -38,7 +41,12 @@ pub struct ProjectPane {
     pub custom_size: (u32, u32),
     /// The custom rate, as the exact fraction.
     pub custom_rate: (i64, i64),
+    /// What the timeline is output in.
+    pub color_space: ColorSpace,
 }
+
+/// The colour list's rows, in the sheet's order.
+const COLOR_SPACES: [ColorSpace; 3] = [ColorSpace::Sdr, ColorSpace::Hlg, ColorSpace::Pq];
 
 impl ProjectPane {
     /// Applies one message. The studio is the rest of the window; while
@@ -67,6 +75,7 @@ impl ProjectPane {
                         .unwrap_or(RATES.len()),
                     custom_size: (width, height),
                     custom_rate: (num, den),
+                    color_space: video.color_space,
                 };
             }
             ProjectMsg::Close => self.open = false,
@@ -92,13 +101,17 @@ impl ProjectPane {
                 self.custom_size = custom_frame(self.custom_size.0 as f32, height);
             }
             ProjectMsg::CustomFps(fps) => self.custom_rate = custom_rate(f64::from(fps)),
+            ProjectMsg::ColorSpaceChanged(index) => {
+                self.color_space =
+                    COLOR_SPACES[(index.max(0) as usize).min(COLOR_SPACES.len() - 1)];
+            }
             ProjectMsg::Apply => self.apply(studio),
         }
     }
 
-    /// Applies the sheet and closes it. The name is the project's; the frame
-    /// and the rate are the active timeline's, and go as one edit so an undo
-    /// takes both back together. The frame goes the way the monitor's picker
+    /// Applies the sheet and closes it. The name is the project's; the
+    /// frame, the rate and the colour are the active timeline's, and go as
+    /// one edit so an undo takes them back together. The frame goes the way the monitor's picker
     /// sends it, so the two cannot disagree about what a size means.
     fn apply(&mut self, studio: &mut Studio) {
         let sheet = std::mem::take(self);
@@ -113,6 +126,7 @@ impl ProjectPane {
         video.height = height;
         video.rate_num = num;
         video.rate_den = den;
+        video.color_space = sheet.color_space;
         session.prepare_save((!name.is_empty()).then_some(name.as_str()));
         if !name.is_empty() {
             studio.project_name = name;
@@ -159,6 +173,10 @@ impl ProjectPane {
             custom_height: height as f32,
             custom_fps: fps_of(num, den) as f32,
             rate_readout: format!("{num}/{den}").into(),
+            color_space: COLOR_SPACES
+                .iter()
+                .position(|space| *space == self.color_space)
+                .unwrap_or(0) as i32,
         }
     }
 }

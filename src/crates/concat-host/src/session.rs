@@ -307,6 +307,7 @@ mod tests {
                 height: 720,
                 rate_num: 25,
                 rate_den: 1,
+                color_space: Default::default(),
             })
             .expect("sets the frame");
         session.save(Some("Renamed")).expect("saves");
