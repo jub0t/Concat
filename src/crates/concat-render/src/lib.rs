@@ -13,26 +13,30 @@
 //!    description of the frame.
 //! 2. [`compositor`] takes that plan and nothing else, and draws it.
 //!
-//! Only step 2 is backend-specific. The CPU compositor is the reference
-//! implementation; the GPU one exists to be fast and must match it, which
-//! the parity suite holds it to.
+//! Step 2 is the GPU's alone: [`WgpuCompositor`] draws every frame, on the
+//! platform's software adapter where a machine has no GPU. The CPU
+//! compositor that used to be the reference is kept in the tests only, as
+//! the oracle the GPU's parity suite checks it against.
 
 pub mod compositor;
-#[cfg(feature = "gpu")]
 pub mod gpu;
-pub mod kernels;
+#[cfg(test)]
+mod kernels;
 pub mod metrics;
 pub mod plan;
+#[cfg(test)]
+mod reference;
+#[cfg(test)]
 mod transitions;
 
-pub use compositor::{Compositor, CpuCompositor};
-#[cfg(feature = "gpu")]
+pub use compositor::Compositor;
 pub use gpu::WgpuCompositor;
 pub use metrics::ssim;
 pub use plan::{
     Crop, FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading, Transition, detached_clip,
     plan_frame,
 };
+#[cfg(test)]
+pub(crate) use reference::CpuCompositor;
 /// The wgpu the compositor is built on, for callers that share its device.
-#[cfg(feature = "gpu")]
 pub use wgpu;

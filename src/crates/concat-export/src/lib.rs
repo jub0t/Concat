@@ -44,7 +44,7 @@ use concat_media::{
 };
 use concat_project::model::{AppliedFilter, Cutout};
 use concat_render::{
-    Compositor, CpuCompositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, plan_frame,
+    Compositor, FramePlan, PlannedLayer, PlannedTreatment, Transition, WgpuCompositor, plan_frame,
 };
 use concat_vision::{Mapping, MaskStore};
 use serde::Deserialize;
@@ -1063,15 +1063,32 @@ fn ground_layer(ground: Frame) -> PlannedLayer {
     PlannedLayer::picture(concat_render::detached_clip(), std::sync::Arc::new(ground))
 }
 
-/// The best compositor this machine offers: the GPU when the `gpu` feature is
-/// on and the machine has one, the CPU reference otherwise. Never an error -
-/// a machine with no adapter renders slower, not not-at-all.
-fn best_compositor() -> (Box<dyn Compositor>, bool) {
-    #[cfg(feature = "gpu")]
-    if let Some(gpu) = concat_render::WgpuCompositor::new() {
-        return (Box::new(gpu), true);
-    }
-    (Box::new(CpuCompositor), false)
+/// The compositor an export draws with: the machine's GPU, or its software
+/// adapter where it has none (see [`WgpuCompositor::new`]). The one error is
+/// a machine with neither, which is said in words a person can act on.
+fn best_compositor() -> Result<(Box<dyn Compositor>, bool), String> {
+    WgpuCompositor::new()
+        .map(|gpu| (Box::new(gpu) as Box<dyn Compositor>, true))
+        .ok_or_else(|| NO_RENDERER.to_owned())
+}
+
+/// What an export or a preview says on a machine that offers no GPU and no
+/// software renderer either.
+const NO_RENDERER: &str = "no GPU or software renderer is available to draw with - on Linux, \
+     install Mesa's Vulkan drivers (lavapipe)";
+
+/// A compositor for the frames drawn without a window: the API's and the
+/// command line's previews. Made once and kept, since making a device is
+/// far slower than drawing one small frame on it.
+fn headless<T>(draw: impl FnOnce(&mut WgpuCompositor) -> T) -> Result<T, String> {
+    static HEADLESS: std::sync::OnceLock<Option<std::sync::Mutex<WgpuCompositor>>> =
+        std::sync::OnceLock::new();
+    let slot = HEADLESS
+        .get_or_init(|| WgpuCompositor::new().map(std::sync::Mutex::new))
+        .as_ref()
+        .ok_or_else(|| NO_RENDERER.to_owned())?;
+    let mut gpu = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    Ok(draw(&mut gpu))
 }
 
 /// Composites every frame of the timeline into a soundless video file.
@@ -1084,7 +1101,7 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
-    let (mut compositor, gpu) = best_compositor();
+    let (mut compositor, gpu) = best_compositor()?;
     let BuiltTimeline {
         timeline,
         stills,
@@ -1259,6 +1276,9 @@ fn render_picture(
             &treatments,
             &transitions,
         );
+        if compositor.lost() {
+            return Err("the GPU device was lost part way through the export".to_owned());
+        }
         encoder
             .write_frame(&composed)
             .map_err(|error| error.to_string())?;
@@ -1515,11 +1535,11 @@ pub fn preview_frame(
     pool: &concat_media::ReaderPool,
     request: &PreviewFrameRequest,
 ) -> Result<Vec<u8>, String> {
-    let sources = preview_sources(pool, request, false)?;
-    // CPU on purpose: one frame at preview size is milliseconds, and holding
-    // a GPU context alive for occasional scrubs is not worth its memory. The
-    // window composites on its own device through `preview_sources`.
-    Ok(sources.composite(&mut CpuCompositor).into_pixels())
+    let sources = preview_sources(pool, request, true)?;
+    // The window composites on its own device through `preview_sources`;
+    // this is the API's and the command line's frame, on the shared
+    // headless compositor.
+    headless(|gpu| sources.composite(gpu).into_pixels())
 }
 
 /// The paused monitor's frame, described but not yet drawn: the plan
@@ -1570,6 +1590,12 @@ impl PreviewSources {
         )
     }
 
+    /// The frame as raw RGBA, drawn on the shared headless compositor: the
+    /// monitor's picture where the window has no device of its own.
+    pub fn pixels(&self) -> Result<Vec<u8>, String> {
+        headless(|gpu| self.composite(gpu).into_pixels())
+    }
+
     /// The frame drawn whole on the GPU and kept there, when what stops
     /// [`PreviewSources::plan`] drawing it alone is a packaged transition
     /// and nothing else: no live treatment, no layer above the incoming
@@ -1577,7 +1603,6 @@ impl PreviewSources {
     /// then takes [`PreviewSources::composite`]. The same pictures and the
     /// same shader as that path, without its three round trips through
     /// memory a frame.
-    #[cfg(feature = "gpu")]
     pub fn transition_texture(
         &self,
         gpu: &mut concat_render::WgpuCompositor,
@@ -2033,7 +2058,9 @@ mod tests {
             ramp_in: 0.0,
             ramp_out: 0.0,
         };
-        let mut compositor = CpuCompositor;
+        let Some(mut compositor) = WgpuCompositor::new() else {
+            return; // no renderer here
+        };
         let out = composite_treated(
             &mut compositor,
             stack(Rational::from_int(1)),

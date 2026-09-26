@@ -7,9 +7,9 @@ license.workspace = true
 description = "Rendering a timeline to a file, and one true frame of it to a monitor. The engine's ownership of what the pixels mean."
 
 [features]
-# The GPU compositor for full exports. Off by default for the same reason as
-# concat-render's: engine-only work never pays for the wgpu tree.
-gpu = ["concat-render/gpu"]
+# The GPU compositor is the only one now, so it is always built; the
+# feature is kept so the crates that name it need not change.
+gpu = []
 
 [dependencies]
 concat-core.workspace = true

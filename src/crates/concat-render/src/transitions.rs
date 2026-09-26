@@ -21,7 +21,7 @@
 
 use concat_core::frame::Frame;
 
-use crate::compositor::mix_frames;
+use crate::reference::mix_frames;
 
 /// The two pictures combined at `progress` through the shape `xfade`
 /// names, or `None` for a shape this file cannot draw or pictures that do

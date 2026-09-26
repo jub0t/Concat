@@ -7,16 +7,15 @@ license.workspace = true
 description = "Turning a timeline plus a timestamp into one finished frame."
 
 [features]
-# The wgpu compositor. Off by default so the engine stays light to build; the
-# desktop app turns it on.
-gpu = ["dep:wgpu", "dep:pollster"]
+# The wgpu compositor is the only one now, so it is always built; the
+# feature is kept so the crates that name it need not change.
+gpu = []
 
 [dependencies]
 concat-core.workspace = true
-# The CPU compositor says, once, when it draws a package untreated.
 log = "0.4"
-wgpu = { workspace = true, optional = true }
-pollster = { workspace = true, optional = true }
+wgpu.workspace = true
+pollster.workspace = true
 
 [dev-dependencies]
 # The pass test compiles a real package shader through the catalogue's

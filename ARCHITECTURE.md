@@ -74,8 +74,7 @@ flowchart LR
     tl["core::Timeline<br/>(concat-export::resolve)<br/>Rational time, arena ids,<br/>quantised to the frame grid"]
     plan["FramePlan<br/>(concat-render::plan_frame)<br/>what is on screen at t:<br/>media, source time, placement,<br/>opacity, blend, per layer"]
     filled["FramePlan, filled<br/>(concat-export)<br/>+ decoded picture, effects<br/>resolved for t, treatments"]
-    cpu["CpuCompositor<br/>the reference"]
-    gpu["WgpuCompositor<br/>the fast one"]
+    gpu["WgpuCompositor<br/>GPU, or software adapter"]
     enc["Encoder<br/>(concat-media)"]
     tex["a texture on the<br/>window's device"]
 
@@ -83,9 +82,7 @@ flowchart LR
     flat -- "build_timeline" --> tl
     tl -- "plan_frame(t)" --> plan
     plan -- "decode + passes_at" --> filled
-    filled --> cpu
     filled --> gpu
-    cpu --> enc
     gpu --> enc
     gpu --> tex
 ```
@@ -104,13 +101,16 @@ flowchart LR
   decoded picture, the effects resolved for that instant, and the treatments
   live over the stack, and hands the whole thing to a compositor, which takes
   a `FramePlan` and nothing else.
-- **Two compositors, one description.** The CPU one is the reference and the
-  fallback; the GPU one must match it, and the parity suite
-  (`concat-render/src/gpu/tests.rs`) holds it to a structural similarity
-  above 0.99 on a plan per thing a frame can ask for. Geometry (crop, fit,
-  centre, scale, turn) and weighing (fades folded into a scale and offset,
-  wipes into edges, mask, opacity) are computed once in the plan so the two
-  cannot drift.
+- **One compositor.** The GPU one draws every frame, the monitor's and the
+  export's; a machine without a GPU runs it on the platform's software
+  adapter (WARP on Windows, lavapipe on Linux), and a machine with neither
+  is told so. The CPU compositor that was the reference is kept in the tests
+  alone (`concat-render/src/reference.rs`), the oracle the parity suite
+  (`concat-render/src/gpu/tests.rs`) holds the GPU to at a structural
+  similarity above 0.99 while both draw 8-bit pictures; it goes when the
+  working space goes float. Geometry (crop, fit, centre, scale, turn) and
+  weighing (fades folded into a scale and offset, wipes into edges, mask,
+  opacity) are computed once in the plan.
 
 The export and the monitor fill a clip's crop and flips into the plan
 (`resolve::planned_geometry`) whenever nothing in its FFmpeg chain runs after
@@ -299,7 +299,7 @@ time to present a token.
 |---|---|---|
 | Unit tests (`cargo test --workspace` prints the count) | every crate | the arithmetic, the commands, the reader, the plan |
 | Export end to end | `concat-host/tests/export.rs` | every edit a person can make exports, through real `Session` commands over synthetic media, read back; crashes hard on purpose |
-| Parity | `concat-render/src/gpu/tests.rs` | the GPU against the CPU reference by SSIM, one plan per feature |
+| Parity | `concat-render/src/gpu/tests.rs` | the GPU against the tests' CPU oracle by SSIM, one plan per feature |
 | Hostile packages | `concat-effects/src/shader.rs` tests | the unbounded loop, the extra binding, the oversized table are refused |
 | Locales | `concat/src/i18n.rs` tests | every shipped locale covers the inventory `scripts/locales.py` writes |
 | Performance | `cargo run -p concat-perf --release [--check]` | planning, undo, the document, decode, scrub, compositing, export, each against a budget; the quick ones also run under `cargo test` |
