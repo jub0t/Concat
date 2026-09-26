@@ -282,6 +282,11 @@ pub enum Space {
     /// clipped. Where a colour look drawn by eye on an SDR picture reads as
     /// it was drawn; its result is taken back into light and mixed there.
     Display,
+    /// Log: ACEScct's curve over the working space, every level of light
+    /// from black to far past white between 0 and 1. Where a table made
+    /// for ACEScct is read; its result is taken back into light and mixed
+    /// there.
+    Log,
 }
 
 /// The `[transition]` table: a two-input shader that combines the outgoing
@@ -852,8 +857,15 @@ mod tests {
         let manifest = Manifest::parse(&format!("format = 2\n{display}")).expect("parses");
         assert_eq!(manifest.wgsl.map(|wgsl| wgsl.space), Some(Space::Display));
         rejects(&display, "format 2 setting");
+        let log = display.replace("\"display\"", "\"log\"");
+        let manifest = Manifest::parse(&format!("format = 2\n{log}")).expect("parses");
+        assert_eq!(manifest.wgsl.map(|wgsl| wgsl.space), Some(Space::Log));
+        rejects(&log, "format 2 setting");
         rejects(
-            &format!("format = 2\n{}", display.replace("\"display\"", "\"log\"")),
+            &format!(
+                "format = 2\n{}",
+                display.replace("\"display\"", "\"gamma\"")
+            ),
             "unknown variant",
         );
     }

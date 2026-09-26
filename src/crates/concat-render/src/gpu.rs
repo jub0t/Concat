@@ -2476,10 +2476,17 @@ impl WgpuCompositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            // Half floats, filterable everywhere: see `Lut` for why not
+            // bytes.
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
+        let halves: Vec<u8> = lut
+            .rgba
+            .iter()
+            .flat_map(|value| half::f16::from_f32(*value).to_le_bytes())
+            .collect();
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -2487,10 +2494,10 @@ impl WgpuCompositor {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &lut.rgba,
+            &halves,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(size * 4),
+                bytes_per_row: Some(size * WORK_BYTES as u32),
                 rows_per_image: Some(size),
             },
             wgpu::Extent3d {

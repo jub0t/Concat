@@ -28,6 +28,7 @@ pub mod catalogue;
 pub mod cube;
 pub mod expr;
 pub mod filters;
+pub mod looks;
 pub mod manifest;
 pub mod shader;
 pub mod template;

@@ -1,0 +1,32 @@
+# Saturation about luminance in the display encoding: at -100 every channel
+# is the display level's luminance, at +100 three times as far from it. A
+# highlight past white is spread like any other level.
+
+[[probe]]
+name = "default"
+input = [0.6, 0.3, 0.1, 1]
+expect = [0.6, 0.3, 0.1, 1]
+
+[[probe]]
+name = "minimum, grey"
+at = "min"
+input = [0.6, 0.3, 0.1, 1]
+expect = [0.333173, 0.333173, 0.333173, 1]
+
+[[probe]]
+name = "maximum"
+at = "max"
+input = [0.6, 0.3, 0.1, 1]
+expect = [1.42701, 0.239652, -0.00566044, 1]
+
+[[probe]]
+name = "maximum, past white"
+at = "max"
+input = [4.0, 2.0, 1.0, 1]
+expect = [9.31414, 1.52779, 0.0182573, 1]
+
+[[probe]]
+name = "a gentle pull"
+params = { amount = -30 }
+input = [0.6, 0.3, 0.1, 1]
+expect = [0.452557, 0.316664, 0.199006, 1]

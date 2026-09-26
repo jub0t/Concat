@@ -183,6 +183,18 @@ in one submission into pictures claimed from the pool and handed on from
 one package to the next of a layer's stack, and only the last pass mixes by
 intensity.
 
+A format 2 shader works in light (`space = "linear"`, the default), in the
+display encoding (`"display"`, the colour looks), or in log (`"log"`,
+ACEScct), and every result is held to what half floats store. The colour
+tools share the scene-linear library: exposure in stops, `contrast` in
+stops about middle grey, `white_balance` as a Bradford adaptation along the
+Planckian locus. A `.cube` imported as a look (`concat_effects::looks`) is a
+format 2 filter reading its table through `look()`, which carries a level
+past the table's ends, in the display encoding or, for a table made for
+ACEScct, in log; tables are kept in floats and uploaded as half floats.
+Looks an earlier build imported as format 1 are rewritten onto this when
+the window loads its packages.
+
 ## 4. Decoding, caching and scheduling
 
 Export decodes every frame once, in order, with one decoder per clip. Everything

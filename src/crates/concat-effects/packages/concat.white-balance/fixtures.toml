@@ -1,0 +1,39 @@
+# A von Kries scaling of Bradford's cone responses from the light at 6500 K
+# to the light asked for, a grey keeping its brightness: warmer below 6500,
+# cooler above, magenta for a positive tint. Past white it scales the light
+# like any other level.
+
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.3, 0.2, 0.12, 1]
+
+[[probe]]
+name = "minimum, candlelight and green"
+at = "min"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.385013, 0.152618, -0.152439, 1]
+
+[[probe]]
+name = "maximum, blue sky and magenta"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.36901, 0.103865, 0.377625, 1]
+
+[[probe]]
+name = "tungsten"
+params = { temperature = 3200 }
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.29346, 0.158766, 0.0562451, 1]
+
+[[probe]]
+name = "tungsten, a highlight past white"
+params = { temperature = 3200 }
+input = [4.0, 4.0, 4.0, 1]
+expect = [6.52133, 3.52814, 1.24989, 1]
+
+[[probe]]
+name = "a magenta tint"
+params = { tint = 30 }
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.368792, 0.177089, 0.150857, 1]

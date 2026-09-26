@@ -1,0 +1,31 @@
+# Every level moves in stops about middle grey, 0.18: at +100 twice as far,
+# at -100 onto grey itself. A channel with no light in it stays as it was.
+
+[[probe]]
+name = "default"
+input = [0.36, 0.09, 0.18, 1]
+expect = [0.36, 0.09, 0.18, 1]
+
+[[probe]]
+name = "minimum, flat grey"
+at = "min"
+input = [0.36, 0.09, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "maximum, twice the stops"
+at = "max"
+input = [0.36, 0.09, 0.18, 1]
+expect = [0.72, 0.045, 0.18, 1]
+
+[[probe]]
+name = "maximum, a highlight past white and a channel below black"
+at = "max"
+input = [4.0, 0.5, -0.02, 1]
+expect = [88.8889, 1.38889, -0.02, 1]
+
+[[probe]]
+name = "half again the stops"
+params = { amount = 50 }
+input = [0.36, 0.09, 0.18, 1]
+expect = [0.509117, 0.0636396, 0.18, 1]

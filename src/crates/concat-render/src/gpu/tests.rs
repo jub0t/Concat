@@ -1355,3 +1355,45 @@ fn a_stack_of_blurs_shares_its_pictures() {
     // half of both.
     assert!(gpu.pool.contains_key(&(32, 64)) && gpu.pool.contains_key(&(32, 32)));
 }
+
+/// A look made from a table reads it in the space it was made for and
+/// carries a level past the table's ends on past them: through the
+/// identity, a highlight four times white comes out as it went in, read in
+/// the display encoding or in log. And a table's values come through finer
+/// than eight bits.
+#[test]
+fn a_table_is_read_in_its_space_and_carried_past_its_ends() {
+    let Some(mut gpu) = gpu() else { return };
+    let look = |space: &str, lut: Lut| {
+        let manifest = concat_effects::Manifest::parse(&format!(
+            "format = 2\n[effect]\nid = \"test.look\"\nname = \"Look\"\nkind = \"filter\"\n\
+             [wgsl]\nentry = \"effect.wgsl\"\nspace = \"{space}\"\n"
+        ))
+        .expect("a manifest");
+        concat_effects::Shader::compile(&manifest, concat_effects::looks::SHADER)
+            .expect("compiles")
+            .pass(&BTreeMap::new(), &[], 1.0, Some(Arc::new(lut)), None)
+    };
+    for space in ["display", "log"] {
+        let identity = look(space, Lut::identity(33));
+        for colour in [[4.0, 0.5, 0.02, 1.0], [0.18, 0.18, 0.18, 1.0]] {
+            let got = gpu
+                .probe(std::slice::from_ref(&identity), colour, 8, 0.0)
+                .expect("reads back");
+            assert!(
+                near(got, colour, 0.01),
+                "{space}: {colour:?} came out {got:?}"
+            );
+        }
+    }
+    // One colour everywhere, a value eight bits would round to 31/255.
+    let flat = Lut::from_rgb(2, &[0.123_456, 0.5, 0.25].repeat(8)).expect("a table");
+    let got = gpu
+        .probe(&[look("display", flat)], [0.3, 0.3, 0.3, 1.0], 8, 0.0)
+        .expect("reads back");
+    let want = [0.123_456f32, 0.5, 0.25].map(|level| level.powf(2.4));
+    assert!(
+        near(got, [want[0], want[1], want[2], 1.0], 0.004),
+        "{got:?} against {want:?}"
+    );
+}

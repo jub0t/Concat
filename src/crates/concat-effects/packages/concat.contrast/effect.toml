@@ -1,0 +1,27 @@
+format = 2
+
+[effect]
+id = "concat.contrast"
+name = "Contrast"
+kind = "effect"
+category = "Color"
+order = 11
+intensity = "amount"
+description = "More or less contrast in stops about middle grey, highlights past white kept and black never crushed."
+
+[[param]]
+key = "amount"
+label = "Contrast"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"
+
+# At its default the picture is as shot; the card shows a push.
+[card]
+params = { amount = 40 }

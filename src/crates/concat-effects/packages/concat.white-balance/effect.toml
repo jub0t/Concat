@@ -1,0 +1,37 @@
+format = 2
+
+[effect]
+id = "concat.white-balance"
+name = "White Balance"
+kind = "effect"
+category = "Color"
+order = 13
+intensity = "temperature"
+description = "The picture as if lit warmer or cooler, and turned towards magenta or green, as the eye adapts to the light."
+
+[[param]]
+key = "temperature"
+label = "Temperature"
+min = 2000
+max = 11000
+default = 6500
+step = 50
+unit = "K"
+animate = true
+
+[[param]]
+key = "tint"
+label = "Tint"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"
+
+# At its defaults the picture is as shot; the card shows a warm light.
+[card]
+params = { temperature = 4500 }
