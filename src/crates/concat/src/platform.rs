@@ -186,7 +186,7 @@ pub fn select_backend(
         .backend_name("winit".into())
         .with_winit_custom_application_handler(DropHandler::new(on_files_dropped, on_pressed_away));
     selector = match &gpu {
-        Some(gpu) => selector.require_wgpu_29(gpu.configuration()),
+        Some(gpu) => selector.require_wgpu_30(gpu.configuration()),
         None => {
             // Without a shared device, ask for the platform's own API by
             // name: Skia picks its surface from a cfg chain, and requiring

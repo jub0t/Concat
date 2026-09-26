@@ -32,7 +32,7 @@ clap = { version = "4", features = ["derive", "env"] }
 # the major Slint 1.17 can share a device with, so the window's renderer and
 # the engine's compositor draw on one device and a preview frame never leaves
 # the GPU.
-wgpu = "29"
+wgpu = "30"
 pollster = "0.4"
 
 # ONNX Runtime, for the cutout models. The binaries come prebuilt for every

@@ -32,7 +32,8 @@ path = "src/main.rs"
 # scripts/ios-app.sh).
 #
 # Skia is the one renderer, on every platform: its text is gamma-correct,
-# and it takes the engine's wgpu 29 device (gpu.rs, `unstable-wgpu-29`).
+# and it takes the engine's wgpu 30 device (gpu.rs, `unstable-wgpu-30`): one
+# wgpu in the build, and the one with HDR surfaces (SurfaceColorSpace).
 # FemtoVG over wgpu was a second, opt-in variant until Slint 1.18 moved it
 # to wgpu 30; nothing shipped it, and the Nix package, its one user, now
 # links Skia's prebuilt binaries (flake.nix).
@@ -58,7 +59,7 @@ slint = { version = "1.18", default-features = false, features = [
     # The renderer draws on a wgpu device the window creates and shares with
     # the engine's compositor, so a monitor frame is a texture Slint shows
     # as it is - see gpu.rs.
-    "unstable-wgpu-29",
+    "unstable-wgpu-30",
 ] }
 # Native file and folder dialogs, which Slint deliberately does not have.
 rfd = "0.17"
@@ -74,7 +75,7 @@ slint = { version = "1.18", default-features = false, features = [
     "accessibility",
     "compat-1-2",
     "unstable-winit-030",
-    "unstable-wgpu-29",
+    "unstable-wgpu-30",
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -85,7 +86,7 @@ slint = { version = "1.18", default-features = false, features = [
     "renderer-skia",
     "accessibility",
     "compat-1-2",
-    "unstable-wgpu-29",
+    "unstable-wgpu-30",
 ] }
 
 [dependencies]

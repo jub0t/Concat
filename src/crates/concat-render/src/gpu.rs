@@ -479,7 +479,7 @@ impl WgpuCompositor {
                         module: &shader,
                         entry_point: Some("vs_main"),
                         compilation_options: Default::default(),
-                        buffers: std::slice::from_ref(&vertex_layout),
+                        buffers: &[Some(vertex_layout.clone())],
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &shader,
@@ -516,7 +516,7 @@ impl WgpuCompositor {
                     module: &shader,
                     entry_point: Some("vs_main"),
                     compilation_options: Default::default(),
-                    buffers: std::slice::from_ref(&vertex_layout),
+                    buffers: &[Some(vertex_layout.clone())],
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -1778,7 +1778,8 @@ impl WgpuCompositor {
 
         let mut frame = Frame::transparent(width, height);
         {
-            let data = slice.get_mapped_range();
+            // A range that will not map is a failed map, as above.
+            let data = slice.get_mapped_range().ok()?;
             let row_bytes = width as usize * 4;
             let pixels = frame.pixels_mut();
             for row in 0..height as usize {

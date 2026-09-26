@@ -113,8 +113,8 @@ impl Gpu {
     }
 
     /// The device as Slint takes it.
-    pub fn configuration(&self) -> slint::wgpu_29::WGPUConfiguration {
-        slint::wgpu_29::WGPUConfiguration::Manual {
+    pub fn configuration(&self) -> slint::wgpu_30::WGPUConfiguration {
+        slint::wgpu_30::WGPUConfiguration::Manual {
             instance: self.instance.clone(),
             adapter: self.adapter.clone(),
             device: self.device.clone(),
