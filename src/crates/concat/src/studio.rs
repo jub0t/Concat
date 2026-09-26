@@ -2402,7 +2402,15 @@ impl Studio {
         // A file larger than HD gets a proxy for playback and the
         // filmstrips, written once on the scheduler's proxy lane; see
         // concat_host::proxy. Asked once per file per project.
-        let unproxied: Vec<(String, String, u32, u32, Option<concat_media::ColorRange>)> = self
+        type Unproxied = (
+            String,
+            String,
+            u32,
+            u32,
+            Option<concat_media::ColorRange>,
+            bool,
+        );
+        let unproxied: Vec<Unproxied> = self
             .project()
             .media
             .iter()
@@ -2416,16 +2424,18 @@ impl Studio {
                     width,
                     height,
                     item.color_range.map(concat_export::engine_range),
+                    item.color_space.is_hdr(),
                 ))
             })
             .collect();
-        for (id, path, width, height, range) in unproxied {
+        for (id, path, width, height, range, hdr) in unproxied {
             concat_host::proxy::ensure(
                 std::path::Path::new(&project_path),
                 &path,
                 width,
                 height,
                 range,
+                hdr,
             );
             self.proxied.insert(id);
         }
@@ -5907,6 +5917,7 @@ impl Studio {
                             project_dir,
                             &item.path,
                             item.color_range.map(concat_export::engine_range),
+                            item.color_space.is_hdr(),
                         )
                     })
                     .collect();
