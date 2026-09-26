@@ -171,11 +171,24 @@ const WORK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// What a texture in the pool costs a pixel.
 const WORK_BYTES: u64 = 8;
 
-/// A picture copied texel for texel into a target of the same size: an
-/// uploaded frame into the working format, and a finished frame out of it
-/// into the eight bits a screen and an encoder take. A triangle that covers
-/// the target, and a load at each fragment's own texel, so nothing is
-/// filtered on the way.
+/// A picture copied texel for texel into a target of the same size, through
+/// the colour conversion at each end of the working space: an uploaded
+/// frame into it (`fs_upload`), and a finished frame out of it into the
+/// eight bits a screen and an encoder take (`fs_resolve`). A triangle that
+/// covers the target, and a load at each fragment's own texel, so nothing
+/// is filtered on the way.
+///
+/// The working space is linear light on Rec. 709 primaries, extended: a
+/// value may be negative (a colour outside Rec. 709, as a Rec. 2020 source
+/// has) or above one (a highlight), with 1.0 the white of an SDR picture
+/// (203 nits, ITU-R BT.2408) - the layout Windows calls scRGB and Apple's
+/// EDR extended linear sRGB. Blending and every fade then behave as light
+/// does. Rec. 709 primaries rather than Rec. 2020's because the store is
+/// half floats: in a basis the picture is not in, a primary leaks a few
+/// ten-thousandths into its neighbours, and the output's 1/2.4 power makes
+/// that a visible tint in the shadows. An eight-bit frame is gamma-encoded
+/// Rec. 709, taken as BT.1886's 2.4 gamma; the resolve undoes exactly what
+/// the upload did, so a picture with nothing on it comes out as it went in.
 const COPY_SHADER: &str = r#"
 @group(0) @binding(0) var picture: texture_2d<f32>;
 @group(0) @binding(1) var picture_sampler: sampler;
@@ -187,8 +200,16 @@ fn vs_full(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
 }
 
 @fragment
-fn fs_copy(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
-    return textureLoad(picture, vec2<i32>(at.xy), 0);
+fn fs_upload(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = textureLoad(picture, vec2<i32>(at.xy), 0);
+    return vec4<f32>(pow(max(colour.rgb, vec3<f32>(0.0)), vec3<f32>(2.4)), colour.a);
+}
+
+@fragment
+fn fs_resolve(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = textureLoad(picture, vec2<i32>(at.xy), 0);
+    let clipped = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
 }
 "#;
 
@@ -640,9 +661,9 @@ impl WgpuCompositor {
             bind_group_layouts: &[Some(&bind_layout)],
             immediate_size: 0,
         });
-        let copy_into = |format: wgpu::TextureFormat, label: &str| {
+        let copy_into = |format: wgpu::TextureFormat, entry: &str| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
+                label: Some(entry),
                 layout: Some(&copy_layout),
                 vertex: wgpu::VertexState {
                     module: &copy_shader,
@@ -652,7 +673,7 @@ impl WgpuCompositor {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &copy_shader,
-                    entry_point: Some("fs_copy"),
+                    entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
@@ -667,8 +688,8 @@ impl WgpuCompositor {
                 cache: None,
             })
         };
-        let upload_pipeline = copy_into(WORK, "concat upload");
-        let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "concat resolve");
+        let upload_pipeline = copy_into(WORK, "fs_upload");
+        let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("concat layer"),
@@ -1958,46 +1979,6 @@ impl WgpuCompositor {
         stages
     }
 
-    /// A texture holding a whole frame's pixels, for a transition input. Made
-    /// fresh each combine rather than pooled: a transition is a short window,
-    /// and its two inputs are full-frame, so the pool would only churn.
-    fn input_texture(&self, frame: &Frame) -> wgpu::Texture {
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("concat transition input"),
-            size: wgpu::Extent3d {
-                width: frame.width(),
-                height: frame.height(),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        self.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            frame.pixels(),
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(frame.width() * 4),
-                rows_per_image: Some(frame.height()),
-            },
-            wgpu::Extent3d {
-                width: frame.width(),
-                height: frame.height(),
-                depth_or_array_layers: 1,
-            },
-        );
-        texture
-    }
-
     /// The bind group for a pass's table, uploaded the first time its id is
     /// seen, and the identity's for a pass without one. Returns the id the
     /// group is filed under.
@@ -2359,13 +2340,18 @@ impl Compositor for WgpuCompositor {
         if self.dead {
             return None;
         }
-        // The two pictures, uploaded.
-        let from_texture = self.input_texture(from);
-        let to_texture = self.input_texture(to);
-        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
+        // The two pictures, uploaded into the working space as any frame
+        // is, so the shader reads what the device-kept path hands it.
         self.used.values_mut().for_each(|used| *used = 0);
+        let view_of = |gpu: &Self, frame: &Frame, index: usize| {
+            gpu.pool[&(frame.width(), frame.height())][index]
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let from_index = self.upload(from);
+        let to_index = self.upload(to);
+        let from_view = view_of(self, from, from_index);
+        let to_view = view_of(self, to, to_index);
         let (canvas, _, canvas_view) = self.canvas(width, height);
         self.target(width, height);
         let target_texture = self.target.as_ref().expect("just ensured").texture.clone();

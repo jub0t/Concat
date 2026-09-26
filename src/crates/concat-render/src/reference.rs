@@ -65,7 +65,7 @@ impl Compositor for CpuCompositor {
             ground = if strength >= 1.0 {
                 treated
             } else {
-                mix_frames(&ground, &treated, strength)
+                mix_light(&ground, &treated, strength)
             };
         }
         for layer in &plan.layers[next..] {
@@ -97,6 +97,30 @@ pub(crate) fn run_effects(picture: &Frame, effects: &[ShaderPass], seconds: f32)
 }
 
 /// `a` towards `b` by `amount`, per channel.
+/// `a` towards `b` by `amount`, in linear light: a treatment's strength,
+/// which the GPU weighs over the working space.
+pub(crate) fn mix_light(a: &Frame, b: &Frame, amount: f32) -> Frame {
+    let amount = amount.clamp(0.0, 1.0);
+    let mut out = a.clone();
+    for (index, (pixel, over)) in out
+        .pixels_mut()
+        .iter_mut()
+        .zip(b.pixels().iter())
+        .enumerate()
+    {
+        if index % 4 == 3 {
+            let base = f32::from(*pixel);
+            *pixel = (base + (f32::from(*over) - base) * amount).round() as u8;
+            continue;
+        }
+        let base = linear(f32::from(*pixel));
+        *pixel = encoded(base + (linear(f32::from(*over)) - base) * amount).round() as u8;
+    }
+    out
+}
+
+/// `a` towards `b` by `amount` in their stored gamma: the old transition
+/// shapes, which the GPU also runs in gamma through its legacy wrapper.
 pub(crate) fn mix_frames(a: &Frame, b: &Frame, amount: f32) -> Frame {
     let amount = amount.clamp(0.0, 1.0);
     let mut out = a.clone();
@@ -201,10 +225,12 @@ impl Weighing<'_> {
         if alpha <= 0.0 {
             return;
         }
+        // In linear light, as the GPU blends: the layer's colour and the
+        // ground decoded from their stored gamma, weighed, and encoded back.
         for channel in 0..3 {
-            let colour = self.shading.colour(channel, sample[channel] / 255.0) * 255.0;
-            let ground = f32::from(under[channel]);
-            under[channel] = mix(self.blend, colour, ground, alpha)
+            let colour = self.shading.colour(channel, linear(sample[channel]));
+            let ground = linear(f32::from(under[channel]));
+            under[channel] = encoded(mix(self.blend, colour, ground, alpha))
                 .round()
                 .clamp(0.0, 255.0) as u8;
         }
@@ -212,8 +238,20 @@ impl Weighing<'_> {
     }
 }
 
+/// A stored eight-bit level, `0..=255`, as linear light `0..1`: BT.1886's
+/// 2.4 gamma, the GPU's upload.
+fn linear(level: f32) -> f32 {
+    (level / 255.0).max(0.0).powf(2.4)
+}
+
+/// Linear light back to an eight-bit level, clipped: the GPU's resolve.
+fn encoded(light: f32) -> f32 {
+    light.clamp(0.0, 1.0).powf(1.0 / 2.4) * 255.0
+}
+
 /// One channel of `blend`: `colour` is the layer's straight colour, `under`
-/// the ground, both in `0..=255`, `alpha` how much of the layer is there.
+/// the ground, both linear light `0..1`, `alpha` how much of the layer is
+/// there.
 /// Normal, Multiply, Screen and Add are the GPU's fixed-function blends
 /// over premultiplied colour, spelled the same way so the two paths agree.
 /// Lighten and Darken weigh the lighter (darker) of the two in by the
@@ -226,8 +264,8 @@ fn mix(blend: Blend, colour: f32, under: f32, alpha: f32) -> f32 {
     let over = colour * alpha;
     match blend {
         Blend::Normal => over + under * (1.0 - alpha),
-        Blend::Multiply => over * under / 255.0 + under * (1.0 - alpha),
-        Blend::Screen => over * (1.0 - under / 255.0) + under,
+        Blend::Multiply => over * under + under * (1.0 - alpha),
+        Blend::Screen => over * (1.0 - under) + under,
         Blend::Add => over + under,
         Blend::Lighten => colour.max(under) * alpha + under * (1.0 - alpha),
         Blend::Darken => colour.min(under) * alpha + under * (1.0 - alpha),
@@ -453,7 +491,9 @@ mod tests {
     }
 
     /// Multiply by white and screen with black both leave the ground as it
-    /// was; add brightens it, darken cannot, lighten takes the brighter.
+    /// was; add brightens it - in light: 100 and 50 are 0.106 and 0.020 of
+    /// white, and their sum is stored at 107 - darken cannot, lighten takes
+    /// the brighter.
     #[test]
     fn the_blend_modes_do_what_their_names_say() {
         let over = |rgba: [u8; 4], blend: Blend| {
@@ -465,7 +505,7 @@ mod tests {
         assert_eq!(over([255, 255, 255, 255], Blend::Multiply), 100);
         assert_eq!(over([0, 0, 0, 255], Blend::Screen), 100);
         assert_eq!(over([255, 255, 255, 255], Blend::Screen), 255);
-        assert_eq!(over([50, 50, 50, 255], Blend::Add), 150);
+        assert_eq!(over([50, 50, 50, 255], Blend::Add), 107);
         assert_eq!(over([255, 255, 255, 255], Blend::Darken), 100);
         assert_eq!(over([30, 30, 30, 255], Blend::Lighten), 100);
         assert_eq!(over([200, 200, 200, 255], Blend::Lighten), 200);
@@ -484,12 +524,14 @@ mod tests {
         assert_eq!(frame.pixel(1, 1), Some([255, 0, 0, 255]));
     }
 
+    /// Half a white layer over black is half the light of white, which a
+    /// 2.4 gamma stores at 191, not at the level halfway up.
     #[test]
-    fn half_opacity_lands_halfway() {
+    fn half_opacity_lands_halfway_in_light() {
         let mut white = layer(solid(1, 1, [255, 255, 255, 255]));
         white.opacity = 0.5;
         let frame = render(1, 1, vec![white]);
-        assert_eq!(frame.pixel(0, 0), Some([128, 128, 128, 255]));
+        assert_eq!(frame.pixel(0, 0), Some([191, 191, 191, 255]));
     }
 
     #[test]
@@ -497,8 +539,8 @@ mod tests {
         let mut half = layer(solid(1, 1, [255, 255, 255, 128]));
         half.opacity = 0.5;
         let frame = render(1, 1, vec![half]);
-        // 128/255 * 0.5 ~= 0.251
-        assert_eq!(frame.pixel(0, 0), Some([64, 64, 64, 255]));
+        // 128/255 * 0.5 ~= 0.251 of white's light, stored at 143.
+        assert_eq!(frame.pixel(0, 0), Some([143, 143, 143, 255]));
     }
 
     #[test]
@@ -676,7 +718,8 @@ mod tests {
             amount: 0.5,
         }];
         let frame = render(4, 4, vec![faded]);
-        assert_eq!(frame.pixel(0, 0), Some([255, 128, 128, 255]));
+        // Half way to white in light: green and blue at half of white's.
+        assert_eq!(frame.pixel(0, 0), Some([255, 191, 191, 255]));
 
         let mut wiped = layer(red);
         wiped.transitions = vec![Transition::Wipe {
