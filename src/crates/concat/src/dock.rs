@@ -34,6 +34,14 @@ impl Dock {
         Box::new(Dock::Leaf(kind))
     }
 
+    /// Whether any seat shows `kind`.
+    pub fn holds(&self, kind: PaneKind) -> bool {
+        match self {
+            Dock::Leaf(leaf) => *leaf == kind,
+            Dock::Split { first, second, .. } => first.holds(kind) || second.holds(kind),
+        }
+    }
+
     /// The node a path names, following each step into the first branch or the
     /// second. A path that runs past a leaf stops there, which cannot happen
     /// for a path this module produced.
@@ -316,4 +324,20 @@ pub fn nearest_row(heights: &[f32], y: f32) -> i32 {
         top += height;
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A kind is on screen when any seat shows it, however deep the split.
+    #[test]
+    fn a_dock_knows_what_it_shows() {
+        let mut dock = default_dock();
+        assert!(dock.holds(PaneKind::Preview));
+        assert!(!dock.holds(PaneKind::Scopes));
+        let path = dock.leaf_path(0).expect("a first seat");
+        dock.split_leaf(&path, PaneKind::Scopes, DockSide::Right);
+        assert!(dock.holds(PaneKind::Scopes));
+    }
 }

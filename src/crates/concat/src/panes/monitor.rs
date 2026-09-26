@@ -19,13 +19,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use concat_host::preview::FrameSpec;
+use concat_host::preview::{FrameSpec, scopes};
 use concat_project::model::Project;
 
-use crate::host::{spawn_detached, spawn_in_project};
+use crate::host::{on_ui, spawn_detached, spawn_in_project};
 use crate::i18n::tf;
 use crate::panes::Msg;
 use crate::studio::Studio;
+use crate::ui::{PaneKind, ScopeMarkData};
 
 /// Everything that can happen to the monitor.
 pub enum MonitorMsg {
@@ -39,6 +40,11 @@ pub enum MonitorMsg {
     Opened,
     /// The project closed: nothing to show.
     Closed,
+    /// The Scopes pane's control: 0 waveform, 1 parade, 2 vectorscope,
+    /// 3 histogram.
+    ScopeKind(i32),
+    /// Look again for the scope counted with the last frame.
+    ScopePoll,
 }
 
 impl std::fmt::Debug for MonitorMsg {
@@ -57,6 +63,8 @@ impl std::fmt::Debug for MonitorMsg {
             Self::QualityChanged(index) => write!(f, "QualityChanged({index})"),
             Self::Opened => write!(f, "Opened"),
             Self::Closed => write!(f, "Closed"),
+            Self::ScopeKind(index) => write!(f, "ScopeKind({index})"),
+            Self::ScopePoll => write!(f, "ScopePoll"),
         }
     }
 }
@@ -87,9 +95,46 @@ pub struct MonitorPane {
     /// it does not - and the trade is the window's, not the document's,
     /// so it is remembered here and not saved.
     quality: HashMap<String, usize>,
+    /// The scope the Scopes pane shows, by its control's index.
+    pub scope_kind: usize,
+    /// The last scope drawn: the picture, its scale's marks, and whether
+    /// its timeline was HDR.
+    pub scope: Option<(slint::Image, Vec<ScopeMarkData>, bool)>,
+    /// Looks left for a scope's counts on their way back.
+    scope_polls: u32,
 }
 
 impl MonitorPane {
+    /// The scope counted with the last frame, drawn once its counts are
+    /// back; until then, a look again in a few milliseconds, a few dozen
+    /// times at most. The window never waits on the device for it.
+    fn poll_scope(&mut self, studio: &mut Studio) {
+        match studio.host.monitor.take_scope() {
+            Some(data) => {
+                self.scope_polls = 0;
+                let (width, height, pixels) = data.draw();
+                let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                    &pixels, width, height,
+                );
+                let marks = scopes::marks(data.kind, data.hdr)
+                    .into_iter()
+                    .map(|(at, label)| ScopeMarkData {
+                        at,
+                        label: label.into(),
+                    })
+                    .collect();
+                self.scope = Some((slint::Image::from_rgba8(buffer), marks, data.hdr));
+            }
+            None if self.scope_polls > 0 => {
+                self.scope_polls -= 1;
+                slint::Timer::single_shot(std::time::Duration::from_millis(8), || {
+                    on_ui(|studio, _, _| studio.handle(Msg::Monitor(MonitorMsg::ScopePoll)));
+                });
+            }
+            None => {}
+        }
+    }
+
     /// Applies one message. The studio is the rest of the window; while
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: MonitorMsg, studio: &mut Studio) {
@@ -97,6 +142,12 @@ impl MonitorPane {
             MonitorMsg::Request => self.request(studio),
             MonitorMsg::Frame(result, spec) => {
                 self.busy = false;
+                // A Scopes pane on screen has the frame counted as it is
+                // drawn.
+                let scope = studio
+                    .dock
+                    .holds(PaneKind::Scopes)
+                    .then(|| scopes::ScopeKind::ALL[self.scope_kind.min(3)]);
                 let picture = match result {
                     // Drawn here and not on the worker: this is the event
                     // loop, the one thread the window's renderer submits
@@ -105,7 +156,7 @@ impl MonitorPane {
                     Ok(Picture::Sources(sources)) => studio
                         .host
                         .monitor
-                        .texture_of(&sources, spec)
+                        .texture_of_scoped(&sources, spec, scope)
                         .and_then(|texture| {
                             slint::Image::try_from(texture)
                                 .map_err(|error| format!("preview texture: {error}"))
@@ -129,10 +180,20 @@ impl MonitorPane {
                         }
                     }
                 }
+                if scope.is_some() {
+                    self.scope_polls = 60;
+                    self.poll_scope(studio);
+                }
                 if self.wanted {
                     self.request(studio);
                 }
             }
+            MonitorMsg::ScopeKind(index) => {
+                self.scope_kind = (index.max(0) as usize).min(3);
+                self.scope = None;
+                self.request(studio);
+            }
+            MonitorMsg::ScopePoll => self.poll_scope(studio),
             MonitorMsg::QualityChanged(index) => {
                 let id = studio.project().active_timeline_id.clone();
                 self.quality.insert(id, (index.max(0) as usize).min(2));

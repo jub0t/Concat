@@ -217,6 +217,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_visual_wheels(ModelRc::from(models.visual_wheels.clone()));
         editor.set_visual_curves(ModelRc::from(models.visual_curves.clone()));
         editor.set_visual_colours(ModelRc::from(models.visual_colours.clone()));
+        app.global::<Scopes>()
+            .set_marks(ModelRc::from(models.scope_marks.clone()));
         app.global::<Keyframes>()
             .set_rows(ModelRc::from(models.key_rows.clone()));
         app.global::<KeyEditor>()
@@ -1045,6 +1047,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_quality_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Monitor(MonitorMsg::QualityChanged(index)));
     }));
+    app.global::<Scopes>()
+        .on_kind_changed(on_window!(|state, index: i32| {
+            state.handle(Msg::Monitor(MonitorMsg::ScopeKind(index)));
+        }));
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));

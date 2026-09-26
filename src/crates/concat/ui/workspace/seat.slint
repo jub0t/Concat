@@ -11,6 +11,7 @@ import { MediaPane } from "media-pane.slint";
 import { PreviewPane } from "preview-pane.slint";
 import { TimelinePane } from "timeline-pane.slint";
 import { KeyframesPane } from "keyframes-pane.slint";
+import { ScopesPane } from "scopes-pane.slint";
 
 // One box of the workspace, showing whichever view its `kind` names.
 //
@@ -302,6 +303,18 @@ export component Seat inherits Rectangle {
                 root.side-at(event.position.x, event.position.y));
             return DragAction.move;
         }
+    }
+
+    if root.kind == PaneKind.scopes: ScopesPane {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+
+            pane-picked(kind) => { root.picked(kind); }
+            pane-seat: root.index;
+            pane-removable: Editor.seats.length > 1;
+            pane-removed => { root.removed(); }
     }
 
     if root.kind == PaneKind.keyframes: KeyframesPane {
