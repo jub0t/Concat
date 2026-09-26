@@ -111,6 +111,15 @@ impl Monitor {
         Some(gpu.trial_at(pass, side, timeout))
     }
 
+    /// A compositor of its own on the window's device, for work off the
+    /// monitor's thread - the effect cards. None without a GPU here.
+    #[cfg(feature = "gpu")]
+    pub fn sibling(&self) -> Option<concat_render::WgpuCompositor> {
+        let gpu = self.gpu.as_ref()?;
+        let gpu = gpu.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        Some(gpu.sibling())
+    }
+
     /// Whether frames can be composited on the GPU.
     pub fn has_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]

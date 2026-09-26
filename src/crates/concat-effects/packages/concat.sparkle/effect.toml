@@ -33,3 +33,8 @@ chain = "split[spka{index}][spkb{index}];[spkb{index}]gblur=sigma=8[spkg{index}]
 
 [wgsl]
 entry = "effect.wgsl"
+
+# The reference picture's brightest wall sits just under the default
+# threshold; the card lowers it so the glints show.
+[card]
+params = { threshold = 55 }

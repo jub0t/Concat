@@ -16,6 +16,9 @@ concat-core.workspace = true
 concat-media.workspace = true
 concat-project.workspace = true
 concat-export.workspace = true
+# The effect cards: every picture package drawn by its own shader; see
+# cards.rs.
+concat-effects.workspace = true
 # Titles become pictures here; see titles.rs.
 concat-text.workspace = true
 # The cutout models and their masks; `infer` because the host is what

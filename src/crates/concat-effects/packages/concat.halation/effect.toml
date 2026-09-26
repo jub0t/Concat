@@ -34,3 +34,8 @@ chain = "split[hla{index}][hlb{index}];[hlb{index}]gblur=sigma={r},colorbalance=
 
 [wgsl]
 entry = "effect.wgsl"
+
+# The reference picture has few highlights; the card shows the glow at
+# its strongest.
+[card]
+params = { amount = 100 }

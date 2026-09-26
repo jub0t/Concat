@@ -54,9 +54,9 @@ export struct CatalogueEntryData {
     category: string,
     group: int,
     description: string,
-    /// The card's still, when the package brings its own - a user's
-    /// imported look does. Empty for a built-in, whose still the pane
-    /// looks up by id.
+    /// The card's still: an author's own, else the one drawn by the
+    /// package's shader. Empty while that is still being drawn, and for a
+    /// sound.
     art: image,
 }
 

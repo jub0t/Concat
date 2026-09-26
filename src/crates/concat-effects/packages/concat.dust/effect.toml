@@ -21,3 +21,7 @@ chain = "noise=alls={round(amount / 100 * 15)}:allf=t+u,eq=contrast={fixed(1 - a
 
 [wgsl]
 entry = "effect.wgsl"
+
+# A card is small; it shows the dust at its thickest.
+[card]
+params = { amount = 100 }

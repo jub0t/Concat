@@ -1145,7 +1145,6 @@ dependencies = [
  "image",
  "log",
  "opener",
- "png 0.17.16",
  "pollster",
  "rfd",
  "serde",
@@ -1192,8 +1191,8 @@ dependencies = [
  "concat-api",
  "concat-core",
  "concat-effects",
+ "concat-host",
  "concat-media",
- "concat-project",
  "concat-render",
  "concat-server",
  "serde_json",
@@ -1233,6 +1232,7 @@ name = "concat-host"
 version = "0.2.4"
 dependencies = [
  "concat-core",
+ "concat-effects",
  "concat-export",
  "concat-media",
  "concat-project",

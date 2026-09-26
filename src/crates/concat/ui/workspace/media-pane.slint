@@ -1178,9 +1178,8 @@ component PresetCard inherits Rectangle {
 
 // A shelf of the effect catalogue, as Rust narrows it - searched, shelved
 // and starred by the same `Library` view the inspector reads - with the
-// same auto-fill arithmetic as MediaGrid. The artwork is looked up by
-// id through `art`, since the pictures live here in the pane and the
-// entries come from the manifests.
+// same auto-fill arithmetic as MediaGrid. Each entry carries its card,
+// drawn by the package's own shader (concat_host::cards).
 component ShelfGrid inherits Rectangle {
     in property <[CatalogueEntryData]> entries;
     /// The mark for an entry with no artwork; see CatalogueItemData.
@@ -1189,7 +1188,6 @@ component ShelfGrid inherits Rectangle {
     /// source that leaves a layer clip, and empty leaves the page click-only.
     in property <string> payload-kind;
 
-    pure callback art(id: string) -> image;
     callback applied(id: string, label: string);
     /// See CatalogueCard: a shelf whose cards show before they add.
     in property <bool> auditions;
@@ -1198,8 +1196,10 @@ component ShelfGrid inherits Rectangle {
 
     property <length> gap: 8px;
     property <length> min-card: 88px;
-    property <bool> compact: root.entries.length > 0
-        && root.art(root.entries[0].id).width == 0 && root.entries[0].art.width == 0;
+    /// Name-only cards, half the height: for a shelf whose entries have no
+    /// picture - sound. A picture shelf keeps its card shape while a card
+    /// is still being drawn, its glyph standing in.
+    in property <bool> compact;
 
     property <int> cols: Math.max(1,
         Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
@@ -1219,7 +1219,7 @@ component ShelfGrid inherits Rectangle {
             id: entry.id,
             label: entry.name,
             enabled: true,
-            art: entry.art.width > 0 ? entry.art : root.art(entry.id),
+            art: entry.art,
             glyph: root.glyph,
         };
         compact: root.compact;
@@ -1498,162 +1498,7 @@ export component MediaPane inherits Rectangle {
     property <bool> audio-open: true;
     /// The shelf the Effects page is reading from, in `Library`'s numbers.
     property <int> effects-shelf: root.audio-shelf ? 2 : 1;
-    /// Nothing, for an entry with no artwork: a picture of a sound would be
-    /// a waveform, and every one of them would draw the same one.
-    property <image> no-art;
 
-    /// The rendered preview for an effect or a look: its real chain run
-    /// over one source still. Looked up by the package id, since the
-    /// entries come from the manifests and the pictures live here.
-    pure function art-of(id: string) -> image {
-        if (id == "concat.black-white") { return @image-url("../assets/effect-previews/black-white.jpg"); }
-        if (id == "concat.sepia") { return @image-url("../assets/effect-previews/sepia.jpg"); }
-        if (id == "concat.invert") { return @image-url("../assets/effect-previews/invert.jpg"); }
-        if (id == "concat.sharpen") { return @image-url("../assets/effect-previews/sharpen.jpg"); }
-        if (id == "concat.gaussian-blur") { return @image-url("../assets/effect-previews/gaussian-blur.jpg"); }
-        if (id == "concat.box-blur") { return @image-url("../assets/effect-previews/box-blur.jpg"); }
-        if (id == "concat.motion-blur") { return @image-url("../assets/effect-previews/motion-blur.jpg"); }
-        if (id == "concat.warm") { return @image-url("../assets/effect-previews/warm.jpg"); }
-        if (id == "concat.cool") { return @image-url("../assets/effect-previews/cool.jpg"); }
-        if (id == "concat.vibrance") { return @image-url("../assets/effect-previews/vibrance.jpg"); }
-        if (id == "concat.contrast-pop") { return @image-url("../assets/effect-previews/contrast-pop.jpg"); }
-        if (id == "concat.vignette") { return @image-url("../assets/effect-previews/vignette.jpg"); }
-        if (id == "concat.film-grain") { return @image-url("../assets/effect-previews/film-grain.jpg"); }
-        if (id == "concat.glow") { return @image-url("../assets/effect-previews/glow.jpg"); }
-        if (id == "concat.posterize") { return @image-url("../assets/effect-previews/posterize.jpg"); }
-        if (id == "concat.pixelate") { return @image-url("../assets/effect-previews/pixelate.jpg"); }
-        if (id == "concat.mirror") { return @image-url("../assets/effect-previews/mirror.jpg"); }
-        if (id == "concat.fisheye") { return @image-url("../assets/effect-previews/fisheye.jpg"); }
-        if (id == "concat.shake") { return @image-url("../assets/effect-previews/shake.jpg"); }
-        // The looks, rendered by their own chains; see concat-effects' previews example.
-        if (id == "concat.fresh") { return @image-url("../assets/effect-previews/fresh.jpg"); }
-        if (id == "concat.vivid") { return @image-url("../assets/effect-previews/vivid.jpg"); }
-        if (id == "concat.clean") { return @image-url("../assets/effect-previews/clean.jpg"); }
-        if (id == "concat.soft-light") { return @image-url("../assets/effect-previews/soft-light.jpg"); }
-        if (id == "concat.golden-hour") { return @image-url("../assets/effect-previews/golden-hour.jpg"); }
-        if (id == "concat.moody") { return @image-url("../assets/effect-previews/moody.jpg"); }
-        if (id == "concat.cool-blue") { return @image-url("../assets/effect-previews/cool-blue.jpg"); }
-        if (id == "concat.vintage") { return @image-url("../assets/effect-previews/vintage.jpg"); }
-        if (id == "concat.bronze") { return @image-url("../assets/effect-previews/bronze.jpg"); }
-        if (id == "concat.mono") { return @image-url("../assets/effect-previews/mono.jpg"); }
-        if (id == "concat.neon") { return @image-url("../assets/effect-previews/neon.jpg"); }
-        if (id == "concat.spooky") { return @image-url("../assets/effect-previews/spooky.jpg"); }
-        if (id == "concat.teal-orange") { return @image-url("../assets/effect-previews/teal-orange.jpg"); }
-        if (id == "concat.cloudless-sky") { return @image-url("../assets/effect-previews/cloudless-sky.jpg"); }
-        if (id == "concat.night") { return @image-url("../assets/effect-previews/night.jpg"); }
-        if (id == "concat.film") { return @image-url("../assets/effect-previews/film.jpg"); }
-        if (id == "concat.vhs") { return @image-url("../assets/effect-previews/vhs.jpg"); }
-        if (id == "concat.pink-fuzz") { return @image-url("../assets/effect-previews/pink-fuzz.jpg"); }
-        if (id == "concat.retro-cartoon") { return @image-url("../assets/effect-previews/retro-cartoon.jpg"); }
-        if (id == "concat.falling-dust") { return @image-url("../assets/effect-previews/falling-dust.jpg"); }
-        if (id == "concat.lagoon") { return @image-url("../assets/effect-previews/lagoon.jpg"); }
-        if (id == "concat.milk") { return @image-url("../assets/effect-previews/milk.jpg"); }
-        if (id == "concat.ivory") { return @image-url("../assets/effect-previews/ivory.jpg"); }
-        if (id == "concat.umber") { return @image-url("../assets/effect-previews/umber.jpg"); }
-        if (id == "concat.peach") { return @image-url("../assets/effect-previews/peach.jpg"); }
-        if (id == "concat.fair") { return @image-url("../assets/effect-previews/fair.jpg"); }
-        if (id == "concat.daydream") { return @image-url("../assets/effect-previews/daydream.jpg"); }
-        if (id == "concat.sage") { return @image-url("../assets/effect-previews/sage.jpg"); }
-        if (id == "concat.midnight") { return @image-url("../assets/effect-previews/midnight.jpg"); }
-        if (id == "concat.rain") { return @image-url("../assets/effect-previews/rain.jpg"); }
-        if (id == "concat.polaroid") { return @image-url("../assets/effect-previews/polaroid.jpg"); }
-        if (id == "concat.digicam") { return @image-url("../assets/effect-previews/digicam.jpg"); }
-        if (id == "concat.marquee") { return @image-url("../assets/effect-previews/marquee.jpg"); }
-        if (id == "concat.matcha") { return @image-url("../assets/effect-previews/matcha.jpg"); }
-        if (id == "concat.hue-shift") { return @image-url("../assets/effect-previews/hue-shift.jpg"); }
-        if (id == "concat.threshold") { return @image-url("../assets/effect-previews/threshold.jpg"); }
-        if (id == "concat.chromatic-aberration") { return @image-url("../assets/effect-previews/chromatic-aberration.jpg"); }
-        if (id == "concat.emboss") { return @image-url("../assets/effect-previews/emboss.jpg"); }
-        if (id == "concat.sketch") { return @image-url("../assets/effect-previews/sketch.jpg"); }
-        if (id == "concat.solarize") { return @image-url("../assets/effect-previews/solarize.jpg"); }
-        if (id == "concat.scanlines") { return @image-url("../assets/effect-previews/scanlines.jpg"); }
-        if (id == "concat.hologram") { return @image-url("../assets/effect-previews/hologram.jpg"); }
-        // New effects
-        if (id == "concat.bloom-pulse") { return @image-url("../assets/effect-previews/bloom-pulse.jpg"); }
-        if (id == "concat.blue-screen") { return @image-url("../assets/effect-previews/blue-screen.jpg"); }
-        if (id == "concat.bokeh") { return @image-url("../assets/effect-previews/bokeh.jpg"); }
-        if (id == "concat.bulge-pinch") { return @image-url("../assets/effect-previews/bulge-pinch.jpg"); }
-        if (id == "concat.crosshatch") { return @image-url("../assets/effect-previews/crosshatch.jpg"); }
-        if (id == "concat.datamosh") { return @image-url("../assets/effect-previews/datamosh.jpg"); }
-        if (id == "concat.duotone") { return @image-url("../assets/effect-previews/duotone.jpg"); }
-        if (id == "concat.dust") { return @image-url("../assets/effect-previews/dust.jpg"); }
-        if (id == "concat.fog") { return @image-url("../assets/effect-previews/fog.jpg"); }
-        if (id == "concat.green-screen") { return @image-url("../assets/effect-previews/green-screen.jpg"); }
-        if (id == "concat.halftone") { return @image-url("../assets/effect-previews/halftone.jpg"); }
-        if (id == "concat.kaleidoscope") { return @image-url("../assets/effect-previews/kaleidoscope.jpg"); }
-        if (id == "concat.lens-flare") { return @image-url("../assets/effect-previews/lens-flare.jpg"); }
-        if (id == "concat.light-leak") { return @image-url("../assets/effect-previews/light-leak.jpg"); }
-        if (id == "concat.mask-circle") { return @image-url("../assets/effect-previews/mask-circle.jpg"); }
-        if (id == "concat.mask-linear") { return @image-url("../assets/effect-previews/mask-linear.jpg"); }
-        if (id == "concat.mask-rectangle") { return @image-url("../assets/effect-previews/mask-rectangle.jpg"); }
-        if (id == "concat.neon-edges") { return @image-url("../assets/effect-previews/neon-edges.jpg"); }
-        if (id == "concat.oil-paint") { return @image-url("../assets/effect-previews/oil-paint.jpg"); }
-        if (id == "concat.rgb-split") { return @image-url("../assets/effect-previews/rgb-split.jpg"); }
-        if (id == "concat.ripple") { return @image-url("../assets/effect-previews/ripple.jpg"); }
-        if (id == "concat.snow") { return @image-url("../assets/effect-previews/snow.jpg"); }
-        if (id == "concat.twirl") { return @image-url("../assets/effect-previews/twirl.jpg"); }
-        // New filters
-        if (id == "concat.adjust") { return @image-url("../assets/effect-previews/adjust.jpg"); }
-        if (id == "concat.autumn") { return @image-url("../assets/effect-previews/autumn.jpg"); }
-        if (id == "concat.bleach-bypass") { return @image-url("../assets/effect-previews/bleach-bypass.jpg"); }
-        if (id == "concat.classic-chrome") { return @image-url("../assets/effect-previews/classic-chrome.jpg"); }
-        if (id == "concat.cyberpunk") { return @image-url("../assets/effect-previews/cyberpunk.jpg"); }
-        if (id == "concat.delicious") { return @image-url("../assets/effect-previews/delicious.jpg"); }
-        if (id == "concat.dreamy") { return @image-url("../assets/effect-previews/dreamy.jpg"); }
-        if (id == "concat.high-contrast-mono") { return @image-url("../assets/effect-previews/high-contrast-mono.jpg"); }
-        if (id == "concat.landscape-pop") { return @image-url("../assets/effect-previews/landscape-pop.jpg"); }
-        if (id == "concat.natural") { return @image-url("../assets/effect-previews/natural.jpg"); }
-        if (id == "concat.noir") { return @image-url("../assets/effect-previews/noir.jpg"); }
-        if (id == "concat.retro-70s") { return @image-url("../assets/effect-previews/retro-70s.jpg"); }
-        if (id == "concat.rosy") { return @image-url("../assets/effect-previews/rosy.jpg"); }
-        if (id == "concat.sci-fi") { return @image-url("../assets/effect-previews/sci-fi.jpg"); }
-        if (id == "concat.silver") { return @image-url("../assets/effect-previews/silver.jpg"); }
-        if (id == "concat.super-8") { return @image-url("../assets/effect-previews/super-8.jpg"); }
-        if (id == "concat.tropical") { return @image-url("../assets/effect-previews/tropical.jpg"); }
-        if (id == "concat.vaporwave") { return @image-url("../assets/effect-previews/vaporwave.jpg"); }
-        if (id == "concat.winter-cool") { return @image-url("../assets/effect-previews/winter-cool.jpg"); }
-        // Transitions
-        if (id == "concat.blur-dissolve") { return @image-url("../assets/effect-previews/blur-dissolve.jpg"); }
-        if (id == "concat.clock-wipe") { return @image-url("../assets/effect-previews/clock-wipe.jpg"); }
-        if (id == "concat.cube") { return @image-url("../assets/effect-previews/cube.jpg"); }
-        if (id == "concat.dissolve") { return @image-url("../assets/effect-previews/dissolve.jpg"); }
-        if (id == "concat.film-burn") { return @image-url("../assets/effect-previews/film-burn.jpg"); }
-        if (id == "concat.glitch-transition") { return @image-url("../assets/effect-previews/glitch-transition.jpg"); }
-        if (id == "concat.iris") { return @image-url("../assets/effect-previews/iris.jpg"); }
-        if (id == "concat.light-leak-transition") { return @image-url("../assets/effect-previews/light-leak-transition.jpg"); }
-        if (id == "concat.linear-wipe") { return @image-url("../assets/effect-previews/linear-wipe.jpg"); }
-        if (id == "concat.push") { return @image-url("../assets/effect-previews/push.jpg"); }
-        if (id == "concat.rgb-split-wipe") { return @image-url("../assets/effect-previews/rgb-split-wipe.jpg"); }
-        if (id == "concat.shape-wipe") { return @image-url("../assets/effect-previews/shape-wipe.jpg"); }
-        if (id == "concat.slide") { return @image-url("../assets/effect-previews/slide.jpg"); }
-        if (id == "concat.spin") { return @image-url("../assets/effect-previews/spin.jpg"); }
-        if (id == "concat.swirl") { return @image-url("../assets/effect-previews/swirl.jpg"); }
-        if (id == "concat.zoom-transition") { return @image-url("../assets/effect-previews/zoom-transition.jpg"); }
-        // Modern Video Effects
-        if (id == "concat.camera-shake") { return @image-url("../assets/effect-previews/camera-shake.jpg"); }
-        if (id == "concat.rgb-glitch") { return @image-url("../assets/effect-previews/rgb-glitch.jpg"); }
-        if (id == "concat.sparkle") { return @image-url("../assets/effect-previews/sparkle.jpg"); }
-        if (id == "concat.tilt-shift") { return @image-url("../assets/effect-previews/tilt-shift.jpg"); }
-        if (id == "concat.strobe-flash") { return @image-url("../assets/effect-previews/strobe-flash.jpg"); }
-        if (id == "concat.crt-scanlines") { return @image-url("../assets/effect-previews/crt-scanlines.jpg"); }
-        if (id == "concat.film-reel") { return @image-url("../assets/effect-previews/film-reel.jpg"); }
-        if (id == "concat.camcorder-90s") { return @image-url("../assets/effect-previews/camcorder-90s.jpg"); }
-        if (id == "concat.halation") { return @image-url("../assets/effect-previews/halation.jpg"); }
-        if (id == "concat.wave-warp") { return @image-url("../assets/effect-previews/wave-warp.jpg"); }
-        if (id == "concat.vortex-swirl") { return @image-url("../assets/effect-previews/vortex-swirl.jpg"); }
-        if (id == "concat.prism-dispersion") { return @image-url("../assets/effect-previews/prism-dispersion.jpg"); }
-        if (id == "concat.mirror-tile") { return @image-url("../assets/effect-previews/mirror-tile.jpg"); }
-        if (id == "concat.bass-shockwave") { return @image-url("../assets/effect-previews/bass-shockwave.jpg"); }
-        if (id == "concat.laser-beams") { return @image-url("../assets/effect-previews/laser-beams.jpg"); }
-        if (id == "concat.neon-glow") { return @image-url("../assets/effect-previews/neon-glow.jpg"); }
-        if (id == "concat.color-cycle") { return @image-url("../assets/effect-previews/color-cycle.jpg"); }
-        // Modern Transitions
-        if (id == "concat.whip-pan") { return @image-url("../assets/effect-previews/whip-pan.jpg"); }
-        if (id == "concat.zoom-blur-transition") { return @image-url("../assets/effect-previews/zoom-blur-transition.jpg"); }
-        if (id == "concat.light-leak-flash") { return @image-url("../assets/effect-previews/light-leak-flash.jpg"); }
-        if (id == "concat.glitch-warp") { return @image-url("../assets/effect-previews/glitch-warp.jpg"); }
-        return root.no-art;
-    }
     /// The category column. In-out, because it is dragged.
     in-out property <length> sidebar-w: 104px;
     /// Narrow enough to be a real squeeze, wide enough that a category name
@@ -2193,7 +2038,6 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-transitions;
                         glyph: Glyph.transition;
-                        art(id) => { return root.art-of(id); }
                         // Transitions apply directly on single-click — no audition overlay.
                         auditions: false;
                         applied(id, label) => { root.apply-transition(id); }
@@ -2228,7 +2072,8 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.audio-shelf ? root.catalogue-audio : root.catalogue-effects;
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
-                        art(id) => { return root.art-of(id); }
+                        // A sound has no picture: its cards are the compact kind.
+                        compact: root.audio-shelf;
                         // Effects apply directly on single-click to the selected clip —
                         // auditions:false means click = apply, no monitor overlay confusion.
                         auditions: false;
@@ -2275,7 +2120,6 @@ export component MediaPane inherits Rectangle {
                         payload-kind: "filter";
                         auditions: true;
                         auditioning: root.audition;
-                        art(id) => { return root.art-of(id); }
                         auditioned(id) => { root.audition-filter(id); }
                         applied(id, label) => { root.apply-filter(id, label); }
                     }

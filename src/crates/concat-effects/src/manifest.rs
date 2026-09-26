@@ -57,6 +57,45 @@ pub struct Manifest {
     /// `lut()`, and a chain names its file as `{lut}`.
     #[serde(default)]
     pub lut: Option<LutTable>,
+    /// What the package's card in the catalogue shows, where its defaults
+    /// alone would show little.
+    #[serde(default)]
+    pub card: Option<CardSettings>,
+}
+
+/// The `[card]` table. A card is the reference picture through the package
+/// at its defaults, a little way into a clip; this is for a package whose
+/// defaults show little there - an exposure of nothing, a key with no
+/// screen to key, a flash that has burned the cut white.
+#[derive(Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct CardSettings {
+    /// Knob values set over the defaults, within each knob's range; a
+    /// filter's `intensity` among them, a point's as `<key>.x`, `<key>.y`.
+    #[serde(default)]
+    pub params: std::collections::BTreeMap<String, f64>,
+    /// Seconds into the clip the card shows, for an effect or a look.
+    #[serde(default)]
+    pub moment: Option<f64>,
+    /// How far through the cut the card shows, `0..=1`, for a transition.
+    #[serde(default)]
+    pub progress: Option<f64>,
+    /// For a key: the reference picture stands before a screen of this
+    /// colour, `#rrggbb`, for the key to take out.
+    #[serde(default)]
+    pub screen: Option<String>,
+}
+
+impl CardSettings {
+    /// The screen's colour as bytes, when it names one that parses.
+    pub fn screen_rgb(&self) -> Option<[u8; 3]> {
+        let hex = self.screen.as_deref()?.strip_prefix('#')?;
+        if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let byte = |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).ok();
+        Some([byte(0)?, byte(2)?, byte(4)?])
+    }
 }
 
 /// The `[lut]` table: a `.cube` file beside the manifest.
@@ -459,6 +498,9 @@ impl Manifest {
                 }
             }
         }
+        if let Some(card) = &self.card {
+            self.validate_card(card)?;
+        }
         if let Some(intensity) = &self.effect.intensity
             && !self.params.iter().any(|param| &param.key == intensity)
         {
@@ -526,6 +568,70 @@ impl Manifest {
     /// rather than the gamma-encoded `0..1` a format 1 shader is given.
     pub fn scene_linear(&self) -> bool {
         self.format >= SCENE_LINEAR
+    }
+
+    /// A `[card]` table sets only knobs the package has, within their
+    /// ranges, and places the card by what kind of package it is.
+    fn validate_card(&self, card: &CardSettings) -> Result<(), Error> {
+        if !self.effect.kind.is_visual() {
+            return Err(self.invalid("[card] is for a package that draws the picture"));
+        }
+        for (key, value) in &card.params {
+            let point = key
+                .split_once('.')
+                .filter(|(_, axis)| *axis == "x" || *axis == "y")
+                .and_then(|(name, _)| self.param(name))
+                .filter(|param| param.kind == ParamType::Point);
+            let range = match (self.param(key), point) {
+                (Some(param), _) => param.min..=param.max,
+                (None, Some(_)) => 0.0..=1.0,
+                (None, None) if key == "intensity" && self.effect.kind == Kind::Filter => {
+                    0.0..=100.0
+                }
+                (None, None) => {
+                    return Err(
+                        self.invalid(format!("[card] sets `{key}`, which is not a parameter"))
+                    );
+                }
+            };
+            if !range.contains(value) {
+                return Err(self.invalid(format!(
+                    "[card] sets `{key}` to {value}, outside {}..{}",
+                    range.start(),
+                    range.end()
+                )));
+            }
+        }
+        let transition = self.effect.kind == Kind::Transition;
+        if let Some(progress) = card.progress {
+            if !transition {
+                return Err(self.invalid(
+                    "[card] progress places a transition's card; an effect's is placed by moment",
+                ));
+            }
+            if !(0.0..=1.0).contains(&progress) {
+                return Err(self.invalid("[card] progress is outside 0..1"));
+            }
+        }
+        if let Some(moment) = card.moment {
+            if transition {
+                return Err(self.invalid(
+                    "[card] moment places an effect's card; a transition's is placed by progress",
+                ));
+            }
+            if !(0.0..=60.0).contains(&moment) {
+                return Err(self.invalid("[card] moment is outside 0..60 seconds"));
+            }
+        }
+        if card.screen.is_some() {
+            if transition {
+                return Err(self.invalid("[card] screen is for an effect, not a transition"));
+            }
+            if card.screen_rgb().is_none() {
+                return Err(self.invalid("[card] screen is not a `#rrggbb` colour"));
+            }
+        }
+        Ok(())
     }
 
     /// The declared parameter with this key.
@@ -636,6 +742,45 @@ mod tests {
         rejects(&format!("format = {}\n{GOOD}", FORMAT + 1), "newer Concat");
         rejects(&format!("format = 0\n{GOOD}"), "format is 0");
         rejects(&format!("format = \"1\"\n{GOOD}"), "format");
+    }
+
+    /// A card may set only the package's own knobs, in range, and is
+    /// placed by moment for an effect and by progress for a transition.
+    #[test]
+    fn a_card_table_is_checked_like_the_rest() {
+        let with = |card: &str| format!("{GOOD}\n        [card]\n        {card}\n");
+        let manifest = Manifest::parse(&with("params = { radius = 20 }\n        moment = 2.5"))
+            .expect("parses");
+        let card = manifest.card.expect("a card");
+        assert_eq!(card.params.get("radius"), Some(&20.0));
+        assert_eq!(card.moment, Some(2.5));
+        rejects(&with("params = { sigma = 20 }"), "not a parameter");
+        rejects(&with("params = { radius = 99 }"), "outside 1..50");
+        rejects(&with("progress = 0.5"), "places a transition's card");
+        rejects(&with("moment = -1"), "outside 0..60");
+        rejects(&with("screen = \"green\""), "#rrggbb");
+        let keyed = Manifest::parse(&with("screen = \"#20c040\"")).expect("parses");
+        assert_eq!(
+            keyed.card.and_then(|card| card.screen_rgb()),
+            Some([0x20, 0xc0, 0x40])
+        );
+        let cut = format!("{GOOD_TRANSITION}\n        [card]\n        progress = 0.2\n");
+        assert_eq!(
+            Manifest::parse(&cut)
+                .expect("parses")
+                .card
+                .and_then(|c| c.progress),
+            Some(0.2)
+        );
+        rejects(
+            &cut.replace("progress = 0.2", "moment = 1"),
+            "placed by progress",
+        );
+        let sound = GOOD.replace("kind = \"effect\"", "kind = \"audio\"");
+        rejects(
+            &format!("{sound}\n        [card]\n        moment = 1\n"),
+            "draws the picture",
+        );
     }
 
     /// A shader may work in the display encoding from format 2, where the

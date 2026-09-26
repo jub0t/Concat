@@ -20,10 +20,10 @@ concat-render.workspace = true
 concat-api.workspace = true
 concat-server.workspace = true
 serde_json.workspace = true
-# `preview` renders one effect at its defaults: the catalogue for the
-# chain, the document model for the applied entry it takes.
+# `preview` draws one effect's card, as the window does; `check` loads
+# packages and runs their probes.
 concat-effects.workspace = true
-concat-project.workspace = true
+concat-host.workspace = true
 clap.workspace = true
 
 [features]

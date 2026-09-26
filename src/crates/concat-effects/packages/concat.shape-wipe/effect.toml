@@ -30,3 +30,7 @@ unit = "%"
 [transition]
 entry = "effect.wgsl"
 fallback = "cross-fade"
+
+# The shape has barely opened at the usual point of the cut.
+[card]
+progress = 0.55

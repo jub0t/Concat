@@ -9,8 +9,8 @@
 //! first transport: JSON-RPC requests in, responses and events out, one per
 //! line, so a script in any language edits and exports a project; `serve`
 //! is the same API on a socket, for callers that are other processes.
-//! `preview` is how the window's effect cards get their pictures: one still
-//! through one package at its defaults. `check` is what an author runs on
+//! `preview` draws one effect's card the way the window draws the
+//! catalogue's: a still through the package's own shader on the GPU. `check` is what an author runs on
 //! an effect package before sharing it: the same load the window does, its
 //! fixtures, and its probes on the GPU, with every fault named.
 
@@ -24,9 +24,7 @@ use clap::{Parser, Subcommand};
 use concat_api::rpc::{Call, Message};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
-use concat_media::{
-    DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, ReaderPool,
-};
+use concat_media::{EncodeOptions, Encoder, FrameSink, ReaderPool};
 use concat_render::{Compositor, WgpuCompositor, plan_frame};
 
 #[derive(Parser)]
@@ -92,9 +90,10 @@ enum Command {
         roots: Vec<PathBuf>,
     },
 
-    /// Run one picture through an effect at its defaults and write the
-    /// result as a JPEG - how the effect cards' previews are made:
-    /// `concat-cli preview assets/effect-preview-source.jpg out.jpg --effect concat.emboss`.
+    /// Draw one effect's card - a still through the package's own shader
+    /// on the GPU, at its defaults or its manifest's `[card]` settings,
+    /// the way the window draws the catalogue's - and write it as a JPEG:
+    /// `concat-cli preview still.jpg out.jpg --effect concat.emboss`.
     Preview {
         /// A still, or the first frame of a video.
         input: PathBuf,
@@ -103,12 +102,12 @@ enum Command {
         /// The package's catalogue id or alias, e.g. `concat.emboss`.
         #[arg(long)]
         effect: String,
-        /// Output width in pixels; the picture is scaled before the effect
+        /// Card width in pixels; the picture is scaled before the effect
         /// runs, so pixel-sized effects look as they will on the card.
-        #[arg(long, default_value_t = 320)]
+        #[arg(long, default_value_t = concat_host::cards::WIDTH)]
         width: u32,
-        /// Output height in pixels.
-        #[arg(long, default_value_t = 180)]
+        /// Card height in pixels.
+        #[arg(long, default_value_t = concat_host::cards::HEIGHT)]
         height: u32,
     },
 
@@ -254,11 +253,11 @@ fn serve(
 /// is known to use.
 const DEFAULT_JSON: &str = "127.0.0.1:7420";
 
-/// One frame of `input`, scaled to the card's size, through `effect` at its
-/// defaults, as a JPEG at `output`.
+/// `effect`'s card drawn from `input`, scaled to `width` by `height`, as
+/// a JPEG at `output`.
 fn preview(
-    input: &PathBuf,
-    output: &PathBuf,
+    input: &Path,
+    output: &Path,
     effect: &str,
     width: u32,
     height: u32,
@@ -267,20 +266,13 @@ fn preview(
     let package = catalogue
         .get(effect)
         .ok_or_else(|| format!("no package answers to {effect}"))?;
-    let applied = concat_project::model::AppliedFilter::new(package.manifest.effect.id.clone());
-    // The CPU chain: what a machine without a GPU renders, and what every
-    // package has whether or not it also carries a shader.
-    let chain = catalogue.video_chain(&[applied]);
-    if chain.is_empty() {
-        return Err(format!("{effect} has no FFmpeg chain to preview").into());
-    }
-    let mut decoder = Decoder::open(input, &DecodeOptions::default().scaled_to(width, height))?;
-    let frame = decoder
-        .next_frame()?
-        .ok_or_else(|| format!("{} holds no picture", input.display()))?;
-    let treated = concat_media::treat(&frame, &chain)?;
-    std::fs::write(output, concat_media::jpeg(&treated, 3)?)?;
-    println!("{effect}: {chain}\n  -> {}", output.display());
+    let card = concat_host::cards::Card::of(catalogue, package, Path::new(""))
+        .ok_or_else(|| format!("{effect} draws no picture to make a card of"))?;
+    let compositor =
+        WgpuCompositor::new().ok_or("no GPU or software renderer is available to draw with")?;
+    let mut painter = concat_host::cards::Painter::new(compositor, input, width, height)?;
+    painter.draw_to(&card, output)?;
+    println!("{} -> {}", package.id(), output.display());
     Ok(())
 }
 
