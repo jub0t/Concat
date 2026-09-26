@@ -1532,6 +1532,9 @@ fn frame_request(
         .filtered(chain)
         .from_proxy(proxy)
         .in_range(plan.built.ranges.get(&layer.clip).copied())
+        // The compositor fits the picture into its place, so an untreated
+        // frame is drawn at the level it was decoded at.
+        .at_any_size(true)
 }
 
 /// [`preview_sources`] for one instant of a plan already built. With
@@ -1979,6 +1982,96 @@ mod tests {
             kind: kind.to_owned(),
             duration,
         })
+    }
+
+    /// The monitor draws a crop and a flip as the export does: the crop in
+    /// the source's own terms, then the mirror, the kept part fitted and
+    /// centred with bars around it. The monitor reads an untreated frame
+    /// at its decoded level and leaves the fit, crop and flip to the frame
+    /// plan, so this is what holds the two paths to one picture.
+    #[test]
+    fn the_monitor_crops_and_flips_as_the_export_does() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let (width, height) = (128_u32, 72_u32);
+        let path = std::env::temp_dir().join(format!(
+            "concat-preview-geometry-{}.mp4",
+            std::process::id()
+        ));
+        let Ok(mut encoder) = Encoder::create(
+            &path,
+            width,
+            height,
+            FrameRate::THIRTY,
+            &EncodeOptions {
+                crf: 12,
+                ..EncodeOptions::default()
+            },
+        ) else {
+            return; // no ffmpeg here
+        };
+        // Top left red, top right green, bottom left blue, bottom right
+        // yellow.
+        let colours = [[220, 30, 30], [30, 200, 30], [30, 30, 220], [230, 220, 30]];
+        let mut frame = Frame::black(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let [r, g, b] =
+                    colours[usize::from(y >= height / 2) * 2 + usize::from(x >= width / 2)];
+                let at = ((y * width + x) * 4) as usize;
+                frame.pixels_mut()[at..at + 4].copy_from_slice(&[r, g, b, 255]);
+            }
+        }
+        for _ in 0..30 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let mut request_clip = clip("video", 0, 0.0, 1.0, 0.0);
+        request_clip.path = path.to_string_lossy().into_owned();
+        request_clip.media_width = Some(width);
+        request_clip.media_height = Some(height);
+        request_clip.crop = Some([0.0, 0.5, 0.0, 0.0]);
+        request_clip.flip_h = true;
+        let request = PreviewFrameRequest {
+            time: 0.5,
+            width,
+            height,
+            rate_num: 30,
+            rate_den: 1,
+            clips: vec![request_clip],
+        };
+        let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
+        let bytes = preview_frame(&pool, &request).expect("previews");
+        let _ = std::fs::remove_file(&path);
+        let at = |x: f64, y: f64| {
+            let (px, py) = (
+                (f64::from(width) * x) as u32,
+                (f64::from(height) * y) as u32,
+            );
+            let i = ((py * width + px) * 4) as usize;
+            [bytes[i], bytes[i + 1], bytes[i + 2]]
+        };
+        let near = |got: [u8; 3], want: [u8; 3]| {
+            got.iter()
+                .zip(want)
+                .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40)
+        };
+        // The bottom half kept, mirrored: yellow on the left, blue on the
+        // right, black bars above and below.
+        for ((x, y), want) in [
+            ((0.25, 0.5), colours[3]),
+            ((0.75, 0.5), colours[2]),
+            ((0.5, 0.05), [0, 0, 0]),
+            ((0.5, 0.95), [0, 0, 0]),
+        ] {
+            let got = at(x, y);
+            assert!(
+                near(got, want),
+                "at ({x}, {y}) the monitor shows {got:?}, not {want:?}"
+            );
+        }
     }
 
     /// End to end against a real FFmpeg: the paused monitor's frame must show

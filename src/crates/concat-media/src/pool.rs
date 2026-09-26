@@ -82,6 +82,13 @@ pub struct FrameRequest {
     /// tag. See [`DecodeOptions::color_range`]. Never applied to a proxy:
     /// a proxy was written from the corrected picture and tagged true.
     pub range: Option<ColorRange>,
+    /// The caller draws the frame at whatever size it comes: with no `pre`
+    /// and no `chain`, the source frame at its level is served as it is,
+    /// rather than fitted to `size` first. The compositor fits a picture of
+    /// any size into its place, so for it the fit here is a second scale
+    /// and a second cache entry per size; the level is never smaller than
+    /// `cover`, so nothing is lost. See [`FrameRequest::at_any_size`].
+    pub any_size: bool,
 }
 
 impl FrameRequest {
@@ -98,6 +105,7 @@ impl FrameRequest {
             chain: None,
             proxy: false,
             range: None,
+            any_size: false,
         }
     }
 
@@ -134,6 +142,13 @@ impl FrameRequest {
         self.chain = chain
             .filter(|chain| !chain.trim().is_empty())
             .map(str::to_owned);
+        self
+    }
+
+    /// Served at the source's level when nothing treats the picture; see
+    /// [`FrameRequest::any_size`].
+    pub fn at_any_size(mut self, any_size: bool) -> Self {
+        self.any_size = any_size;
         self
     }
 
@@ -714,7 +729,7 @@ impl ReaderPool {
         let (width, height) = request.size;
         let plain = request.pre.is_none()
             && request.chain.is_none()
-            && (source_key.width, source_key.height) == (width, height);
+            && (request.any_size || (source_key.width, source_key.height) == (width, height));
         if plain {
             return self.source_frame(&facts, &source_key);
         }
@@ -1291,6 +1306,40 @@ pub(crate) mod tests {
     /// with the crop changed costs no decode either; and the fourth pass,
     /// back to the first pass's knobs, costs nothing at all. Timings are
     /// printed for a person; the counts are what is asserted.
+    /// A request at any size with nothing to treat is served the source
+    /// frame at its level, fitted by no one here: no treated frame is made
+    /// and every size asked for is the same cached frame. With a chain it
+    /// is fitted and treated as before, `any_size` notwithstanding.
+    #[test]
+    fn an_untreated_frame_at_any_size_is_the_source_itself() {
+        let path = counting_video("any-size", 64, 30);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 2);
+        let time = FrameRate::THIRTY.time_of_frame(5);
+        let before = pool.stats();
+        let small = pool
+            .frame(&FrameRequest::new(&path, time, 20, 20).at_any_size(true))
+            .expect("decodes");
+        let larger = pool
+            .frame(&FrameRequest::new(&path, time, 30, 30).at_any_size(true))
+            .expect("decodes");
+        assert!(Arc::ptr_eq(&small, &larger), "one cached source frame");
+        assert!(
+            small.width() >= 30 && small.height() >= 30,
+            "the level covers"
+        );
+        assert_eq!(pool.stats().since(before).treated, 0);
+
+        let treated = pool
+            .frame(
+                &FrameRequest::new(&path, time, 20, 20)
+                    .at_any_size(true)
+                    .filtered(Some("negate")),
+            )
+            .expect("treats");
+        assert_eq!((treated.width(), treated.height()), (20, 20));
+        assert_eq!(pool.stats().since(before).treated, 1);
+    }
+
     #[test]
     fn a_scrub_over_covered_ground_never_decodes_again() {
         // The first half of the file only: the mp4 muxer leaves the last
