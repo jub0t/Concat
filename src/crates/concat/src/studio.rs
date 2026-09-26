@@ -8177,28 +8177,6 @@ impl Studio {
         }
     }
 
-    pub fn toggle_flip_v(&mut self) {
-        if self.selection.is_empty() {
-            return;
-        }
-        let commands: Vec<Command> = self
-            .selection
-            .iter()
-            .filter_map(|id| {
-                self.clip(id).map(|clip| Command::UpdateClip {
-                    clip_id: id.clone(),
-                    patch: ClipPatch {
-                        flip_v: Some(!clip.flip_v),
-                        ..Default::default()
-                    },
-                })
-            })
-            .collect();
-        if !commands.is_empty() {
-            self.apply(Command::Batch { commands });
-        }
-    }
-
     pub fn toggle_lock(&mut self, track_id: &str) {
         let view = self.lanes.lane_view.entry(track_id.to_owned()).or_default();
         view.locked = !view.locked;
@@ -8238,9 +8216,6 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
-        if !self.prefs.custom_context_actions && matches!(action, "flip-h" | "flip-v") {
-            return;
-        }
         match action {
             "split" => {
                 let at = self.playhead;
@@ -8258,8 +8233,6 @@ impl Studio {
                     self.clip_action(&id, action);
                 }
             }
-            "flip-h" => self.toggle_flip_h(),
-            "flip-v" => self.toggle_flip_v(),
             // The tray's picture verbs. Mirror is the flip the H key does,
             // without the setting that gates the key: a button on the tray
             // is not a key someone might press by accident.

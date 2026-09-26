@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { Tip } from "tooltip.slint";
+import { Select } from "select.slint";
 
 // The dialog layer this tree did not have.
 //
@@ -353,6 +354,15 @@ export component DialogSection inherits VerticalLayout {
     in property <bool> switchable;
     in property <bool> on;
     callback switched(on: bool);
+    /// A dropdown at the header's far end, for a group whose one setting is
+    /// a choice: the switch's counterpart, so a lone control sits on its
+    /// title rather than on a row of its own under a label that repeats it.
+    /// Shown when `choices` has any; like the switch it keeps no state of
+    /// its own and reports a pick through `chose`.
+    in property <[string]> choices;
+    in property <[string]> choice-details;
+    in property <int> choice;
+    callback chose(index: int);
 
     if !root.first: Rectangle {
         height: 1px;
@@ -430,6 +440,18 @@ export component DialogSection inherits VerticalLayout {
                 font-size: Theme.fs-sm;
                 vertical-alignment: center;
                 overflow: elide;
+            }
+
+            if root.choices.length > 0: VerticalLayout {
+                alignment: center;
+
+                Select {
+                    width: self.natural-width;
+                    options: root.choices;
+                    details: root.choice-details;
+                    current: root.choice;
+                    changed(index) => { root.chose(index); }
+                }
             }
 
             // The same pill as the inspector's Switch, drawn from `on`

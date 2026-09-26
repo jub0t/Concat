@@ -4,15 +4,13 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { NumberField } from "../primitives/number-field.slint";
-import { Kbd } from "../primitives/kbd.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { ColorPicker } from "../primitives/color-picker.slint";
 import { Fmt } from "../util.slint";
 import { Select } from "../primitives/select.slint";
-import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 
 // Settings: a fixed-height sheet with a column of pages down the side. The
@@ -47,26 +45,6 @@ export struct SystemFactData {
     value: string,
 }
 
-// A key and what it does, for a row of shortcuts.
-component Shortcut inherits HorizontalLayout {
-    in property <string> key;
-    in property <string> label;
-
-    spacing: 6px;
-    alignment: start;
-
-    VerticalLayout {
-        alignment: center;
-        Kbd { key: root.key; }
-    }
-    Text {
-        text: root.label;
-        color: Theme.fg-muted;
-        font-size: Theme.fs;
-        vertical-alignment: center;
-    }
-}
-
 export struct SettingsData {
     open: bool,
     /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About
@@ -74,15 +52,8 @@ export struct SettingsData {
     language: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
-    /// show flip/reverse in clip context menu
-    custom-context-actions: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
-    /// video decodes on the platform's own hardware
-    hardware-decode: bool,
-    /// this build and machine have hardware to decode on; off, the
-    /// switch is not shown
-    hardware-decode-offered: bool,
     /// the voices run on the machine's accelerator rather than the CPU
     speech-accelerated: bool,
     /// this build has an accelerator to offer the voices; off, the switch
@@ -456,9 +427,7 @@ export component SettingsDialog inherits Modal {
     /// The palette's own playhead colour, back in place of a picked one.
     callback playhead-reset();
     callback playhead-stops-changed(on: bool);
-    callback custom-context-actions-changed(on: bool);
     callback magnetic-changed(on: bool);
-    callback hardware-decode-changed(on: bool);
     callback speech-accelerated-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
@@ -609,27 +578,10 @@ export component SettingsDialog inherits Modal {
                 DialogSection {
                     title: I18n.t("Magnetic timeline");
                     hint: I18n.t("On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.");
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Close gaps when deleting and trimming");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.magnetic;
-                                toggled(on) => { root.magnetic-changed(on); }
-                            }
-                        }
-                    }
+                    switchable: true;
+                    on: root.data.magnetic;
+                    open: false;
+                    switched(on) => { root.magnetic-changed(on); }
                 }
 
                 // Off, the playhead goes wherever the ruler is clicked, past
@@ -638,91 +590,10 @@ export component SettingsDialog inherits Modal {
                 DialogSection {
                     title: I18n.t("Playhead");
                     hint: I18n.t("Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.");
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Stop at the end of the content");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.playhead-stops;
-                                toggled(on) => { root.playhead-stops-changed(on); }
-                            }
-                        }
-                    }
-                }
-
-                // Off, the clip context menu shows only the basics.
-                // On, it also shows Flip horizontal and Flip vertical.
-                DialogSection {
-                    title: I18n.t("Timeline shortcuts");
-                    hint: I18n.t("Off, the keys do nothing.");
-
-                    // The two keys, each as a keycap beside what it does.
-                    HorizontalLayout {
-                        spacing: 16px;
-                        alignment: start;
-
-                        Shortcut { key: "H"; label: I18n.t("Flip horizontally"); }
-                        Shortcut { key: "J"; label: I18n.t("Flip vertically"); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Enable flip shortcuts");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.custom-context-actions;
-                                toggled(on) => { root.custom-context-actions-changed(on); }
-                            }
-                        }
-                    }
-                }
-
-                // The platform's own decoder, where the build has one.
-                if root.data.hardware-decode-offered: DialogSection {
-                    title: I18n.t("Decoding");
-                    hint: I18n.t("On, video decodes on this machine's own hardware, which is what makes 4K play on a laptop. A file the hardware will not take decodes in software as before.");
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Decode on the hardware");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.hardware-decode;
-                                toggled(on) => { root.hardware-decode-changed(on); }
-                            }
-                        }
-                    }
+                    switchable: true;
+                    on: root.data.playhead-stops;
+                    open: false;
+                    switched(on) => { root.playhead-stops-changed(on); }
                 }
 
                 // The models are open weights from elsewhere, mirrored so
@@ -731,28 +602,25 @@ export component SettingsDialog inherits Modal {
                 DialogSection {
                     title: I18n.t("Downloads");
                     hint: I18n.t("Models are fetched the first time a feature needs one. This is where the download looks first; every other source is still tried after it.");
-
-                    DialogRow {
-                        label: I18n.t("Source");
-                        Select {
-                            current: root.data.download-source;
-                            options: [
-                                I18n.t("Automatic"),
-                                I18n.t("Concat's mirror"),
-                                "hf-mirror.com",
-                                I18n.t("Original source"),
-                                I18n.t("Custom URL"),
-                            ];
-                            details: [
-                                "",
-                                "github.com",
-                                I18n.t("For mainland China"),
-                                I18n.t("Where each model came from"),
-                                I18n.t("A mirror of your own"),
-                            ];
-                            changed(index) => { root.download-source-changed(index); }
-                        }
-                    }
+                    choices: [
+                        I18n.t("Automatic"),
+                        I18n.t("Concat's mirror"),
+                        "hf-mirror.com",
+                        I18n.t("Original source"),
+                        I18n.t("Custom URL"),
+                    ];
+                    choice-details: [
+                        "",
+                        "github.com",
+                        I18n.t("For mainland China"),
+                        I18n.t("Where each model came from"),
+                        I18n.t("A mirror of your own"),
+                    ];
+                    choice: root.data.download-source;
+                    chose(index) => { root.download-source-changed(index); }
+                    // The body is only the custom source's address, so it
+                    // folds away for every other choice.
+                    open: root.data.download-source == 4;
 
                     if root.data.download-source == 4: Field {
                         value: root.data.download-base;
@@ -995,27 +863,10 @@ export component SettingsDialog inherits Modal {
                 if root.data.speech-acceleration-offered: DialogSection {
                     title: I18n.t("Engine");
                     hint: I18n.t("On, the voices run on this Mac's GPU and Neural Engine through CoreML wherever the model allows, and on the CPU where it does not. Off, everything runs on the CPU. Takes effect on the next read; a model already loaded is loaded again.");
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Run voices on the GPU");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.speech-accelerated;
-                                toggled(on) => { root.speech-accelerated-changed(on); }
-                            }
-                        }
-                    }
+                    switchable: true;
+                    on: root.data.speech-accelerated;
+                    open: false;
+                    switched(on) => { root.speech-accelerated-changed(on); }
                 }
             }
 
@@ -1028,27 +879,9 @@ export component SettingsDialog inherits Modal {
                     first: true;
                     title: I18n.t("Remote control");
                     hint: I18n.t("Serves the Concat API while the window is open, so a script or another program can create, edit and export projects of its own. Anything that connects can read and write files as you can.");
-
-                    HorizontalLayout {
-                        spacing: 6px;
-
-                        Text {
-                            text: I18n.t("Serve the API");
-                            color: Theme.fg;
-                            font-size: Theme.fs;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        VerticalLayout {
-                            alignment: center;
-                            Switch {
-                                checked: root.data.server-enabled;
-                                toggled(on) => { root.server-enabled-changed(on); }
-                            }
-                        }
-                    }
+                    switchable: true;
+                    on: root.data.server-enabled;
+                    switched(on) => { root.server-enabled-changed(on); }
 
                     Text {
                         text: root.data.server-status;

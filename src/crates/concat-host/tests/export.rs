@@ -1248,7 +1248,7 @@ fn the_edges_export_too() {
     exported.expect_tone(start + 4.0);
 }
 
-/// Hardware decode preferred, the way the settings toggle leaves it: the
+/// Hardware decode preferred, the way the app always sets it: the
 /// export decodes its sources on the platform's device where there is one
 /// and reads the same picture and sound back. The preference is the
 /// process's, so the other scenarios running alongside share it for the

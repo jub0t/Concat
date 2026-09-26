@@ -39,10 +39,8 @@ pub enum SettingsMsg {
     ShowLog,
     LanguageChanged(i32),
     PlayheadStopsChanged(bool),
-    CustomContextActionsChanged(bool),
     /// The magnetic timeline switch; the tray's button is the same fact.
     MagneticChanged(bool),
-    HardwareDecodeChanged(bool),
     /// The voices run on the accelerator.
     SpeechAcceleratedChanged(bool),
     DownloadSourceChanged(i32),
@@ -137,10 +135,6 @@ pub struct SettingsPane {
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
-    /// Show flip in clip context menu.
-    pub custom_context_actions: bool,
-    /// Video decodes on the platform's hardware.
-    pub hardware_decode: bool,
     /// The voices run on the machine's accelerator.
     pub speech_accelerated: bool,
     /// Index into `SourcePreference::ALL`: where model downloads look first.
@@ -170,9 +164,11 @@ impl SettingsPane {
                     })
                     .unwrap_or(0);
                 self.playhead_stops = studio.prefs.playhead_stops_at_end;
-                self.custom_context_actions = studio.prefs.custom_context_actions;
-                self.hardware_decode = studio.prefs.hardware_decode_on();
-                concat_media::set_hardware_decode(self.hardware_decode);
+                // Not a choice: the app decodes on whatever hardware the
+                // platform has, and a file the hardware will not take opens
+                // in software (concat_media::hardware). Linux has no default
+                // device, so there this is software as before.
+                concat_media::set_hardware_decode(true);
                 self.speech_accelerated = studio.prefs.speech_accelerated;
                 concat_speech::set_accelerated(self.speech_accelerated);
                 self.download_source = Self::download_source(studio).0;
@@ -219,11 +215,6 @@ impl SettingsPane {
                 let at = studio.playhead;
                 studio.seek(at);
             }
-            SettingsMsg::CustomContextActionsChanged(on) => {
-                self.custom_context_actions = on;
-                studio.prefs.custom_context_actions = on;
-                studio.prefs.save(&studio.host.dirs);
-            }
             SettingsMsg::MagneticChanged(on) => {
                 studio.prefs.magnetic = on;
                 studio.prefs.save(&studio.host.dirs);
@@ -235,16 +226,6 @@ impl SettingsPane {
                 // An engine already loaded the other way is loaded again on
                 // the next read; nothing running is disturbed.
                 concat_speech::set_accelerated(on);
-            }
-            SettingsMsg::HardwareDecodeChanged(on) => {
-                self.hardware_decode = on;
-                studio.prefs.hardware_decode = Some(on);
-                studio.prefs.save(&studio.host.dirs);
-                // Readers already open keep what they opened with; the
-                // monitor's next frame opens fresh ones.
-                concat_media::set_hardware_decode(on);
-                studio.host.monitor.clear();
-                studio.request_preview();
             }
             SettingsMsg::DownloadSourceChanged(index) => {
                 let index = (index.max(0) as usize).min(SourcePreference::ALL.len() - 1);
@@ -580,13 +561,9 @@ impl SettingsPane {
             tab: self.tab,
             language: self.language as i32,
             playhead_stops: self.playhead_stops,
-            custom_context_actions: self.custom_context_actions,
             magnetic: studio.prefs.magnetic,
-            hardware_decode: self.hardware_decode,
             speech_accelerated: self.speech_accelerated,
             speech_acceleration_offered: concat_speech::acceleration_offered(),
-            hardware_decode_offered: concat_media::HwDevice::platform_default()
-                .is_some_and(concat_media::HwDevice::linked),
             download_source: self.download_source as i32,
             download_base: self.download_base.as_str().into(),
             server_enabled: studio.prefs.server.enabled,

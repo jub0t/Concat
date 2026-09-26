@@ -222,9 +222,7 @@ export component App inherits Window {
     callback settings-playhead-changed(colour: color);
     callback settings-playhead-reset();
     callback settings-playhead-stops-changed(on: bool);
-    callback settings-custom-context-actions-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
-    callback settings-hardware-decode-changed(on: bool);
     callback settings-speech-accelerated-changed(on: bool);
     callback settings-download-source-changed(index: int);
     callback settings-download-base-edited(text: string);
@@ -435,11 +433,10 @@ export component App inherits Window {
             if (event.text == "s") { Editor.shortcut("preview-axis"); return accept; }
             if (event.text == "m") { Editor.shortcut("mute"); return accept; }
             // H is the hand: the pan tool, on and off, the key every
-            // editor's canvas grabs with. Flip horizontal had it and lost
-            // it; that is still on the clip's menu, and J still flips
-            // vertically.
+            // editor's canvas grabs with. It and J were the flips once;
+            // flipping is the inspector's and the clip menu's now, and J
+            // is free.
             if (event.text == "h") { Editor.shortcut("pan"); return accept; }
-            if (event.text == "j") { Editor.shortcut("flip-v"); return accept; }
             return reject;
         }
 
@@ -582,9 +579,7 @@ export component App inherits Window {
         playhead-changed(colour) => { root.settings-playhead-changed(colour); }
         playhead-reset => { root.settings-playhead-reset(); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
-        custom-context-actions-changed(on) => { root.settings-custom-context-actions-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
-        hardware-decode-changed(on) => { root.settings-hardware-decode-changed(on); }
         speech-accelerated-changed(on) => { root.settings-speech-accelerated-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
         download-base-edited(text) => { root.settings-download-base-edited(text); }

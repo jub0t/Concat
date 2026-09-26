@@ -42,9 +42,6 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
-    /// Show flip horizontal and flip vertical in the clip context menu.
-    /// Keyboard shortcuts (H, J) are always available.
-    pub custom_context_actions: bool,
     /// The magnetic timeline: a delete and a trim close the gap they would
     /// leave, on the lane they happen on. Off by default, because a gap is
     /// sometimes the point; ⇧⌫ ripples either way.
@@ -63,11 +60,6 @@ pub struct Preferences {
     /// default: a burst of sound on every pass of the pointer is a lot to
     /// ask of a room.
     pub preview_axis_audio: bool,
-    /// Video decodes on the platform's own hardware where it has some:
-    /// VideoToolbox on a Mac. `None` is the platform's default, which is on
-    /// where the hardware path has been exercised (macOS and iOS) and off
-    /// elsewhere; see `Preferences::hardware_decode_on`.
-    pub hardware_decode: Option<bool>,
     /// The voices run on the machine's own accelerator - CoreML on a Mac -
     /// rather than the CPU. Off by default: what the accelerator takes of
     /// a network is the network's business, and the CPU is the answer that
@@ -84,13 +76,6 @@ pub struct Preferences {
 }
 
 impl Preferences {
-    /// Whether video should decode on the hardware: the choice made, or
-    /// the platform's default when none was.
-    pub fn hardware_decode_on(&self) -> bool {
-        self.hardware_decode
-            .unwrap_or(cfg!(any(target_os = "macos", target_os = "ios")))
-    }
-
     /// Which of `names` — the theme's accents, in its order — the remembered
     /// accent is. The first when nothing is remembered, and the first when
     /// the name is one the list no longer has: it is the default, and a
