@@ -9,20 +9,22 @@ name = "default"
 input = [0.3, 0.2, 0.12, 1]
 expect = [0.3, 0.2, 0.12, 1]
 
-# Three stops down, the black lifted away and the contrast flat: a grey.
+# Three stops down, the black lifted away, the contrast flat, and the
+# wheels all the way down: all but black.
 [[probe]]
 name = "minimum"
 at = "min"
 input = [6.0, 5.0, 4.0, 1]
-expect = [0.130138, 0.130138, 0.130138, 1]
+expect = [1.58091e-05, 1.58091e-05, 1.58091e-05, 1]
 
 # Every knob up: three true stops, brightness, contrast twice the stops,
-# three times the saturation. Far past white, as light asked for it is.
+# three times the saturation, the wheels all the way up. Far past white, as
+# light asked for it is.
 [[probe]]
 name = "maximum"
 at = "max"
 input = [0.08, 0.07, 0.06, 1]
-expect = [447.66, 0.00821351, 310.039, 1]
+expect = [2362.76, 2.67506, 1636.4, 1]
 
 # A moderate grade: a stop up, a little contrast and colour, a warm light.
 [[probe]]
@@ -43,3 +45,11 @@ name = "fade, past white"
 params = { fade = 50 }
 input = [4.0, 4.0, 4.0, 1]
 expect = [4.0, 4.0, 4.0, 1]
+
+# The lift pushed towards red, the gain a little up, the luma curve through
+# (0.5, 0.6).
+[[probe]]
+name = "wheels and a curve"
+params = { "lift.y" = 0.5, "gain.m" = 0.2, "luma.0.x" = 0, "luma.0.y" = 0, "luma.1.x" = 0.5, "luma.1.y" = 0.6, "luma.2.x" = 1, "luma.2.y" = 1 }
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.493822, 0.337644, 0.337644, 1]

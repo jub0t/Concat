@@ -1,0 +1,388 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
+import { NumberField } from "../primitives/number-field.slint";
+import { ClipField } from "../timeline/model.slint";
+import { KeyCluster } from "controls.slint";
+
+// The colour wheels and the curves: lift, gamma and gain as three wheels in
+// a row, and one graph for the curves with a tab a channel. Both draw what
+// Rust publishes and hand every change straight back, so the picture moves
+// with the pointer; a wheel's puck and a dragged point follow the pointer
+// here until Rust has caught up.
+
+/// One colour wheel of one link: its puck in the unit disc and its master,
+/// as the document holds them, and its keys where it can carry them.
+export struct WheelData {
+    /// Which link, as an index into the chain; -1 for the Adjust panel.
+    entry: int,
+    /// The manifest's key: the puck is `<key>.x` and `<key>.y`, the master
+    /// `<key>.m`.
+    key: string,
+    label: string,
+    /// The subhead the wheels sit under in the Adjust panel.
+    group: string,
+    x: float,
+    y: float,
+    master: float,
+    min: float,
+    max: float,
+    default-value: float,
+    keyable: bool,
+    keyed: bool,
+    here: bool,
+    prev: bool,
+    next: bool,
+}
+
+/// One point of a curve, in the unit square, y upwards.
+export struct CurvePointData {
+    /// The number the point is stored under, which Rust is handed back.
+    index: int,
+    x: float,
+    y: float,
+}
+
+/// One curve of one link.
+export struct CurveData {
+    /// Which link, as an index into the chain; -1 for the Adjust panel.
+    entry: int,
+    key: string,
+    label: string,
+    /// The subhead the curves sit under in the Adjust panel.
+    group: string,
+    points: [CurvePointData],
+    /// The curve as the shader works it out, in a unit box, y downwards:
+    /// path commands.
+    path: string,
+}
+
+/// One link's wheels, for a stack that draws a chain of links.
+export struct WheelGroupData {
+    entry: int,
+    wheels: [WheelData],
+}
+
+/// One link's curves, likewise.
+export struct CurveGroupData {
+    entry: int,
+    curves: [CurveData],
+}
+
+/// The colour a curve is drawn in: the first - luma - in the foreground's,
+/// then red, green and blue.
+global CurveTint {
+    public pure function of(channel: int) -> color {
+        return channel == 1 ? #e5484d : channel == 2 ? #46a758 : channel == 3 ? #4c7df0 : Theme.fg;
+    }
+}
+
+/// A colour wheel: a disc of hues, red at the top, with a puck pushed
+/// towards the hue the grade should lean to - further out, further - and
+/// the master under it, which makes the wheel's end of the picture brighter
+/// or darker. Double-click the disc to put the puck back in the middle; the
+/// master's field scrubs on a drag like every other.
+export component ColorWheel inherits VerticalLayout {
+    in property <WheelData> data;
+    in property <bool> enabled: true;
+
+    /// The puck, as it moves.
+    callback moved(x: float, y: float);
+    callback master-changed(value: float);
+
+    property <float> puck-x: root.data.x;
+    property <float> puck-y: root.data.y;
+    property <bool> dragging;
+    changed data => {
+        if (!root.dragging) {
+            root.puck-x = root.data.x;
+            root.puck-y = root.data.y;
+        }
+        master.value = root.data.master;
+    }
+
+    spacing: 4px;
+    alignment: start;
+    horizontal-stretch: 1;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 2px;
+
+        Text {
+            text: root.data.label;
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+
+        if root.data.keyable: KeyCluster {
+            name: root.data.key;
+            state: {
+                field: ClipField.scale,
+                keyed: root.data.keyed,
+                here: root.data.here,
+                prev: root.data.prev,
+                next: root.data.next,
+            };
+        }
+    }
+
+    disc := Rectangle {
+        property <length> radius: self.width / 2;
+        min-width: 56px;
+        height: self.width;
+        opacity: root.enabled ? 1.0 : 0.45;
+
+        Rectangle {
+            border-radius: parent.radius;
+            background: @conic-gradient(#e0443e 0deg, #d9c93b 60deg, #4cc24a 120deg, #3dc3c9 180deg, #4552d9 240deg, #c946c9 300deg, #e0443e 360deg);
+        }
+        // Grey towards the middle, where the puck pushes towards nothing.
+        Rectangle {
+            border-radius: parent.radius;
+            background: @radial-gradient(circle, Theme.well 0%, Theme.well.transparentize(40%) 55%, Theme.well.transparentize(100%) 100%);
+        }
+        Rectangle {
+            border-radius: parent.radius;
+            border-width: 1px;
+            border-color: Theme.line;
+        }
+        Rectangle {
+            x: parent.radius - 4px;
+            y: parent.radius - 0.5px;
+            width: 8px;
+            height: 1px;
+            background: Theme.fg-dim;
+        }
+        Rectangle {
+            x: parent.radius - 0.5px;
+            y: parent.radius - 4px;
+            width: 1px;
+            height: 8px;
+            background: Theme.fg-dim;
+        }
+        Rectangle {
+            x: parent.radius * (1 + root.puck-x) - 6px;
+            y: parent.radius * (1 - root.puck-y) - 6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            border-width: 2px;
+            border-color: #ffffff;
+            background: #00000040;
+        }
+
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: crosshair;
+
+            function place() {
+                let dx = (self.mouse-x - disc.radius) / disc.radius;
+                let dy = (disc.radius - self.mouse-y) / disc.radius;
+                let reach = Math.sqrt(dx * dx + dy * dy);
+                let inside = reach > 1 ? 1 / reach : 1;
+                root.puck-x = Fmt.round-to(dx * inside, 3);
+                root.puck-y = Fmt.round-to(dy * inside, 3);
+                root.moved(root.puck-x, root.puck-y);
+            }
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                    root.dragging = true;
+                    self.place();
+                }
+                if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.dragging = false;
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    self.place();
+                }
+            }
+            double-clicked => {
+                root.puck-x = 0;
+                root.puck-y = 0;
+                root.moved(0, 0);
+            }
+        }
+    }
+
+    master := NumberField {
+        value: root.data.master;
+        minimum: root.data.min;
+        maximum: root.data.max;
+        step: 0.01;
+        precision: 2;
+        enabled: root.enabled;
+        changed(v) => { root.master-changed(v); }
+    }
+}
+
+/// One point of the active curve: a dot dragged anywhere in the square,
+/// which reports every step of the way; double-clicked, or dragged off the
+/// graph and let go, it is taken away.
+component CurvePoint inherits TouchArea {
+    in property <float> px;
+    in property <float> py;
+    in property <length> plot-w;
+    in property <length> plot-h;
+    in property <color> tint;
+
+    callback dragged(x: float, y: float);
+    callback removed();
+
+    property <float> drag-x: root.px;
+    property <float> drag-y: root.py;
+    property <bool> dragging;
+    property <bool> off;
+
+    x: (self.dragging ? self.drag-x : root.px) * root.plot-w - 8px;
+    y: (1 - (self.dragging ? self.drag-y : root.py)) * root.plot-h - 8px;
+    width: 16px;
+    height: 16px;
+    mouse-cursor: move;
+
+    Rectangle {
+        x: 3px;
+        y: 3px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: root.dragging ? root.tint : Theme.panel;
+        border-width: 2px;
+        border-color: root.tint;
+        opacity: root.off ? 0.35 : 1;
+    }
+
+    moved => {
+        if (self.pressed) {
+            self.dragging = true;
+            let x = root.px + (self.mouse-x - self.pressed-x) / root.plot-w;
+            let y = root.py - (self.mouse-y - self.pressed-y) / root.plot-h;
+            // Well outside the square, the point is on its way off.
+            self.off = x < -0.08 || x > 1.08 || y < -0.08 || y > 1.08;
+            self.drag-x = Math.max(0, Math.min(1, x));
+            self.drag-y = Math.max(0, Math.min(1, y));
+            root.dragged(self.drag-x, self.drag-y);
+        }
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+            if (self.off && event.kind == PointerEventKind.up) {
+                root.removed();
+            }
+            self.dragging = false;
+            self.off = false;
+        }
+    }
+    double-clicked => { root.removed(); }
+}
+
+/// The curves: a tab a channel over one square graph. The chosen channel's
+/// points are live - click the graph to put one down, drag it, double-click
+/// it or drag it off to take it away - and the other channels are drawn
+/// faintly behind it.
+export component CurveEditor inherits VerticalLayout {
+    /// One link's curves, in the order its manifest lists them.
+    in property <[CurveData]> curves;
+    in property <bool> enabled: true;
+    in-out property <int> current: 0;
+
+    /// A point moved, or put down when `index` is -1, in the unit square.
+    callback point(key: string, index: int, x: float, y: float);
+    callback remove(key: string, index: int);
+
+    property <CurveData> active: root.curves[Math.min(root.current, root.curves.length - 1)];
+    property <color> tint: CurveTint.of(root.current);
+
+    spacing: 6px;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    HorizontalLayout {
+        spacing: 2px;
+
+        for curve[i] in root.curves: Rectangle {
+            height: 22px;
+            horizontal-stretch: 1;
+            border-radius: Theme.r-xs;
+            background: i == root.current ? Theme.field-active : tab.has-hover ? Theme.field-hover : Theme.field;
+
+            Text {
+                text: curve.label;
+                color: i == root.current ? CurveTint.of(i) : Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            tab := TouchArea {
+                enabled: root.enabled;
+                clicked => { root.current = i; }
+            }
+        }
+    }
+
+    graph := Rectangle {
+        height: self.width;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: Theme.r-xs;
+
+        for step in 3: Rectangle {
+            x: (step + 1) * parent.width / 4;
+            width: 1px;
+            height: parent.height;
+            background: Theme.line;
+            opacity: 0.5;
+        }
+        for step in 3: Rectangle {
+            y: (step + 1) * parent.height / 4;
+            width: parent.width;
+            height: 1px;
+            background: Theme.line;
+            opacity: 0.5;
+        }
+
+        // Clicking the graph away from every point puts one down there.
+        TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: crosshair;
+            clicked => {
+                root.point(root.active.key, -1,
+                    Math.max(0, Math.min(1, self.mouse-x / graph.width)),
+                    Math.max(0, Math.min(1, 1 - self.mouse-y / graph.height)));
+            }
+        }
+
+        for curve[i] in root.curves: Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            commands: curve.path;
+            fill: Colors.transparent;
+            stroke: CurveTint.of(i);
+            stroke-width: i == root.current ? 2px : 1px;
+            opacity: i == root.current ? 1 : 0.3;
+        }
+
+        for point in root.active.points: CurvePoint {
+            px: point.x;
+            py: point.y;
+            plot-w: graph.width;
+            plot-h: graph.height;
+            tint: root.tint;
+            enabled: root.enabled;
+            dragged(x, y) => { root.point(root.active.key, point.index, x, y); }
+            removed => { root.remove(root.active.key, point.index); }
+        }
+    }
+}

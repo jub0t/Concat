@@ -47,7 +47,7 @@ use std::sync::Arc;
 use concat_core::{Lut, RevealMap, ShaderPass, Stage, TransitionPass};
 
 use crate::expr::{Expr, Value};
-use crate::manifest::{MAX_SHRINK, Manifest, Param, ParamType, Pass, Space};
+use crate::manifest::{MAX_CURVE_POINTS, MAX_SHRINK, Manifest, Param, ParamType, Pass, Space};
 
 /// What an effect's shader binds: the layer at group 0, the host's frame
 /// block and the package's own parameters at group 1, its table at group 2
@@ -803,6 +803,94 @@ fn to_display(rgb: vec3<f32>) -> vec3<f32> {
 /// The display encoding back into light.
 fn from_display(encoded: vec3<f32>) -> vec3<f32> {
     return sign(encoded) * pow(abs(encoded), vec3<f32>(2.4));
+}
+
+/// A wheel's puck as the colour it pushes towards: the hue at its angle -
+/// red at the top, then clockwise yellow, green, cyan, blue, magenta, as the
+/// wheel is drawn - as far from grey as the puck is from the middle, with no
+/// brightness of its own, so a push towards it turns a colour and leaves
+/// its light. `wheel` is a wheel knob: its puck in x and y.
+fn wheel_hue(wheel: vec3<f32>) -> vec3<f32> {
+    let reach = min(length(wheel.xy), 1.0);
+    if (reach < 1e-5) {
+        return vec3<f32>(0.0);
+    }
+    let turn = fract(atan2(wheel.x, wheel.y) / 6.28318530718 + 1.0);
+    let hue = clamp(abs(fract(vec3<f32>(turn) + vec3<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - vec3<f32>(3.0)) - vec3<f32>(1.0), vec3<f32>(0.0), vec3<f32>(1.0));
+    let chroma = hue - vec3<f32>(luma(hue));
+    return chroma / max(max(abs(chroma.r), abs(chroma.g)), abs(chroma.b)) * reach;
+}
+
+/// Lift, gamma and gain from three wheel knobs, on a display level: lift
+/// moves black towards its colour and master and leaves white where it is,
+/// gamma bends the midtones by its, gain scales every level by its. Between
+/// black and white each is the classic three-way grade; past white, lift
+/// and gamma carry a level on by as much as it is past, and gain scales it
+/// like any other. At rest - pucks in the middle, masters at 0 - the
+/// picture as it came.
+fn grade_wheels(level: vec3<f32>, lift: vec3<f32>, gamma: vec3<f32>, gain: vec3<f32>) -> vec3<f32> {
+    if (all(lift == vec3<f32>(0.0)) && all(gamma == vec3<f32>(0.0)) && all(gain == vec3<f32>(0.0))) {
+        return level;
+    }
+    let black = wheel_hue(lift) * 0.25 + vec3<f32>(lift.z * 0.5);
+    let bend = wheel_hue(gamma) * 0.5 + vec3<f32>(gamma.z);
+    let scale = wheel_hue(gain) * 0.5 + vec3<f32>(gain.z);
+    let below = min(level, vec3<f32>(1.0));
+    var graded = below + black * (vec3<f32>(1.0) - below);
+    if (any(bend != vec3<f32>(0.0))) {
+        graded = sign(graded) * pow(abs(graded), exp2(-bend));
+    }
+    return (graded + (level - below)) * exp2(scale);
+}
+
+/// A curve knob at `level`: the curve through its points between black and
+/// white, flat before its first point and after its last, and a level past
+/// either end carried on past it by as much.
+fn curve_at(curve: array<vec4<f32>, 8>, level: f32) -> f32 {
+    var points = curve;
+    let inside = clamp(level, 0.0, 1.0);
+    let count = clamp(i32(points[0].w), 2, 8);
+    var i = 0;
+    for (var k = 1; k < 7; k++) {
+        if (k < count - 1 && inside >= points[k].x) {
+            i = k;
+        }
+    }
+    let a = points[i];
+    let b = points[i + 1];
+    var y: f32;
+    if (inside <= points[0].x) {
+        y = points[0].y;
+    } else if (inside >= points[count - 1].x) {
+        y = points[count - 1].y;
+    } else {
+        let h = max(b.x - a.x, 1e-6);
+        let s = (inside - a.x) / h;
+        let s2 = s * s;
+        let s3 = s2 * s;
+        y = (2.0 * s3 - 3.0 * s2 + 1.0) * a.y + (s3 - 2.0 * s2 + s) * h * a.z
+            + (3.0 * s2 - 2.0 * s3) * b.y + (s3 - s2) * h * b.z;
+    }
+    return y + (level - inside);
+}
+
+/// Whether a curve knob is the line from black to white, which leaves
+/// every level where it was.
+fn curve_is_straight(curve: array<vec4<f32>, 8>) -> bool {
+    return curve[0].w < 2.5 && all(curve[0].xy == vec2<f32>(0.0)) && all(curve[1].xy == vec2<f32>(1.0));
+}
+
+/// Curves on a display level: the luma curve first - the level's luminance
+/// moved along it and its colour scaled with it, so brightness changes and
+/// hue and saturation do not - then each channel along its own.
+fn grade_curves(level: vec3<f32>, bright: array<vec4<f32>, 8>, red: array<vec4<f32>, 8>, green: array<vec4<f32>, 8>, blue: array<vec4<f32>, 8>) -> vec3<f32> {
+    if (curve_is_straight(bright) && curve_is_straight(red) && curve_is_straight(green) && curve_is_straight(blue)) {
+        return level;
+    }
+    let y = luma(level);
+    let moved = curve_at(bright, y);
+    var c = select(level + vec3<f32>(moved - y), level * (moved / y), abs(y) > 1e-4);
+    return vec3<f32>(curve_at(red, c.r), curve_at(green, c.g), curve_at(blue, c.b));
 }
 
 /// A colour held to what the working space's half floats store: a knob
@@ -1716,26 +1804,38 @@ fn stitch(
             .find(|member| member.name.as_deref() == Some(param.key.as_str()))
             .ok_or_else(|| format!("`Params` has no field `{}`", param.key))?;
         let inner = &module.types[member.ty].inner;
-        let wanted = match param.kind {
-            ParamType::Point => 2,
-            ParamType::Color => 4,
-            _ => 1,
+        // What the field holds: f32s a vector wide, or for a curve that
+        // many vec4s.
+        let (wanted, name) = match param.kind {
+            ParamType::Point => (Width::Vector(2), "a vec2<f32>"),
+            ParamType::Wheel => (Width::Vector(3), "a vec3<f32>"),
+            ParamType::Color => (Width::Vector(4), "a vec4<f32>"),
+            ParamType::Curve => (
+                Width::Points(MAX_CURVE_POINTS as u32),
+                "an array<vec4<f32>, 8>",
+            ),
+            _ => (Width::Vector(1), "an f32"),
         };
         let width = match inner {
-            naga::TypeInner::Scalar(scalar) if is_f32(scalar) => 1,
-            naga::TypeInner::Vector { size, scalar } if is_f32(scalar) => *size as usize,
-            _ => 0,
+            naga::TypeInner::Scalar(scalar) if is_f32(scalar) => Width::Vector(1),
+            naga::TypeInner::Vector { size, scalar } if is_f32(scalar) => {
+                Width::Vector(*size as u32)
+            }
+            naga::TypeInner::Array {
+                base,
+                size: naga::ArraySize::Constant(count),
+                stride: 16,
+            } if matches!(
+                module.types[*base].inner,
+                naga::TypeInner::Vector { size: naga::VectorSize::Quad, scalar } if is_f32(&scalar)
+            ) =>
+            {
+                Width::Points(count.get())
+            }
+            _ => Width::Vector(0),
         };
         if width != wanted {
-            return Err(format!(
-                "`Params.{}` must be {}",
-                param.key,
-                match wanted {
-                    2 => "a vec2<f32>",
-                    4 => "a vec4<f32>",
-                    _ => "an f32",
-                }
-            ));
+            return Err(format!("`Params.{}` must be {name}", param.key));
         }
         slots.push(Slot {
             key: param.key.clone(),
@@ -1763,8 +1863,34 @@ fn lay_params(
             bytes[at].copy_from_slice(&(value as f32).to_le_bytes());
         }
     };
+    let default_of = |key: &str| {
+        params
+            .iter()
+            .find(|param| param.key == key)
+            .map_or(0.0, |param| param.default)
+    };
     for slot in slots {
         match slot.kind {
+            ParamType::Wheel => {
+                let sub = |axis: &str| values.get(&format!("{}.{axis}", slot.key)).copied();
+                put(slot.offset, sub("x").unwrap_or(0.0));
+                put(slot.offset + 4, sub("y").unwrap_or(0.0));
+                put(
+                    slot.offset + 8,
+                    sub("m").unwrap_or_else(|| default_of(&slot.key)),
+                );
+            }
+            ParamType::Curve => {
+                let points = curve_points(values, &slot.key);
+                let slopes = monotone_slopes(&points);
+                for (index, (&(x, y), slope)) in points.iter().zip(slopes).enumerate() {
+                    let at = slot.offset + index * 16;
+                    put(at, x);
+                    put(at + 4, y);
+                    put(at + 8, slope);
+                    put(at + 12, points.len() as f64);
+                }
+            }
             ParamType::Point => {
                 put(
                     slot.offset,
@@ -1805,6 +1931,108 @@ fn lay_params(
         }
     }
     bytes
+}
+
+/// How many f32s a `Params` field holds: a scalar or vector's width, or a
+/// curve's points.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Width {
+    Vector(u32),
+    Points(u32),
+}
+
+/// A curve's points as the document stores them under `key`, in the unit
+/// square and in order along it, at most [`MAX_CURVE_POINTS`]; a curve with
+/// fewer than two is the straight line from black to white. Two points at
+/// one place along the curve are one, the later.
+pub fn curve_points(values: &BTreeMap<String, f64>, key: &str) -> Vec<(f64, f64)> {
+    let mut points: Vec<(f64, f64)> = (0..MAX_CURVE_POINTS)
+        .filter_map(|n| {
+            let x = values.get(&format!("{key}.{n}.x"))?;
+            let y = values.get(&format!("{key}.{n}.y"))?;
+            (x.is_finite() && y.is_finite()).then(|| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)))
+        })
+        .collect();
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    points.dedup_by(|later, earlier| {
+        let same = (later.0 - earlier.0).abs() < 1e-6;
+        if same {
+            *earlier = *later;
+        }
+        same
+    });
+    if points.len() < 2 {
+        return vec![(0.0, 0.0), (1.0, 1.0)];
+    }
+    points
+}
+
+/// The slope a curve leaves each of its points at: Fritsch and Carlson's
+/// (1980), so a curve through points that climb climbs everywhere between
+/// them, and one that turns never overshoots its points.
+pub fn monotone_slopes(points: &[(f64, f64)]) -> Vec<f64> {
+    let n = points.len();
+    if n < 2 {
+        return vec![1.0; n];
+    }
+    let secants: Vec<f64> = points
+        .windows(2)
+        .map(|pair| (pair[1].1 - pair[0].1) / (pair[1].0 - pair[0].0).max(1e-9))
+        .collect();
+    let mut slopes = vec![0.0; n];
+    slopes[0] = secants[0];
+    slopes[n - 1] = secants[n - 2];
+    for k in 1..n - 1 {
+        slopes[k] = if secants[k - 1] * secants[k] > 0.0 {
+            (secants[k - 1] + secants[k]) / 2.0
+        } else {
+            0.0
+        };
+    }
+    for k in 0..n - 1 {
+        if secants[k] == 0.0 {
+            slopes[k] = 0.0;
+            slopes[k + 1] = 0.0;
+            continue;
+        }
+        let a = slopes[k] / secants[k];
+        let b = slopes[k + 1] / secants[k];
+        let length = (a * a + b * b).sqrt();
+        if length > 3.0 {
+            slopes[k] = 3.0 / length * a * secants[k];
+            slopes[k + 1] = 3.0 / length * b * secants[k];
+        }
+    }
+    slopes
+}
+
+/// A curve through `points` (in order, as [`curve_points`] gives them) at
+/// `level`, with the slopes [`monotone_slopes`] gives: what the shader's
+/// `curve_at` works out on the GPU, for a window that draws the curve.
+pub fn curve_value(points: &[(f64, f64)], slopes: &[f64], level: f64) -> f64 {
+    let inside = level.clamp(0.0, 1.0);
+    let (Some(first), Some(last)) = (points.first(), points.last()) else {
+        return level;
+    };
+    let y = if inside <= first.0 {
+        first.1
+    } else if inside >= last.0 {
+        last.1
+    } else {
+        let i = points
+            .windows(2)
+            .position(|pair| inside < pair[1].0)
+            .unwrap_or(points.len() - 2);
+        let ((ax, ay), (bx, by)) = (points[i], points[i + 1]);
+        let h = (bx - ax).max(1e-6);
+        let s = (inside - ax) / h;
+        let (s2, s3) = (s * s, s * s * s);
+        (2.0 * s3 - 3.0 * s2 + 1.0) * ay
+            + (s3 - 2.0 * s2 + s) * h * slopes[i]
+            + (3.0 * s2 - 2.0 * s3) * by
+            + (s3 - s2) * h * slopes[i + 1]
+    };
+    y + (level - inside)
 }
 
 /// A transition package's shader, stitched, checked and laid out.
@@ -2311,6 +2539,129 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         assert!(text.contains("text where a number was needed"), "{text}");
         let broken = with("radius /").expect_err("half an expression");
         assert!(broken.contains("shrink `radius /`"), "{broken}");
+    }
+
+    /// A wheel lays its puck and master into a vec3, and a curve its points
+    /// in order into eight vec4s with the slopes that keep it from
+    /// overshooting and the count of them; with no points a curve is the
+    /// line from black to white.
+    #[test]
+    fn wheels_and_curves_are_laid_into_the_uniforms() {
+        let manifest = Manifest::parse(
+            "format = 2\n[effect]\nid = \"test.grade\"\nname = \"Grade\"\nkind = \"effect\"\n\
+             [[param]]\nkey = \"lift\"\nlabel = \"Lift\"\ntype = \"wheel\"\nmin = -1\nmax = 1\ndefault = 0.25\n\
+             [[param]]\nkey = \"luma\"\nlabel = \"Luma\"\ntype = \"curve\"\n\
+             [wgsl]\nentry = \"effect.wgsl\"\nspace = \"display\"\n",
+        )
+        .expect("a manifest");
+        let shader = Shader::compile(
+            &manifest,
+            "struct Params { lift: vec3<f32>, luma: array<vec4<f32>, 8> }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); let l = vec3<f32>(curve_at(params.luma, c.r)); return vec4<f32>(grade_wheels(l, params.lift, vec3<f32>(0.0), vec3<f32>(0.0)), c.a); }",
+        )
+        .expect("compiles");
+        let floats = |bytes: Vec<u8>| -> Vec<f32> {
+            bytes
+                .chunks_exact(4)
+                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                .collect()
+        };
+        let at_rest = floats(shader.params_bytes(&BTreeMap::new(), &manifest.params));
+        assert_eq!(
+            &at_rest[..3],
+            &[0.0, 0.0, 0.25],
+            "the puck in the middle, the master at its default"
+        );
+        assert_eq!(
+            &at_rest[4..12],
+            &[0.0, 0.0, 1.0, 2.0, 1.0, 1.0, 1.0, 2.0],
+            "the straight line"
+        );
+        let set: BTreeMap<String, f64> = [
+            ("lift.x", 0.5),
+            ("lift.y", -0.5),
+            ("lift.m", -1.0),
+            ("luma.1.x", 1.0),
+            ("luma.1.y", 1.0),
+            ("luma.0.x", 0.0),
+            ("luma.0.y", 0.0),
+            ("luma.2.x", 0.5),
+            ("luma.2.y", 0.8),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value))
+        .collect();
+        let laid = floats(shader.params_bytes(&set, &manifest.params));
+        assert_eq!(&laid[..3], &[0.5, -0.5, -1.0]);
+        let points: Vec<[f32; 4]> = laid[4..16]
+            .chunks_exact(4)
+            .map(|p| [p[0], p[1], p[2], p[3]])
+            .collect();
+        assert_eq!(
+            points
+                .iter()
+                .map(|p| (p[0], p[1], p[3]))
+                .collect::<Vec<_>>(),
+            [(0.0, 0.0, 3.0), (0.5, 0.8, 3.0), (1.0, 1.0, 3.0)]
+        );
+        assert!(
+            points.iter().all(|p| p[2] >= 0.0),
+            "a climbing curve climbs everywhere: {points:?}"
+        );
+    }
+
+    /// The slopes never let a curve overshoot its points: flat at a peak,
+    /// and never steeper than three times a segment's own slope.
+    #[test]
+    fn a_curve_is_monotone_between_its_points() {
+        let peak = monotone_slopes(&[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)]);
+        assert_eq!(peak[1], 0.0, "flat at the top");
+        let steep = monotone_slopes(&[(0.0, 0.0), (0.1, 0.9), (0.2, 0.95), (1.0, 1.0)]);
+        for (k, pair) in [(0.0, 0.0), (0.1, 0.9), (0.2, 0.95), (1.0, 1.0)]
+            .windows(2)
+            .enumerate()
+        {
+            let secant = (pair[1].1 - pair[0].1) / (pair[1].0 - pair[0].0);
+            assert!(
+                steep[k] <= 3.0 * secant + 1e-9 && steep[k + 1] <= 3.0 * secant + 1e-9,
+                "{steep:?}"
+            );
+        }
+        let values = |pairs: &[(&str, f64)]| -> BTreeMap<String, f64> {
+            pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), *value))
+                .collect()
+        };
+        let bend = [(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)];
+        let slopes = monotone_slopes(&bend);
+        assert!((curve_value(&bend, &slopes, 0.25) - 0.3125).abs() < 1e-9);
+        assert_eq!(curve_value(&bend, &slopes, 1.5), 1.5, "past white carried");
+        assert_eq!(
+            curve_value(&bend, &slopes, -0.2),
+            -0.2,
+            "below black carried"
+        );
+        assert_eq!(
+            curve_points(&values(&[("c.0.x", 0.3), ("c.0.y", 0.7)]), "c"),
+            [(0.0, 0.0), (1.0, 1.0)],
+            "one point is no curve"
+        );
+        assert_eq!(
+            curve_points(
+                &values(&[
+                    ("c.0.x", 1.5),
+                    ("c.0.y", -1.0),
+                    ("c.3.x", 0.2),
+                    ("c.3.y", 0.4),
+                    ("c.5.x", 0.2),
+                    ("c.5.y", 0.6)
+                ]),
+                "c"
+            ),
+            [(0.2, 0.6), (1.0, 0.0)],
+            "held to the square, in order, one point to a place"
+        );
     }
 
     /// The pipeline key follows the source, so a shader edited without a

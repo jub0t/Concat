@@ -1,0 +1,41 @@
+format = 2
+
+[effect]
+id = "concat.curves"
+name = "Curves"
+kind = "effect"
+category = "Color"
+order = 15
+description = "The picture's levels bent along curves you draw: luma for brightness alone, then red, green and blue."
+
+[[param]]
+key = "luma"
+group = "Curves"
+label = "Luma"
+type = "curve"
+
+[[param]]
+key = "red"
+group = "Curves"
+label = "Red"
+type = "curve"
+
+[[param]]
+key = "green"
+group = "Curves"
+label = "Green"
+type = "curve"
+
+[[param]]
+key = "blue"
+group = "Curves"
+label = "Blue"
+type = "curve"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# At rest the picture is as shot; the card shows a gentle S.
+[card]
+params = { "luma.0.x" = 0.0, "luma.0.y" = 0.0, "luma.1.x" = 0.25, "luma.1.y" = 0.18, "luma.2.x" = 0.75, "luma.2.y" = 0.84, "luma.3.x" = 1.0, "luma.3.y" = 1.0 }

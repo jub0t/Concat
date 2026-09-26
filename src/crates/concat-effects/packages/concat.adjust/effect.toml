@@ -16,6 +16,8 @@ description = "The manual colour panel every picture clip carries: exposure, ton
 # percents; the last four lift or crush their end of the curve, highlights
 # and shadows the broad upper and lower halves, whites and blacks the
 # narrow extremes. Effects: sharpen, fade and vignette add from zero.
+# Wheels: lift, gamma and gain, each a hue to push towards and a master.
+# Curves: luma, then red, green and blue.
 #
 # 2: drawn in light. Exposure is in true stops of light, where it scaled
 # the display encoding, some 2.4 stops an EV; the rest reads as it did at
@@ -151,6 +153,63 @@ max = 100
 default = 0
 step = 1
 unit = "%"
+
+[[param]]
+key = "lift"
+group = "Wheels"
+label = "Lift"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[[param]]
+key = "gamma"
+group = "Wheels"
+label = "Gamma"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[[param]]
+key = "gain"
+group = "Wheels"
+label = "Gain"
+type = "wheel"
+min = -1
+max = 1
+default = 0
+step = 0.01
+animate = true
+
+[[param]]
+key = "luma"
+group = "Curves"
+label = "Luma"
+type = "curve"
+
+[[param]]
+key = "red"
+group = "Curves"
+label = "Red"
+type = "curve"
+
+[[param]]
+key = "green"
+group = "Curves"
+label = "Green"
+type = "curve"
+
+[[param]]
+key = "blue"
+group = "Curves"
+label = "Blue"
+type = "curve"
 
 [wgsl]
 entry = "effect.wgsl"

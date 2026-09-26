@@ -35,6 +35,7 @@ mod chips;
 mod dock;
 mod format;
 mod gpu;
+mod grading;
 mod host;
 mod i18n;
 mod platform;
@@ -211,6 +212,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_visual_params(ModelRc::from(models.visual_params.clone()));
         editor.set_audio_params(ModelRc::from(models.audio_params.clone()));
         editor.set_adjust_params(ModelRc::from(models.adjust_params.clone()));
+        editor.set_adjust_wheels(ModelRc::from(models.adjust_wheels.clone()));
+        editor.set_adjust_curves(ModelRc::from(models.adjust_curves.clone()));
+        editor.set_visual_wheels(ModelRc::from(models.visual_wheels.clone()));
+        editor.set_visual_curves(ModelRc::from(models.visual_curves.clone()));
         app.global::<Keyframes>()
             .set_rows(ModelRc::from(models.key_rows.clone()));
         app.global::<KeyEditor>()
@@ -994,6 +999,27 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_adjust_set(on_lanes!(|state, key: SharedString, value: f32| {
         state.adjust_set(key.as_str(), value);
     }));
+    editor.on_curve_point(on_lanes!(|state,
+                                     entry: i32,
+                                     key: SharedString,
+                                     point: i32,
+                                     x: f32,
+                                     y: f32| {
+        if entry < 0 {
+            state.adjust_curve_point(key.as_str(), point, x, y);
+        } else {
+            state.chain_curve_point(entry, key.as_str(), point, x, y);
+        }
+    }));
+    editor.on_curve_remove(on_lanes!(
+        |state, entry: i32, key: SharedString, point: i32| {
+            if entry < 0 {
+                state.adjust_curve_remove(key.as_str(), point);
+            } else {
+                state.chain_curve_remove(entry, key.as_str(), point);
+            }
+        }
+    ));
 
     // ── the monitor ──
     editor.on_seek(on_lanes!(|state, seconds: f32| {

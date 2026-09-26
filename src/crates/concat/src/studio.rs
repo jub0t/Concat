@@ -51,6 +51,7 @@ use crate::format::{
     WAVE_BAR, WAVE_PITCH, colour_of, frames_timecode, hex_of, hex_rgba, hex_with_alpha,
     wave_columns, wave_path, when_phrase,
 };
+use crate::grading;
 use crate::host::{
     CachedStrip, Host, MediaArt, WindowArt, cached_media_art, cached_window_art, image_at,
     image_of, media_art, on_ui_in_project, spawn, spawn_art, spawn_in_project, spawn_strip,
@@ -571,6 +572,19 @@ pub struct Models {
     pub audio_params: Rc<VecModel<AppliedParamData>>,
     /// The colour panel's knobs.
     pub adjust_params: Rc<VecModel<AppliedParamData>>,
+    /// The colour panel's wheels and curves, and the picture's chain's by
+    /// link.
+    pub adjust_wheels: Rc<VecModel<WheelData>>,
+    pub adjust_curves: Rc<VecModel<CurveData>>,
+    pub visual_wheels: Rc<VecModel<WheelGroupData>>,
+    pub visual_curves: Rc<VecModel<CurveGroupData>>,
+    /// A link's wheels and curves, and a curve's points, by the link - -1
+    /// the colour panel - and the curve's key: kept like the rest, so a
+    /// wheel or a point being dragged is not dropped when it is published
+    /// again under the pointer.
+    pub link_wheels: RefCell<HashMap<i32, Rc<VecModel<WheelData>>>>,
+    pub link_curves: RefCell<HashMap<i32, Rc<VecModel<CurveData>>>>,
+    pub curve_points: RefCell<HashMap<(i32, String), Rc<VecModel<CurvePointData>>>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
     /// identity and re-evaluates every binding on it.
@@ -624,6 +638,13 @@ impl Models {
             visual_params: Rc::new(VecModel::default()),
             audio_params: Rc::new(VecModel::default()),
             adjust_params: Rc::new(VecModel::default()),
+            adjust_wheels: Rc::new(VecModel::default()),
+            adjust_curves: Rc::new(VecModel::default()),
+            visual_wheels: Rc::new(VecModel::default()),
+            visual_curves: Rc::new(VecModel::default()),
+            link_wheels: RefCell::new(HashMap::new()),
+            link_curves: RefCell::new(HashMap::new()),
+            curve_points: RefCell::new(HashMap::new()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
             key_marks: Rc::new(VecModel::default()),
@@ -1266,6 +1287,8 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
         .manifest
         .params
         .iter()
+        // The wheels and curves are drawn by widgets of their own.
+        .filter(|param| !param.kind.is_compound())
         .map(|param| {
             let keyed = held.is_some_and(|entry| entry.is_keyed(&param.key));
             let (here, prev, next) = match (held, at) {
@@ -1367,7 +1390,12 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
                 next: false,
             });
         }
-        for param in &package.manifest.params {
+        for param in package
+            .manifest
+            .params
+            .iter()
+            .filter(|param| !param.kind.is_compound())
+        {
             let step = if param.step > 0.0 {
                 param.step
             } else {
@@ -1398,6 +1426,177 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
         }
     }
     (rows, knobs)
+}
+
+/// A link's wheels and curves as the inspector draws them: the values the
+/// link holds, or the defaults when there is no link yet. `entry` is its
+/// index in the chain, -1 for the Adjust panel; `keys` is the playhead's
+/// place in the clip when the wheels can carry keys - Some(None) when it is
+/// outside - and None when they cannot.
+fn grading_rows(
+    package: &concat_effects::Package,
+    link: Option<&AppliedFilter>,
+    entry: i32,
+    keys: Option<Option<f64>>,
+) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
+    use concat_effects::manifest::ParamType;
+    let empty = std::collections::BTreeMap::new();
+    let params = link.map_or(&empty, |link| &link.params);
+    let mut wheels = Vec::new();
+    let mut curves = Vec::new();
+    for param in &package.manifest.params {
+        match param.kind {
+            ParamType::Wheel => {
+                let [x, y, m] = grading::wheel_keys(&param.key);
+                let at = keys.flatten();
+                let value = |name: &str, fallback: f64| match (link, at) {
+                    (Some(link), Some(at)) => link.value_at(name, at, fallback),
+                    _ => params.get(name).copied().unwrap_or(fallback),
+                };
+                let keyed = link.is_some_and(|link| link.is_keyed(&m));
+                let (here, prev, next) = match (link, at) {
+                    (Some(link), Some(at)) if keyed => {
+                        let (prev, next) = link.keys_around(&m, at);
+                        (
+                            link.key_at(&m, at).is_some(),
+                            prev.is_some(),
+                            next.is_some(),
+                        )
+                    }
+                    _ => (false, false, false),
+                };
+                wheels.push(WheelData {
+                    entry,
+                    key: param.key.as_str().into(),
+                    label: i18n::shelf_text("labels", &param.label).into(),
+                    group: i18n::shelf_text("groups", &param.group).into(),
+                    x: value(&x, 0.0) as f32,
+                    y: value(&y, 0.0) as f32,
+                    master: value(&m, param.default) as f32,
+                    min: param.min as f32,
+                    max: param.max as f32,
+                    default_value: param.default as f32,
+                    keyable: keys.is_some(),
+                    keyed,
+                    here,
+                    prev,
+                    next,
+                });
+            }
+            ParamType::Curve => {
+                let points: Vec<CurvePointData> = grading::stored_points(params, &param.key)
+                    .into_iter()
+                    .map(|(index, x, y)| CurvePointData {
+                        index: index as i32,
+                        x: x as f32,
+                        y: y as f32,
+                    })
+                    .collect();
+                curves.push((
+                    CurveData {
+                        entry,
+                        key: param.key.as_str().into(),
+                        label: i18n::shelf_text("labels", &param.label).into(),
+                        group: i18n::shelf_text("groups", &param.group).into(),
+                        points: ModelRc::default(),
+                        path: grading::curve_path(params, &param.key).into(),
+                    },
+                    points,
+                ));
+            }
+            _ => {}
+        }
+    }
+    (wheels, curves)
+}
+
+/// Every link's wheels and curves in a chain, for the stack.
+fn chain_grading(
+    chain: &[AppliedFilter],
+) -> (Vec<WheelData>, Vec<(CurveData, Vec<CurvePointData>)>) {
+    let catalogue = Catalogue::builtin();
+    let mut wheels = Vec::new();
+    let mut curves = Vec::new();
+    for (index, link) in chain.iter().enumerate() {
+        let Some(package) = catalogue
+            .packages()
+            .find(|package| package.answers_to(&link.id))
+        else {
+            continue;
+        };
+        if package.id() == ADJUST_ID {
+            continue;
+        }
+        let (more_wheels, more_curves) = grading_rows(package, Some(link), index as i32, None);
+        wheels.extend(more_wheels);
+        curves.extend(more_curves);
+    }
+    (wheels, curves)
+}
+
+/// The document keys an Adjust knob is keyed under, with what each is worth
+/// with no key: a wheel's three - named by the wheel or by any of its own -
+/// else the knob's own.
+fn adjust_key_names(key: &str) -> Vec<(String, f64)> {
+    use concat_effects::manifest::ParamType;
+    let Some(package) = Catalogue::builtin().get(ADJUST_ID) else {
+        return vec![(key.to_owned(), 0.0)];
+    };
+    match package.manifest.owner(key) {
+        Some(param) if param.kind == ParamType::Wheel => {
+            let [x, y, m] = grading::wheel_keys(&param.key);
+            vec![(x, 0.0), (y, 0.0), (m, param.default)]
+        }
+        Some(param) => vec![(key.to_owned(), param.default)],
+        None => vec![(key.to_owned(), 0.0)],
+    }
+}
+
+/// The keys that move with an Adjust knob's key in the keyframes pane: for
+/// a wheel's master, the puck's two; nothing for any other knob.
+fn wheel_partners(param: &str) -> Vec<String> {
+    let names = adjust_key_names(param);
+    if names.len() == 3 && names[2].0 == param {
+        names.into_iter().take(2).map(|(name, _)| name).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// The commands that take a wheel's puck keys at `from` to `to` with its
+/// master's key - their values and eases kept - when `param` is a wheel's
+/// master; nothing for any other knob.
+fn partners_moved(
+    link: &AppliedFilter,
+    clip_id: &str,
+    entry: usize,
+    param: &str,
+    from: f64,
+    to: f64,
+) -> Vec<Command> {
+    wheel_partners(param)
+        .into_iter()
+        .filter_map(|name| {
+            let key = link.keys_on(&name)[link.key_at(&name, from)?];
+            Some([
+                Command::ClearEffectKey {
+                    clip_id: clip_id.to_owned(),
+                    entry,
+                    key: name.clone(),
+                    at: from,
+                },
+                Command::SetEffectKey {
+                    clip_id: clip_id.to_owned(),
+                    entry,
+                    key: name,
+                    at: to,
+                    value: key.value,
+                    ease: key.ease,
+                },
+            ])
+        })
+        .flatten()
+        .collect()
 }
 
 fn label_of(id: &str) -> String {
@@ -3039,12 +3238,44 @@ impl Studio {
 
     /// One knob of the colour panel, on the echo. The adjust package joins
     /// the head of the picture's chain the first time a knob moves, so an
-    /// untouched clip carries nothing.
+    /// untouched clip carries nothing. A wheel's puck and master are knobs
+    /// of their own here, `<key>.x`, `<key>.y` and `<key>.m`.
     pub fn adjust_set(&mut self, key: &str, value: f32) {
+        let point = self.key_point().map(|(_, at)| at);
+        self.edit_adjust_link(|link| match point {
+            // A knob that rides is edited where the playhead is: the value
+            // becomes the key there, put on if there was none. Setting the
+            // constant under a ride would change nothing on screen.
+            Some(at) if link.is_keyed(key) => {
+                let ease = ease_before(link.keys_on(key), at);
+                link.set_key(key, at, f64::from(value), ease);
+            }
+            _ => {
+                link.params.insert(key.to_owned(), f64::from(value));
+            }
+        });
+    }
+
+    /// One point of one of the colour panel's curves, on the echo: moved,
+    /// or put down when `point` is negative.
+    pub fn adjust_curve_point(&mut self, key: &str, point: i32, x: f32, y: f32) {
+        self.edit_adjust_link(|link| {
+            grading::set_curve_point(&mut link.params, key, point, x.into(), y.into());
+        });
+    }
+
+    /// One point of one of the colour panel's curves taken off, on the echo.
+    pub fn adjust_curve_remove(&mut self, key: &str, point: i32) {
+        self.edit_adjust_link(|link| grading::remove_curve_point(&mut link.params, key, point));
+    }
+
+    /// The selected clip's colour link on the echo, put at the head of the
+    /// picture's chain if it is not there yet, handed to `edit`. Nothing
+    /// for a clip that is not a picture.
+    fn edit_adjust_link(&mut self, edit: impl FnOnce(&mut AppliedFilter)) {
         let Some(id) = self.sole_selection() else {
             return;
         };
-        let point = self.key_point().map(|(_, at)| at);
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
             return;
@@ -3063,18 +3294,39 @@ impl Studio {
                 0
             }
         };
-        let link = &mut clip.video_effects[entry];
-        match point {
-            // A knob that rides is edited where the playhead is: the value
-            // becomes the key there, put on if there was none. Setting the
-            // constant under a ride would change nothing on screen.
-            Some(at) if link.is_keyed(key) => {
-                let ease = ease_before(link.keys_on(key), at);
-                link.set_key(key, at, f64::from(value), ease);
-            }
-            _ => {
-                link.params.insert(key.to_owned(), f64::from(value));
-            }
+        edit(&mut clip.video_effects[entry]);
+    }
+
+    /// One point of a curve of the picture chain's link `index`, on the
+    /// echo: moved, or put down when `point` is negative.
+    pub fn chain_curve_point(&mut self, index: i32, key: &str, point: i32, x: f32, y: f32) {
+        self.edit_chain_link(index, |link| {
+            grading::set_curve_point(&mut link.params, key, point, x.into(), y.into());
+        });
+    }
+
+    /// One point of a curve of the picture chain's link `index` taken off,
+    /// on the echo.
+    pub fn chain_curve_remove(&mut self, index: i32, key: &str, point: i32) {
+        self.edit_chain_link(index, |link| {
+            grading::remove_curve_point(&mut link.params, key, point);
+        });
+    }
+
+    /// The picture chain's link `index` of the selected clip, on the echo.
+    fn edit_chain_link(&mut self, index: i32, edit: impl FnOnce(&mut AppliedFilter)) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        self.begin_echo();
+        let Some(clip) = self.echo_clip_mut(&id) else {
+            return;
+        };
+        if let Some(link) = usize::try_from(index)
+            .ok()
+            .and_then(|index| clip.video_effects.get_mut(index))
+        {
+            edit(link);
         }
     }
 
@@ -3096,73 +3348,98 @@ impl Studio {
 
     /// Puts a key on one Adjust knob at the playhead, or takes off the one
     /// there. Like `toggle_key`, the new key holds what the knob is worth
-    /// at that instant, so pressing the diamond never moves the picture.
+    /// at that instant, so pressing the diamond never moves the picture. A
+    /// wheel - named by itself or by one of its own keys - is one knob: its
+    /// puck and master are keyed, and unkeyed, together.
     pub fn toggle_adjust_key(&mut self, key: &str) {
         let Some((clip, at, entry)) = self.adjust_point() else {
             return;
         };
-        let default = Catalogue::builtin()
-            .get(ADJUST_ID)
-            .and_then(|package| package.manifest.params.iter().find(|p| p.key == key))
-            .map_or(0.0, |param| param.default);
+        let names = adjust_key_names(key);
         let clip_id = clip.id.clone();
         let Some(entry) = entry else {
-            // No colour link yet: one goes on, then the key on it, as one
-            // edit, so an undo takes both back.
+            // No colour link yet: one goes on, then the keys on it, as one
+            // edit, so an undo takes all of it back.
             let mut effects = clip.video_effects.clone();
             effects.insert(0, AppliedFilter::new(ADJUST_ID));
-            self.apply(Command::Batch {
-                commands: vec![
-                    Command::UpdateClip {
-                        clip_id: clip_id.clone(),
-                        patch: ClipPatch {
-                            video_effects: Some(effects),
-                            ..ClipPatch::default()
-                        },
-                    },
-                    Command::SetEffectKey {
-                        clip_id,
-                        entry: 0,
-                        key: key.to_owned(),
-                        at,
-                        value: default,
-                        ease: model::KeyEase::LINEAR,
-                    },
-                ],
-            });
+            let mut commands = vec![Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    video_effects: Some(effects),
+                    ..ClipPatch::default()
+                },
+            }];
+            commands.extend(names.iter().map(|(name, default)| Command::SetEffectKey {
+                clip_id: clip_id.clone(),
+                entry: 0,
+                key: name.clone(),
+                at,
+                value: *default,
+                ease: model::KeyEase::LINEAR,
+            }));
+            self.apply(Command::Batch { commands });
             return;
         };
         let link = &clip.video_effects[entry];
-        let command = if link.key_at(key, at).is_some() {
-            Command::ClearEffectKey {
-                clip_id,
-                entry,
-                key: key.to_owned(),
-                at,
-            }
+        // The knob is keyed here when its own key - a wheel's master - is.
+        let on = names
+            .last()
+            .is_some_and(|(name, _)| link.key_at(name, at).is_some());
+        let mut commands: Vec<Command> = names
+            .iter()
+            .filter_map(|(name, default)| {
+                if on {
+                    link.key_at(name, at).map(|_| Command::ClearEffectKey {
+                        clip_id: clip_id.clone(),
+                        entry,
+                        key: name.clone(),
+                        at,
+                    })
+                } else {
+                    Some(Command::SetEffectKey {
+                        clip_id: clip_id.clone(),
+                        entry,
+                        key: name.clone(),
+                        at,
+                        value: link.value_at(name, at, *default),
+                        ease: ease_before(link.keys_on(name), at),
+                    })
+                }
+            })
+            .collect();
+        let command = if commands.len() == 1 {
+            commands.remove(0)
         } else {
-            Command::SetEffectKey {
-                clip_id,
-                entry,
-                key: key.to_owned(),
-                at,
-                value: link.value_at(key, at, default),
-                ease: ease_before(link.keys_on(key), at),
-            }
+            Command::Batch { commands }
         };
         self.apply(command);
     }
 
-    /// Takes every key off one Adjust knob, leaving it the value it holds.
+    /// Takes every key off one Adjust knob - a wheel's puck and master
+    /// together - leaving it the value it holds.
     pub fn clear_adjust_keys(&mut self, key: &str) {
         let Some((clip, _, Some(entry))) = self.adjust_point() else {
             return;
         };
-        self.apply(Command::ClearEffectKeys {
-            clip_id: clip.id,
-            entry,
-            key: key.to_owned(),
-        });
+        let link = &clip.video_effects[entry];
+        let mut commands: Vec<Command> = adjust_key_names(key)
+            .into_iter()
+            .filter(|(name, _)| link.is_keyed(name))
+            .map(|(name, _)| Command::ClearEffectKeys {
+                clip_id: clip.id.clone(),
+                entry,
+                key: name,
+            })
+            .collect();
+        match commands.len() {
+            0 => {}
+            1 => {
+                self.apply(commands.remove(0));
+            }
+            _ => {
+                self.apply(Command::Batch { commands });
+            }
+        }
     }
 
     /// Moves the playhead to an Adjust knob's previous (-1) or next (+1) key.
@@ -3170,7 +3447,10 @@ impl Studio {
         let Some((clip, at, Some(entry))) = self.adjust_point() else {
             return;
         };
-        let (prev, next) = clip.video_effects[entry].keys_around(key, at);
+        let Some((name, _)) = adjust_key_names(key).pop() else {
+            return;
+        };
+        let (prev, next) = clip.video_effects[entry].keys_around(&name, at);
         let Some(target) = (if delta < 0 { prev } else { next }) else {
             return;
         };
@@ -6320,6 +6600,94 @@ impl Studio {
                 _ => Vec::new(),
             },
         );
+
+        // The wheels and curves: the chain's by link, the colour panel's
+        // keyable at the playhead. Each curve's points go into the model
+        // kept for it.
+        let clip = self.sole_selection().and_then(|id| self.clip(&id));
+        let (visual_wheels, visual_curves) =
+            clip.map_or_else(Default::default, |clip| chain_grading(&clip.video_effects));
+        let (adjust_wheels, adjust_curves) = match (clip, Catalogue::builtin().get(ADJUST_ID)) {
+            (Some(clip), Some(package)) if clip.kind.is_visual() => grading_rows(
+                package,
+                clip.video_effects
+                    .iter()
+                    .find(|entry| entry.id == ADJUST_ID),
+                -1,
+                Some(self.key_point().map(|(_, at)| at)),
+            ),
+            _ => Default::default(),
+        };
+        let placed = |curves: Vec<(CurveData, Vec<CurvePointData>)>| -> Vec<CurveData> {
+            let mut kept = models.curve_points.borrow_mut();
+            curves
+                .into_iter()
+                .map(|(mut curve, points)| {
+                    let model = Rc::clone(
+                        kept.entry((curve.entry, curve.key.to_string()))
+                            .or_insert_with(|| Rc::new(VecModel::default())),
+                    );
+                    sync(&model, points);
+                    curve.points = ModelRc::from(model);
+                    curve
+                })
+                .collect()
+        };
+        sync(&models.adjust_wheels, adjust_wheels);
+        sync(&models.adjust_curves, placed(adjust_curves));
+        // The chain's, one group a link, in chain order, each group's list
+        // the model kept for its link.
+        let visual_curves = placed(visual_curves);
+        let mut entries: Vec<i32> = visual_wheels
+            .iter()
+            .map(|wheel| wheel.entry)
+            .chain(visual_curves.iter().map(|curve| curve.entry))
+            .collect();
+        entries.sort_unstable();
+        entries.dedup();
+        let (mut wheel_groups, mut curve_groups) = (Vec::new(), Vec::new());
+        for entry in entries {
+            let wheels: Vec<WheelData> = visual_wheels
+                .iter()
+                .filter(|wheel| wheel.entry == entry)
+                .cloned()
+                .collect();
+            if !wheels.is_empty() {
+                let model = Rc::clone(
+                    models
+                        .link_wheels
+                        .borrow_mut()
+                        .entry(entry)
+                        .or_insert_with(|| Rc::new(VecModel::default())),
+                );
+                sync(&model, wheels);
+                wheel_groups.push(WheelGroupData {
+                    entry,
+                    wheels: ModelRc::from(model),
+                });
+            }
+            let curves: Vec<CurveData> = visual_curves
+                .iter()
+                .filter(|curve| curve.entry == entry)
+                .cloned()
+                .collect();
+            if !curves.is_empty() {
+                let model = Rc::clone(
+                    models
+                        .link_curves
+                        .borrow_mut()
+                        .entry(entry)
+                        .or_insert_with(|| Rc::new(VecModel::default())),
+                );
+                sync(&model, curves);
+                curve_groups.push(CurveGroupData {
+                    entry,
+                    curves: ModelRc::from(model),
+                });
+            }
+        }
+        sync(&models.visual_wheels, wheel_groups);
+        sync(&models.visual_curves, curve_groups);
     }
 
     // ── the effect libraries ──
@@ -6650,6 +7018,50 @@ impl Studio {
                     ease_index,
                 });
             }
+            // A wheel that rides is one row, drawn from its master's keys;
+            // its puck's keys sit at the same instants and move with them.
+            if let Some(package) = Catalogue::builtin().get(ADJUST_ID) {
+                let (wheels, _) = grading_rows(package, Some(link), -1, Some(inside));
+                for wheel in wheels.into_iter().filter(|wheel| wheel.keyed) {
+                    let [_, _, master] = grading::wheel_keys(&wheel.key);
+                    let keys: Vec<(f64, f64, model::KeyEase)> = link
+                        .keys_on(&master)
+                        .iter()
+                        .map(|key| (key.at, key.value, key.ease))
+                        .collect();
+                    let (minimum, maximum) = (f64::from(wheel.min), f64::from(wheel.max));
+                    let (marks, curve, ease_index) = marks_and_curve(&keys, &|value| {
+                        if maximum > minimum {
+                            (value - minimum) / (maximum - minimum)
+                        } else {
+                            0.5
+                        }
+                    });
+                    rows.push(KeyRowData {
+                        field: ClipField::Scale,
+                        param: master.as_str().into(),
+                        label: wheel.label.clone(),
+                        keys: marks,
+                        state: ClipKeyData {
+                            field: ClipField::Scale,
+                            keyed: true,
+                            here: wheel.here,
+                            prev: wheel.prev,
+                            next: wheel.next,
+                        },
+                        value: wheel.master,
+                        minimum: wheel.min,
+                        maximum: wheel.max,
+                        step: 0.01,
+                        default_value: wheel.default_value,
+                        fmt: format_of(""),
+                        unit: SharedString::default(),
+                        unit_scale: 1.0,
+                        curve: curve.into(),
+                        ease_index,
+                    });
+                }
+            }
         }
         rows
     }
@@ -6708,7 +7120,7 @@ impl Studio {
             let (minimum, maximum) = (f64::from(row.min), f64::from(row.max));
             let value = minimum + fraction * (maximum - minimum);
             let ease = link.keys_on(param)[index].ease;
-            vec![
+            let mut commands = vec![
                 Command::ClearEffectKey {
                     clip_id: clip_id.clone(),
                     entry,
@@ -6716,14 +7128,16 @@ impl Studio {
                     at: from,
                 },
                 Command::SetEffectKey {
-                    clip_id,
+                    clip_id: clip_id.clone(),
                     entry,
                     key: param.to_owned(),
                     at: to,
                     value,
                     ease,
                 },
-            ]
+            ];
+            commands.extend(partners_moved(link, &clip_id, entry, param, from, to));
+            commands
         };
         self.apply(Command::Batch { commands });
     }
@@ -6872,7 +7286,7 @@ impl Studio {
             };
             let key = &link.keys_on(param)[index];
             let (value, ease) = (key.value, key.ease);
-            vec![
+            let mut commands = vec![
                 Command::ClearEffectKey {
                     clip_id: clip_id.clone(),
                     entry,
@@ -6880,14 +7294,16 @@ impl Studio {
                     at: from,
                 },
                 Command::SetEffectKey {
-                    clip_id,
+                    clip_id: clip_id.clone(),
                     entry,
                     key: param.to_owned(),
                     at: to,
                     value,
                     ease,
                 },
-            ]
+            ];
+            commands.extend(partners_moved(link, &clip_id, entry, param, from, to));
+            commands
         };
         self.apply(Command::Batch { commands });
     }
@@ -6924,16 +7340,27 @@ impl Studio {
                 return;
             };
             let link = &clip.video_effects[entry];
-            let Some(index) = link.key_at(param, at) else {
+            if link.key_at(param, at).is_none() {
                 return;
-            };
-            Command::SetEffectKey {
-                clip_id,
-                entry,
-                key: param.to_owned(),
-                at,
-                value: link.keys_on(param)[index].value,
-                ease,
+            }
+            let mut commands: Vec<Command> = std::iter::once(param.to_owned())
+                .chain(wheel_partners(param))
+                .filter_map(|name| {
+                    let index = link.key_at(&name, at)?;
+                    Some(Command::SetEffectKey {
+                        clip_id: clip_id.clone(),
+                        entry,
+                        value: link.keys_on(&name)[index].value,
+                        key: name,
+                        at,
+                        ease,
+                    })
+                })
+                .collect();
+            if commands.len() == 1 {
+                commands.remove(0)
+            } else {
+                Command::Batch { commands }
             }
         };
         self.apply_within("ease", command);
@@ -8428,9 +8855,65 @@ impl Studio {
 #[cfg(test)]
 mod tests {
     use super::{
-        Command, Footprint, Studio, custom_frame, custom_rate, fps_of, home_folder, key_commands,
-        place_in, shown, write_keyable,
+        Command, Footprint, Studio, adjust_key_names, custom_frame, custom_rate, fps_of,
+        grading_rows, home_folder, key_commands, place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// A wheel is keyed as one knob: named by itself or by any of its own
+    /// keys, it keys its puck and master; its master's key takes the puck's
+    /// with it in the keyframes pane; any other knob keys alone.
+    #[test]
+    fn a_wheel_keys_as_one_knob() {
+        let names = |key: &str| -> Vec<String> {
+            adjust_key_names(key)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect()
+        };
+        assert_eq!(names("lift"), ["lift.x", "lift.y", "lift.m"]);
+        assert_eq!(names("gain.x"), ["gain.x", "gain.y", "gain.m"]);
+        assert_eq!(names("exposure"), ["exposure"]);
+        assert_eq!(wheel_partners("gamma.m"), ["gamma.x", "gamma.y"]);
+        assert!(wheel_partners("gamma.x").is_empty());
+        assert!(wheel_partners("exposure").is_empty());
+    }
+
+    /// The Adjust panel's wheels and curves come from its manifest: three
+    /// wheels at rest and four straight curves on a clip that carries
+    /// nothing, and a link's own values where it holds them.
+    #[test]
+    fn the_adjust_panel_draws_its_wheels_and_curves() {
+        use concat_project::model::AppliedFilter;
+        let package = concat_effects::Catalogue::builtin()
+            .get("concat.adjust")
+            .expect("a built-in");
+        let (wheels, curves) = grading_rows(package, None, -1, Some(None));
+        assert_eq!(
+            wheels.iter().map(|w| w.key.as_str()).collect::<Vec<_>>(),
+            ["lift", "gamma", "gain"]
+        );
+        assert!(
+            wheels
+                .iter()
+                .all(|w| w.x == 0.0 && w.y == 0.0 && w.master == 0.0 && w.keyable)
+        );
+        assert_eq!(
+            curves
+                .iter()
+                .map(|(c, _)| c.key.as_str())
+                .collect::<Vec<_>>(),
+            ["luma", "red", "green", "blue"]
+        );
+        assert!(curves.iter().all(|(_, points)| points.is_empty()));
+        let mut link = AppliedFilter::new("concat.adjust");
+        link.params.insert("gain.x".to_owned(), 0.25);
+        link.params.insert("gain.m".to_owned(), -0.5);
+        crate::grading::set_curve_point(&mut link.params, "red", -1, 0.5, 0.6);
+        let (wheels, curves) = grading_rows(package, Some(&link), -1, None);
+        assert_eq!((wheels[2].x, wheels[2].master), (0.25, -0.5));
+        assert!(!wheels[2].keyable, "a stack's wheels take no keys");
+        assert_eq!(curves[1].1.len(), 3, "the ends and the point put down");
+    }
 
     /// A typed frame is even on both sides and inside the limits.
     #[test]

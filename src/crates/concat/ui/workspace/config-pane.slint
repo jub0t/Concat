@@ -11,6 +11,9 @@ import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
     CatalogueEntryData, FilterPanel, PresetStack, SpeedPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
+import {
+    CurveData, CurveGroupData, WheelData, WheelGroupData,
+} from "../inspector/grading.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
 import {
     ClipField, ClipKind, ClipTextField, SelectedClipData,
@@ -150,6 +153,15 @@ export component ConfigPane inherits Rectangle {
     /// selected clip's values or the defaults.
     in property <[AppliedParamData]> adjust-params;
     callback adjust-set(key: string, value: float);
+    /// The colour panel's wheels and curves, and the picture chain's by link.
+    in property <[WheelData]> adjust-wheels;
+    in property <[CurveData]> adjust-curves;
+    in property <[WheelGroupData]> visual-wheels;
+    in property <[CurveGroupData]> visual-curves;
+    /// A curve's point moved, or put down when `point` is -1, or taken off:
+    /// `entry` -1 is the colour panel's, else a link of the picture's chain.
+    callback curve-point(entry: int, key: string, point: int, x: float, y: float);
+    callback curve-remove(entry: int, key: string, point: int);
 
     /// See Editor.inspector-jump-token: the library applied something and
     /// this pane should show it.
@@ -546,7 +558,11 @@ export component ConfigPane inherits Rectangle {
 
                 if root.showing == "Adjust": AdjustPanel {
                     params: root.adjust-params;
+                    wheels: root.adjust-wheels;
+                    curves: root.adjust-curves;
                     set(key, value) => { root.adjust-set(key, value); }
+                    curve-point(key, point, x, y) => { root.curve-point(-1, key, point, x, y); }
+                    curve-remove(key, point) => { root.curve-remove(-1, key, point); }
                     commit => { root.clip-commit(); }
                 }
 
@@ -620,6 +636,8 @@ export component ConfigPane inherits Rectangle {
                     catalogue: root.catalogue-effects;
                     applied: root.applied-visual;
                     params: root.visual-params;
+                    wheel-groups: root.visual-wheels;
+                    curve-groups: root.visual-curves;
 
                     add(id) => { root.chain-add(false, id); }
                     toggle(index) => { root.chain-toggle(false, index); }
@@ -627,6 +645,12 @@ export component ConfigPane inherits Rectangle {
                     remove(index) => { root.chain-remove(false, index); }
                     set-param(index, key, value) => {
                         root.chain-set-param(false, index, key, value);
+                    }
+                    curve-point(index, key, point, x, y) => {
+                        root.curve-point(index, key, point, x, y);
+                    }
+                    curve-remove(index, key, point) => {
+                        root.curve-remove(index, key, point);
                     }
                     commit => { root.clip-commit(); }
                 }
