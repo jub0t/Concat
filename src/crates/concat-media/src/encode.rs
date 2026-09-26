@@ -376,8 +376,12 @@ impl Encoder {
         // holding the target.
         let bufsize = format!("{}k", options.bitrate_kbps);
         let settings = match encoder_name {
-            // libx264 / libx265 both take -b:v, -minrate and -maxrate for
-            // CBR; VBR is the CRF that already shipped.
+            // libx264 / libx265 both take a bitrate, -minrate and -maxrate
+            // for CBR; VBR is the CRF that already shipped. The bitrate is
+            // `b`, the codec option's own name: `b:v` is the command line's
+            // spelling with a stream specifier, which the library does not
+            // know, so it was dropped - x264 then ran at its CRF under the
+            // cap, and x265 refused strict-cbr without a bitrate.
             // Real CBR needs `nal-hrd=cbr` on x264, and `strict-cbr=1` on
             // libx265. Without it x264 caps at maxrate but does not pad the
             // output to b:v on content that does not need the bitrate, so an
@@ -385,7 +389,7 @@ impl Encoder {
             // content costs, not 8000k.
             "libx264" if cbr => ffmpeg::dict! {
                 "preset" => options.preset.as_str(),
-                "b:v" => bitrate.as_str(),
+                "b" => bitrate.as_str(),
                 "minrate" => bitrate.as_str(),
                 "maxrate" => bitrate.as_str(),
                 "bufsize" => bufsize.as_str(),
@@ -393,7 +397,7 @@ impl Encoder {
             },
             "libx265" if cbr => ffmpeg::dict! {
                 "preset" => options.preset.as_str(),
-                "b:v" => bitrate.as_str(),
+                "b" => bitrate.as_str(),
                 "minrate" => bitrate.as_str(),
                 "maxrate" => bitrate.as_str(),
                 "bufsize" => bufsize.as_str(),
@@ -669,6 +673,52 @@ pub fn jpeg(frame: &Frame, quality: u8) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A constant-bitrate export opens with each software encoder and comes
+    /// out near the rate asked for. Noise, so the content costs more than
+    /// the target and the encoder has to hold it rather than coast under.
+    #[test]
+    fn a_cbr_export_opens_and_holds_its_rate() {
+        let dir =
+            std::env::temp_dir().join(format!("concat-media-cbr-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        const KBPS: u32 = 2_000;
+        const FRAMES: u32 = 60;
+        for codec in [VideoCodec::H264, VideoCodec::Hevc] {
+            let path = dir.join(format!("{}.mp4", codec.name()));
+            let options = EncodeOptions {
+                codec,
+                preset: "ultrafast".to_owned(),
+                rate_mode: RateMode::Cbr,
+                bitrate_kbps: KBPS,
+                hardware: false,
+                ..EncodeOptions::default()
+            };
+            let mut encoder = Encoder::create(&path, 320, 180, FrameRate::THIRTY, &options)
+                .unwrap_or_else(|error| panic!("{codec:?} CBR opens: {error}"));
+            let mut frame = Frame::black(320, 180);
+            let mut state = 0x2545_F491_4F6C_DD1D_u64;
+            for _ in 0..FRAMES {
+                for byte in frame.pixels_mut() {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    *byte = state as u8;
+                }
+                encoder.write_frame(&frame).expect("writes");
+            }
+            encoder.finish().expect("finishes");
+            let kbps = std::fs::metadata(&path).expect("written").len() as f64 * 8.0
+                / 1000.0
+                / (f64::from(FRAMES) / 30.0);
+            assert!(
+                (f64::from(KBPS) * 0.7..=f64::from(KBPS) * 1.3).contains(&kbps),
+                "{codec:?} CBR at {KBPS} kb/s came out at {kbps:.0} kb/s"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// Every written frame decodes back, at a frame rate an even number of
     /// frames does not land on a round second at (25 fps, 6 seconds: every
