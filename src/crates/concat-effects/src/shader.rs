@@ -55,9 +55,10 @@ struct Frame {
 @group(3) @binding(0) var reveal_texture: texture_2d<f32>;
 @group(3) @binding(1) var reveal_sampler: sampler;
 
-/// The layer's colour at `uv`, straight alpha.
+/// The layer's colour at `uv`, straight alpha, in the gamma-encoded Rec. 709
+/// `0..1` today's packages were written for (see `legacy_in`).
 fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(source, source_sampler, uv);
+    return legacy_in(textureSample(source, source_sampler, uv));
 }
 
 /// One pixel, as a fraction of the layer.
@@ -95,6 +96,22 @@ fn reveal_order(uv: vec2<f32>) -> f32 {
 }
 
 // ── the grading library ──
+
+/// The compositor's working space - linear light on Rec. 709 primaries,
+/// extended past `0..1`, with 1.0 the white of an SDR picture - brought into
+/// the gamma-encoded `0..1` a package written before it was made for:
+/// clipped to the range, then BT.1886's 2.4 gamma. The host samples through
+/// this, so such a package sees the picture it always saw.
+fn legacy_in(colour: vec4<f32>) -> vec4<f32> {
+    let clipped = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
+}
+
+/// A legacy package's result taken back into the working space: the 2.4
+/// gamma undone.
+fn legacy_out(colour: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(pow(max(colour.rgb, vec3<f32>(0.0)), vec3<f32>(2.4)), colour.a);
+}
 //
 // Every look is a few of these in different amounts, so they live here,
 // once, rather than in each package. Each has an FFmpeg twin a manifest's
@@ -383,7 +400,7 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base = sample(in.uv);
     let treated = effect(in.uv);
-    return mix(base, treated, clamp(frame.intensity, 0.0, 1.0));
+    return legacy_out(mix(base, treated, clamp(frame.intensity, 0.0, 1.0)));
 }
 "#;
 
@@ -847,14 +864,15 @@ struct Frame {
 @group(2) @binding(0) var lut_texture: texture_3d<f32>;
 @group(2) @binding(1) var lut_sampler: sampler;
 
-/// The outgoing picture's colour at `uv`, straight alpha.
+/// The outgoing picture's colour at `uv`, straight alpha, gamma-encoded
+/// Rec. 709 as the packages were written for (see `legacy_in`).
 fn from_at(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(from_texture, from_sampler, uv);
+    return legacy_in(textureSample(from_texture, from_sampler, uv));
 }
 
-/// The incoming picture's colour at `uv`, straight alpha.
+/// The incoming picture's colour at `uv`, likewise.
 fn to_at(uv: vec2<f32>) -> vec4<f32> {
-    return textureSample(to_texture, to_sampler, uv);
+    return legacy_in(textureSample(to_texture, to_sampler, uv));
 }
 
 /// What the shared grading helpers read: the outgoing picture, so `soften`
@@ -910,7 +928,7 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return transition(in.uv, frame.progress);
+    return legacy_out(transition(in.uv, frame.progress));
 }
 "#;
 

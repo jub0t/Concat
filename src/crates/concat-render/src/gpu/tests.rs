@@ -210,10 +210,12 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
     assert_eq!(&out.pixels()[..3], &[0, 0, 255]);
     let last = out.pixels().len() - 4;
     assert_eq!(&out.pixels()[last..last + 3], &[0, 255, 255]);
+    // At half strength the ground is halfway between red and cyan in light:
+    // a half of each channel, which BT.1886's 2.4 gamma stores at 191.
     let out = gpu.render(&treated(0.5));
     let p = &out.pixels()[last..last + 3];
     assert!(
-        p[0] > 120 && p[0] < 136 && p[1] > 120 && p[1] < 136,
+        p.iter().all(|channel| (189..=193).contains(channel)),
         "{p:?}"
     );
     // The CPU reference agrees on the whole picture.
@@ -492,7 +494,18 @@ fn a_transition_combines_its_two_inputs_by_progress() {
     };
     assert_eq!(&at(0.0).pixels()[..3], &[255, 0, 0], "all outgoing at 0");
     assert_eq!(&at(1.0).pixels()[..3], &[0, 0, 255], "all incoming at 1");
-    assert_eq!(&at(0.5).pixels()[..3], &[128, 0, 128], "the exact half mix");
+    // The package mixes in the gamma it was written for (the legacy
+    // wrapper), so its half is the half of the stored levels, give or take
+    // the level the round trip through linear light can round to.
+    let half = at(0.5);
+    assert!(
+        half.pixels()[..3]
+            .iter()
+            .zip([128u8, 0, 128])
+            .all(|(got, want)| got.abs_diff(want) <= 1),
+        "the half mix: {:?}",
+        &half.pixels()[..3]
+    );
 }
 
 /// Every packaged effect and filter with a shader actually renders on

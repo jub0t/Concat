@@ -101,14 +101,23 @@ flowchart LR
   decoded picture, the effects resolved for that instant, and the treatments
   live over the stack, and hands the whole thing to a compositor, which takes
   a `FramePlan` and nothing else.
+- **The working space** is linear light on Rec. 709 primaries, extended (a
+  value may be negative, a colour outside Rec. 709, or above one, a
+  highlight), half floats, with 1.0 the white of an SDR picture: the layout
+  Windows calls scRGB and Apple extended linear sRGB. A frame is converted
+  into it on the GPU as it is uploaded and out of it once, at the resolve
+  (`concat-render/src/gpu.rs`, `COPY_SHADER`); blending, opacity and fades
+  happen in light, as in Resolve and Final Cut. Effect packages written for
+  gamma-encoded `0..1` see that through the prelude's `legacy_in` and
+  `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects
+  replace them.
 - **One compositor.** The GPU one draws every frame, the monitor's and the
   export's; a machine without a GPU runs it on the platform's software
   adapter (WARP on Windows, lavapipe on Linux), and a machine with neither
   is told so. The CPU compositor that was the reference is kept in the tests
   alone (`concat-render/src/reference.rs`), the oracle the parity suite
   (`concat-render/src/gpu/tests.rs`) holds the GPU to at a structural
-  similarity above 0.99 while both draw 8-bit pictures; it goes when the
-  working space goes float. Geometry (crop, fit, centre, scale, turn) and
+  similarity above 0.99, blending in light as the GPU does. Geometry (crop, fit, centre, scale, turn) and
   weighing (fades folded into a scale and offset, wipes into edges, mask,
   opacity) are computed once in the plan.
 
