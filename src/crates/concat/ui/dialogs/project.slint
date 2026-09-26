@@ -10,8 +10,8 @@ import { NumberField } from "../primitives/number-field.slint";
 
 // The project sheet: what the Details panel's Modify button opens.
 //
-// Three facts a project is made of - its name, its frame and its rate - on
-// one short form, applied together. The folder is stated and not editable:
+// The facts a project is made of - its name, and its timeline's frame, rate
+// and colour - on one short form, applied together. The folder is stated and not editable:
 // a project is its folder, and moving one is a job for the file manager.
 
 export struct ProjectSheetData {
@@ -32,6 +32,8 @@ export struct ProjectSheetData {
     custom-fps: float,
     /// The rate as the fraction it is kept as: "24000/1001".
     rate-readout: string,
+    /// Row in the colour list: SDR, HDR HLG, HDR PQ.
+    color-space: int,
 }
 
 export component ProjectDialog inherits Modal {
@@ -43,6 +45,7 @@ export component ProjectDialog inherits Modal {
     callback custom-width-edited(width: float);
     callback custom-height-edited(height: float);
     callback custom-fps-edited(fps: float);
+    callback color-space-changed(index: int);
     callback apply();
 
     open: root.data.open;
@@ -160,6 +163,25 @@ export component ProjectDialog inherits Modal {
                         vertical-alignment: center;
                     }
                 }
+            }
+
+            // What the timeline is output in. A timeline turns HDR (HLG) on
+            // its first HDR clip; this is where it is set back, or to PQ.
+            DialogRow {
+                label: I18n.t("common.color");
+                Select {
+                    current: root.data.color-space;
+                    options: ["SDR", "HDR (HLG)", "HDR (PQ)"];
+                    details: ["Rec. 709", "Rec. 2020", "Rec. 2020"];
+                    changed(index) => { root.color-space-changed(index); }
+                }
+            }
+
+            if root.data.color-space > 0: Text {
+                text: I18n.t("project.hdrMonitorNote");
+                color: Theme.fg-dim;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
             }
         }
 

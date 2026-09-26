@@ -445,6 +445,7 @@ mod tests {
                 has_audio: false,
                 audio_tracks: Vec::new(),
                 origin: None,
+                color_space: Default::default(),
             },
         }
     }

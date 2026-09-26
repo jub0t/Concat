@@ -1928,9 +1928,15 @@ impl Studio {
         // commit path sets `last_commit` again right after calling here.
         self.last_commit = None;
         let session = self.session.as_mut()?;
+        let chosen = matches!(command, Command::SetTimelineVideo { .. });
+        let before = session.video().color_space;
         match session.apply(command) {
             Ok(view) => {
+                let after = session.video().color_space;
                 self.after_change();
+                if !chosen {
+                    self.tell_of_hdr(before, after);
+                }
                 view.created_id
             }
             Err(error) => {
@@ -1948,9 +1954,24 @@ impl Studio {
         let Some(session) = self.session.as_mut() else {
             return;
         };
+        let before = session.video().color_space;
         match session.apply_within(Some(gesture), command) {
-            Ok(_) => self.after_change(),
+            Ok(_) => {
+                let after = session.video().color_space;
+                self.after_change();
+                self.tell_of_hdr(before, after);
+            }
             Err(error) => self.notify(&error, true),
+        }
+    }
+
+    /// Says so when an edit turned the active timeline HDR - its first HDR
+    /// clip, which the editor follows (see `Editor::follow_first_hdr`) - so
+    /// the change is never a surprise, and says where it is set back.
+    fn tell_of_hdr(&mut self, before: model::ColorSpace, after: model::ColorSpace) {
+        if before.is_sdr() && after.is_hdr() {
+            let name = self.timeline().name.clone();
+            self.notify(&tf("studio.timelineNowHdr", &[&name]), false);
         }
     }
 

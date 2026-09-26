@@ -1166,6 +1166,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_project_rate_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Project(ProjectMsg::RateChanged(index)));
     }));
+    app.on_project_color_space_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Project(ProjectMsg::ColorSpaceChanged(index)));
+    }));
     app.on_project_custom_width_edited(on_window!(|state, width: f32| {
         state.handle(Msg::Project(ProjectMsg::CustomWidth(width)));
     }));

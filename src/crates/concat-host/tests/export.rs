@@ -646,6 +646,7 @@ fn video(width: u32, height: u32, rate_num: i64, rate_den: i64) -> VideoSettings
         height,
         rate_num,
         rate_den,
+        color_space: Default::default(),
     }
 }
 

@@ -1031,6 +1031,7 @@ mod tests {
             has_audio: false,
             audio_tracks: Vec::new(),
             origin: None,
+            color_space: Default::default(),
         }
     }
 
@@ -1116,6 +1117,7 @@ mod tests {
                 height: 1920,
                 rate_num: 60,
                 rate_den: 1,
+                color_space: Default::default(),
             }),
         })));
         assert_eq!(created.settings.width, 1080);

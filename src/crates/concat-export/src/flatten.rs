@@ -232,6 +232,7 @@ mod tests {
                     has_audio: true,
                     audio_tracks: Vec::new(),
                     origin: None,
+                    color_space: Default::default(),
                 },
             })
             .expect("adds media")
