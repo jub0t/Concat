@@ -1,0 +1,176 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The Scopes pane: the monitor's picture as a colourist reads it. A
+// waveform (luma across the picture), a parade (red, green and blue side
+// by side), a vectorscope (every pixel's colour on the Cb-Cr plane, with
+// the 75 % bars' targets) or a histogram - counted on the GPU from the
+// frame's light before anything is clipped, and drawn by Rust. The scale
+// is the display level on an SDR timeline, and nits on PQ's scale on an
+// HDR one, so SDR white and a 1000-nit highlight each have their line.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { SegmentedControl } from "../primitives/segmented-control.slint";
+import { Pane, PaneHeader } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+
+/// One mark of the scale: where it sits, `0..1` from the bottom of a
+/// waveform or a parade or from the left of a histogram, and what it reads.
+export struct ScopeMarkData {
+    at: float,
+    label: string,
+}
+
+/// The scope in view, published by Rust as the monitor draws.
+export global Scopes {
+    in property <image> picture;
+    in property <[ScopeMarkData]> marks;
+    /// 0 the waveform, 1 the parade, 2 the vectorscope, 3 the histogram.
+    in-out property <int> kind: 0;
+    /// The timeline is HDR: the marks read nits.
+    in property <bool> hdr;
+    /// A scope has been counted since the pane opened.
+    in property <bool> ready;
+    callback kind-changed(kind: int);
+}
+
+export component ScopesPane inherits Pane {
+    in property <int> pane-seat;
+    in property <bool> pane-removable;
+    callback pane-picked(kind: PaneKind);
+    callback pane-removed();
+
+    VerticalLayout {
+        PaneHeader {
+            title: I18n.t("scopes.scopes");
+
+            VerticalLayout {
+                alignment: center;
+                PaneSwitcher {
+                    kind: PaneKind.scopes;
+                    seat: root.pane-seat;
+                    removable: root.pane-removable;
+                    picked(kind) => { root.pane-picked(kind); }
+                    removed => { root.pane-removed(); }
+                }
+            }
+        }
+
+        // Which scope, and what its scale reads.
+        Rectangle {
+            height: 40px;
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                spacing: 8px;
+
+                VerticalLayout {
+                    alignment: center;
+                    SegmentedControl {
+                        options: [
+                            I18n.t("scopes.waveform"),
+                            I18n.t("scopes.parade"),
+                            I18n.t("scopes.vectorscope"),
+                            I18n.t("scopes.histogram"),
+                        ];
+                        current: Scopes.kind;
+                        changed(index) => { Scopes.kind-changed(index); }
+                    }
+                }
+
+                Text {
+                    horizontal-stretch: 0;
+                    text: Scopes.kind == 2 ? "" : Scopes.hdr ? I18n.t("scopes.nits") : "%";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-sm;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // The scope, black, with its scale over it. A vectorscope keeps its
+        // plane square in the middle; the others fill the pane.
+        body := Rectangle {
+            background: #000000;
+            clip: true;
+
+            property <bool> square: Scopes.kind == 2;
+            property <length> side: Math.min(self.width, self.height) - 16px;
+
+            scope := Rectangle {
+                x: body.square ? (body.width - body.side) / 2 : 32px;
+                y: body.square ? (body.height - body.side) / 2 : 8px;
+                width: body.square ? body.side : body.width - 40px;
+                height: body.square ? body.side : body.height - (Scopes.kind == 3 ? 28px : 16px);
+
+                Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: Scopes.picture;
+                    image-fit: fill;
+                }
+
+                // A waveform's and a parade's marks are levels across.
+                if Scopes.kind < 2: Rectangle {
+                    for mark in Scopes.marks: Rectangle {
+                        y: (1 - mark.at) * scope.height;
+                        width: scope.width;
+                        height: 1px;
+                        background: #ffffff26;
+
+                        Text {
+                            x: -30px;
+                            y: -7px;
+                            width: 26px;
+                            text: mark.label;
+                            color: Theme.fg-dim;
+                            font-size: Theme.fs-xs;
+                            horizontal-alignment: right;
+                        }
+                    }
+                }
+
+                // A histogram's are levels along.
+                if Scopes.kind == 3: Rectangle {
+                    for mark in Scopes.marks: Rectangle {
+                        x: mark.at * scope.width;
+                        width: 1px;
+                        height: scope.height;
+                        background: #ffffff26;
+
+                        Text {
+                            x: -20px;
+                            y: scope.height + 4px;
+                            width: 40px;
+                            text: mark.label;
+                            color: Theme.fg-dim;
+                            font-size: Theme.fs-xs;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            if !Scopes.ready: Text {
+                width: parent.width;
+                height: parent.height;
+                text: I18n.t("scopes.waiting");
+                color: Theme.fg-dim;
+                font-size: Theme.fs;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

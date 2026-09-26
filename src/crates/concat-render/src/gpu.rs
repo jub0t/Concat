@@ -29,6 +29,7 @@
 //! monitor with no copy anywhere.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use concat_core::frame::Frame;
 use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
@@ -310,6 +311,102 @@ fn to_sdr(nits: vec3<f32>) -> vec3<f32> {
 }
 "#;
 
+/// The scopes' counting (see `crate::scopes`): every pixel of the working
+/// canvas, its light as it stands, added to the bins of the scope asked
+/// for. A level is the display encoding on an SDR timeline and PQ's signal
+/// for the nits on an HDR one; `TONE_MAP` is appended for `pq_signal`.
+const SCOPE_SHADER: &str = r#"
+struct Scope {
+    kind: u32,
+    hdr: u32,
+    width: u32,
+    height: u32,
+}
+
+@group(0) @binding(0) var picture: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> bins: array<atomic<u32>>;
+@group(0) @binding(2) var<uniform> scope: Scope;
+
+const COLUMNS: u32 = 256u;
+const LEVELS: u32 = 256u;
+const LUMA: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
+
+fn encoded(light: vec3<f32>) -> vec3<f32> {
+    if (scope.hdr == 1u) {
+        let nits = max(light, vec3<f32>(0.0)) * 203.0;
+        return vec3<f32>(pq_signal(nits.r), pq_signal(nits.g), pq_signal(nits.b));
+    }
+    return pow(clamp(light, vec3<f32>(0.0), vec3<f32>(1.0)), vec3<f32>(1.0 / 2.4));
+}
+
+// Luma as the scale reads it: of the encoded values on SDR (Y'), of the
+// light itself in nits on HDR.
+fn luma_of(light: vec3<f32>, e: vec3<f32>) -> f32 {
+    if (scope.hdr == 1u) {
+        return pq_signal(max(dot(light, LUMA), 0.0) * 203.0);
+    }
+    return dot(e, LUMA);
+}
+
+fn level_of(value: f32) -> u32 {
+    return min(u32(clamp(value, 0.0, 1.0) * f32(LEVELS - 1u) + 0.5), LEVELS - 1u);
+}
+
+@compute @workgroup_size(16, 16)
+fn scope_main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= scope.width || id.y >= scope.height) {
+        return;
+    }
+    let light = textureLoad(picture, vec2<i32>(id.xy), 0).rgb;
+    let e = encoded(light);
+    let column = min(id.x * COLUMNS / scope.width, COLUMNS - 1u);
+    switch scope.kind {
+        case 0u: {
+            atomicAdd(&bins[column * LEVELS + level_of(luma_of(light, e))], 1u);
+        }
+        case 1u: {
+            atomicAdd(&bins[column * LEVELS + level_of(e.r)], 1u);
+            atomicAdd(&bins[(COLUMNS + column) * LEVELS + level_of(e.g)], 1u);
+            atomicAdd(&bins[(2u * COLUMNS + column) * LEVELS + level_of(e.b)], 1u);
+        }
+        case 2u: {
+            let y = dot(e, LUMA);
+            let cb = (e.b - y) / 1.8556;
+            let cr = (e.r - y) / 1.5748;
+            atomicAdd(&bins[level_of(0.5 - cr) * LEVELS + level_of(cb + 0.5)], 1u);
+        }
+        default: {
+            atomicAdd(&bins[level_of(e.r)], 1u);
+            atomicAdd(&bins[LEVELS + level_of(e.g)], 1u);
+            atomicAdd(&bins[2u * LEVELS + level_of(e.b)], 1u);
+            atomicAdd(&bins[3u * LEVELS + level_of(luma_of(light, e))], 1u);
+        }
+    }
+}
+"#;
+
+/// The scopes' pipeline and buffers, made on first use: the bins the
+/// shader counts into, and a buffer they are copied to and read back from
+/// without the window waiting on it.
+struct ScopeGpu {
+    pipeline: wgpu::ComputePipeline,
+    layout: wgpu::BindGroupLayout,
+    bins: wgpu::Buffer,
+    readback: wgpu::Buffer,
+    uniform: wgpu::Buffer,
+    /// A count on its way back.
+    pending: Option<PendingScope>,
+}
+
+/// A scope's counts on their way back: what they are of, and whether they
+/// have landed in the readback buffer.
+struct PendingScope {
+    kind: crate::scopes::ScopeKind,
+    hdr: bool,
+    size: (u32, u32),
+    landed: Arc<std::sync::atomic::AtomicBool>,
+}
+
 /// A deep frame (sixteen bits a channel, Rec. 2020, its source's own signal)
 /// copied into the working space: the upload of an HDR or wide-gamut clip.
 /// One entry a signal (`concat_core::frame::Signal`): the transfer undone
@@ -530,6 +627,8 @@ pub struct WgpuCompositor {
     /// The readback target an HDR frame is resolved into: sixteen-bit
     /// integers, eight bytes a pixel.
     deep_target: Option<Target>,
+    /// The scopes' counting, made the first time a scope is asked for.
+    scope: Option<ScopeGpu>,
     /// The eight-bit textures frames are written into on their way to the
     /// pool, one a size, each with its bind group.
     staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
@@ -1032,6 +1131,7 @@ impl WgpuCompositor {
             hdr_pipelines,
             deliver_hdr: false,
             deep_target: None,
+            scope: None,
             staging: HashMap::new(),
             deep_pipelines,
             deep_layout,
@@ -1415,6 +1515,18 @@ impl WgpuCompositor {
     /// is dead; the caller then falls back to [`Compositor::render`] on a
     /// CPU compositor.
     pub fn render_texture(&mut self, plan: &FramePlan) -> Option<wgpu::Texture> {
+        self.render_texture_scoped(plan, None)
+    }
+
+    /// [`WgpuCompositor::render_texture`], and `scope` counted from the
+    /// frame's light in the same submission - unless the last count is
+    /// still on its way back, when this frame goes uncounted rather than
+    /// wait for it. [`WgpuCompositor::take_scope`] hands the counts over.
+    pub fn render_texture_scoped(
+        &mut self,
+        plan: &FramePlan,
+        scope: Option<crate::scopes::ScopeKind>,
+    ) -> Option<wgpu::Texture> {
         if self.dead {
             return None;
         }
@@ -1425,9 +1537,213 @@ impl WgpuCompositor {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, wgpu::Color::BLACK);
         self.resolve(&mut encoder, (plan.width, plan.height), canvas, &view);
+        let counted = scope.and_then(|kind| {
+            self.count_scope(&mut encoder, &canvas_view, kind, (plan.width, plan.height))
+        });
         self.queue.submit([encoder.finish()]);
+        if let Some(size) = counted {
+            self.read_scope(size);
+        }
         self.retire();
         Some(texture)
+    }
+
+    /// Records `kind` counted over `canvas`, `size` pixels, and its copy
+    /// into the readback buffer: the size of the copy when it was recorded,
+    /// none while a count is still on its way back.
+    fn count_scope(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        canvas: &wgpu::TextureView,
+        kind: crate::scopes::ScopeKind,
+        size: (u32, u32),
+    ) -> Option<u64> {
+        if self
+            .scope
+            .as_ref()
+            .is_some_and(|scope| scope.pending.is_some())
+        {
+            return None;
+        }
+        let hdr = self.output != concat_core::frame::Signal::Sdr;
+        let scope = self.scope.get_or_insert_with(|| {
+            let largest = (crate::scopes::ScopeKind::Parade.bins() * 4) as u64;
+            let module = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("concat scopes"),
+                    source: wgpu::ShaderSource::Wgsl(format!("{SCOPE_SHADER}{TONE_MAP}").into()),
+                });
+            let layout = self
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("concat scopes"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                });
+            let pipeline_layout =
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("concat scopes"),
+                        bind_group_layouts: &[Some(&layout)],
+                        immediate_size: 0,
+                    });
+            let pipeline = self
+                .device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("concat scopes"),
+                    layout: Some(&pipeline_layout),
+                    module: &module,
+                    entry_point: Some("scope_main"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                });
+            let buffer = |label, usage| {
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: largest,
+                    usage,
+                    mapped_at_creation: false,
+                })
+            };
+            ScopeGpu {
+                pipeline,
+                layout,
+                bins: buffer(
+                    "concat scope bins",
+                    wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_SRC
+                        | wgpu::BufferUsages::COPY_DST,
+                ),
+                readback: buffer(
+                    "concat scope readback",
+                    wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                ),
+                uniform: self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("concat scope"),
+                    size: 16,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+                pending: None,
+            }
+        });
+        let bytes = (kind.bins() * 4) as u64;
+        let words = [kind.index(), u32::from(hdr), size.0, size.1];
+        let uniform: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+        self.queue.write_buffer(&scope.uniform, 0, &uniform);
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat scopes"),
+            layout: &scope.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(canvas),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: scope.bins.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: scope.uniform.as_entire_binding(),
+                },
+            ],
+        });
+        encoder.clear_buffer(&scope.bins, 0, Some(bytes));
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("concat scopes"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&scope.pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(size.0.div_ceil(16), size.1.div_ceil(16), 1);
+        }
+        encoder.copy_buffer_to_buffer(&scope.bins, 0, &scope.readback, 0, bytes);
+        scope.pending = Some(PendingScope {
+            kind,
+            hdr,
+            size,
+            landed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        });
+        Some(bytes)
+    }
+
+    /// Asks for the counts just submitted to be mapped, without waiting.
+    fn read_scope(&mut self, bytes: u64) {
+        let Some(scope) = self.scope.as_ref() else {
+            return;
+        };
+        let Some(pending) = scope.pending.as_ref() else {
+            return;
+        };
+        let landed = Arc::clone(&pending.landed);
+        scope
+            .readback
+            .slice(..bytes)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                if result.is_ok() {
+                    landed.store(true, std::sync::atomic::Ordering::Release);
+                }
+            });
+    }
+
+    /// The last scope counted, once its counts have come back; none while
+    /// they are on their way, or when nothing was asked for. Never waits.
+    pub fn take_scope(&mut self) -> Option<crate::scopes::ScopeData> {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+        let scope = self.scope.as_mut()?;
+        let pending = scope.pending.as_ref()?;
+        if !pending.landed.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        let (kind, hdr, size) = (pending.kind, pending.hdr, pending.size);
+        let bytes = (kind.bins() * 4) as u64;
+        let counts = {
+            let data = scope.readback.slice(..bytes).get_mapped_range().ok()?;
+            data.chunks_exact(4)
+                .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
+                .collect()
+        };
+        scope.readback.unmap();
+        scope.pending = None;
+        Some(crate::scopes::ScopeData {
+            kind,
+            hdr,
+            size,
+            counts,
+        })
     }
 
     /// Runs `pass` once over a sixteen-pixel-square picture and waits at

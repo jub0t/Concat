@@ -122,6 +122,12 @@ flowchart LR
   the MaxCLL and MaxFALL measured as it is written. A clip with an FFmpeg
   chain or a cutout keeps the eight-bit tone map in the decoder, and an HDR
   export leaves an old package's FFmpeg chain out.
+- The scopes (`concat-render/src/scopes.rs`) count the monitor's canvas in
+  a compute pass as it is drawn (`WgpuCompositor::render_texture_scoped`),
+  its light before anything is clipped: the display level on an SDR
+  timeline, nits on PQ's scale on an HDR one. The counts come back without
+  the window waiting (`take_scope`, polled), are drawn on the CPU, and are
+  shown in the Scopes pane (`concat/ui/workspace/scopes-pane.slint`).
   Effect packages written for
   gamma-encoded `0..1` see that through the prelude's `legacy_in` and
   `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects

@@ -1028,6 +1028,94 @@ fn an_hdr_timeline_is_delivered_as_its_signal() {
     assert_eq!(sdr.depth(), Depth::Eight, "an SDR timeline stays SDR");
 }
 
+/// `kind` counted over `plan` as the monitor draws it, once the counts
+/// have come back.
+fn scoped(gpu: &mut WgpuCompositor, plan: &FramePlan, kind: crate::ScopeKind) -> crate::ScopeData {
+    gpu.render_texture_scoped(plan, Some(kind)).expect("draws");
+    for _ in 0..200 {
+        if let Some(data) = gpu.take_scope() {
+            return data;
+        }
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+    }
+    panic!("the scope never came back");
+}
+
+/// The scopes count the monitor's picture where it is drawn: a flat grey
+/// is one level in every column it covers, at its display level on an SDR
+/// timeline; an HDR timeline's HLG peak sits at 1000 nits on PQ's scale;
+/// a histogram counts every pixel once a channel; pure red falls where the
+/// vectorscope's red target is.
+#[test]
+fn the_scopes_count_the_picture() {
+    use crate::ScopeKind;
+    use crate::scopes::{COLUMNS, LEVELS};
+    use concat_core::frame::Signal;
+    let Some(mut gpu) = gpu() else { return };
+    let (width, height) = (64u32, 32u32);
+    let grey = plan(
+        width,
+        height,
+        vec![layer(solid(width, height, [128, 128, 128, 255]))],
+    );
+    let waveform = scoped(&mut gpu, &grey, ScopeKind::Waveform);
+    assert_eq!(waveform.counts.iter().sum::<u32>(), width * height);
+    let level = |counts: &[u32]| counts.iter().position(|count| *count > 0);
+    for column in (0..COLUMNS).step_by((COLUMNS / width) as usize) {
+        let start = (column * LEVELS) as usize;
+        assert_eq!(
+            level(&waveform.counts[start..start + LEVELS as usize]),
+            Some(128),
+            "column {column}"
+        );
+        assert_eq!(waveform.counts[start + 128], height);
+    }
+
+    let peak = FramePlan {
+        output: Signal::Hlg,
+        ..plan(
+            width,
+            height,
+            vec![layer(deep(width, height, 1.0, Signal::Hlg))],
+        )
+    };
+    let hdr = scoped(&mut gpu, &peak, ScopeKind::Waveform);
+    assert!(hdr.hdr);
+    let at = level(&hdr.counts[..LEVELS as usize]).expect("counted");
+    let want = (crate::scopes::pq(1000.0) * 255.0).round() as usize;
+    assert!(
+        at.abs_diff(want) <= 1,
+        "the HLG peak at level {at}, not {want}"
+    );
+
+    let histogram = scoped(&mut gpu, &grey, ScopeKind::Histogram);
+    for channel in 0..4 {
+        let start = channel * LEVELS as usize;
+        assert_eq!(
+            histogram.counts[start..start + LEVELS as usize]
+                .iter()
+                .sum::<u32>(),
+            width * height,
+            "channel {channel}"
+        );
+    }
+
+    let red = plan(
+        width,
+        height,
+        vec![layer(solid(width, height, [255, 0, 0, 255]))],
+    );
+    let vectorscope = scoped(&mut gpu, &red, ScopeKind::Vectorscope);
+    let at = vectorscope
+        .counts
+        .iter()
+        .position(|count| *count > 0)
+        .expect("counted");
+    let cb = (0.0 - 0.2126) / 1.8556 + 0.5f32;
+    assert_eq!(at as u32 % LEVELS, (cb * 255.0 + 0.5) as u32, "Cb of red");
+    assert_eq!(at as u32 / LEVELS, 0, "Cr of red, at the top");
+}
+
 /// A pass of a format 2 package - the scene-linear contract - with `body`
 /// as its shader and no knobs, at `intensity`.
 fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {
