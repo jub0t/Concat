@@ -27,7 +27,7 @@ use concat_core::timeline::{Clip, MediaRef, Timeline, Track, TrackKind};
 use concat_media::{
     DecodeOptions, Decoder, EncodeOptions, Encoder, FrameSink, FrameSource, ReaderPool,
 };
-use concat_render::{Compositor, CpuCompositor, plan_frame};
+use concat_render::{Compositor, WgpuCompositor, plan_frame};
 
 #[derive(Parser)]
 #[command(name = "concat-cli", version, about = "Concat engine command line")]
@@ -384,7 +384,9 @@ fn render(input: &PathBuf, output: &PathBuf, frames: u64, fade: u64) -> Result<(
 
     let pool = ReaderPool::with_defaults();
     let mut encoder = Encoder::create(output, width, height, rate, &EncodeOptions::default())?;
-    let mut compositor = CpuCompositor;
+    // The GPU, or the software adapter where the machine has none.
+    let mut compositor =
+        WgpuCompositor::new().ok_or("no GPU or software renderer is available to draw with")?;
 
     println!("rendering {frames} frames at {width}x{height} {rate}");
 

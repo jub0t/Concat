@@ -31,7 +31,7 @@ use concat_media::{
 };
 use concat_project::model::AppliedFilter;
 use concat_project::{Command, Editor};
-use concat_render::{Compositor, CpuCompositor, FramePlan, PlannedLayer, plan_frame};
+use concat_render::{Compositor, FramePlan, PlannedLayer, plan_frame};
 
 /// Whether a number is good when it is under the budget or over it.
 #[derive(Clone, Copy)]
@@ -81,7 +81,6 @@ fn main() {
         }
         results.extend(decode_4k());
         results.extend(scrub(&media));
-        results.push(compose_cpu());
         if let Some(measure) = compose_gpu() {
             results.push(measure);
         }
@@ -861,20 +860,6 @@ fn time_render(compositor: &mut dyn Compositor, plan: &FramePlan, rounds: u32) -
         compositor.render(plan);
     }
     started.elapsed().as_secs_f64() * 1e3 / f64::from(rounds)
-}
-
-/// The CPU reference drawing the plan: the fallback's speed, and what a
-/// machine with no GPU gets.
-fn compose_cpu() -> Measure {
-    let plan = compose_plan();
-    let millis = time_render(&mut CpuCompositor, &plan, 3);
-    Measure {
-        name: "compose 1080p, 3 layers, sepia, on the CPU",
-        value: millis,
-        unit: "ms",
-        budget: Budget::AtMost(400.0),
-        note: "the reference; a machine without a GPU sees this".to_owned(),
-    }
 }
 
 /// The GPU drawing the same plan and reading it back, where there is one.

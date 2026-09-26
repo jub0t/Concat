@@ -250,11 +250,9 @@ impl Monitor {
         settings: &DocumentSettings,
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
-        let plan = self.plan_for(clips, settings, spec, false);
+        let plan = self.plan_for(clips, settings, spec, true);
         let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)?;
-        Ok(sources
-            .composite(&mut concat_render::CpuCompositor)
-            .into_pixels())
+        sources.pixels()
     }
 
     /// Decode-ahead for the playback stream: hands the scheduler the next

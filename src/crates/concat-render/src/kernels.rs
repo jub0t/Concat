@@ -18,7 +18,7 @@ use std::sync::{Mutex, OnceLock};
 use concat_core::frame::{BYTES_PER_PIXEL, Frame};
 use concat_core::shader::ShaderPass;
 
-use crate::compositor::sample_bilinear;
+use crate::reference::sample_bilinear;
 
 /// Every package the CPU renders.
 pub const KERNELS: &[&str] = &[

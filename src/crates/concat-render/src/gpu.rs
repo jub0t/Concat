@@ -3,22 +3,23 @@
 
 //! The wgpu compositor.
 //!
-//! The second implementation of [`Compositor`](crate::Compositor):
-//! [`CpuCompositor`](crate::CpuCompositor) stays the reference, and this
-//! one exists to be fast. Layers are uploaded as textures, drawn as
-//! transformed quads into an offscreen target, and read back as a [`Frame`].
+//! The one implementation of [`Compositor`](crate::Compositor). Layers are
+//! uploaded as textures, drawn as transformed quads into an offscreen
+//! target, and read back as a [`Frame`] or handed on as a texture.
 //!
-//! Deliberate parity choices, so the two backends can be diffed:
+//! Choices the tests' CPU oracle (`crate::reference`) mirrors, so the two
+//! can be diffed while both draw 8-bit pictures:
 //!
 //! - The target format is `Rgba8Unorm`, *not* the sRGB variant. Blending
-//!   therefore happens on stored (gamma-encoded) values, exactly as the CPU
-//!   path does. When the day comes to blend in linear light, both backends
-//!   change together.
-//! - Layer quads are sampled bilinearly with clamp-to-edge, matching the CPU
-//!   path's bilinear inverse mapping.
+//!   therefore happens on stored (gamma-encoded) values. When the working
+//!   space goes float and linear, the parity suite moves to expectations of
+//!   its own.
+//! - Layer quads are sampled bilinearly with clamp-to-edge.
 //!
-//! Construction is fallible: a machine with no usable adapter gets `None`, and
-//! callers fall back to the CPU. Never panic over a missing GPU.
+//! Construction is fallible: [`WgpuCompositor::new`] takes the machine's GPU,
+//! or its software adapter where it has none (WARP on Windows, lavapipe on
+//! Linux), and a machine with neither gets `None`, which the caller reports.
+//! Never panic over a missing GPU.
 //!
 //! Two outputs. [`Compositor::composite`] reads the frame back for the
 //! encoder. [`WgpuCompositor::composite_texture`] leaves it on the GPU as a
@@ -32,7 +33,7 @@ use concat_core::frame::Frame;
 use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
 use concat_core::timeline::Blend;
 
-use crate::compositor::{Compositor, CpuCompositor};
+use crate::compositor::Compositor;
 use crate::plan::{FramePlan, Geometry, PlannedLayer, PlannedTreatment, Shading};
 
 /// Bytes per row must be a multiple of this for a texture-to-buffer copy.
@@ -316,11 +317,17 @@ impl WgpuCompositor {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .ok()?;
+        // The GPU where there is one; the software adapter where there is
+        // not, which draws the same pictures, slower - the one road left
+        // since the CPU compositor went.
+        let adapter = [false, true].into_iter().find_map(|software| {
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: software,
+                ..Default::default()
+            }))
+            .ok()
+        })?;
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
         Some(Self::with_device(device, queue))
@@ -2102,10 +2109,11 @@ impl WgpuCompositor {
 
 impl Compositor for WgpuCompositor {
     fn render(&mut self, plan: &FramePlan) -> Frame {
-        // A dead device never comes back for this instance; the CPU
-        // reference is the same pixels, slower - never a mid-export panic.
+        // A dead device never comes back for this instance. What it hands
+        // back is black, never a mid-export panic, and `lost` says so: the
+        // export stops with an error rather than write a file of black.
         if self.dead {
-            return CpuCompositor.render(plan);
+            return Frame::black(plan.width, plan.height);
         }
         let (draws, vertices) = self.prepare(plan);
         self.write_vertices(&vertices);
@@ -2113,9 +2121,13 @@ impl Compositor for WgpuCompositor {
             Some(frame) => frame,
             None => {
                 self.dead = true;
-                CpuCompositor.render(plan)
+                Frame::black(plan.width, plan.height)
             }
         }
+    }
+
+    fn lost(&self) -> bool {
+        self.dead
     }
 
     fn combine(
