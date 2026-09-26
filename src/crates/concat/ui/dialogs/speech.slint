@@ -60,8 +60,6 @@ export struct SpeechSheetData {
     progress: float,
     /// A voice model is installed.
     ready: bool,
-    /// Where the sound will land, for the header's note.
-    placement: string,
     /// "About 0:12 in Heart", or what stops it being read.
     estimate: string,
     /// Why the last run failed, when it did.
@@ -246,7 +244,6 @@ export component SpeechDialog inherits Modal {
     glyph: Glyph.volume;
     surface-width: 520px;
     dismissable: !root.data.running;
-    note: root.data.placement;
 
     // The script being typed, held apart from `data.text` the way the Field
     // primitive holds its draft: a TextInput's binding is dropped on the
