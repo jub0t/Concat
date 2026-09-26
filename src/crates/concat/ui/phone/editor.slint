@@ -1094,10 +1094,12 @@ export component PhoneEditor inherits Rectangle {
 
         if root.sheet == "clip-text": TextPanel {
             selected: Editor.selected-clip;
+            families: Editor.font-families;
             set(field, value) => { Editor.clip-set(field, value); }
             set-text(field, value) => { Editor.clip-set-text(field, value); }
             set-colour(field, value) => { Editor.clip-set-colour(field, value); }
             commit => { Editor.clip-commit(); }
+            import-font => { Editor.import-font(); }
         }
 
         if root.sheet == "clip-layer": FilterPanel {

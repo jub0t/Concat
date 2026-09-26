@@ -191,6 +191,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
     Shell::install(shell.clone());
 
+    // The machine's fonts, for the Text inspector's picker. Read on a
+    // worker: on a machine with a few thousand faces it is a moment, and
+    // the window should not open a moment late for a list nobody is
+    // looking at yet.
+    host::spawn(
+        || concat_text::Fonts::new().families(),
+        |studio, _, _, families| studio.system_fonts_known(families),
+    );
+
     // Handed over once, here, and never replaced: a fresh model is a reset,
     // and a reset rebuilds every row that hangs off it.
     {
@@ -247,6 +256,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_dividers(ModelRc::from(models.dividers.clone()));
         app.set_recents(ModelRc::from(models.recents.clone()));
         editor.set_text_presets(ModelRc::from(models.text_presets.clone()));
+        editor.set_font_families(ModelRc::from(models.font_families.clone()));
     }
 
     // Settings > About's block, gathered once: nothing in it changes while
@@ -630,6 +640,20 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 |paths| {
                     on_ui(move |studio, _, _| studio.handle(Msg::Media(MediaMsg::Import(paths))))
                 },
+            );
+        });
+    });
+    // Font files, the way media files come in: the system's picker, and
+    // the answer later, on the window's thread.
+    editor.on_import_font(|| {
+        Shell::with(|shell, _| {
+            if shell.studio.borrow().session.is_none() {
+                return;
+            }
+            platform::pick_files_async(
+                &i18n::t("lib.importFont"),
+                Some((i18n::t("lib.fonts").as_str(), &["ttf", "otf", "ttc"])),
+                |paths| on_ui(move |studio, _, _| studio.import_fonts(paths)),
             );
         });
     });

@@ -114,6 +114,9 @@ concat-effects.workspace = true
 # The cutout's mapping from a stage press to a source fraction; the model
 # itself runs in the host.
 concat-vision.workspace = true
+# The title painter's font list: the families on the machine and the ones
+# in a file, for the Text inspector's picker and its import button.
+concat-text.workspace = true
 
 # Remembered preferences, as a small JSON file in the config directory.
 serde = { version = "1", features = ["derive"] }

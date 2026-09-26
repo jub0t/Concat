@@ -132,6 +132,13 @@ export global Editor {
     callback clip-set-text(field: ClipTextField, value: string);
     callback clip-set-colour(field: ClipTextField, value: color);
     callback clip-commit();
+    /// The families a title can be set in: the bundled face, the user's
+    /// own fonts, then the machine's. See `Studio::font_families`.
+    in-out property <[string]> font-families;
+    /// The Text inspector's import button: font files picked from disk
+    /// join the user's own fonts, for good, and the title is set in the
+    /// first of them.
+    callback import-font();
 
     // The effect catalogue's shelves, published once, and the selected
     // clip's two chains with a row per parameter. See PresetStack.
