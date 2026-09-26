@@ -155,10 +155,10 @@ impl CaptionsPane {
                         let count = commands.len();
                         self.open = false;
                         if count == 0 {
-                            studio.notify(&t("Nothing was said in that clip"), true);
+                            studio.notify(&t("captions.nothingSaidClip"), true);
                         } else {
                             studio.apply(Command::Batch { commands });
-                            studio.notify(&tf("Added {0} captions", &[&count]), false);
+                            studio.notify(&tf("captions.addedCaptions", &[&count]), false);
                         }
                     }
                     // Asked for: the sheet is already on its way down.
@@ -181,7 +181,7 @@ impl CaptionsPane {
     fn run_script(&mut self, studio: &mut Studio) {
         let lines = script_captions(&self.text);
         if lines.is_empty() {
-            self.message = t("Nothing to caption yet");
+            self.message = t("captions.nothingToCaptionYet");
             return;
         }
         let look = self.look();
@@ -197,25 +197,25 @@ impl CaptionsPane {
         let count = commands.len();
         self.open = false;
         studio.apply(Command::Batch { commands });
-        studio.notify(&tf("Added {0} captions", &[&count]), false);
+        studio.notify(&tf("captions.addedCaptions", &[&count]), false);
     }
 
     /// The sheet's clip through the transcriber on a worker, reporting into
     /// the sheet as it goes.
     fn run_sound(&mut self, studio: &mut Studio) {
         let Some(clip) = self.clip.as_ref().and_then(|id| studio.clip(id)).cloned() else {
-            self.message = t("The clip is no longer on the timeline");
+            self.message = t("captions.clipNoLongerTimeline");
             return;
         };
         let Some(media) = studio.project().media_by_id(&clip.media_id).cloned() else {
-            self.message = t("This clip has no file to transcribe");
+            self.message = t("captions.clipHasNoFile");
             return;
         };
         let Some(model) = installed(&studio.settings.transcribers)
             .get(self.model)
             .map(|model| model.id.clone())
         else {
-            self.message = t("Download a transcriber model in Settings › Transcriber first");
+            self.message = t("captions.downloadTranscriberModelFirst");
             return;
         };
         let request = concat_speech::transcribe::TranscribeRequest {
@@ -258,7 +258,7 @@ impl CaptionsPane {
                 .as_ref()
                 .and_then(|id| studio.clip(id))
                 .map(|clip| SharedString::from(clip.name.as_str()))
-                .unwrap_or_else(|| t("at the playhead").into()),
+                .unwrap_or_else(|| t("captions.atThePlayhead").into()),
             text: self.text.as_str().into(),
             model: self.model as i32,
             placement: self.placement as i32,

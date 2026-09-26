@@ -52,7 +52,7 @@ impl RelinkPane {
     /// looks for its own filename inside it. Successful relinks go through
     /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
     fn relink_all(&mut self, studio: &mut Studio) {
-        let Some(folder) = platform::pick_folder(&t("Select folder containing media files"), "")
+        let Some(folder) = platform::pick_folder(&t("relink.selectFolderContainingMedia"), "")
         else {
             return;
         };

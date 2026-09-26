@@ -3,13 +3,15 @@
 
 // The interface's words, in whichever language is chosen.
 //
-// Every string a person reads goes through `I18n.t("...")`, with the
-// English as the key. Rust answers `lookup` from the active locale - a JSON
-// file of English key to translation - and falls back to the key itself, so
-// a string nobody has translated yet reads in English rather than as a
-// code. `lang` is read on every lookup, which is what makes the whole tree
-// re-evaluate the moment it changes: Settings › Language is one property
-// write, and the window is in the new language before the next frame.
+// Every string a person reads goes through `I18n.t("area.name")` by its
+// key - dotted lowerCamelCase, `common.export`, `mediaPane.transitions` -
+// whose English is in locales/en.json. Rust answers `lookup` from the
+// active locale - a JSON file of key to translation - and falls back to
+// the English, so a string nobody has translated yet reads in English
+// rather than as a code. `lang` is read on every lookup, which is what
+// makes the whole tree re-evaluate the moment it changes: Settings ›
+// Language is one property write, and the window is in the new language
+// before the next frame.
 //
 // Strings with something inside them use `t1` and `t2`, with `{0}` and
 // `{1}` where the values go, so a translator can put them where their
@@ -18,7 +20,7 @@ export global I18n {
     /// The active locale's code: "en", "de", "pt-BR", ...
     in-out property <string> lang: "en";
 
-    /// The translation of `key` in `lang`, or `key`. Set by Rust.
+    /// The translation of `key` in `lang`, or its English. Set by Rust.
     pure callback lookup(lang: string, key: string) -> string;
     lookup(lang, key) => { return key; }
     /// The same, with `{0}` replaced by `a`.

@@ -46,19 +46,19 @@ export component ProjectDialog inherits Modal {
     callback apply();
 
     open: root.data.open;
-    title: I18n.t("Project");
+    title: I18n.t("project.project");
     glyph: Glyph.settings;
     surface-width: 440px;
 
     VerticalLayout {
         DialogSection {
             first: true;
-            title: I18n.t("Name");
+            title: I18n.t("common.name");
 
             DialogRow {
                 Field {
                     value: root.data.name;
-                    placeholder: I18n.t("Untitled project");
+                    placeholder: I18n.t("common.untitledProject");
                     edited(text) => { root.name-edited(text); }
                 }
             }
@@ -77,17 +77,17 @@ export component ProjectDialog inherits Modal {
         DialogSection {
             // Named for the timeline it sets, because it sets only that one:
             // a second cut keeps its own frame whatever is picked here.
-            title: I18n.t1("Output · {0}", root.data.timeline);
+            title: I18n.t1("project.output", root.data.timeline);
 
             // The same six frames the monitor's picker offers, in the same
             // order, so the two controls can never disagree about what a
             // row means; then Custom, for any frame at all.
             DialogRow {
-                label: I18n.t("Frame");
+                label: I18n.t("common.frame");
                 Select {
                     current: root.data.size;
                     options: ["1920 × 1080", "3840 × 2160", "1080 × 1920",
-                        "1080 × 1080", "1440 × 1080", "2560 × 1080", I18n.t("Custom")];
+                        "1080 × 1080", "1440 × 1080", "2560 × 1080", I18n.t("common.custom")];
                     details: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9", ""];
                     changed(index) => { root.size-changed(index); }
                 }
@@ -126,11 +126,11 @@ export component ProjectDialog inherits Modal {
             }
 
             DialogRow {
-                label: I18n.t("Frame rate");
+                label: I18n.t("common.frameRate");
                 Select {
                     current: root.data.rate;
                     options: ["23.976 fps", "24 fps", "25 fps", "29.97 fps", "30 fps",
-                        "50 fps", "59.94 fps", "60 fps", I18n.t("Custom")];
+                        "50 fps", "59.94 fps", "60 fps", I18n.t("common.custom")];
                     changed(index) => { root.rate-changed(index); }
                 }
             }
@@ -176,7 +176,7 @@ export component ProjectDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.check;
-                label: I18n.t("Apply");
+                label: I18n.t("common.apply");
                 enabled: root.data.name != "";
                 clicked => { root.apply(); }
             }

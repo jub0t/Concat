@@ -5,28 +5,35 @@ language is one file. This is how to add or improve one.
 
 ## How it works
 
-Every string a person reads in the interface is looked up by its English
-text. A locale is a JSON file that maps that English to your language:
+Every string a person reads in the interface is looked up by a key. A
+locale is a JSON file that maps each key to your language:
 
 ```json
 {
   "_": { "name": "Deutsch" },
-  "Settings": "Einstellungen",
-  "Imported {0} files": "{0} Dateien importiert",
-  "Split at playhead (S, or ⌘B for every clip)": "Am Abspielkopf teilen (S, oder ⌘B für jeden Clip)"
+  "common.settings": "Einstellungen",
+  "mediaBin.importedFiles": "{0} Dateien importiert",
+  "tray.splitAtPlayhead": "Am Abspielkopf teilen (B, oder ⌘B für jeden Clip)"
 }
 ```
 
 - The `_` entry names the language in its own words. That name is what the
   Language list shows, so someone who cannot read the current language can
   still find their own.
-- Every other key is the English exactly as it appears in
+- Every other key is one of those in
   [`src/crates/concat/locales/en.json`](src/crates/concat/locales/en.json),
-  the complete inventory. Copy that file, keep the keys, replace the values.
+  the complete inventory, which holds the English for each. Copy that file,
+  keep the keys, replace the values.
+- A key is dotted lowerCamelCase: the part of the interface the string
+  belongs to (`common` for one used all over), then a name for it. Effects
+  are under `effects.` - `effects.goldenHour.name`, `effects.labels.amount`
+  - and text presets under `presets.`.
 - `{0}`, `{1}` and so on are filled in at run time — a count, a name, a
   file size. Keep them, and put them where your language wants them.
 - A key your file leaves out reads in English. Nothing breaks; the line is
   simply not translated yet.
+- A file from before keys, keyed by the English itself, still loads: each
+  line is read as the key `en.json` gives that English.
 
 The file's name is the language code: `de.json`, `pt-BR.json`, `zh-Hans.json`.
 
@@ -60,9 +67,15 @@ Concat ships English, Deutsch, Español, فارسی, Français, Hrvatski, Italia
 
 ## For developers
 
-New strings go through the same lookup: `I18n.t("...")` in the `.slint`
-tree, `t("...")` or `tf("...", &[...])` in the window's Rust, with the
-English as the key. Names in effect manifests and text presets are looked
-up the same way and need no wrapping. After adding strings, run
-`python3 scripts/locales.py` to bring `en.json` up to date; CI runs the
-check.
+New strings go through the same lookup by key: `I18n.t("area.name")` (or
+`t1`, `t2`, `upper`) in the `.slint` tree, `t("area.name")` or
+`tf("area.name", &[...])` in the window's Rust. Name the area after the file
+the string lives in - `mediaPane`, `export`, `studio` - or `common` for a
+string used in several, and the string after what it says: `export.tenBitColour`.
+Write its English into `en.json` yourself; the source only holds the key.
+
+Names in effect manifests and text presets need no key in the source: they
+are looked up by keys made from the package's or preset's id, and
+`python3 scripts/locales.py` writes their English into `en.json` from the
+manifests. Run it after adding strings; `--check` fails on a key with no
+English, English written where a key belongs, or a stale line.

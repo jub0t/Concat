@@ -105,12 +105,12 @@ export component ConfigPane inherits Rectangle {
     /// The selected clip's media's audio tracks; see Editor.audio-tracks.
     in property <[string]> audio-tracks;
     property <bool> has-selection: root.selected.present;
-    in property <string> project-name: I18n.t("Untitled project");
+    in property <string> project-name: I18n.t("common.untitledProject");
     in property <string> project-folder: "—";
     /// The active timeline, whose frame, rate and duration the rows below
     /// report. Named in the panel so a project with three cuts at three
     /// frames never leaves anyone wondering which one "1080 × 1920" is.
-    in property <string> timeline-name: I18n.t("Timeline 1");
+    in property <string> timeline-name: I18n.t("configPane.timelineOne");
     in property <string> project-output: "1080 x 1920";
     in property <string> project-rate: "30.00 fps";
     in property <string> project-duration: "00:00:00:00";
@@ -207,11 +207,11 @@ export component ConfigPane inherits Rectangle {
         : ["Video", "Audio", "Effects"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.is-text ? [I18n.t("Text"), I18n.t("Effects")]
-        : root.is-layer ? [I18n.t("Filter")]
-        : root.is-image ? [I18n.t("Video"), I18n.t("Effects")]
-        : root.is-audio ? [I18n.t("Audio")]
-        : [I18n.t("Video"), I18n.t("Audio"), I18n.t("Effects")];
+    property <[string]> tabs-shown: root.is-text ? [I18n.t("common.text"), I18n.t("common.effects")]
+        : root.is-layer ? [I18n.t("configPane.filter")]
+        : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
+        : root.is-audio ? [I18n.t("common.audio")]
+        : [I18n.t("common.video"), I18n.t("common.audio"), I18n.t("common.effects")];
     /// A one-segment segmented control is a label wearing a costume, so a lone
     /// tab renders as the panel's plain heading instead.
     property <bool> single: root.tabs.length < 2;
@@ -248,13 +248,13 @@ export component ConfigPane inherits Rectangle {
         : ["Layer"];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
-            ? (root.is-image ? [I18n.t("Basic"), I18n.t("Adjust")]
-                : [I18n.t("Basic"), I18n.t("Speed"), I18n.t("Adjust")])
+            ? (root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.adjust")]
+                : [I18n.t("configPane.basic"), I18n.t("common.speed"), I18n.t("common.adjust")])
         : root.heading == "Audio"
-            ? (root.is-audio ? [I18n.t("Sound"), I18n.t("Speed")] : [I18n.t("Sound")])
-        : root.heading == "Effects" ? [I18n.t("Effects")]
-        : root.heading == "Text" ? [I18n.t("Text")]
-        : [I18n.t("Layer")];
+            ? (root.is-audio ? [I18n.t("configPane.sound"), I18n.t("common.speed")] : [I18n.t("configPane.sound")])
+        : root.heading == "Effects" ? [I18n.t("common.effects")]
+        : root.heading == "Text" ? [I18n.t("common.text")]
+        : [I18n.t("common.layer")];
 
     // Each tab remembers its own section, so flipping to Audio and back
     // lands on the colour panel you were adjusting. Assigned, never bound,
@@ -313,7 +313,7 @@ export component ConfigPane inherits Rectangle {
                 spacing: 8px;
 
                 Text {
-                    text: I18n.t("DETAILS");
+                    text: I18n.t("configPane.details");
                     color: Theme.fg-muted;
                     // The small size, not the body one. Caps at 12px with a
                     // point and a half of tracking is nearly as wide as the
@@ -354,23 +354,23 @@ export component ConfigPane inherits Rectangle {
                     // top of it opens the table back up.
                     spacing: 0px;
 
-                    FactHeading { title: I18n.t("PROJECT"); }
-                    FactRow { label: I18n.t("Name"); value: root.project-name; }
-                    FactRow { label: I18n.t("Folder"); value: root.project-folder; }
+                    FactHeading { title: I18n.t("configPane.project"); }
+                    FactRow { label: I18n.t("common.name"); value: root.project-name; }
+                    FactRow { label: I18n.t("configPane.folder"); value: root.project-folder; }
 
                     // The frame is a timeline's, not the project's: two cuts
                     // of one edit can be two shapes, and these rows say which
                     // one they are describing.
-                    FactHeading { title: I18n.t("TIMELINE"); }
-                    FactRow { label: I18n.t("Name"); value: root.timeline-name; }
-                    FactRow { label: I18n.t("Frame"); value: root.project-output; }
-                    FactRow { label: I18n.t("Rate"); value: root.project-rate; }
-                    FactRow { label: I18n.t("Duration"); value: root.project-duration; }
+                    FactHeading { title: I18n.t("configPane.timeline"); }
+                    FactRow { label: I18n.t("common.name"); value: root.timeline-name; }
+                    FactRow { label: I18n.t("common.frame"); value: root.project-output; }
+                    FactRow { label: I18n.t("common.rate"); value: root.project-rate; }
+                    FactRow { label: I18n.t("common.duration"); value: root.project-duration; }
 
-                    FactHeading { title: I18n.t("CONTENTS"); }
-                    FactRow { label: I18n.t("Media"); value: "\{root.count-media}"; }
-                    FactRow { label: I18n.t("Tracks"); value: "\{root.count-tracks}"; }
-                    FactRow { label: I18n.t("Clips"); value: "\{root.count-clips}"; }
+                    FactHeading { title: I18n.t("configPane.contents"); }
+                    FactRow { label: I18n.t("common.media"); value: "\{root.count-media}"; }
+                    FactRow { label: I18n.t("configPane.tracks"); value: "\{root.count-tracks}"; }
+                    FactRow { label: I18n.t("configPane.clips"); value: "\{root.count-clips}"; }
                 }
             }
         }
@@ -404,7 +404,7 @@ export component ConfigPane inherits Rectangle {
                 modify-label := Text {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    text: I18n.t("Modify");
+                    text: I18n.t("configPane.modify");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     font-weight: Theme.weight-title;
@@ -588,8 +588,8 @@ export component ConfigPane inherits Rectangle {
                         commit => { root.clip-commit(); }
                     }
                     PresetStack {
-                        noun: I18n.t("audio effect");
-                        library-title: I18n.t("Audio effects");
+                        noun: I18n.t("common.audioEffect");
+                        library-title: I18n.t("configPane.audioEffects");
                         shelf: 2;
                         hidden: ["concat.loudness", "concat.denoise", "concat.enhance-voice"];
                         group-labels: root.audio-groups;
@@ -611,10 +611,10 @@ export component ConfigPane inherits Rectangle {
                 // The picture's chain. Filters are not in it: a filter is a
                 // layer on the lanes, edited in its own panel.
                 if root.showing == "Effects": PresetStack {
-                    noun: I18n.t("effect");
-                    library-title: I18n.t("Effects");
+                    noun: I18n.t("common.effect");
+                    library-title: I18n.t("common.effects");
                     library: false;
-                    empty-note: I18n.t("No effect on this clip yet. Pick one from the Library's Effects page.");
+                    empty-note: I18n.t("configPane.noEffectClipYet");
                     shelf: 1;
                     group-labels: root.effect-groups;
                     catalogue: root.catalogue-effects;

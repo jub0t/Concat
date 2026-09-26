@@ -125,7 +125,7 @@ impl MonitorPane {
                         log::warn!("preview: {error}");
                         if !self.failed {
                             self.failed = true;
-                            studio.notify(&tf("Preview failed: {0}", &[&error]), true);
+                            studio.notify(&tf("monitor.previewFailed", &[&error]), true);
                         }
                     }
                 }

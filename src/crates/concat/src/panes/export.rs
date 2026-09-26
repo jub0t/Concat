@@ -160,7 +160,9 @@ impl ExportPane {
                 self.progress = 0.0;
             }
             ExportMsg::Browse => {
-                if let Some(folder) = platform::pick_folder(&i18n::t("Export to"), &self.folder) {
+                if let Some(folder) =
+                    platform::pick_folder(&i18n::t("export.exportTo"), &self.folder)
+                {
                     self.folder = folder.to_string_lossy().into_owned();
                 }
             }
@@ -168,7 +170,7 @@ impl ExportPane {
                 if !self.written.is_empty()
                     && let Err(error) = platform::reveal(&self.written)
                 {
-                    studio.notify(&i18n::tf("Could not show the file: {0}", &[&error]), true);
+                    studio.notify(&i18n::tf("export.couldNotShowFile", &[&error]), true);
                 }
             }
             ExportMsg::Start => self.start(studio),
@@ -187,7 +189,7 @@ impl ExportPane {
                 self.phase = ExportPhase::Done;
                 self.progress = 1.0;
                 self.written = written;
-                studio.notify(&t("Export finished"), false);
+                studio.notify(&t("export.exportFinished"), false);
             }
             ExportMsg::Finished(Err(error)) => {
                 if self.phase == ExportPhase::Idle {
@@ -196,7 +198,7 @@ impl ExportPane {
                 }
                 self.phase = ExportPhase::Failed;
                 self.message = error.clone();
-                studio.notify(&tf("Export failed: {0}", &[&error]), true);
+                studio.notify(&tf("export.exportFailed", &[&error]), true);
             }
         }
     }
@@ -260,7 +262,7 @@ impl ExportPane {
         };
         if studio.timeline().clips.is_empty() {
             self.phase = ExportPhase::Failed;
-            self.message = t("There is nothing on the timeline to export");
+            self.message = t("export.nothingTimelineExport");
             return;
         }
         let job = match studio.host.exporter.begin() {
@@ -313,7 +315,7 @@ impl ExportPane {
         studio.pause();
         self.phase = ExportPhase::Running;
         self.progress = 0.0;
-        self.stage = t("Rendering video");
+        self.stage = t("export.renderingVideo");
         self.message.clear();
         self.written.clear();
         self.started_at = Some(std::time::Instant::now());
@@ -328,9 +330,9 @@ impl ExportPane {
                         0.0
                     };
                     let stage = match progress.stage {
-                        "rendering" => t("Rendering video"),
-                        "mixing audio" => t("Mixing audio"),
-                        "muxing" => t("Finalising file"),
+                        "rendering" => t("export.renderingVideo"),
+                        "mixing audio" => t("export.mixingAudio"),
+                        "muxing" => t("export.finalisingFile"),
                         other => other.to_owned(),
                     };
                     on_ui(move |studio, _, _| {
@@ -388,14 +390,14 @@ impl ExportPane {
                     words.push("10-bit".to_owned());
                 }
                 if self.color_range() == ColorRange::Full {
-                    words.push(t("full range"));
+                    words.push(t("export.fullRange"));
                 }
                 if codec
                     .encoders(true)
                     .first()
                     .is_some_and(|name| name.ends_with("_videotoolbox"))
                 {
-                    words.push(format!("· {}", t("hardware")));
+                    words.push(format!("· {}", t("export.hardware")));
                 }
                 words.join(" ")
             }

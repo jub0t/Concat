@@ -277,7 +277,7 @@ export component CopyChip inherits Rectangle {
     Text {
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
-        text: root.done ? I18n.t("Copied") : I18n.t("Copy");
+        text: root.done ? I18n.t("modal.copied") : I18n.t("common.copy");
         color: root.done ? Theme.green : Theme.fg-muted;
         font-size: Theme.fs-xs;
     }

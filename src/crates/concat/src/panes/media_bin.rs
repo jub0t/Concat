@@ -176,9 +176,9 @@ impl MediaBin {
                 } else if added > 0 {
                     studio.notify(
                         &if added == 1 {
-                            t("Imported 1 file")
+                            t("mediaBin.importedOneFile")
                         } else {
-                            tf("Imported {0} files", &[&added])
+                            tf("mediaBin.importedFiles", &[&added])
                         },
                         false,
                     );

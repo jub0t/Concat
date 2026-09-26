@@ -269,8 +269,8 @@ component ImportButton inherits Rectangle {
     in property <bool> busy;
     // Reused by the templates page as "save as template", so the words and
     // the mark are parameters with the import ones as defaults.
-    in property <string> label: I18n.t("Import");
-    in property <string> busy-label: I18n.t("Importing…");
+    in property <string> label: I18n.t("mediaPane.import");
+    in property <string> busy-label: I18n.t("mediaPane.importing");
     in property <Glyph> glyph: Glyph.import;
 
     callback clicked();
@@ -953,7 +953,7 @@ component CatalogueCard inherits Rectangle {
                     soon := Text {
                         x: (parent.width - self.width) / 2;
                         y: (parent.height - self.height) / 2;
-                        text: I18n.t("Soon");
+                        text: I18n.t("mediaPane.soon");
                         color: Theme.on-scrim;
                         font-size: Theme.fs-xs;
                     }
@@ -1070,7 +1070,7 @@ component TextPage inherits Rectangle {
                 y: tile.height + 4px;
                 width: root.card-w;
                 height: 14px;
-                text: I18n.t("Default title");
+                text: I18n.t("mediaPane.defaultTitle");
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 vertical-alignment: center;
@@ -1567,37 +1567,37 @@ export component MediaPane inherits Rectangle {
 
                         LibraryTab {
                             glyph: Glyph.film;
-                            label: I18n.t("Media");
+                            label: I18n.t("common.media");
                             current: root.tab == 0;
                             clicked => { root.tab = 0; }
                         }
                         LibraryTab {
                             glyph: Glyph.text-mark;
-                            label: I18n.t("Text");
+                            label: I18n.t("common.text");
                             current: root.tab == 1;
                             clicked => { root.tab = 1; }
                         }
                         LibraryTab {
                             glyph: Glyph.transition;
-                            label: I18n.t("Transitions");
+                            label: I18n.t("mediaPane.transitions");
                             current: root.tab == 2;
                             clicked => { root.tab = 2; }
                         }
                         LibraryTab {
                             glyph: Glyph.sparkle;
-                            label: I18n.t("Effects");
+                            label: I18n.t("common.effects");
                             current: root.tab == 3;
                             clicked => { root.tab = 3; }
                         }
                         LibraryTab {
                             glyph: Glyph.filter;
-                            label: I18n.t("Filters");
+                            label: I18n.t("mediaPane.filters");
                             current: root.tab == 4;
                             clicked => { root.tab = 4; }
                         }
                         LibraryTab {
                             glyph: Glyph.slot;
-                            label: I18n.t("Templates");
+                            label: I18n.t("mediaPane.templates");
                             current: root.tab == 5;
                             clicked => { root.tab = 5; }
                         }
@@ -1681,34 +1681,34 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Media");
+                            title: I18n.t("common.media");
                             open: root.categories-open;
                             toggled => { root.categories-open = !root.categories-open; }
                         }
                         if root.categories-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("All media");
+                            label: I18n.t("mediaPane.allMedia");
                             count: root.count-all;
                             current: root.filter == MediaFilter.all;
                             clicked => { root.narrow(MediaFilter.all); }
                         }
                         if root.categories-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Video");
+                            label: I18n.t("common.video");
                             count: root.count-video;
                             current: root.filter == MediaFilter.video;
                             clicked => { root.narrow(MediaFilter.video); }
                         }
                         if root.categories-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Audio");
+                            label: I18n.t("common.audio");
                             count: root.count-audio;
                             current: root.filter == MediaFilter.audio;
                             clicked => { root.narrow(MediaFilter.audio); }
                         }
                         if root.categories-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Images");
+                            label: I18n.t("mediaPane.images");
                             count: root.count-images;
                             current: root.filter == MediaFilter.images;
                             clicked => { root.narrow(MediaFilter.images); }
@@ -1721,13 +1721,13 @@ export component MediaPane inherits Rectangle {
                         // the app wrote.
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Generated");
+                            title: I18n.t("mediaPane.generated");
                             open: root.generated-open;
                             toggled => { root.generated-open = !root.generated-open; }
                         }
                         if root.generated-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Speech");
+                            label: I18n.t("common.speech");
                             count: root.count-speech;
                             current: root.filter == MediaFilter.speech;
                             clicked => { root.narrow(MediaFilter.speech); }
@@ -1737,7 +1737,7 @@ export component MediaPane inherits Rectangle {
                         // from the import it was cut from.
                         if root.generated-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Processed");
+                            label: I18n.t("mediaPane.processed");
                             count: root.count-processed;
                             current: root.filter == MediaFilter.processed;
                             clicked => { root.narrow(MediaFilter.processed); }
@@ -1748,19 +1748,19 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Text");
+                            title: I18n.t("common.text");
                             open: root.text-open;
                             toggled => { root.text-open = !root.text-open; }
                         }
                         if root.text-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Titles");
+                            label: I18n.t("mediaPane.titles");
                             current: root.text-category == 0;
                             clicked => { root.text-category = 0; }
                         }
                         if root.text-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("Presets");
+                            label: I18n.t("mediaPane.presets");
                             current: root.text-category == 1;
                             clicked => { root.text-category = 1; }
                         }
@@ -1770,7 +1770,7 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Transitions");
+                            title: I18n.t("mediaPane.transitions");
                             open: root.transitions-open;
                             toggled => { root.transitions-open = !root.transitions-open; }
                         }
@@ -1791,7 +1791,7 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Video Effects");
+                            title: I18n.t("mediaPane.videoEffects");
                             open: root.effects-open;
                             toggled => { root.effects-open = !root.effects-open; }
                         }
@@ -1809,7 +1809,7 @@ export component MediaPane inherits Rectangle {
                         }
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Audio Effects");
+                            title: I18n.t("mediaPane.audioEffects");
                             open: root.audio-open;
                             toggled => { root.audio-open = !root.audio-open; }
                         }
@@ -1834,7 +1834,7 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Filters");
+                            title: I18n.t("mediaPane.filters");
                             open: root.filters-open;
                             toggled => { root.filters-open = !root.filters-open; }
                         }
@@ -1853,13 +1853,13 @@ export component MediaPane inherits Rectangle {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
-                            title: I18n.t("Templates");
+                            title: I18n.t("mediaPane.templates");
                             open: root.templates-open;
                             toggled => { root.templates-open = !root.templates-open; }
                         }
                         if root.templates-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("My templates");
+                            label: I18n.t("mediaPane.myTemplates");
                             current: true;
                         }
                     }
@@ -1900,8 +1900,8 @@ export component MediaPane inherits Rectangle {
                     Select {
                         horizontal-stretch: 0;
                         width: self.natural-width;
-                        options: [I18n.t("Sort: Added"), I18n.t("Sort: Name"),
-                            I18n.t("Sort: Type")];
+                        options: [I18n.t("mediaPane.sortAdded"), I18n.t("mediaPane.sortName"),
+                            I18n.t("mediaPane.sortType")];
                         icons: [Glyph.clock, Glyph.text-mark, Glyph.tag];
                         current: 0;
                         changed(index) => { root.sort-changed(index); }
@@ -1946,7 +1946,7 @@ export component MediaPane inherits Rectangle {
                                     wipe := Text {
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        text: I18n.t("Delete");
+                                        text: I18n.t("common.delete");
                                         color: Theme.danger;
                                         font-size: Theme.fs-sm;
                                     }
@@ -1964,11 +1964,11 @@ export component MediaPane inherits Rectangle {
                 if root.tab == 0 && root.items.length == 0: Empty {
                     glyph: Glyph.import;
                     text: root.filter == MediaFilter.speech
-                        ? I18n.t("Nothing read aloud yet. Text to speech puts its voice here.")
+                        ? I18n.t("mediaPane.nothingReadAloudYet")
                         : root.filter == MediaFilter.processed
-                        ? I18n.t("Nothing rendered yet. Right-click a clip on the timeline and render its sound to put it here.")
+                        ? I18n.t("mediaPane.nothingRenderedYetRight")
                         : root.count-all > 0
-                        ? I18n.t("Nothing of that kind in this project.")
+                        ? I18n.t("mediaPane.nothingKindProject")
                         : "Drop video and audio files anywhere in the window to import them.";
                 }
 
@@ -2033,7 +2033,7 @@ export component MediaPane inherits Rectangle {
 
                     ShelfSearch {
                         shelf: 3;
-                        placeholder: I18n.t1("Search {0}s", I18n.t("transition"));
+                        placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.transition"));
                     }
                     ShelfGrid {
                         entries: root.catalogue-transitions;
@@ -2050,8 +2050,8 @@ export component MediaPane inherits Rectangle {
                     ShelfSearch {
                         shelf: root.effects-shelf;
                         placeholder: root.audio-shelf
-                            ? I18n.t1("Search {0}s", I18n.t("audio effect"))
-                            : I18n.t1("Search {0}s", I18n.t("effect"));
+                            ? I18n.t1("common.searchKind", I18n.t("common.audioEffect"))
+                            : I18n.t1("common.searchKind", I18n.t("common.effect"));
                     }
                     if !root.audio-shelf: CategoryPillBar {
                         current: Library.view(root.effects-shelf).category;
@@ -2064,7 +2064,7 @@ export component MediaPane inherits Rectangle {
                     // user's own effect, or one shared with them - is read
                     // in here, without a restart.
                     ImportButton {
-                        label: I18n.t("Reload custom effects");
+                        label: I18n.t("mediaPane.reloadCustomEffects");
                         glyph: Glyph.reset;
                         clicked => { root.reload-packages(); }
                     }
@@ -2097,19 +2097,19 @@ export component MediaPane inherits Rectangle {
                     // card's plus lays it at the playhead.
                     ShelfSearch {
                         shelf: 0;
-                        placeholder: I18n.t1("Search {0}s", I18n.t("filter"));
+                        placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.filter"));
                     }
                     // A table from any grading tool becomes a look here, the
                     // way it does on every desktop editor's Filters page.
                     HorizontalLayout {
                         spacing: 8px;
                         ImportButton {
-                            label: I18n.t("Import a LUT (.cube)");
+                            label: I18n.t("mediaPane.importALut");
                             glyph: Glyph.import;
                             clicked => { root.import-lut(); }
                         }
                         ImportButton {
-                            label: I18n.t("Reload custom effects");
+                            label: I18n.t("mediaPane.reloadCustomEffects");
                             glyph: Glyph.reset;
                             clicked => { root.reload-packages(); }
                         }
@@ -2131,7 +2131,7 @@ export component MediaPane inherits Rectangle {
                     padding: 8px;
 
                     ImportButton {
-                        label: I18n.t("Save this project as a template");
+                        label: I18n.t("mediaPane.saveProjectTemplate");
                         glyph: Glyph.slot;
                         clicked => { root.save-template(); }
                     }
@@ -2139,7 +2139,7 @@ export component MediaPane inherits Rectangle {
 
                 if root.tab == 5: Empty {
                     glyph: Glyph.slot;
-                    text: I18n.t("No templates yet. Mark media as slots, then save this project as a template.");
+                    text: I18n.t("mediaPane.noTemplatesYetMark");
                 }
             }
         }

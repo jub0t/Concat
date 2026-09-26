@@ -39,7 +39,7 @@ component SizeMenu inherits Rectangle {
     width: 26px;
     min-height: 26px;
 
-    property <[string]> labels: [I18n.t("Auto"), I18n.t("Small"), I18n.t("Medium"), I18n.t("Large")];
+    property <[string]> labels: [I18n.t("common.auto"), I18n.t("common.small"), I18n.t("common.medium"), I18n.t("common.large")];
     property <length> row-h: 24px;
     /// The two directions between a TrackSize and its row. Slint has no map,
     /// and four values do not earn one.
@@ -58,7 +58,7 @@ component SizeMenu inherits Rectangle {
 
     IconButton {
         glyph: Glyph.rows;
-        label: I18n.t("Row height");
+        label: I18n.t("trackHeader.rowHeight");
         icon-size: 12px;
         // Lit only when the lane has been sized by hand: auto is the resting
         // state, and a button lit on every row would say nothing.
@@ -172,7 +172,7 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
-                    label: root.track.locked ? I18n.t("Unlock lane") : I18n.t("Lock lane");
+                    label: root.track.locked ? I18n.t("trackHeader.unlockLane") : I18n.t("trackHeader.lockLane");
                     icon-size: 12px;
                     checked: root.track.locked;
                     clicked => {
@@ -189,7 +189,7 @@ component Header inherits Rectangle {
                     // something is being withheld, which is the state worth
                     // announcing.
                     glyph: root.track.visible ? Glyph.eye : Glyph.eye-off;
-                    label: root.track.visible ? I18n.t("Hide lane") : I18n.t("Show lane");
+                    label: root.track.visible ? I18n.t("trackHeader.hideLane") : I18n.t("trackHeader.showLane");
                     icon-size: 12px;
                     checked: !root.track.visible;
                     clicked => {
@@ -203,7 +203,7 @@ component Header inherits Rectangle {
                 alignment: start;
                 IconButton {
                     glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
-                    label: root.track.muted ? I18n.t("Unmute lane") : I18n.t("Mute lane");
+                    label: root.track.muted ? I18n.t("trackHeader.unmuteLane") : I18n.t("trackHeader.muteLane");
                     icon-size: 12px;
                     checked: root.track.muted;
                     clicked => {
@@ -223,7 +223,7 @@ component Header inherits Rectangle {
                 width: 26px;
                 if root.removable && row.has-hover: IconButton {
                     glyph: Glyph.close;
-                    label: I18n.t("Remove lane");
+                    label: I18n.t("trackHeader.removeLane");
                     icon-size: 11px;
                     danger: true;
                     clicked => { root.removed(); }

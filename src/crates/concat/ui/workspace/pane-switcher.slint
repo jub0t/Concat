@@ -56,11 +56,11 @@ export global Panes {
     }
 
     public pure function label(kind: PaneKind) -> string {
-        return kind == PaneKind.media ? I18n.t("Library")
-            : kind == PaneKind.preview ? I18n.t("Preview")
-            : kind == PaneKind.inspector ? I18n.t("Inspector")
-            : kind == PaneKind.keyframes ? I18n.t("Keyframes")
-            : I18n.t("Timeline");
+        return kind == PaneKind.media ? I18n.t("paneSwitcher.library")
+            : kind == PaneKind.preview ? I18n.t("common.preview")
+            : kind == PaneKind.inspector ? I18n.t("paneSwitcher.inspector")
+            : kind == PaneKind.keyframes ? I18n.t("common.keyframes")
+            : I18n.t("paneSwitcher.timeline");
     }
 
     /// The name a view goes by in a drag payload — stable, lower-case, and
@@ -203,7 +203,7 @@ component RemoveRow inherits Rectangle {
 
             Text {
                 horizontal-stretch: 1;
-                text: root.enabled ? I18n.t("Remove panel") : I18n.t("Only panel");
+                text: root.enabled ? I18n.t("paneSwitcher.removePanel") : I18n.t("paneSwitcher.onlyPanel");
                 color: row.ink;
                 font-size: Theme.fs;
                 vertical-alignment: center;
@@ -333,7 +333,7 @@ export component PaneSwitcher inherits Rectangle {
             }
 
             Tip {
-                text: I18n.t("Change what this panel shows, or drag it onto another");
+                text: I18n.t("paneSwitcher.changeWhatPanelShows");
                 active: touch.has-hover;
             }
         }
@@ -450,7 +450,7 @@ export component AddPaneButton inherits Rectangle {
     }
 
     Tip {
-        text: I18n.t("Add a panel");
+        text: I18n.t("paneSwitcher.addAPanel");
         active: touch.has-hover;
     }
 

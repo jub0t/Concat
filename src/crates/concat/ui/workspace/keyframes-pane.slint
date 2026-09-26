@@ -99,7 +99,7 @@ component EasePreset inherits Select {
         return near(root.x1, px1) && near(root.y1, py1) && near(root.x2, px2) && near(root.y2, py2);
     }
 
-    options: [I18n.t("Linear"), I18n.t("Ease in"), I18n.t("Ease out"), I18n.t("Ease in and out"), I18n.t("Custom")];
+    options: [I18n.t("keyframesPane.linear"), I18n.t("keyframesPane.easeIn"), I18n.t("keyframesPane.easeOut"), I18n.t("keyframesPane.easeInAndOut"), I18n.t("common.custom")];
     current: matches(0, 0, 1, 1) ? 0
         : matches(0.42, 0, 1, 1) ? 1
         : matches(0, 0, 0.58, 1) ? 2
@@ -298,7 +298,7 @@ export component KeyframesPane inherits Pane {
         // width most seats fall under - the pane clips, and the first thing
         // to go off the end was the switcher.
         PaneHeader {
-            title: I18n.t("Keyframes");
+            title: I18n.t("common.keyframes");
 
             VerticalLayout {
                 alignment: center;
@@ -337,7 +337,7 @@ export component KeyframesPane inherits Pane {
                         // sized for words, does not apply.
                         width: 72px;
                         horizontal-stretch: 0;
-                        options: [I18n.t("Dopesheet"), I18n.t("Curves")];
+                        options: [I18n.t("keyframesPane.dopesheet"), I18n.t("keyframesPane.curves")];
                         icons: [Glyph.dopesheet, Glyph.curves];
                         current: root.view;
                         changed(index) => { root.view = index; }
@@ -349,13 +349,13 @@ export component KeyframesPane inherits Pane {
                         spacing: 2px;
                         IconButton {
                             glyph: Glyph.chevron-left;
-                            label: I18n.t("Previous key");
+                            label: I18n.t("keyframesPane.previousKey");
                             enabled: Keyframes.available;
                             clicked => { KeyEditor.step-all(-1); }
                         }
                         IconButton {
                             glyph: Glyph.keyframe;
-                            label: I18n.t("Add or remove a key at the playhead");
+                            label: I18n.t("keyframesPane.addRemoveKeyPlayhead");
                             enabled: Keyframes.available && root.any;
                             clicked => {
                                 if (root.focus-row.param == "") { Keyframes.toggle(root.focus-row.field); }
@@ -364,7 +364,7 @@ export component KeyframesPane inherits Pane {
                         }
                         IconButton {
                             glyph: Glyph.chevron-right;
-                            label: I18n.t("Next key");
+                            label: I18n.t("keyframesPane.nextKey");
                             enabled: Keyframes.available;
                             clicked => { KeyEditor.step-all(1); }
                         }
@@ -386,7 +386,7 @@ export component KeyframesPane inherits Pane {
                 VerticalLayout {
                     alignment: center;
                     Button {
-                        label: I18n.t("Clear all keys");
+                        label: I18n.t("keyframesPane.clearAllKeys");
                         ghost: true;
                         enabled: root.any;
                         clicked => { KeyEditor.clear-all(); }
@@ -399,7 +399,7 @@ export component KeyframesPane inherits Pane {
         if !root.any: Rectangle {
             vertical-stretch: 1;
             Text {
-                text: I18n.t("Select a clip to edit its keyframes");
+                text: I18n.t("keyframesPane.selectClipEditKeyframes");
                 color: Theme.fg-dim;
                 font-size: Theme.fs;
                 horizontal-alignment: center;

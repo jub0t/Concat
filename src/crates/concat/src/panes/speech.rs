@@ -239,7 +239,7 @@ impl SpeechPane {
                                 media_id,
                                 start: self.landing,
                             });
-                            studio.notify(&t("Voice added to the timeline"), false);
+                            studio.notify(&t("speech.voiceAddedTimeline"), false);
                         }
                     }
                     // Asked for: the sheet is already on its way down.
@@ -255,14 +255,14 @@ impl SpeechPane {
     fn run(&mut self, studio: &mut Studio) {
         let text = self.text.trim().to_owned();
         if text.is_empty() {
-            self.message = t("Nothing to read yet");
+            self.message = t("speech.nothingToReadYet");
             return;
         }
         let Some(model) = installed(&studio.settings.voices)
             .get(self.model)
             .map(|model| model.id.clone())
         else {
-            self.message = t("Download a voice model in Settings › Speech first");
+            self.message = t("speech.downloadVoiceModelFirst");
             return;
         };
         // A sample voice is a recording of the sheet's choosing, handed over
@@ -272,11 +272,11 @@ impl SpeechPane {
         // are only there while Pocket is.
         let (voice, reference) = if self.use_sample {
             let Some(voice) = self.sample_voice() else {
-                self.message = t("This model reads only with its own speakers");
+                self.message = t("speech.modelReadsOnlyOwn");
                 return;
             };
             let Some(sample) = self.sample_media(studio).cloned() else {
-                self.message = t("Pick a sample with a voice in it");
+                self.message = t("speech.pickSampleVoice");
                 return;
             };
             let start = self.reference_offset(sample.duration.unwrap_or(0.0));
@@ -295,7 +295,7 @@ impl SpeechPane {
                          download Pocket TTS for its two recordings",
                     )
                 } else {
-                    t("No voice to read with")
+                    t("speech.noVoiceRead")
                 };
                 return;
             };
@@ -357,7 +357,7 @@ impl SpeechPane {
     fn estimate(&self, studio: &Studio) -> String {
         let chars = self.text.trim().chars().count();
         if chars == 0 {
-            return t("Nothing to read yet");
+            return t("speech.nothingToReadYet");
         }
         let seconds = chars as f32 / CHARS_PER_SECOND / self.rate();
         let whole = seconds.round() as i32;
@@ -372,7 +372,7 @@ impl SpeechPane {
                 .unwrap_or_default()
         };
         tf(
-            "About {0}:{1} in {2} · {3} characters",
+            "speech.aboutInCharacters",
             &[&(whole / 60), &format!("{:02}", whole % 60), &voice, &chars],
         )
     }
@@ -491,9 +491,9 @@ impl SpeechPane {
         installed(&studio.settings.voices)
             .iter()
             .map(|model| match family_of(&model.id) {
-                Family::Kokoro => t("Built-in speakers · fast"),
-                Family::Pocket => t("Any voice, from a recording"),
-                Family::Chatterbox => t("Studio voice · slow"),
+                Family::Kokoro => t("speech.builtInSpeakersFast"),
+                Family::Pocket => t("speech.anyVoiceRecording"),
+                Family::Chatterbox => t("speech.studioVoiceSlow"),
             })
             .map(SharedString::from)
             .collect()
@@ -604,8 +604,8 @@ pub fn insert_tag(text: &str, tag: &str, at: usize) -> String {
 fn voice_label(name: &str) -> (String, String) {
     if name == "pocket_clone" || name == "chatterbox_clone" {
         return (
-            t("The selected clip's voice"),
-            t("Reads in the voice heard in the clip selected on the timeline"),
+            t("speech.theSelectedClipsVoice"),
+            t("speech.readsVoiceHeardClip"),
         );
     }
     if let Some(rest) = name.strip_prefix("pocket_") {
@@ -614,7 +614,7 @@ fn voice_label(name: &str) -> (String, String) {
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
             None => String::new(),
         };
-        return (title, t("A recording that comes with Pocket TTS"));
+        return (title, t("speech.recordingComesPocketTts"));
     }
     let (prefix, rest) = name.split_once('_').unwrap_or(("", name));
     let mut chars = rest.chars();
@@ -623,20 +623,20 @@ fn voice_label(name: &str) -> (String, String) {
         None => String::new(),
     };
     let accent = match prefix.chars().next() {
-        Some('a') => t("American"),
-        Some('b') => t("British"),
-        Some('e') => t("Spanish"),
-        Some('f') => t("French"),
-        Some('h') => t("Hindi"),
-        Some('i') => t("Italian"),
-        Some('j') => t("Japanese"),
-        Some('p') => t("Portuguese"),
-        Some('z') => t("Chinese"),
+        Some('a') => t("speech.american"),
+        Some('b') => t("speech.british"),
+        Some('e') => t("speech.spanish"),
+        Some('f') => t("speech.french"),
+        Some('h') => t("speech.hindi"),
+        Some('i') => t("speech.italian"),
+        Some('j') => t("speech.japanese"),
+        Some('p') => t("speech.portuguese"),
+        Some('z') => t("speech.chinese"),
         _ => String::new(),
     };
     let gender = match prefix.chars().nth(1) {
-        Some('f') => t("female"),
-        Some('m') => t("male"),
+        Some('f') => t("speech.female"),
+        Some('m') => t("speech.male"),
         _ => String::new(),
     };
     let detail = [accent, gender]

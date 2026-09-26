@@ -149,8 +149,8 @@ export component App inherits Window {
     // Title bar. The drag/maximize pair must be handled in main.rs — a window
     // cannot drag itself from inside the scene graph; the rest are seams like
     // the library callbacks above.
-    in property <string> project-name: I18n.t("Untitled project");
-    in property <string> project-status: I18n.t("saved");
+    in property <string> project-name: I18n.t("common.untitledProject");
+    in property <string> project-status: I18n.t("common.saved");
     in property <bool> macos;
 
     /// The File / Edit / View menus. Built in Rust like every other menu here,

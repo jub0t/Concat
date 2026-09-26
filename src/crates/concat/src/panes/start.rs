@@ -131,7 +131,7 @@ impl StartPane {
             StartMsg::DismissError => self.error.clear(),
             StartMsg::Browse => {
                 if let Some(folder) =
-                    platform::pick_folder(&t("Where should the project folder go?"), &self.location)
+                    platform::pick_folder(&t("start.whereShouldProjectFolder"), &self.location)
                 {
                     self.location = folder.to_string_lossy().into_owned();
                 }
@@ -169,7 +169,7 @@ impl StartPane {
         let (width, height) = self.frame();
         let (num, den) = self.rate();
         if self.location.trim().is_empty() {
-            self.error = t("Choose where the project folder should go");
+            self.error = t("start.chooseWhereProjectFolder");
             return;
         }
         let opened = projects::create(&self.location, &name, width, height, num, den)
@@ -197,12 +197,12 @@ impl StartPane {
     /// is down when this is pressed, and half the presses of this never see
     /// the launch screen at all.
     fn open(&mut self, studio: &mut Studio) {
-        let Some(folder) = platform::pick_folder(&t("Open a project"), &self.location) else {
+        let Some(folder) = platform::pick_folder(&t("start.openAProject"), &self.location) else {
             return;
         };
         let path = folder.to_string_lossy().into_owned();
         if !projects::is_project(&folder) {
-            studio.notify(&tf("{0} is not a Concat project folder", &[&path]), true);
+            studio.notify(&tf("start.notConcatProjectFolder", &[&path]), true);
             return;
         }
         if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info)) {

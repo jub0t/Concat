@@ -173,7 +173,7 @@ component ModelRow inherits Rectangle {
                         badge := Text {
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
-                            text: I18n.t("In use");
+                            text: I18n.t("settings.inUse");
                             color: Theme.on-accent;
                             font-size: Theme.fs-xs;
                             font-weight: Theme.weight-display;
@@ -208,21 +208,21 @@ component ModelRow inherits Rectangle {
                 alignment: center;
 
                 if root.model.downloading: Button {
-                    label: I18n.t("Cancel");
+                    label: I18n.t("common.cancel");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
                 }
 
                 if !root.model.downloading && root.model.installed: Button {
-                    label: I18n.t("Remove");
+                    label: I18n.t("common.remove");
                     glyph: Glyph.trash;
                     danger: true;
                     clicked => { root.remove(); }
                 }
 
                 if !root.model.downloading && !root.model.installed: Button {
-                    label: I18n.t("Download");
+                    label: I18n.t("settings.download");
                     glyph: Glyph.import;
                     clicked => { root.download(); }
                 }
@@ -442,8 +442,8 @@ export component SettingsDialog inherits Modal {
     /// that only ever reached `I18n.t` through a variable would never be
     /// offered to a translator.
     property <[string]> accent-labels: [
-        I18n.t("Lime"), I18n.t("Sky"), I18n.t("Violet"),
-        I18n.t("Rose"), I18n.t("Amber"), I18n.t("Mint"),
+        I18n.t("settings.lime"), I18n.t("settings.sky"), I18n.t("settings.violet"),
+        I18n.t("settings.rose"), I18n.t("settings.amber"), I18n.t("settings.mint"),
     ];
 
     /// The Remote page's token is shown in clear rather than as dots.
@@ -457,7 +457,7 @@ export component SettingsDialog inherits Modal {
     }
 
     open: root.data.open;
-    title: I18n.t("Settings");
+    title: I18n.t("common.settings");
     glyph: Glyph.settings;
     surface-width: 640px;
     // Fixed rather than fitted: the pages are different lengths and a sheet
@@ -509,37 +509,37 @@ export component SettingsDialog inherits Modal {
                 alignment: start;
 
                 PageTab {
-                    label: I18n.t("General");
+                    label: I18n.t("settings.general");
                     glyph: Glyph.settings;
                     current: root.data.tab == 0;
                     clicked => { root.page-changed(0); }
                 }
                 PageTab {
-                    label: I18n.t("Appearance");
+                    label: I18n.t("settings.appearance");
                     glyph: Glyph.sun;
                     current: root.data.tab == 1;
                     clicked => { root.page-changed(1); }
                 }
                 PageTab {
-                    label: I18n.t("Transcriber");
+                    label: I18n.t("common.transcriber");
                     glyph: Glyph.waveform;
                     current: root.data.tab == 2;
                     clicked => { root.page-changed(2); }
                 }
                 PageTab {
-                    label: I18n.t("Speech");
+                    label: I18n.t("common.speech");
                     glyph: Glyph.music;
                     current: root.data.tab == 3;
                     clicked => { root.page-changed(3); }
                 }
                 PageTab {
-                    label: I18n.t("Remote");
+                    label: I18n.t("settings.remote");
                     glyph: Glyph.lock;
                     current: root.data.tab == 4;
                     clicked => { root.page-changed(4); }
                 }
                 PageTab {
-                    label: I18n.t("About");
+                    label: I18n.t("settings.about");
                     glyph: Glyph.sparkle;
                     current: root.data.tab == 5;
                     clicked => { root.page-changed(5); }
@@ -554,7 +554,7 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 0: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("Language");
+                    title: I18n.t("settings.language");
 
                     // Native names: whoever is stranded in a language they
                     // cannot read must still recognise their own in this list.
@@ -570,8 +570,8 @@ export component SettingsDialog inherits Modal {
                 // timeline of the mainstream editors, asked for in
                 // https://github.com/jub0t/Concat/issues/106
                 DialogSection {
-                    title: I18n.t("Magnetic timeline");
-                    hint: I18n.t("On, deleting a clip pulls what follows it on the same track into the gap, and trimming an edge moves the rest of the track with it. Off, a delete leaves a gap and a trim moves only the edge. Shift-Delete closes the gap either way.");
+                    title: I18n.t("common.magneticTimeline");
+                    hint: I18n.t("settings.deletingClipPullsWhat");
                     switchable: true;
                     on: root.data.magnetic;
                     open: false;
@@ -582,8 +582,8 @@ export component SettingsDialog inherits Modal {
                 // the last clip included, so a clip can be placed out there.
                 // On, it stops where the content does.
                 DialogSection {
-                    title: I18n.t("Playhead");
-                    hint: I18n.t("Off, a click on the ruler past the last clip lands the playhead there, and a clip placed at the playhead goes with it. On, the playhead never leaves the content.");
+                    title: I18n.t("settings.playhead");
+                    hint: I18n.t("settings.offClickRulerPast");
                     switchable: true;
                     on: root.data.playhead-stops;
                     open: false;
@@ -594,21 +594,21 @@ export component SettingsDialog inherits Modal {
                 // they stay reachable; where a download looks first is a
                 // matter of where you are. Every source is still tried.
                 DialogSection {
-                    title: I18n.t("Downloads");
-                    hint: I18n.t("Models are fetched the first time a feature needs one. This is where the download looks first; every other source is still tried after it.");
+                    title: I18n.t("settings.downloads");
+                    hint: I18n.t("settings.modelsFetchedFirstTime");
                     choices: [
-                        I18n.t("Automatic"),
-                        I18n.t("Concat's mirror"),
+                        I18n.t("settings.automatic"),
+                        I18n.t("settings.concatsMirror"),
                         "hf-mirror.com",
-                        I18n.t("Original source"),
-                        I18n.t("Custom URL"),
+                        I18n.t("settings.originalSource"),
+                        I18n.t("settings.customUrl"),
                     ];
                     choice-details: [
                         "",
                         "github.com",
-                        I18n.t("For mainland China"),
-                        I18n.t("Where each model came from"),
-                        I18n.t("A mirror of your own"),
+                        I18n.t("settings.forMainlandChina"),
+                        I18n.t("settings.whereEachModelCame"),
+                        I18n.t("settings.mirrorOwn"),
                     ];
                     choice: root.data.download-source;
                     chose(index) => { root.download-source-changed(index); }
@@ -634,10 +634,10 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 1: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("Theme");
+                    title: I18n.t("settings.theme");
 
                     SegmentedControl {
-                        options: [I18n.t("Dark"), I18n.t("Light")];
+                        options: [I18n.t("settings.dark"), I18n.t("settings.light")];
                         current: Theme.dark ? 0 : 1;
                         changed(index) => { root.theme-changed(index == 0); }
                     }
@@ -651,7 +651,7 @@ export component SettingsDialog inherits Modal {
                 // the row: a dot is a colour, not a word, and the word is
                 // what the settings file remembers.
                 DialogSection {
-                    title: I18n.t("Accent");
+                    title: I18n.t("settings.accent");
 
                     HorizontalLayout {
                         spacing: 6px;
@@ -676,7 +676,7 @@ export component SettingsDialog inherits Modal {
 
                             AccentSwatch {
                                 colour: Theme.accent-is-custom ? Theme.accent-custom : Theme.fg-dim;
-                                label: I18n.t("Custom");
+                                label: I18n.t("common.custom");
                                 chosen: Theme.accent-is-custom;
                                 blank: !Theme.accent-is-custom;
                                 clicked => { picker.show(); }
@@ -704,7 +704,7 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: Theme.accent-is-custom ? I18n.t("Custom")
+                            text: Theme.accent-is-custom ? I18n.t("common.custom")
                                 : root.accent-labels[Theme.accent-choice];
                             color: Theme.fg-muted;
                             font-size: Theme.fs;
@@ -730,8 +730,8 @@ export component SettingsDialog inherits Modal {
                 // accent is, and the hex is always shown: what the line is
                 // wearing is the whole point of the row.
                 DialogSection {
-                    title: I18n.t("Playhead");
-                    hint: I18n.t("The line across the lanes that marks the current time. Pick any colour for it, or the first dot to go back to the theme's own.");
+                    title: I18n.t("settings.playhead");
+                    hint: I18n.t("settings.lineAcrossLanesMarks");
 
                     HorizontalLayout {
                         spacing: 6px;
@@ -739,7 +739,7 @@ export component SettingsDialog inherits Modal {
 
                         AccentSwatch {
                             colour: Theme.playhead-default;
-                            label: I18n.t("Default");
+                            label: I18n.t("settings.default");
                             chosen: !Theme.playhead-is-custom;
                             clicked => { root.playhead-reset(); }
                         }
@@ -750,7 +750,7 @@ export component SettingsDialog inherits Modal {
 
                             AccentSwatch {
                                 colour: Theme.playhead-is-custom ? Theme.playhead-custom : Theme.fg-dim;
-                                label: I18n.t("Custom");
+                                label: I18n.t("common.custom");
                                 chosen: Theme.playhead-is-custom;
                                 blank: !Theme.playhead-is-custom;
                                 clicked => { playhead-picker.show(); }
@@ -778,7 +778,7 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: Theme.playhead-is-custom ? I18n.t("Custom") : I18n.t("Default");
+                            text: Theme.playhead-is-custom ? I18n.t("common.custom") : I18n.t("settings.default");
                             color: Theme.fg-muted;
                             font-size: Theme.fs;
                             vertical-alignment: center;
@@ -798,7 +798,7 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 2: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("Models");
+                    title: I18n.t("settings.models");
 
                     for model in root.transcribers: ModelRow {
                         model: model;
@@ -827,7 +827,7 @@ export component SettingsDialog inherits Modal {
                         }
 
                         Text {
-                            text: I18n.t("Runs locally");
+                            text: I18n.t("settings.runsLocally");
                             color: Theme.green;
                             font-size: Theme.fs-sm;
                             vertical-alignment: center;
@@ -839,7 +839,7 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 3: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("Voices");
+                    title: I18n.t("settings.voices");
 
                     for model in root.voices: ModelRow {
                         model: model;
@@ -858,8 +858,8 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 4: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("Remote control");
-                    hint: I18n.t("Serves the Concat API while the window is open, so a script or another program can create, edit and export projects of its own. Anything that connects can read and write files as you can.");
+                    title: I18n.t("settings.remoteControl");
+                    hint: I18n.t("settings.servesConcatApiWhile");
                     switchable: true;
                     on: root.data.server-enabled;
                     switched(on) => { root.server-enabled-changed(on); }
@@ -874,8 +874,8 @@ export component SettingsDialog inherits Modal {
                 }
 
                 DialogSection {
-                    title: I18n.t("Address");
-                    hint: I18n.t("127.0.0.1 is this machine only. Any other address is reachable from the network, needs a token, and is still not encrypted.");
+                    title: I18n.t("settings.address");
+                    hint: I18n.t("settings.localAddressWarning");
 
                     // One control in two halves: the address, a fixed
                     // colon nobody has to type, and the port as a number
@@ -922,8 +922,8 @@ export component SettingsDialog inherits Modal {
                 }
 
                 DialogSection {
-                    title: I18n.t("Token");
-                    hint: I18n.t("What a connection must present before its first call. Left empty, the server makes one up each time it starts and shows it here.");
+                    title: I18n.t("settings.token");
+                    hint: I18n.t("settings.whatConnectionMustPresent");
 
                     // Dots until asked, the way a password field is: the
                     // token is what lets a connection in, and Settings is
@@ -934,7 +934,7 @@ export component SettingsDialog inherits Modal {
 
                         Field {
                             value: root.data.server-token;
-                            placeholder: I18n.t("none");
+                            placeholder: I18n.t("common.none");
                             technical: true;
                             secret: !root.token-shown;
                             edited(text) => { root.server-token-edited(text); }
@@ -943,12 +943,12 @@ export component SettingsDialog inherits Modal {
                         Button {
                             square: true;
                             glyph: root.token-shown ? Glyph.eye-off : Glyph.eye;
-                            label: root.token-shown ? I18n.t("Hide the token") : I18n.t("Show the token");
+                            label: root.token-shown ? I18n.t("settings.hideTheToken") : I18n.t("settings.showTheToken");
                             clicked => { root.token-shown = !root.token-shown; }
                         }
 
                         Button {
-                            label: I18n.t("New token");
+                            label: I18n.t("settings.newToken");
                             clicked => { root.server-token-generated(); }
                         }
                     }
@@ -961,10 +961,10 @@ export component SettingsDialog inherits Modal {
                 // a report reads them from.
                 DialogSection {
                     first: true;
-                    title: I18n.t("About");
+                    title: I18n.t("settings.about");
 
                     Text {
-                        text: I18n.t1("Concat {0}", "\{root.data.version}");
+                        text: I18n.t1("settings.concat", "\{root.data.version}");
                         color: Theme.fg;
                         font-size: Theme.fs-lg;
                         font-weight: Theme.weight-title;
@@ -998,7 +998,7 @@ export component SettingsDialog inherits Modal {
                         spacing: Theme.gap;
 
                         Text {
-                            text: I18n.t("System information");
+                            text: I18n.t("settings.systemInformation");
                             color: Theme.fg;
                             font-size: Theme.fs-lg;
                             font-weight: Theme.weight-title;
@@ -1013,14 +1013,14 @@ export component SettingsDialog inherits Modal {
                         // are in the folder this opens.
                         IconButton {
                             glyph: Glyph.folder;
-                            label: I18n.t("Show the log");
+                            label: I18n.t("settings.showTheLog");
                             icon-size: 13px;
                             clicked => { root.show-log(); }
                         }
 
                         IconButton {
                             glyph: Glyph.copy;
-                            label: I18n.t("Copy system information");
+                            label: I18n.t("settings.copySystemInformation");
                             icon-size: 13px;
                             // Cleared again straight away: the selection is
                             // the mechanism, not something the reader asked
