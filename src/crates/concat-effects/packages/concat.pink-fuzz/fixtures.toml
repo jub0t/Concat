@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "curves=all='0/0.060 1/1',eq=contrast=0.880:saturation=0.910,colorbalance=rh=0.050:gh=-0.020:bh=0.040,split[fuzza0][fuzzb0];[fuzzb0]gblur=sigma=12[fuzzg0];[fuzza0][fuzzg0]blend=all_mode=screen:all_opacity=0.210"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.31201, 0.22205, 0.16284, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "curves=all='0/0.000 1/1',eq=contrast=1.000:saturation=1.000,colorbalance=rh=0.000:gh=0.000:bh=0.000,split[fuzza0][fuzzb0];[fuzzb0]gblur=sigma=12[fuzzg0];[fuzza0][fuzzg0]blend=all_mode=screen:all_opacity=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "curves=all='0/0.100 1/1',eq=contrast=0.800:saturation=0.850,colorbalance=rh=0.100:gh=-0.040:bh=0.080,split[fuzza0][fuzzb0];[fuzzb0]gblur=sigma=12[fuzzg0];[fuzza0][fuzzg0]blend=all_mode=screen:all_opacity=0.350"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.13184, 0.12317, 0.11469, 1]

@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.pink-fuzz"
 name = "Pink Fuzz"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "curves=all='0/{fixed(haze / 100 * 0.1, 3)} 1/1',eq=contrast={fixed(1 - haze / 100 * 0.2, 3)}:saturation={fixed(1 - haze / 100 * 0.15, 3)},colorbalance=rh={fixed(blush / 100 * 0.1, 3)}:gh={fixed(0 - blush / 100 * 0.04, 3)}:bh={fixed(blush / 100 * 0.08, 3)},split[fuzza{index}][fuzzb{index}];[fuzzb{index}]gblur=sigma=12[fuzzg{index}];[fuzza{index}][fuzzg{index}]blend=all_mode=screen:all_opacity={fixed(haze / 100 * 0.35, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

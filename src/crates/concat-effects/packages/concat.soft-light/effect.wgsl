@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = saturation(out, 1.0 - lift * 0.12);
     out = split_tone(out, vec3<f32>(0.0), vec3<f32>(0.07, 0.02, -0.06), params.warmth / 100.0);
     out = halation(uv, out, 0.6, 10.0, vec3<f32>(1.0, 0.97, 0.9), lift * 0.35);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

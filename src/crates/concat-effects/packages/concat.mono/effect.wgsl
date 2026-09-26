@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     var out = mono(c.rgb, vec3<f32>(r, 1.0 - r - b, b));
     out = s_curve(out, params.contrast / 100.0 * 0.8);
     out = out + grain_at(uv, params.grain / 100.0 * 0.1);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

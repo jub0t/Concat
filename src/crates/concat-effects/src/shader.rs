@@ -11,15 +11,19 @@
 //! and is stitched on here so every package shares one contract and no
 //! package can bind things differently.
 //!
-//! The contract has two editions, chosen by the manifest's `format`
-//! ([`Contract`]). From format 2 a shader samples the compositor's working
-//! space as it is - linear light, unclipped, 1.0 the white of an SDR
-//! picture - and is given the scene-linear library: exposure in stops, a
-//! log space for what the eye judges, contrast and saturation that never
-//! clip. A format 1 shader, written before the working space was linear,
-//! is handed the gamma-encoded `0..1` picture it expects and the
-//! display-referred grading library it was written against, and its
-//! result is taken back into light, so it looks as it always did.
+//! The contract comes in editions, chosen by the manifest's `format` and
+//! its `[wgsl]` space ([`Contract`]). From format 2 a shader samples the
+//! compositor's working space as it is - linear light, unclipped, 1.0 the
+//! white of an SDR picture - and is given the scene-linear library:
+//! exposure in stops, a log space for what the eye judges, contrast and
+//! saturation that never clip. A format 2 look that asks for the display
+//! space is handed the same picture in the display encoding, still
+//! unclipped, with the grading helpers it was drawn with made safe past
+//! white, and its result is taken back into light before it is mixed. A
+//! format 1 shader, written before the working space was linear, is
+//! handed the gamma-encoded `0..1` picture it expects and the library it
+//! was written against, and its result is taken back into light, so it
+//! looks as it always did.
 //!
 //! The stitched module is parsed and validated when the package loads, the
 //! same way a chain template is, so a broken shader is a load error and not
@@ -33,7 +37,7 @@ use std::sync::Arc;
 
 use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
-use crate::manifest::{Manifest, Param, ParamType};
+use crate::manifest::{Manifest, Param, ParamType, Space};
 
 /// What an effect's shader binds: the layer at group 0, the host's frame
 /// block and the package's own parameters at group 1, its table at group 2
@@ -96,6 +100,18 @@ fn sample(uv: vec2<f32>) -> vec4<f32> {
 }
 "#;
 
+/// An effect's `sample` under the scene-linear contract in the display
+/// space.
+const EFFECT_SAMPLE_DISPLAY: &str = r#"
+/// The layer's colour at `uv`, straight alpha, in the display encoding
+/// (see `to_display`): the picture a look drawn by eye on an SDR display
+/// reads, not clipped at white.
+fn sample(uv: vec2<f32>) -> vec4<f32> {
+    let c = textureSample(source, source_sampler, uv);
+    return vec4<f32>(to_display(c.rgb), c.a);
+}
+"#;
+
 /// What a transition's shader binds: the outgoing picture and the incoming
 /// one at group 0, the frame block - its spare slot the progress - and the
 /// parameters at group 1, the table at group 2, and no reveal map.
@@ -155,7 +171,7 @@ fn to_at(uv: vec2<f32>) -> vec4<f32> {
 
 /// What every shader is given whatever it is and whichever contract it
 /// keeps: they read only the frame's size and the table, which both heads
-/// declare.
+/// declare. (`hash` is each edition's own: see the libraries.)
 const BASICS: &str = r#"
 /// One pixel, as a fraction of the layer.
 fn texel() -> vec2<f32> {
@@ -174,12 +190,6 @@ fn lut(rgb: vec3<f32>) -> vec3<f32> {
     let n = f32(textureDimensions(lut_texture).x);
     let uvw = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * (n - 1.0) / n + vec3<f32>(0.5 / n);
     return textureSampleLevel(lut_texture, lut_sampler, uvw, 0.0).rgb;
-}
-
-/// A hash in 0..1 from a point and a seed, for grain and dither.
-fn hash(p: vec2<f32>, seed: f32) -> f32 {
-    let q = vec3<f32>(p, seed);
-    return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
 }
 "#;
 
@@ -203,6 +213,12 @@ fn legacy_in(colour: vec4<f32>) -> vec4<f32> {
 /// gamma undone.
 fn legacy_out(colour: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(pow(max(colour.rgb, vec3<f32>(0.0)), vec3<f32>(2.4)), colour.a);
+}
+
+/// A hash in 0..1 from a point and a seed, for grain and dither.
+fn hash(p: vec2<f32>, seed: f32) -> f32 {
+    let q = vec3<f32>(p, seed);
+    return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
 }
 //
 // Every look is a few of these in different amounts, so they live here,
@@ -469,6 +485,306 @@ fn edge_at(uv: vec2<f32>) -> f32 {
 }
 "#;
 
+/// The display-space library (format 2, `space = "display"`): the grading
+/// helpers the looks are built from, safe past white.
+const DISPLAY_LIBRARY: &str = r#"
+// ── the display-space library (format 2, `space = "display"`) ──
+//
+// A look drawn by eye on an SDR picture is maths on the display encoding,
+// and this is the format 1 grading library for it, with one difference:
+// nothing clips. Between black and white every helper computes what its
+// format 1 twin did, so a look ported here reads as it did on SDR; past
+// white a curve carries a highlight on rather than bending it back, and a
+// blend treats it as the brightest thing there.
+
+/// `over` screened onto `base`: both inverted, multiplied, inverted back -
+/// light added the way two projectors add it. A level of `base` beyond
+/// white stays beyond it by as much.
+fn screen(base: vec3<f32>, over: vec3<f32>) -> vec3<f32> {
+    let b = min(base, vec3<f32>(1.0));
+    return vec3<f32>(1.0) - (vec3<f32>(1.0) - b) * (vec3<f32>(1.0) - over) + (base - b);
+}
+
+/// Saturation about luminance: 1 as shot, 0 grey, above 1 richer.
+fn saturation(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    return mix(vec3<f32>(luma(rgb)), rgb, amount);
+}
+
+/// Vibrance: the muted colours saturated more than the vivid ones, so a
+/// face does not go orange before a sky goes blue. 0 as shot.
+fn vibrance(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let mx = max(max(rgb.r, rgb.g), rgb.b);
+    let mn = min(min(rgb.r, rgb.g), rgb.b);
+    return saturation(rgb, 1.0 + amount * max(1.0 - (mx - mn), 0.0));
+}
+
+/// Contrast about middle grey (0.5 here, 0.19 of the light): 1 as shot.
+fn contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    return (rgb - vec3<f32>(0.5)) * amount + vec3<f32>(0.5);
+}
+
+/// An S-curve: shadows down, highlights up, the midtones held. 0 as shot,
+/// 1 the whole curve. The curve spans black to white; beyond them a level
+/// is left where it is, so a highlight is not bent back down.
+fn s_curve(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let c = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    return mix(c, c * c * (vec3<f32>(3.0) - 2.0 * c), amount) + (rgb - c);
+}
+
+/// A fade: the blacks lifted to `lift` and the rest compressed to fit,
+/// which is what an old print and every faded look does.
+fn fade(rgb: vec3<f32>, lift: f32) -> vec3<f32> {
+    return rgb * (1.0 - lift) + vec3<f32>(lift);
+}
+
+/// Lift, gamma, gain: the three-way grade. Lift moves the shadows, gain
+/// scales the highlights, gamma bends the midtones; (0, 1, 1) in every
+/// channel is as shot.
+fn lift_gamma_gain(rgb: vec3<f32>, lift: vec3<f32>, gamma: vec3<f32>, gain: vec3<f32>) -> vec3<f32> {
+    let lifted = rgb * (vec3<f32>(1.0) - lift) + lift;
+    let gained = max(lifted * gain, vec3<f32>(0.0));
+    return pow(gained, vec3<f32>(1.0) / max(gamma, vec3<f32>(0.01)));
+}
+
+/// How much of a pixel is shadow, highlight or midtone, by luminance:
+/// the weights a tint on one end of the picture and not the other needs.
+fn shadows(rgb: vec3<f32>) -> f32 {
+    return 1.0 - smoothstep(0.0, 0.6, luma(rgb));
+}
+fn highlights(rgb: vec3<f32>) -> f32 {
+    return smoothstep(0.4, 1.0, luma(rgb));
+}
+fn midtones(rgb: vec3<f32>) -> f32 {
+    return 1.0 - min(abs(luma(rgb) - 0.5) * 2.0, 1.0);
+}
+
+/// A split tone: one tint into the shadows and another into the
+/// highlights, each a signed offset per channel, so zero is as shot.
+fn split_tone(rgb: vec3<f32>, shadow: vec3<f32>, highlight: vec3<f32>, amount: f32) -> vec3<f32> {
+    return rgb + (shadow * shadows(rgb) + highlight * highlights(rgb)) * amount;
+}
+
+/// A tint over the midtones alone, the same signed offset.
+fn tint_midtones(rgb: vec3<f32>, tint: vec3<f32>, amount: f32) -> vec3<f32> {
+    return rgb + tint * midtones(rgb) * amount;
+}
+
+/// The colour of black-body light at `k` kelvin.
+fn kelvin(k: f32) -> vec3<f32> {
+    let t = clamp(k, 1000.0, 40000.0) / 100.0;
+    var r: f32;
+    var g: f32;
+    var b: f32;
+    if (t <= 66.0) {
+        r = 1.0;
+        g = clamp((99.4708 * log(t) - 161.1196) / 255.0, 0.0, 1.0);
+        if (t <= 19.0) {
+            b = 0.0;
+        } else {
+            b = clamp((138.5177 * log(t - 10.0) - 305.0448) / 255.0, 0.0, 1.0);
+        }
+    } else {
+        r = clamp(329.6987 * pow(t - 60.0, -0.1332) / 255.0, 0.0, 1.0);
+        g = clamp(288.1222 * pow(t - 60.0, -0.0755) / 255.0, 0.0, 1.0);
+        b = 1.0;
+    }
+    return vec3<f32>(r, g, b);
+}
+
+/// White balance: the picture as if lit at `k` kelvin while the camera
+/// was set for daylight. 6500 is as shot.
+fn white_balance(rgb: vec3<f32>, k: f32) -> vec3<f32> {
+    let tint = kelvin(k) / kelvin(6500.0);
+    return rgb * (tint / max(luma(tint), 0.001));
+}
+
+/// A vignette: the corners darkened by `amount` from a clear middle.
+fn vignette(rgb: vec3<f32>, uv: vec2<f32>, amount: f32) -> vec3<f32> {
+    let d = distance(uv, vec2<f32>(0.5)) * 1.4142;
+    return rgb * (1.0 - smoothstep(0.35, 1.1, d) * amount);
+}
+
+/// Black and white through a coloured filter: the channel weights, made
+/// to sum to one. A red filter darkens skies and lightens skin.
+fn mono(rgb: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
+    let w = weights / max(weights.r + weights.g + weights.b, 0.001);
+    return vec3<f32>(dot(rgb, w));
+}
+
+/// A matte: the blacks lifted to `black` and the whites pulled down to
+/// `white`, the range between them kept in proportion. The print look
+/// every faded, milky and instant-camera grade is built on; (0, 1) is as
+/// shot.
+fn matte(rgb: vec3<f32>, black: f32, white: f32) -> vec3<f32> {
+    return rgb * (white - black) + vec3<f32>(black);
+}
+
+/// A film curve: a toe that rolls the shadows into black by `toe` and a
+/// shoulder that rolls the highlights into white by `shoulder`, both
+/// `0..1`, the midtones left on the line. Unlike a contrast, it never
+/// clips: it compresses the ends the way a negative does. The curve spans
+/// black to white; a highlight beyond white is carried on above it.
+fn film_curve(rgb: vec3<f32>, toe: f32, shoulder: f32) -> vec3<f32> {
+    let c = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let t = mix(c, c * c, vec3<f32>(toe) * (vec3<f32>(1.0) - c));
+    let curved = mix(t, vec3<f32>(1.0) - (vec3<f32>(1.0) - t) * (vec3<f32>(1.0) - t), vec3<f32>(shoulder) * t);
+    return curved + (rgb - c);
+}
+
+/// Every hue turned by `degrees`, brightness held: a rotation in the
+/// YIQ plane, the same for every pixel.
+fn hue_rotate(rgb: vec3<f32>, degrees: f32) -> vec3<f32> {
+    let a = radians(degrees);
+    let y = luma(rgb);
+    let i = dot(rgb, vec3<f32>(0.596, -0.274, -0.322));
+    let q = dot(rgb, vec3<f32>(0.211, -0.523, 0.312));
+    let i2 = i * cos(a) - q * sin(a);
+    let q2 = i * sin(a) + q * cos(a);
+    return vec3<f32>(
+        y + 0.956 * i2 + 0.621 * q2,
+        y - 0.272 * i2 - 0.647 * q2,
+        y - 1.106 * i2 + 1.703 * q2,
+    );
+}
+
+/// One band of hues adjusted and the rest untouched: the band `width`
+/// degrees around `centre` has its hue turned by `turn` degrees, its
+/// saturation scaled by `sat` and its brightness by `lum`, weighted by
+/// `hue_mask` so the edges of the band blend. What a grading panel's HSL
+/// sliders do, and what keeps a sky change off a face.
+fn hsl_band(rgb: vec3<f32>, centre: f32, width: f32, turn: f32, sat: f32, lum: f32) -> vec3<f32> {
+    let w = hue_mask(rgb, centre, width);
+    var out = hue_rotate(rgb, turn);
+    out = saturation(out, sat);
+    out = out * lum;
+    return mix(rgb, out, w);
+}
+
+/// Halation: the brights above `threshold` gathered from `radius` pixels
+/// around, tinted, and screened back over the picture by `amount`. The
+/// glow around a lamp on film, and the bloom every soft look leans on.
+fn halation(uv: vec2<f32>, rgb: vec3<f32>, threshold: f32, radius: f32, tint: vec3<f32>, amount: f32) -> vec3<f32> {
+    let t = texel() * radius * 0.5;
+    var sum = vec3<f32>(0.0);
+    for (var y: i32 = -2; y <= 2; y++) {
+        for (var x: i32 = -2; x <= 2; x++) {
+            let s = sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
+            let bright = smoothstep(threshold, 1.0, luma(s));
+            sum += s * bright;
+        }
+    }
+    let glow = clamp(sum / 25.0 * tint * amount, vec3<f32>(0.0), vec3<f32>(1.0));
+    return screen(rgb, glow);
+}
+
+// ── targeting and texture: the taps a look takes around a pixel, and the
+// bands of colour it singles out.
+
+/// Hue in degrees, 0..360; 0 for a grey.
+fn hue_of(rgb: vec3<f32>) -> f32 {
+    let mx = max(max(rgb.r, rgb.g), rgb.b);
+    let mn = min(min(rgb.r, rgb.g), rgb.b);
+    let d = mx - mn;
+    if (d < 0.0001) {
+        return 0.0;
+    }
+    var h: f32;
+    if (mx == rgb.r) {
+        h = (rgb.g - rgb.b) / d;
+    } else if (mx == rgb.g) {
+        h = 2.0 + (rgb.b - rgb.r) / d;
+    } else {
+        h = 4.0 + (rgb.r - rgb.g) / d;
+    }
+    return fract(h / 6.0) * 360.0;
+}
+
+/// Chroma, 0..1: how far from grey.
+fn chroma_of(rgb: vec3<f32>) -> f32 {
+    return max(max(rgb.r, rgb.g), rgb.b) - min(min(rgb.r, rgb.g), rgb.b);
+}
+
+/// How much a pixel belongs to the hues within `width` degrees of
+/// `centre`, weighted by chroma so a grey belongs to no band.
+fn hue_mask(rgb: vec3<f32>, centre: f32, width: f32) -> f32 {
+    let d = abs(fract((hue_of(rgb) - centre) / 360.0 + 0.5) * 360.0 - 180.0);
+    return (1.0 - smoothstep(width * 0.5, width, d)) * smoothstep(0.0, 0.25, chroma_of(rgb));
+}
+
+/// The weight of skin: the orange band, a warm tan to a pale cheek.
+fn skin_mask(rgb: vec3<f32>) -> f32 {
+    return hue_mask(rgb, 25.0, 40.0);
+}
+
+/// The layer averaged over a square of taps `radius` pixels across: a
+/// bloom, a soft denoise, the blur an unsharp mask subtracts.
+fn soften(uv: vec2<f32>, radius: f32) -> vec3<f32> {
+    let t = texel() * radius * 0.5;
+    var sum = vec3<f32>(0.0);
+    for (var y: i32 = -2; y <= 2; y++) {
+        for (var x: i32 = -2; x <= 2; x++) {
+            sum += sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
+        }
+    }
+    return sum / 25.0;
+}
+
+/// Grain: noise that changes every frame, centred on zero, `amount` as a
+/// fraction of the range. Seeded by the pixel and the frame's time, so the
+/// monitor and the export show the same grain on the same frame.
+fn grain_at(uv: vec2<f32>, amount: f32) -> vec3<f32> {
+    let n = hash(floor(uv * frame.size), fract(frame.time * 7.31)) - 0.5;
+    return vec3<f32>(n * amount);
+}
+
+/// The strength of an edge at `uv`: Sobel on luminance, 0..1.
+fn edge_at(uv: vec2<f32>) -> f32 {
+    let t = texel();
+    let tl = luma(sample(uv + vec2<f32>(-t.x, -t.y)).rgb);
+    let tc = luma(sample(uv + vec2<f32>(0.0, -t.y)).rgb);
+    let tr = luma(sample(uv + vec2<f32>(t.x, -t.y)).rgb);
+    let ml = luma(sample(uv + vec2<f32>(-t.x, 0.0)).rgb);
+    let mr = luma(sample(uv + vec2<f32>(t.x, 0.0)).rgb);
+    let bl = luma(sample(uv + vec2<f32>(-t.x, t.y)).rgb);
+    let bc = luma(sample(uv + vec2<f32>(0.0, t.y)).rgb);
+    let br = luma(sample(uv + vec2<f32>(t.x, t.y)).rgb);
+    let gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
+    let gy = (bl + 2.0 * bc + br) - (tl + 2.0 * tc + tr);
+    return clamp(sqrt(gx * gx + gy * gy), 0.0, 1.0);
+}
+"#;
+
+/// What every format 2 shader is given beside its library: the display
+/// encoding - a look's space, and where a linear shader goes to do a sum
+/// an eye drew - and a hash every GPU agrees on.
+const FORMAT2_BASICS: &str = r#"
+/// A hash in 0..1 from a point and a seed, for grain and dither: the bits
+/// of all three mixed in integer arithmetic, so every GPU - and the
+/// software one an export may run on - draws the same number, where the
+/// last bits of a sine do not agree. Whole numbers make the steadiest
+/// points: a pixel, a slice, a cell.
+fn hash(p: vec2<f32>, seed: f32) -> f32 {
+    var h = bitcast<u32>(p.x) ^ (bitcast<u32>(p.y) * 0x9e3779b9u) ^ (bitcast<u32>(seed) * 0x85ebca6bu);
+    h = (h ^ (h >> 16u)) * 0x7feb352du;
+    h = (h ^ (h >> 15u)) * 0x846ca68bu;
+    h = h ^ (h >> 16u);
+    return f32(h >> 8u) / 16777216.0;
+}
+
+/// Light into the display encoding: BT.1886's 2.4 gamma, the curve an SDR
+/// picture is written in, so SDR white is 1.0 and middle grey 0.49 - but
+/// extended rather than clipped: a highlight climbs past 1.0, and a channel
+/// negative outside Rec. 709's gamut stays negative.
+fn to_display(rgb: vec3<f32>) -> vec3<f32> {
+    return sign(rgb) * pow(abs(rgb), vec3<f32>(1.0 / 2.4));
+}
+
+/// The display encoding back into light.
+fn from_display(encoded: vec3<f32>) -> vec3<f32> {
+    return sign(encoded) * pow(abs(encoded), vec3<f32>(2.4));
+}
+"#;
+
 /// The format 2 library: helpers that hold for any level of light.
 const LINEAR_LIBRARY: &str = r#"
 // ── the scene-linear library (format 2) ──
@@ -563,6 +879,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// An effect's fragment in the display space: the package's colour taken
+/// back into light, then mixed over the untouched layer by intensity there.
+const EFFECT_FRAGMENT_DISPLAY: &str = r#"
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let base = textureSample(source, source_sampler, in.uv);
+    let treated = effect(in.uv);
+    let light = vec4<f32>(from_display(treated.rgb), treated.a);
+    return mix(base, light, clamp(frame.intensity, 0.0, 1.0));
+}
+"#;
+
 /// A transition's fragment under the format 1 contract: the package owns
 /// the blend, so the pipeline does no mixing of its own.
 const TRANSITION_FRAGMENT_LEGACY: &str = r#"
@@ -590,15 +918,23 @@ pub enum Contract {
     /// Format 2 on: the working space as it is, and the scene-linear
     /// library.
     Linear,
+    /// Format 2 on, `space = "display"`: the picture in the display
+    /// encoding, unclipped, the display-space library, and the result
+    /// taken back into light and mixed there.
+    Display,
 }
 
 impl Contract {
     /// The edition `manifest` asks for.
     pub fn of(manifest: &Manifest) -> Contract {
-        if manifest.scene_linear() {
-            Contract::Linear
-        } else {
-            Contract::Legacy
+        let display = manifest
+            .wgsl
+            .as_ref()
+            .is_some_and(|wgsl| wgsl.space == Space::Display);
+        match (manifest.scene_linear(), display) {
+            (false, _) => Contract::Legacy,
+            (true, false) => Contract::Linear,
+            (true, true) => Contract::Display,
         }
     }
 
@@ -612,22 +948,29 @@ impl Contract {
             (Entry::Effect, Contract::Linear) => {
                 (EFFECT_HEAD, EFFECT_SAMPLE_LINEAR, EFFECT_FRAGMENT_LINEAR)
             }
+            (Entry::Effect, Contract::Display) => {
+                (EFFECT_HEAD, EFFECT_SAMPLE_DISPLAY, EFFECT_FRAGMENT_DISPLAY)
+            }
             (Entry::Transition, Contract::Legacy) => (
                 TRANSITION_HEAD,
                 TRANSITION_SAMPLE_LEGACY,
                 TRANSITION_FRAGMENT_LEGACY,
             ),
-            (Entry::Transition, Contract::Linear) => (
+            // A transition has no [wgsl] table to ask for another space.
+            (Entry::Transition, Contract::Linear | Contract::Display) => (
                 TRANSITION_HEAD,
                 TRANSITION_SAMPLE_LINEAR,
                 TRANSITION_FRAGMENT_LINEAR,
             ),
         };
-        let library = match self {
-            Contract::Legacy => LEGACY_LIBRARY,
-            Contract::Linear => LINEAR_LIBRARY,
+        let library: &[&str] = match (entry, self) {
+            (_, Contract::Legacy) => &[LEGACY_LIBRARY],
+            (Entry::Effect, Contract::Display) => &[FORMAT2_BASICS, DISPLAY_LIBRARY],
+            _ => &[FORMAT2_BASICS, LINEAR_LIBRARY],
         };
-        [head, sampling, BASICS, library, VERTEX, fragment].concat()
+        [&[head, sampling, BASICS][..], library, &[VERTEX, fragment]]
+            .concat()
+            .concat()
     }
 }
 

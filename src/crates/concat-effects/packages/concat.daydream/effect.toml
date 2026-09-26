@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.daydream"
 name = "Daydream"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "curves=all='0/{fixed(haze / 100 * 0.08, 3)} 1/{fixed(1 - haze / 100 * 0.03, 3)}',eq=contrast={fixed(1 - haze / 100 * 0.12, 3)},colorbalance=rh={fixed(warmth / 100 * 0.08, 3)}:bh={fixed(0 - warmth / 100 * 0.05, 3)}:bs={fixed(warmth / 100 * 0.04, 3)},split[dreama{index}][dreamb{index}];[dreamb{index}]gblur=sigma=14[dreamg{index}];[dreama{index}][dreamg{index}]blend=all_mode=screen:all_opacity={fixed(haze / 100 * 0.3, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

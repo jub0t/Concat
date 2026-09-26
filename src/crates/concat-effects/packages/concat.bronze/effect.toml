@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.bronze"
 name = "Bronze"
@@ -25,8 +27,6 @@ default = 30
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "hue=s={fixed(1 - tone / 100 * 0.9, 3)},colorbalance=rm={fixed(tone / 100 * 0.12, 3)}:gm={fixed(tone / 100 * 0.04, 3)}:bm={fixed(0 - tone / 100 * 0.12, 3)}:rh={fixed(tone / 100 * 0.04, 3)}:bh={fixed(0 - tone / 100 * 0.04, 3)},eq=contrast={fixed(1 + contrast / 100 * 0.3, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

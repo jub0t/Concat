@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.falling-dust"
 name = "Falling Dust"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "colorbalance=rh={fixed(leak / 100 * 0.12, 3)}:bh={fixed(0 - leak / 100 * 0.08, 3)},curves=all='0/0.04 1/0.97',noise=alls={round(dust / 100 * 8)}:allf=t"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

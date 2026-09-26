@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.light-leak-flash"
 name = "Light Leak Flash"

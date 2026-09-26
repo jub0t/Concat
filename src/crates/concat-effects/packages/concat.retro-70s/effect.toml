@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.retro-70s"
 name = "Retro 70s"
@@ -6,8 +8,6 @@ category = "Film"
 order = 63
 description = "A heavy warm fade with a yellowed, sun-bleached cast."
 
-[ffmpeg]
-chain = "curves=all='0/0.1 1/0.88',colorbalance=rm=0.1:gm=0.06:bm=-0.12,eq=saturation=0.85"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

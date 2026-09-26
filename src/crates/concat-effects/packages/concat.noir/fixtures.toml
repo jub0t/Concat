@@ -1,3 +1,7 @@
-[[case]]
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
+
+[[probe]]
 name = "default"
-chain = "hue=s=0,eq=contrast=1.3:brightness=-0.04,colorbalance=bs=0.06:bm=0.04,vignette=angle=0.6"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.16711, 0.18994, 0.25439, 1]

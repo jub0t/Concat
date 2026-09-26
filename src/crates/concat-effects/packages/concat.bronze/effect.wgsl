@@ -8,5 +8,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = tint_midtones(out, vec3<f32>(0.12, 0.04, -0.12), tone);
     out = split_tone(out, vec3<f32>(0.0), vec3<f32>(0.04, 0.01, -0.04), tone);
     out = s_curve(out, params.contrast / 100.0 * 0.6);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

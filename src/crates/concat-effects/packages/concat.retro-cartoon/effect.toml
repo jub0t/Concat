@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.retro-cartoon"
 name = "Retro Cartoon"
@@ -24,11 +26,6 @@ default = 60
 step = 1
 unit = "%"
 
-[ffmpeg]
-let = [
-  "size = round(256 / max(round(levels), 2))",
-]
-chain = "lutrgb=r=trunc(val/{size})*{size}:g=trunc(val/{size})*{size}:b=trunc(val/{size})*{size},split[inka{index}][inkb{index}];[inkb{index}]edgedetect=mode=colormix:low=0.08:high=0.25[inke{index}];[inka{index}][inke{index}]blend=all_mode=normal:all_opacity={fixed(ink / 100, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

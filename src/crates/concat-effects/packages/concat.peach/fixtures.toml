@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "selectivecolor=reds='0 -0.040 0.050 -0.050':yellows='0 0.025 0 -0.030',curves=all='0/0.030 1/1',eq=contrast=0.950,colorbalance=rh=0.025:gh=0.010,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.100"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.34595, 0.22803, 0.14636, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "selectivecolor=reds='0 0.000 0.000 0.000':yellows='0 0.000 0 0.000',curves=all='0/0.000 1/1',eq=contrast=1.000,colorbalance=rh=0.000:gh=0.000,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44946, 0.39941, 0.34961, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "selectivecolor=reds='0 -0.080 0.100 -0.100':yellows='0 0.050 0 -0.060',curves=all='0/0.060 1/1',eq=contrast=0.900,colorbalance=rh=0.050:gh=0.020,split[peacha0][peachb0];[peachb0]gblur=sigma=6[peachg0];[peacha0][peachg0]blend=all_mode=screen:all_opacity=0.250"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.11188, 0.1012, 0.09058, 1]

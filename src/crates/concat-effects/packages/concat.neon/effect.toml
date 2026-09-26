@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.neon"
 name = "Neon"
@@ -25,8 +27,6 @@ default = 50
 step = 1
 unit = "%"
 
-[ffmpeg]
-chain = "colorbalance=rs={fixed(glow / 100 * 0.18, 3)}:gs={fixed(0 - glow / 100 * 0.1, 3)}:bs={fixed(glow / 100 * 0.18, 3)}:rh={fixed(0 - glow / 100 * 0.1, 3)}:gh={fixed(glow / 100 * 0.1, 3)}:bh={fixed(glow / 100 * 0.15, 3)},eq=contrast={fixed(1 + punch / 100 * 0.5, 3)}:saturation={fixed(1 + punch / 100 * 0.6, 3)},split[neona{index}][neonb{index}];[neonb{index}]gblur=sigma=10[neong{index}];[neona{index}][neong{index}]blend=all_mode=screen:all_opacity={fixed(glow / 100 * 0.25, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

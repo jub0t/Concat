@@ -1,13 +1,22 @@
-[[case]]
-name = "default is the picture as shot"
-chain = "exposure=exposure=0.00,eq=brightness=0.000:contrast=1.000:saturation=1.000,colortemperature=temperature=6500,colorbalance=gm=0.000,curves=all='0/0.000 0.1/0.100 0.25/0.250 0.75/0.750 0.9/0.900 1/1',unsharp=5:5:0.00,vignette=a=0.000"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
-name = "everything down"
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.30005, 0.19995, 0.12, 1]
+
+[[probe]]
+name = "minimum"
 at = "min"
-chain = "exposure=exposure=-3.00,eq=brightness=-0.500:contrast=0.000:saturation=-1.000,colortemperature=temperature=2000,colorbalance=gm=0.500,curves=all='0/0.000 0.1/0.000 0.25/0.070 0.75/0.570 0.9/0.800 1/1',unsharp=5:5:0.00,vignette=a=0.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.18945, 0.18945, 0.18945, 1]
 
-[[case]]
-name = "everything up"
+# Every knob up is far past white, where format 1 clipped it: the panel's
+# exposure scales the display encoding, +3 EV eight times over, until its
+# maths moves into light with the colour sliders (phase 2, step 5).
+[[probe]]
+name = "maximum"
 at = "max"
-chain = "exposure=exposure=3.00,eq=brightness=0.500:contrast=2.000:saturation=3.000,colortemperature=temperature=11000,colorbalance=gm=-0.500,curves=all='0/0.250 0.1/0.200 0.25/0.430 0.75/0.930 0.9/1.000 1/1',unsharp=5:5:2.00,vignette=a=1.200"
+input = [0.08, 0.07, 0.06, 1]
+expect = [40.8125, 31.71875, 122.25, 1]

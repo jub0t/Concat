@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.whip-pan"
 name = "Whip Pan"

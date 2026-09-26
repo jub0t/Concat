@@ -351,11 +351,15 @@ fn check_probes(folder: &Path, gpu: &mut Option<WgpuCompositor>) -> Vec<String> 
     };
     let mut problems = Vec::new();
     for (n, probe) in package.probes.iter().enumerate() {
-        let Some(pass) = package.probe_pass(probe) else {
-            continue;
-        };
         let label = probe.label(n);
-        match gpu.probe(&[pass], probe.input, 8, 0.0) {
+        let got = match (package.probe_pass(probe), package.probe_transition(probe)) {
+            (Some(pass), _) => gpu.probe(&[pass], probe.input, 8, 0.0),
+            (None, Some(cut)) => {
+                gpu.probe_transition(&cut, probe.input, probe.to.unwrap_or_default(), 8, 0.0)
+            }
+            (None, None) => continue,
+        };
+        match got {
             Some(got) => {
                 if let Err(error) = probe.check(got) {
                     problems.push(format!("{}: {label}\n  {error}", package.id()));

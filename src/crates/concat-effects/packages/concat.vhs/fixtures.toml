@@ -1,13 +1,20 @@
-[[case]]
-name = "default"
-chain = "chromashift=crh=-4:cbh=4,gblur=sigma=0.68,eq=saturation=1.3,noise=alls=10:allf=t"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
+# The grain at the middle pixel is format 2's: the same on every GPU.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.23657, 0.14038, 0.06976, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "chromashift=crh=0:cbh=0,gblur=sigma=0.20,eq=saturation=1.3,noise=alls=0:allf=t"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.46338, 0.39771, 0.33398, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "chromashift=crh=-6:cbh=6,gblur=sigma=1.00,eq=saturation=1.3,noise=alls=20:allf=t"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.03946, 0.03308, 0.02687, 1]

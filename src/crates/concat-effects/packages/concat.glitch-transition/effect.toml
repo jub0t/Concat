@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.glitch-transition"
 name = "Glitch"

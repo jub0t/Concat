@@ -927,10 +927,14 @@ fn every_package_probe_holds() {
     let mut probed = 0;
     for package in concat_effects::Catalogue::builtin().packages() {
         for (n, probe) in package.probes.iter().enumerate() {
-            let pass = package
-                .probe_pass(probe)
-                .expect("a probed package has a shader");
-            let got = gpu.probe(&[pass], probe.input, 8, 0.0).expect("reads back");
+            let got = match (package.probe_pass(probe), package.probe_transition(probe)) {
+                (Some(pass), _) => gpu.probe(&[pass], probe.input, 8, 0.0),
+                (None, Some(cut)) => {
+                    gpu.probe_transition(&cut, probe.input, probe.to.unwrap_or_default(), 8, 0.0)
+                }
+                (None, None) => panic!("{}: a probe with no shader", package.id()),
+            }
+            .expect("reads back");
             probed += 1;
             if let Err(error) = probe.check(got) {
                 failures.push(format!("{}: {}\n  {error}", package.id(), probe.label(n)));
@@ -1012,4 +1016,38 @@ fn a_scene_linear_pass_mixes_by_intensity_in_light() {
         .probe(&[white], [0.2, 0.2, 0.2, 1.0], 4, 0.0)
         .expect("reads back");
     assert!(near(got, [0.4, 0.4, 0.4, 1.0], 0.004), "{got:?}");
+}
+
+/// No look clips: a highlight four times SDR white comes out of every
+/// built-in look drawn in the display space brighter than white does, as
+/// light that went in brighter should.
+#[test]
+fn every_look_carries_a_highlight_past_white() {
+    let Some(mut gpu) = gpu() else { return };
+    let luma = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let mut clipped = Vec::new();
+    for package in concat_effects::Catalogue::builtin().packages() {
+        let display = package
+            .manifest
+            .wgsl
+            .as_ref()
+            .is_some_and(|wgsl| wgsl.space == concat_effects::Space::Display);
+        if !display {
+            continue;
+        }
+        let pass = package.trial_pass().expect("a shader");
+        let white = gpu
+            .probe(std::slice::from_ref(&pass), [1.0, 1.0, 1.0, 1.0], 8, 0.0)
+            .expect("reads back");
+        let bright = gpu
+            .probe(&[pass], [4.0, 4.0, 4.0, 1.0], 8, 0.0)
+            .expect("reads back");
+        if luma(bright) <= luma(white) * 1.5 {
+            clipped.push(format!(
+                "{}: white {white:?}, 4x white {bright:?}",
+                package.id()
+            ));
+        }
+    }
+    assert!(clipped.is_empty(), "\n{}", clipped.join("\n"));
 }

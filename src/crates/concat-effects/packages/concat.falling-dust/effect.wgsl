@@ -29,5 +29,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         glow += mote(uv, f32(k));
     }
     out = out + vec3<f32>(1.0, 0.95, 0.85) * min(glow, 1.0) * dust * 0.8;
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

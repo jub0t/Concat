@@ -10,5 +10,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let lit = highlights(c.rgb) * smoothstep(0.15, 0.5, chroma_of(c.rgb)) * (1.0 - skin_mask(c.rgb));
     out = mix(out, saturation(out, 1.6), lit * l);
     out = halation(uv, out, 0.7, 8.0, vec3<f32>(1.0), l * 0.5);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

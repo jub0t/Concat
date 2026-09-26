@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.rosy"
 name = "Rosy"
@@ -6,8 +8,6 @@ category = "Portrait"
 order = 56
 description = "A soft pink lift into the highlights, flattering and warm."
 
-[ffmpeg]
-chain = "colorbalance=rh=0.08:gh=0.02:bh=0.03,eq=saturation=1.08"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     var out = hsl_band(c.rgb, 210.0, 70.0, -6.0 * sky, 1.0 + sky * 0.55, 1.0 - sky * 0.08);
     // Foliage: toward teal, quieter.
     out = hsl_band(out, 105.0, 60.0, 12.0 * greens, 1.0 - greens * 0.2, 1.0);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

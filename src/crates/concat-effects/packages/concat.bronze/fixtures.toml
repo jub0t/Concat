@@ -1,13 +1,19 @@
-[[case]]
-name = "default"
-chain = "hue=s=0.280,colorbalance=rm=0.096:gm=0.032:bm=-0.096:rh=0.032:bh=-0.032,eq=contrast=1.090"
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. Pinned from the format 1 shader, so the look is what it was.
 
-[[case]]
+[[probe]]
+name = "default"
+input = [0.3, 0.2, 0.12, 1]
+expect = [0.36328, 0.24561, 0.10272, 1]
+
+[[probe]]
 name = "minimum"
 at = "min"
-chain = "hue=s=1.000,colorbalance=rm=0.000:gm=0.000:bm=0.000:rh=0.000:bh=0.000,eq=contrast=1.000"
+input = [0.45, 0.4, 0.35, 1]
+expect = [0.44995, 0.3999, 0.3501, 1]
 
-[[case]]
+[[probe]]
 name = "maximum"
 at = "max"
-chain = "hue=s=0.100,colorbalance=rm=0.120:gm=0.040:bm=-0.120:rh=0.040:bh=-0.040,eq=contrast=1.300"
+input = [0.08, 0.07, 0.06, 1]
+expect = [0.10388, 0.065, 0.01962, 1]

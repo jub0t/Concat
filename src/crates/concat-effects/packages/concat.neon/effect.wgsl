@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = contrast(out, 1.0 + punch * 0.5);
     out = saturation(out, 1.0 + punch * 0.6);
     out = halation(uv, out, 0.75, 10.0, vec3<f32>(1.0, 1.0, 1.0), g * 0.4);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

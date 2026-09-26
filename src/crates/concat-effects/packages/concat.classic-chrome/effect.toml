@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.classic-chrome"
 name = "Classic Chrome"
@@ -6,8 +8,6 @@ category = "Film"
 order = 61
 description = "Muted highlights and deep, open shadows: the restrained look of a classic colour negative."
 
-[ffmpeg]
-chain = "curves=all='0/0.03 0.5/0.48 1/0.92',eq=saturation=0.9"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

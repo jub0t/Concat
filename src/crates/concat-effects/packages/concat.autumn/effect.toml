@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.autumn"
 name = "Autumn"
@@ -6,8 +8,6 @@ category = "Scenery"
 order = 58
 description = "Greens pulled toward amber, the picture dipped in fall light."
 
-[ffmpeg]
-chain = "colorbalance=rh=0.1:gh=0.04:bh=-0.08,eq=saturation=1.1"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"

@@ -9,5 +9,5 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     out = tint_midtones(out, vec3<f32>(0.1, 0.03, -0.08), params.warmth / 100.0);
     out = split_tone(out, vec3<f32>(0.0, 0.0, 0.06), vec3<f32>(0.0), depth);
     out = vignette(out, uv, depth * 0.7);
-    return vec4<f32>(clamp01(out), c.a);
+    return vec4<f32>(out, c.a);
 }

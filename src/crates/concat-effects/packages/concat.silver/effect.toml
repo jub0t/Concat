@@ -1,3 +1,5 @@
+format = 2
+
 [effect]
 id = "concat.silver"
 name = "Silver"
@@ -6,8 +8,6 @@ category = "Black & White"
 order = 65
 description = "A cool, soft black and white with the shadows lifted, like a silver print."
 
-[ffmpeg]
-chain = "hue=s=0,curves=all='0/0.05 1/0.95',colorbalance=bs=0.05:bh=0.03"
-
 [wgsl]
 entry = "effect.wgsl"
+space = "display"
