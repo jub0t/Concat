@@ -735,7 +735,8 @@ fn the_pool_stays_within_its_limits() {
 /// A stack of passes takes turns between two textures and still applies
 /// every pass in order: invert, turn the channels, invert again is the
 /// turn alone, and five inverts are one. The stack claims two textures of
-/// the layer's size whatever its length, beside the frame it reads.
+/// the layer's size whatever its length, beside the frame it reads and
+/// the canvas.
 #[test]
 fn a_stack_of_passes_takes_turns_between_two_textures() {
     let Some(mut gpu) = gpu() else { return };
@@ -757,9 +758,10 @@ fn a_stack_of_passes_takes_turns_between_two_textures() {
             .all(|(got, want)| got.abs_diff(want) <= 1),
         "invert, turn, invert gave {got:?}"
     );
-    // The frame and the two turns; the output target is its own.
+    // The frame, the two turns, and the canvas the frame is drawn on in
+    // the working format before it is resolved.
     let after_three = gpu.pool[&(8, 8)].len();
-    assert!(after_three <= 3, "{after_three} textures for three passes");
+    assert!(after_three <= 4, "{after_three} textures for three passes");
 
     let out = gpu.render(&stacked((0..5).map(|_| invert()).collect()));
     let got = &out.pixels()[..3];
@@ -802,4 +804,28 @@ fn the_lut_cache_keeps_the_recent_looks_only() {
     );
     assert!(gpu.luts.contains_key(&last), "the look just drawn is kept");
     assert_eq!(gpu.luts.len(), gpu.luts_drawn.len());
+}
+
+/// The stack is drawn in half floats, so a pass that darkens a picture to
+/// a tenth and one that brings it back up leave it as it was: in eight
+/// bits the tenth rounds to a whole level and the way back multiplies the
+/// rounding by ten.
+#[test]
+fn a_stack_keeps_its_precision_between_passes() {
+    let Some(mut gpu) = gpu() else { return };
+    const DOWN: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(c.rgb * 0.1, c.a); }";
+    const UP: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(c.rgb * 10.0, c.a); }";
+    let mut picture = layer(solid(8, 8, [203, 157, 97, 255]));
+    picture.effects = vec![
+        package("test.down", DOWN, "", &[], 1.0),
+        package("test.up", UP, "", &[], 1.0),
+    ];
+    let out = gpu.render(&plan(8, 8, vec![picture]));
+    let got = &out.pixels()[..3];
+    assert!(
+        got.iter()
+            .zip([203, 157, 97])
+            .all(|(got, want)| got.abs_diff(want) <= 1),
+        "down and up again gave {got:?}"
+    );
 }

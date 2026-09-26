@@ -10,9 +10,11 @@
 //! Choices the tests' CPU oracle (`crate::reference`) mirrors, so the two
 //! can be diffed while both draw 8-bit pictures:
 //!
-//! - The target format is `Rgba8Unorm`, *not* the sRGB variant. Blending
-//!   therefore happens on stored (gamma-encoded) values. When the working
-//!   space goes float and linear, the parity suite moves to expectations of
+//! - Everything is drawn in half floats (`WORK`, `Rgba16Float`): a frame is
+//!   converted into it on the GPU as it is uploaded, and the finished frame
+//!   out of it into eight bits once, at the end (`resolve`). The values are
+//!   still the stored, gamma-encoded ones, so blending matches the oracle's;
+//!   when the working space goes linear, the suite moves to expectations of
 //!   its own.
 //! - Layer quads are sampled bilinearly with clamp-to-edge.
 //!
@@ -159,6 +161,37 @@ fn fs_darken(in: VsOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// The format everything is drawn in: half floats a channel, so a stack
+/// of layers and effects keeps its precision, and later its light above
+/// one, between the upload and the one conversion to eight bits at the
+/// end (see `resolve`). Uploaded frames are converted into it on the GPU
+/// as they arrive (see `upload`).
+const WORK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// What a texture in the pool costs a pixel.
+const WORK_BYTES: u64 = 8;
+
+/// A picture copied texel for texel into a target of the same size: an
+/// uploaded frame into the working format, and a finished frame out of it
+/// into the eight bits a screen and an encoder take. A triangle that covers
+/// the target, and a load at each fragment's own texel, so nothing is
+/// filtered on the way.
+const COPY_SHADER: &str = r#"
+@group(0) @binding(0) var picture: texture_2d<f32>;
+@group(0) @binding(1) var picture_sampler: sampler;
+
+@vertex
+fn vs_full(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_copy(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    return textureLoad(picture, vec2<i32>(at.xy), 0);
+}
+"#;
+
 /// One package's shader, compiled once and kept: its pipeline, and the two
 /// uniform buffers every pass through it rewrites.
 struct CompiledShader {
@@ -247,6 +280,13 @@ pub struct WgpuCompositor {
     /// Lighten, then Darken: the two blends that sample the ground, drawn
     /// with a third bind group and plain source-over.
     ground_pipelines: [wgpu::RenderPipeline; 2],
+    /// An uploaded frame into the working format.
+    upload_pipeline: wgpu::RenderPipeline,
+    /// A finished frame out of the working format into eight bits.
+    resolve_pipeline: wgpu::RenderPipeline,
+    /// The eight-bit textures frames are written into on their way to the
+    /// pool, one a size, each with its bind group.
+    staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
     bind_layout: wgpu::BindGroupLayout,
     /// Group 1 of a shader pass: the frame block and the package's params.
     uniform_layout: wgpu::BindGroupLayout,
@@ -533,7 +573,7 @@ impl WgpuCompositor {
                         entry_point: Some("fs_main"),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            format: WORK,
                             blend: Some(wgpu::BlendState { color, alpha }),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
@@ -570,7 +610,7 @@ impl WgpuCompositor {
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format: WORK,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent {
                                 src_factor: wgpu::BlendFactor::One,
@@ -589,6 +629,46 @@ impl WgpuCompositor {
                 cache: None,
             })
         });
+
+        // The two copies in and out of the working format; see COPY_SHADER.
+        let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("concat copy"),
+            source: wgpu::ShaderSource::Wgsl(COPY_SHADER.into()),
+        });
+        let copy_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("concat copy"),
+            bind_group_layouts: &[Some(&bind_layout)],
+            immediate_size: 0,
+        });
+        let copy_into = |format: wgpu::TextureFormat, label: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&copy_layout),
+                vertex: wgpu::VertexState {
+                    module: &copy_shader,
+                    entry_point: Some("vs_full"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &copy_shader,
+                    entry_point: Some("fs_copy"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let upload_pipeline = copy_into(WORK, "concat upload");
+        let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "concat resolve");
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("concat layer"),
@@ -611,6 +691,9 @@ impl WgpuCompositor {
             queue,
             pipelines,
             ground_pipelines,
+            upload_pipeline,
+            resolve_pipeline,
+            staging: HashMap::new(),
             bind_layout,
             uniform_layout,
             lut_layout,
@@ -982,9 +1065,11 @@ impl WgpuCompositor {
         }
         let (draws, vertices) = self.prepare(plan);
         self.write_vertices(&vertices);
+        let (canvas, canvas_texture, canvas_view) = self.canvas(plan.width, plan.height);
         let texture = self.presentable(plan.width, plan.height);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &texture, &draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, wgpu::Color::BLACK);
+        self.resolve(&mut encoder, (plan.width, plan.height), canvas, &view);
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(texture)
@@ -1030,9 +1115,11 @@ impl WgpuCompositor {
             return Err("the driver refused the pass's pipeline".to_owned());
         }
         self.write_vertices(&vertices);
+        let (canvas, canvas_texture, canvas_view) = self.canvas(side, side);
         let texture = self.presentable(side, side);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode(&view, &texture, &draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, &draws, wgpu::Color::BLACK);
+        self.resolve(&mut encoder, (side, side), canvas, &view);
         self.queue.submit([encoder.finish()]);
         let waited = self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
@@ -1166,11 +1253,13 @@ impl WgpuCompositor {
             .collect();
         for key in doomed {
             if let Some(pool) = self.pool.remove(&key) {
-                self.pool_bytes -= pool.len() as u64 * u64::from(key.0) * u64::from(key.1) * 4;
+                self.pool_bytes -=
+                    pool.len() as u64 * u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
                 self.pool_textures -= pool.len();
             }
             self.used.remove(&key);
             self.idle.remove(&key);
+            self.staging.remove(&key);
         }
         Self::trim(
             &mut self.luts,
@@ -1203,7 +1292,7 @@ impl WgpuCompositor {
                 .get_mut(&key)
                 .expect("found above")
                 .swap_remove(slot);
-            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * 4;
+            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
             self.pool_textures -= 1;
         }
     }
@@ -1287,12 +1376,17 @@ impl WgpuCompositor {
         }
         let index = self.claim(frame.width(), frame.height());
         self.uploads += 1;
-        let pooled = &mut self.pool.get_mut(&key).expect("just claimed")[index];
-        pooled.holds = identity;
-        let texture = &pooled.texture;
+        self.pool.get_mut(&key).expect("just claimed")[index].holds = identity;
+        // The eight bits go into this size's staging texture, and a copy
+        // on the GPU brings them into the pooled texture in the working
+        // format - the one place a frame's pixels change format, and where
+        // a clip's own colour will be brought into the working space. The
+        // write lands before the submit that copies it, and the next
+        // upload's write after it, so one staging texture a size serves.
+        let (staging, staging_group) = self.staging_for(frame.width(), frame.height());
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture,
+                texture: &staging,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1309,13 +1403,125 @@ impl WgpuCompositor {
                 depth_or_array_layers: 1,
             },
         );
+        let view = self.pool[&key][index]
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat upload"),
+            });
+        Self::copy(&mut encoder, &self.upload_pipeline, &staging_group, &view);
+        self.queue.submit([encoder.finish()]);
         index
+    }
+
+    /// A pooled texture of the output's size, claimed for the composite in
+    /// hand, to draw the frame into in the working format before it is
+    /// resolved into eight bits: its index, the texture, and a view of it.
+    fn canvas(&mut self, width: u32, height: u32) -> (usize, wgpu::Texture, wgpu::TextureView) {
+        let index = self.claim(width, height);
+        let texture = self.pool[&(width, height)][index].texture.clone();
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (index, texture, view)
+    }
+
+    /// Records the finished frame on the pooled `canvas` of `size` copied
+    /// into `into`, eight bits a channel: the one conversion out of the
+    /// working format, where a timeline's output transform will go.
+    fn resolve(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        size: (u32, u32),
+        canvas: usize,
+        into: &wgpu::TextureView,
+    ) {
+        Self::copy(
+            encoder,
+            &self.resolve_pipeline,
+            &self.pool[&size][canvas].bind_group,
+            into,
+        );
+    }
+
+    /// This size's staging texture and its bind group, made on first use.
+    fn staging_for(&mut self, width: u32, height: u32) -> (wgpu::Texture, wgpu::BindGroup) {
+        if let Some((texture, group)) = self.staging.get(&(width, height)) {
+            return (texture.clone(), group.clone());
+        }
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat staging"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let group = self.bind_group_of(&texture, "concat staging");
+        self.staging
+            .insert((width, height), (texture.clone(), group.clone()));
+        (texture, group)
+    }
+
+    /// A bind group for `texture` in the layer layout: the picture and the
+    /// sampler.
+    fn bind_group_of(&self, texture: &wgpu::Texture, label: &str) -> wgpu::BindGroup {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &self.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        })
+    }
+
+    /// Records a texel-for-texel copy of the picture bound by `from` into
+    /// `into`, through `pipeline`: the upload's or the resolve's.
+    fn copy(
+        encoder: &mut wgpu::CommandEncoder,
+        pipeline: &wgpu::RenderPipeline,
+        from: &wgpu::BindGroup,
+        into: &wgpu::TextureView,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("concat copy"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: into,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, from, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// Claims a pooled texture of this size, blank, for a pass to draw into.
     fn claim(&mut self, width: u32, height: u32) -> usize {
         let key = (width, height);
-        let bytes = u64::from(width) * u64::from(height) * 4;
+        let bytes = u64::from(width) * u64::from(height) * WORK_BYTES;
         let used = *self.used.entry(key).or_insert(0);
         let pool = self.pool.entry(key).or_default();
         // The texture to draw into, from the ones not claimed yet this
@@ -1342,11 +1548,13 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: WORK,
                 // A render attachment too: a shader pass draws one pooled
-                // texture into another of the same size.
+                // texture into another of the same size. A copy source and
+                // destination for the ground a Lighten or Darken reads.
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -1430,7 +1638,7 @@ impl WgpuCompositor {
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format: WORK,
                         // A pass replaces: mixing by intensity is the
                         // shader's own last line.
                         blend: None,
@@ -1531,7 +1739,7 @@ impl WgpuCompositor {
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format: WORK,
                         // The transition owns the mix; the pipeline does none.
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
@@ -1702,10 +1910,19 @@ impl WgpuCompositor {
         }
         let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let (canvas, _, canvas_view) = self.canvas(width, height);
         let out = self.presentable(width, height);
         let out_view = out.create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder =
-            self.encode_transition(width, height, time, &from_view, &to_view, pass, &out_view)?;
+        let mut encoder = self.encode_transition(
+            width,
+            height,
+            time,
+            &from_view,
+            &to_view,
+            pass,
+            &canvas_view,
+        )?;
+        self.resolve(&mut encoder, (width, height), canvas, &out_view);
         self.queue.submit([encoder.finish()]);
         self.retire();
         Some(out)
@@ -1729,7 +1946,7 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: WORK,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC,
@@ -2148,11 +2365,21 @@ impl Compositor for WgpuCompositor {
         let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        self.used.values_mut().for_each(|used| *used = 0);
+        let (canvas, _, canvas_view) = self.canvas(width, height);
         self.target(width, height);
         let target_texture = self.target.as_ref().expect("just ensured").texture.clone();
         let view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder =
-            self.encode_transition(width, height, time, &from_view, &to_view, pass, &view)?;
+        let mut encoder = self.encode_transition(
+            width,
+            height,
+            time,
+            &from_view,
+            &to_view,
+            pass,
+            &canvas_view,
+        )?;
+        self.resolve(&mut encoder, (width, height), canvas, &view);
         {
             let target = self.target.as_ref().expect("just ensured");
             encoder.copy_texture_to_buffer(
@@ -2190,12 +2417,14 @@ impl WgpuCompositor {
     /// Draws into the readback target and copies it out: one submit, one
     /// wait. `None` when the device did not deliver the pixels.
     fn render_and_read(&mut self, width: u32, height: u32, draws: &[Draw]) -> Option<Frame> {
+        let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
         self.target(width, height);
         let target = self.target.as_ref().expect("just ensured");
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.encode(&view, &target.texture, draws, wgpu::Color::BLACK);
+        let mut encoder = self.encode(&canvas_view, &canvas_texture, draws, wgpu::Color::BLACK);
+        self.resolve(&mut encoder, (width, height), canvas, &view);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &target.texture,
