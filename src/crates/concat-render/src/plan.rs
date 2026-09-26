@@ -25,7 +25,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use concat_core::frame::Frame;
+use concat_core::frame::{Frame, Signal};
 use concat_core::shader::ShaderPass;
 use concat_core::time::Rational;
 use concat_core::timeline::{Blend, ClipId, Timeline, TrackKind, Transform};
@@ -442,6 +442,10 @@ pub struct FramePlan {
     pub layers: Vec<PlannedLayer>,
     /// The treatments live at this instant, in ascending track order.
     pub treatments: Vec<PlannedTreatment>,
+    /// What the timeline is output in: SDR, or HDR in HLG or PQ. On an HDR
+    /// timeline an HDR clip keeps its light above white as it uploads, and
+    /// the resolve rolls the frame off for an SDR screen.
+    pub output: Signal,
 }
 
 impl FramePlan {
@@ -453,6 +457,7 @@ impl FramePlan {
             height,
             layers: Vec::new(),
             treatments: Vec::new(),
+            output: Signal::Sdr,
         }
     }
 
@@ -535,6 +540,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
         height: timeline.height,
         layers,
         treatments: Vec::new(),
+        output: Signal::Sdr,
     }
 }
 

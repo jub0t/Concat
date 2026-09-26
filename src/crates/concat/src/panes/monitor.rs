@@ -184,6 +184,7 @@ impl MonitorPane {
             width,
             height,
             moving: studio.playing,
+            color_space: studio.project().active().video.color_space,
         };
         let monitor = studio.host.monitor.clone();
         self.busy = true;

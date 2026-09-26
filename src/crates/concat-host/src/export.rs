@@ -72,6 +72,7 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         rate_mode: spec.rate_mode,
         bitrate_kbps: spec.bitrate_kbps,
         color_range: spec.color_range,
+        color_space: session.video().color_space,
         clips,
     }
 }

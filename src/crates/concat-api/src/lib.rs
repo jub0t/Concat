@@ -688,6 +688,7 @@ impl Api {
                     width,
                     height,
                     moving: false,
+                    color_space: session.video().color_space,
                 },
             )
             .map_err(ApiError::failed)?;

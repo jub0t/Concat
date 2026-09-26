@@ -8,7 +8,7 @@
 //! one implementation: a machine without a GPU runs it on the platform's
 //! software adapter (WARP, lavapipe). The CPU compositor that was the
 //! reference lives on in the tests alone ([`crate::reference`]), as the
-//! oracle the GPU is held to while both draw 8-bit, gamma-encoded pictures.
+//! oracle the GPU's plain layers are held to.
 
 use concat_core::frame::Frame;
 use concat_core::shader::TransitionPass;

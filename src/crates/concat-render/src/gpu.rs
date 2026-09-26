@@ -7,16 +7,15 @@
 //! uploaded as textures, drawn as transformed quads into an offscreen
 //! target, and read back as a [`Frame`] or handed on as a texture.
 //!
-//! Choices the tests' CPU oracle (`crate::reference`) mirrors, so the two
-//! can be diffed while both draw 8-bit pictures:
-//!
-//! - Everything is drawn in half floats (`WORK`, `Rgba16Float`): a frame is
-//!   converted into it on the GPU as it is uploaded, and the finished frame
-//!   out of it into eight bits once, at the end (`resolve`). The values are
-//!   still the stored, gamma-encoded ones, so blending matches the oracle's;
-//!   when the working space goes linear, the suite moves to expectations of
-//!   its own.
-//! - Layer quads are sampled bilinearly with clamp-to-edge.
+//! - Everything is drawn in half floats (`WORK`, `Rgba16Float`), in light:
+//!   extended linear Rec. 709, 1.0 the white of an SDR picture (203 nits).
+//!   A frame is converted into it on the GPU as it is uploaded, and the
+//!   finished frame out of it once, at the end (`resolve`): as it is for an
+//!   SDR timeline, rolled off by BT.2390 for an HDR one on an SDR screen.
+//!   An HDR clip is conformed to SDR as it uploads for an SDR timeline, and
+//!   keeps its light above white for an HDR one (`FramePlan::output`).
+//! - Layer quads are sampled bilinearly with clamp-to-edge, as the tests'
+//!   CPU oracle (`crate::reference`) does.
 //!
 //! Construction is fallible: [`WgpuCompositor::new`] takes the machine's GPU,
 //! or its software adapter where it has none (WARP on Windows, lavapipe on
@@ -211,43 +210,22 @@ fn fs_resolve(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     let clipped = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
 }
+
+// An HDR timeline for an SDR screen: its light rolled off by BT.2390 as an
+// HDR clip's is on an SDR timeline - the same maths, so a lone clip looks
+// the same on either - then encoded as SDR is.
+@fragment
+fn fs_resolve_tone_mapped(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = textureLoad(picture, vec2<i32>(at.xy), 0);
+    let light = to_sdr(colour.rgb * 203.0) / 203.0;
+    let clipped = clamp(light, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
+}
 "#;
 
-/// A deep frame (sixteen bits a channel, Rec. 2020, its source's own signal)
-/// copied into the working space: the upload of an HDR or wide-gamut clip.
-/// One entry a signal (`concat_core::frame::Signal`): the transfer undone
-/// into light, 1.0 the white of an SDR picture (203 nits, ITU-R BT.2408),
-/// and the primaries brought to Rec. 709's, where a colour outside them is
-/// negative rather than clipped.
-///
-/// Every timeline is SDR for now, so an HDR clip is conformed to SDR as it
-/// arrives, as Final Cut does a clip at a time: BT.2390's roll-off (ITU-R
-/// BT.2390, the EETF) takes its highlights from a 1000-nit master down to
-/// SDR white, on the brightest channel so a hue keeps its place. An HDR
-/// timeline will skip it and keep the highlights.
-const DEEP_SHADER: &str = r#"
-@group(0) @binding(0) var deep: texture_2d<u32>;
-
-@vertex
-fn vs_full(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
-    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
-    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
-}
-
-fn deep_at(at: vec4<f32>) -> vec4<f32> {
-    return vec4<f32>(textureLoad(deep, vec2<i32>(at.xy), 0)) / 65535.0;
-}
-
-// Rec. 2020 primaries to Rec. 709's, linear light (ITU-R BT.2087's matrix
-// inverted, to full precision).
-fn from_2020(rgb: vec3<f32>) -> vec3<f32> {
-    return vec3<f32>(
-        dot(vec3<f32>(1.660491002, -0.587641139, -0.072849863), rgb),
-        dot(vec3<f32>(-0.124550475, 1.132899897, -0.008349423), rgb),
-        dot(vec3<f32>(-0.018150763, -0.100578898, 1.118729661), rgb),
-    );
-}
-
+/// SMPTE ST 2084 and BT.2390's roll-off, which the deep upload and the
+/// resolve both reach for: appended to each of their modules.
+const TONE_MAP: &str = r#"
 // SMPTE ST 2084: a signal to nits, and back.
 const PQ_M1: f32 = 0.1593017578125;
 const PQ_M2: f32 = 78.84375;
@@ -289,6 +267,43 @@ fn to_sdr(nits: vec3<f32>) -> vec3<f32> {
     let mapped = pq_nits(vec3<f32>(e2 * master)).r;
     return nits * (mapped / peak);
 }
+"#;
+
+/// A deep frame (sixteen bits a channel, Rec. 2020, its source's own signal)
+/// copied into the working space: the upload of an HDR or wide-gamut clip.
+/// One entry a signal (`concat_core::frame::Signal`): the transfer undone
+/// into light, 1.0 the white of an SDR picture (203 nits, ITU-R BT.2408),
+/// and the primaries brought to Rec. 709's, where a colour outside them is
+/// negative rather than clipped.
+///
+/// On an SDR timeline an HDR clip is conformed to SDR as it arrives, as
+/// Final Cut does a clip at a time: BT.2390's roll-off (ITU-R BT.2390, the
+/// EETF) takes its highlights from a 1000-nit master down to SDR white, on
+/// the brightest channel so a hue keeps its place. On an HDR timeline it
+/// keeps them (the `_hdr` entries), and the resolve rolls the whole frame
+/// off instead where the screen is SDR.
+const DEEP_SHADER: &str = r#"
+@group(0) @binding(0) var deep: texture_2d<u32>;
+
+@vertex
+fn vs_full(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    let corner = vec2<f32>(f32((index << 1u) & 2u), f32(index & 2u));
+    return vec4<f32>(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+
+fn deep_at(at: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(textureLoad(deep, vec2<i32>(at.xy), 0)) / 65535.0;
+}
+
+// Rec. 2020 primaries to Rec. 709's, linear light (ITU-R BT.2087's matrix
+// inverted, to full precision).
+fn from_2020(rgb: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        dot(vec3<f32>(1.660491002, -0.587641139, -0.072849863), rgb),
+        dot(vec3<f32>(-0.124550475, 1.132899897, -0.008349423), rgb),
+        dot(vec3<f32>(-0.018150763, -0.100578898, 1.118729661), rgb),
+    );
+}
 
 @fragment
 fn fs_upload_sdr_wide(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
@@ -297,29 +312,46 @@ fn fs_upload_sdr_wide(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32
     return vec4<f32>(from_2020(lin), colour.a);
 }
 
-@fragment
-fn fs_upload_pq(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
-    let colour = deep_at(at);
-    let nits = to_sdr(pq_nits(colour.rgb));
-    return vec4<f32>(from_2020(nits / 203.0), colour.a);
-}
-
 // ARIB STD-B67's inverse OETF to scene light, then BT.2100's OOTF for a
 // 1000-nit display (a system gamma of 1.2), which puts HLG's reference
 // white - 75 % of the signal - at 203 nits.
-@fragment
-fn fs_upload_hlg(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
-    let colour = deep_at(at);
+fn hlg_nits(signal: vec3<f32>) -> vec3<f32> {
     let a = 0.17883277;
     let b = 0.28466892;
     let c = 0.55991073;
-    let e = clamp(colour.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+    let e = clamp(signal, vec3<f32>(0.0), vec3<f32>(1.0));
     let low = e * e / 3.0;
     let high = (exp((e - c) / a) + b) / 12.0;
     let scene = select(high, low, e <= vec3<f32>(0.5));
     let ys = dot(scene, vec3<f32>(0.2627, 0.6780, 0.0593));
-    let nits = to_sdr(1000.0 * pow(max(ys, 1e-6), 0.2) * scene);
-    return vec4<f32>(from_2020(nits / 203.0), colour.a);
+    return 1000.0 * pow(max(ys, 1e-6), 0.2) * scene;
+}
+
+// On an SDR timeline, conformed to SDR as they arrive.
+@fragment
+fn fs_upload_pq(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    return vec4<f32>(from_2020(to_sdr(pq_nits(colour.rgb)) / 203.0), colour.a);
+}
+
+@fragment
+fn fs_upload_hlg(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    return vec4<f32>(from_2020(to_sdr(hlg_nits(colour.rgb)) / 203.0), colour.a);
+}
+
+// On an HDR timeline, kept: the highlights stay above white, 1000 nits of
+// the master at 4.93.
+@fragment
+fn fs_upload_pq_hdr(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    return vec4<f32>(from_2020(pq_nits(colour.rgb) / 203.0), colour.a);
+}
+
+@fragment
+fn fs_upload_hlg_hdr(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
+    let colour = deep_at(at);
+    return vec4<f32>(from_2020(hlg_nits(colour.rgb) / 203.0), colour.a);
 }
 "#;
 
@@ -440,14 +472,21 @@ pub struct WgpuCompositor {
     ground_pipelines: [wgpu::RenderPipeline; 2],
     /// An uploaded frame into the working format.
     upload_pipeline: wgpu::RenderPipeline,
-    /// A finished frame out of the working format into eight bits.
+    /// A finished frame out of the working format into eight bits: as it
+    /// is for an SDR timeline, and rolled off for an HDR one on an SDR
+    /// screen.
     resolve_pipeline: wgpu::RenderPipeline,
+    tone_mapped_pipeline: wgpu::RenderPipeline,
+    /// What the plan being drawn is output in (`FramePlan::output`): taken
+    /// up by `prepare`, and read by the uploads and the resolve after it.
+    output: concat_core::frame::Signal,
     /// The eight-bit textures frames are written into on their way to the
     /// pool, one a size, each with its bind group.
     staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
     /// A deep frame into the working space, by signal: Rec. 2020 gamma,
-    /// HLG, PQ (see `DEEP_SHADER`).
-    deep_pipelines: [wgpu::RenderPipeline; 3],
+    /// HLG and PQ conformed to SDR, then HLG and PQ kept HDR (see
+    /// `DEEP_SHADER`).
+    deep_pipelines: [wgpu::RenderPipeline; 5],
     /// The layout a deep staging texture is bound with: sixteen-bit
     /// integers, read texel by texel.
     deep_layout: wgpu::BindGroupLayout,
@@ -798,7 +837,7 @@ impl WgpuCompositor {
         // The two copies in and out of the working format; see COPY_SHADER.
         let copy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat copy"),
-            source: wgpu::ShaderSource::Wgsl(COPY_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{COPY_SHADER}{TONE_MAP}").into()),
         });
         let copy_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("concat copy"),
@@ -834,6 +873,8 @@ impl WgpuCompositor {
         };
         let upload_pipeline = copy_into(WORK, "fs_upload");
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
+        let tone_mapped_pipeline =
+            copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve_tone_mapped");
 
         let deep_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("concat deep"),
@@ -850,14 +891,21 @@ impl WgpuCompositor {
         });
         let deep_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat deep"),
-            source: wgpu::ShaderSource::Wgsl(DEEP_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{DEEP_SHADER}{TONE_MAP}").into()),
         });
         let deep_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("concat deep"),
             bind_group_layouts: &[Some(&deep_layout)],
             immediate_size: 0,
         });
-        let deep_pipelines = ["fs_upload_sdr_wide", "fs_upload_hlg", "fs_upload_pq"].map(|entry| {
+        let deep_pipelines = [
+            "fs_upload_sdr_wide",
+            "fs_upload_hlg",
+            "fs_upload_pq",
+            "fs_upload_hlg_hdr",
+            "fs_upload_pq_hdr",
+        ]
+        .map(|entry| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(entry),
                 layout: Some(&deep_pipeline_layout),
@@ -927,6 +975,8 @@ impl WgpuCompositor {
             ground_pipelines,
             upload_pipeline,
             resolve_pipeline,
+            tone_mapped_pipeline,
+            output: concat_core::frame::Signal::Sdr,
             staging: HashMap::new(),
             deep_pipelines,
             deep_layout,
@@ -1033,6 +1083,7 @@ impl WgpuCompositor {
     /// rest is drawn on. What comes back are the draws and quads for the
     /// final render, into whichever target the caller wants.
     fn prepare(&mut self, plan: &FramePlan) -> (Vec<Draw>, Vec<Vertex>) {
+        self.output = plan.output;
         self.used.values_mut().for_each(|used| *used = 0);
         self.composites += 1;
         let (width, height) = (plan.width, plan.height);
@@ -1774,8 +1825,15 @@ impl WgpuCompositor {
     /// pixels: the one that already does, moved into this frame's claimed
     /// run, or a fresh claim with the pixels uploaded into it.
     fn upload(&mut self, frame: &Frame) -> usize {
+        use concat_core::frame::{Depth, Signal};
         let key = (frame.width(), frame.height());
-        let identity = frame.id();
+        // An HDR frame kept HDR for an HDR timeline is another picture
+        // from the same frame conformed for an SDR one, so it is held
+        // apart: frame ids count up from one, and never reach the top bit.
+        let keep = frame.depth() == Depth::Sixteen
+            && matches!(frame.signal(), Signal::Hlg | Signal::Pq)
+            && self.output != Signal::Sdr;
+        let identity = frame.id() | if keep { 1 << 63 } else { 0 };
         let used = self.used.get(&key).copied().unwrap_or(0);
         if let Some(pool) = self.pool.get_mut(&key)
             && let Some(found) = (used..pool.len()).find(|&slot| pool[slot].holds == identity)
@@ -1794,7 +1852,7 @@ impl WgpuCompositor {
         // a clip's own colour will be brought into the working space. The
         // write lands before the submit that copies it, and the next
         // upload's write after it, so one staging texture a size serves.
-        let deep = frame.depth() == concat_core::frame::Depth::Sixteen;
+        let deep = frame.depth() == Depth::Sixteen;
         let (staging, staging_group) = if deep {
             self.deep_staging_for(frame.width(), frame.height())
         } else {
@@ -1828,11 +1886,12 @@ impl WgpuCompositor {
                 label: Some("concat upload"),
             });
         let pipeline = if deep {
-            use concat_core::frame::Signal;
-            &self.deep_pipelines[match frame.signal() {
-                Signal::Hlg => 1,
-                Signal::Pq => 2,
-                Signal::Sdr | Signal::SdrWide => 0,
+            &self.deep_pipelines[match (frame.signal(), keep) {
+                (Signal::Hlg, false) => 1,
+                (Signal::Pq, false) => 2,
+                (Signal::Hlg, true) => 3,
+                (Signal::Pq, true) => 4,
+                (Signal::Sdr | Signal::SdrWide, _) => 0,
             }]
         } else {
             &self.upload_pipeline
@@ -1854,7 +1913,8 @@ impl WgpuCompositor {
 
     /// Records the finished frame on the pooled `canvas` of `size` copied
     /// into `into`, eight bits a channel: the one conversion out of the
-    /// working format, where a timeline's output transform will go.
+    /// working format, where the timeline's output transform is - as it is
+    /// for SDR, rolled off for an HDR timeline on an SDR screen.
     fn resolve(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1862,9 +1922,14 @@ impl WgpuCompositor {
         canvas: usize,
         into: &wgpu::TextureView,
     ) {
+        let pipeline = if self.output == concat_core::frame::Signal::Sdr {
+            &self.resolve_pipeline
+        } else {
+            &self.tone_mapped_pipeline
+        };
         Self::copy(
             encoder,
-            &self.resolve_pipeline,
+            pipeline,
             &self.pool[&size][canvas].bind_group,
             into,
         );
