@@ -798,6 +798,124 @@ fn crop_and_flips_reach_the_picture() {
         );
 }
 
+/// Three seconds of one flat colour, silent.
+fn solid(path: &Path, colour: [u8; 3]) {
+    let options = EncodeOptions {
+        codec: VideoCodec::H264,
+        preset: "ultrafast".to_owned(),
+        crf: 12,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
+        ten_bit: false,
+        color_range: concat_media::ColorRange::Limited,
+        hardware: false,
+        threads: 0,
+    };
+    let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
+        .expect("the linked FFmpeg encodes");
+    let mut frame = Frame::black(WIDTH, HEIGHT);
+    let [r, g, b] = colour;
+    frame.fill([r, g, b, 255]);
+    for _ in 0..90 {
+        encoder.write_frame(&frame).expect("writes a frame");
+    }
+    encoder.finish().expect("finishes the colour");
+}
+
+/// The fade-to-colour and wipe transitions reach the exported picture
+/// where the timeline says: a wipe shows the old picture on one side and
+/// the new on the other halfway through, and a fade to black or white is
+/// the colour outright at the cut, the pictures whole either side of it.
+/// Pinned before the transitions move out of the decoder's filters and
+/// into the frame plan (phase 1 of the HDR plan).
+#[test]
+fn fades_and_wipes_reach_the_picture() {
+    let scratch = Scratch::new("transitions");
+    let (red_path, blue_path) = (
+        scratch.path().join("red.mp4"),
+        scratch.path().join("blue.mp4"),
+    );
+    let (red, blue) = ([220, 30, 30], [30, 30, 220]);
+    solid(&red_path, red);
+    solid(&blue_path, blue);
+
+    let mut studio = Studio::new(scratch.path(), "Transitions", video(WIDTH, HEIGHT, 30, 1));
+    let red_media = studio.import(&red_path);
+    let blue_media = studio.import(&blue_path);
+    let first = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id: red_media,
+            start: 0.0,
+        })
+        .expect("the clip has an id");
+    let track = studio.project().active().tracks[0].id.clone();
+    let second = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id: blue_media,
+            start: 3.0,
+        })
+        .expect("the clip has an id");
+    // A second of handle at the head of the blue clip, for an overlap to
+    // take, and the red one ending at 2 s, where the blue one then starts.
+    studio.apply(Command::TrimClip {
+        clip_id: second.clone(),
+        edge: TrimEdge::Start,
+        delta: 1.0,
+        ripple: false,
+    });
+    studio.apply(Command::TrimClip {
+        clip_id: first.clone(),
+        edge: TrimEdge::End,
+        delta: -1.0,
+        ripple: false,
+    });
+    studio.apply(Command::MoveClips {
+        moves: vec![ClipMove {
+            clip_id: second.clone(),
+            start: 2.0,
+            track_id: track,
+        }],
+    });
+    let with = |studio: &mut Studio, kind: &str| {
+        studio.apply(Command::UpdateClip {
+            clip_id: second.clone(),
+            patch: ClipPatch {
+                transition_in: Some(Some(Transition {
+                    id: kind.to_owned(),
+                    duration: 1.0,
+                })),
+                ..ClipPatch::default()
+            },
+        });
+        studio.export(&format!("transition {kind}"))
+    };
+
+    // The wipes overlap the blue clip onto the red one's last second.
+    let wiped = with(&mut studio, "wipe-left");
+    wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
+    wiped.expect_colours(1.5, &[((0.2, 0.5), red), ((0.8, 0.5), blue)]);
+    wiped.expect_colours(2.5, &[((0.5, 0.5), blue)]);
+    let wiped = with(&mut studio, "wipe-right");
+    wiped.expect_colours(1.5, &[((0.2, 0.5), blue), ((0.8, 0.5), red)]);
+
+    // The fades split the second across the cut, and do not overlap.
+    for (kind, colour) in [("fade-black", [0, 0, 0]), ("fade-white", [255, 255, 255])] {
+        let faded = with(&mut studio, kind);
+        faded.expect_colours(1.2, &[((0.5, 0.5), red)]);
+        faded.expect_colours(2.0, &[((0.5, 0.5), colour)]);
+        faded.expect_colours(2.9, &[((0.5, 0.5), blue)]);
+        let middle = faded.colour_at_point(1.75, 0.5, 0.5);
+        assert!(
+            middle != red
+                && middle
+                    .iter()
+                    .zip(colour)
+                    .any(|(got, to)| got.abs_diff(to) > 40),
+            "{kind}: halfway into the fade the picture is {middle:?}"
+        );
+    }
+}
+
 /// Issue #103: the levels a file is read as reach the export. A source
 /// written video range reads as it is by default; told it is full range,
 /// its levels expand and the colour of a second is no longer the colour
