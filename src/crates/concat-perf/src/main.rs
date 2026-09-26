@@ -85,7 +85,10 @@ fn main() {
             results.push(measure);
         }
         results.extend(blur_4k());
-        results.push(export(&media));
+        results.push(export(&media, false));
+        if concat_media::VideoCodec::Hevc.available() {
+            results.push(export(&media, true));
+        }
     }
     println!();
     println!(
@@ -948,9 +951,13 @@ fn blur_4k() -> Vec<Measure> {
 
 /// A real export of a three-second cut through the session, as the
 /// window runs it: frames a second at 720p.
-fn export(media: &Media) -> Measure {
+fn export(media: &Media, hdr: bool) -> Measure {
     use concat_host::{Session, projects};
-    let dir = media.path.parent().expect("a dir").join("project");
+    let dir = media
+        .path
+        .parent()
+        .expect("a dir")
+        .join(if hdr { "project-hdr" } else { "project" });
     std::fs::create_dir_all(&dir).expect("a dir");
     let info = projects::create(&dir.to_string_lossy(), "perf", 1280, 720, 30, 1).expect("creates");
     let mut session = Session::open_info(&info).expect("opens");
@@ -974,16 +981,28 @@ fn export(media: &Media) -> Measure {
             start: 1.0,
         })
         .expect("places a second, overlapping");
+    if hdr {
+        let video = concat_project::model::VideoSettings {
+            color_space: concat_project::model::ColorSpace::Hlg,
+            ..session.video()
+        };
+        session.set_video(video).expect("an HLG timeline");
+    }
     let output = dir.join("out.mp4");
     let spec = concat_host::export::ExportSpec {
         output: output.to_string_lossy().into_owned(),
         crf: 23,
         preset: "veryfast".to_owned(),
-        codec: concat_media::VideoCodec::H264,
+        codec: if hdr {
+            concat_media::VideoCodec::Hevc
+        } else {
+            concat_media::VideoCodec::H264
+        },
         ten_bit: false,
         rate_mode: concat_media::RateMode::Vbr,
         bitrate_kbps: 0,
         color_range: concat_media::ColorRange::Limited,
+        hdr,
     };
     let request = concat_host::export::request(&session, &spec, Vec::new());
     let cancel = AtomicBool::new(false);
@@ -1000,7 +1019,11 @@ fn export(media: &Media) -> Measure {
         .map(|meta| meta.len())
         .unwrap_or(0);
     Measure {
-        name: "export a 4 s 720p cut of two overlapping clips",
+        name: if hdr {
+            "export the same cut as HDR: HLG, HEVC 10-bit"
+        } else {
+            "export a 4 s 720p cut of two overlapping clips"
+        },
         value: frames as f64 / elapsed.as_secs_f64().max(1e-9),
         unit: "fps",
         budget: Budget::AtLeast(30.0),

@@ -537,12 +537,19 @@ impl Api {
         let rate_num = spec.rate_num.unwrap_or(settings.rate_num);
         let rate_den = spec.rate_den.unwrap_or(settings.rate_den);
         checked_rate(rate_num, rate_den)?;
+        let hdr = session.video().color_space.is_hdr() && spec.hdr.unwrap_or(true);
         let codec = match spec.codec.as_deref() {
+            None if hdr => export::VideoCodec::Hevc,
             None => export::VideoCodec::H264,
             Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
                 ApiError::invalid(format!("unknown codec {name:?}: h264, hevc or av1"))
             })?,
         };
+        if hdr && codec == export::VideoCodec::H264 {
+            return Err(ApiError::invalid(
+                "H.264 does not carry HDR: hevc or av1, or hdr false for SDR".to_owned(),
+            ));
+        }
         let color_range = match spec.color_range.as_deref() {
             None => export::ColorRange::Limited,
             Some(name) => export::ColorRange::parse(name).ok_or_else(|| {
@@ -561,6 +568,7 @@ impl Api {
             rate_mode: export::RateMode::Vbr,
             bitrate_kbps: 0,
             color_range,
+            hdr,
         };
 
         let project_path = session.path().to_owned();

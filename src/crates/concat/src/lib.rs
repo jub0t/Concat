@@ -1291,6 +1291,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_export_codec_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Export(ExportMsg::CodecChanged(index)));
     }));
+    app.on_export_hdr_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Export(ExportMsg::HdrChanged(on)));
+    }));
     app.on_export_ten_bit_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Export(ExportMsg::TenBitChanged(on)));
     }));

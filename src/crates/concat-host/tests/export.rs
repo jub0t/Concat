@@ -577,6 +577,7 @@ impl Studio {
             rate_mode: RateMode::Vbr,
             bitrate_kbps: 0,
             color_range: self.range,
+            hdr: false,
         };
         let titles = self
             .titles
@@ -970,6 +971,126 @@ fn an_hlg_clip_exports_through_the_gpu_conversion() {
             && r.abs_diff(g) <= 6
             && g.abs_diff(b) <= 6,
         "the HLG grey exported as {:?}",
+        [r, g, b]
+    );
+}
+
+/// An iPhone's HLG clip turns the timeline HLG, and the timeline exports as
+/// HDR: HEVC in ten bits, BT.2020 and HLG, the grey the clip was written
+/// as coming back as the same signal. The same timeline written SDR is
+/// BT.709 in eight bits, its grey tone-mapped as the monitor shows it.
+#[test]
+fn an_hlg_timeline_exports_as_hdr_or_sdr() {
+    use concat_core::frame::{Depth, Signal};
+    use concat_media::{DecodeOptions, Decoder, FrameSource};
+    if !VideoCodec::Hevc.available() {
+        eprintln!("no HEVC encoder in the linked FFmpeg; skipped");
+        return;
+    }
+    const LEVEL: f64 = 0.6;
+    let scratch = Scratch::new("hlg-out");
+    let path = scratch.path().join("iphone.mp4");
+    let options = EncodeOptions {
+        codec: VideoCodec::Hevc,
+        preset: "ultrafast".to_owned(),
+        crf: 12,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
+        ten_bit: true,
+        color_range: concat_media::ColorRange::Limited,
+        hardware: false,
+        threads: 0,
+    };
+    {
+        let mut encoder = Encoder::create_hdr(
+            &path,
+            WIDTH,
+            HEIGHT,
+            FrameRate::THIRTY,
+            &options,
+            Signal::Hlg,
+        )
+        .expect("an HEVC encoder");
+        let value = (LEVEL * 65_535.0).round() as u16;
+        let pixel: Vec<u8> = [value, value, value, u16::MAX]
+            .iter()
+            .flat_map(|channel| channel.to_le_bytes())
+            .collect();
+        let frame = Frame::from_rgba64(
+            WIDTH,
+            HEIGHT,
+            pixel.repeat((WIDTH * HEIGHT) as usize),
+            Signal::Hlg,
+        )
+        .expect("a deep frame");
+        for _ in 0..30 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+    }
+    let mut studio = Studio::new(scratch.path(), "HLG out", video(WIDTH, HEIGHT, 30, 1));
+    let media = studio.import(&path);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: media,
+        start: 0.0,
+    });
+    assert_eq!(
+        studio.project().active().video.color_space,
+        concat_project::model::ColorSpace::Hlg,
+        "the timeline turned HLG with its first HDR clip"
+    );
+
+    let written = |hdr: bool, codec: VideoCodec| {
+        let spec = ExportSpec {
+            output: scratch
+                .path()
+                .join(format!("out-{hdr}.mp4"))
+                .to_string_lossy()
+                .into_owned(),
+            crf: 12,
+            preset: "ultrafast".to_owned(),
+            codec,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            hdr,
+        };
+        let request = export::request(&studio.session, &spec, Vec::new());
+        export::run(&request, &AtomicBool::new(false), |_| {})
+            .unwrap_or_else(|error| panic!("hdr {hdr}: the export failed: {error}"))
+    };
+
+    let hdr = written(true, VideoCodec::Hevc);
+    let info = concat_media::probe::probe(&hdr).expect("probes");
+    assert_eq!(info.video.expect("a picture").signal, Signal::Hlg);
+    let mut decoder =
+        Decoder::open(&hdr, &DecodeOptions::default().deep(true)).expect("opens the export");
+    let frame = decoder.next_frame().expect("decodes").expect("a frame");
+    assert_eq!(
+        (frame.depth(), frame.signal()),
+        (Depth::Sixteen, Signal::Hlg)
+    );
+    let at = ((HEIGHT / 2 * WIDTH + WIDTH / 2) * 8) as usize;
+    let got = f64::from(u16::from_le_bytes([
+        frame.pixels()[at],
+        frame.pixels()[at + 1],
+    ])) / 65_535.0;
+    assert!(
+        (got - LEVEL).abs() < 0.015,
+        "the HLG grey {LEVEL} came back {got}"
+    );
+
+    let sdr = written(false, VideoCodec::H264);
+    let info = concat_media::probe::probe(&sdr).expect("probes");
+    assert_eq!(info.video.expect("a picture").signal, Signal::Sdr);
+    let exported = Exported::read("SDR", Path::new(&sdr), (30, 1));
+    let [r, g, b] = exported.colour_at(0.5);
+    assert!(
+        [r, g, b].iter().all(|channel| (60..=230).contains(channel))
+            && r.abs_diff(g) <= 6
+            && g.abs_diff(b) <= 6,
+        "the HLG grey written SDR came out {:?}",
         [r, g, b]
     );
 }

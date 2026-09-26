@@ -206,6 +206,7 @@ export component App inherits Window {
     callback export-quality-changed(index: int);
     callback export-codec-changed(index: int);
     callback export-ten-bit-changed(on: bool);
+    callback export-hdr-changed(on: bool);
     callback export-color-range-changed(index: int);
     callback export-advanced-toggled(on: bool);
     callback export-rate-mode-changed(index: int);
@@ -556,6 +557,7 @@ export component App inherits Window {
         quality-changed(index) => { root.export-quality-changed(index); }
         codec-changed(index) => { root.export-codec-changed(index); }
         ten-bit-changed(on) => { root.export-ten-bit-changed(on); }
+        hdr-changed(on) => { root.export-hdr-changed(on); }
         color-range-changed(index) => { root.export-color-range-changed(index); }
         advanced-toggled(on) => { root.export-advanced-toggled(on); }
         rate-mode-changed(index) => { root.export-rate-mode-changed(index); }

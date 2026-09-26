@@ -114,9 +114,14 @@ flowchart LR
   transfer undone, the primaries brought to Rec. 709's, and, on an SDR
   timeline, conformed to it by BT.2390's roll-off. On an HDR timeline it
   keeps its light above white (`FramePlan::output`), and the resolve rolls
-  the whole frame off for an SDR screen instead, with the same maths. A clip
-  with an FFmpeg chain or a cutout keeps the eight-bit tone map in the
-  decoder.
+  the whole frame off for an SDR screen instead, with the same maths. An
+  HDR file (`Compositor::deliver_hdr`) is resolved instead into its signal
+  on Rec. 2020 - HLG for a 1000-nit display, or PQ - as sixteen-bit
+  integers, read back as RGBA64 and written by `Encoder::create_hdr`: HEVC
+  or AV1 in ten bits, BT.2020 tags, and for PQ the mastering display and
+  the MaxCLL and MaxFALL measured as it is written. A clip with an FFmpeg
+  chain or a cutout keeps the eight-bit tone map in the decoder, and an HDR
+  export leaves an old package's FFmpeg chain out.
   Effect packages written for
   gamma-encoded `0..1` see that through the prelude's `legacy_in` and
   `legacy_out` (`concat-effects/src/shader.rs`) until the GPU-only effects

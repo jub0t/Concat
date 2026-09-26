@@ -979,6 +979,55 @@ fn an_hdr_timeline_keeps_the_light_above_white() {
     );
 }
 
+/// Delivered for an HDR file, an HDR timeline's frame comes back as the
+/// signal it was made from: an HLG clip's levels through the working space
+/// and out again, SDR white at HLG's reference white (75 %, 203 nits), and
+/// the same for PQ, whose 203 nits are 58 % of its signal. Sixteen bits a
+/// channel, opaque; an SDR timeline's frames stay eight-bit SDR.
+#[test]
+fn an_hdr_timeline_is_delivered_as_its_signal() {
+    use concat_core::frame::{Depth, Signal};
+    let Some(mut gpu) = gpu() else { return };
+    gpu.deliver_hdr(true);
+    let level = |frame: &Frame| {
+        assert_eq!(frame.depth(), Depth::Sixteen);
+        let at = (4 + 1) * 8;
+        let channel = |offset: usize| {
+            f64::from(u16::from_le_bytes([
+                frame.pixels()[at + offset],
+                frame.pixels()[at + offset + 1],
+            ])) / 65_535.0
+        };
+        assert_eq!(channel(6), 1.0, "opaque");
+        [channel(0), channel(2), channel(4)]
+    };
+    for signal in [Signal::Hlg, Signal::Pq] {
+        let delivered = |gpu: &mut WgpuCompositor, frame: Frame| {
+            gpu.render(&FramePlan {
+                output: signal,
+                ..plan(4, 4, vec![layer(frame)])
+            })
+        };
+        for going in [0.25, 0.5, 0.75, 0.9] {
+            let out = delivered(&mut gpu, deep(4, 4, going as f32, signal));
+            assert_eq!(out.signal(), signal);
+            let got = level(&out);
+            assert!(
+                got.iter().all(|channel| (channel - going).abs() < 0.003),
+                "{signal:?} {going} came back {got:?}"
+            );
+        }
+        let white = level(&delivered(&mut gpu, solid(4, 4, [255, 255, 255, 255])));
+        let want = if signal == Signal::Hlg { 0.75 } else { 0.5807 };
+        assert!(
+            white.iter().all(|channel| (channel - want).abs() < 0.003),
+            "{signal:?}: SDR white came out {white:?}"
+        );
+    }
+    let sdr = gpu.render(&plan(4, 4, vec![layer(solid(4, 4, [255, 255, 255, 255]))]));
+    assert_eq!(sdr.depth(), Depth::Eight, "an SDR timeline stays SDR");
+}
+
 /// A pass of a format 2 package - the scene-linear contract - with `body`
 /// as its shader and no knobs, at `intensity`.
 fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {

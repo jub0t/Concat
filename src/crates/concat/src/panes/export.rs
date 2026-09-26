@@ -39,6 +39,8 @@ pub enum ExportMsg {
     QualityChanged(i32),
     CodecChanged(i32),
     TenBitChanged(bool),
+    /// For an HDR timeline: written HDR (true), or tone-mapped to SDR.
+    HdrChanged(bool),
     /// Limited or full range, as a row of the Advanced section's list.
     ColorRangeChanged(i32),
     /// The Advanced section is opened or closed.
@@ -77,6 +79,8 @@ pub struct ExportPane {
     /// Index into `VideoCodec::ALL`.
     pub codec: usize,
     pub ten_bit: bool,
+    /// An HDR timeline written tone-mapped to SDR rather than as it is.
+    pub sdr: bool,
     /// Index into `ColorRange::ALL`: 0 limited, 1 full. Read only while
     /// the Advanced section is open, like the bitrate.
     /// https://github.com/jub0t/Concat/issues/103
@@ -109,6 +113,7 @@ impl Default for ExportPane {
             quality: 1,
             codec: 0,
             ten_bit: false,
+            sdr: false,
             color_range: 0,
             advanced: false,
             rate_mode: 0,
@@ -144,6 +149,7 @@ impl ExportPane {
             ExportMsg::QualityChanged(index) => self.quality = (index.max(0) as usize).min(2),
             ExportMsg::CodecChanged(index) => self.codec = (index.max(0) as usize).min(2),
             ExportMsg::TenBitChanged(on) => self.ten_bit = on,
+            ExportMsg::HdrChanged(on) => self.sdr = !on,
             ExportMsg::ColorRangeChanged(index) => {
                 self.color_range = (index.max(0) as usize).min(ColorRange::ALL.len() - 1);
             }
@@ -233,15 +239,32 @@ impl ExportPane {
                 * 1_000_000.0
                 * pixels
                 * (rate / 30.0)
-                * self.codec().size_factor()
-                * if self.ten_bit { 1.05 } else { 1.0 }
+                * self.codec(studio).size_factor()
+                * if self.ten_bit || self.hdr(studio) {
+                    1.05
+                } else {
+                    1.0
+                }
         };
         (video + AUDIO_BPS) * studio.duration().max(1.0) / 8.0
     }
 
-    /// The codec the sheet has chosen.
-    pub fn codec(&self) -> concat_media::VideoCodec {
-        concat_media::VideoCodec::ALL[self.codec.min(concat_media::VideoCodec::ALL.len() - 1)]
+    /// The codec the sheet has chosen - HEVC for an HDR file where H.264
+    /// was, since H.264 does not carry HDR.
+    pub fn codec(&self, studio: &Studio) -> concat_media::VideoCodec {
+        let codec =
+            concat_media::VideoCodec::ALL[self.codec.min(concat_media::VideoCodec::ALL.len() - 1)];
+        if self.hdr(studio) && codec == concat_media::VideoCodec::H264 {
+            concat_media::VideoCodec::Hevc
+        } else {
+            codec
+        }
+    }
+
+    /// Whether the file is written HDR: the timeline is, and the sheet was
+    /// not told to tone-map it to SDR.
+    pub fn hdr(&self, studio: &Studio) -> bool {
+        studio.timeline().video.color_space.is_hdr() && !self.sdr
     }
 
     /// The range the file is written in: the Advanced section's choice
@@ -282,8 +305,8 @@ impl ExportPane {
             output: output.clone(),
             crf: EXPORT_CRF[self.quality.min(2)],
             preset: "veryfast".into(),
-            codec: self.codec(),
-            ten_bit: self.ten_bit,
+            codec: self.codec(studio),
+            ten_bit: self.ten_bit || self.hdr(studio),
             rate_mode: if self.advanced && self.rate_mode == 1 {
                 concat_media::RateMode::Cbr
             } else {
@@ -295,6 +318,7 @@ impl ExportPane {
                 0
             },
             color_range: self.color_range(),
+            hdr: self.hdr(studio),
         };
         let (frame_w, frame_h) = studio.output_size();
         let titles = studio
@@ -374,8 +398,18 @@ impl ExportPane {
             resolution: self.resolution as i32,
             rate: self.rate as i32,
             quality: self.quality as i32,
-            codec: self.codec as i32,
+            codec: concat_media::VideoCodec::ALL
+                .iter()
+                .position(|codec| *codec == self.codec(studio))
+                .unwrap_or(0) as i32,
             ten_bit: self.ten_bit,
+            hdr_timeline: studio.timeline().video.color_space.is_hdr(),
+            hdr: self.hdr(studio),
+            hdr_label: match studio.timeline().video.color_space {
+                concat_project::model::ColorSpace::Pq => "HDR (PQ)",
+                _ => "HDR (HLG)",
+            }
+            .into(),
             color_range: self.color_range as i32,
             advanced: self.advanced,
             rate_mode: self.rate_mode as i32,
@@ -384,10 +418,19 @@ impl ExportPane {
                 // "HEVC 10-bit · hardware": the standard, the depth when it
                 // is the deeper one, and whether the platform's own encoder
                 // will be doing it.
-                let codec = self.codec();
+                let codec = self.codec(studio);
                 let mut words = vec![codec.label().to_owned()];
-                if self.ten_bit {
+                if self.ten_bit || self.hdr(studio) {
                     words.push("10-bit".to_owned());
+                }
+                if self.hdr(studio) {
+                    words.push(
+                        match studio.timeline().video.color_space {
+                            concat_project::model::ColorSpace::Pq => "PQ",
+                            _ => "HLG",
+                        }
+                        .to_owned(),
+                    );
                 }
                 if self.color_range() == ColorRange::Full {
                     words.push(t("export.fullRange"));

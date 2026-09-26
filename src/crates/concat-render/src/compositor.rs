@@ -43,6 +43,13 @@ pub trait Compositor {
         None
     }
 
+    /// From here on, frames of an HDR plan come back for an HDR file - the
+    /// light on Rec. 2020's primaries, encoded HLG or PQ as the plan's
+    /// output says, sixteen bits a channel - rather than rolled off into
+    /// eight bits for an SDR one. A compositor that cannot does nothing,
+    /// and its frames stay SDR.
+    fn deliver_hdr(&mut self, _on: bool) {}
+
     /// Whether the device this draws on has been lost - a reset, a hang, a
     /// driver gone - after which every frame it hands back is black. An
     /// export checks it after each frame and stops with an error rather
