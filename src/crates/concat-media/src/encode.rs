@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use concat_core::frame::Frame;
+use concat_core::frame::{Depth, Frame, Signal};
 use concat_core::time::FrameRate;
 use ffmpeg_the_third as ffmpeg;
 use ffmpeg_the_third::codec::encoder;
@@ -256,6 +256,113 @@ pub struct Encoder {
     /// The range every converted frame is stamped with, matching the
     /// stream's tag and the scaler's conversion.
     color_range: ffmpeg::color::Range,
+    /// The frames are sixteen bits a channel, Rec. 2020 with the transfer
+    /// applied (an HDR file), rather than eight-bit sRGB.
+    deep: bool,
+    /// A PQ file's light, measured as it is written, for the metadata the
+    /// file carries once it is finished.
+    light: Option<LightLevel>,
+}
+
+/// The mastering display an HDR10 file names: a P3 display of 1000 nits
+/// over 0.0001, the reference most HDR is graded on. FFmpeg's
+/// `AVMasteringDisplayMetadata`, whose header the bindings leave out.
+#[repr(C)]
+struct MasteringDisplay {
+    /// CIE 1931 xy of the red, green and blue primaries.
+    display_primaries: [[ffmpeg::sys::AVRational; 2]; 3],
+    white_point: [ffmpeg::sys::AVRational; 2],
+    min_luminance: ffmpeg::sys::AVRational,
+    max_luminance: ffmpeg::sys::AVRational,
+    has_primaries: std::os::raw::c_int,
+    has_luminance: std::os::raw::c_int,
+}
+
+impl MasteringDisplay {
+    fn p3_1000() -> Self {
+        let xy = |x: i32, y: i32| {
+            [
+                ffmpeg::sys::AVRational {
+                    num: x,
+                    den: 50_000,
+                },
+                ffmpeg::sys::AVRational {
+                    num: y,
+                    den: 50_000,
+                },
+            ]
+        };
+        MasteringDisplay {
+            display_primaries: [xy(34_000, 16_000), xy(13_250, 34_500), xy(7_500, 3_000)],
+            white_point: xy(15_635, 16_450),
+            min_luminance: ffmpeg::sys::AVRational {
+                num: 1,
+                den: 10_000,
+            },
+            max_luminance: ffmpeg::sys::AVRational { num: 1_000, den: 1 },
+            has_primaries: 1,
+            has_luminance: 1,
+        }
+    }
+}
+
+/// The same display as x265 and SVT-AV1 spell it.
+const X265_MASTER_DISPLAY: &str =
+    "G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)";
+const SVT_MASTER_DISPLAY: &str =
+    "G(0.265,0.690)B(0.150,0.060)R(0.680,0.320)WP(0.3127,0.3290)L(1000,0.0001)";
+
+/// FFmpeg's `AVContentLightMetadata`: the brightest pixel and the brightest
+/// frame's average, in nits.
+#[repr(C)]
+struct ContentLight {
+    max_cll: std::os::raw::c_uint,
+    max_fall: std::os::raw::c_uint,
+}
+
+/// MaxCLL and MaxFALL as a PQ file is written: every pixel's brightest
+/// channel in nits, through a table of the sixteen-bit signal.
+struct LightLevel {
+    nits: Box<[f32]>,
+    max_cll: f32,
+    max_fall: f32,
+}
+
+impl LightLevel {
+    fn new() -> Self {
+        // SMPTE ST 2084's EOTF, a signal to nits.
+        let (m1, m2) = (0.159_301_76_f64, 78.843_75_f64);
+        let (c1, c2, c3) = (0.835_937_5_f64, 18.851_562_5_f64, 18.687_5_f64);
+        let nits = (0..=u16::MAX)
+            .map(|code| {
+                let e = (f64::from(code) / 65_535.0).powf(1.0 / m2);
+                let y = ((e - c1).max(0.0) / (c2 - c3 * e)).powf(1.0 / m1);
+                (y * 10_000.0) as f32
+            })
+            .collect();
+        LightLevel {
+            nits,
+            max_cll: 0.0,
+            max_fall: 0.0,
+        }
+    }
+
+    /// One frame's pixels, RGBA sixteen bits a channel, little-endian.
+    fn measure(&mut self, pixels: &[u8]) {
+        let mut sum = 0.0f64;
+        let mut count = 0usize;
+        for pixel in pixels.chunks_exact(8) {
+            let channel = |at: usize| u16::from_le_bytes([pixel[at], pixel[at + 1]]);
+            let brightest = channel(0).max(channel(2)).max(channel(4));
+            let nits = self.nits[usize::from(brightest)];
+            self.max_cll = self.max_cll.max(nits);
+            sum += f64::from(nits);
+            count += 1;
+        }
+        if count > 0 {
+            self.max_fall = self.max_fall.max((sum / count as f64) as f32);
+        }
+    }
 }
 
 impl Encoder {
@@ -339,7 +446,77 @@ impl Encoder {
             ffmpeg::color::Space,
         ),
     ) -> Result<Self> {
+        Self::open(path, width, height, frame_rate, options, tags, None)
+    }
+
+    /// Opens `path` for an HDR file: BT.2020, ten bits, HLG or PQ as
+    /// `signal` says, written from frames that are that already - sixteen
+    /// bits a channel, Rec. 2020, the transfer applied, which is what the
+    /// compositor's HDR resolve hands back. A PQ file also names the
+    /// display it was mastered on (a P3 display of 1000 nits) and, once it
+    /// is finished, the brightest pixel and frame in it. H.264 is refused:
+    /// the players that matter do not take HDR in it.
+    pub fn create_hdr(
+        path: impl AsRef<Path>,
+        width: u32,
+        height: u32,
+        frame_rate: FrameRate,
+        options: &EncodeOptions,
+        signal: Signal,
+    ) -> Result<Self> {
+        use ffmpeg::color::{Primaries, Space, TransferCharacteristic};
+        let path = path.as_ref();
+        let transfer = match signal {
+            Signal::Hlg => TransferCharacteristic::ARIB_STD_B67,
+            Signal::Pq => TransferCharacteristic::SMPTE2084,
+            Signal::Sdr | Signal::SdrWide => {
+                return Err(Error::Ffi {
+                    operation: "open an HDR encoder",
+                    path: path.to_path_buf(),
+                    detail: "an HDR file is HLG or PQ".to_owned(),
+                });
+            }
+        };
+        if options.codec == VideoCodec::H264 {
+            return Err(Error::Ffi {
+                operation: "open an HDR encoder",
+                path: path.to_path_buf(),
+                detail: "H.264 does not carry HDR here: choose HEVC or AV1".to_owned(),
+            });
+        }
+        let options = EncodeOptions {
+            ten_bit: true,
+            ..options.clone()
+        };
+        Self::open(
+            path,
+            width,
+            height,
+            frame_rate,
+            &options,
+            (Primaries::BT2020, transfer, Space::BT2020NCL),
+            Some(signal),
+        )
+    }
+
+    /// The one way in: `tags` on the file, and `hdr` the signal of deep
+    /// frames when the file is HDR (see [`Encoder::create_hdr`]), else the
+    /// frames are eight-bit sRGB.
+    fn open(
+        path: impl AsRef<Path>,
+        width: u32,
+        height: u32,
+        frame_rate: FrameRate,
+        options: &EncodeOptions,
+        tags: (
+            ffmpeg::color::Primaries,
+            ffmpeg::color::TransferCharacteristic,
+            ffmpeg::color::Space,
+        ),
+        hdr: Option<Signal>,
+    ) -> Result<Self> {
         ffi::init();
+        let pq = hdr == Some(Signal::Pq);
         let path = path.as_ref();
         let fps = frame_rate.fps();
         let rate = ffmpeg::Rational::new(fps.numerator() as i32, fps.denominator() as i32);
@@ -401,6 +578,28 @@ impl Encoder {
         if global_header {
             video.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
         }
+        if pq {
+            // The display it was mastered on, where an encoder that writes
+            // it into the stream reads it.
+            // SAFETY: `video` owns a live AVCodecContext; the side data is
+            // allocated by FFmpeg at the struct's size and filled here.
+            unsafe {
+                let context = video.as_mut_ptr();
+                let entry = ffmpeg::sys::av_frame_side_data_new(
+                    &mut (*context).decoded_side_data,
+                    &mut (*context).nb_decoded_side_data,
+                    ffmpeg::sys::AVFrameSideDataType::MASTERING_DISPLAY_METADATA,
+                    std::mem::size_of::<MasteringDisplay>(),
+                    0,
+                );
+                if !entry.is_null() {
+                    std::ptr::write(
+                        (*entry).data.cast::<MasteringDisplay>(),
+                        MasteringDisplay::p3_1000(),
+                    );
+                }
+            }
+        }
 
         let crf = options.crf.to_string();
         let cbr = options.rate_mode == RateMode::Cbr && options.bitrate_kbps > 0;
@@ -460,6 +659,40 @@ impl Encoder {
             },
             _ => ffmpeg::dict! {},
         };
+        // HDR's own words to the software encoders, besides the tags they
+        // read off the context: headers with every keyframe, and a PQ
+        // file's mastering display.
+        let mut settings = settings;
+        if hdr.is_some() {
+            match encoder_name {
+                "libx265" => {
+                    let mut params = settings
+                        .get("x265-params")
+                        .map(str::to_owned)
+                        .unwrap_or_default();
+                    for param in [
+                        Some("repeat-headers=1".to_owned()),
+                        pq.then(|| format!("hdr10=1:master-display={X265_MASTER_DISPLAY}")),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        if !params.is_empty() {
+                            params.push(':');
+                        }
+                        params.push_str(&param);
+                    }
+                    settings.set("x265-params", &params);
+                }
+                "libsvtav1" if pq => {
+                    settings.set(
+                        "svtav1-params",
+                        format!("mastering-display={SVT_MASTER_DISPLAY}"),
+                    );
+                }
+                _ => {}
+            }
+        }
         let encoder = video
             .open_with(settings)
             .map_err(|error| ffi::fail("open encoder", path, error))?;
@@ -470,6 +703,28 @@ impl Encoder {
                 .map_err(|error| ffi::fail("add stream", path, error))?;
             stream.copy_parameters_from_context(&encoder);
             stream.set_time_base(time_base);
+            if pq {
+                // The same display in the container, for the players that
+                // read it there ('mdcv').
+                // SAFETY: the stream is live and its parameters were just
+                // copied; FFmpeg allocates the entry at the struct's size.
+                unsafe {
+                    let parameters = (*stream.as_mut_ptr()).codecpar;
+                    let entry = ffmpeg::sys::av_packet_side_data_new(
+                        &mut (*parameters).coded_side_data,
+                        &mut (*parameters).nb_coded_side_data,
+                        ffmpeg::sys::AVPacketSideDataType::MASTERING_DISPLAY_METADATA,
+                        std::mem::size_of::<MasteringDisplay>(),
+                        0,
+                    );
+                    if !entry.is_null() {
+                        std::ptr::write(
+                            (*entry).data.cast::<MasteringDisplay>(),
+                            MasteringDisplay::p3_1000(),
+                        );
+                    }
+                }
+            }
             if options.codec == VideoCodec::Hevc {
                 // `hvc1`, not FFmpeg's default `hev1`: the tag Apple's
                 // players and QuickTime need to open an HEVC file at all.
@@ -489,8 +744,9 @@ impl Encoder {
             .map(|stream| stream.time_base())
             .unwrap_or(time_base);
 
+        let deep = hdr.is_some();
         let mut scaler = scaling::Context::get(
-            Pixel::RGBA,
+            if deep { Pixel::RGBA64LE } else { Pixel::RGBA },
             width,
             height,
             pixel_format,
@@ -506,7 +762,11 @@ impl Encoder {
         // SAFETY: `scaler` owns a live SwsContext; the coefficient tables
         // are static and the call only sets fields on the context.
         unsafe {
-            let coefficients = ffmpeg::sys::sws_getCoefficients(ffmpeg::sys::SWS_CS_ITU709);
+            let coefficients = ffmpeg::sys::sws_getCoefficients(if deep {
+                ffmpeg::sys::SWS_CS_BT2020
+            } else {
+                ffmpeg::sys::SWS_CS_ITU709
+            });
             ffmpeg::sys::sws_setColorspaceDetails(
                 scaler.as_mut_ptr(),
                 coefficients,
@@ -532,6 +792,8 @@ impl Encoder {
             finished: false,
             encoder_name,
             color_range: options.color_range.as_ffmpeg(),
+            deep,
+            light: pq.then(LightLevel::new),
         })
     }
 
@@ -591,14 +853,33 @@ impl FrameSink for Encoder {
             });
         }
 
-        let mut rgba = Video::new(Pixel::RGBA, self.width, self.height);
+        let deep = frame.depth() == Depth::Sixteen;
+        if deep != self.deep {
+            return Err(Error::Io {
+                path: self.path.clone(),
+                source: std::io::Error::other(if self.deep {
+                    "an HDR file takes sixteen-bit frames"
+                } else {
+                    "an SDR file takes eight-bit frames"
+                }),
+            });
+        }
+        let (pixel, bytes) = if deep {
+            (Pixel::RGBA64LE, 8)
+        } else {
+            (Pixel::RGBA, 4)
+        };
+        let mut rgba = Video::new(pixel, self.width, self.height);
         {
             let stride = rgba.stride(0);
-            let row = self.width as usize * 4;
+            let row = self.width as usize * bytes;
             let data = rgba.data_mut(0);
             for (y, source) in frame.pixels().chunks_exact(row).enumerate() {
                 data[y * stride..y * stride + row].copy_from_slice(source);
             }
+        }
+        if let Some(light) = &mut self.light {
+            light.measure(frame.pixels());
         }
         let mut converted = Video::empty();
         self.scaler
@@ -629,6 +910,33 @@ impl FrameSink for Encoder {
             .send_eof()
             .map_err(|error| ffi::fail("encode", &self.path, error))?;
         self.drain()?;
+        if let Some(light) = &self.light {
+            // The light the file holds, measured as it was written, in the
+            // container ('clli'), which the muxer writes with the index.
+            // SAFETY: the stream is live; FFmpeg allocates the entry at the
+            // struct's size.
+            unsafe {
+                if let Some(mut stream) = self.output.stream_mut(0) {
+                    let parameters = (*stream.as_mut_ptr()).codecpar;
+                    let entry = ffmpeg::sys::av_packet_side_data_new(
+                        &mut (*parameters).coded_side_data,
+                        &mut (*parameters).nb_coded_side_data,
+                        ffmpeg::sys::AVPacketSideDataType::CONTENT_LIGHT_LEVEL,
+                        std::mem::size_of::<ContentLight>(),
+                        0,
+                    );
+                    if !entry.is_null() {
+                        std::ptr::write(
+                            (*entry).data.cast::<ContentLight>(),
+                            ContentLight {
+                                max_cll: light.max_cll.round() as u32,
+                                max_fall: light.max_fall.round() as u32,
+                            },
+                        );
+                    }
+                }
+            }
+        }
         self.output
             .write_trailer()
             .map_err(|error| ffi::fail("write trailer", &self.path, error))
@@ -916,6 +1224,128 @@ mod tests {
                 if codec == VideoCodec::Hevc {
                     assert_eq!(tag, fourcc(*b"hvc1"), "HEVC in MP4 is tagged hvc1");
                 }
+            }
+        }
+    }
+
+    /// An HDR file is what it says it is: ten bits, BT.2020 with HLG or PQ,
+    /// written from deep frames whose levels come back as they went in -
+    /// HLG's reference white at 75 % of the signal, PQ's at 58 % - and an
+    /// eight-bit frame is refused. A PQ file names its mastering display
+    /// and the light it holds in the container; H.264 is refused outright.
+    #[test]
+    fn an_hdr_file_is_tagged_and_keeps_its_levels() {
+        use crate::decode::{DecodeOptions, Decoder, FrameSource};
+        let options = |codec| EncodeOptions {
+            codec,
+            preset: "ultrafast".to_owned(),
+            crf: 16,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            ten_bit: false,
+            color_range: ColorRange::Limited,
+            hardware: true,
+            threads: 0,
+        };
+        let refused = std::env::temp_dir().join("concat-encode-hdr-h264.mp4");
+        assert!(
+            Encoder::create_hdr(
+                &refused,
+                64,
+                64,
+                FrameRate::THIRTY,
+                &options(VideoCodec::H264),
+                Signal::Hlg
+            )
+            .is_err()
+        );
+        for codec in [VideoCodec::Hevc, VideoCodec::Av1] {
+            if !codec.available() {
+                eprintln!("{} not in the linked FFmpeg; skipped", codec.label());
+                continue;
+            }
+            for (signal, level) in [(Signal::Hlg, 0.75f64), (Signal::Pq, 0.58)] {
+                let path = std::env::temp_dir()
+                    .join(format!("concat-encode-hdr-{}-{signal:?}.mp4", codec.name()));
+                let mut encoder =
+                    Encoder::create_hdr(&path, 64, 64, FrameRate::THIRTY, &options(codec), signal)
+                        .unwrap_or_else(|error| panic!("{} {signal:?}: {error}", codec.label()));
+                let value = (level * 65_535.0).round() as u16;
+                let pixel: Vec<u8> = [value, value, value, u16::MAX]
+                    .iter()
+                    .flat_map(|channel| channel.to_le_bytes())
+                    .collect();
+                let frame = Frame::from_rgba64(64, 64, pixel.repeat(64 * 64), signal)
+                    .expect("a deep frame");
+                for _ in 0..4 {
+                    encoder.write_frame(&frame).expect("writes");
+                }
+                assert!(
+                    encoder.write_frame(&Frame::black(64, 64)).is_err(),
+                    "an HDR file takes deep frames only"
+                );
+                encoder.finish().expect("finishes");
+
+                let (_, _, primaries, transfer, space, format, _) = tags_of(&path);
+                assert_eq!(primaries, ffmpeg::color::Primaries::BT2020);
+                assert_eq!(
+                    transfer,
+                    match signal {
+                        Signal::Hlg => ffmpeg::color::TransferCharacteristic::ARIB_STD_B67,
+                        _ => ffmpeg::color::TransferCharacteristic::SMPTE2084,
+                    }
+                );
+                assert_eq!(space, ffmpeg::color::Space::BT2020NCL);
+                assert!(
+                    matches!(format, Pixel::YUV420P10LE | Pixel::P010LE),
+                    "{format:?}"
+                );
+
+                let mut decoder = Decoder::open(&path, &DecodeOptions::default().deep(true))
+                    .expect("opens what was just written");
+                let back = decoder.next_frame().expect("decodes").expect("a frame");
+                assert_eq!(back.signal(), signal);
+                assert_eq!(back.depth(), Depth::Sixteen);
+                let got =
+                    f64::from(u16::from_le_bytes([back.pixels()[0], back.pixels()[1]])) / 65_535.0;
+                assert!(
+                    (got - level).abs() < 0.01,
+                    "{} {signal:?}: {level} came back {got}",
+                    codec.label()
+                );
+
+                if signal == Signal::Pq {
+                    let input = ffmpeg::format::input(&path).expect("opens");
+                    let stream = input.stream(0).expect("a stream");
+                    // SAFETY: the parameters live as long as `input`; the
+                    // side data is read, not kept.
+                    unsafe {
+                        let parameters = stream.parameters().as_ptr();
+                        let found = |kind| {
+                            ffmpeg::sys::av_packet_side_data_get(
+                                (*parameters).coded_side_data,
+                                (*parameters).nb_coded_side_data,
+                                kind,
+                            )
+                        };
+                        let display =
+                            found(ffmpeg::sys::AVPacketSideDataType::MASTERING_DISPLAY_METADATA);
+                        assert!(
+                            !display.is_null(),
+                            "{}: the mastering display",
+                            codec.label()
+                        );
+                        let light = found(ffmpeg::sys::AVPacketSideDataType::CONTENT_LIGHT_LEVEL);
+                        assert!(!light.is_null(), "{}: the light level", codec.label());
+                        let light = &*(*light).data.cast::<ContentLight>();
+                        assert!(
+                            (190..=215).contains(&light.max_cll),
+                            "MaxCLL of a 203-nit grey: {}",
+                            light.max_cll
+                        );
+                    }
+                }
+                let _ = std::fs::remove_file(&path);
             }
         }
     }

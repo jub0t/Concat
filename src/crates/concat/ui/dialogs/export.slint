@@ -34,6 +34,12 @@ export struct ExportData {
     /// index into the codec list: H.264, HEVC, AV1
     codec: int,
     ten-bit: bool,
+    /// The timeline is HDR, so the file can be written HDR or SDR.
+    hdr-timeline: bool,
+    /// It is being written HDR: ten bits, HEVC or AV1.
+    hdr: bool,
+    /// "HDR (HLG)" or "HDR (PQ)": the timeline's own.
+    hdr-label: string,
     /// 0 = limited (video) range, 1 = full. Shown under Advanced.
     color-range: int,
     /// The Advanced section is open: bitrate controls show.
@@ -168,6 +174,7 @@ export component ExportDialog inherits Modal {
     callback quality-changed(index: int);
     callback codec-changed(index: int);
     callback ten-bit-changed(on: bool);
+    callback hdr-changed(on: bool);
     callback color-range-changed(index: int);
     callback advanced-toggled(on: bool);
     callback rate-mode-changed(index: int);
@@ -259,10 +266,23 @@ export component ExportDialog inherits Modal {
                 }
             }
 
+            // An HDR timeline is written as it is by default, or rolled off
+            // to SDR for wherever HDR does not play.
+            if root.data.hdr-timeline: DialogRow {
+                label: I18n.t("common.color");
+                Select {
+                    current: root.data.hdr ? 0 : 1;
+                    options: [root.data.hdr-label, "SDR"];
+                    details: [I18n.t("export.asTheTimeline"), I18n.t("export.toneMapped")];
+                    changed(index) => { root.hdr-changed(index == 0); }
+                }
+            }
+
             // The standard, not the encoder: which encoder makes it is the
             // platform's business, and the Format line above says when
-            // the hardware one will.
-            DialogRow {
+            // the hardware one will. H.264 is left out of an HDR file,
+            // which it does not carry.
+            if !root.data.hdr: DialogRow {
                 label: I18n.t("export.codec");
                 Select {
                     current: root.data.codec;
@@ -272,7 +292,18 @@ export component ExportDialog inherits Modal {
                 }
             }
 
-            DialogRow {
+            if root.data.hdr: DialogRow {
+                label: I18n.t("export.codec");
+                Select {
+                    current: root.data.codec - 1;
+                    options: ["HEVC", "AV1"];
+                    details: [I18n.t("export.halfTheSize"), I18n.t("export.smallest")];
+                    changed(index) => { root.codec-changed(index + 1); }
+                }
+            }
+
+            // HDR is ten bits always, so the switch is for SDR alone.
+            if !root.data.hdr: DialogRow {
                 label: I18n.t("export.tenBitColour");
                 HorizontalLayout {
                     alignment: end;

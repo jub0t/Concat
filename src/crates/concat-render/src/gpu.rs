@@ -211,6 +211,47 @@ fn fs_resolve(@builtin(position) at: vec4<f32>) -> @location(0) vec4<f32> {
     return vec4<f32>(pow(clipped, vec3<f32>(1.0 / 2.4)), colour.a);
 }
 
+// An HDR file: the light on Rec. 2020's primaries, encoded HLG or PQ, and
+// handed back as sixteen-bit integers for the encoder, opaque.
+fn to_2020(rgb: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(
+        dot(vec3<f32>(0.627403896, 0.329283039, 0.043313065), rgb),
+        dot(vec3<f32>(0.069097289, 0.919540395, 0.011362316), rgb),
+        dot(vec3<f32>(0.016391439, 0.088013308, 0.895595253), rgb),
+    );
+}
+
+fn deep_out(signal: vec3<f32>) -> vec4<u32> {
+    let clipped = clamp(signal, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec4<u32>(vec3<u32>(round(clipped * 65535.0)), 65535u);
+}
+
+// BT.2100's HLG for a 1000-nit display, the inverse of the upload's: the
+// display's light back to the scene's through the inverse OOTF (a system
+// gamma of 1.2), then ARIB STD-B67's OETF - which puts SDR white, 203 nits,
+// at 75 % of the signal.
+@fragment
+fn fs_resolve_hlg(@builtin(position) at: vec4<f32>) -> @location(0) vec4<u32> {
+    let colour = textureLoad(picture, vec2<i32>(at.xy), 0);
+    let nits = max(to_2020(colour.rgb), vec3<f32>(0.0)) * 203.0;
+    let yd = max(dot(nits, vec3<f32>(0.2627, 0.6780, 0.0593)), 1e-6);
+    let scene = clamp(nits / 1000.0 * pow(yd / 1000.0, -0.2 / 1.2), vec3<f32>(0.0), vec3<f32>(1.0));
+    let a = 0.17883277;
+    let b = 0.28466892;
+    let c = 0.55991073;
+    let low = sqrt(3.0 * scene);
+    let high = a * log(max(12.0 * scene - b, vec3<f32>(1e-6))) + c;
+    return deep_out(select(high, low, scene <= vec3<f32>(1.0 / 12.0)));
+}
+
+// SMPTE ST 2084, the light in nits as the signal.
+@fragment
+fn fs_resolve_pq(@builtin(position) at: vec4<f32>) -> @location(0) vec4<u32> {
+    let colour = textureLoad(picture, vec2<i32>(at.xy), 0);
+    let nits = max(to_2020(colour.rgb), vec3<f32>(0.0)) * 203.0;
+    return deep_out(vec3<f32>(pq_signal(nits.r), pq_signal(nits.g), pq_signal(nits.b)));
+}
+
 // An HDR timeline for an SDR screen: its light rolled off by BT.2390 as an
 // HDR clip's is on an SDR timeline - the same maths, so a lone clip looks
 // the same on either - then encoded as SDR is.
@@ -480,6 +521,15 @@ pub struct WgpuCompositor {
     /// What the plan being drawn is output in (`FramePlan::output`): taken
     /// up by `prepare`, and read by the uploads and the resolve after it.
     output: concat_core::frame::Signal,
+    /// An HDR file out of the working space: HLG, then PQ, into sixteen-bit
+    /// integers the encoder takes as they are.
+    hdr_pipelines: [wgpu::RenderPipeline; 2],
+    /// Frames of an HDR plan come back for an HDR file, not rolled off for
+    /// an SDR one (`Compositor::deliver_hdr`).
+    deliver_hdr: bool,
+    /// The readback target an HDR frame is resolved into: sixteen-bit
+    /// integers, eight bytes a pixel.
+    deep_target: Option<Target>,
     /// The eight-bit textures frames are written into on their way to the
     /// pool, one a size, each with its bind group.
     staging: HashMap<(u32, u32), (wgpu::Texture, wgpu::BindGroup)>,
@@ -875,6 +925,8 @@ impl WgpuCompositor {
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
         let tone_mapped_pipeline =
             copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve_tone_mapped");
+        let hdr_pipelines = ["fs_resolve_hlg", "fs_resolve_pq"]
+            .map(|entry| copy_into(wgpu::TextureFormat::Rgba16Uint, entry));
 
         let deep_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("concat deep"),
@@ -977,6 +1029,9 @@ impl WgpuCompositor {
             resolve_pipeline,
             tone_mapped_pipeline,
             output: concat_core::frame::Signal::Sdr,
+            hdr_pipelines,
+            deliver_hdr: false,
+            deep_target: None,
             staging: HashMap::new(),
             deep_pipelines,
             deep_layout,
@@ -1782,13 +1837,30 @@ impl WgpuCompositor {
         }
     }
 
-    /// The reusable render target for this output size.
+    /// Whether the frame being drawn goes to an HDR file: an HDR plan, with
+    /// HDR delivery on (`Compositor::deliver_hdr`).
+    fn delivering_hdr(&self) -> bool {
+        self.deliver_hdr && self.output != concat_core::frame::Signal::Sdr
+    }
+
+    /// The reusable readback target for this output size: eight bits a
+    /// channel for an SDR frame, sixteen-bit integers for an HDR file's.
     fn target(&mut self, width: u32, height: u32) -> &Target {
-        let stale = self
-            .target
+        let deep = self.delivering_hdr();
+        let slot = if deep {
+            &mut self.deep_target
+        } else {
+            &mut self.target
+        };
+        let stale = slot
             .as_ref()
             .is_none_or(|target| target.width != width || target.height != height);
         if stale {
+            let (format, bytes) = if deep {
+                (wgpu::TextureFormat::Rgba16Uint, 8)
+            } else {
+                (wgpu::TextureFormat::Rgba8Unorm, 4)
+            };
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("concat output"),
                 size: wgpu::Extent3d {
@@ -1799,18 +1871,18 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             });
-            let padded_row = (width as usize * 4).div_ceil(ROW_ALIGN) * ROW_ALIGN;
+            let padded_row = (width as usize * bytes).div_ceil(ROW_ALIGN) * ROW_ALIGN;
             let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("concat readback"),
                 size: (padded_row * height as usize) as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             });
-            self.target = Some(Target {
+            *slot = Some(Target {
                 width,
                 height,
                 texture,
@@ -1818,7 +1890,17 @@ impl WgpuCompositor {
                 padded_row,
             });
         }
-        self.target.as_ref().expect("just ensured")
+        slot.as_ref().expect("just ensured")
+    }
+
+    /// The readback target `target` last ensured for the frame in hand.
+    fn current_target(&self) -> &Target {
+        if self.delivering_hdr() {
+            self.deep_target.as_ref()
+        } else {
+            self.target.as_ref()
+        }
+        .expect("ensured by target")
     }
 
     /// Claims a pooled texture of the layer's size holding the frame's
@@ -1922,7 +2004,9 @@ impl WgpuCompositor {
         canvas: usize,
         into: &wgpu::TextureView,
     ) {
-        let pipeline = if self.output == concat_core::frame::Signal::Sdr {
+        let pipeline = if self.delivering_hdr() {
+            &self.hdr_pipelines[usize::from(self.output == concat_core::frame::Signal::Pq)]
+        } else if self.output == concat_core::frame::Signal::Sdr {
             &self.resolve_pipeline
         } else {
             &self.tone_mapped_pipeline
@@ -2961,7 +3045,12 @@ impl WgpuCompositor {
     /// map's own result is what decides, not the poll's: a poll can return
     /// without the map having been served.
     fn read_back(&mut self) -> Option<Frame> {
-        let target = self.target.as_ref()?;
+        let deep = self.delivering_hdr();
+        let target = if deep {
+            self.deep_target.as_ref()?
+        } else {
+            self.target.as_ref()?
+        };
         let (width, height, padded_row) = (target.width, target.height, target.padded_row);
 
         let slice = target.staging.slice(..);
@@ -2980,6 +3069,20 @@ impl WgpuCompositor {
             return None;
         }
 
+        if deep {
+            // Sixteen-bit integers, opaque already: the rows as they are.
+            let row_bytes = width as usize * 8;
+            let mut pixels = vec![0u8; row_bytes * height as usize];
+            {
+                let data = slice.get_mapped_range().ok()?;
+                for row in 0..height as usize {
+                    let from = &data[row * padded_row..row * padded_row + row_bytes];
+                    pixels[row * row_bytes..(row + 1) * row_bytes].copy_from_slice(from);
+                }
+            }
+            target.staging.unmap();
+            return Frame::from_rgba64(width, height, pixels, self.output);
+        }
         let mut frame = Frame::transparent(width, height);
         {
             // A range that will not map is a failed map, as above.
@@ -3024,6 +3127,10 @@ impl Compositor for WgpuCompositor {
         self.dead
     }
 
+    fn deliver_hdr(&mut self, on: bool) {
+        self.deliver_hdr = on;
+    }
+
     fn combine(
         &mut self,
         width: u32,
@@ -3050,7 +3157,7 @@ impl Compositor for WgpuCompositor {
         let to_view = view_of(self, to, to_index);
         let (canvas, _, canvas_view) = self.canvas(width, height);
         self.target(width, height);
-        let target_texture = self.target.as_ref().expect("just ensured").texture.clone();
+        let target_texture = self.current_target().texture.clone();
         let view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.encode_transition(
             width,
@@ -3063,7 +3170,7 @@ impl Compositor for WgpuCompositor {
         )?;
         self.resolve(&mut encoder, (width, height), canvas, &view);
         {
-            let target = self.target.as_ref().expect("just ensured");
+            let target = self.current_target();
             encoder.copy_texture_to_buffer(
                 wgpu::TexelCopyTextureInfo {
                     texture: &target.texture,
@@ -3101,7 +3208,7 @@ impl WgpuCompositor {
     fn render_and_read(&mut self, width: u32, height: u32, draws: &[Draw]) -> Option<Frame> {
         let (canvas, canvas_texture, canvas_view) = self.canvas(width, height);
         self.target(width, height);
-        let target = self.target.as_ref().expect("just ensured");
+        let target = self.current_target();
         let view = target
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

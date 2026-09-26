@@ -358,10 +358,14 @@ pub struct ExportRequest {
     #[serde(default, deserialize_with = "range_by_name")]
     pub color_range: concat_media::ColorRange,
     /// What the timeline is output in. SDR when a request does not say.
-    /// Until the HDR export lands an HDR timeline is written tone-mapped
-    /// to SDR, as the monitor shows it.
     #[serde(default)]
     pub color_space: ColorSpace,
+    /// An HDR timeline written as HDR - HEVC or AV1 in ten bits, BT.2020
+    /// with its HLG or PQ - rather than tone-mapped to SDR as the monitor
+    /// shows it. Nothing for an SDR timeline. False when a request does not
+    /// say.
+    #[serde(default)]
+    pub hdr: bool,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -1125,23 +1129,34 @@ fn render_picture(
         highlight: _,
     } = build_timeline(request, rate, visible, gpu, transitions);
 
-    let mut encoder = Encoder::create(
-        destination,
-        request.width,
-        request.height,
-        rate,
-        &EncodeOptions {
-            crf: request.crf,
-            preset: request.preset.clone(),
-            codec: request.codec,
-            rate_mode: request.rate_mode,
-            bitrate_kbps: request.bitrate_kbps,
-            ten_bit: request.ten_bit,
-            color_range: request.color_range,
-            hardware: true,
-            threads: 0,
-        },
-    )
+    let options = EncodeOptions {
+        crf: request.crf,
+        preset: request.preset.clone(),
+        codec: request.codec,
+        rate_mode: request.rate_mode,
+        bitrate_kbps: request.bitrate_kbps,
+        ten_bit: request.ten_bit,
+        color_range: request.color_range,
+        hardware: true,
+        threads: 0,
+    };
+    // An HDR file comes out of the compositor as its signal, sixteen bits a
+    // channel; anything else, SDR - an HDR timeline's tone-mapped.
+    let signal = output_of(request.color_space);
+    let hdr = request.hdr && signal != Signal::Sdr;
+    compositor.deliver_hdr(hdr);
+    let mut encoder = if hdr {
+        Encoder::create_hdr(
+            destination,
+            request.width,
+            request.height,
+            rate,
+            &options,
+            signal,
+        )
+    } else {
+        Encoder::create(destination, request.width, request.height, rate, &options)
+    }
     .map_err(|error| error.to_string())?;
 
     // One decoder per clip, opened at its in-point the first time the clip is
@@ -1288,6 +1303,7 @@ fn render_picture(
             },
             &treatments,
             &transitions,
+            hdr,
         );
         if compositor.lost() {
             return Err("the GPU device was lost part way through the export".to_owned());
@@ -1352,6 +1368,7 @@ fn composite_treated(
     mut plan: FramePlan,
     treatments: &[Treatment],
     transitions: &[TransitionSpan],
+    hdr: bool,
 ) -> Frame {
     let time = plan.time;
     // A packaged transition live at this instant combines the outgoing stack
@@ -1376,7 +1393,10 @@ fn composite_treated(
         return compositor.render(&plan);
     }
     live.sort_by_key(|treatment| treatment.track);
-    if live.iter().all(|treatment| treatment.chain.is_empty()) {
+    // An HDR file stays on the GPU in its own light: an old package's
+    // FFmpeg chain, which works on eight-bit SDR, is left out of it until
+    // those packages are retired (step 5, slice 8).
+    if hdr || live.iter().all(|treatment| treatment.chain.is_empty()) {
         plan.treatments = live
             .iter()
             .map(|treatment| PlannedTreatment {
@@ -1615,6 +1635,7 @@ impl PreviewSources {
             self.plan.clone(),
             &self.treatments,
             &self.transitions,
+            false,
         )
     }
 
@@ -1869,6 +1890,7 @@ pub fn preview_plan(
         bitrate_kbps: 0,
         color_range: concat_media::ColorRange::Limited,
         color_space,
+        hdr: false,
         clips: Vec::new(),
     };
     PreviewPlan {
@@ -2104,6 +2126,7 @@ mod tests {
             stack(Rational::from_int(1)),
             std::slice::from_ref(&negate),
             &[],
+            false,
         );
         // Red negated is cyan where nothing sits on top...
         let at = |x: usize, y: usize| &out.pixels()[(y * 8 + x) * 4..(y * 8 + x) * 4 + 3];
@@ -2116,7 +2139,13 @@ mod tests {
             strength: 0.5,
             ..negate.clone()
         };
-        let out = composite_treated(&mut compositor, stack(Rational::from_int(1)), &[half], &[]);
+        let out = composite_treated(
+            &mut compositor,
+            stack(Rational::from_int(1)),
+            &[half],
+            &[],
+            false,
+        );
         let pixel = &out.pixels()[(7 * 8 + 7) * 4..(7 * 8 + 7) * 4 + 3];
         assert!(pixel[0] > 120 && pixel[0] < 136, "{pixel:?}");
         assert!(pixel[1] > 120 && pixel[1] < 136, "{pixel:?}");
@@ -2127,6 +2156,7 @@ mod tests {
             stack(Rational::from_int(20)),
             &[negate],
             &[],
+            false,
         );
         assert_eq!(at_of(&out, 7, 7), [255, 0, 0]);
         fn at_of(frame: &Frame, x: usize, y: usize) -> [u8; 3] {

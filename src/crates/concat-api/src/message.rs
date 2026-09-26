@@ -271,7 +271,8 @@ pub struct ExportSpec {
     /// Frame rate denominator; the timeline's when absent.
     #[serde(default)]
     pub rate_den: Option<i64>,
-    /// "h264", "hevc" or "av1". H.264 when absent.
+    /// "h264", "hevc" or "av1". H.264 when absent - HEVC for an HDR file,
+    /// which H.264 does not carry.
     #[serde(default)]
     pub codec: Option<String>,
     /// Ten bits a channel. Eight when absent.
@@ -283,6 +284,11 @@ pub struct ExportSpec {
     /// https://github.com/jub0t/Concat/issues/103
     #[serde(default)]
     pub color_range: Option<String>,
+    /// For an HDR timeline: written as HDR, its own HLG or PQ in ten bits
+    /// (true, the default), or tone-mapped to SDR (false). Nothing for an
+    /// SDR timeline.
+    #[serde(default)]
+    pub hdr: Option<bool>,
 }
 
 /// What a request hands back. Serialised as the payload alone: the variant

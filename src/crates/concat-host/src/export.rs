@@ -41,6 +41,9 @@ pub struct ExportSpec {
     /// 16-235, unless the sheet's Advanced section says full.
     /// https://github.com/jub0t/Concat/issues/103
     pub color_range: ColorRange,
+    /// An HDR timeline written as HDR, its own HLG or PQ, rather than
+    /// tone-mapped to SDR. Nothing for an SDR timeline.
+    pub hdr: bool,
 }
 
 /// One progress report: which frame of how many, in which stage.
@@ -73,6 +76,7 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         bitrate_kbps: spec.bitrate_kbps,
         color_range: spec.color_range,
         color_space: session.video().color_space,
+        hdr: spec.hdr,
         clips,
     }
 }
