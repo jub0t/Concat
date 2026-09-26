@@ -73,6 +73,23 @@ jobs:
             echo "LD_LIBRARY_PATH=$PWD/ffmpeg-dev/lib:$PWD/$stem/lib"
           } >> "$GITHUB_ENV"
 
+      # The prebuilt sherpa-onnx library, fetched here as the platform jobs
+      # below fetch theirs. Left to its own build script, sherpa-onnx-sys
+      # unpacks it into target/sherpa-onnx-prebuilt, which rust-cache does
+      # not keep while the build script's run is kept: a cache hit then
+      # links against a folder that is not there.
+      - name: sherpa-onnx libraries
+        run: |
+          set -euo pipefail
+          version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          stem="sherpa-onnx-v$version-linux-x64-static-lib"
+          curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          mkdir -p sherpa
+          tar -xjf sherpa.tar.bz2 -C sherpa
+          test -d "sherpa/$stem/lib"
+          echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
+
       - run: cargo fmt --check
         working-directory: src
       # Every string the interface shows is a key in a locale file; this
