@@ -15,7 +15,6 @@ use std::sync::Arc;
 use concat_project::Command;
 use concat_project::model::TextStyle;
 use concat_speech::transcribe::Segment;
-use slint::SharedString;
 
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
@@ -253,12 +252,6 @@ impl CaptionsPane {
         CaptionsSheetData {
             open: self.open,
             from_sound: self.clip.is_some(),
-            subject: self
-                .clip
-                .as_ref()
-                .and_then(|id| studio.clip(id))
-                .map(|clip| SharedString::from(clip.name.as_str()))
-                .unwrap_or_else(|| t("captions.atThePlayhead").into()),
             text: self.text.as_str().into(),
             model: self.model as i32,
             placement: self.placement as i32,

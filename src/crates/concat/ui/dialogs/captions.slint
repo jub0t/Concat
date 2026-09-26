@@ -25,9 +25,6 @@ export struct CaptionsSheetData {
     open: bool,
     /// The selected clip has sound, and the sheet transcribes it.
     from-sound: bool,
-    /// For the header's note: the clip being transcribed, or where a
-    /// script's captions land.
-    subject: string,
     text: string,
     /// Row in the installed transcriber list.
     model: int,
@@ -63,7 +60,6 @@ export component CaptionsDialog inherits Modal {
     glyph: Glyph.text-mark;
     surface-width: 480px;
     dismissable: !root.data.running;
-    note: root.data.subject;
 
     // The script being typed, held apart from `data.text` the way the Field
     // primitive holds its draft: a TextInput's binding is dropped on the

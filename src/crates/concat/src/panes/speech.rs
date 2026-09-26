@@ -562,12 +562,6 @@ impl SpeechPane {
             running: self.running,
             progress: self.progress,
             ready: !installed(&studio.settings.voices).is_empty(),
-            placement: if self.clip.is_some() {
-                "at the title"
-            } else {
-                "at the playhead"
-            }
-            .into(),
             estimate: self.estimate(studio).into(),
             message: self.message.as_str().into(),
         }
