@@ -262,7 +262,7 @@ export component PhoneEditor inherits Rectangle {
     // from the foot, the top bar and the transport down from the head, and
     // the monitor is what is left between.
     property <length> top-h: 48px;
-    property <length> transport-h: 56px;
+    property <length> transport-h: 60px;
     /// A third of the screen, and never less than a ruler and two lanes.
     property <length> lanes-h: Math.max(170px, root.height * 0.3);
     property <length> bar-h: 74px;
@@ -478,11 +478,13 @@ export component PhoneEditor inherits Rectangle {
             }
         }
 
+        // The same size as its neighbours, and ten pixels of air above and
+        // below: the fill is what makes it the one to reach for, not bulk.
         RoundButton {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
-            size: 46px;
-            icon-size: 20px;
+            size: 40px;
+            icon-size: 18px;
             accent: true;
             glyph: Editor.playing ? Glyph.pause : Glyph.play;
             label: Editor.playing ? I18n.t("previewPane.pause") : I18n.t("previewPane.play");
