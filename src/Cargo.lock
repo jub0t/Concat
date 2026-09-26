@@ -1141,6 +1141,7 @@ dependencies = [
  "concat-project",
  "concat-server",
  "concat-speech",
+ "concat-text",
  "concat-vision",
  "image",
  "log",

@@ -327,6 +327,10 @@ export struct SelectedClipData {
     // the overlay, when this is a text clip
     content: string,
     font-family: string,
+    /// The row of `Editor.font-families` the family is on, for the picker;
+    /// 0 - the bundled face - for a family nobody has, which is painted in
+    /// it.
+    family-row: int,
     /// share of frame height, not points: the frame can be any resolution
     font-size: float,
     font-weight: float,

@@ -612,6 +612,8 @@ pub struct Models {
     pub recents: Rc<VecModel<RecentProjectData>>,
     /// The Text page's presets, published once from the loaded list.
     pub text_presets: Rc<VecModel<TextPresetData>>,
+    /// The families a title can be set in; see `Studio::font_families`.
+    pub font_families: Rc<VecModel<SharedString>>,
 }
 
 impl Models {
@@ -667,6 +669,7 @@ impl Models {
             dividers: Rc::new(VecModel::default()),
             recents: Rc::new(VecModel::default()),
             text_presets: Rc::new(VecModel::default()),
+            font_families: Rc::new(VecModel::default()),
         }
     }
 }
@@ -875,6 +878,15 @@ pub struct Studio {
     /// Every speaker the voice engine offers, in its own order.
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
+    /// The fonts in the app's own folder - imported from the Text
+    /// inspector, or brought by a preset - as (family, file), read once at
+    /// start and added to as files come in. Offered to every title; a
+    /// project a title is set in one of them registers the file so the
+    /// painter finds it. See `presets::installed_fonts`.
+    pub installed_fonts: Vec<(String, String)>,
+    /// The families the machine has, found on a worker after the window is
+    /// up - the system's fonts take a moment to read - and empty until then.
+    pub system_fonts: Vec<String>,
 
     /// The languages Settings › General offers, in its order; see `i18n`.
     pub languages: Vec<i18n::Language>,
@@ -1773,6 +1785,8 @@ impl Studio {
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::default(),
             text_presets,
+            installed_fonts: presets::installed_fonts(&host.dirs),
+            system_fonts: Vec::new(),
             languages,
             brush: 0,
             brush_size: 0.06,
@@ -4045,6 +4059,12 @@ impl Studio {
         let Some(id) = self.sole_selection() else {
             return;
         };
+        // One of the app's own fonts goes on the project before the title
+        // is set in it, as a command of its own: the painter reads the
+        // project's fonts, and the echo below is not the project.
+        if field == ClipTextField::FontFamily {
+            self.ensure_font(value);
+        }
         self.commit_target = Some(id.clone());
         self.begin_echo();
         let Some(clip) = self.echo_clip_mut(&id) else {
@@ -4080,6 +4100,99 @@ impl Studio {
         // the blur does, and a flush before then lands them too.
         self.commit_pending = true;
         self.request_preview();
+    }
+
+    // ── fonts ──
+
+    /// The families a title can be set in, in the order the picker shows
+    /// them: the bundled face; then the user's own - the project's fonts
+    /// and the app's installed ones, once each, in alphabetical order; then
+    /// the system's, likewise, less any already listed.
+    pub fn font_families(&self) -> Vec<String> {
+        let mut out = vec![concat_text::BUNDLED_FAMILY.to_owned()];
+        let mut own: Vec<String> = self
+            .installed_fonts
+            .iter()
+            .map(|(family, _)| family.clone())
+            .chain(
+                self.session
+                    .as_ref()
+                    .map(|session| session.project().fonts.clone())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|font| font.family),
+            )
+            .filter(|family| !family.is_empty())
+            .collect();
+        own.sort_by_cached_key(|family| family.to_lowercase());
+        own.dedup();
+        for family in own.into_iter().chain(self.system_fonts.iter().cloned()) {
+            if !out.iter().any(|held| held.eq_ignore_ascii_case(&family)) {
+                out.push(family);
+            }
+        }
+        out
+    }
+
+    /// The machine's families have been read; see `system_fonts`.
+    pub fn system_fonts_known(&mut self, families: Vec<String>) {
+        self.system_fonts = families;
+    }
+
+    /// Font files the user picked: each is copied to the app's own folder,
+    /// so it is there next session and for every project, and registered
+    /// on this project; the selected title is set in the first of them.
+    pub fn import_fonts(&mut self, paths: Vec<std::path::PathBuf>) {
+        let mut first: Option<String> = None;
+        for path in paths {
+            let families = concat_text::families_in(&path);
+            if families.is_empty() {
+                self.notify(&tf("studio.notAFont", &[&path.display()]), true);
+                continue;
+            }
+            let Some(installed) = presets::install_font_file(&self.host.dirs, &path) else {
+                self.notify(&tf("studio.notAFont", &[&path.display()]), true);
+                continue;
+            };
+            let file = installed.to_string_lossy().into_owned();
+            for family in families {
+                if !self.installed_fonts.iter().any(|(held, _)| *held == family) {
+                    self.installed_fonts.push((family.clone(), file.clone()));
+                }
+                self.ensure_font(&family);
+                first.get_or_insert(family);
+            }
+        }
+        if let Some(family) = first {
+            self.notify(&tf("studio.fontImported", &[&family]), false);
+            if self.sole_selection().is_some() {
+                self.clip_set_text(ClipTextField::FontFamily, &family);
+                self.clip_commit();
+            }
+        }
+    }
+
+    /// Registers the file behind one of the app's installed families on the
+    /// project, once, so the painter - which reads a project's fonts and
+    /// the system's, and nothing else - finds it. Nothing for a family the
+    /// project already carries, or one that is not the app's to register.
+    fn ensure_font(&mut self, family: &str) {
+        let family = family.trim().trim_matches('"');
+        let carried = self.session.as_ref().is_some_and(|session| {
+            session
+                .project()
+                .fonts
+                .iter()
+                .any(|font| font.family == family)
+        });
+        if carried {
+            return;
+        }
+        let Some((_, path)) = self.installed_fonts.iter().find(|(held, _)| held == family) else {
+            return;
+        };
+        let (family, path) = (family.to_owned(), path.clone());
+        self.apply(Command::AddFont { family, path });
     }
 
     pub fn clip_set_colour(&mut self, field: ClipTextField, value: slint::Color) {
@@ -6658,6 +6771,13 @@ impl Studio {
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
+        sync(
+            &models.font_families,
+            self.font_families()
+                .into_iter()
+                .map(SharedString::from)
+                .collect(),
+        );
         editor.set_inspector_jump_token(self.inspector_jump.0);
         editor.set_library_audition(self.audition_of().unwrap_or("").into());
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
@@ -7759,6 +7879,11 @@ impl Studio {
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
+            family_row: self
+                .font_families()
+                .iter()
+                .position(|family| family.eq_ignore_ascii_case(text.font_family.trim_matches('"')))
+                .unwrap_or(0) as i32,
             font_size: text.font_size as f32,
             font_weight: text.font_weight as f32,
             italic: text.italic,

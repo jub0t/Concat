@@ -239,6 +239,41 @@ impl Fonts {
         self.db.load_font_file(path).is_ok()
     }
 
+    /// Every family the database knows, once each, in alphabetical order
+    /// without regard to case: what a font picker offers. The bundled face
+    /// is among them.
+    pub fn families(&self) -> Vec<String> {
+        family_names(&self.db)
+    }
+}
+
+/// The families a font file carries - one for a face, several for a
+/// collection - or none when it is not a font this crate can read. Reads
+/// the file alone, with no system font behind it.
+pub fn families_in(path: &std::path::Path) -> Vec<String> {
+    let mut db = fontdb::Database::new();
+    if db.load_font_file(path).is_err() {
+        return Vec::new();
+    }
+    family_names(&db)
+}
+
+fn family_names(db: &fontdb::Database) -> Vec<String> {
+    let mut names: Vec<String> = db
+        .faces()
+        .filter_map(|face| {
+            face.families
+                .first()
+                .map(|(name, _)| name.trim().to_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .collect();
+    names.sort_by_cached_key(|name| name.to_lowercase());
+    names.dedup();
+    names
+}
+
+impl Fonts {
     /// The best face for a style: the named family at the nearest weight and
     /// slant, then any sans-serif, then anything at all.
     fn pick(&self, style: &TitleStyle) -> Result<Vec<u8>, Error> {
@@ -788,6 +823,34 @@ fn push_rounded_rect(builder: &mut PathBuilder, rect: Rect, radius: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_font_file_names_its_family_and_anything_else_names_none() {
+        let dir = std::env::temp_dir().join(format!("concat-text-fam-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let font = dir.join("face.ttf");
+        std::fs::write(&font, BUNDLED[0]).expect("written");
+        assert_eq!(families_in(&font), vec![BUNDLED_FAMILY.to_owned()]);
+        let words = dir.join("words.txt");
+        std::fs::write(&words, b"not a font").expect("written");
+        assert!(families_in(&words).is_empty());
+        assert!(families_in(&dir.join("missing.otf")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_families_on_offer_are_sorted_once_each_and_include_the_bundled_face() {
+        let families = Fonts::new().families();
+        assert!(families.iter().any(|name| name == BUNDLED_FAMILY));
+        let lowered: Vec<String> = families.iter().map(|name| name.to_lowercase()).collect();
+        let mut sorted = lowered.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(
+            lowered, sorted,
+            "sorted without regard to case, and once each"
+        );
+    }
 
     fn style(content: &str) -> TitleStyle {
         TitleStyle {

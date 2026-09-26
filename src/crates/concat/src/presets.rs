@@ -310,19 +310,57 @@ pub fn all(dirs: &AppDirs) -> Vec<TextPreset> {
     presets
 }
 
+/// Where the app keeps fonts: the ones presets brought, and the ones the
+/// user imported from the Text inspector. A font here outlives the project
+/// it was imported into - it is offered to every title, and registered on
+/// a project the moment a title in it is set in the face.
+pub fn fonts_dir(dirs: &AppDirs) -> PathBuf {
+    dirs.config.join("fonts")
+}
+
+/// Copies a font file into [`fonts_dir`], unless one of that name is there
+/// already, and says where it landed. None when it cannot be copied.
+pub fn install_font_file(dirs: &AppDirs, source: &Path) -> Option<PathBuf> {
+    let name = source.file_name()?;
+    let fonts = fonts_dir(dirs);
+    let installed = fonts.join(name);
+    if !installed.is_file() {
+        std::fs::create_dir_all(&fonts).ok()?;
+        std::fs::copy(source, &installed).ok()?;
+    }
+    Some(installed)
+}
+
+/// Every family in [`fonts_dir`], with the file that carries it: what the
+/// font picker offers beyond the bundled face and the system's, in the
+/// order the files are found. A file that is not a font is passed over.
+pub fn installed_fonts(dirs: &AppDirs) -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir(fonts_dir(dirs)) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .collect();
+    paths.sort();
+    let mut out = Vec::new();
+    for path in paths {
+        let file = path.to_string_lossy().into_owned();
+        for family in concat_text::families_in(&path) {
+            out.push((family, file.clone()));
+        }
+    }
+    out
+}
+
 /// Puts the preset's font where the app keeps fonts, if it is not there
 /// already, and says how to register it: the family the style names and
 /// the installed file. None for a preset that brings no font, or whose
 /// file cannot be read.
 pub fn install_font(dirs: &AppDirs, preset: &TextPreset) -> Option<(String, String)> {
     let source = preset.font.as_ref().filter(|path| path.is_file())?;
-    let name = source.file_name()?;
-    let fonts = dirs.config.join("fonts");
-    let installed = fonts.join(name);
-    if !installed.is_file() {
-        std::fs::create_dir_all(&fonts).ok()?;
-        std::fs::copy(source, &installed).ok()?;
-    }
+    let installed = install_font_file(dirs, source)?;
     let family = preset.style.font_family.trim().trim_matches('"').to_owned();
     if family.is_empty() {
         return None;

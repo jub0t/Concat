@@ -40,6 +40,8 @@ export component TextPanel inherits VerticalLayout {
     callback set-text(field: ClipTextField, value: string);
     callback set-colour(field: ClipTextField, value: color);
     callback commit();
+    /// The square beside the font picker: bring a font file of your own in.
+    callback import-font();
 
     // Local editing state, seeded rather than bound — see the note on
     // AdjustPanel, which has the same problem for the same reason.
@@ -98,9 +100,9 @@ export component TextPanel inherits VerticalLayout {
         root.weight-index = root.selected.font-weight >= 700 ? 3
             : root.selected.font-weight >= 600 ? 2
             : root.selected.font-weight >= 500 ? 1 : 0;
-        // One bundled face; a title from an older document that named a
-        // retired one is painted in it too, so it is that row as well.
-        root.family-index = 0;
+        // Where the family sits in the list Rust offers; a family nobody
+        // has is painted in the bundled face and shows as that row.
+        root.family-index = root.selected.family-row;
     }
 
     init => { root.seed(); }
@@ -241,6 +243,13 @@ export component TextPanel inherits VerticalLayout {
                     root.set-text(ClipTextField.font-family, root.families[index]);
                     root.commit();
                 }
+            }
+            // A font of your own, from a file: it joins the list for good
+            // and the title is set in it.
+            IconButton {
+                glyph: Glyph.import;
+                label: I18n.t("textPanel.importFont");
+                clicked => { root.import-font(); }
             }
         }
 
