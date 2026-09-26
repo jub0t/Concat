@@ -184,8 +184,8 @@ component StarChip inherits Rectangle {
 /// filters and audio alike — the data says which.
 export component PresetStack inherits VerticalLayout {
     /// lower-case singular, for labels and placeholders
-    in property <string> noun: I18n.t("effect");
-    in property <string> library-title: I18n.t("Effect library");
+    in property <string> noun: I18n.t("common.effect");
+    in property <string> library-title: I18n.t("clipInspector.effectLibrary");
     in property <[string]> group-labels;
     in property <[CatalogueEntryData]> catalogue;
     /// Owned by Rust: a chain is edited by index, and Slint models cannot be
@@ -265,7 +265,7 @@ export component PresetStack inherits VerticalLayout {
         SectionHeader {
             title: root.library-title;
             HelpButton {
-                text: I18n.t("The chain runs top to bottom — reorder it with the chevrons. The eye bypasses one link without losing the values you dialled into it.");
+                text: I18n.t("clipInspector.chainRunsTopBottom");
             }
         }
 
@@ -313,7 +313,7 @@ export component PresetStack inherits VerticalLayout {
                             }
 
                             if !item.known: Text {
-                                text: I18n.t("not installed");
+                                text: I18n.t("clipInspector.notInstalled");
                                 color: Theme.fg-dim;
                                 font-size: Theme.fs-xs;
                                 vertical-alignment: center;
@@ -321,28 +321,28 @@ export component PresetStack inherits VerticalLayout {
 
                             IconButton {
                                 glyph: Glyph.eye;
-                                label: item.on ? I18n.t1("Bypass {0}", "\{item.name}") : I18n.t1("Enable {0}", "\{item.name}");
+                                label: item.on ? I18n.t1("clipInspector.bypass", "\{item.name}") : I18n.t1("clipInspector.enable", "\{item.name}");
                                 checked: item.on;
                                 clicked => { root.toggle(index); }
                             }
 
                             IconButton {
                                 glyph: Glyph.chevron-up;
-                                label: I18n.t1("Move {0} up", "\{item.name}");
+                                label: I18n.t1("clipInspector.moveUp", "\{item.name}");
                                 enabled: index > 0;
                                 clicked => { root.move-by(index, -1); }
                             }
 
                             IconButton {
                                 glyph: Glyph.chevron-down;
-                                label: I18n.t1("Move {0} down", "\{item.name}");
+                                label: I18n.t1("clipInspector.moveDown", "\{item.name}");
                                 enabled: index < root.applied.length - 1;
                                 clicked => { root.move-by(index, 1); }
                             }
 
                             IconButton {
                                 glyph: Glyph.close;
-                                label: I18n.t1("Remove {0}", "\{item.name}");
+                                label: I18n.t1("clipInspector.remove", "\{item.name}");
                                 clicked => { root.remove(index); }
                             }
                         }
@@ -382,7 +382,7 @@ export component PresetStack inherits VerticalLayout {
         if root.library: Row {
             search := SearchField {
                 text: root.query;
-                placeholder: I18n.t1("Search {0}s", "\{root.noun}");
+                placeholder: I18n.t1("common.searchKind", "\{root.noun}");
                 edited(text) => { Library.query-changed(root.shelf, text); }
                 // The field owns its own text once typed in - a TextInput
                 // assigns to `text`, and an assignment replaces the binding
@@ -419,7 +419,7 @@ export component PresetStack inherits VerticalLayout {
 
             if root.favourites-only: Text {
                 vertical-alignment: center;
-                text: I18n.t("Favourites");
+                text: I18n.t("clipInspector.favourites");
                 color: Theme.fg-muted;
                 font-size: Theme.fs;
             }
@@ -518,8 +518,8 @@ export component PresetStack inherits VerticalLayout {
 
             Text {
                 text: root.favourites-only
-                    ? I18n.t("Nothing starred yet — hover a tile and press its star.")
-                    : I18n.t1("No {0} matches that.", "\{root.noun}");
+                    ? I18n.t("clipInspector.nothingStarredYetHover")
+                    : I18n.t1("clipInspector.noMatchesThat", "\{root.noun}");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -634,13 +634,13 @@ export component ProcessorRows inherits VerticalLayout {
 
     Section {
         SectionHeader {
-            title: I18n.t("Treatments");
+            title: I18n.t("clipInspector.treatments");
         }
 
         SectionBody {
             Processor {
-                label: I18n.t("Normalize loudness");
-                note: I18n.t("Brings the clip to a broadcast level without riding the fader.");
+                label: I18n.t("clipInspector.normalizeLoudness");
+                note: I18n.t("clipInspector.bringsClipBroadcastLevel");
                 on: root.at("concat.loudness") >= 0;
                 entry: root.at("concat.loudness");
                 params: root.params;
@@ -650,8 +650,8 @@ export component ProcessorRows inherits VerticalLayout {
             }
 
             Processor {
-                label: I18n.t("Reduce noise");
-                note: I18n.t("Takes the room's hiss and hum out from under the voice.");
+                label: I18n.t("clipInspector.reduceNoise");
+                note: I18n.t("clipInspector.takesRoomsHissHum");
                 on: root.at("concat.denoise") >= 0;
                 entry: root.at("concat.denoise");
                 params: root.params;
@@ -661,8 +661,8 @@ export component ProcessorRows inherits VerticalLayout {
             }
 
             Processor {
-                label: I18n.t("Enhance voice");
-                note: I18n.t("Lifts speech out of the mix: a little presence, a little control.");
+                label: I18n.t("clipInspector.enhanceVoice");
+                note: I18n.t("clipInspector.liftsSpeechOutMix");
                 on: root.at("concat.enhance-voice") >= 0;
                 entry: root.at("concat.enhance-voice");
                 params: root.params;
@@ -775,11 +775,11 @@ component AnalysisRow inherits Row {
     /// The model is still being downloaded; the frames come after.
     in property <bool> fetching;
 
-    label: I18n.t("Analysis");
+    label: I18n.t("clipInspector.analysis");
     Text {
         text: root.fetching
-            ? I18n.t1("Fetching the model… {0}%", "\{Math.round(root.progress * 100)}")
-            : I18n.t1("Finding the subject… {0}%", "\{Math.round(root.progress * 100)}");
+            ? I18n.t1("clipInspector.fetchingTheModel", "\{Math.round(root.progress * 100)}")
+            : I18n.t1("clipInspector.findingTheSubject", "\{Math.round(root.progress * 100)}");
         color: Theme.fg-muted;
         font-size: Theme.fs;
         vertical-alignment: center;
@@ -792,11 +792,11 @@ component EnhanceRow inherits Row {
     in property <float> progress;
     in property <bool> fetching;
 
-    label: I18n.t("Enhance");
+    label: I18n.t("common.enhance");
     Text {
         text: root.fetching
-            ? I18n.t1("Fetching the model… {0}%", "\{Math.round(root.progress * 100)}")
-            : I18n.t1("Enhancing… {0}%", "\{Math.round(root.progress * 100)}");
+            ? I18n.t1("clipInspector.fetchingTheModel", "\{Math.round(root.progress * 100)}")
+            : I18n.t1("clipInspector.enhancing", "\{Math.round(root.progress * 100)}");
         color: Theme.fg-muted;
         font-size: Theme.fs;
         vertical-alignment: center;
@@ -808,9 +808,9 @@ component EnhanceRow inherits Row {
 component ReverseRow inherits Row {
     in property <float> progress;
 
-    label: I18n.t("Reverse");
+    label: I18n.t("common.reverse");
     Text {
-        text: I18n.t1("Reversing… {0}%", "\{Math.round(root.progress * 100)}");
+        text: I18n.t1("clipInspector.reversing", "\{Math.round(root.progress * 100)}");
         color: Theme.fg-muted;
         font-size: Theme.fs;
         vertical-alignment: center;
@@ -933,12 +933,12 @@ export component VideoPanel inherits VerticalLayout {
     }
 
     property <[string]> blends: [
-        I18n.t("Normal"),
-        I18n.t("Multiply"),
-        I18n.t("Screen"),
-        I18n.t("Add"),
-        I18n.t("Lighten"),
-        I18n.t("Darken")
+        I18n.t("clipInspector.normal"),
+        I18n.t("clipInspector.multiply"),
+        I18n.t("clipInspector.screen"),
+        I18n.t("clipInspector.add"),
+        I18n.t("clipInspector.lighten"),
+        I18n.t("clipInspector.darken")
     ];
 
     init => { root.seed(); }
@@ -947,18 +947,18 @@ export component VideoPanel inherits VerticalLayout {
     Section {
         first: true;
         transform := SectionHeader {
-            title: I18n.t("Transform");
+            title: I18n.t("clipInspector.transform");
             collapsible: true;
             summary: "\{Math.round(root.scale * 100)}% · \{Math.round(root.rotation)}°";
             HelpButton {
-                text: I18n.t("Scale and position are fractions of the output frame, so a clip keeps its framing if the project is re-sized. The same numbers move with the box on the monitor. Width and height pull one axis beyond the scale; the edge grips on the monitor do the same.");
+                text: I18n.t("clipInspector.scalePositionFractionsOutput");
             }
         }
 
         if transform.open: SectionBody {
 
             Param {
-                label: I18n.t("Scale");
+                label: I18n.t("common.scale");
                 keyable: true;
                 field: ClipField.scale;
                 value <=> root.scale;
@@ -973,7 +973,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Position X");
+                label: I18n.t("common.positionX");
                 keyable: true;
                 field: ClipField.offset-x;
                 value <=> root.offset-x;
@@ -988,7 +988,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Position Y");
+                label: I18n.t("common.positionY");
                 keyable: true;
                 field: ClipField.offset-y;
                 value <=> root.offset-y;
@@ -1003,7 +1003,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Rotation");
+                label: I18n.t("common.rotation");
                 keyable: true;
                 field: ClipField.rotation;
                 value <=> root.rotation;
@@ -1017,7 +1017,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Width");
+                label: I18n.t("common.width");
                 value <=> root.stretch-x;
                 minimum: 0.1;
                 maximum: 4;
@@ -1030,7 +1030,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Height");
+                label: I18n.t("common.height");
                 value <=> root.stretch-y;
                 minimum: 0.1;
                 maximum: 4;
@@ -1046,7 +1046,7 @@ export component VideoPanel inherits VerticalLayout {
 
     Section {
         blend := SectionHeader {
-            title: I18n.t("Blend");
+            title: I18n.t("clipInspector.blend");
             collapsible: true;
             summary: "\{Math.round(root.alpha * 100)}% · "
                 + root.blends[Math.max(0, Math.min(root.selected.blend, root.blends.length - 1))];
@@ -1054,7 +1054,7 @@ export component VideoPanel inherits VerticalLayout {
 
         if blend.open: SectionBody {
             Param {
-                label: I18n.t("Opacity");
+                label: I18n.t("common.opacity");
                 keyable: true;
                 field: ClipField.opacity;
                 value <=> root.alpha;
@@ -1069,7 +1069,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Row {
-                label: I18n.t("Mode");
+                label: I18n.t("common.mode");
                 Select {
                     options: root.blends;
                     current: root.selected.blend;
@@ -1078,13 +1078,13 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             SwitchRow {
-                label: I18n.t("Flip horizontal");
+                label: I18n.t("clipInspector.flipHorizontal");
                 checked: root.selected.flip-h;
                 toggled(on) => { root.set(ClipField.flip-h, on ? 1 : 0); root.commit(); }
             }
 
             SwitchRow {
-                label: I18n.t("Flip vertical");
+                label: I18n.t("clipInspector.flipVertical");
                 checked: root.selected.flip-v;
                 toggled(on) => { root.set(ClipField.flip-v, on ? 1 : 0); root.commit(); }
             }
@@ -1099,34 +1099,34 @@ export component VideoPanel inherits VerticalLayout {
     // own rows. One at a time: ticking a block unticks the others.
     Section {
         cutout := SectionHeader {
-            title: I18n.t("Remove background");
+            title: I18n.t("clipInspector.removeBackground");
             collapsible: true;
-            summary: root.removal == 0 ? I18n.t("off")
-                : root.removal == 1 ? I18n.t("Auto removal")
-                : root.removal == 2 ? I18n.t("Custom removal") : I18n.t("Chroma key");
+            summary: root.removal == 0 ? I18n.t("common.off")
+                : root.removal == 1 ? I18n.t("clipInspector.autoRemoval")
+                : root.removal == 2 ? I18n.t("clipInspector.customRemoval") : I18n.t("clipInspector.chromaKey");
             HelpButton {
-                text: I18n.t("Auto removal keeps what the model finds and drops the rest: a person, or the one thing the picture is of. Custom removal starts from the same mask and takes corrections painted on the monitor: the smart brush keeps the whole thing it touches and the smart eraser removes it, the plain ones do exactly what you paint; Apply ends the painting. Chroma key drops one colour instead; similarity is how far from the colour still counts, softness feathers the edge.");
+                text: I18n.t("clipInspector.autoRemovalKeepsWhat");
             }
         }
 
         if cutout.open: SectionBody {
 
             RemovalBlock {
-                title: I18n.t("Auto removal");
+                title: I18n.t("clipInspector.autoRemoval");
                 on: root.removal == 1;
                 toggled(on) => { root.remove-by(on ? 1 : 0); }
             }
 
             if root.removal == 1: Row {
-                label: I18n.t("Subject");
+                label: I18n.t("clipInspector.subject");
                 Select {
-                    options: [I18n.t("Auto"), I18n.t("Person"), I18n.t("Object")];
+                    options: [I18n.t("common.auto"), I18n.t("clipInspector.person"), I18n.t("clipInspector.object")];
                     current: root.selected.cutout-subject;
                     changed(index) => { root.cutout-subject(index); }
                 }
             }
             if root.removal == 1: Param {
-                label: I18n.t("Feather");
+                label: I18n.t("clipInspector.feather");
                 value <=> root.feather;
                 minimum: 0;
                 maximum: 0.1;
@@ -1142,13 +1142,13 @@ export component VideoPanel inherits VerticalLayout {
                 fetching: root.selected.cutout-fetching;
             }
             if root.removal == 1 && root.selected.cutout-progress < 0 && root.selected.cutout-empty: Note {
-                text: I18n.t("Nothing found to keep here, so the picture shows as shot. Try another subject, or custom removal.");
+                text: I18n.t("clipInspector.nothingFoundKeepPicture");
             }
 
             Hairline { }
 
             RemovalBlock {
-                title: I18n.t("Custom removal");
+                title: I18n.t("clipInspector.customRemoval");
                 on: root.removal == 2;
                 toggled(on) => { root.remove-by(on ? 2 : 0); }
                 ResetButton {
@@ -1166,7 +1166,7 @@ export component VideoPanel inherits VerticalLayout {
                 ToolButton {
                     glyph: Glyph.brush;
                     smart: true;
-                    label: I18n.t("Smart brush");
+                    label: I18n.t("clipInspector.smartBrush");
                     checked: root.painting && root.brush-tool == 0;
                     clicked => { root.cutout-tool(0); root.cutout-painting(true); }
                 }
@@ -1174,7 +1174,7 @@ export component VideoPanel inherits VerticalLayout {
                 ToolButton {
                     glyph: Glyph.eraser;
                     smart: true;
-                    label: I18n.t("Smart eraser");
+                    label: I18n.t("clipInspector.smartEraser");
                     checked: root.painting && root.brush-tool == 2;
                     clicked => { root.cutout-tool(2); root.cutout-painting(true); }
                 }
@@ -1187,14 +1187,14 @@ export component VideoPanel inherits VerticalLayout {
 
                 ToolButton {
                     glyph: Glyph.brush;
-                    label: I18n.t("Brush");
+                    label: I18n.t("clipInspector.brush");
                     checked: root.painting && root.brush-tool == 1;
                     clicked => { root.cutout-tool(1); root.cutout-painting(true); }
                 }
 
                 ToolButton {
                     glyph: Glyph.eraser;
-                    label: I18n.t("Eraser");
+                    label: I18n.t("clipInspector.eraser");
                     checked: root.painting && root.brush-tool == 3;
                     clicked => { root.cutout-tool(3); root.cutout-painting(true); }
                 }
@@ -1204,7 +1204,7 @@ export component VideoPanel inherits VerticalLayout {
                 }
             }
             if root.removal == 2: Param {
-                label: I18n.t("Size");
+                label: I18n.t("common.size");
                 value: root.brush-size;
                 minimum: 0.005;
                 maximum: 0.5;
@@ -1216,7 +1216,7 @@ export component VideoPanel inherits VerticalLayout {
                 changed(v) => { root.cutout-size(v); }
             }
             if root.removal == 2: Param {
-                label: I18n.t("Feather");
+                label: I18n.t("clipInspector.feather");
                 value <=> root.feather;
                 minimum: 0;
                 maximum: 0.1;
@@ -1232,14 +1232,14 @@ export component VideoPanel inherits VerticalLayout {
                 fetching: root.selected.cutout-fetching;
             }
             if root.removal == 2: Row {
-                label: root.selected.cutout-strokes == 1 ? I18n.t("1 stroke")
-                    : I18n.t1("{0} strokes", "\{root.selected.cutout-strokes}");
+                label: root.selected.cutout-strokes == 1 ? I18n.t("clipInspector.oneStroke")
+                    : I18n.t1("clipInspector.strokes", "\{root.selected.cutout-strokes}");
                 Rectangle {
                     horizontal-stretch: 1;
                 }
 
                 Button {
-                    label: I18n.t("Apply");
+                    label: I18n.t("common.apply");
                     primary: true;
                     enabled: root.painting;
                     clicked => { root.cutout-painting(false); }
@@ -1249,15 +1249,15 @@ export component VideoPanel inherits VerticalLayout {
             Hairline { }
 
             RemovalBlock {
-                title: I18n.t("Chroma key");
+                title: I18n.t("clipInspector.chromaKey");
                 on: root.keyer > 0;
                 toggled(on) => { root.remove-by(on ? 3 : 0); }
             }
 
             if root.keyer > 0: Row {
-                label: I18n.t("Color");
+                label: I18n.t("common.color");
                 Select {
-                    options: [I18n.t("Green"), I18n.t("Blue")];
+                    options: [I18n.t("clipInspector.green"), I18n.t("clipInspector.blue")];
                     current: root.keyer - 1;
                     changed(index) => { root.remove-by(index + 3); }
                 }
@@ -1294,16 +1294,16 @@ export component VideoPanel inherits VerticalLayout {
     // source's own edges, so a crop survives a change of output size.
     Section {
         crop := SectionHeader {
-            title: I18n.t("Crop");
+            title: I18n.t("clipInspector.crop");
             collapsible: true;
             summary: (root.crop-left == 0 && root.crop-top == 0
-                && root.crop-right == 0 && root.crop-bottom == 0) ? I18n.t("none")
+                && root.crop-right == 0 && root.crop-bottom == 0) ? I18n.t("common.none")
                 : "\{Math.round(root.crop-left * 100)} · \{Math.round(root.crop-top * 100)} · \{Math.round(root.crop-right * 100)} · \{Math.round(root.crop-bottom * 100)}";
         }
 
         if crop.open: SectionBody {
             Param {
-                label: I18n.t("Left");
+                label: I18n.t("common.left");
                 value <=> root.crop-left;
                 minimum: 0;
                 maximum: 0.9;
@@ -1316,7 +1316,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Top");
+                label: I18n.t("common.top");
                 value <=> root.crop-top;
                 minimum: 0;
                 maximum: 0.9;
@@ -1329,7 +1329,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Right");
+                label: I18n.t("common.right");
                 value <=> root.crop-right;
                 minimum: 0;
                 maximum: 0.9;
@@ -1342,7 +1342,7 @@ export component VideoPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Bottom");
+                label: I18n.t("common.bottom");
                 value <=> root.crop-bottom;
                 minimum: 0;
                 maximum: 0.9;
@@ -1362,16 +1362,16 @@ export component VideoPanel inherits VerticalLayout {
     // none: applying one from the Transitions tab is what puts it here.
     Section {
         transition := SectionHeader {
-            title: I18n.t("Transition");
+            title: I18n.t("clipInspector.transition");
             collapsible: true;
-            summary: root.selected.transition-id == "" ? I18n.t("none")
+            summary: root.selected.transition-id == "" ? I18n.t("common.none")
                 : root.selected.transition-name + " · "
                     + InspectorFmt.format(ParamFormat.seconds2, root.selected.transition-duration);
         }
 
         if transition.open: SectionBody {
             if root.selected.transition-id == "": Note {
-                text: I18n.t("Pick one from the Transitions tab to dissolve into this clip from the cut before it.");
+                text: I18n.t("clipInspector.pickOneTransitionsTab");
             }
 
             if root.selected.transition-id != "": HorizontalLayout {
@@ -1392,13 +1392,13 @@ export component VideoPanel inherits VerticalLayout {
 
                 IconButton {
                     glyph: Glyph.close;
-                    label: I18n.t1("Remove {0}", "\{root.selected.transition-name}");
+                    label: I18n.t1("clipInspector.remove", "\{root.selected.transition-name}");
                     clicked => { root.transition-remove(); }
                 }
             }
 
             if root.selected.transition-id != "": Param {
-                label: I18n.t("Duration");
+                label: I18n.t("common.duration");
                 value <=> root.transition-duration;
                 minimum: 0.05;
                 maximum: 5;
@@ -1451,7 +1451,7 @@ export component AudioPanel inherits VerticalLayout {
     if root.choosing: Section {
         first: true;
         source := SectionHeader {
-            title: I18n.t("Source");
+            title: I18n.t("clipInspector.source");
             collapsible: true;
             summary: (root.selected.audio-track >= 0
                 && root.selected.audio-track < root.audio-tracks.length)
@@ -1463,7 +1463,7 @@ export component AudioPanel inherits VerticalLayout {
             fetching: root.selected.enhance-fetching;
         }
         if root.audio-tracks.length > 1: Row {
-            label: I18n.t("Audio track");
+            label: I18n.t("clipInspector.audioTrack");
             Select {
                 options: root.audio-tracks;
                 current: root.selected.audio-track;
@@ -1479,7 +1479,7 @@ export component AudioPanel inherits VerticalLayout {
     Section {
         first: !root.choosing;
         volume := SectionHeader {
-            title: I18n.t("Volume");
+            title: I18n.t("clipInspector.volume");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.gain, root.level);
 
@@ -1495,7 +1495,7 @@ export component AudioPanel inherits VerticalLayout {
 
         if volume.open: SectionBody {
             Param {
-                label: I18n.t("Level");
+                label: I18n.t("common.level");
                 keyable: true;
                 field: ClipField.volume;
                 rail: true;
@@ -1519,9 +1519,9 @@ export component AudioPanel inherits VerticalLayout {
 
     Section {
         fades := SectionHeader {
-            title: I18n.t("Fades");
+            title: I18n.t("clipInspector.fades");
             collapsible: true;
-            summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("none")
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("common.none")
                 : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
                 + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
 
@@ -1537,7 +1537,7 @@ export component AudioPanel inherits VerticalLayout {
 
         if fades.open: SectionBody {
             Param {
-                label: I18n.t("Fade in");
+                label: I18n.t("clipInspector.fadeIn");
                 rail: true;
                 value <=> root.fade-in;
                 minimum: 0;
@@ -1549,7 +1549,7 @@ export component AudioPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Fade out");
+                label: I18n.t("clipInspector.fadeOut");
                 rail: true;
                 value <=> root.fade-out;
                 minimum: 0;
@@ -1567,12 +1567,12 @@ export component AudioPanel inherits VerticalLayout {
     // sound is the sound's business, beside the level it is mixed at.
     Section {
         SectionHeader {
-            title: I18n.t("Pitch");
+            title: I18n.t("clipInspector.pitch");
         }
 
         SectionBody {
             SwitchRow {
-                label: I18n.t("Change pitch with speed");
+                label: I18n.t("clipInspector.changePitchWithSpeed");
                 checked: !root.selected.preserve-pitch;
                 toggled(on) => {
                     root.set(ClipField.preserve-pitch, on ? 0 : 1);
@@ -1600,11 +1600,11 @@ export component SpeedPanel inherits VerticalLayout {
     Section {
         first: true;
         speed := SectionHeader {
-            title: I18n.t("Speed");
+            title: I18n.t("common.speed");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.rate, root.speed);
             HelpButton {
-                text: I18n.t("Rate re-times the clip in place, so the timeline length changes with it. Trim afterwards, not before.");
+                text: I18n.t("clipInspector.rateReTimesClip");
             }
         }
 
@@ -1614,7 +1614,7 @@ export component SpeedPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Rate");
+                label: I18n.t("common.rate");
                 value <=> root.speed;
                 // The engine's full range. The track is linear, so the
                 // useful 0.25-4x band sits left of centre and the number
@@ -1646,9 +1646,9 @@ export component AdjustPanel inherits VerticalLayout {
     Section {
         first: true;
         SectionHeader {
-            title: I18n.t("Adjust");
+            title: I18n.t("common.adjust");
             HelpButton {
-                text: I18n.t("Exposure is in stops; the rest is a signed percent of the picture as shot, and zero everywhere is the picture as shot. Double-click a label to put it back; the diamond keys the knob at the playhead.");
+                text: I18n.t("clipInspector.exposureStopsRestSigned");
             }
         }
 
@@ -1731,18 +1731,18 @@ export component FilterPanel inherits VerticalLayout {
     Section {
         first: true;
         layer := SectionHeader {
-            title: I18n.t("Layer");
+            title: I18n.t("common.layer");
             collapsible: true;
             summary: InspectorFmt.format(ParamFormat.fraction, root.strength);
             HelpButton {
-                text: I18n.t("A layer treats everything under it for as long as it runs. Trim it on the timeline to change what it covers.");
+                text: I18n.t("clipInspector.layerTreatsEverythingUnder");
             }
         }
 
         if layer.open: SectionBody {
 
             Param {
-                label: I18n.t("Strength");
+                label: I18n.t("clipInspector.strength");
                 value <=> root.strength;
                 minimum: 0;
                 maximum: 1;
@@ -1758,16 +1758,16 @@ export component FilterPanel inherits VerticalLayout {
 
     Section {
         ramps := SectionHeader {
-            title: I18n.t("Ramps");
+            title: I18n.t("clipInspector.ramps");
             collapsible: true;
-            summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("none")
+            summary: (root.fade-in == 0 && root.fade-out == 0) ? I18n.t("common.none")
                 : InspectorFmt.format(ParamFormat.seconds2, root.fade-in)
                 + " / " + InspectorFmt.format(ParamFormat.seconds2, root.fade-out);
         }
 
         if ramps.open: SectionBody {
             Param {
-                label: I18n.t("Ramp in");
+                label: I18n.t("clipInspector.rampIn");
                 value <=> root.fade-in;
                 minimum: 0;
                 maximum: root.ramp-limit;
@@ -1778,7 +1778,7 @@ export component FilterPanel inherits VerticalLayout {
             }
 
             Param {
-                label: I18n.t("Ramp out");
+                label: I18n.t("clipInspector.rampOut");
                 value <=> root.fade-out;
                 minimum: 0;
                 maximum: root.ramp-limit;

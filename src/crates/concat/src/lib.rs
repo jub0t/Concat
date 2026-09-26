@@ -300,9 +300,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             .collect::<Vec<_>>(),
     ))));
 
-    // The interface's words. Every `I18n.t` in the tree asks here, with the
-    // English as the key; the answer is the active locale's line, or the
-    // key. See i18n.rs.
+    // The interface's words. Every `I18n.t` in the tree asks here by its
+    // key; the answer is the active locale's line, else the English. See
+    // i18n.rs.
     {
         let words = app.global::<I18n>();
         words.on_lookup(|_, key| i18n::t(&key).into());
@@ -606,9 +606,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 return;
             }
             platform::pick_files_async(
-                &i18n::t("Import media"),
+                &i18n::t("lib.importMedia"),
                 Some((
-                    i18n::t("Media").as_str(),
+                    i18n::t("common.media").as_str(),
                     &[
                         "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a",
                         "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
@@ -657,7 +657,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     // ── the inspector's effect stacks ──
     editor.on_add_effect(on_window!(|state, _audio: bool| {
-        state.notify(&i18n::t("Pick an effect or filter from the library"), false);
+        state.notify(&i18n::t("lib.pickEffectFilterLibrary"), false);
     }));
     editor.on_remove_effect(on_window!(|state, id: i32| {
         state.remove_effect(id);
@@ -1433,11 +1433,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         // folder is.
                         "open" => state.handle(Msg::Start(StartMsg::Open)),
                         "import" => {
-                            platform::pick_files_async(&i18n::t("Import media"), None, |paths| {
-                                on_ui(move |studio, _, _| {
-                                    studio.handle(Msg::Media(MediaMsg::Import(paths)))
-                                })
-                            });
+                            platform::pick_files_async(
+                                &i18n::t("lib.importMedia"),
+                                None,
+                                |paths| {
+                                    on_ui(move |studio, _, _| {
+                                        studio.handle(Msg::Media(MediaMsg::Import(paths)))
+                                    })
+                                },
+                            );
                         }
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),

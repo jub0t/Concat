@@ -895,14 +895,14 @@ fn art_key(media_id: &str, stream: Option<u32>) -> String {
 /// it or its number, and its channel layout.
 fn audio_track_label(track: &model::AudioTrack, position: usize) -> String {
     let name = if track.title.is_empty() {
-        tf("Track {0}", &[&(position + 1)])
+        tf("studio.track", &[&(position + 1)])
     } else {
         track.title.clone()
     };
     let layout = match track.channels {
-        1 => t("mono"),
-        2 => t("stereo"),
-        channels => tf("{0} channels", &[&channels]),
+        1 => t("studio.mono"),
+        2 => t("studio.stereo"),
+        channels => tf("studio.channels", &[&channels]),
     };
     format!("{name} · {layout}")
 }
@@ -972,8 +972,8 @@ fn shelves(
         // The shelves are built from every package and only the entries are
         // narrowed: a strip that lost a segment because a search matched
         // nothing on it would move under the pointer as you typed.
-        let name = t(&meta.name);
-        let description = t(&meta.description);
+        let name = i18n::package_text(&meta.id, "name", &meta.name);
+        let description = i18n::package_text(&meta.id, "description", &meta.description);
         let starred = favourites.iter().any(|held| held == &meta.id);
         let shown = if view.favourites {
             starred
@@ -1014,7 +1014,7 @@ fn shelves(
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
             name: name.into(),
-            category: t(&category).into(),
+            category: i18n::shelf_text("categories", &category).into(),
             group: group as i32,
             description: description.into(),
             favourite: starred,
@@ -1024,7 +1024,7 @@ fn shelves(
     (
         groups
             .into_iter()
-            .map(|group| SharedString::from(t(&group)))
+            .map(|group| SharedString::from(i18n::shelf_text("categories", &group)))
             .collect(),
         entries,
     )
@@ -1339,8 +1339,8 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
             AppliedParamData {
                 entry: -1,
                 key: param.key.as_str().into(),
-                label: t(&param.label).into(),
-                group: t(&param.group).into(),
+                label: i18n::shelf_text("labels", &param.label).into(),
+                group: i18n::shelf_text("groups", &param.group).into(),
                 unit: param.unit.as_str().into(),
                 min: param.min as f32,
                 max: param.max as f32,
@@ -1395,7 +1395,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             knobs.push(AppliedParamData {
                 entry: index as i32,
                 key: concat_effects::catalogue::INTENSITY.into(),
-                label: t("Intensity").into(),
+                label: t("studio.intensity").into(),
                 group: "".into(),
                 unit: "%".into(),
                 min: 0.0,
@@ -1424,7 +1424,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             knobs.push(AppliedParamData {
                 entry: index as i32,
                 key: param.key.as_str().into(),
-                label: t(&param.label).into(),
+                label: i18n::shelf_text("labels", &param.label).into(),
                 group: "".into(),
                 unit: param.unit.as_str().into(),
                 min: param.min as f32,
@@ -1833,11 +1833,11 @@ impl Studio {
         spawn(
             move || projects::save(&path, &document),
             move |studio, _, _, result| match result {
-                Ok(()) if announce => studio.notify(&t("Project saved"), false),
+                Ok(()) if announce => studio.notify(&t("studio.projectSaved"), false),
                 Ok(()) => {}
                 Err(error) => {
                     studio.dirty = true;
-                    studio.notify(&tf("Could not save: {0}", &[&error]), true);
+                    studio.notify(&tf("studio.couldNotSave", &[&error]), true);
                 }
             },
         );
@@ -2764,10 +2764,7 @@ impl Studio {
         }
         let same = self.audition.as_deref() == Some(id);
         if !same && self.audition.is_none() {
-            self.notify(
-                &t("Showing the look over the picture. Double-click the card, or its plus, to lay it on the timeline"),
-                false,
-            );
+            self.notify(&t("studio.showingLookOverPicture"), false);
         }
         self.audition = (!same).then(|| id.to_owned());
         self.request_preview();
@@ -2784,17 +2781,14 @@ impl Studio {
     /// A catalogue filter or effect, applied to the selected clip's chain.
     pub fn apply_catalogue(&mut self, id: &str, video: bool) {
         let Some(clip_id) = self.sole_selection() else {
-            self.notify(&t("Select a clip on the timeline first"), true);
+            self.notify(&t("studio.selectClipTimelineFirst"), true);
             return;
         };
         let Some(clip) = self.clip(&clip_id).cloned() else {
             return;
         };
         if video && !(clip.kind.is_visual() || clip.kind == model::ClipKind::Text) {
-            self.notify(
-                &t("Select a video, image or text clip on the timeline first"),
-                true,
-            );
+            self.notify(&t("studio.selectVideoImageText"), true);
             return;
         }
         if !video && clip.kind == model::ClipKind::Image {
@@ -2875,17 +2869,14 @@ impl Studio {
 
     pub fn apply_transition(&mut self, id: &str) {
         let Some(clip_id) = self.sole_selection() else {
-            self.notify(&t("Select the clip the transition leads into"), true);
+            self.notify(&t("studio.selectClipTransitionLeads"), true);
             return;
         };
         let Some(clip) = self.clip(&clip_id) else {
             return;
         };
         if !clip.kind.is_visual() {
-            self.notify(
-                &t("Select a video or image clip on the timeline first"),
-                true,
-            );
+            self.notify(&t("studio.selectVideoImageClip"), true);
             return;
         }
         let Some(duration) = self.transition_duration(clip, 0.5) else {
@@ -4702,7 +4693,7 @@ impl Studio {
                         studio.ensure_cutouts();
                     }
                     Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("Remove background: {0}", &[&error]), true),
+                    Err(error) => studio.notify(&tf("studio.removeBackground", &[&error]), true),
                 }
             },
         );
@@ -4734,7 +4725,7 @@ impl Studio {
             return;
         };
         if !self.clip_has_sound(&clip) {
-            self.notify(&t("This clip has no sound to render"), true);
+            self.notify(&t("studio.clipHasNoSound"), true);
             return;
         }
         let Some(project_dir) = self
@@ -4751,7 +4742,7 @@ impl Studio {
                 .into_iter()
                 .next()
         else {
-            self.notify(&t("This clip has no sound to render"), true);
+            self.notify(&t("studio.clipHasNoSound"), true);
             return;
         };
         piece.start = 0.0;
@@ -4771,14 +4762,14 @@ impl Studio {
             .take(40)
             .collect();
         let file = out_dir.join(format!("processed-{slug}-{stamp}.wav"));
-        let name = format!("{} · {}", clip.name, t("processed"));
+        let name = format!("{} · {}", clip.name, t("studio.processed"));
         log::info!(
             "render: {} ({duration:.2}s, {} piece(s)) to {}",
             clip.name,
             pieces.len(),
             file.display()
         );
-        self.notify(&t("Rendering the sound…"), false);
+        self.notify(&t("studio.renderingTheSound"), false);
         spawn_in_project(
             move || -> Result<concat_host::media::MediaSummary, String> {
                 std::fs::create_dir_all(&out_dir)
@@ -4793,11 +4784,11 @@ impl Studio {
                     item.name = name;
                     item.origin = Some(model::MediaOrigin::Processed);
                     studio.apply(Command::AddMedia { item });
-                    studio.notify(&t("Sound rendered to Generated › Processed"), false);
+                    studio.notify(&t("studio.soundRenderedGeneratedProcessed"), false);
                 }
                 Err(error) => {
                     log::warn!("render: {error}");
-                    studio.notify(&tf("Could not render the sound: {0}", &[&error]), true);
+                    studio.notify(&tf("studio.couldNotRenderSound", &[&error]), true);
                 }
             },
         );
@@ -4805,7 +4796,7 @@ impl Studio {
 
     pub fn enhance_clip(&mut self, id: &str) {
         if !self.enhance_jobs.is_empty() || self.host.enhancers.is_busy() {
-            self.notify(&t("Enhance is already at work; one clip at a time"), true);
+            self.notify(&t("studio.enhanceAlreadyWorkOne"), true);
             return;
         }
         let Some(clip) = self.clip(id).cloned() else {
@@ -4829,14 +4820,14 @@ impl Studio {
         let project = std::path::PathBuf::from(session.path());
         let (width, height) = (media.width.unwrap_or(0), media.height.unwrap_or(0));
         if width == 0 || height == 0 {
-            self.notify(&t("This file has no picture to enhance"), true);
+            self.notify(&t("studio.fileHasNoPicture"), true);
             return;
         }
         let factor = concat_vision::enhance::factor_for(width, height);
         let still = clip.kind == model::ClipKind::Image;
         let Some(target) = concat_host::enhance::target_for(&project, &media.path, factor, still)
         else {
-            self.notify(&tf("Could not read {0}", &[&media.path]), true);
+            self.notify(&tf("studio.couldNotRead", &[&media.path]), true);
             return;
         };
         let request = EnhanceRequest {
@@ -4848,10 +4839,7 @@ impl Studio {
         let clip_id = clip.id.clone();
         self.enhance_jobs.insert(clip_id.clone(), (false, 0.0));
         self.notify(
-            &tf(
-                "Enhancing {0}: {1}× on its way, frame by frame",
-                &[&media.name, &factor],
-            ),
+            &tf("studio.enhancingWayFrameFrame", &[&media.name, &factor]),
             false,
         );
         let enhancers = Arc::clone(&self.host.enhancers);
@@ -4884,7 +4872,7 @@ impl Studio {
                 match result {
                     Ok(path) => studio.adopt_enhanced(&clip_id, &path),
                     Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("Enhance: {0}", &[&error]), true),
+                    Err(error) => studio.notify(&tf("studio.enhance", &[&error]), true),
                 }
             },
         );
@@ -4895,7 +4883,7 @@ impl Studio {
     /// see `concat_host::reverse`. The import is never touched.
     pub fn reverse_clip(&mut self, id: &str) {
         if !self.reverse_jobs.is_empty() || self.host.reversers.is_busy() {
-            self.notify(&t("Reverse is already at work; one clip at a time"), true);
+            self.notify(&t("studio.reverseAlreadyWorkOne"), true);
             return;
         }
         let Some(clip) = self.clip(id).cloned() else {
@@ -4930,7 +4918,7 @@ impl Studio {
         let Some(target) =
             concat_host::reverse::target_for(&project, &media.path, start, covered, audio_only)
         else {
-            self.notify(&tf("Could not read {0}", &[&media.path]), true);
+            self.notify(&tf("studio.couldNotRead", &[&media.path]), true);
             return;
         };
         let request = concat_host::ReverseRequest {
@@ -4942,7 +4930,7 @@ impl Studio {
         };
         let clip_id = clip.id.clone();
         self.reverse_jobs.insert(clip_id.clone(), 0.0);
-        self.notify(&tf("Reversing {0}…", &[&media.name]), false);
+        self.notify(&tf("studio.reversing", &[&media.name]), false);
         let reversers = Arc::clone(&self.host.reversers);
         let epoch = crate::host::project_epoch();
         spawn_in_project(
@@ -4967,7 +4955,7 @@ impl Studio {
                 match result {
                     Ok(path) => studio.adopt_reversed(&clip_id, &path, start, covered),
                     Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("Reverse: {0}", &[&error]), true),
+                    Err(error) => studio.notify(&tf("studio.reverse", &[&error]), true),
                 }
             },
         );
@@ -4984,16 +4972,13 @@ impl Studio {
         if (clip.source_start - start).abs() > 1e-6
             || (clip.duration * clip.speed - covered).abs() > 1e-6
         {
-            self.notify(
-                &t("The clip changed while it was being reversed; reverse it again"),
-                true,
-            );
+            self.notify(&t("studio.clipChangedWhileBeing"), true);
             return;
         }
         let summary = match media::probe(&path.to_string_lossy()) {
             Ok(summary) => summary,
             Err(error) => {
-                self.notify(&tf("Reverse: {0}", &[&error]), true);
+                self.notify(&tf("studio.reverse", &[&error]), true);
                 return;
             }
         };
@@ -5008,7 +4993,7 @@ impl Studio {
             source_start: Some(0.0),
         });
         self.request_preview();
-        self.notify(&t("Reversed; the clip now shows the copy"), false);
+        self.notify(&t("studio.reversedClipNowShows"), false);
     }
 
     /// Points clip `id` at the enhanced copy at `path`, probed the way an
@@ -5017,7 +5002,7 @@ impl Studio {
         let summary = match media::probe(&path.to_string_lossy()) {
             Ok(summary) => summary,
             Err(error) => {
-                self.notify(&tf("Enhance: {0}", &[&error]), true);
+                self.notify(&tf("studio.enhance", &[&error]), true);
                 return;
             }
         };
@@ -5036,7 +5021,7 @@ impl Studio {
             source_start: None,
         });
         self.request_preview();
-        self.notify(&t("Enhanced; the clip now shows the copy"), false);
+        self.notify(&t("studio.enhancedClipNowShows"), false);
     }
 
     /// The Mode row: 0 off, 1 automatic, 2 custom. The chroma rows are the
@@ -5293,7 +5278,7 @@ impl Studio {
 
     pub fn merge_blocked(&self) -> Option<String> {
         if self.selection.len() != 2 {
-            return Some(t("Select two clips to merge"));
+            return Some(t("studio.selectTwoClipsMerge"));
         }
         why_not_merge(self.timeline(), &self.selection)
     }
@@ -5588,7 +5573,7 @@ impl Studio {
             .claim(&info.path, concat_api::Holder::Window)
             .is_err()
         {
-            return Err(t("This project is open through the Remote API"));
+            return Err(t("studio.projectOpenThroughRemote"));
         }
         match Session::open_info(&info) {
             Ok(session) => {
@@ -5707,7 +5692,7 @@ impl Studio {
         if let Some(session) = self.session.as_mut() {
             let (path, document) = session.prepare_save(None);
             if let Err(error) = projects::save(&path, &document) {
-                self.notify(&tf("Could not save: {0}", &[&error]), true);
+                self.notify(&tf("studio.couldNotSave", &[&error]), true);
                 return;
             }
         }
@@ -5940,12 +5925,9 @@ impl Studio {
         self.packages_pending = None;
         if let Some(first) = errors.first() {
             let message = if errors.len() == 1 {
-                tf("A custom package did not load: {0}", &[first])
+                tf("studio.customPackageDidNot", &[first])
             } else {
-                tf(
-                    "{0} custom packages did not load; the first: {1}",
-                    &[&errors.len(), first],
-                )
+                tf("studio.customPackagesDidNot", &[&errors.len(), first])
             };
             self.notify(&message, true);
         } else if announce {
@@ -5954,10 +5936,7 @@ impl Studio {
                 .filter(|package| package.folder.is_some())
                 .count();
             self.notify(
-                &tf(
-                    "Loaded {0} custom package(s) from {1}",
-                    &[&count, &dir.display()],
-                ),
+                &tf("studio.loadedCustomPackagesFrom", &[&count, &dir.display()]),
                 false,
             );
         }
@@ -6006,9 +5985,10 @@ impl Studio {
     /// shader that reads it - with a card still rendered through the table
     /// here, and the catalogue is rebuilt so the Filters page shows them.
     pub fn import_lut(&mut self) {
-        let Some(paths) =
-            crate::platform::pick_files(&t("Import LUT"), Some((t("LUT").as_str(), &["cube"])))
-        else {
+        let Some(paths) = crate::platform::pick_files(
+            &t("studio.importLut"),
+            Some((t("studio.lut").as_str(), &["cube"])),
+        ) else {
             return;
         };
         let dir = Self::looks_dir(&self.host.dirs);
@@ -6021,7 +6001,7 @@ impl Studio {
                 }
                 Err(error) => {
                     self.notify(
-                        &tf("Could not import {0}: {1}", &[&path.display(), &error]),
+                        &tf("studio.couldNotImport", &[&path.display(), &error]),
                         true,
                     );
                 }
@@ -6036,13 +6016,7 @@ impl Studio {
             return;
         }
         self.library[0].query.clear();
-        self.notify(
-            &tf(
-                "Imported {0} look(s); find them under Imported",
-                &[&imported],
-            ),
-            false,
-        );
+        self.notify(&tf("studio.importedLooksFindThem", &[&imported]), false);
     }
 
     pub fn save_template(&mut self) {
@@ -6057,7 +6031,7 @@ impl Studio {
         spawn(
             move || templates::save(&config, &document, &settings, &path, &name),
             |studio, _, _, result| match result {
-                Ok(info) => studio.notify(&tf("Saved template “{0}”", &[&info.name]), false),
+                Ok(info) => studio.notify(&tf("studio.savedTemplate", &[&info.name]), false),
                 Err(error) => studio.notify(&error, true),
             },
         );
@@ -6580,7 +6554,7 @@ impl Studio {
             let (label, minimum, maximum, step, default_value, fmt, unit, unit_scale) =
                 match property {
                     model::KeyProperty::Scale => (
-                        t("Scale"),
+                        t("common.scale"),
                         0.05,
                         8.0,
                         0.01,
@@ -6590,7 +6564,7 @@ impl Studio {
                         100.0,
                     ),
                     model::KeyProperty::OffsetX => (
-                        t("Position X"),
+                        t("common.positionX"),
                         -1.0,
                         1.0,
                         0.005,
@@ -6600,7 +6574,7 @@ impl Studio {
                         100.0,
                     ),
                     model::KeyProperty::OffsetY => (
-                        t("Position Y"),
+                        t("common.positionY"),
                         -1.0,
                         1.0,
                         0.005,
@@ -6610,7 +6584,7 @@ impl Studio {
                         100.0,
                     ),
                     model::KeyProperty::Rotation => (
-                        t("Rotation"),
+                        t("common.rotation"),
                         -180.0,
                         180.0,
                         1.0,
@@ -6620,7 +6594,7 @@ impl Studio {
                         1.0,
                     ),
                     model::KeyProperty::Opacity => (
-                        t("Opacity"),
+                        t("common.opacity"),
                         0.0,
                         1.0,
                         0.01,
@@ -6630,7 +6604,7 @@ impl Studio {
                         100.0,
                     ),
                     model::KeyProperty::Volume => (
-                        t("Level"),
+                        t("common.level"),
                         -60.0,
                         24.0,
                         0.5,
@@ -7203,7 +7177,9 @@ impl Studio {
                 .transition_in
                 .as_ref()
                 .and_then(|transition| Catalogue::builtin().get(&transition.id))
-                .map(|package| t(&package.manifest.effect.name))
+                .map(|package| {
+                    i18n::package_text(package.id(), "name", &package.manifest.effect.name)
+                })
                 .unwrap_or_default()
                 .into(),
             transition_duration: clip
@@ -7415,7 +7391,7 @@ impl Studio {
                         studio.ensure_regions();
                     }
                     Err(error) if error.contains("cancelled") => {}
-                    Err(error) => studio.notify(&tf("Smart brush: {0}", &[&error]), true),
+                    Err(error) => studio.notify(&tf("studio.smartBrush", &[&error]), true),
                 }
             },
         );
@@ -7554,7 +7530,7 @@ impl Studio {
                     let plate = colour_of(&preset.style.background);
                     TextPresetData {
                         id: preset.id.as_str().into(),
-                        name: t(&preset.name).into(),
+                        name: i18n::preset_name(&preset.id, &preset.name).into(),
                         family: preset.style.font_family.trim_matches('"').into(),
                         weight: preset.style.font_weight.round() as i32,
                         italic: preset.style.italic,
@@ -7756,11 +7732,17 @@ impl Studio {
         };
 
         let mut rows = vec![
-            action("copy", t("Copy"), Glyph::Copy, "⌘C", true),
-            action("duplicate", t("Duplicate"), Glyph::Plus, "⌘D", !locked),
+            action("copy", t("common.copy"), Glyph::Copy, "⌘C", true),
+            action(
+                "duplicate",
+                t("studio.duplicate"),
+                Glyph::Plus,
+                "⌘D",
+                !locked,
+            ),
             action(
                 "paste",
-                t("Paste"),
+                t("studio.paste"),
                 Glyph::Plus,
                 "⌘V",
                 self.clipboard.is_some(),
@@ -7768,7 +7750,7 @@ impl Studio {
             rule(),
             action(
                 "split",
-                t("Split at playhead"),
+                t("studio.splitAtPlayhead"),
                 Glyph::Split,
                 "S",
                 straddled && !locked,
@@ -7787,7 +7769,7 @@ impl Studio {
             // since the job runs one at a time.
             action(
                 "enhance",
-                t("Enhance"),
+                t("common.enhance"),
                 Glyph::Sparkle,
                 "",
                 !locked
@@ -7803,7 +7785,7 @@ impl Studio {
         if can_reattach {
             rows.push(action(
                 "reattach",
-                t("Reattach audio"),
+                t("studio.reattachAudio"),
                 Glyph::Merge,
                 "",
                 !locked,
@@ -7812,7 +7794,7 @@ impl Studio {
         } else if clip.kind == model::ClipKind::Video {
             rows.push(action(
                 "detach",
-                t("Detach audio"),
+                t("studio.detachAudio"),
                 Glyph::Waveform,
                 "",
                 !locked && can_detach && self.clip_has_sound(clip),
@@ -7826,7 +7808,7 @@ impl Studio {
         if clip.kind == model::ClipKind::Audio || clip.kind == model::ClipKind::Video {
             rows.push(action(
                 "render-sound",
-                t("Render the sound as a file"),
+                t("studio.renderSoundFile"),
                 Glyph::Waveform,
                 "",
                 self.clip_has_sound(clip),
@@ -7836,16 +7818,16 @@ impl Studio {
         let audible = clip.kind != model::ClipKind::Image;
         rows.push(check(
             "mute",
-            &t("Mute"),
+            &t("studio.mute"),
             "M",
             clip.volume <= 0.0,
             !locked && audible,
         ));
-        rows.push(check("lock", &t("Lock track"), "", locked, true));
+        rows.push(check("lock", &t("studio.lockTrack"), "", locked, true));
         rows.push(rule());
         rows.push(MenuItemData {
             id: "delete".into(),
-            label: t("Delete").into(),
+            label: t("common.delete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
             shortcut: "⌫".into(),
@@ -7856,7 +7838,7 @@ impl Studio {
         });
         rows.push(MenuItemData {
             id: "ripple-delete".into(),
-            label: t("Ripple delete").into(),
+            label: t("studio.rippleDelete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
             shortcut: "⇧⌫".into(),
@@ -7912,32 +7894,32 @@ impl Studio {
             ..Default::default()
         };
         let mut rows = vec![
-            action("add", t("Add at playhead"), Glyph::Plus, false),
+            action("add", t("studio.addAtPlayhead"), Glyph::Plus, false),
             rule(),
         ];
         if item.kind != model::MediaKind::Audio {
             let range = item.color_range;
             rows.push(MenuItemData {
-                label: t("Colour range").to_uppercase().into(),
+                label: t("common.colourRange").to_uppercase().into(),
                 kind: MenuRow::Label,
                 ..Default::default()
             });
-            rows.push(check("range-auto", t("Auto"), "", range.is_none()));
+            rows.push(check("range-auto", t("common.auto"), "", range.is_none()));
             rows.push(check(
                 "range-limited",
-                t("Limited"),
+                t("common.limited"),
                 "16-235",
                 range == Some(model::ColorRange::Limited),
             ));
             rows.push(check(
                 "range-full",
-                t("Full"),
+                t("common.full"),
                 "0-255",
                 range == Some(model::ColorRange::Full),
             ));
             rows.push(rule());
         }
-        rows.push(action("remove", t("Remove"), Glyph::Trash, true));
+        rows.push(action("remove", t("common.remove"), Glyph::Trash, true));
         rows
     }
 
@@ -8023,37 +8005,55 @@ impl Studio {
             0 => vec![
                 row(
                     "add-selected",
-                    t("Add selected to timeline"),
+                    t("studio.addSelectedToTimeline"),
                     Glyph::Plus,
                     "",
                     has_selection_media,
                 ),
-                row("open", t("Open project…"), Glyph::Import, "⌘O", true),
-                row("import", t("Import media…"), Glyph::Import, "⌘I", true),
-                row("save", t("Save"), Glyph::Import, "⌘S", true),
+                row("open", t("studio.openProject"), Glyph::Import, "⌘O", true),
+                row("import", t("studio.importMedia"), Glyph::Import, "⌘I", true),
+                row("save", t("studio.save"), Glyph::Import, "⌘S", true),
                 row(
                     "export",
-                    t("Export…"),
+                    t("studio.export"),
                     Glyph::Export,
                     "",
                     !self.timeline().clips.is_empty(),
                 ),
-                row("template", t("Save as template…"), Glyph::Slot, "", true),
-                row("speech", t("Text to speech…"), Glyph::Volume, "", true),
+                row(
+                    "template",
+                    t("studio.saveAsTemplate"),
+                    Glyph::Slot,
+                    "",
+                    true,
+                ),
+                row("speech", t("studio.textToSpeech"), Glyph::Volume, "", true),
                 row(
                     "clear-cache",
-                    t("Clear project cache"),
+                    t("studio.clearProjectCache"),
                     Glyph::None,
                     "",
                     true,
                 ),
                 rule(),
-                row("settings", t("Settings…"), Glyph::Settings, "⌘,", true),
+                row(
+                    "settings",
+                    t("studio.settings"),
+                    Glyph::Settings,
+                    "⌘,",
+                    true,
+                ),
                 rule(),
-                row("close-project", t("Close project"), Glyph::Import, "", true),
+                row(
+                    "close-project",
+                    t("studio.closeProject"),
+                    Glyph::Import,
+                    "",
+                    true,
+                ),
                 MenuItemData {
                     id: "close-window".into(),
-                    label: t("Close window").into(),
+                    label: t("studio.closeWindow").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Close,
                     shortcut: "⌘W".into(),
@@ -8064,12 +8064,12 @@ impl Studio {
                 },
             ],
             1 => vec![
-                row("undo", t("Undo"), Glyph::Undo, "⌘Z", can_undo),
-                row("redo", t("Redo"), Glyph::Redo, "⇧⌘Z", can_redo),
+                row("undo", t("studio.undo"), Glyph::Undo, "⌘Z", can_undo),
+                row("redo", t("studio.redo"), Glyph::Redo, "⇧⌘Z", can_redo),
                 rule(),
                 row(
                     "split",
-                    t("Split at playhead"),
+                    t("studio.splitAtPlayhead"),
                     Glyph::Razor,
                     "⌘B",
                     straddled,
@@ -8077,9 +8077,9 @@ impl Studio {
                 MenuItemData {
                     id: "delete".into(),
                     label: if selected > 1 {
-                        tf("Delete {0} clips", &[&selected])
+                        tf("studio.deleteClips", &[&selected])
                     } else {
-                        t("Delete clip")
+                        t("studio.deleteClip")
                     }
                     .into(),
                     kind: MenuRow::Action,
@@ -8093,9 +8093,9 @@ impl Studio {
                 MenuItemData {
                     id: "ripple-delete".into(),
                     label: if selected > 1 {
-                        tf("Ripple delete {0} clips", &[&selected])
+                        tf("studio.rippleDeleteClips", &[&selected])
                     } else {
-                        t("Ripple delete")
+                        t("studio.rippleDelete")
                     }
                     .into(),
                     kind: MenuRow::Action,
@@ -8109,7 +8109,7 @@ impl Studio {
                 rule(),
                 MenuItemData {
                     id: "snap".into(),
-                    label: t("Snap to edges").into(),
+                    label: t("common.snapToEdges").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::None,
                     shortcut: "N".into(),
@@ -8120,7 +8120,7 @@ impl Studio {
                 },
                 MenuItemData {
                     id: "magnetic".into(),
-                    label: t("Magnetic timeline").into(),
+                    label: t("common.magneticTimeline").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::None,
                     shortcut: "".into(),
@@ -8131,15 +8131,21 @@ impl Studio {
                 },
             ],
             2 => vec![
-                row("zoom-in", t("Zoom in"), Glyph::Plus, "+", true),
-                row("zoom-out", t("Zoom out"), Glyph::Minus, "-", true),
+                row("zoom-in", t("common.zoomIn"), Glyph::Plus, "+", true),
+                row("zoom-out", t("common.zoomOut"), Glyph::Minus, "-", true),
                 rule(),
                 check("sort-added", "Sort by: Added", self.media.sort == 0),
                 check("sort-name", "Sort by: Name", self.media.sort == 1),
                 check("sort-kind", "Sort by: Type", self.media.sort == 2),
                 rule(),
-                row("start", t("Go to start"), Glyph::SkipBack, "Home", true),
-                row("end", t("Go to end"), Glyph::SkipForward, "End", true),
+                row(
+                    "start",
+                    t("common.goToStart"),
+                    Glyph::SkipBack,
+                    "Home",
+                    true,
+                ),
+                row("end", t("common.goToEnd"), Glyph::SkipForward, "End", true),
             ],
             _ => Vec::new(),
         }

@@ -180,7 +180,7 @@ export component ExportDialog inherits Modal {
     property <bool> running: root.data.phase == ExportPhase.running;
 
     open: root.data.open;
-    title: I18n.t("Export");
+    title: I18n.t("common.export");
     glyph: Glyph.export;
     surface-width: 470px;
     dismissable: !root.running;
@@ -191,7 +191,7 @@ export component ExportDialog inherits Modal {
     VerticalLayout {
         DialogSection {
             first: true;
-            title: I18n.t("Summary");
+            title: I18n.t("export.summary");
 
             Rectangle {
                 border-radius: Theme.r;
@@ -202,15 +202,15 @@ export component ExportDialog inherits Modal {
                 VerticalLayout {
                     spacing: 1px;
 
-                    Fact { label: I18n.t("Format"); value: root.data.format + " · " + root.data.encoding; }
-                    Fact { label: I18n.t("Duration"); value: root.data.duration; }
-                    Fact { label: I18n.t("Contents"); value: root.data.contents; }
+                    Fact { label: I18n.t("export.format"); value: root.data.format + " · " + root.data.encoding; }
+                    Fact { label: I18n.t("common.duration"); value: root.data.duration; }
+                    Fact { label: I18n.t("export.contents"); value: root.data.contents; }
                 }
             }
         }
 
         if !root.running: DialogSection {
-            title: I18n.t("Destination");
+            title: I18n.t("export.destination");
 
             DialogRow {
                 Field {
@@ -220,7 +220,7 @@ export component ExportDialog inherits Modal {
                 }
 
                 Button {
-                    label: I18n.t("Browse");
+                    label: I18n.t("export.browse");
                     glyph: Glyph.import;
                     clicked => { root.browse(); }
                 }
@@ -238,10 +238,10 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: I18n.t("Output");
+            title: I18n.t("export.output");
 
             DialogRow {
-                label: I18n.t("Resolution");
+                label: I18n.t("export.resolution");
                 Select {
                     current: root.data.resolution;
                     options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
@@ -251,7 +251,7 @@ export component ExportDialog inherits Modal {
             }
 
             DialogRow {
-                label: I18n.t("Frame rate");
+                label: I18n.t("common.frameRate");
                 Select {
                     current: root.data.rate;
                     options: ["24 fps", "30 fps", "60 fps"];
@@ -263,17 +263,17 @@ export component ExportDialog inherits Modal {
             // platform's business, and the Format line above says when
             // the hardware one will.
             DialogRow {
-                label: I18n.t("Codec");
+                label: I18n.t("export.codec");
                 Select {
                     current: root.data.codec;
                     options: ["H.264", "HEVC", "AV1"];
-                    details: [I18n.t("Plays everywhere"), I18n.t("Half the size"), I18n.t("Smallest")];
+                    details: [I18n.t("export.playsEverywhere"), I18n.t("export.halfTheSize"), I18n.t("export.smallest")];
                     changed(index) => { root.codec-changed(index); }
                 }
             }
 
             DialogRow {
-                label: I18n.t("10-bit colour");
+                label: I18n.t("export.tenBitColour");
                 HorizontalLayout {
                     alignment: end;
                     VerticalLayout {
@@ -288,28 +288,28 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: I18n.t("Quality");
+            title: I18n.t("common.quality");
 
             HorizontalLayout {
                 spacing: 6px;
 
                 QualityCard {
-                    label: I18n.t("High");
-                    note: I18n.t("Master");
+                    label: I18n.t("export.high");
+                    note: I18n.t("export.master");
                     size: root.data.size-high;
                     current: root.data.quality == 0;
                     clicked => { root.quality-changed(0); }
                 }
                 QualityCard {
-                    label: I18n.t("Balanced");
-                    note: I18n.t("Recommended");
+                    label: I18n.t("common.balanced");
+                    note: I18n.t("export.recommended");
                     size: root.data.size-balanced;
                     current: root.data.quality == 1;
                     clicked => { root.quality-changed(1); }
                 }
                 QualityCard {
-                    label: I18n.t("Small");
-                    note: I18n.t("Share");
+                    label: I18n.t("common.small");
+                    note: I18n.t("export.share");
                     size: root.data.size-small;
                     current: root.data.quality == 2;
                     clicked => { root.quality-changed(2); }
@@ -318,10 +318,10 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: I18n.t("Advanced");
+            title: I18n.t("export.advanced");
 
             DialogRow {
-                label: I18n.t("Show advanced options");
+                label: I18n.t("export.showAdvancedOptions");
                 Switch {
                     checked: root.data.advanced;
                     toggled(on) => { root.advanced-toggled(on); }
@@ -330,18 +330,18 @@ export component ExportDialog inherits Modal {
         }
 
         if !root.running && root.data.advanced: DialogSection {
-            title: I18n.t("Bitrate");
+            title: I18n.t("export.bitrate");
 
             DialogRow {
-                label: I18n.t("Mode");
+                label: I18n.t("common.mode");
                 Select {
                     current: root.data.rate-mode;
-                    options: [I18n.t("VBR"), I18n.t("CBR")];
+                    options: [I18n.t("export.vbr"), I18n.t("export.cbr")];
                     changed(index) => { root.rate-mode-changed(index); }
                 }
             }
             if root.data.rate-mode == 1: DialogRow {
-                label: I18n.t("Target bitrate");
+                label: I18n.t("export.targetBitrate");
                 Field {
                     value: root.data.bitrate + " kbps";
                     edited(text) => { root.bitrate-changed(text); }
@@ -355,14 +355,14 @@ export component ExportDialog inherits Modal {
         // is about the player, not about the picture.
         // https://github.com/jub0t/Concat/issues/103
         if !root.running && root.data.advanced: DialogSection {
-            title: I18n.t("Colour");
+            title: I18n.t("export.colour");
 
             DialogRow {
-                label: I18n.t("Colour range");
+                label: I18n.t("common.colourRange");
                 Select {
                     current: root.data.color-range;
-                    options: [I18n.t("Limited"), I18n.t("Full")];
-                    details: [I18n.t("Video, YouTube"), I18n.t("Screen content")];
+                    options: [I18n.t("common.limited"), I18n.t("common.full")];
+                    details: [I18n.t("export.videoYoutube"), I18n.t("export.screenContent")];
                     changed(index) => { root.color-range-changed(index); }
                 }
             }
@@ -441,7 +441,7 @@ export component ExportDialog inherits Modal {
             if root.running: HorizontalLayout {
                 alignment: start;
                 Button {
-                    label: I18n.t("Cancel export");
+                    label: I18n.t("export.cancelExport");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
@@ -458,7 +458,7 @@ export component ExportDialog inherits Modal {
                 }
 
                 Text {
-                    text: I18n.t1("Exported · {0}", "\{root.data.done-size}");
+                    text: I18n.t1("export.exported", "\{root.data.done-size}");
                     color: Theme.green;
                     font-size: Theme.fs;
                     font-weight: Theme.weight-title;
@@ -471,12 +471,12 @@ export component ExportDialog inherits Modal {
                 alignment: start;
 
                 Button {
-                    label: I18n.t("Show in folder");
+                    label: I18n.t("export.showInFolder");
                     glyph: Glyph.import;
                     clicked => { root.reveal(); }
                 }
                 Button {
-                    label: I18n.t("Export again");
+                    label: I18n.t("export.exportAgain");
                     ghost: true;
                     clicked => { root.again(); }
                 }
@@ -489,8 +489,8 @@ export component ExportDialog inherits Modal {
                     primary: true;
                     large: true;
                     glyph: Glyph.export;
-                    label: root.data.empty ? I18n.t("Nothing to export")
-                        : I18n.t("Export · ~") + (root.data.quality == 0 ? root.data.size-high
+                    label: root.data.empty ? I18n.t("export.nothingToExport")
+                        : I18n.t("export.exportEstimate") + (root.data.quality == 0 ? root.data.size-high
                             : root.data.quality == 1 ? root.data.size-balanced
                             : root.data.size-small);
                     enabled: !root.data.empty && root.data.name != "";

@@ -106,10 +106,10 @@ impl ModelState {
                 0.0
             },
             transferred: if self.unpacking {
-                t("Unpacking…").into()
+                t("settings.unpacking").into()
             } else {
                 tf(
-                    "{0} MB of {1} MB",
+                    "settings.mbOfMb",
                     &[&format!("{fetched:.0}"), &format!("{total:.0}")],
                 )
                 .into()
@@ -185,7 +185,7 @@ impl SettingsPane {
                     .map(std::path::Path::to_path_buf)
                     .unwrap_or_else(|| concat_host::logs::folder(&studio.host.dirs));
                 if let Err(error) = platform::reveal(&target.to_string_lossy()) {
-                    studio.notify(&i18n::tf("Could not show the log: {0}", &[&error]), true);
+                    studio.notify(&i18n::tf("settings.couldNotShowLog", &[&error]), true);
                 }
             }
             SettingsMsg::LanguageChanged(index) => {
@@ -303,7 +303,7 @@ impl SettingsPane {
                 }
                 match result {
                     Ok(()) => {
-                        studio.notify(&t("Model ready"), false);
+                        studio.notify(&t("settings.modelReady"), false);
                         if self.is_transcriber(&id) && studio.prefs.transcriber_model.is_none() {
                             studio.prefs.transcriber_model = Some(id.clone());
                         } else if !self.is_transcriber(&id) && studio.prefs.tts_model.is_none() {
@@ -357,12 +357,7 @@ impl SettingsPane {
             .listen
             .trim()
             .parse::<std::net::SocketAddr>()
-            .map_err(|_| {
-                tf(
-                    "{0} is not an address like 127.0.0.1:7420",
-                    &[&prefs.listen],
-                )
-            })
+            .map_err(|_| tf("settings.notAnAddress", &[&prefs.listen]))
             .and_then(|address| {
                 let config = concat_server::Config {
                     json: Some(address),
@@ -399,12 +394,12 @@ impl SettingsPane {
                     .map(|address| address.to_string())
                     .unwrap_or_default();
                 tf(
-                    "Listening on {0} · {1} connected",
+                    "settings.listeningOnConnected",
                     &[&address, &server.connections()],
                 )
             }
             None if !self.server_error.is_empty() => self.server_error.clone(),
-            None => t("Off"),
+            None => t("settings.off"),
         }
     }
 
@@ -567,7 +562,7 @@ impl SettingsPane {
                     .collect();
                 let megabytes: f32 = on_disk.iter().map(|model| model.megabytes).sum();
                 tf(
-                    "{0} installed · {1} MB on disk",
+                    "settings.installedMbOnDisk",
                     &[&on_disk.len(), &format!("{megabytes:.0}")],
                 )
                 .into()

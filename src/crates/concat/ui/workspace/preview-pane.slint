@@ -678,7 +678,7 @@ export component PreviewPane inherits Rectangle {
 
     Pane {
         PaneHeader {
-            title: I18n.t("Preview");
+            title: I18n.t("common.preview");
 
             // The output, stated rather than implied. Tabular-ish and dim: it
             // is a fact about the project, not a control.
@@ -882,7 +882,7 @@ export component PreviewPane inherits Rectangle {
                     }
 
                     Text {
-                        text: I18n.t("Nothing under the playhead");
+                        text: I18n.t("previewPane.nothingUnderThePlayhead");
                         color: Theme.fg-dim;
                         font-size: Theme.fs;
                         horizontal-alignment: center;
@@ -990,13 +990,13 @@ export component PreviewPane inherits Rectangle {
 
                     IconButton {
                         glyph: Glyph.skip-back;
-                        label: I18n.t("Go to start");
+                        label: I18n.t("common.goToStart");
                         enabled: !root.at-start;
                         clicked => { root.seek(0); }
                     }
                     IconButton {
                         glyph: Glyph.step-back;
-                        label: I18n.t("Previous frame");
+                        label: I18n.t("previewPane.previousFrame");
                         enabled: !root.at-start;
                         clicked => { root.step(-1); }
                     }
@@ -1005,7 +1005,7 @@ export component PreviewPane inherits Rectangle {
                     // the one control that carries a colour.
                     IconButton {
                         glyph: root.playing ? Glyph.pause : Glyph.play;
-                        label: root.playing ? I18n.t("Pause") : I18n.t("Play");
+                        label: root.playing ? I18n.t("previewPane.pause") : I18n.t("previewPane.play");
                         icon-size: 16px;
                         accent: true;
                         clicked => { root.play-toggled(); }
@@ -1013,13 +1013,13 @@ export component PreviewPane inherits Rectangle {
 
                     IconButton {
                         glyph: Glyph.step-forward;
-                        label: I18n.t("Next frame");
+                        label: I18n.t("previewPane.nextFrame");
                         enabled: !root.at-end;
                         clicked => { root.step(1); }
                     }
                     IconButton {
                         glyph: Glyph.skip-forward;
-                        label: I18n.t("Go to end");
+                        label: I18n.t("common.goToEnd");
                         enabled: !root.at-end;
                         clicked => { root.seek(root.duration); }
                     }
@@ -1051,7 +1051,7 @@ export component PreviewPane inherits Rectangle {
                             snug: true;
                             width: self.natural-width;
                             current: root.quality-index;
-                            options: [I18n.t("Full"), I18n.t("Half"), I18n.t("Quarter")];
+                            options: [I18n.t("common.full"), I18n.t("previewPane.half"), I18n.t("previewPane.quarter")];
                             details: ["1:1", "1:2", "1:4"];
                             changed(index) => { root.quality-changed(index); }
                         }
@@ -1064,7 +1064,7 @@ export component PreviewPane inherits Rectangle {
                         alignment: center;
                         IconButton {
                             glyph: Glyph.fit;
-                            label: I18n.t("Fit the frame to the pane");
+                            label: I18n.t("previewPane.fitFramePane");
                             enabled: !viewport.fitted;
                             clicked => { viewport.fit(); }
                         }

@@ -126,12 +126,12 @@ pub fn bytes(count: f32) -> String {
 /// second on an estimate that is not accurate to the second is theatre.
 pub fn eta(seconds: f32) -> String {
     if seconds <= 1.0 {
-        t("almost done")
+        t("format.almostDone")
     } else if seconds < 60.0 {
-        tf("{0}s left", &[&format!("{seconds:.0}")])
+        tf("format.sLeft", &[&format!("{seconds:.0}")])
     } else {
         tf(
-            "{0}m {1}s left",
+            "format.minutesSecondsLeft",
             &[
                 &format!("{:.0}", (seconds / 60.0).floor()),
                 &format!("{:02.0}", seconds % 60.0),
@@ -255,17 +255,17 @@ pub fn when_phrase(opened_at_millis: u64) -> String {
     let hours = minutes / 60;
     let days = hours / 24;
     if minutes < 2 {
-        t("just now")
+        t("format.justNow")
     } else if hours < 1 {
-        tf("{0} minutes ago", &[&minutes])
+        tf("format.minutesAgo", &[&minutes])
     } else if days < 1 {
-        t("today")
+        t("format.today")
     } else if days == 1 {
-        t("yesterday")
+        t("format.yesterday")
     } else if days < 30 {
-        tf("{0} days ago", &[&days])
+        tf("format.daysAgo", &[&days])
     } else {
-        tf("{0} months ago", &[&(days / 30)])
+        tf("format.monthsAgo", &[&(days / 30)])
     }
 }
 

@@ -115,7 +115,7 @@ component SamplePicker inherits Rectangle {
 
         Text {
             horizontal-stretch: 1;
-            text: root.has-current ? root.names[root.current] : I18n.t("Pick a recording");
+            text: root.has-current ? root.names[root.current] : I18n.t("speech.pickARecording");
             color: root.has-current ? Theme.fg : Theme.fg-dim;
             font-size: Theme.fs;
             vertical-alignment: center;
@@ -242,7 +242,7 @@ export component SpeechDialog inherits Modal {
     callback cancel();
 
     open: root.data.open;
-    title: I18n.t("Text to speech");
+    title: I18n.t("speech.textToSpeech");
     glyph: Glyph.volume;
     surface-width: 520px;
     dismissable: !root.data.running;
@@ -297,7 +297,7 @@ export component SpeechDialog inherits Modal {
     VerticalLayout {
         if !root.running: DialogSection {
             first: true;
-            title: I18n.t("Script");
+            title: I18n.t("common.script");
 
             Rectangle {
                 height: 104px;
@@ -339,7 +339,7 @@ export component SpeechDialog inherits Modal {
                 if root.draft == "" && !script.has-focus: Text {
                     x: 10px;
                     y: 8px;
-                    text: I18n.t("Type the narration to read aloud…");
+                    text: I18n.t("speech.typeNarrationReadAloud");
                     color: Theme.fg-dim;
                     font-size: Theme.fs-lg;
                 }
@@ -354,7 +354,7 @@ export component SpeechDialog inherits Modal {
                 alignment: start;
 
                 Text {
-                    text: I18n.t("Expression");
+                    text: I18n.t("speech.expression");
                     color: Theme.fg-muted;
                     font-size: Theme.fs;
                     vertical-alignment: center;
@@ -383,17 +383,17 @@ export component SpeechDialog inherits Modal {
         }
 
         if !root.running: DialogSection {
-            title: I18n.t("Voice");
+            title: I18n.t("speech.voice");
 
             // The model first: it decides which voices there are and which
             // of the dials below are shown.
             DialogRow {
-                label: I18n.t("Model");
+                label: I18n.t("common.model");
                 Select {
                     options: root.models;
                     details: root.model-details;
                     current: root.data.model;
-                    placeholder: I18n.t("None installed");
+                    placeholder: I18n.t("common.noneInstalled");
                     enabled: root.models.length > 0;
                     changed(index) => { root.model-changed(index); }
                 }
@@ -401,12 +401,12 @@ export component SpeechDialog inherits Modal {
 
             // The named voices, while a sample is not standing in for them.
             if !root.data.use-sample: DialogRow {
-                label: I18n.t("Voice");
+                label: I18n.t("speech.voice");
                 Select {
                     options: root.voices;
                     details: root.voice-details;
                     current: root.data.voice;
-                    placeholder: I18n.t("None");
+                    placeholder: I18n.t("speech.none");
                     enabled: root.voices.length > 0;
                     changed(index) => { root.voice-changed(index); }
                 }
@@ -416,7 +416,7 @@ export component SpeechDialog inherits Modal {
             // are Pocket's two, borrowed while Pocket is on disk. With
             // neither there is nothing to read with but a sample.
             if root.data.family == 2 && root.voices.length == 0 && !root.data.use-sample: Text {
-                text: I18n.t("Chatterbox has no voice of its own. Turn on Use sample voice below, or download Pocket TTS in Settings › Speech to borrow its two recordings.");
+                text: I18n.t("speech.chatterboxHasNoVoice");
                 color: Theme.danger;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -426,10 +426,10 @@ export component SpeechDialog inherits Modal {
             // a surprise: a model that is missing one has never had it.
             if root.data.ready: Text {
                 text: root.data.family == 0
-                    ? I18n.t("Speakers built into the model, in English and Chinese. Reads at the speed and with the pauses set below.")
+                    ? I18n.t("speech.speakersBuiltIntoModel")
                     : root.data.family == 1
-                    ? I18n.t("Reads in any voice from a few seconds of a recording: one it ships with, or a sample from the bin.")
-                    : I18n.t("The closest to a studio voice. Reads at its own pace, in one of Pocket's two recordings or in any sample from the bin, and reads [laugh], [chuckle] and [sigh] as what they say.");
+                    ? I18n.t("speech.readsAnyVoiceFew")
+                    : I18n.t("speech.closestStudioVoiceReads");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -439,7 +439,7 @@ export component SpeechDialog inherits Modal {
             // sherpa's: it reads at its own pace, and a slider it would
             // ignore is a lie.
             if root.data.family != 2: DialogRow {
-                label: I18n.t("Speed");
+                label: I18n.t("common.speed");
                 Rail {
                     value <=> root.speed-v;
                     minimum: 0.5;
@@ -460,7 +460,7 @@ export component SpeechDialog inherits Modal {
             }
 
             if root.data.family != 2: DialogRow {
-                label: I18n.t("Pauses");
+                label: I18n.t("speech.pauses");
                 Rail {
                     value <=> root.pauses-v;
                     minimum: 0;
@@ -471,10 +471,10 @@ export component SpeechDialog inherits Modal {
                 }
                 Text {
                     width: 52px;
-                    text: root.pauses-v < 0.1 ? I18n.t("none")
-                        : root.pauses-v < 0.35 ? I18n.t("natural")
-                        : root.pauses-v < 0.7 ? I18n.t("long")
-                        : I18n.t("longer");
+                    text: root.pauses-v < 0.1 ? I18n.t("common.none")
+                        : root.pauses-v < 0.35 ? I18n.t("speech.natural")
+                        : root.pauses-v < 0.7 ? I18n.t("speech.long")
+                        : I18n.t("speech.longer");
                     color: Theme.fg-muted;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
@@ -485,16 +485,16 @@ export component SpeechDialog inherits Modal {
 
             // Pocket's flow steps: fewer is quicker, more is cleaner.
             if root.data.family == 1: DialogRow {
-                label: I18n.t("Quality");
+                label: I18n.t("common.quality");
                 SegmentedControl {
-                    options: [I18n.t("Quick"), I18n.t("Balanced"), I18n.t("Fine")];
+                    options: [I18n.t("speech.quick"), I18n.t("common.balanced"), I18n.t("speech.fine")];
                     current: root.data.quality;
                     changed(index) => { root.quality-changed(index); }
                 }
             }
 
             if !root.data.ready: Text {
-                text: I18n.t("Download a voice model in Settings › Speech first.");
+                text: I18n.t("speech.downloadVoiceModelFirst");
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
@@ -508,22 +508,22 @@ export component SpeechDialog inherits Modal {
         // and not read, and the start slider says where in the recording
         // the model listens from.
         if !root.running && root.data.samples-offered: DialogSection {
-            title: I18n.t("Use sample voice");
+            title: I18n.t("speech.useSampleVoice");
             switchable: true;
             on: root.data.use-sample;
             open: root.data.use-sample;
             switched(on) => { root.use-sample-changed(on); }
-            hint: I18n.t("Reads in the voice heard in a recording from the bin. The first ten seconds from the point chosen below are what the model listens to.");
+            hint: I18n.t("speech.readsVoiceHeardRecording");
 
             if root.samples.length == 0: Text {
-                text: I18n.t("Import a clip with a voice in it first.");
+                text: I18n.t("speech.importClipVoiceFirst");
                 color: Theme.fg-muted;
                 font-size: Theme.fs-sm;
                 wrap: word-wrap;
             }
 
             if root.samples.length > 0: DialogRow {
-                label: I18n.t("Sample");
+                label: I18n.t("speech.sample");
                 SamplePicker {
                     names: root.samples;
                     waves: root.sample-waves;
@@ -534,7 +534,7 @@ export component SpeechDialog inherits Modal {
             }
 
             if root.samples.length > 0: DialogRow {
-                label: I18n.t("Voice from");
+                label: I18n.t("speech.voiceFrom");
                 Rail {
                     value <=> root.reference-start-v;
                     minimum: 0;
@@ -545,7 +545,7 @@ export component SpeechDialog inherits Modal {
                 }
                 Text {
                     width: 52px;
-                    text: I18n.t1("{0} s in", "\{Fmt.round-to(root.reference-start-v, 1)}");
+                    text: I18n.t1("speech.sIn", "\{Fmt.round-to(root.reference-start-v, 1)}");
                     color: Theme.fg-muted;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs-sm;
@@ -597,7 +597,7 @@ export component SpeechDialog inherits Modal {
 
                 Text {
                     horizontal-stretch: 1;
-                    text: I18n.t("Generating voice");
+                    text: I18n.t("speech.generatingVoice");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     vertical-alignment: center;
@@ -627,7 +627,7 @@ export component SpeechDialog inherits Modal {
             if root.running: HorizontalLayout {
                 alignment: start;
                 Button {
-                    label: I18n.t("Cancel");
+                    label: I18n.t("common.cancel");
                     glyph: Glyph.close;
                     ghost: true;
                     clicked => { root.cancel(); }
@@ -639,7 +639,7 @@ export component SpeechDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.volume;
-                label: I18n.t("Generate speech");
+                label: I18n.t("speech.generateSpeech");
                 enabled: root.data.ready && root.data.text != "" && root.has-reference && root.has-voice;
                 clicked => { root.begin(); }
             }

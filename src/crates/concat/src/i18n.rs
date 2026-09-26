@@ -3,12 +3,21 @@
 
 //! The interface's words in other languages.
 //!
-//! A locale is one JSON file: the English string as the key, the
-//! translation as the value, and a `_` entry naming the language in its
-//! own words. Every string a person reads passes through [`t`] here or
-//! `I18n.t` in the `.slint` tree, with the English as the key, so a string
-//! that has no translation yet reads in English rather than as a code, and
-//! adding a language is adding a file.
+//! A locale is one JSON file of keys to words - `"export.tenBitColour":
+//! "10-Bit-Farbe"` - and a `_` entry naming the language in its own words.
+//! A key is dotted lowerCamelCase: the area of the interface the string
+//! belongs to (`common` for one used all over), then a name for it. Every
+//! string a person reads passes through [`t`] here or `I18n.t` in the
+//! `.slint` tree by its key. `en.json` holds the English for every key and
+//! sits under whatever language is chosen, so a string with no translation
+//! yet reads in English rather than as a key, and adding a language is
+//! adding a file.
+//!
+//! A package's and a text preset's words come from its manifest, in
+//! English, and are looked up by keys made from its id ([`package_text`],
+//! [`shelf_text`], [`preset_name`]): `effects.goldenHour.name`. A package
+//! or preset of the user's own has no keys and reads as its author wrote
+//! it.
 //!
 //! Two places hold locales. The ones the app ships live in `locales/` next
 //! to this crate's `src/` and are compiled in. Anyone can add or correct a
@@ -19,7 +28,9 @@
 //!
 //! One lookup is a hash-map read behind a read lock, and the active
 //! catalogue is swapped whole, so changing language is one write and every
-//! string reads it on its next evaluation.
+//! string reads it on its next evaluation. A file from before keys, keyed
+//! by the English itself, still loads: each English line is read as the
+//! key `en.json` gives it.
 
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -42,8 +53,8 @@ pub struct Language {
 pub const ENGLISH: &str = "en";
 
 /// The locales the app ships, as `(code, file)`. `en.json` is the
-/// catalogue's own inventory - every key, with itself as the value - which
-/// is what a translator starts a new file from.
+/// inventory - every key, with its English - which is what a translator
+/// starts a new file from, and what every language falls back to.
 const BUILT_IN: [(&str, &str); 14] = [
     ("en", include_str!("../locales/en.json")),
     ("de", include_str!("../locales/de.json")),
@@ -70,6 +81,48 @@ struct Catalog {
 fn active() -> &'static RwLock<Option<Arc<Catalog>>> {
     static ACTIVE: OnceLock<RwLock<Option<Arc<Catalog>>>> = OnceLock::new();
     ACTIVE.get_or_init(|| RwLock::new(None))
+}
+
+/// The English for every key, read once: what a key no locale translates
+/// reads as, and - turned round - how a file keyed by the English is read.
+struct English {
+    by_key: HashMap<String, String>,
+    by_text: HashMap<String, String>,
+}
+
+fn english() -> &'static English {
+    static ENGLISH_STRINGS: OnceLock<English> = OnceLock::new();
+    ENGLISH_STRINGS.get_or_init(|| {
+        let by_key = parse(BUILT_IN[0].1)
+            .map(|(_, strings)| strings)
+            .unwrap_or_default();
+        let by_text = by_key
+            .iter()
+            .map(|(key, text)| (text.clone(), key.clone()))
+            .collect();
+        English { by_key, by_text }
+    })
+}
+
+/// A locale's lines keyed as the app asks for them: a line keyed by the
+/// English itself, as every file was before keys, moved to the key
+/// `en.json` gives that English. A key `en.json` does not know is kept, and
+/// never asked for.
+fn keyed(strings: HashMap<String, String>) -> HashMap<String, String> {
+    let english = english();
+    strings
+        .into_iter()
+        .map(|(key, value)| {
+            if english.by_key.contains_key(&key) {
+                (key, value)
+            } else {
+                match english.by_text.get(&key) {
+                    Some(real) => (real.clone(), value),
+                    None => (key, value),
+                }
+            }
+        })
+        .collect()
 }
 
 /// Where a machine's own locales live.
@@ -138,7 +191,7 @@ pub fn languages(dirs: &AppDirs) -> Vec<Language> {
 
 /// Makes `code` the interface's language: the shipped locale of that code,
 /// with the machine's own file of the same code laid over it. English, or
-/// a code nothing answers to, is the keys themselves.
+/// a code nothing answers to, is `en.json`.
 pub fn select(code: &str, dirs: &AppDirs) {
     let mut strings: HashMap<String, String> = HashMap::new();
     if code != ENGLISH
@@ -153,7 +206,7 @@ pub fn select(code: &str, dirs: &AppDirs) {
         .ok()
         .and_then(|text| parse(&text))
     {
-        strings.extend(own);
+        strings.extend(keyed(own));
     }
     let catalog = (!strings.is_empty() || code != ENGLISH).then(|| {
         Arc::new(Catalog {
@@ -175,17 +228,112 @@ pub fn current() -> String {
         .unwrap_or_else(|| ENGLISH.to_owned())
 }
 
-/// `key` in the interface's language, or `key` when there is no
-/// translation for it.
+/// `key` in the interface's language: its translation, else its English,
+/// else - a key nothing lists - the key itself.
 pub fn t(key: &str) -> String {
+    translated(key)
+        .or_else(|| english().by_key.get(key).cloned())
+        .unwrap_or_else(|| key.to_owned())
+}
+
+/// `key` in the interface's language, or `fallback` - the English a
+/// manifest carries - where no language has it.
+pub fn t_or(key: &str, fallback: &str) -> String {
+    translated(key).unwrap_or_else(|| fallback.to_owned())
+}
+
+/// The active language's line for `key`, if it has one.
+fn translated(key: &str) -> Option<String> {
     active()
         .read()
         .ok()
-        .and_then(|slot| {
-            slot.as_ref()
-                .and_then(|catalog| catalog.strings.get(key).cloned())
-        })
-        .unwrap_or_else(|| key.to_owned())
+        .and_then(|slot| slot.as_ref()?.strings.get(key).cloned())
+}
+
+/// A name as one segment of a key: its words in lowerCamelCase, with
+/// `{0}`-style places and apostrophes left out and `&` read as "and" -
+/// "Retro & Film" is `retroAndFilm`. `scripts/locales.py` makes the same
+/// segments for the inventory; a test holds the two to each other.
+pub fn key_part(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' => {
+                let mut held = String::from('{');
+                while let Some(&d) = chars.peek() {
+                    if !d.is_ascii_digit() {
+                        break;
+                    }
+                    held.push(d);
+                    chars.next();
+                }
+                if held.len() > 1 && chars.peek() == Some(&'}') {
+                    chars.next();
+                    plain.push(' ');
+                } else {
+                    plain.push_str(&held);
+                }
+            }
+            '\'' | '\u{2019}' => {}
+            '&' => plain.push_str(" and "),
+            _ => plain.push(c),
+        }
+    }
+    let mut out = String::new();
+    for word in plain
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+    {
+        if out.is_empty() {
+            out.push_str(&word.to_ascii_lowercase());
+        } else {
+            let mut letters = word.chars();
+            if let Some(first) = letters.next() {
+                out.push(first.to_ascii_uppercase());
+                out.push_str(&letters.as_str().to_ascii_lowercase());
+            }
+        }
+    }
+    out
+}
+
+/// A package's `name` or `description`, from its manifest's `text`: looked
+/// up as `effects.<name>.<field>` for one that ships with the app, and as
+/// its author wrote it for anyone else's.
+pub fn package_text(id: &str, field: &str, text: &str) -> String {
+    match id.strip_prefix("concat.") {
+        Some(name) => t_or(
+            &format!("effects.{}.{field}", key_part(&name.replace('-', " "))),
+            text,
+        ),
+        None => text.to_owned(),
+    }
+}
+
+/// A shelf, a knob group or a knob's label from a manifest: looked up as
+/// `effects.<kind>.<text>` - `kind` is `categories`, `groups` or `labels` -
+/// and read as written where no language lists it, as a package of the
+/// user's own may name its own.
+pub fn shelf_text(kind: &str, text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    t_or(&format!("effects.{kind}.{}", key_part(text)), text)
+}
+
+/// A text preset's name: `presets.<name>` for one the app ships, as saved
+/// for the user's own.
+pub fn preset_name(id: &str, name: &str) -> String {
+    let shipped = id == "default" || id.starts_with("concat.");
+    if !shipped {
+        return name.to_owned();
+    }
+    let short = id.strip_prefix("concat.").unwrap_or(id);
+    t_or(
+        &format!("presets.{}", key_part(&short.replace('-', " "))),
+        name,
+    )
 }
 
 /// [`t`], with `{0}`, `{1}`, ... replaced by `args` in order.
@@ -225,8 +373,15 @@ fn parse(text: &str) -> Option<(String, HashMap<String, String>)> {
 mod tests {
     use super::*;
 
+    /// One test at a time may choose the language: it is the process's.
+    fn language() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// The inventory: every key the app can ask for, as `en.json` lists
-    /// them. `scripts/locales.py` regenerates that file from the source.
+    /// them with their English. `scripts/locales.py` keeps it in step with
+    /// the source.
     fn inventory() -> HashMap<String, String> {
         parse(BUILT_IN[0].1).expect("en.json parses").1
     }
@@ -273,10 +428,129 @@ mod tests {
         let tw = parse(BUILT_IN.iter().find(|(c, _)| *c == "zh-TW").unwrap().1)
             .unwrap()
             .1;
-        assert_eq!(hans["Export"], "导出");
-        assert_eq!(tw["Export"], "匯出");
-        assert_eq!(hans["Settings"], "设置");
-        assert_eq!(tw["Settings"], "設定");
+        assert_eq!(hans["common.export"], "导出");
+        assert_eq!(tw["common.export"], "匯出");
+        assert_eq!(hans["common.settings"], "设置");
+        assert_eq!(tw["common.settings"], "設定");
+    }
+
+    /// Every key is dotted lowerCamelCase: an area, then a name for the
+    /// string in it.
+    #[test]
+    fn every_key_is_dotted_lower_camel_case() {
+        for key in inventory().keys() {
+            let segments: Vec<&str> = key.split('.').collect();
+            let fine = segments.len() >= 2
+                && segments.iter().all(|segment| {
+                    segment.starts_with(|c: char| c.is_ascii_lowercase())
+                        && segment.chars().all(|c| c.is_ascii_alphanumeric())
+                });
+            assert!(fine, "{key:?} is not an area and a name in lowerCamelCase");
+        }
+    }
+
+    /// The keys the window makes from manifests and presets are the ones
+    /// the inventory lists, with the manifests' own English: Rust's
+    /// `key_part` and the script's agree on every shipped package.
+    #[test]
+    fn every_package_and_preset_key_is_in_the_inventory() {
+        let inventory = inventory();
+        let mut missing = Vec::new();
+        let mut check = |key: String, english: &str| {
+            if english.is_empty() {
+                return;
+            }
+            match inventory.get(&key) {
+                Some(listed) if listed == english => {}
+                Some(listed) => missing.push(format!("{key}: {listed:?} is not {english:?}")),
+                None => missing.push(format!("{key}: not listed ({english:?})")),
+            }
+        };
+        for package in concat_effects::Catalogue::builtin().packages() {
+            let meta = &package.manifest.effect;
+            let name = meta.id.strip_prefix("concat.").expect("a built-in");
+            let part = key_part(&name.replace('-', " "));
+            check(format!("effects.{part}.name"), &meta.name);
+            check(format!("effects.{part}.description"), &meta.description);
+            check(
+                format!("effects.categories.{}", key_part(&meta.category)),
+                &meta.category,
+            );
+            for param in &package.manifest.params {
+                check(
+                    format!("effects.labels.{}", key_part(&param.label)),
+                    &param.label,
+                );
+                check(
+                    format!("effects.groups.{}", key_part(&param.group)),
+                    &param.group,
+                );
+            }
+        }
+        for preset in crate::presets::builtin() {
+            let short = preset.id.strip_prefix("concat.").unwrap_or(&preset.id);
+            check(
+                format!("presets.{}", key_part(&short.replace('-', " "))),
+                &preset.name,
+            );
+        }
+        assert!(missing.is_empty(), "\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn a_key_part_is_its_words_in_lower_camel_case() {
+        assert_eq!(key_part("Retro & Film"), "retroAndFilm");
+        assert_eq!(key_part("golden hour"), "goldenHour");
+        assert_eq!(key_part("Don't {0} LUT"), "dontLut");
+        assert_eq!(key_part("{x} 10-bit"), "x10Bit");
+        assert_eq!(key_part(""), "");
+    }
+
+    /// A shipped package or preset reads through its key; one of the
+    /// user's own reads as its author wrote it.
+    #[test]
+    fn manifest_words_read_through_their_keys_or_as_written() {
+        let _language = language();
+        let root = std::env::temp_dir().join(format!("concat-i18n-m-{}", std::process::id()));
+        let dirs = AppDirs::under(&root);
+        select("de", &dirs);
+        assert_eq!(
+            package_text("concat.exposure", "name", "Exposure"),
+            "Belichtung"
+        );
+        assert_eq!(
+            package_text("alice.exposure", "name", "Exposure"),
+            "Exposure"
+        );
+        assert_eq!(shelf_text("categories", "No such shelf"), "No such shelf");
+        assert_eq!(shelf_text("groups", ""), "");
+        assert_eq!(preset_name("user.mine", "Mine"), "Mine");
+        select(ENGLISH, &dirs);
+        assert_eq!(
+            package_text("concat.exposure", "name", "Exposure"),
+            "Exposure"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A machine's own file from before keys, keyed by the English, still
+    /// lays its lines over the shipped ones.
+    #[test]
+    fn a_file_keyed_by_the_english_still_reads() {
+        let _language = language();
+        let root = std::env::temp_dir().join(format!("concat-i18n-l-{}", std::process::id()));
+        let dirs = AppDirs::under(&root);
+        std::fs::create_dir_all(user_dir(&dirs)).expect("a locales folder");
+        std::fs::write(
+            user_dir(&dirs).join("de.json"),
+            r#"{ "_": { "name": "Deutsch" }, "Settings": "Optionen", "common.export": "Ausgabe" }"#,
+        )
+        .expect("writes");
+        select("de", &dirs);
+        assert_eq!(t("common.settings"), "Optionen");
+        assert_eq!(t("common.export"), "Ausgabe");
+        select(ENGLISH, &dirs);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -285,15 +559,18 @@ mod tests {
         assert_eq!(fill("plain", &[&1]), "plain");
     }
 
+    /// A key no locale translates reads in English; one nothing lists at
+    /// all reads as itself.
     #[test]
     fn a_missing_translation_reads_as_the_key() {
+        let _language = language();
         let root = std::env::temp_dir().join(format!("concat-i18n-{}", std::process::id()));
         let dirs = AppDirs::under(&root);
         select("de", &dirs);
         assert_eq!(current(), "de");
         assert_eq!(t("a key nobody translated"), "a key nobody translated");
-        assert_ne!(t("Settings"), "Settings");
+        assert_ne!(t("common.settings"), "Settings");
         select(ENGLISH, &dirs);
-        assert_eq!(t("Settings"), "Settings");
+        assert_eq!(t("common.settings"), "Settings");
     }
 }

@@ -73,38 +73,38 @@ pub fn os_description() -> String {
 pub fn system_facts() -> Vec<(String, String)> {
     vec![
         (
-            t("Application"),
+            t("sysinfo.application"),
             format!("Concat {}", env!("CARGO_PKG_VERSION")),
         ),
         (
-            t("Build"),
+            t("sysinfo.build"),
             format!("{} · {}", env!("BUILD_PROFILE"), env!("BUILD_TARGET")),
         ),
         // The renderer, the first question to ask about anything that looks
         // wrong on screen. One now, but a bug report outlives the build it
         // came from, and an older one may have drawn with FemtoVG.
-        (t("Renderer"), "Skia".into()),
+        (t("sysinfo.renderer"), "Skia".into()),
         // The adapter the window and the monitor draw on, and whether it is
         // a GPU at all. A machine that fell back to WARP looks like any
         // other in the window, and the difference was the whole story of
         // https://github.com/jub0t/Concat/issues/135
         (
-            t("Graphics"),
+            t("sysinfo.graphics"),
             crate::gpu::adapter_description().unwrap_or("none").into(),
         ),
         (
-            t("Engine"),
+            t("sysinfo.engine"),
             format!("concat-engine · FFmpeg {}", concat_media::linked_version()),
         ),
-        (t("Operating system"), os_description()),
+        (t("sysinfo.operatingSystem"), os_description()),
         (
-            t("Processor"),
+            t("sysinfo.processor"),
             format!(
                 "{} · {} threads",
                 std::env::consts::ARCH,
                 std::thread::available_parallelism().map_or(0, |count| count.get())
             ),
         ),
-        (t("Toolchain"), env!("BUILD_RUSTC").into()),
+        (t("sysinfo.toolchain"), env!("BUILD_RUSTC").into()),
     ]
 }

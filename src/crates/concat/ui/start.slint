@@ -686,7 +686,7 @@ component Rail inherits Rectangle {
         // reads the rail first: a launcher's first row is where "new" is
         // expected to be, whatever the page beside it is showing.
         RailItem {
-            label: I18n.t("New project");
+            label: I18n.t("start.newProject");
             glyph: Glyph.plus;
             compact: root.compact;
             enabled: root.enabled;
@@ -696,7 +696,7 @@ component Rail inherits Rectangle {
         Rectangle { vertical-stretch: 1; }
 
         RailItem {
-            label: I18n.t("Open project");
+            label: I18n.t("start.openProject");
             glyph: Glyph.folder;
             compact: root.compact;
             enabled: root.enabled;
@@ -704,7 +704,7 @@ component Rail inherits Rectangle {
         }
 
         RailItem {
-            label: I18n.t("Settings");
+            label: I18n.t("common.settings");
             glyph: Glyph.settings;
             compact: root.compact;
             enabled: root.enabled;
@@ -749,7 +749,7 @@ component NewProjectCard inherits Rectangle {
         }
 
         Text {
-            text: I18n.t("New project");
+            text: I18n.t("start.newProject");
             color: Theme.fg;
             font-size: Theme.fs-xl;
             font-weight: Theme.weight-title;
@@ -1019,7 +1019,7 @@ export component StartScreen inherits Rectangle {
 
                         Text {
                             horizontal-stretch: 1;
-                            text: I18n.t("Projects");
+                            text: I18n.t("start.projects");
                             color: Theme.fg;
                             // The one display-sized line in the app. The
                             // tree bundles two faces and no display face,
@@ -1044,7 +1044,7 @@ export component StartScreen inherits Rectangle {
                             horizontal-stretch: 0;
                             BarAction {
                                 glyph: Glyph.folder;
-                                label: I18n.t("Open project");
+                                label: I18n.t("start.openProject");
                                 enabled: !root.busy;
                                 clicked => { root.open(); }
                             }
@@ -1055,7 +1055,7 @@ export component StartScreen inherits Rectangle {
                             horizontal-stretch: 0;
                             BarAction {
                                 glyph: Glyph.settings;
-                                label: I18n.t("Settings");
+                                label: I18n.t("common.settings");
                                 enabled: !root.busy;
                                 clicked => { root.open-settings(); }
                             }
@@ -1065,7 +1065,7 @@ export component StartScreen inherits Rectangle {
                     Rectangle { height: 8px; }
 
                     Text {
-                        text: I18n.t("Everything you have opened on this machine.");
+                        text: I18n.t("start.everythingHaveOpenedMachine");
                         color: Theme.fg-muted;
                         font-size: root.narrow ? Theme.fs-lg : Theme.fs-xl;
                         wrap: word-wrap;
@@ -1139,7 +1139,7 @@ export component NewProjectDialog inherits Modal {
     property <bool> can-create: !root.data.busy && root.data.location != "";
 
     open: root.data.composing;
-    title: I18n.t("New project");
+    title: I18n.t("start.newProject");
     glyph: Glyph.plus;
     // Not while creating: the sheet is what the notice lands on, and a
     // sheet dismissed out from under a create is a create nobody hears
@@ -1168,19 +1168,19 @@ export component NewProjectDialog inherits Modal {
         // What the form is for, before the form: the one line a person
         // should read before choosing.
         Text {
-            text: I18n.t("These settings apply to the whole edit and cannot be changed later.");
+            text: I18n.t("start.settingsApplyWholeEdit");
             color: Theme.fg-muted;
             font-size: Theme.fs;
             wrap: word-wrap;
         }
 
         FormRow {
-            label: I18n.upper("Name");
+            label: I18n.upper("common.name");
             stacked: root.narrow;
 
             name-field := PlainInput {
                 text: root.data.name;
-                placeholder: I18n.t("Untitled project");
+                placeholder: I18n.t("common.untitledProject");
                 enabled: !root.data.busy;
                 edited(text) => { root.name-edited(text); }
                 accepted => { root.create(); }
@@ -1188,7 +1188,7 @@ export component NewProjectDialog inherits Modal {
         }
 
         FormRow {
-            label: I18n.upper("Location");
+            label: I18n.upper("start.location");
             stacked: root.narrow;
 
             HorizontalLayout {
@@ -1197,7 +1197,7 @@ export component NewProjectDialog inherits Modal {
                 PlainInput {
                     horizontal-stretch: 1;
                     text: root.data.location;
-                    placeholder: I18n.t("Choose a folder");
+                    placeholder: I18n.t("start.chooseAFolder");
                     size: Theme.fs;
                     face: Theme.font-technical;
                     enabled: !root.data.busy;
@@ -1209,7 +1209,7 @@ export component NewProjectDialog inherits Modal {
                     alignment: center;
                     horizontal-stretch: 0;
                     LinkButton {
-                        label: I18n.t("Choose…");
+                        label: I18n.t("start.choose");
                         enabled: !root.data.busy;
                         // The field beside this ignores a new value while it
                         // holds the caret (see PlainInput), so a folder picked
@@ -1226,7 +1226,7 @@ export component NewProjectDialog inherits Modal {
         }
 
         FormRow {
-            label: I18n.upper("Shape");
+            label: I18n.upper("start.shape");
             stacked: root.narrow;
 
             HorizontalLayout {
@@ -1257,7 +1257,7 @@ export component NewProjectDialog inherits Modal {
         }
 
         FormRow {
-            label: I18n.upper("Size");
+            label: I18n.upper("common.size");
             stacked: root.narrow;
 
             VerticalLayout {
@@ -1269,7 +1269,7 @@ export component NewProjectDialog inherits Modal {
                     ChipRow {
                         horizontal-stretch: 1;
                         options: root.sizes;
-                        extra: I18n.t("Custom");
+                        extra: I18n.t("common.custom");
                         current: root.data.size;
                         enabled: !root.data.busy;
                         block: root.narrow;
@@ -1326,7 +1326,7 @@ export component NewProjectDialog inherits Modal {
         }
 
         FormRow {
-            label: I18n.upper("Frame rate");
+            label: I18n.upper("common.frameRate");
             last: true;
             stacked: root.narrow;
 
@@ -1339,7 +1339,7 @@ export component NewProjectDialog inherits Modal {
                     ChipRow {
                         horizontal-stretch: 1;
                         options: root.rates;
-                        extra: I18n.t("Custom");
+                        extra: I18n.t("common.custom");
                         current: root.data.rate;
                         enabled: !root.data.busy;
                         block: root.narrow;
@@ -1461,8 +1461,8 @@ export component NewProjectDialog inherits Modal {
             PillButton {
                 primary: true;
                 label: root.data.busy
-                    ? I18n.t("Creating…")
-                    : I18n.t("Create");
+                    ? I18n.t("start.creating")
+                    : I18n.t("start.create");
                 enabled: root.can-create;
                 clicked => { root.create(); }
             }
@@ -1471,7 +1471,7 @@ export component NewProjectDialog inherits Modal {
                 alignment: center;
                 horizontal-stretch: 1;
                 Text {
-                    text: I18n.t("The project folder is created now; the edit autosaves into it.");
+                    text: I18n.t("start.projectFolderCreatedNow");
                     color: Theme.fg-dim;
                     font-size: Theme.fs-sm;
                     wrap: word-wrap;
@@ -1486,14 +1486,14 @@ export component NewProjectDialog inherits Modal {
                 primary: true;
                 block: true;
                 label: root.data.busy
-                    ? I18n.t("Creating…")
-                    : I18n.t("Create");
+                    ? I18n.t("start.creating")
+                    : I18n.t("start.create");
                 enabled: root.can-create;
                 clicked => { root.create(); }
             }
 
             Text {
-                text: I18n.t("The project folder is created now; the edit autosaves into it.");
+                text: I18n.t("start.projectFolderCreatedNow");
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 horizontal-alignment: center;

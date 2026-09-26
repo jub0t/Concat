@@ -126,7 +126,7 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.plus;
-            label: I18n.t("Add track");
+            label: I18n.t("tray.addTrack");
             icon-size: 14px;
             clicked => { root.add-track(); }
         }
@@ -135,14 +135,14 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.undo;
-            label: I18n.t("Undo (⌘Z)");
+            label: I18n.t("tray.undo");
             icon-size: 16px;
             enabled: root.can-undo;
             clicked => { root.undo(); }
         }
         TrayButton {
             glyph: Glyph.redo;
-            label: I18n.t("Redo (⇧⌘Z)");
+            label: I18n.t("tray.redo");
             icon-size: 16px;
             enabled: root.can-redo;
             clicked => { root.redo(); }
@@ -155,7 +155,7 @@ export component TimelineTray inherits Rectangle {
         // already where you were looking.
         TrayButton {
             glyph: Glyph.split;
-            label: I18n.t("Split at playhead (B, or ⌘B for every clip)");
+            label: I18n.t("tray.splitAtPlayhead");
             icon-size: 16px;
             clicked => { root.split(); }
         }
@@ -174,7 +174,7 @@ export component TimelineTray inherits Rectangle {
         }
         TrayButton {
             glyph: Glyph.trash;
-            label: I18n.t("Delete selected");
+            label: I18n.t("tray.deleteSelected");
             danger: true;
             icon-size: 16px;
             enabled: root.selected-count > 0;
@@ -201,7 +201,7 @@ export component TimelineTray inherits Rectangle {
 
             TrayButton {
                 glyph: Glyph.mirror-rotate;
-                label: I18n.t("Freeze, mirror or rotate the selected clip");
+                label: I18n.t("tray.freezeMirrorRotateSelected");
                 icon-size: 16px;
                 enabled: root.selected-count > 0;
                 clicked => { root.transform-menu-requested(verbs.x); }
@@ -209,7 +209,7 @@ export component TimelineTray inherits Rectangle {
             TrayButton {
                 width: 16px;
                 glyph: Glyph.chevron-down;
-                label: I18n.t("Freeze, mirror or rotate the selected clip");
+                label: I18n.t("tray.freezeMirrorRotateSelected");
                 icon-size: 11px;
                 enabled: root.selected-count > 0;
                 clicked => { root.transform-menu-requested(verbs.x); }
@@ -220,7 +220,7 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.hand;
-            label: I18n.t("Pan tool (H)");
+            label: I18n.t("tray.panTool");
             icon-size: 16px;
             checked: root.pan-mode;
             clicked => { root.pan-changed(!root.pan-mode); }
@@ -229,7 +229,7 @@ export component TimelineTray inherits Rectangle {
         // so the monitor shows the frame the cut lands on.
         TrayButton {
             glyph: Glyph.trim-follow;
-            label: I18n.t("Player follows the resize: the playhead rides the edge you trim");
+            label: I18n.t("tray.playerFollowsResizePlayhead");
             icon-size: 16px;
             checked: root.trim-follow;
             clicked => { root.trim-follow-changed(!root.trim-follow); }
@@ -239,7 +239,7 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.magnet;
-            label: I18n.t("Snap to edges");
+            label: I18n.t("common.snapToEdges");
             icon-size: 16px;
             checked: root.snap;
             clicked => { root.snap-changed(!root.snap); }
@@ -249,7 +249,7 @@ export component TimelineTray inherits Rectangle {
         // trim leaves no hole. https://github.com/jub0t/Concat/issues/106
         TrayButton {
             glyph: Glyph.fold;
-            label: I18n.t("Magnetic timeline: deleting and trimming close the gap");
+            label: I18n.t("tray.magneticTimelineDeletingTrimming");
             icon-size: 16px;
             checked: root.magnetic;
             clicked => { root.magnetic-changed(!root.magnetic); }
@@ -259,13 +259,13 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.text-mark;
-            label: I18n.t("Generate Captions");
+            label: I18n.t("tray.generateCaptions");
             icon-size: 16px;
             clicked => { root.captions(); }
         }
         TrayButton {
             glyph: Glyph.volume;
-            label: I18n.t("Text to Speech");
+            label: I18n.t("tray.textToSpeech");
             icon-size: 16px;
             clicked => { root.speak(); }
         }
@@ -287,8 +287,8 @@ export component TimelineTray inherits Rectangle {
             TrayButton {
                 glyph: Glyph.axis;
                 label: root.preview-axis
-                    ? I18n.t("Turn off Preview Axis (S)")
-                    : I18n.t("Turn on Preview Axis (S)");
+                    ? I18n.t("tray.turnOffPreviewAxis")
+                    : I18n.t("tray.turnOnPreviewAxis");
                 icon-size: 16px;
                 checked: root.preview-axis;
                 clicked => { root.preview-axis-changed(!root.preview-axis); }
@@ -296,7 +296,7 @@ export component TimelineTray inherits Rectangle {
             TrayButton {
                 width: 16px;
                 glyph: Glyph.chevron-down;
-                label: I18n.t("Preview axis options");
+                label: I18n.t("tray.previewAxisOptions");
                 icon-size: 11px;
                 clicked => { root.axis-menu-requested(axis.x); }
             }
@@ -306,13 +306,13 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.fit;
-            label: I18n.t("Zoom to fit");
+            label: I18n.t("tray.zoomToFit");
             icon-size: 15px;
             clicked => { root.fit(); }
         }
         TrayButton {
             glyph: Glyph.minus;
-            label: I18n.t("Zoom out");
+            label: I18n.t("common.zoomOut");
             icon-size: 14px;
             // Above 1 is out: the factor multiplies seconds-per-pixel, so a
             // bigger number is more seconds in the same pixel.
@@ -320,7 +320,7 @@ export component TimelineTray inherits Rectangle {
         }
         TrayButton {
             glyph: Glyph.plus;
-            label: I18n.t("Zoom in");
+            label: I18n.t("common.zoomIn");
             icon-size: 14px;
             clicked => { root.zoom(1 / 1.4); }
         }

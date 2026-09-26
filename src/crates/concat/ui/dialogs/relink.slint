@@ -24,17 +24,17 @@ export component RelinkDialog inherits Modal {
     callback dismiss();
 
     open: root.data.open;
-    title: I18n.t("Missing Media");
+    title: I18n.t("relink.missingMedia");
     glyph: Glyph.info;
     surface-width: 600px;
 
     VerticalLayout {
         DialogSection {
             first: true;
-            title: I18n.t1("{0} media file(s) not found", "" + data.items.length);
+            title: I18n.t1("relink.mediaFilesNotFound", "" + data.items.length);
 
             Text {
-                text: I18n.t("The following media files could not be located. You can relink them to a new folder or dismiss this dialog to continue with offline placeholders.");
+                text: I18n.t("relink.followingMediaFilesCould");
                 color: Theme.fg;
                 wrap: word-wrap;
             }
@@ -86,13 +86,13 @@ export component RelinkDialog inherits Modal {
 
             Button {
                 primary: false;
-                label: I18n.t("Dismiss");
+                label: I18n.t("relink.dismiss");
                 clicked => { root.dismiss(); }
             }
 
             Button {
                 primary: true;
-                label: I18n.t("Relink All…");
+                label: I18n.t("relink.relinkAll");
                 clicked => { root.relink-all(); }
             }
         }
