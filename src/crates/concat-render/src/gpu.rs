@@ -1333,6 +1333,111 @@ impl WgpuCompositor {
         }
     }
 
+    /// `passes` over a picture `side` pixels square of one colour, straight
+    /// RGBA in the working space, and the colour of its middle pixel after
+    /// them, read back in the half floats the working space holds: what an
+    /// effect package's probes are checked against, with nothing between
+    /// the shaders and the numbers - no upload's gamma on the way in, no
+    /// resolve's clipping on the way out. The passes see the timeline at
+    /// `seconds`, their clip just begun. None when the device is dead or
+    /// the read-back fails.
+    pub fn probe(
+        &mut self,
+        passes: &[ShaderPass],
+        colour: [f32; 4],
+        side: u32,
+        seconds: f32,
+    ) -> Option<[f32; 4]> {
+        if self.dead {
+            return None;
+        }
+        let side = side.max(1);
+        self.used.values_mut().for_each(|used| *used = 0);
+        self.composites += 1;
+        let source = self.claim(side, side);
+        let texel: Vec<u8> = colour
+            .iter()
+            .flat_map(|channel| half::f16::from_f32(*channel).to_le_bytes())
+            .collect();
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.pool[&(side, side)][source].texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &texel.repeat((side * side) as usize),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(side * WORK_BYTES as u32),
+                rows_per_image: Some(side),
+            },
+            wgpu::Extent3d {
+                width: side,
+                height: side,
+                depth_or_array_layers: 1,
+            },
+        );
+        let drawn = self.run_passes(side, side, source, passes, seconds, seconds);
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("concat probe"),
+            size: wgpu::COPY_BYTES_PER_ROW_ALIGNMENT.into(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat probe"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.pool[&(side, side)][drawn].texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: side / 2,
+                    y: side / 2,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT),
+                    rows_per_image: Some(1),
+                },
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+        let slice = buffer.slice(..);
+        let (mapped_tx, mapped_rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = mapped_tx.send(result);
+        });
+        let waited = self.device.poll(wgpu::PollType::wait_indefinitely());
+        self.retire();
+        if waited.is_err() || !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
+            return None;
+        }
+        let data = slice.get_mapped_range().ok()?;
+        let mut out = [0.0; 4];
+        for (channel, bytes) in out
+            .iter_mut()
+            .zip(data[..WORK_BYTES as usize].chunks_exact(2))
+        {
+            *channel = half::f16::from_le_bytes([bytes[0], bytes[1]]).to_f32();
+        }
+        Some(out)
+    }
+
     /// The render passes: every draw over `clear` into `view`, which is a
     /// view of `target`. One pass, except that a Lighten or Darken layer
     /// needs the ground as it stands: the pass ends, the target is copied

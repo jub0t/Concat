@@ -18,7 +18,17 @@ use crate::Error;
 /// compositor. Bumped when any of those changes in a way an older build
 /// could not read, so a package written for a newer Concat says so rather
 /// than failing in the shader compiler.
-pub const FORMAT: u32 = 1;
+///
+/// Format 2 is the scene-linear contract: the shader samples the working
+/// space as it is - linear light, unclipped, 1.0 the white of an SDR
+/// picture - and a package that draws the picture runs on the GPU alone,
+/// with no `[ffmpeg]` chain. Format 1 packages still load, and their
+/// shaders are handed the gamma-encoded `0..1` picture they were written
+/// for (see `concat-effects/src/shader.rs`).
+pub const FORMAT: u32 = 2;
+
+/// The first format whose shaders sample the working space as it is.
+pub const SCENE_LINEAR: u32 = 2;
 
 /// A parsed `effect.toml`.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
@@ -471,8 +481,22 @@ impl Manifest {
             if self.wgsl.is_some() && self.effect.kind == Kind::Audio {
                 return Err(self.invalid("a [wgsl] package cannot be audio"));
             }
+            // The picture is drawn on the GPU, in light, and nowhere else:
+            // a chain would run on eight bits the shader never sees.
+            if self.scene_linear() && self.effect.kind.is_visual() && self.ffmpeg.is_some() {
+                return Err(self.invalid(format!(
+                    "a format {SCENE_LINEAR} package draws the picture on the GPU alone: \
+                     drop the [ffmpeg] table"
+                )));
+            }
         }
         Ok(())
+    }
+
+    /// Whether the package's shader samples the working space as it is,
+    /// rather than the gamma-encoded `0..1` a format 1 shader is given.
+    pub fn scene_linear(&self) -> bool {
+        self.format >= SCENE_LINEAR
     }
 
     /// The declared parameter with this key.
@@ -572,15 +596,32 @@ mod tests {
     #[test]
     fn the_format_is_the_first_thing_read() {
         assert_eq!(Manifest::parse(GOOD).expect("parses").format, 1);
-        assert_eq!(
-            Manifest::parse(&format!("format = {FORMAT}\n{GOOD}"))
-                .expect("parses")
-                .format,
-            FORMAT
+        assert!(!Manifest::parse(GOOD).expect("parses").scene_linear());
+        let shader = GOOD.replace(
+            "[ffmpeg]\n        chain = \"gblur=sigma={fixed(radius, 1)}\"",
+            "[wgsl]\n        entry = \"effect.wgsl\"",
         );
+        let current = Manifest::parse(&format!("format = {FORMAT}\n{shader}")).expect("parses");
+        assert_eq!(current.format, FORMAT);
+        assert!(current.scene_linear());
         rejects(&format!("format = {}\n{GOOD}", FORMAT + 1), "newer Concat");
         rejects(&format!("format = 0\n{GOOD}"), "format is 0");
         rejects(&format!("format = \"1\"\n{GOOD}"), "format");
+    }
+
+    /// From format 2 a picture is drawn on the GPU alone, so a chain beside
+    /// the shader is refused; sound is FFmpeg's, and keeps its chain.
+    #[test]
+    fn a_scene_linear_package_draws_without_a_chain() {
+        let both = GOOD.replace(
+            "[ffmpeg]",
+            "[wgsl]\n        entry = \"effect.wgsl\"\n\n        [ffmpeg]",
+        );
+        Manifest::parse(&format!("format = 1\n{both}")).expect("format 1 may carry both");
+        rejects(&format!("format = 2\n{both}"), "drop the [ffmpeg] table");
+        rejects(&format!("format = 2\n{GOOD}"), "drop the [ffmpeg] table");
+        let audio = GOOD.replace("kind = \"effect\"", "kind = \"audio\"");
+        Manifest::parse(&format!("format = 2\n{audio}")).expect("audio keeps its chain");
     }
 
     #[test]

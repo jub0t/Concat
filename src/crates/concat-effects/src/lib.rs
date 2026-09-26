@@ -14,6 +14,12 @@
 //! filtergraph where the chains have always run. `[wgsl]` is a shader,
 //! declared here and run by the compositor.
 //!
+//! From package format 2 a package that draws the picture is a shader
+//! alone, sampling the compositor's linear working space as it is (see
+//! [`shader`]), and what its `fixtures.toml` pins is colours - `[[probe]]`,
+//! a colour in and the colour out, checked on a GPU - where a chain's pins
+//! strings (`[[case]]`). Sound stays FFmpeg's.
+//!
 //! The document is untouched by any of this: a clip still stores
 //! `{ id, params, enabled }`, and an id the catalogue does not know is
 //! skipped at render time.
@@ -30,9 +36,9 @@ mod builtins {
     include!(concat!(env!("OUT_DIR"), "/builtins.rs"));
 }
 
-pub use catalogue::{At, Catalogue, Fixture, Package, package_folders, package_stamp};
+pub use catalogue::{At, Catalogue, Fixture, Package, Probe, package_folders, package_stamp};
 pub use manifest::{FORMAT, Kind, Manifest, Param, ParamType};
-pub use shader::{Shader, TransitionShader};
+pub use shader::{Contract, Shader, TransitionShader};
 
 /// Why a package could not be loaded.
 #[derive(thiserror::Error, Debug)]
@@ -186,6 +192,104 @@ mod tests {
             }
         }
         assert!(gaps.is_empty(), "\n{}", gaps.join("\n"));
+    }
+
+    /// The same rule for a package drawn in light, whose pinned outputs
+    /// are colours rather than chains.
+    #[test]
+    fn every_scene_linear_package_probes_its_default_and_every_slider_bound() {
+        let mut gaps = Vec::new();
+        let mut linear = 0;
+        for package in Catalogue::builtin().packages() {
+            if !package.manifest.scene_linear() || package.shader().is_none() {
+                continue;
+            }
+            linear += 1;
+            let has = |at: At| {
+                package
+                    .probes
+                    .iter()
+                    .any(|probe| probe.at == at && probe.params.is_empty())
+            };
+            if !has(At::Default) {
+                gaps.push(format!("{}: no default probe", package.id()));
+            }
+            if !package.manifest.params.is_empty() {
+                if !has(At::Min) {
+                    gaps.push(format!("{}: no min probe", package.id()));
+                }
+                if !has(At::Max) {
+                    gaps.push(format!("{}: no max probe", package.id()));
+                }
+            }
+        }
+        assert!(linear >= 1, "no package is drawn in light yet");
+        assert!(gaps.is_empty(), "\n{}", gaps.join("\n"));
+    }
+
+    const EXPOSED: &str = "format = 2\n[effect]\nid = \"a.lift\"\nname = \"Lift\"\nkind = \"effect\"\n\
+        [[param]]\nkey = \"stops\"\nlabel = \"Stops\"\nmin = -2\nmax = 2\n\
+        [wgsl]\nentry = \"effect.wgsl\"\n";
+    const EXPOSE: &str = "struct Params { stops: f32 }\nfn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(exposure(c.rgb, params.stops), c.a); }";
+
+    /// A probe pins what a shader draws, so it needs a shader, and may set
+    /// only what the package declares.
+    #[test]
+    fn a_probe_sets_only_declared_knobs_of_a_shader() {
+        let probe = |params: &str| {
+            format!(
+                "[[probe]]\nname = \"up\"\nparams = {{ {params} }}\ninput = [0.25, 0.25, 0.25, 1]\nexpect = [0.5, 0.5, 0.5, 1]\n"
+            )
+        };
+        let package = Package::from_sources(EXPOSED, Some(&probe("stops = 1")), Some(EXPOSE))
+            .expect("a probe on a shader loads");
+        let pass = package
+            .probe_pass(&package.probes[0])
+            .expect("a shader's pass");
+        assert_eq!(pass.values.get("stops"), Some(&1.0));
+        assert_eq!(pass.intensity, 1.0);
+
+        let error = Package::from_sources(EXPOSED, Some(&probe("gain = 1")), Some(EXPOSE))
+            .expect_err("an undeclared knob")
+            .to_string();
+        assert!(error.contains("`gain`"), "{error}");
+        let error = Package::from_sources(EXPOSED, Some(&probe("intensity = 50")), Some(EXPOSE))
+            .expect_err("an effect has no intensity")
+            .to_string();
+        assert!(error.contains("`intensity`"), "{error}");
+        let filter = EXPOSED.replace("kind = \"effect\"", "kind = \"filter\"");
+        let package = Package::from_sources(&filter, Some(&probe("intensity = 50")), Some(EXPOSE))
+            .expect("a filter's intensity is its mix");
+        assert_eq!(
+            package.probe_pass(&package.probes[0]).map(|p| p.intensity),
+            Some(0.5)
+        );
+
+        let error = Package::from_sources(TINT, Some(&probe("hue = 1")), None)
+            .expect_err("a chain has no shader to probe")
+            .to_string();
+        assert!(error.contains("[wgsl]"), "{error}");
+    }
+
+    /// A probe allows a fraction of the expected value, with a floor near
+    /// zero, and nothing that is not a number.
+    #[test]
+    fn a_probe_holds_to_its_tolerance() {
+        let probe = Probe {
+            name: String::new(),
+            at: At::Default,
+            params: BTreeMap::new(),
+            input: [0.0; 4],
+            expect: [2.0, 0.5, 0.0, 1.0],
+            tolerance: 0.01,
+        };
+        assert!(probe.check([2.019, 0.4951, 0.0000999, 1.0]).is_ok());
+        assert!(probe.check([2.03, 0.5, 0.0, 1.0]).is_err(), "1.5 % off");
+        assert!(probe.check([2.0, 0.5, 0.0002, 1.0]).is_err(), "off zero");
+        let error = probe
+            .check([2.0, f32::NAN, 0.0, 1.0])
+            .expect_err("not a number");
+        assert!(error.contains("NaN"), "{error}");
     }
 
     #[test]

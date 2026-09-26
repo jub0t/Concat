@@ -1133,11 +1133,13 @@ fn import_cube(dir: &std::path::Path, path: &std::path::Path) -> Result<String, 
     let folder = dir.join(&id);
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let name = stem.trim().to_owned();
+    // Format 1: a table is made for the gamma-encoded picture, which is
+    // what a format 1 shader is handed. The look-up effect with a log
+    // shaper (phase 2, step 5) is what takes an imported table into light.
     let manifest = format!(
-        "format = {}\n\n[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
+        "format = 1\n\n[effect]\nid = \"{id}\"\nname = {name:?}\nkind = \"filter\"\ncategory = \"Imported\"\n\
          description = \"A look imported from a .cube table.\"\n\n[lut]\nfile = \"look.cube\"\n\n\
-         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n",
-        concat_effects::FORMAT
+         [ffmpeg]\nchain = \"lut3d=file={{lut}}\"\n\n[wgsl]\nentry = \"effect.wgsl\"\n"
     );
     std::fs::write(folder.join("effect.toml"), manifest).map_err(|error| error.to_string())?;
     std::fs::write(
