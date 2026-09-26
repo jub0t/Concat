@@ -108,6 +108,44 @@ fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
     encoder.finish().expect("finishes the picture");
 }
 
+/// The four quadrant colours of [`quadrants`], top left, top right, bottom
+/// left, bottom right: saturated and far apart, so they survive 4:2:0 and
+/// a flip or a crop is read off which one lands where.
+const QUADRANTS: [[u8; 3]; 4] = [[220, 30, 30], [30, 200, 30], [30, 30, 220], [230, 220, 30]];
+
+/// Two seconds of a picture split into four coloured quadrants, silent.
+/// The geometry source: a solid frame looks the same flipped or cropped.
+fn quadrants(path: &Path) {
+    let options = EncodeOptions {
+        codec: VideoCodec::H264,
+        preset: "ultrafast".to_owned(),
+        crf: 12,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
+        ten_bit: false,
+        color_range: concat_media::ColorRange::Limited,
+        hardware: false,
+        threads: 0,
+    };
+    let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
+        .expect("the linked FFmpeg encodes");
+    let mut frame = Frame::black(WIDTH, HEIGHT);
+    let stride = WIDTH as usize * 4;
+    for y in 0..HEIGHT as usize {
+        for x in 0..WIDTH as usize {
+            let quadrant =
+                usize::from(y >= HEIGHT as usize / 2) * 2 + usize::from(x >= WIDTH as usize / 2);
+            let [r, g, b] = QUADRANTS[quadrant];
+            let at = y * stride + x * 4;
+            frame.pixels_mut()[at..at + 4].copy_from_slice(&[r, g, b, 255]);
+        }
+    }
+    for _ in 0..60 {
+        encoder.write_frame(&frame).expect("writes a frame");
+    }
+    encoder.finish().expect("finishes the quadrants");
+}
+
 /// The clock: a 1 kHz tone during the odd seconds, silence during the
 /// even, as a stereo 16-bit WAV of `seconds`.
 fn clock_wav(path: &Path, seconds: u32) {
@@ -313,6 +351,34 @@ impl Exported {
             .pixel(frame.width() / 2, frame.height() / 2)
             .expect("the middle is inside the frame");
         [r, g, b]
+    }
+
+    /// The colour at (`x`, `y`), as fractions of the frame, in the frame
+    /// shown at `at` seconds.
+    fn colour_at_point(&self, at: f64, x: f64, y: f64) -> [u8; 3] {
+        let index = ((at * self.fps).floor() as usize).min(self.frames.len() - 1);
+        let frame = &self.frames[index];
+        let px = ((f64::from(frame.width()) * x) as u32).min(frame.width() - 1);
+        let py = ((f64::from(frame.height()) * y) as u32).min(frame.height() - 1);
+        let [r, g, b, _] = frame.pixel(px, py).expect("inside the frame");
+        [r, g, b]
+    }
+
+    /// The colours at each (`x`, `y`) point of the frame at `at` are the
+    /// ones named, within what 4:2:0 and the encoder move a colour by.
+    fn expect_colours(&self, at: f64, points: &[((f64, f64), [u8; 3])]) {
+        for &((x, y), want) in points {
+            let got = self.colour_at_point(at, x, y);
+            let near = got
+                .iter()
+                .zip(want)
+                .all(|(got, want)| (i16::from(*got) - i16::from(want)).abs() <= 40);
+            assert!(
+                near,
+                "{}: at {at}s the point ({x}, {y}) is {got:?}, not {want:?}",
+                self.label
+            );
+        }
     }
 
     /// The frame at `at` shows source second `second`.
@@ -620,6 +686,116 @@ fn one_clip_exports_whole_at_every_rate() {
         exported.expect_tone(5.5);
         exported.expect_quiet(4.5);
     }
+}
+
+/// A crop and the flips reach the exported picture, in source terms: the
+/// crop names the source's own edges, the flips mirror what the crop kept,
+/// and a cropped picture is fitted into the frame and centred, bars
+/// around it. Pinned before the geometry moves out of the decoder's
+/// filters and into the frame plan (phase 1 of the HDR plan), so the move
+/// is held to the picture people already get.
+#[test]
+fn crop_and_flips_reach_the_picture() {
+    let scratch = Scratch::new("geometry");
+    let path = scratch.path().join("quadrants.mp4");
+    quadrants(&path);
+    let [red, green, blue, yellow] = QUADRANTS;
+    let black = [0, 0, 0];
+    let (left, right, top, bottom) = (0.25, 0.75, 0.25, 0.75);
+
+    let mut studio = Studio::new(scratch.path(), "Geometry", video(WIDTH, HEIGHT, 30, 1));
+    let media = studio.import(&path);
+    let clip = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id: media,
+            start: 0.0,
+        })
+        .expect("the clip has an id");
+    let set = |studio: &mut Studio, crop: Option<Crop>, flip_h: bool, flip_v: bool| {
+        studio.apply(Command::UpdateClip {
+            clip_id: clip.clone(),
+            patch: ClipPatch {
+                crop: Some(crop),
+                flip_h: Some(flip_h),
+                flip_v: Some(flip_v),
+                ..ClipPatch::default()
+            },
+        });
+    };
+
+    let plain = studio.export("quadrants as they are");
+    plain.expect_colours(
+        1.0,
+        &[
+            ((left, top), red),
+            ((right, top), green),
+            ((left, bottom), blue),
+            ((right, bottom), yellow),
+        ],
+    );
+
+    set(&mut studio, None, true, false);
+    studio.export("flipped across").expect_colours(
+        1.0,
+        &[
+            ((left, top), green),
+            ((right, top), red),
+            ((left, bottom), yellow),
+            ((right, bottom), blue),
+        ],
+    );
+
+    set(&mut studio, None, false, true);
+    studio.export("flipped upside down").expect_colours(
+        1.0,
+        &[
+            ((left, top), blue),
+            ((right, top), yellow),
+            ((left, bottom), red),
+            ((right, bottom), green),
+        ],
+    );
+
+    // The right half kept: a picture half as wide, centred, bars either side.
+    let right_half = Crop {
+        left: 0.5,
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+    };
+    set(&mut studio, Some(right_half), false, false);
+    studio.export("left half cropped away").expect_colours(
+        1.0,
+        &[
+            ((0.4, top), green),
+            ((0.6, top), green),
+            ((0.4, bottom), yellow),
+            ((0.6, bottom), yellow),
+            ((0.05, 0.5), black),
+            ((0.95, 0.5), black),
+        ],
+    );
+
+    // The bottom half kept, then mirrored: the crop is taken on the
+    // source, before the flip, so blue and yellow trade sides.
+    let bottom_half = Crop {
+        left: 0.0,
+        top: 0.5,
+        right: 0.0,
+        bottom: 0.0,
+    };
+    set(&mut studio, Some(bottom_half), true, false);
+    studio
+        .export("top half cropped away, then flipped")
+        .expect_colours(
+            1.0,
+            &[
+                ((left, 0.5), yellow),
+                ((right, 0.5), blue),
+                ((0.5, 0.05), black),
+                ((0.5, 0.95), black),
+            ],
+        );
 }
 
 /// Issue #103: the levels a file is read as reach the export. A source
