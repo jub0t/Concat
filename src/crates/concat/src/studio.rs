@@ -216,26 +216,21 @@ fn even(value: u32) -> u32 {
     value & !1
 }
 
-/// The frame rates, as exact fractions. 29.97 is 30000/1001 and never
-/// anything else - a decimal is for reading, and export must never be handed
-/// one.
-pub const START_RATES: [(&str, i64, i64); 5] = [
-    ("24", 24, 1),
-    ("25", 25, 1),
-    ("29.97", 30000, 1001),
-    ("30", 30, 1),
-    ("60", 60, 1),
-];
-
-/// The project sheet's rates: the launch sheet's five and the three a
-/// camera also records at, in order. A list, not chips, so it can carry
-/// them all; anything else is typed in as a custom rate.
-pub const RATES: [(&str, i64, i64); 8] = [
+/// The frame rates a project is offered, on the launch sheet and the
+/// project sheet alike, as exact fractions: 29.97 is 30000/1001 and never
+/// anything else - a decimal is for reading, and export must never be
+/// handed one. The rates cameras and screens run at, from a stop-motion
+/// ten to a game capture's sixty; anything else is typed in as a custom
+/// rate. https://github.com/jub0t/Concat/issues/199
+pub const RATES: [(&str, i64, i64); 11] = [
+    ("10", 10, 1),
+    ("20", 20, 1),
     ("23.976", 24000, 1001),
     ("24", 24, 1),
     ("25", 25, 1),
     ("29.97", 30000, 1001),
     ("30", 30, 1),
+    ("48", 48, 1),
     ("50", 50, 1),
     ("59.94", 60000, 1001),
     ("60", 60, 1),

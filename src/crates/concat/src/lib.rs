@@ -62,7 +62,7 @@ use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
 use panes::timeline::TimelineMsg;
-use studio::{ASPECTS, Models, OUTPUTS, SIZES, START_RATES, Studio};
+use studio::{ASPECTS, Models, OUTPUTS, RATES, SIZES, Studio};
 use ui::*;
 
 /// Opens this run's log file and makes it where the app writes things down.
@@ -295,7 +295,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             .collect::<Vec<_>>(),
     ))));
     app.set_start_rates(ModelRc::from(Rc::new(VecModel::from(
-        START_RATES
+        RATES
             .iter()
             .map(|(label, _, _)| ChipOption {
                 label: SharedString::from(*label),

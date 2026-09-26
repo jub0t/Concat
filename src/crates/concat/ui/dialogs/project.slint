@@ -24,7 +24,7 @@ export struct ProjectSheetData {
     timeline: string,
     /// Row in the frame list; one past its six rows is Custom.
     size: int,
-    /// Row in the rate list; one past its eight rows is Custom.
+    /// Row in the rate list; one past its eleven rows is Custom.
     rate: int,
     /// The frame and rate as numbers, for the custom fields.
     custom-width: float,
@@ -132,15 +132,18 @@ export component ProjectDialog inherits Modal {
                 label: I18n.t("common.frameRate");
                 Select {
                     current: root.data.rate;
-                    options: ["23.976 fps", "24 fps", "25 fps", "29.97 fps", "30 fps",
-                        "50 fps", "59.94 fps", "60 fps", I18n.t("common.custom")];
+                    // The same ladder the launch sheet offers, in the same
+                    // order: `RATES` in studio.rs.
+                    options: ["10 fps", "20 fps", "23.976 fps", "24 fps", "25 fps",
+                        "29.97 fps", "30 fps", "48 fps", "50 fps", "59.94 fps", "60 fps",
+                        I18n.t("common.custom")];
                     changed(index) => { root.rate-changed(index); }
                 }
             }
 
             // From 1 to 240, kept as the exact fraction beside it: 23.976
             // is 24000/1001, as a camera records it.
-            if root.data.rate == 8: DialogRow {
+            if root.data.rate == 11: DialogRow {
                 HorizontalLayout {
                     spacing: 10px;
 

@@ -355,15 +355,26 @@ component ChipRow inherits Rectangle {
     in property <int> current;
     in property <bool> enabled: true;
     /// The chips share the width rather than take their own: the phone
-    /// shape, where five rates have to fit across a thumb's screen.
+    /// shape, where a ladder has to fit across a thumb's screen.
     in property <bool> block;
+    /// Chips a row, for a ladder too long for one - the rates, twelve
+    /// with Custom. Zero is one row of chips at their own widths; a count
+    /// lays them in rows of equal cells, so the ladder reads as a keypad
+    /// rather than as a line that runs off the sheet.
+    in property <int> per-row: 0;
 
     callback changed(index: int);
 
     property <bool> ring;
     property <int> count: root.options.length + (root.extra != "" ? 1 : 0);
+    property <length> gap: 8px;
+    property <length> chip-h: 32px;
+    property <int> rows: root.per-row > 0 ? Math.ceil(root.count / root.per-row) : 1;
+    property <length> cell-w: root.per-row > 0
+        ? (root.width - (root.per-row - 1) * root.gap) / root.per-row
+        : 0px;
 
-    height: 32px;
+    height: root.rows * root.chip-h + (root.rows - 1) * root.gap;
 
     function select(index: int) {
         if (index >= 0 && index < root.count) {
@@ -393,9 +404,9 @@ component ChipRow inherits Rectangle {
         }
     }
 
-    HorizontalLayout {
+    if root.per-row == 0: HorizontalLayout {
         alignment: root.block ? LayoutAlignment.stretch : LayoutAlignment.start;
-        spacing: 8px;
+        spacing: root.gap;
 
         for option[index] in root.options: Chip {
             label: option.label;
@@ -415,6 +426,39 @@ component ChipRow inherits Rectangle {
             selected: root.current == root.options.length;
             enabled: root.enabled;
             block: root.block;
+            ring: root.ring && root.current == root.options.length;
+            clicked => {
+                fs.focus();
+                root.select(root.options.length);
+            }
+        }
+    }
+
+    // The rows: placed by arithmetic, the way the grids are, since a Slint
+    // layout has no wrap. Every cell the same width, the last row shorter.
+    if root.per-row > 0: Rectangle {
+        for option[index] in root.options: Chip {
+            x: Math.mod(index, root.per-row) * (root.cell-w + root.gap);
+            y: Math.floor(index / root.per-row) * (root.chip-h + root.gap);
+            width: root.cell-w;
+            label: option.label;
+            ratio: option.ratio;
+            selected: index == root.current;
+            enabled: root.enabled;
+            ring: root.ring && index == root.current;
+            clicked => {
+                fs.focus();
+                root.select(index);
+            }
+        }
+
+        if root.extra != "": Chip {
+            x: Math.mod(root.options.length, root.per-row) * (root.cell-w + root.gap);
+            y: Math.floor(root.options.length / root.per-row) * (root.chip-h + root.gap);
+            width: root.cell-w;
+            label: root.extra;
+            selected: root.current == root.options.length;
+            enabled: root.enabled;
             ring: root.ring && root.current == root.options.length;
             clicked => {
                 fs.focus();
@@ -1159,7 +1203,7 @@ export component NewProjectDialog inherits Modal {
     in property <StartData> data;
     /// The three ladders. The numbers behind each index are Rust's, so
     /// there is one place that knows what 4K is in pixels and that 29.97 is
-    /// 30000 over 1001 — see `ASPECTS`, `SIZES` and `START_RATES` in the
+    /// 30000 over 1001 — see `ASPECTS`, `SIZES` and `RATES` in the
     /// window.
     in property <[ChipOption]> aspects;
     in property <[ChipOption]> sizes;
@@ -1191,7 +1235,7 @@ export component NewProjectDialog inherits Modal {
     // sheet dismissed out from under a create is a create nobody hears
     // about.
     dismissable: !root.data.busy;
-    // Wide enough for five rates, Custom and their readout beside an 84px
+    // Wide enough for six rates a row, with their readout beside an 84px
     // label, and no wider than the window less a margin, on a phone.
     surface-width: Math.min(640px, root.width - 32px);
 
@@ -1382,13 +1426,16 @@ export component NewProjectDialog inherits Modal {
                 HorizontalLayout {
                     spacing: 16px;
 
+                    // Eleven rates and Custom: two rows of six, or three
+                    // of four across a phone, each cell wide enough for
+                    // "23.976".
                     ChipRow {
                         horizontal-stretch: 1;
                         options: root.rates;
                         extra: I18n.t("common.custom");
                         current: root.data.rate;
                         enabled: !root.data.busy;
-                        block: root.narrow;
+                        per-row: root.narrow ? 4 : 6;
                         changed(index) => { root.rate-changed(index); }
                     }
 

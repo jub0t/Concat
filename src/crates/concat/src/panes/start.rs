@@ -10,7 +10,7 @@ use concat_host::projects;
 use crate::i18n::{t, tf};
 use crate::platform;
 use crate::studio::{
-    ASPECTS, SIZES, START_RATES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
+    ASPECTS, RATES, SIZES, Studio, custom_frame, custom_rate, fps_of, frame_size, home_folder,
 };
 use crate::ui::StartData;
 
@@ -54,7 +54,7 @@ pub struct StartPane {
     pub aspect: usize,
     /// Index into [`SIZES`], or one past its end for a custom frame.
     pub size: usize,
-    /// Index into [`START_RATES`], or one past its end for a custom rate.
+    /// Index into [`RATES`], or one past its end for a custom rate.
     pub rate: usize,
     /// The custom frame, even on both sides; seeded from the preset that
     /// was picked when Custom was, so the fields start from a real frame.
@@ -115,8 +115,8 @@ impl StartPane {
                 self.size = index;
             }
             StartMsg::RateChanged(index) => {
-                let index = (index.max(0) as usize).min(START_RATES.len());
-                if index == START_RATES.len() && !self.custom_rate_on() {
+                let index = (index.max(0) as usize).min(RATES.len());
+                if index == RATES.len() && !self.custom_rate_on() {
                     self.custom_rate = self.rate();
                 }
                 self.rate = index;
@@ -217,7 +217,7 @@ impl StartPane {
 
     /// Whether the rate is typed rather than picked.
     fn custom_rate_on(&self) -> bool {
-        self.rate >= START_RATES.len()
+        self.rate >= RATES.len()
     }
 
     /// The frame the sheet describes: the typed one, or the shape at the
@@ -235,7 +235,7 @@ impl StartPane {
         if self.custom_rate_on() {
             self.custom_rate
         } else {
-            let (_, num, den) = START_RATES[self.rate];
+            let (_, num, den) = RATES[self.rate];
             (num, den)
         }
     }
