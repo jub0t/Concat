@@ -12,6 +12,12 @@
 //! uniform buffer as it is, because the catalogue already laid the bytes
 //! out the way the shader's `Params` struct wants them.
 //!
+//! A package may draw in several passes - a blur across and then down, a
+//! glow at a quarter of the layer's pixels - and then the pass carries its
+//! [`Stage`]s: the passes before the last, each drawing a picture of its own
+//! that the ones after it read. They share the module, the uniforms and the
+//! intensity; only the last mixes by it.
+//!
 //! The parameters are uniforms, never strings: a knob with keys is worth
 //! something different each frame, and the catalogue resolves it to the
 //! value for the frame and writes the buffer. The same resolved values
@@ -56,12 +62,38 @@ pub struct ShaderPass {
     /// so the call is harmless for a pass over anything that is not a
     /// title. See [`RevealMap`].
     pub reveal_map: Option<Arc<RevealMap>>,
+    /// The passes drawn before the last, in order, each into a picture of
+    /// its own that every pass after it may read: empty for a package drawn
+    /// in one pass, which is most of them. The last pass is `fs_main`.
+    pub stages: Vec<Stage>,
 }
 
 impl ShaderPass {
     /// The uniform buffer's minimum size: a struct with nothing in it still
     /// needs a binding.
     pub const MIN_PARAMS: usize = 16;
+}
+
+/// One pass of a package drawn in several, before its last: which entry
+/// point of the module draws it, and how much smaller than the layer the
+/// picture it draws is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stage {
+    /// The fragment entry point that draws it.
+    pub entry: String,
+    /// How many times smaller than the layer the picture is, across and
+    /// down: a power of two, 1 the layer's own size.
+    pub shrink: [u32; 2],
+}
+
+impl Stage {
+    /// The size of the picture the stage draws over a layer `width` by
+    /// `height`: the layer's divided by the shrink, rounded up, never
+    /// nothing.
+    pub fn size(&self, width: u32, height: u32) -> (u32, u32) {
+        let [across, down] = self.shrink.map(|shrink| shrink.max(1));
+        (width.div_ceil(across).max(1), height.div_ceil(down).max(1))
+    }
 }
 
 /// One two-input transition combine, as the compositor runs it.
@@ -298,6 +330,21 @@ mod tests {
         assert_eq!(map.gray[5 * 10], 255);
         // A pixel no rect covers is left at the "already revealed" value.
         assert_eq!(map.gray[9 * 10 + 9], 0);
+    }
+
+    /// A stage's picture is the layer's size shrunk and rounded up, never
+    /// less than a pixel, and a shrink of nothing is none.
+    #[test]
+    fn a_stage_draws_the_layer_shrunk_and_rounded_up() {
+        let stage = |shrink: [u32; 2]| Stage {
+            entry: "fs_small".to_owned(),
+            shrink,
+        };
+        assert_eq!(stage([1, 1]).size(1920, 1080), (1920, 1080));
+        assert_eq!(stage([4, 1]).size(1920, 1080), (480, 1080));
+        assert_eq!(stage([16, 16]).size(1921, 1080), (121, 68));
+        assert_eq!(stage([64, 64]).size(8, 8), (1, 1));
+        assert_eq!(stage([0, 2]).size(10, 10), (10, 5));
     }
 
     #[test]

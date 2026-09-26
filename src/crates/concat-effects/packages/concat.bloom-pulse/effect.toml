@@ -1,9 +1,12 @@
+format = 2
+
 [effect]
 id = "concat.bloom-pulse"
 name = "Bloom Pulse"
 kind = "effect"
 category = "Light"
 order = 72
+version = 2
 intensity = "amount"
 description = "A soft bloom over the highlights that breathes in and out."
 
@@ -24,8 +27,15 @@ max = 5
 default = 2
 step = 0.1
 
-[ffmpeg]
-chain = "split[blma{index}][blmb{index}];[blmb{index}]gblur=sigma=14[blmg{index}];[blma{index}][blmg{index}]blend=all_mode=screen:all_opacity={fixed(amount / 100, 3)}"
-
 [wgsl]
 entry = "effect.wgsl"
+
+# The bloom is the highlights' light spread by a Gaussian, drawn across and
+# then down at a quarter of the layer's pixels, three of which it is wide.
+[[wgsl.pass]]
+target = "across"
+shrink = ["4", "1"]
+
+[[wgsl.pass]]
+target = "down"
+shrink = ["4", "4"]

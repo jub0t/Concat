@@ -330,6 +330,33 @@ struct CompiledShader {
     frame: wgpu::Buffer,
     params: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// For a package drawn in several passes, the pipeline of each stage
+    /// before the last, in the pass's order; `pipeline` draws the last.
+    stages: Vec<wgpu::RenderPipeline>,
+}
+
+/// A 2D float texture a pass samples, at `binding` of its group.
+fn picture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+/// A filtering sampler, at `binding` of its group.
+fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
 }
 
 /// One draw of a composite: the pooled texture drawn, how it meets the
@@ -437,6 +464,13 @@ pub struct WgpuCompositor {
     /// Group 0 of a transition: the outgoing and incoming pictures, each a
     /// texture and its sampler.
     transition_layout: wgpu::BindGroupLayout,
+    /// Group 0 of a package drawn in several passes, by how many pictures
+    /// its passes draw: the layer and its sampler, then each picture; see
+    /// [`WgpuCompositor::pictures_layout`].
+    pictures_layouts: HashMap<usize, wgpu::BindGroupLayout>,
+    /// What a pass binds in place of a picture not drawn yet - its own
+    /// among them: one transparent pixel.
+    blank: wgpu::TextureView,
     /// Uploaded tables by their id, the identity among them; see `lut_group`.
     luts: HashMap<u64, wgpu::BindGroup>,
     /// The composite each cached LUT was last used in; see [`LUT_CACHE`].
@@ -616,28 +650,12 @@ impl WgpuCompositor {
         });
         // Group 0 of a transition: two pictures, each a texture and a
         // sampler - the outgoing at 0/1, the incoming at 2/3.
-        let texture_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        };
-        let sampler_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        };
         let transition_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("concat transition inputs"),
             entries: &[
-                texture_entry(0),
+                picture_entry(0),
                 sampler_entry(1),
-                texture_entry(2),
+                picture_entry(2),
                 sampler_entry(3),
             ],
         });
@@ -883,6 +901,25 @@ impl WgpuCompositor {
             mapped_at_creation: false,
         });
 
+        // Never written: wgpu clears a texture before its first use, so it
+        // reads as nothing at all.
+        let blank = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("concat blank picture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: WORK,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
         Self {
             device,
             queue,
@@ -899,6 +936,8 @@ impl WgpuCompositor {
             lut_layout,
             reveal_layout,
             transition_layout,
+            pictures_layouts: HashMap::new(),
+            blank,
             luts: HashMap::new(),
             luts_drawn: HashMap::new(),
             reveals: HashMap::new(),
@@ -934,6 +973,16 @@ impl WgpuCompositor {
     /// [`Compositor::composite`] from the CPU and refuses textures.
     pub fn is_dead(&self) -> bool {
         self.dead
+    }
+
+    /// Waits until the device has done everything asked of it so far: how
+    /// a timing knows that a texture [`WgpuCompositor::render_texture`]
+    /// handed back is drawn, without reading it back. False when the
+    /// device did not answer.
+    pub fn finish(&self) -> bool {
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .is_ok()
     }
 
     /// The next presentable texture for this output size.
@@ -2014,6 +2063,13 @@ impl WgpuCompositor {
         if self.shaders.contains_key(&pass.key) || self.refused.contains(&pass.key) {
             return;
         }
+        // A package drawn in one pass binds its layer as the pool made it;
+        // one drawn in several binds its passes' pictures beside it.
+        let inputs = if pass.stages.is_empty() {
+            self.bind_layout.clone()
+        } else {
+            self.pictures_layout(pass.stages.len())
+        };
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
             .device
@@ -2026,42 +2082,49 @@ impl WgpuCompositor {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&pass.key),
                 bind_group_layouts: &[
-                    Some(&self.bind_layout),
+                    Some(&inputs),
                     Some(&self.uniform_layout),
                     Some(&self.lut_layout),
                     Some(&self.reveal_layout),
                 ],
                 immediate_size: 0,
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&pass.key),
-                layout: Some(&layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vs_main"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some("fs_main"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: WORK,
-                        // A pass replaces: mixing by intensity is the
-                        // shader's own last line.
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline_of = |entry: &str| {
+            self.device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(&pass.key),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &module,
+                        entry_point: Some("vs_main"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &module,
+                        entry_point: Some(entry),
+                        compilation_options: Default::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: WORK,
+                            // A pass replaces: mixing by intensity is the
+                            // shader's own last line.
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+        };
+        let pipeline = pipeline_of("fs_main");
+        let stages = pass
+            .stages
+            .iter()
+            .map(|stage| pipeline_of(&stage.entry))
+            .collect();
         if let Some(error) = pollster::block_on(scope.pop()) {
             log::error!(
                 "pass {}: the driver refused its pipeline: {error}",
@@ -2105,8 +2168,30 @@ impl WgpuCompositor {
                 frame,
                 params,
                 bind_group,
+                stages,
             },
         );
+    }
+
+    /// Group 0 of a package whose passes draw `pictures` pictures: the
+    /// layer and its sampler where a single pass binds them, then each
+    /// picture, in the passes' order. Made once for each count.
+    fn pictures_layout(&mut self, pictures: usize) -> wgpu::BindGroupLayout {
+        if let Some(layout) = self.pictures_layouts.get(&pictures) {
+            return layout.clone();
+        }
+        let entries: Vec<wgpu::BindGroupLayoutEntry> = [picture_entry(0), sampler_entry(1)]
+            .into_iter()
+            .chain((0..pictures as u32).map(|picture| picture_entry(2 + picture)))
+            .collect();
+        let layout = self
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("concat pass pictures"),
+                entries: &entries,
+            });
+        self.pictures_layouts.insert(pictures, layout.clone());
+        layout
     }
 
     /// The compiled pipeline for a transition, built the first time its key is
@@ -2203,6 +2288,7 @@ impl WgpuCompositor {
                 frame,
                 params,
                 bind_group,
+                stages: Vec::new(),
             },
         );
     }
@@ -2500,10 +2586,16 @@ impl WgpuCompositor {
     /// turns between two pooled textures of the same size - each reads the
     /// one the pass before it drew and draws into the other - so a stack of
     /// effects costs two textures, not one a pass: at 8K a pass's texture
-    /// is 133 MB. `source` is only ever read, so a cached frame stays as it
+    /// is 265 MB. `source` is only ever read, so a cached frame stays as it
     /// was. Each pass is its own submission, which is what makes drawing
     /// into the texture two passes back safe, and keeps the uniforms a pass
     /// wrote the ones it reads.
+    ///
+    /// A package drawn in several passes draws its stages into pictures of
+    /// their own first, in the same submission (see [`Self::run_stages`]).
+    /// Those are claimed from the pool the first time a size is wanted and
+    /// handed from one package to the next, so a stack of blurs costs one
+    /// set of them.
     fn run_passes(
         &mut self,
         width: u32,
@@ -2516,6 +2608,7 @@ impl WgpuCompositor {
         let mut current = source;
         let mut turns: [Option<usize>; 2] = [None, None];
         let mut drawn = 0;
+        let mut spare: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for pass in passes {
             // A pass the driver refused does not take a turn, so the next
             // one never draws into the texture it reads.
@@ -2531,9 +2624,23 @@ impl WgpuCompositor {
             let lut_id = self.lut_group(pass.lut.as_deref());
             let reveal_id = self.reveal_group(pass.reveal_map.as_deref());
             // A pass the driver refused leaves the picture as it was.
-            let Some(shader) = self.shaders.get(&pass.key) else {
+            if !self.shaders.contains_key(&pass.key) {
                 continue;
-            };
+            }
+            if !pass.stages.is_empty() {
+                self.run_stages(
+                    (width, height),
+                    (current, target),
+                    pass,
+                    [time, time - clip_start],
+                    (lut_id, reveal_id),
+                    &mut spare,
+                );
+                current = target;
+                drawn += 1;
+                continue;
+            }
+            let shader = &self.shaders[&pass.key];
             let lut_group = &self.luts[&lut_id];
             let reveal_group = &self.reveals[&reveal_id];
             let frame_block: [f32; 6] = [
@@ -2588,6 +2695,133 @@ impl WgpuCompositor {
             drawn += 1;
         }
         current
+    }
+
+    /// One package drawn in several passes, over the pooled texture `layer`,
+    /// `width` by `height`, and into the pooled texture `into` of the same
+    /// size: each stage into a picture of its own - from `spare` where one
+    /// of its size is free, else claimed - then the last pass into `into`,
+    /// all in one submission. Every pass binds the layer and the pictures
+    /// drawn before it, a blank for the rest, its own among them. `time` is
+    /// the timeline's seconds and `clip_time` the clip's; `lut_id` and
+    /// `reveal_id` name the tables every pass binds. The pictures go back
+    /// to `spare` for the next package.
+    fn run_stages(
+        &mut self,
+        (width, height): (u32, u32),
+        (layer, into): (usize, usize),
+        pass: &ShaderPass,
+        [time, clip_time]: [f32; 2],
+        (lut_id, reveal_id): (u64, u64),
+        spare: &mut HashMap<(u32, u32), Vec<usize>>,
+    ) {
+        let pictures: Vec<((u32, u32), usize)> = pass
+            .stages
+            .iter()
+            .map(|stage| {
+                let size = stage.size(width, height);
+                let index = spare
+                    .get_mut(&size)
+                    .and_then(Vec::pop)
+                    .unwrap_or_else(|| self.claim(size.0, size.1));
+                (size, index)
+            })
+            .collect();
+        let shader = &self.shaders[&pass.key];
+        // Every pass of the package reads the same frame block: the layer's
+        // size - what a knob in pixels is measured against - whatever the
+        // size of the picture it draws.
+        let frame_block: [f32; 6] = [
+            width as f32,
+            height as f32,
+            time,
+            pass.intensity,
+            clip_time,
+            0.0,
+        ];
+        let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
+        self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
+        let mut params = pass.params.clone();
+        params.resize(shader.params.size() as usize, 0);
+        self.queue.write_buffer(&shader.params, 0, &params);
+
+        let view_of = |size: (u32, u32), index: usize| {
+            self.pool[&size][index]
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let layer_view = view_of((width, height), layer);
+        let into_view = view_of((width, height), into);
+        let picture_views: Vec<wgpu::TextureView> = pictures
+            .iter()
+            .map(|&(size, index)| view_of(size, index))
+            .collect();
+        let layout = &self.pictures_layouts[&pictures.len()];
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat passes"),
+            });
+        for stage in 0..=pictures.len() {
+            let entries: Vec<wgpu::BindGroupEntry> =
+                [
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&layer_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ]
+                .into_iter()
+                .chain(picture_views.iter().enumerate().map(|(picture, view)| {
+                    wgpu::BindGroupEntry {
+                        binding: 2 + picture as u32,
+                        resource: wgpu::BindingResource::TextureView(if picture < stage {
+                            view
+                        } else {
+                            &self.blank
+                        }),
+                    }
+                }))
+                .collect();
+            let inputs = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("concat pass pictures"),
+                layout,
+                entries: &entries,
+            });
+            let (pipeline, view) = match shader.stages.get(stage) {
+                Some(pipeline) => (pipeline, &picture_views[stage]),
+                None => (&shader.pipeline, &into_view),
+            };
+            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("concat pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render.set_pipeline(pipeline);
+            render.set_bind_group(0, &inputs, &[]);
+            render.set_bind_group(1, &shader.bind_group, &[]);
+            render.set_bind_group(2, &self.luts[&lut_id], &[]);
+            render.set_bind_group(3, &self.reveals[&reveal_id], &[]);
+            render.draw(0..3, 0..1);
+        }
+        self.queue.submit([encoder.finish()]);
+        for (size, index) in pictures {
+            spare.entry(size).or_default().push(index);
+        }
     }
 
     /// The six vertices of one layer's quad: the fitted picture scaled,

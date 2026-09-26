@@ -84,6 +84,7 @@ fn main() {
         if let Some(measure) = compose_gpu() {
             results.push(measure);
         }
+        results.extend(blur_4k());
         results.push(export(&media));
     }
     println!();
@@ -894,6 +895,52 @@ fn compose_gpu() -> Option<Measure> {
         budget: Budget::AtMost(25.0),
         note: "with the readback an export pays".to_owned(),
     })
+}
+
+/// A 4K picture through the Gaussian blur at its default radius and at its
+/// widest, drawn on the GPU and kept there as the monitor's frame is, and
+/// the same picture untreated, so the blur's own share can be read off.
+fn blur_4k() -> Vec<Measure> {
+    let Some(mut gpu) = concat_render::WgpuCompositor::new() else {
+        return Vec::new();
+    };
+    let picture = Arc::new(grainy(3840, 2160, 3));
+    let frame_of = |gpu: &mut concat_render::WgpuCompositor, radius: Option<f64>| {
+        let mut layer = PlannedLayer::picture(concat_render::detached_clip(), Arc::clone(&picture));
+        if let Some(radius) = radius {
+            let mut blur = AppliedFilter::new("concat.gaussian-blur");
+            blur.params.insert("radius".to_owned(), radius);
+            layer.effects =
+                concat_effects::Catalogue::builtin().shader_passes_at(&[blur], 0.0, None);
+        }
+        let plan = FramePlan {
+            layers: vec![layer],
+            ..FramePlan::empty(3840, 2160)
+        };
+        gpu.render_texture(&plan);
+        gpu.finish();
+        let rounds = 20;
+        let started = Instant::now();
+        for _ in 0..rounds {
+            gpu.render_texture(&plan);
+            gpu.finish();
+        }
+        started.elapsed().as_secs_f64() * 1e3 / f64::from(rounds)
+    };
+    let plain = frame_of(&mut gpu, None);
+    [
+        ("Gaussian blur over 4K, radius 10, on the GPU", 10.0),
+        ("Gaussian blur over 4K, radius 50, on the GPU", 50.0),
+    ]
+    .into_iter()
+    .map(|(name, radius)| Measure {
+        name,
+        value: frame_of(&mut gpu, Some(radius)),
+        unit: "ms",
+        budget: Budget::AtMost(33.0),
+        note: format!("the whole frame, kept on the GPU; {plain:.1} ms untreated"),
+    })
+    .collect()
 }
 
 /// A real export of a three-second cut through the session, as the

@@ -360,12 +360,12 @@ mod tests {
     fn stacked_effects_join_with_commas_in_applied_order() {
         let catalogue = Catalogue::builtin();
         assert_eq!(
-            catalogue.video_chain(&[applied("gaussian-blur", &[]), applied("black-white", &[])]),
-            "gblur=sigma=10.0,hue=s=0"
+            catalogue.video_chain(&[applied("box-blur", &[]), applied("black-white", &[])]),
+            "boxblur=6:1,hue=s=0"
         );
         assert_eq!(
-            catalogue.video_chain(&[applied("black-white", &[]), applied("gaussian-blur", &[])]),
-            "hue=s=0,gblur=sigma=10.0"
+            catalogue.video_chain(&[applied("black-white", &[]), applied("box-blur", &[])]),
+            "hue=s=0,boxblur=6:1"
         );
     }
 
@@ -388,9 +388,10 @@ mod tests {
 
     #[test]
     fn stacking_one_labelled_effect_twice_keeps_its_graph_labels_distinct() {
-        let chain = Catalogue::builtin().video_chain(&[applied("glow", &[]), applied("glow", &[])]);
-        assert!(chain.contains("[glowa0]"), "was: {chain}");
-        assert!(chain.contains("[glowa1]"), "was: {chain}");
+        let chain = Catalogue::builtin()
+            .video_chain(&[applied("concat.bokeh", &[]), applied("concat.bokeh", &[])]);
+        assert!(chain.contains("[bka0]"), "was: {chain}");
+        assert!(chain.contains("[bka1]"), "was: {chain}");
     }
 
     #[test]

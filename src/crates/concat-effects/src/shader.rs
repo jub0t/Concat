@@ -31,13 +31,23 @@
 //! offset of every field, which is how a clip's settings become the bytes
 //! of a uniform buffer without a package having to say anything about
 //! layout.
+//!
+//! From format 2 a package may draw in several passes: each
+//! `[[wgsl.pass]]` names a picture, `fn <target>(uv)` draws it, and the
+//! passes after it - `effect`, the last, among them - read it through
+//! `<target>_at(uv)`. The host binds each picture beside the layer, gives
+//! every pass an entry point of its own (`fs_<target>`, then `fs_main`),
+//! and refuses at load a pass that reads a picture not yet drawn. The
+//! pictures hold what the passes return, untouched: only the last pass's
+//! colour is taken back into light and mixed by intensity.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
+use concat_core::{Lut, RevealMap, ShaderPass, Stage, TransitionPass};
 
-use crate::manifest::{Manifest, Param, ParamType, Space};
+use crate::expr::{Expr, Value};
+use crate::manifest::{MAX_SHRINK, Manifest, Param, ParamType, Pass, Space};
 
 /// What an effect's shader binds: the layer at group 0, the host's frame
 /// block and the package's own parameters at group 1, its table at group 2
@@ -990,22 +1000,29 @@ pub struct Shader {
     source: Arc<str>,
     slots: Vec<Slot>,
     span: usize,
+    /// The passes before `effect`, for a package drawn in several.
+    stages: Vec<StageRule>,
 }
 
 impl Shader {
     /// Stitches `body` into the host's contract - the edition the
-    /// manifest's format asks for - checks it, and reads the `Params`
-    /// struct for where each of the manifest's parameters lands. Every
-    /// declared parameter must be a field of the struct; a field the
-    /// manifest does not declare is allowed and stays zero.
+    /// manifest's format asks for, with its passes - checks it, and reads
+    /// the `Params` struct for where each of the manifest's parameters
+    /// lands. Every declared parameter must be a field of the struct; a
+    /// field the manifest does not declare is allowed and stays zero.
     pub fn compile(manifest: &Manifest, body: &str) -> Result<Shader, String> {
         let (source, slots, span) = stitch(manifest, body, Entry::Effect)?;
+        let passes = manifest
+            .wgsl
+            .as_ref()
+            .map_or(&[][..], |wgsl| wgsl.passes.as_slice());
         Ok(Shader {
             package: manifest.effect.id.clone(),
             key: pipeline_key(&manifest.effect.id, manifest.effect.version, &source),
             source,
             slots,
             span,
+            stages: StageRule::of(manifest, passes)?,
         })
     }
 
@@ -1022,8 +1039,8 @@ impl Shader {
     }
 
     /// A pass over a layer with these values: the uniform buffer written
-    /// from them, and the values themselves for a renderer that reads by
-    /// name.
+    /// from them, the values themselves for a renderer that reads by name,
+    /// and the stages before the last, their pictures sized from them.
     pub fn pass(
         &self,
         values: &BTreeMap<String, f64>,
@@ -1041,6 +1058,7 @@ impl Shader {
             intensity,
             lut,
             reveal_map,
+            stages: self.stages.iter().map(|rule| rule.stage(values)).collect(),
         }
     }
 }
@@ -1069,16 +1087,23 @@ impl Bound {
     }
 }
 
+/// Where the first pass's picture is bound in group 0, after the layer and
+/// its sampler; the next pass's is bound after it, and so on.
+const FIRST_PICTURE: u32 = 2;
+
 /// What the host provides at `(group, binding)` for `entry`, and so the
-/// only thing a package may declare there: an effect's layer at (0,0)-(0,1)
-/// and its reveal map at group 3; a transition's two pictures at (0,0)-(0,3)
-/// and nothing at group 3; the frame block and parameters at group 1 and
-/// the look-up table at group 2 for both. A slot outside this, or one
-/// declared as something else, is a pipeline the device cannot build.
-fn provided(entry: Entry, group: u32, binding: u32) -> Option<Bound> {
+/// only thing a package may declare there: an effect's layer at (0,0)-(0,1),
+/// the pictures of its `pictures` passes after it, and its reveal map at
+/// group 3; a transition's two pictures at (0,0)-(0,3) and nothing at group
+/// 3; the frame block and parameters at group 1 and the look-up table at
+/// group 2 for both. A slot outside this, or one declared as something
+/// else, is a pipeline the device cannot build.
+fn provided(entry: Entry, pictures: usize, group: u32, binding: u32) -> Option<Bound> {
+    let passes = FIRST_PICTURE..FIRST_PICTURE + pictures as u32;
     match (entry, group, binding) {
         (_, 0, 0) => Some(Bound::Picture),
         (_, 0, 1) => Some(Bound::Sampler),
+        (Entry::Effect, 0, binding) if passes.contains(&binding) => Some(Bound::Picture),
         (Entry::Transition, 0, 2) => Some(Bound::Picture),
         (Entry::Transition, 0, 3) => Some(Bound::Sampler),
         (_, 1, 0) | (_, 1, 1) => Some(Bound::Uniform),
@@ -1119,12 +1144,12 @@ fn declared(module: &naga::Module, global: &naga::GlobalVariable) -> Option<Boun
 /// hangs the device for every process on the machine; a binding the host
 /// does not know is one it cannot serve. Caught at load, where a broken
 /// package is a load error and not a black frame.
-fn budget(module: &naga::Module, entry: Entry) -> Result<(), String> {
+fn budget(module: &naga::Module, entry: Entry, pictures: usize) -> Result<(), String> {
     for (_, global) in module.global_variables.iter() {
         let Some(binding) = &global.binding else {
             continue;
         };
-        let Some(wanted) = provided(entry, binding.group, binding.binding) else {
+        let Some(wanted) = provided(entry, pictures, binding.group, binding.binding) else {
             return Err(format!(
                 "the shader binds @group({}) @binding({}), which the host does not provide",
                 binding.group, binding.binding
@@ -1194,6 +1219,262 @@ fn breaks(block: &naga::Block) -> bool {
     })
 }
 
+/// What the host stitches for a package's passes: each pass's picture bound
+/// in group 0 after the layer, read through `<target>_at` and measured by
+/// `<target>_texel`, and the entry point that draws it. Nothing for a
+/// package drawn in one pass.
+fn passes_host(passes: &[Pass]) -> String {
+    use std::fmt::Write as _;
+    let mut host = String::new();
+    if passes.is_empty() {
+        return host;
+    }
+    host.push_str("\n// ── the passes' pictures; see concat-effects/src/shader.rs ──\n");
+    for (index, pass) in passes.iter().enumerate() {
+        let target = &pass.target;
+        let binding = FIRST_PICTURE + index as u32;
+        write!(
+            host,
+            r#"
+@group(0) @binding({binding}) var {target}_picture: texture_2d<f32>;
+
+/// The picture the `{target}` pass drew, at `uv`: what its function
+/// returned, straight, bilinearly filtered between its pixels.
+fn {target}_at(uv: vec2<f32>) -> vec4<f32> {{
+    return textureSampleLevel({target}_picture, source_sampler, uv, 0.0);
+}}
+
+/// One pixel of the `{target}` pass's picture, as a fraction of it.
+fn {target}_texel() -> vec2<f32> {{
+    return vec2<f32>(1.0) / vec2<f32>(textureDimensions({target}_picture));
+}}
+
+@fragment
+fn fs_{target}(in: VsOut) -> @location(0) vec4<f32> {{
+    return {target}(in.uv);
+}}
+"#
+        )
+        .expect("a String takes every write");
+    }
+    host
+}
+
+/// Every pass reads only pictures drawn before it, and every picture is
+/// read by a pass after it. A pass reading its own picture, or one not
+/// drawn yet, would read a blank the host binds in its place; a picture no
+/// pass reads is work for nothing. What a pass reads is every picture its
+/// function, or anything that calls, touches.
+fn read_in_order(module: &naga::Module, passes: &[Pass]) -> Result<(), String> {
+    if passes.is_empty() {
+        return Ok(());
+    }
+    let pictures: HashMap<naga::Handle<naga::GlobalVariable>, usize> = module
+        .global_variables
+        .iter()
+        .filter_map(|(handle, global)| {
+            let binding = global.binding.as_ref()?;
+            let index = binding.binding.checked_sub(FIRST_PICTURE)? as usize;
+            (binding.group == 0 && index < passes.len()).then_some((handle, index))
+        })
+        .collect();
+    let mut unread: BTreeSet<usize> = (0..passes.len()).collect();
+    let drawers = passes
+        .iter()
+        .map(|pass| pass.target.as_str())
+        .chain([Entry::Effect.name()]);
+    for (index, name) in drawers.enumerate() {
+        let Some((function, _)) = module
+            .functions
+            .iter()
+            .find(|(_, function)| function.name.as_deref() == Some(name))
+        else {
+            return Err(format!(
+                "the shader declares no `fn {name}(uv: vec2<f32>) -> vec4<f32>`"
+            ));
+        };
+        let read = pictures_read(module, function, &pictures);
+        if let Some(&later) = read.range(index..).next() {
+            return Err(if later == index {
+                format!("the pass drawing `{name}` reads its own picture")
+            } else {
+                format!(
+                    "the pass drawing `{name}` reads `{}`, which is drawn after it",
+                    passes[later].target
+                )
+            });
+        }
+        unread.retain(|picture| !read.contains(picture));
+    }
+    match unread.first() {
+        Some(&picture) => Err(format!(
+            "the pass `{}` draws a picture no pass after it reads",
+            passes[picture].target
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The pass pictures `function` reads: every one whose texture it, or any
+/// function it calls, names.
+fn pictures_read(
+    module: &naga::Module,
+    function: naga::Handle<naga::Function>,
+    pictures: &HashMap<naga::Handle<naga::GlobalVariable>, usize>,
+) -> BTreeSet<usize> {
+    let mut read = BTreeSet::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut waiting = vec![function];
+    while let Some(handle) = waiting.pop() {
+        if !seen.insert(handle) {
+            continue;
+        }
+        let function = &module.functions[handle];
+        for (_, expression) in function.expressions.iter() {
+            if let naga::Expression::GlobalVariable(global) = expression
+                && let Some(&picture) = pictures.get(global)
+            {
+                read.insert(picture);
+            }
+        }
+        calls(&function.body, &mut waiting);
+    }
+    read
+}
+
+/// Every function `block` calls, at any depth, pushed onto `into`.
+fn calls(block: &naga::Block, into: &mut Vec<naga::Handle<naga::Function>>) {
+    for statement in block.iter() {
+        match statement {
+            naga::Statement::Call { function, .. } => into.push(*function),
+            naga::Statement::Block(inner) => calls(inner, into),
+            naga::Statement::If { accept, reject, .. } => {
+                calls(accept, into);
+                calls(reject, into);
+            }
+            naga::Statement::Switch { cases, .. } => {
+                for case in cases {
+                    calls(&case.body, into);
+                }
+            }
+            naga::Statement::Loop {
+                body, continuing, ..
+            } => {
+                calls(body, into);
+                calls(continuing, into);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A pass before `effect`, as the shader keeps it: the entry point that
+/// draws it, and the expressions over the knobs its shrink is worked out
+/// from, across and down.
+#[derive(Clone, Debug)]
+struct StageRule {
+    entry: String,
+    shrink: [Expr; 2],
+}
+
+impl StageRule {
+    /// The rules for `passes`, their shrinks parsed and read only for the
+    /// knobs `manifest` declares, and worked out at every knob's default,
+    /// minimum and maximum, so an expression that fails is a load error
+    /// and never a silently full-sized picture.
+    fn of(manifest: &Manifest, passes: &[Pass]) -> Result<Vec<StageRule>, String> {
+        let knobs: Vec<&str> = manifest
+            .params
+            .iter()
+            .filter(|param| param.kind != ParamType::Point)
+            .map(|param| param.key.as_str())
+            .collect();
+        let rules = passes
+            .iter()
+            .map(|pass| {
+                let parse = |text: &str| {
+                    let expr = Expr::parse(text).map_err(|error| {
+                        format!("pass `{}`: shrink `{text}`: {error}", pass.target)
+                    })?;
+                    let mut names = Vec::new();
+                    expr.names(&mut names);
+                    match names.iter().find(|name| !knobs.contains(&name.as_str())) {
+                        Some(name) => Err(format!(
+                            "pass `{}`: shrink `{text}` reads `{name}`, which is not a knob",
+                            pass.target
+                        )),
+                        None => Ok(expr),
+                    }
+                };
+                let [across, down] = match &pass.shrink {
+                    Some([across, down]) => [across.as_str(), down.as_str()],
+                    None => ["1", "1"],
+                };
+                Ok(StageRule {
+                    entry: format!("fs_{}", pass.target),
+                    shrink: [parse(across)?, parse(down)?],
+                })
+            })
+            .collect::<Result<Vec<StageRule>, String>>()?;
+        for (at, pick) in [
+            (
+                "default",
+                (|param: &Param| param.default) as fn(&Param) -> f64,
+            ),
+            ("minimum", |param: &Param| param.min),
+            ("maximum", |param: &Param| param.max),
+        ] {
+            let values: BTreeMap<String, f64> = manifest
+                .params
+                .iter()
+                .map(|param| (param.key.clone(), pick(param)))
+                .collect();
+            for (rule, pass) in rules.iter().zip(passes) {
+                for expr in &rule.shrink {
+                    shrink_of(expr, &values).map_err(|error| {
+                        format!(
+                            "pass `{}`: shrink at every knob's {at}: {error}",
+                            pass.target
+                        )
+                    })?;
+                }
+            }
+        }
+        Ok(rules)
+    }
+
+    /// The stage for these resolved knob values.
+    fn stage(&self, values: &BTreeMap<String, f64>) -> Stage {
+        Stage {
+            entry: self.entry.clone(),
+            shrink: self
+                .shrink
+                .each_ref()
+                .map(|expr| shrink_of(expr, values).unwrap_or(1)),
+        }
+    }
+}
+
+/// A shrink worked out from the knobs, rounded down to a power of two from
+/// 1 to [`MAX_SHRINK`]: a few sizes a layer's pictures can be, so a knob
+/// that rides does not ask the pool for a new size every frame. Below 2, or
+/// not a number at all, is the layer's own size.
+fn shrink_of(expr: &Expr, values: &BTreeMap<String, f64>) -> Result<u32, String> {
+    let env: BTreeMap<String, Value> = values
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::Float(*value)))
+        .collect();
+    let shrink = match expr.eval(&env).map_err(|error| error.to_string())? {
+        Value::Int(whole) => whole as f64,
+        Value::Float(real) => real,
+        Value::Text(_) => return Err("text where a number was needed".to_owned()),
+    };
+    if shrink.is_nan() || shrink < 2.0 {
+        return Ok(1);
+    }
+    Ok(1 << shrink.min(f64::from(MAX_SHRINK)).log2().floor() as u32)
+}
+
 /// What a compiled pipeline is cached under: the package's id and version,
 /// and a fingerprint of the stitched source, so a shader edited in place
 /// without a version bump still gets a pipeline of its own rather than
@@ -1247,6 +1528,10 @@ fn stitch(
     body: &str,
     entry: Entry,
 ) -> Result<(Arc<str>, Vec<Slot>, usize), String> {
+    let passes: &[Pass] = match (entry, &manifest.wgsl) {
+        (Entry::Effect, Some(wgsl)) => &wgsl.passes,
+        _ => &[],
+    };
     let declares_params = body
         .split("struct")
         .skip(1)
@@ -1254,7 +1539,16 @@ fn stitch(
     if !body.contains(&format!("fn {}", entry.name())) {
         return Err(format!("the shader declares no `{}`", entry.signature()));
     }
-    let host = Contract::of(manifest).host(entry);
+    if let Some(pass) = passes
+        .iter()
+        .find(|pass| !body.contains(&format!("fn {}", pass.target)))
+    {
+        return Err(format!(
+            "the shader declares no `fn {}(uv: vec2<f32>) -> vec4<f32>` to draw the pass `{}`",
+            pass.target, pass.target
+        ));
+    }
+    let host = Contract::of(manifest).host(entry) + &passes_host(passes);
     let mut source = String::with_capacity(host.len() + body.len() + 64);
     if !declares_params {
         // A package with no knobs still has to bind something.
@@ -1283,7 +1577,8 @@ fn stitch(
     {
         return Err(format!("the shader declares no `{}`", entry.signature()));
     }
-    budget(&module, entry)?;
+    budget(&module, entry, passes.len())?;
+    read_in_order(&module, passes)?;
 
     let (members, span) = module
         .types
@@ -1726,6 +2021,159 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         );
         let message = wrong_entry.expect_err("a transition's slot in an effect");
         assert!(message.contains("does not provide"), "{message}");
+    }
+
+    /// A format 2 manifest of a package with a `radius` knob from 0 to 300,
+    /// drawing `passes` before `effect`.
+    fn in_passes(passes: &str) -> Manifest {
+        Manifest::parse(&format!(
+            "format = 2\n[effect]\nid = \"test.passes\"\nname = \"Passes\"\nkind = \"effect\"\n\
+             [[param]]\nkey = \"radius\"\nlabel = \"Radius\"\nmax = 300\ndefault = 10\n\
+             [wgsl]\nentry = \"effect.wgsl\"\n{passes}"
+        ))
+        .expect("a valid manifest")
+    }
+
+    const TWO_PASSES: &str = "[[wgsl.pass]]\ntarget = \"across\"\nshrink = [\"radius / 3\", \"1\"]\n\
+        [[wgsl.pass]]\ntarget = \"down\"\nshrink = [\"radius / 3\", \"radius / 3\"]\n";
+
+    const THROUGH_BOTH: &str = "struct Params { radius: f32 }\n\
+        fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+        fn down(uv: vec2<f32>) -> vec4<f32> { return across_at(uv) * across_texel().x; }\n\
+        fn effect(uv: vec2<f32>) -> vec4<f32> { return down_at(uv); }";
+
+    /// Each pass's picture is bound after the layer and read through its
+    /// own functions, each pass has an entry point of its own, and the
+    /// pass carries the stages with their pictures' shrinks worked out
+    /// from the knobs: rounded down to a power of two, at most 64.
+    #[test]
+    fn a_package_drawn_in_passes_binds_and_sizes_each_picture() {
+        let manifest = in_passes(TWO_PASSES);
+        let shader = Shader::compile(&manifest, THROUGH_BOTH).expect("compiles");
+        for line in [
+            "@group(0) @binding(2) var across_picture: texture_2d<f32>;",
+            "@group(0) @binding(3) var down_picture: texture_2d<f32>;",
+            "fn across_at(uv: vec2<f32>) -> vec4<f32>",
+            "fn down_texel() -> vec2<f32>",
+            "fn fs_across(in: VsOut)",
+            "fn fs_down(in: VsOut)",
+            "fn fs_main(in: VsOut)",
+        ] {
+            assert!(shader.source().contains(line), "no `{line}`");
+        }
+        let stages = |radius: f64| {
+            let values = BTreeMap::from([("radius".to_owned(), radius)]);
+            shader
+                .pass(&values, &manifest.params, 1.0, None, None)
+                .stages
+                .iter()
+                .map(|stage| (stage.entry.clone(), stage.shrink))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            stages(10.0),
+            [
+                ("fs_across".to_owned(), [2, 1]),
+                ("fs_down".to_owned(), [2, 2])
+            ]
+        );
+        for (radius, shrink) in [(0.0, 1), (5.9, 1), (6.0, 2), (48.0, 16), (300.0, 64)] {
+            assert_eq!(stages(radius)[1].1, [shrink, shrink], "radius {radius}");
+        }
+        assert_eq!(stages(f64::NAN)[1].1, [1, 1], "not a number");
+
+        let single = Shader::compile(
+            &in_passes(""),
+            "struct Params { radius: f32 }\nfn effect(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }",
+        )
+        .expect("compiles");
+        assert!(
+            single
+                .pass(&BTreeMap::new(), &[], 1.0, None, None)
+                .stages
+                .is_empty(),
+            "a package drawn in one pass has no stages"
+        );
+    }
+
+    /// A pass reads only the pictures drawn before it - through a helper as
+    /// much as directly - and every picture is read by a pass after it.
+    #[test]
+    fn a_pass_reads_only_what_was_drawn_before_it() {
+        let manifest = in_passes(TWO_PASSES);
+        let refused = |body: &str| {
+            Shader::compile(
+                &manifest,
+                &format!("struct Params {{ radius: f32 }}\n{body}"),
+            )
+            .expect_err("refused")
+        };
+        let own = refused(
+            "fn across(uv: vec2<f32>) -> vec4<f32> { return across_at(uv); }\n\
+             fn down(uv: vec2<f32>) -> vec4<f32> { return across_at(uv); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return down_at(uv); }",
+        );
+        assert!(own.contains("`across` reads its own picture"), "{own}");
+        let later = refused(
+            "fn peek(uv: vec2<f32>) -> vec2<f32> { return down_texel(); }\n\
+             fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv + peek(uv)); }\n\
+             fn down(uv: vec2<f32>) -> vec4<f32> { return across_at(uv); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return down_at(uv); }",
+        );
+        assert!(
+            later.contains("`across` reads `down`, which is drawn after it"),
+            "{later}"
+        );
+        let unread = refused(
+            "fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+             fn down(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return down_at(uv); }",
+        );
+        assert!(
+            unread.contains("`across` draws a picture no pass after it reads"),
+            "{unread}"
+        );
+        let missing = refused(
+            "fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return across_at(uv); }",
+        );
+        assert!(missing.contains("to draw the pass `down`"), "{missing}");
+        let bound = Shader::compile(
+            &in_passes("[[wgsl.pass]]\ntarget = \"across\"\n"),
+            "struct Params { radius: f32 }\n\
+             @group(0) @binding(3) var more: texture_2d<f32>;\n\
+             fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+             fn effect(uv: vec2<f32>) -> vec4<f32> { return across_at(uv) + textureSampleLevel(more, source_sampler, uv, 0.0); }",
+        )
+        .expect_err("a binding past the pictures");
+        assert!(bound.contains("@group(0) @binding(3)"), "{bound}");
+    }
+
+    /// A shrink is an expression over the package's knobs that comes to a
+    /// number at every knob's default and bounds, or the package does not
+    /// load.
+    #[test]
+    fn a_shrink_is_a_number_worked_out_from_the_knobs() {
+        let with = |shrink: &str| {
+            Shader::compile(
+                &in_passes(&format!(
+                    "[[wgsl.pass]]\ntarget = \"across\"\nshrink = [\"{shrink}\", \"1\"]\n"
+                )),
+                "struct Params { radius: f32 }\n\
+                 fn across(uv: vec2<f32>) -> vec4<f32> { return sample(uv); }\n\
+                 fn effect(uv: vec2<f32>) -> vec4<f32> { return across_at(uv); }",
+            )
+        };
+        with("max(radius / 4, 1)").expect("a knob and numbers");
+        let unknown = with("WIDTH / 4").expect_err("the layer's size is not a knob");
+        assert!(
+            unknown.contains("reads `WIDTH`, which is not a knob"),
+            "{unknown}"
+        );
+        let text = with("fixed(radius, 1)").expect_err("text");
+        assert!(text.contains("text where a number was needed"), "{text}");
+        let broken = with("radius /").expect_err("half an expression");
+        assert!(broken.contains("shrink `radius /`"), "{broken}");
     }
 
     /// The pipeline key follows the source, so a shader edited without a

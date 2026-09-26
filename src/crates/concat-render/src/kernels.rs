@@ -28,7 +28,6 @@ pub const KERNELS: &[&str] = &[
     "concat.hue-shift",
     "concat.vignette",
     "concat.box-blur",
-    "concat.gaussian-blur",
 ];
 
 /// Whether the CPU has a kernel for the package.
@@ -86,13 +85,6 @@ pub fn run(pass: &ShaderPass, picture: &Frame, seconds: f32) -> Option<Frame> {
         "concat.box-blur" => {
             let step = (knob("radius") / 4.0).max(0.5);
             gathered(picture, step, |_, _| 1.0)
-        }
-        "concat.gaussian-blur" => {
-            let sigma = knob("radius").max(0.5);
-            let step = (sigma / 2.5).max(1.0);
-            gathered(picture, step, move |dx, dy| {
-                (-(dx * dx + dy * dy) / (2.0 * sigma * sigma)).exp()
-            })
         }
         _ => return None,
     })
@@ -154,7 +146,7 @@ fn per_point(picture: &Frame, f: impl Fn([f32; 4], f32, f32) -> [f32; 4]) -> Fra
     out
 }
 
-/// The blurs' 9×9 gather: every pixel becomes the weighted mean of the
+/// The box blur's 9×9 gather: every pixel becomes the weighted mean of the
 /// samples `step` pixels apart around it, `weight` of the offset in
 /// pixels, sampled bilinearly with the edge clamped the way the GPU's
 /// sampler does.
@@ -206,6 +198,7 @@ mod tests {
             intensity: 1.0,
             lut: None,
             reveal_map: None,
+            stages: Vec::new(),
         }
     }
 
@@ -259,11 +252,9 @@ mod tests {
     #[test]
     fn a_blur_of_a_flat_picture_is_the_picture_and_the_edges_stay_put() {
         let flat = solid([90, 120, 30, 255]);
-        for package in ["concat.box-blur", "concat.gaussian-blur"] {
-            let out = run(&pass(package, &[("radius", 8.0)]), &flat, 0.0).expect("kernel");
-            assert_eq!(out.pixel(0, 0), Some([90, 120, 30, 255]), "{package}");
-            assert_eq!(out.pixel(3, 3), Some([90, 120, 30, 255]), "{package}");
-        }
+        let out = run(&pass("concat.box-blur", &[("radius", 8.0)]), &flat, 0.0).expect("kernel");
+        assert_eq!(out.pixel(0, 0), Some([90, 120, 30, 255]));
+        assert_eq!(out.pixel(3, 3), Some([90, 120, 30, 255]));
         // A negative radius is the floor, not a panic.
         let out = run(&pass("concat.box-blur", &[("radius", -9.0)]), &flat, 0.0).expect("kernel");
         assert_eq!(out.pixel(1, 1), Some([90, 120, 30, 255]));

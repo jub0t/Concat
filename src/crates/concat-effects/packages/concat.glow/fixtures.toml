@@ -1,13 +1,36 @@
-[[case]]
-name = "default"
-chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=0.45"
+# A flat picture's glow is the picture itself, screened over it by the
+# amount in the display encoding: a grey is lifted by a share of what lies
+# between it and white, and a level past white stays where it was.
 
-[[case]]
-name = "minimum"
+[[probe]]
+name = "default, a grey"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.29569, 0.29569, 0.29569, 1]
+
+[[probe]]
+name = "default, an orange"
+input = [0.8, 0.3, 0.05, 1]
+expect = [0.87887, 0.44406, 0.097502, 1]
+
+[[probe]]
+name = "default, a highlight past white"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.097502, 1]
+
+[[probe]]
+name = "minimum, a grey"
 at = "min"
-chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=0.10"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.20285, 0.20285, 0.20285, 1]
 
-[[case]]
-name = "maximum"
+[[probe]]
+name = "maximum, a grey"
 at = "max"
-chain = "split[glowa0][glowb0];[glowb0]gblur=sigma=18[glowg0];[glowa0][glowg0]blend=all_mode=screen:all_opacity=1.00"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.4844, 0.4844, 0.4844, 1]
+
+[[probe]]
+name = "maximum, a highlight past white"
+at = "max"
+input = [4.0, 1.0, 0.05, 1]
+expect = [4.0, 1.0, 0.18196, 1]
