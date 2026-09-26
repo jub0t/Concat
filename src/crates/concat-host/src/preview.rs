@@ -177,6 +177,11 @@ impl Monitor {
             .ok_or_else(|| "the monitor has no GPU device".to_owned())?;
         let mut gpu = gpu.lock().map_err(|_| "compositor poisoned".to_owned())?;
         if sources.needs_cpu() {
+            // A packaged transition, and nothing else in the way, is drawn
+            // whole on the device with no round trip through memory.
+            if let Some(texture) = sources.transition_texture(&mut gpu) {
+                return Ok(texture);
+            }
             // A layer that needs FFmpeg for a package with no shader takes
             // the frame through the CPU; the picture then goes up as one
             // layer of its own.

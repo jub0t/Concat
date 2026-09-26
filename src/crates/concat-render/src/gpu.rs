@@ -258,6 +258,11 @@ pub struct WgpuCompositor {
     idle: HashMap<(u32, u32), u32>,
     target: Option<Target>,
     presentable: Option<Presentable>,
+    /// The two pictures a packaged transition combines, drawn and kept on
+    /// the GPU for [`WgpuCompositor::render_transition_texture`]: their own
+    /// targets, since `prepare` hands the layer pool out afresh per plan and
+    /// the second picture's plan would draw over the first. By size.
+    stages: Option<(u32, u32, [wgpu::Texture; 2])>,
     /// A one-pixel opaque white picture: the mask of a layer without one.
     white: Frame,
     /// Set when a readback fails - a lost or reset device. The compositor
@@ -581,6 +586,7 @@ impl WgpuCompositor {
             used: HashMap::new(),
             target: None,
             presentable: None,
+            stages: None,
             idle: HashMap::new(),
             white: {
                 let mut white = Frame::transparent(1, 1);
@@ -1450,6 +1456,159 @@ impl WgpuCompositor {
         );
     }
 
+    /// The render pass that combines two pictures through `pass`, the
+    /// transition's shader, into `target`: recorded, not submitted. `None`
+    /// when the shader will not build.
+    #[allow(clippy::too_many_arguments)]
+    fn encode_transition(
+        &mut self,
+        width: u32,
+        height: u32,
+        time: f32,
+        from_view: &wgpu::TextureView,
+        to_view: &wgpu::TextureView,
+        pass: &TransitionPass,
+        target: &wgpu::TextureView,
+    ) -> Option<wgpu::CommandEncoder> {
+        self.transition_shader(pass);
+        if !self.transitions.contains_key(&pass.key) {
+            return None;
+        }
+        let lut_id = self.lut_group(pass.lut.as_deref());
+        let inputs = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("concat transition inputs"),
+            layout: &self.transition_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(from_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(to_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+
+        // The frame block carries progress where a pass carries intensity.
+        {
+            let shader = &self.transitions[&pass.key];
+            let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.progress];
+            let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
+            self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
+            let mut params = pass.params.clone();
+            params.resize(shader.params.size() as usize, 0);
+            self.queue.write_buffer(&shader.params, 0, &params);
+        }
+
+        let shader = &self.transitions[&pass.key];
+        let lut_group = &self.luts[&lut_id];
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("concat transition"),
+            });
+        {
+            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("concat transition"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render.set_pipeline(&shader.pipeline);
+            render.set_bind_group(0, &inputs, &[]);
+            render.set_bind_group(1, &shader.bind_group, &[]);
+            render.set_bind_group(2, lut_group, &[]);
+            render.draw(0..3, 0..1);
+        }
+        Some(encoder)
+    }
+
+    /// A packaged transition drawn whole on the GPU and handed back as a
+    /// texture, as [`WgpuCompositor::render_texture`] hands back a plan:
+    /// `from` and `to` drawn into targets of their own, then combined
+    /// through `pass` into a presentable texture. Nothing is read back or
+    /// uploaded again, where [`Compositor::combine`] reads both pictures
+    /// back and uploads them - three round trips a frame, which is what
+    /// the monitor paid for every frame of a transition. `None` when the
+    /// device is dead or the shader will not build; the caller falls back.
+    pub fn render_transition_texture(
+        &mut self,
+        from: &FramePlan,
+        to: &FramePlan,
+        pass: &TransitionPass,
+    ) -> Option<wgpu::Texture> {
+        if self.dead {
+            return None;
+        }
+        let (width, height, time) = (from.width, from.height, from.seconds());
+        let [from_texture, to_texture] = self.stages(width, height);
+        for (plan, texture) in [(from, &from_texture), (to, &to_texture)] {
+            let (draws, vertices) = self.prepare(plan);
+            self.write_vertices(&vertices);
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let encoder = self.encode(&view, texture, &draws, wgpu::Color::BLACK);
+            self.queue.submit([encoder.finish()]);
+        }
+        let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let out = self.presentable(width, height);
+        let out_view = out.create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder =
+            self.encode_transition(width, height, time, &from_view, &to_view, pass, &out_view)?;
+        self.queue.submit([encoder.finish()]);
+        self.retire();
+        Some(out)
+    }
+
+    /// The two transition stages at this size, made on first use.
+    fn stages(&mut self, width: u32, height: u32) -> [wgpu::Texture; 2] {
+        if let Some((w, h, stages)) = &self.stages
+            && (*w, *h) == (width, height)
+        {
+            return stages.clone();
+        }
+        let make = || {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("concat transition stage"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            })
+        };
+        let stages = [make(), make()];
+        self.stages = Some((width, height, stages.clone()));
+        stages
+    }
+
     /// A texture holding a whole frame's pixels, for a transition input. Made
     /// fresh each combine rather than pooled: a transition is a short window,
     /// and its two inputs are full-frame, so the pool would only churn.
@@ -1827,87 +1986,19 @@ impl Compositor for WgpuCompositor {
         if self.dead {
             return None;
         }
-        self.transition_shader(pass);
-        if !self.transitions.contains_key(&pass.key) {
-            return None;
-        }
-        let lut_id = self.lut_group(pass.lut.as_deref());
-
-        // The two pictures, uploaded and bound at group 0.
+        // The two pictures, uploaded.
         let from_texture = self.input_texture(from);
         let to_texture = self.input_texture(to);
         let from_view = from_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let to_view = to_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let inputs = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("concat transition inputs"),
-            layout: &self.transition_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&from_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&to_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-
-        // The frame block carries progress where a pass carries intensity.
-        {
-            let shader = &self.transitions[&pass.key];
-            let frame_block: [f32; 4] = [width as f32, height as f32, time, pass.progress];
-            let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
-            self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
-            let mut params = pass.params.clone();
-            params.resize(shader.params.size() as usize, 0);
-            self.queue.write_buffer(&shader.params, 0, &params);
-        }
 
         self.target(width, height);
+        let target_texture = self.target.as_ref().expect("just ensured").texture.clone();
+        let view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            self.encode_transition(width, height, time, &from_view, &to_view, pass, &view)?;
         {
             let target = self.target.as_ref().expect("just ensured");
-            let view = target
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let shader = &self.transitions[&pass.key];
-            let lut_group = &self.luts[&lut_id];
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("concat transition"),
-                });
-            {
-                let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("concat transition"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                });
-                render.set_pipeline(&shader.pipeline);
-                render.set_bind_group(0, &inputs, &[]);
-                render.set_bind_group(1, &shader.bind_group, &[]);
-                render.set_bind_group(2, lut_group, &[]);
-                render.draw(0..3, 0..1);
-            }
             encoder.copy_texture_to_buffer(
                 wgpu::TexelCopyTextureInfo {
                     texture: &target.texture,
@@ -1929,8 +2020,8 @@ impl Compositor for WgpuCompositor {
                     depth_or_array_layers: 1,
                 },
             );
-            self.queue.submit([encoder.finish()]);
         }
+        self.queue.submit([encoder.finish()]);
         let frame = self.read_back();
         if frame.is_none() {
             self.dead = true;

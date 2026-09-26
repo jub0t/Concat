@@ -1411,6 +1411,39 @@ fn composite_treated(
     compositor.render(&stage(stack))
 }
 
+/// The two pictures a packaged transition combines: the outgoing stack,
+/// strictly below the incoming lane, and the incoming picture over that
+/// stack, its own layer at full opacity so the shader - not the dissolve
+/// ramp - owns the blend.
+fn transition_stages(plan: &FramePlan, span: &TransitionSpan) -> (FramePlan, FramePlan) {
+    let stage = |layers: Vec<PlannedLayer>| FramePlan {
+        time: plan.time,
+        width: plan.width,
+        height: plan.height,
+        layers,
+        treatments: Vec::new(),
+    };
+    let from = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track < span.to_track)
+        .cloned()
+        .collect();
+    let to = plan
+        .layers
+        .iter()
+        .filter(|layer| layer.track <= span.to_track)
+        .cloned()
+        .map(|mut layer| {
+            if layer.track == span.to_track {
+                layer.opacity = 1.0;
+            }
+            layer
+        })
+        .collect();
+    (stage(from), stage(to))
+}
+
 /// The frame when a packaged transition is live: the outgoing stack
 /// (everything below the incoming lane) combined with the incoming picture
 /// (drawn over that stack at full opacity) through the transition's shader.
@@ -1431,29 +1464,9 @@ fn combine_transition(
         layers,
         treatments: Vec::new(),
     };
-    // The outgoing picture: the stack strictly below the incoming lane.
-    let from_layers: Vec<PlannedLayer> = plan
-        .layers
-        .iter()
-        .filter(|layer| layer.track < span.to_track)
-        .cloned()
-        .collect();
-    // The incoming picture over that stack, its own layer forced to full
-    // opacity so the shader - not the dissolve ramp - owns the blend.
-    let to_layers: Vec<PlannedLayer> = plan
-        .layers
-        .iter()
-        .filter(|layer| layer.track <= span.to_track)
-        .cloned()
-        .map(|mut layer| {
-            if layer.track == span.to_track {
-                layer.opacity = 1.0;
-            }
-            layer
-        })
-        .collect();
-    let from = compositor.render(&stage(from_layers));
-    let to = compositor.render(&stage(to_layers));
+    let (from_plan, to_plan) = transition_stages(plan, span);
+    let from = compositor.render(&from_plan);
+    let to = compositor.render(&to_plan);
     let combined = compositor.combine(width, height, time.as_f64() as f32, &from, &to, &pass)?;
     // Anything above the incoming lane draws over the combined picture.
     let above: Vec<PlannedLayer> = plan
@@ -1555,6 +1568,41 @@ impl PreviewSources {
             &self.treatments,
             &self.transitions,
         )
+    }
+
+    /// The frame drawn whole on the GPU and kept there, when what stops
+    /// [`PreviewSources::plan`] drawing it alone is a packaged transition
+    /// and nothing else: no live treatment, no layer above the incoming
+    /// lane. `None` otherwise, or when the shader cannot run; the caller
+    /// then takes [`PreviewSources::composite`]. The same pictures and the
+    /// same shader as that path, without its three round trips through
+    /// memory a frame.
+    #[cfg(feature = "gpu")]
+    pub fn transition_texture(
+        &self,
+        gpu: &mut concat_render::WgpuCompositor,
+    ) -> Option<concat_render::wgpu::Texture> {
+        let time = self.plan.time;
+        if self
+            .treatments
+            .iter()
+            .any(|treatment| treatment.covers(time))
+        {
+            return None;
+        }
+        let span = self.transitions.iter().find(|span| span.covers(time))?;
+        if self
+            .plan
+            .layers
+            .iter()
+            .any(|layer| layer.track > span.to_track)
+        {
+            return None;
+        }
+        let pass =
+            Catalogue::builtin().transition_pass(&span.id, &span.params, span.progress(time))?;
+        let (from, to) = transition_stages(&self.plan, span);
+        gpu.render_transition_texture(&from, &to, &pass)
     }
 }
 
