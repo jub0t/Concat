@@ -976,8 +976,8 @@ export component StartScreen inherits Rectangle {
         // a finger, which a Flickable takes all of. It clamps its own
         // travel.
         flick := Flickable {
-            viewport-width: self.width;
-            viewport-height: Math.max(self.height,
+            content-width: self.width;
+            content-height: Math.max(self.height,
                 column.height + root.pad-top + root.pad);
             interactive: column.height + root.pad-top + root.pad > self.height;
 
@@ -1068,9 +1068,9 @@ export component StartScreen inherits Rectangle {
             y: 0;
             height: parent.height;
             viewport: parent.height;
-            content: flick.viewport-height;
-            offset: -flick.viewport-y;
-            scrolled(to) => { flick.viewport-y = -to; }
+            content: flick.content-height;
+            offset: -flick.content-y;
+            scrolled(to) => { flick.content-y = -to; }
         }
     }
 }

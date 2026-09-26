@@ -22,11 +22,13 @@
   # - ONNX Runtime (the cutout models) is likewise downloaded by its sys
   #   crate. nixpkgs' onnxruntime is linked instead, through ORT_LIB_LOCATION,
   #   dynamically, so the wrapper's rpath finds it.
+  # - Skia, the window's renderer as on every other platform, links prebuilt
+  #   binaries that skia-bindings would download at build time. They are
+  #   fetched here too and handed over as a file:// SKIA_BINARIES_URL; with
+  #   a stale key or version the build falls back to compiling Skia from
+  #   source, which the sandbox cannot do, so a mismatch fails loudly.
   #
-  # The window is built with the FemtoVG-over-wgpu renderer (`--features
-  # wgpu`) rather than Skia: skia-bindings also downloads its binaries at
-  # build time, and the wgpu renderer is pure Rust. Vulkan is loaded at run
-  # time, hence the LD_LIBRARY_PATH on the wrapper.
+  # Vulkan is loaded at run time, hence the LD_LIBRARY_PATH on the wrapper.
   description = "Concat - free and open source video editor";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -67,6 +69,43 @@
             };
           }
         ];
+
+      # Must match skia-bindings in src/Cargo.lock: the archive is named
+      # after the crate version (the tag) and a key of rust-skia's commit,
+      # the target and the Skia features i-slint-renderer-skia turns on for
+      # Linux (gl, vulkan, plus skia-safe's defaults). A Slint or skia-safe
+      # bump changes these; the new name is printed by skia-bindings' build
+      # script as "TRYING TO DOWNLOAD AND INSTALL SKIA BINARIES: tag/key".
+      skiaVersion = "0.153.3";
+      skiaKeyFeatures = "ganesh-gl-jpegd-jpege-pdf-vulkan";
+      skiaArchives = {
+        x86_64-linux = {
+          key = "b7f043e0b1e2a850e702-x86_64-unknown-linux-gnu-${skiaKeyFeatures}";
+          hash = "sha256-nr5MRIzJ94m60kHL0Rc5zfdZ4n21cZwjp2NeCW1YB7M=";
+        };
+        aarch64-linux = {
+          key = "b7f043e0b1e2a850e702-aarch64-unknown-linux-gnu-${skiaKeyFeatures}";
+          hash = "sha256-gtoiVv0M6UGVJ/cspOmFihPBTSMHPaHmGNxZY5f2VWA=";
+        };
+      };
+      # The URL template skia-bindings expands; {tag} and {key} are its own
+      # placeholders, not Nix's.
+      skiaBinariesUrl =
+        pkgs:
+        let
+          archive = skiaArchives.${pkgs.stdenv.hostPlatform.system};
+          name = "skia-binaries-${archive.key}.tar.gz";
+          dir = pkgs.linkFarm "skia-binaries" [
+            {
+              inherit name;
+              path = pkgs.fetchurl {
+                url = "https://github.com/rust-skia/skia-binaries/releases/download/${skiaVersion}/${name}";
+                inherit (archive) hash;
+              };
+            }
+          ];
+        in
+        "file://${dir}/skia-binaries-{key}.tar.gz";
 
       # Libraries the binary opens at run time rather than links: the Vulkan
       # loader for wgpu, and the windowing libraries winit dlopens.
@@ -119,9 +158,6 @@
           cargoBuildFlags = [
             "-p"
             "concat"
-            "--no-default-features"
-            "--features"
-            "wgpu"
           ];
 
           # The workspace's tests generate their own media through the
@@ -130,6 +166,7 @@
           doCheck = false;
 
           env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
+          env.SKIA_BINARIES_URL = skiaBinariesUrl pkgs;
           env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
           env.ORT_PREFER_DYNAMIC_LINK = "1";
 
@@ -188,12 +225,13 @@
             ]);
 
           env.SHERPA_ONNX_ARCHIVE_DIR = sherpaArchiveDir pkgs;
+          env.SKIA_BINARIES_URL = skiaBinariesUrl pkgs;
           env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
           env.ORT_PREFER_DYNAMIC_LINK = "1";
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibs pkgs);
 
           shellHook = ''
-            echo "Concat: cd src && cargo run -p concat --no-default-features --features wgpu"
+            echo "Concat: cd src && cargo run -p concat"
           '';
         };
       });

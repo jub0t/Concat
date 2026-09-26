@@ -17,7 +17,7 @@ fn main() {
     //
     // Not `EmbedForSoftwareRenderer`, which pre-decodes to raw pixels: that is
     // for MCUs with no filesystem, it is the only kind the software renderer
-    // can read, and Skia and FemtoVG cannot use it at all.
+    // can read, and Skia cannot use it at all.
     //
     // On its own thread with a deep stack: the Slint compiler recurses over
     // the tree, and the tree has outgrown the megabyte a main thread gets

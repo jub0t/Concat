@@ -28,18 +28,26 @@ path = "src/main.rs"
 # entirely. The rest of this list is slint's default set, reproduced verbatim
 # minus that one renderer.
 #
-# 1.17, not 1.14: renderer-femtovg-wgpu does not exist in 1.14.
+# 1.18 at least: the iOS scene delegate that iOS 27 requires (see
+# scripts/ios-app.sh).
+#
+# Skia is the one renderer, on every platform: its text is gamma-correct,
+# and it takes the engine's wgpu 29 device (gpu.rs, `unstable-wgpu-29`).
+# FemtoVG over wgpu was a second, opt-in variant until Slint 1.18 moved it
+# to wgpu 30; nothing shipped it, and the Nix package, its one user, now
+# links Skia's prebuilt binaries (flake.nix).
 #
 # Three platforms, three feature sets. The desktop and iOS draw through the
 # winit backend, iOS without the system tray; Android draws through Slint's
 # android-activity backend, which owns the window and the renderer itself
 # (see platform.rs). The renderer and wgpu features are the same on all
-# three, chosen by the `skia`/`wgpu` features below.
+# three.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
-slint = { version = "1.17", default-features = false, features = [
+slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-default",
     "renderer-software",
+    "renderer-skia",
     "accessibility",
     "compat-1-2",
     "system-tray",
@@ -58,10 +66,11 @@ rfd = "0.17"
 opener = { version = "0.8", features = ["reveal"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-slint = { version = "1.17", default-features = false, features = [
+slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-winit",
     "renderer-software",
+    "renderer-skia",
     "accessibility",
     "compat-1-2",
     "unstable-winit-030",
@@ -69,10 +78,11 @@ slint = { version = "1.17", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-slint = { version = "1.17", default-features = false, features = [
+slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-android-activity-06",
     "renderer-software",
+    "renderer-skia",
     "accessibility",
     "compat-1-2",
     "unstable-wgpu-29",
@@ -116,35 +126,8 @@ toml = "1.1"
 # JPEG encoding for the media artwork cache.
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
-# The renderer is picked by a feature here rather than by editing the
-# dependency, so both variants build from one tree and can be compared:
-#
-#   cargo build --release -p concat                                       # skia
-#   cargo build --release -p concat --no-default-features --features wgpu # femtovg/wgpu
-#
-# Skia is the default. It has partial rendering machinery that FemtoVG lacks
-# entirely - but Surface's use_partial_rendering() defaults to false and is
-# overridden only by software_surface.rs, so it is OFF on Metal/D3D/Vulkan/GL.
-# Measure before believing any CPU or power claim about it; the reason it is
-# the default here is that its text rendering is gamma-correct, not that it is
-# known to be cheaper.
-#
-# Theme.weight-body/weight-title are 400/500 to match. FemtoVG composites
-# glyph coverage without gamma correction, which 500/600 compensates for, so
-# use those if you build --features wgpu, or the text will be too light there.
-#
-# FemtoVG over wgpu rather than over OpenGL: same renderer, native graphics
-# API underneath - Metal on macOS, D3D12 on Windows, Vulkan on Linux -
-# instead of OpenGL, which Apple deprecated and now emulates on top of Metal
-# anyway. Still pure Rust, so cross-compiling needs nothing beyond
-# `rustup target add`.
-[features]
-default = ["skia"]
-wgpu = ["slint/renderer-femtovg-wgpu"]
-skia = ["slint/renderer-skia"]
-
 [build-dependencies]
-slint-build = "1.17"
+slint-build = "1.18"
 
 [lints]
 workspace = true

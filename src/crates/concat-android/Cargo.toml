@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 # window's own manifest for this target; this crate only names the
 # activity's entry point.
 concat.workspace = true
-slint = { version = "1.17", default-features = false, features = [
+slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-android-activity-06",
     "compat-1-2",

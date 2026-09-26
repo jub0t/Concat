@@ -49,9 +49,8 @@ would rather not be bound by the GPL must take Slint under one of its other
 two licences and remove or replace Concat's AGPL-licensed code accordingly;
 the two cannot be mixed.
 
-Slint pulls in the renderer selected by the feature flags in
-`src/crates/concat/Cargo.toml` — Skia by default, FemtoVG over wgpu under
-`--features wgpu` — along with winit and their transitive crates, which are
+Slint pulls in its Skia renderer (see `src/crates/concat/Cargo.toml`) along
+with winit and their transitive crates, which are
 predominantly MIT/Apache-2.0/BSD licensed. `cargo tree -p concat` gives the
 resolved set of any given build.
 

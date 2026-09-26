@@ -224,8 +224,8 @@ component Clip inherits Rectangle {
     // suit. A clip element is as wide as its clip is long: ten minutes at
     // the default zoom is 12000px. `opacity` with children makes Slint
     // flatten the element into an offscreen layer that size in every
-    // renderer, and a rounded `clip` does the same under femtovg-wgpu (the
-    // `wgpu` feature; Skia clips a rounded rect in place). The GPU refuses
+    // renderer. (A rounded `clip` did the same under FemtoVG; Skia, the one
+    // renderer now, clips a rounded rect in place.) The GPU refuses
     // a texture past its limit - 8192 on the wgpu defaults - and the window
     // dies on the frame that draws it. The body and the filmstrip clip
     // themselves (square, so a scissor and not a layer); the outline is
@@ -1301,9 +1301,9 @@ export component Lanes inherits Rectangle {
             width: Math.max(2px, root.drop.duration * root.px-per-second);
             height: Math.max(2px, root.tracks[root.drop.row].height - 10px);
             border-radius: Theme.r-sm;
-            // Alpha in the paints, not `opacity`, and no rounded `clip`
-            // either: both make Slint flatten this element into an
-            // offscreen layer (the clip only under femtovg-wgpu), and a
+            // Alpha in the paints, not `opacity`: it makes Slint flatten
+            // this element into an offscreen layer (as a rounded `clip` did
+            // under FemtoVG, before the app was Skia only), and a
             // ghost is as wide as the clip it will make - a ten-minute drop
             // at the default zoom asks for a 12000px texture and the GPU
             // refuses past 8192. The children stay inside it on their own,

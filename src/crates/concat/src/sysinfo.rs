@@ -80,18 +80,10 @@ pub fn system_facts() -> Vec<(String, String)> {
             t("Build"),
             format!("{} · {}", env!("BUILD_PROFILE"), env!("BUILD_TARGET")),
         ),
-        // Which of the two renderers in Cargo.toml this binary was built
-        // with. The first question to ask about anything that looks wrong on
-        // screen, and the one nobody can answer by looking at the window.
-        (
-            t("Renderer"),
-            if cfg!(feature = "skia") {
-                "Skia"
-            } else {
-                "FemtoVG (wgpu)"
-            }
-            .into(),
-        ),
+        // The renderer, the first question to ask about anything that looks
+        // wrong on screen. One now, but a bug report outlives the build it
+        // came from, and an older one may have drawn with FemtoVG.
+        (t("Renderer"), "Skia".into()),
         // The adapter the window and the monitor draw on, and whether it is
         // a GPU at all. A machine that fell back to WARP looks like any
         // other in the window, and the difference was the whole story of

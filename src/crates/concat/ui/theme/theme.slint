@@ -109,16 +109,16 @@ export global Theme {
     // The weights the design actually calls for, uncompensated.
     //
     // Skia composites glyph coverage with gamma correction, so text comes out
-    // at the weight the tokens name. FemtoVG does not correct for it and thins
-    // small light-on-dark text, which a step up to 500/600 compensates for.
-    // Use those if you build --features wgpu; leave them alone otherwise, or
-    // the text is over-corrected and reads as too heavy.
+    // at the weight the tokens name. Do not step these up to make text read
+    // heavier on some screen: that is a renderer compensation (FemtoVG, which
+    // the app no longer builds with, needed 500/600), and under Skia it reads
+    // as too heavy.
     //
     // Weight is the one axis that can absorb a renderer difference without
     // touching a colour token, and every face is bundled, so it costs nothing
     // at runtime. Reach for it rather than nudging a surface to compensate.
-    out property <int> weight-body: 400;    // 500 under --features wgpu
-    out property <int> weight-title: 500;   // 600 under --features wgpu
+    out property <int> weight-body: 400;
+    out property <int> weight-title: 500;
     /// The launch screen's heading, and the wordmark in the title bar. The one
     /// weight above `title`, and the only place the type gets to be loud. Bold
     /// is bundled, so this names it exactly.

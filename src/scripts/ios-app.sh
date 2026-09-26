@@ -45,6 +45,12 @@ install_name_tool -add_rpath "@executable_path/Frameworks" "$app/Concat" 2>/dev/
 
 platform=iPhoneOS
 [ "$target" = aarch64-apple-ios-sim ] && platform=iPhoneSimulator
+# The scene manifest opts into UIKit's scene lifecycle, which iOS 27 needs
+# to launch the app at all; SlintWindowSceneDelegate is the delegate
+# Slint's winit backend provides (Slint 1.18+). UIKit reads adoption from
+# this file alone, so it cannot be installed at runtime instead.
+# CADisableMinimumFrameDurationOnPhone lets an iPhone animate at a
+# ProMotion display's 120Hz rather than capping it at 60.
 cat > "$app/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,6 +74,21 @@ cat > "$app/Info.plist" <<PLIST
     <string>UIInterfaceOrientationLandscapeRight</string>
   </array>
   <key>UIRequiresFullScreen</key><true/>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key><false/>
+    <key>UISceneConfigurations</key>
+    <dict>
+      <key>UIWindowSceneSessionRoleApplication</key>
+      <array>
+        <dict>
+          <key>UISceneConfigurationName</key><string>Slint</string>
+          <key>UISceneDelegateClassName</key><string>SlintWindowSceneDelegate</string>
+        </dict>
+      </array>
+    </dict>
+  </dict>
+  <key>CADisableMinimumFrameDurationOnPhone</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.video</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Concat imports the clips you pick.</string>
   <key>NSMicrophoneUsageDescription</key><string>Concat records voice-over.</string>
