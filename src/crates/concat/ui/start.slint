@@ -725,7 +725,9 @@ component NewProjectCard inherits Rectangle {
     /// A row rather than a cell: the plus beside the verb, on a card the
     /// width of the page and the height of a button. The phone's shape,
     /// where a poster's height for a plus and a word is a screen's worth
-    /// of nothing.
+    /// of nothing. And filled with the accent, where the cell is a poster
+    /// among posters: a row on its own is a button, and the one button on
+    /// the page that starts something wears the colour the user chose.
     in property <bool> banner;
 
     callback clicked();
@@ -733,8 +735,10 @@ component NewProjectCard inherits Rectangle {
     property <bool> lit: touch.has-hover && root.enabled;
 
     border-radius: Theme.r-lg;
-    background: root.lit ? Theme.launch-raised : Theme.launch-panel;
-    border-width: 1px;
+    background: root.banner
+        ? (root.lit || touch.pressed ? Theme.accent-hover : Theme.accent)
+        : root.lit ? Theme.launch-raised : Theme.launch-panel;
+    border-width: root.banner ? 0px : 1px;
     border-color: root.lit ? Theme.line-strong : Theme.line;
     opacity: root.enabled ? 1.0 : 0.4;
 
@@ -771,13 +775,14 @@ component NewProjectCard inherits Rectangle {
             Icon {
                 glyph: Glyph.plus;
                 size: 20px;
-                tint: Theme.accent;
+                weight: 2.2;
+                tint: Theme.on-accent;
             }
         }
 
         Text {
             text: I18n.t("start.newProject");
-            color: Theme.fg;
+            color: Theme.on-accent;
             font-size: Theme.fs-xl;
             font-weight: Theme.weight-title;
             vertical-alignment: center;
