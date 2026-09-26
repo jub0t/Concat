@@ -12,6 +12,7 @@ import { ColorPicker } from "../primitives/color-picker.slint";
 import { Fmt } from "../util.slint";
 import { Select } from "../primitives/select.slint";
 import { PaneScroll } from "../workspace/pane.slint";
+import { HairlineSplitter } from "../workspace/splitter.slint";
 
 // Settings: a fixed-height sheet with a column of pages down the side. The
 // model rows keep two things apart — a downloaded model is a *choice* and so
@@ -446,6 +447,24 @@ export component SettingsDialog inherits Modal {
         I18n.t("settings.rose"), I18n.t("settings.amber"), I18n.t("settings.mint"),
     ];
 
+    /// The window is a phone's. No Remote page then - the API on a socket
+    /// is a desk's affair, driven from a terminal the phone has not got -
+    /// and the column of pages starts narrower and drags by a wider
+    /// hairline, since the sheet is the screen's width and a finger is
+    /// what drags it.
+    in property <bool> phone;
+
+    /// The column of pages' width, as the hairline beside it was last left.
+    /// In-out because it is dragged; what is drawn is `pages` below, which
+    /// keeps it inside the room the sheet has.
+    in-out property <length> pages-w: root.phone ? 112px : 164px;
+    /// Narrow enough to be a real squeeze, wide enough for a mark and the
+    /// start of a word.
+    property <length> min-pages: 64px;
+    /// Where the column was when the hairline went down. A drag is one
+    /// pointer, so one slot is enough.
+    property <length> press-pages;
+
     /// The Remote page's token is shown in clear rather than as dots.
     /// Off each time the sheet opens: showing it is a decision for the
     /// moment, not a setting.
@@ -491,65 +510,97 @@ export component SettingsDialog inherits Modal {
             }
         }
 
-        // ── the pages ────────────────────────────────────────────────────
-        Rectangle {
-            width: 164px;
+        // The column of pages, the hairline that sizes it, and the page.
+        // Placed rather than laid out, as the timeline pane places its lane
+        // headers and for the same reason: the column is a width someone
+        // dragged and the page is the remainder, and saying so outright is
+        // shorter than a layout and the stretch factors that would express it.
+        body := Rectangle {
+            horizontal-stretch: 1;
 
+            /// The column as it is drawn: never past two fifths of the
+            /// sheet, whatever it was dragged to on a wider one, so a phone
+            /// - whose sheet is its screen - keeps most of the width for the
+            /// page. See `headers-w` in the timeline pane, which has the
+            /// same problem for the same reason.
+            property <length> pages: Math.max(root.min-pages,
+                Math.min(root.pages-w, self.width * 0.4));
+
+            // ── the pages ────────────────────────────────────────────────
             Rectangle {
-                x: parent.width - 1px;
+                x: 0;
                 y: 0;
-                width: 1px;
+                width: body.pages;
                 height: parent.height;
-                background: Theme.line;
+                clip: true;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 2px;
+                    alignment: start;
+
+                    PageTab {
+                        label: I18n.t("settings.general");
+                        glyph: Glyph.settings;
+                        current: root.data.tab == 0;
+                        clicked => { root.page-changed(0); }
+                    }
+                    PageTab {
+                        label: I18n.t("settings.appearance");
+                        glyph: Glyph.sun;
+                        current: root.data.tab == 1;
+                        clicked => { root.page-changed(1); }
+                    }
+                    PageTab {
+                        label: I18n.t("common.transcriber");
+                        glyph: Glyph.waveform;
+                        current: root.data.tab == 2;
+                        clicked => { root.page-changed(2); }
+                    }
+                    PageTab {
+                        label: I18n.t("common.speech");
+                        glyph: Glyph.music;
+                        current: root.data.tab == 3;
+                        clicked => { root.page-changed(3); }
+                    }
+                    if !root.phone: PageTab {
+                        label: I18n.t("settings.remote");
+                        glyph: Glyph.lock;
+                        current: root.data.tab == 4;
+                        clicked => { root.page-changed(4); }
+                    }
+                    PageTab {
+                        label: I18n.t("settings.about");
+                        glyph: Glyph.sparkle;
+                        current: root.data.tab == 5;
+                        clicked => { root.page-changed(5); }
+                    }
+                }
             }
 
-            VerticalLayout {
-                padding: 8px;
-                spacing: 2px;
-                alignment: start;
+            // The hairline between the two, and the handle that moves it:
+            // the one the panes size their columns by. Wider to take hold
+            // of on a phone.
+            HairlineSplitter {
+                x: body.pages;
+                y: 0;
+                height: parent.height;
+                grab: root.phone ? 12px : 3px;
 
-                PageTab {
-                    label: I18n.t("settings.general");
-                    glyph: Glyph.settings;
-                    current: root.data.tab == 0;
-                    clicked => { root.page-changed(0); }
-                }
-                PageTab {
-                    label: I18n.t("settings.appearance");
-                    glyph: Glyph.sun;
-                    current: root.data.tab == 1;
-                    clicked => { root.page-changed(1); }
-                }
-                PageTab {
-                    label: I18n.t("common.transcriber");
-                    glyph: Glyph.waveform;
-                    current: root.data.tab == 2;
-                    clicked => { root.page-changed(2); }
-                }
-                PageTab {
-                    label: I18n.t("common.speech");
-                    glyph: Glyph.music;
-                    current: root.data.tab == 3;
-                    clicked => { root.page-changed(3); }
-                }
-                PageTab {
-                    label: I18n.t("settings.remote");
-                    glyph: Glyph.lock;
-                    current: root.data.tab == 4;
-                    clicked => { root.page-changed(4); }
-                }
-                PageTab {
-                    label: I18n.t("settings.about");
-                    glyph: Glyph.sparkle;
-                    current: root.data.tab == 5;
-                    clicked => { root.page-changed(5); }
+                pressed => { root.press-pages = body.pages; }
+                moved(delta) => {
+                    root.pages-w = Math.max(root.min-pages,
+                        Math.min(body.width * 0.4, root.press-pages + delta));
                 }
             }
-        }
 
         // ── the page ─────────────────────────────────────────────────────
         PaneScroll {
-            horizontal-stretch: 1;
+            x: body.pages + 1px;
+            y: 0;
+            width: Math.max(0px, body.width - body.pages - 1px);
+            height: parent.height;
+            finger: root.phone;
 
             if root.data.tab == 0: VerticalLayout {
                 DialogSection {
@@ -855,7 +906,7 @@ export component SettingsDialog inherits Modal {
             // people; the address and the token are there for the one who
             // is putting a script on another machine, and the hints say
             // what that opens.
-            if root.data.tab == 4: VerticalLayout {
+            if root.data.tab == 4 && !root.phone: VerticalLayout {
                 DialogSection {
                     first: true;
                     title: I18n.t("settings.remoteControl");
@@ -1049,6 +1100,7 @@ export component SettingsDialog inherits Modal {
                     }
                 }
             }
+        }
         }
     }
 }

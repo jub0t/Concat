@@ -111,6 +111,10 @@ export component HairlineSplitter inherits Rectangle {
     callback pressed();
     callback moved(delta: length);
 
+    /// How far either side of the line a press still takes hold of it.
+    /// Three pixels for a pointer; a finger asks for more.
+    in property <length> grab: 3px;
+
     property <length> origin;
 
     width: 1px;
@@ -121,8 +125,8 @@ export component HairlineSplitter inherits Rectangle {
     // Three pixels each side of a one-pixel line: a 1px grab target is the
     // single most common way a docked layout feels bad to use.
     touch := TouchArea {
-        x: -3px;
-        width: root.width + 6px;
+        x: -root.grab;
+        width: root.width + 2 * root.grab;
         mouse-cursor: ew-resize;
 
         pointer-event(event) => {
