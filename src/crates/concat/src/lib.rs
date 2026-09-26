@@ -135,12 +135,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let app = App::new()?;
     app.set_macos(platform::MACOS);
+    // A phone wears the phone shell - see ui/phone/ - and its lanes keep
+    // the playhead at their middle; the strip and the dock are the desk's.
+    let phone = platform::phone();
+    app.set_phone(phone);
 
     // The user's own packages - imported looks, and any effect folder they
     // or the community wrote - sit beside the built-ins from the first
     // frame. One that will not load is skipped, and its reason is the
     // first thing the window says.
     let mut studio = Studio::new(host);
+    studio.set_phone(phone);
     studio.reload_packages(false);
     studio.watch_packages();
     let dark = studio.prefs.dark.unwrap_or(true);

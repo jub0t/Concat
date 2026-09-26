@@ -657,6 +657,17 @@ export component PreviewPane inherits Rectangle {
     /// That row was used.
     callback pane-removed();
 
+    /// The stage alone: no header over it and no transport under it. The
+    /// phone's monitor, which has a transport of its own on the row below
+    /// and states the output nowhere - see ui/phone/. The stage keeps
+    /// every gesture it has: a drag moves a picture, a press on the well
+    /// pans the view, a double tap fits it again.
+    in property <bool> bare: false;
+
+    /// Fits the frame to the pane again, from outside: the phone's way to
+    /// the button the transport carries.
+    public function fit-view() { viewport.fit(); }
+
     property <[int]> ratios-w: [1920, 3840, 1080, 1080, 1440, 2560];
     property <[int]> ratios-h: [1080, 2160, 1920, 1080, 1080, 1080];
     property <[string]> ratio-names: ["16:9", "16:9 4K", "9:16", "1:1", "4:3", "21:9"];
@@ -677,7 +688,7 @@ export component PreviewPane inherits Rectangle {
     changed frames => { root.seed(); }
 
     Pane {
-        PaneHeader {
+        if !root.bare: PaneHeader {
             title: I18n.t("common.preview");
 
             // The output, stated rather than implied. Tabular-ish and dim: it
@@ -716,7 +727,9 @@ export component PreviewPane inherits Rectangle {
             background: Theme.well;
             clip: true;
 
-            property <length> pad: 16px;
+            // Less air on a phone, where the pane is the screen's width and
+            // every pixel of margin is a pixel the picture does not get.
+            property <length> pad: root.bare ? 8px : 16px;
             property <length> room-w: Math.max(1px, self.width - 2 * self.pad);
             property <length> room-h: Math.max(1px, self.height - 2 * self.pad);
 
@@ -928,7 +941,7 @@ export component PreviewPane inherits Rectangle {
         }
 
         // ── the transport ────────────────────────────────────────────────
-        Rectangle {
+        if !root.bare: Rectangle {
             height: 46px;
             background: Theme.panel;
 

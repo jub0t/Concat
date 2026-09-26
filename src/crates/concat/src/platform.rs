@@ -144,6 +144,17 @@ impl CustomApplicationHandler for DropHandler {
 /// Whether the window draws the macOS traffic lights over its own strip.
 pub const MACOS: bool = cfg!(target_os = "macos");
 
+/// Whether the window is a phone's: one screen, held upright, driven by a
+/// finger. The editor then wears the phone shell (ui/phone/) rather than
+/// the strip and the dock, whatever the screen's size - a tablet is a big
+/// phone here, not a small desk. True on Android and iOS; on a desk,
+/// `CONCAT_PHONE=1` in the environment asks for the same shell in a window,
+/// which is how the phone layout is worked on without a phone.
+pub fn phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios"))
+        || std::env::var_os("CONCAT_PHONE").is_some_and(|value| !value.is_empty() && value != "0")
+}
+
 /// Chooses and installs the backend, and hands back the device the
 /// renderer and the engine's compositor share, when there is one.
 ///

@@ -99,6 +99,14 @@ pub struct TimelinePane {
     /// The lanes' width on screen, in logical pixels; zero until Slint has
     /// said, and then every clip is published.
     pub width: f32,
+    /// The playhead is held at the middle of the lanes and the cut moves
+    /// under it: the phone's timeline, where a finger drags the lanes to
+    /// scrub. `scroll_left` is then a fact about the playhead - half a
+    /// screen before it, negative at the start of the cut, which is what
+    /// puts the first clip's head at the middle - and the view follows every
+    /// seek, every zoom and every resize. Off, the view is its own: it pages
+    /// after the playhead and scrolls where it is put, as on a desk.
+    pub centred: bool,
 }
 
 impl Default for TimelinePane {
@@ -111,6 +119,7 @@ impl Default for TimelinePane {
             pan_mode: false,
             lane_view: HashMap::new(),
             width: 0.0,
+            centred: false,
         }
     }
 }
@@ -149,7 +158,11 @@ impl TimelinePane {
             }
             TimelineMsg::Hovered(seconds) => studio.hover(seconds),
             TimelineMsg::HoverEnded => studio.end_hover(),
-            TimelineMsg::Scrolled(seconds) => self.scroll_left = seconds.max(0.0),
+            // A centred view may be scrolled off its playhead - a clip
+            // dragged to the lanes' edge scrolls them - and comes back to it
+            // at the next seek; the floor at zero is the desk's, where the
+            // start of the cut is the left edge and nothing is before it.
+            TimelineMsg::Scrolled(seconds) => self.scrolled(seconds),
             TimelineMsg::Zoomed { factor, anchor } => {
                 let anchor = if anchor < 0.0 {
                     self.default_anchor(studio)
@@ -157,27 +170,55 @@ impl TimelinePane {
                     anchor
                 };
                 self.zoom(factor, anchor);
+                self.recentre(studio.playhead);
             }
             TimelineMsg::ZoomToFit(width) => {
                 let span = studio.duration().max(1.0) * 1.05;
                 if width > 1.0 {
                     self.seconds_per_pixel = (span / width).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
                     self.scroll_left = 0.0;
+                    self.recentre(studio.playhead);
                 }
             }
             TimelineMsg::ZoomIn => {
                 let anchor = self.default_anchor(studio);
                 self.zoom(1.0 / ZOOM_STEP, anchor);
+                self.recentre(studio.playhead);
             }
             TimelineMsg::ZoomOut => {
                 let anchor = self.default_anchor(studio);
                 self.zoom(ZOOM_STEP, anchor);
+                self.recentre(studio.playhead);
             }
-            TimelineMsg::Resized(width) => self.width = width.max(0.0),
+            TimelineMsg::Resized(width) => {
+                self.width = width.max(0.0);
+                self.recentre(studio.playhead);
+            }
             TimelineMsg::Reset => {
                 self.scroll_left = 0.0;
                 self.lane_view.clear();
+                self.recentre(studio.playhead);
             }
+        }
+    }
+
+    /// The lanes scrolled to `seconds` at their left edge. See `Scrolled`.
+    fn scrolled(&mut self, seconds: f32) {
+        self.scroll_left = if self.centred {
+            seconds
+        } else {
+            seconds.max(0.0)
+        };
+    }
+
+    /// Puts the playhead at the middle of the lanes, when the view is the
+    /// centred kind; nothing otherwise, and nothing until the lanes have
+    /// said how wide they are. Called after every move of the playhead and
+    /// every change of the view's scale or size, so the two never come
+    /// apart.
+    pub fn recentre(&mut self, playhead: f32) {
+        if self.centred && self.width > 0.0 {
+            self.scroll_left = playhead - self.width * self.seconds_per_pixel / 2.0;
         }
     }
 
@@ -206,7 +247,8 @@ impl TimelinePane {
         let after = (before * factor).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
         self.seconds_per_pixel = after;
         if anchor >= 0.0 {
-            self.scroll_left = (anchor - (anchor - self.scroll_left) * (after / before)).max(0.0);
+            let left = anchor - (anchor - self.scroll_left) * (after / before);
+            self.scroll_left = if self.centred { left } else { left.max(0.0) };
         }
     }
 
@@ -268,6 +310,33 @@ mod tests {
         // A negative duration is no duration, not a clip that reaches back.
         assert!(!TimelinePane::shows(span, 40.0, -100.0));
         assert!(TimelinePane::shows(None, 1e9, 0.0), "no span, everything");
+    }
+
+    #[test]
+    fn a_centred_view_keeps_the_playhead_in_the_middle() {
+        let mut view = pane(400.0, 0.0, 0.05);
+        view.centred = true;
+        // A 400 px screen at 0.05 s/px is 20 s; the playhead at 3 s puts
+        // the left edge 7 s before the start of the cut.
+        view.recentre(3.0);
+        assert!(
+            (view.scroll_left + 7.0).abs() < 1e-6,
+            "{}",
+            view.scroll_left
+        );
+        assert!(((3.0 - view.scroll_left) / view.seconds_per_pixel - 200.0).abs() < 1e-3);
+        // A zoom about the playhead keeps it where it is: the middle.
+        view.zoom(0.5, 3.0);
+        assert!(((3.0 - view.scroll_left) / view.seconds_per_pixel - 200.0).abs() < 1e-3);
+        // A scroll may take the view off its playhead, before zero included.
+        view.scrolled(-4.0);
+        assert_eq!(view.scroll_left, -4.0);
+        // Not centred, the desk's floor holds.
+        view.centred = false;
+        view.recentre(3.0);
+        assert_eq!(view.scroll_left, -4.0);
+        view.scrolled(-4.0);
+        assert_eq!(view.scroll_left, 0.0);
     }
 
     #[test]

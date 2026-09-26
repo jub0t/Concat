@@ -316,6 +316,20 @@ sequenceDiagram
   sheet's labels sit over their values. The form's frame is a shape and a
   size rather than a fixed list; `frame_size` in `studio.rs` is the one
   place that turns the pair into pixels.
+- **The phone shell** (`concat/ui/phone/`) is what the editor is on Android
+  and iOS - `platform::phone`, and `CONCAT_PHONE=1` on a desk for working
+  on it - in place of the title strip and the dock, never beside them. One
+  screen held upright: a top bar, the monitor, a transport, the lanes with
+  the playhead held at their middle (`TimelinePane::centred`: the view is
+  a fact about the playhead and follows every seek, zoom and resize), and
+  a bar of tools that is the library's pages with nothing selected and the
+  clip's verbs with a clip selected. A tool with more to say opens a sheet
+  over the lanes holding the same inspector page or library shelf the desk
+  shows, on a column that scrolls under a finger. The lanes' `finger` mode
+  makes a drag on the floor or the ruler a scrub and a tap on an empty
+  lane a release. Everything reads and reports through the `Editor`
+  global as the seats do; there is no phone-only state on the Rust side
+  beyond those two flags.
 
 ## 6. The document, undo and the file
 
