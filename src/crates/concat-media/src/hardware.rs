@@ -17,10 +17,13 @@
 //!
 //! A reader's [`DecodeOptions`](crate::DecodeOptions) carries an
 //! [`HwPolicy`]. The default, [`HwPolicy::Preference`], follows one
-//! process-wide setting, [`set_hardware_decode`], so the window's toggle
-//! reaches every reader the pool, the preview, the export and the
-//! thumbnails open without each of them being told. A reader can insist on
-//! software or on a named device instead, which is what the tests do.
+//! process-wide setting, [`set_hardware_decode`], which the window turns on
+//! at start and nothing turns off, so every reader the pool, the preview,
+//! the export and the thumbnails open follows it without being told. It
+//! asks for the device stream by stream, only where the hardware is faster
+//! ([`hardware_wins`]): not for 8-bit H.264, which the CPU decodes at twice
+//! the chip's rate or better. A reader can insist on software or on a named
+//! device instead, which is what the tests do.
 //!
 //! The device is the platform's own: VideoToolbox on macOS and iOS, D3D11VA
 //! on Windows, MediaCodec on Android. VAAPI on Linux is never chosen by
@@ -163,6 +166,47 @@ impl HwPolicy {
             HwPolicy::Device(device) => Some(device),
         }
     }
+
+    /// The device this policy asks for a stream of `codec` in `format`:
+    /// [`HwPolicy::device`], except that the preference asks only where
+    /// the hardware is the faster road; see [`hardware_wins`]. A named
+    /// device is asked for whatever the stream.
+    pub fn device_for(self, codec: ffmpeg::codec::Id, format: Pixel) -> Option<HwDevice> {
+        match self {
+            HwPolicy::Preference => {
+                hardware_device().filter(|device| hardware_wins(*device, codec, format))
+            }
+            HwPolicy::Software | HwPolicy::Device(_) => self.device(),
+        }
+    }
+}
+
+/// Whether `device` decodes a stream of `codec` in `format` faster than
+/// the CPU does, counting the copy back to memory every hardware frame
+/// still pays (see the module's last section).
+///
+/// Measured on an M5, 4K frames a second, software on every core against
+/// VideoToolbox: H.264 114 against 56, 8-bit HEVC 164 against 132, 10-bit
+/// HEVC 58 against 117, ProRes 422 78 against 108. H.264 is so cheap in
+/// software that the chip, plus the copy, loses by half, and 1080p the same
+/// (493 against 144). Everything heavier wins on the hardware, and even at
+/// parity the hardware leaves the cores to the rest of the app: 8-bit HEVC
+/// took 0.9 of a core on the chip and 6.8 on the CPU. So the chip takes
+/// everything but 8-bit H.264; a codec it has no decoder for goes to
+/// software regardless, as before.
+///
+/// A phone's cores are no match for its decoder, and MediaCodec takes
+/// everything it can.
+pub fn hardware_wins(device: HwDevice, codec: ffmpeg::codec::Id, format: Pixel) -> bool {
+    if device == HwDevice::MediaCodec {
+        return true;
+    }
+    // SAFETY: a descriptor points into libavutil's static table, and every
+    // pixel format has at least one component.
+    let deep = format
+        .descriptor()
+        .is_some_and(|descriptor| unsafe { (*descriptor.as_ptr()).comp[0].depth } > 8);
+    codec != ffmpeg::codec::Id::H264 || deep
 }
 
 /// The process-wide preference: `0` for software, else one past the
@@ -435,6 +479,26 @@ fn type_name(kind: HwDevice) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CPU keeps 8-bit H.264, which it decodes faster than the chip
+    /// can hand frames back; everything heavier goes to the chip, and a
+    /// phone sends it everything.
+    #[test]
+    fn the_hardware_takes_what_it_decodes_faster() {
+        use ffmpeg::codec::Id;
+        let vt = HwDevice::VideoToolbox;
+        assert!(!hardware_wins(vt, Id::H264, Pixel::YUV420P));
+        assert!(!hardware_wins(HwDevice::D3d11va, Id::H264, Pixel::YUV420P));
+        assert!(hardware_wins(vt, Id::H264, Pixel::YUV420P10LE));
+        assert!(hardware_wins(vt, Id::HEVC, Pixel::YUV420P));
+        assert!(hardware_wins(vt, Id::HEVC, Pixel::YUV420P10LE));
+        assert!(hardware_wins(vt, Id::PRORES, Pixel::YUV422P10LE));
+        assert!(hardware_wins(
+            HwDevice::MediaCodec,
+            Id::H264,
+            Pixel::YUV420P
+        ));
+    }
 
     #[test]
     fn the_platform_default_is_never_vaapi() {

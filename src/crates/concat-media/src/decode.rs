@@ -556,10 +556,24 @@ impl Decoder {
             (parameters.width(), parameters.height())
         };
 
-        // The device the policy asks for, if the process has one. A codec
-        // that will not open on it opens in software instead, and the
+        // The device the policy asks for this stream, if the process has
+        // one; see `hardware::hardware_wins` for which streams it wants. A
+        // codec that will not open on it opens in software instead, and the
         // reader is none the wiser past a line in the log.
-        let device = options.hardware.device().and_then(hardware::device);
+        let (codec, format) = {
+            let parameters = stream.parameters();
+            // SAFETY: a live stream's codec parameters; for a video stream
+            // `format` holds an AVPixelFormat.
+            let raw = unsafe { (*parameters.as_ptr()).format };
+            (
+                parameters.id(),
+                Pixel::from(ffmpeg::sys::AVPixelFormat(raw)),
+            )
+        };
+        let device = options
+            .hardware
+            .device_for(codec, format)
+            .and_then(hardware::device);
         let (decoder, accelerated) = match device {
             Some(device) => match Self::open_codec(path, &stream, options, Some(&device)) {
                 Ok(opened) => opened,

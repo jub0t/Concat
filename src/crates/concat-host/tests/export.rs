@@ -83,9 +83,9 @@ fn second_of_colour(rgb: [u8; 3]) -> Option<u32> {
 
 /// A silent picture of `seconds` at `rate`, each frame the colour of its
 /// source second.
-fn picture(path: &Path, rate: FrameRate, seconds: u32) {
+fn picture(path: &Path, rate: FrameRate, seconds: u32, codec: VideoCodec) {
     let options = EncodeOptions {
-        codec: VideoCodec::H264,
+        codec,
         preset: "ultrafast".to_owned(),
         crf: 16,
         rate_mode: RateMode::Vbr,
@@ -187,25 +187,30 @@ struct Sources {
 
 impl Sources {
     fn make(dir: &Path) -> Sources {
+        Sources::make_in(dir, VideoCodec::H264)
+    }
+
+    /// The same set with every picture in `codec`.
+    fn make_in(dir: &Path, codec: VideoCodec) -> Sources {
         let wav = dir.join("clock.wav");
         clock_wav(&wav, 6);
         let aac = dir.join("clock.m4a");
         clock_aac(&wav, &aac, 6);
 
         let peek_picture = dir.join("peek-picture.mp4");
-        picture(&peek_picture, FrameRate::SIXTY, 6);
+        picture(&peek_picture, FrameRate::SIXTY, 6, codec);
         let peek = dir.join("peek.mp4");
         sound::mux(&peek_picture, &aac, &peek).expect("joins the screen recording");
 
         let cam_picture = dir.join("cam-picture.mp4");
-        picture(&cam_picture, FrameRate::THIRTY, 4);
+        picture(&cam_picture, FrameRate::THIRTY, 4, codec);
         let cam_sound = dir.join("cam.m4a");
         clock_aac(&wav, &cam_sound, 4);
         let cam = dir.join("cam.mp4");
         sound::mux(&cam_picture, &cam_sound, &cam).expect("joins the camera clip");
 
         let silent = dir.join("silent.mp4");
-        picture(&silent, FrameRate::FILM, 3);
+        picture(&silent, FrameRate::FILM, 3, codec);
 
         let still_path = dir.join("still.jpg");
         still(&still_path);
@@ -1270,7 +1275,10 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
     );
 
     let scratch = Scratch::new("hardware");
-    let sources = Sources::make(scratch.path());
+    // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
+    // stream the preference leaves on the CPU, which decodes it faster
+    // (concat_media::hardware::hardware_wins).
+    let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
     // A reader opened the way the engine opens them follows the preference
     // onto the device, on a machine that has one.
     let mut reader = Decoder::open(&sources.peek, &DecodeOptions::default()).expect("opens");
