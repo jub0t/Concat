@@ -30,10 +30,11 @@ pub(crate) struct CutoutJob {
 impl CutoutJob {
     /// The job for a clip, or `None` when it has no cutout or no masks to
     /// cut with.
-    /// `flipped` says whether the frame the cut is given has the clip's
-    /// flips in it already: it has when they run in the decoder's chain,
-    /// and not when the frame plan draws them (see [`planned_flips`]).
-    pub(crate) fn of(clip: &ExportClip, flipped: bool) -> Option<CutoutJob> {
+    /// `treated` says whether the frame the cut is given has the clip's
+    /// crop and flips in it already: it has when they run in the decoder's
+    /// chain, and not when the frame plan draws them (see
+    /// [`planned_geometry`]); the mask is mapped onto the frame as it is.
+    pub(crate) fn of(clip: &ExportClip, treated: bool) -> Option<CutoutJob> {
         let cutout = clip.cutout.clone()?;
         if clip.mask_dir.is_empty() {
             return None;
@@ -48,10 +49,11 @@ impl CutoutJob {
             mapping: Mapping {
                 crop: clip
                     .crop
+                    .filter(|_| treated)
                     .map(|edges| edges.map(|edge| edge as f32))
                     .unwrap_or([0.0; 4]),
-                flip_h: clip.flip_h && flipped,
-                flip_v: clip.flip_v && flipped,
+                flip_h: clip.flip_h && treated,
+                flip_v: clip.flip_v && treated,
             },
             aspect,
         })
@@ -95,9 +97,9 @@ pub(crate) struct BuiltTimeline {
     pub(crate) tracks: HashMap<ClipId, usize>,
     /// The clip's pre-fit chain - its crop - where it has one.
     pub(crate) pre_chains: HashMap<ClipId, String>,
-    /// The flips the frame plan draws, for the clips whose flips are not
-    /// in their chain: `(across, upside down)`. See [`planned_flips`].
-    pub(crate) flips: HashMap<ClipId, (bool, bool)>,
+    /// The crop and flips the frame plan draws, for the clips whose chain
+    /// does not run after them. See [`planned_geometry`].
+    pub(crate) geometry: HashMap<ClipId, PlannedGeometry>,
     /// The levels the clip's file is read as, where the person has said.
     pub(crate) ranges: HashMap<ClipId, concat_media::ColorRange>,
     /// The clip's applied effects, on a GPU renderer: the passes are
@@ -212,7 +214,7 @@ pub(crate) fn build_timeline(
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
-    let mut flips: HashMap<ClipId, (bool, bool)> = HashMap::new();
+    let mut geometry: HashMap<ClipId, PlannedGeometry> = HashMap::new();
     let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
@@ -287,20 +289,21 @@ pub(crate) fn build_timeline(
             if clip.kind == ClipKind::Image {
                 stills.insert(id);
             }
-            if let Some(size) = fitted_size(request, clip) {
+            let planned = planned_geometry(clip, gpu);
+            if let Some(size) = fitted_size(request, clip, planned.is_some()) {
                 decode_sizes.insert(id, size);
             }
             let chain = full_chain(clip, gpu);
             if !chain.is_empty() {
                 filter_chains.insert(id, chain);
             }
-            let planned = planned_flips(clip, gpu);
-            if let Some(flip) = planned {
-                flips.insert(id, flip);
-            }
-            let pre = pre_chain(clip);
-            if !pre.is_empty() {
-                pre_chains.insert(id, pre);
+            if let Some(planned) = planned {
+                geometry.insert(id, planned);
+            } else {
+                let pre = pre_chain(clip);
+                if !pre.is_empty() {
+                    pre_chains.insert(id, pre);
+                }
             }
             if let Some(range) = clip.color_range {
                 ranges.insert(id, crate::engine_range(range));
@@ -332,7 +335,7 @@ pub(crate) fn build_timeline(
         treatments,
         transitions,
         pre_chains,
-        flips,
+        geometry,
         ranges,
         chains,
         reveal_maps,
@@ -363,29 +366,45 @@ pub(crate) fn pre_chain(clip: &ExportClip) -> String {
 /// see the picture the viewer will - then the effects this backend runs as
 /// chains, then the transition fades. On the GPU every effect with a shader
 /// is left out here and carried by [`shader_passes`] instead, and the flips
-/// are left out when the frame plan draws them ([`planned_flips`]).
+/// are left out when the frame plan draws them ([`planned_geometry`]).
 pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
-    if planned_flips(clip, gpu).is_some() {
+    if planned_geometry(clip, gpu).is_some() {
         return after_flips(clip, gpu);
     }
     layer_chain(clip, gpu)
 }
 
-/// The flips the frame plan draws for this clip, `(across, upside down)`,
-/// or `None` when it has none or they stay in its chain.
+/// The crop and flips the frame plan draws for a clip.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct PlannedGeometry {
+    pub(crate) crop: concat_render::Crop,
+    pub(crate) flip_h: bool,
+    pub(crate) flip_v: bool,
+}
+
+/// The crop and flips the frame plan draws for this clip, or `None` when
+/// it has neither or they stay in the decoder's filters.
 ///
-/// The plan draws them when nothing is left in the chain after them. A
-/// flip has to come before the effects and the transition fades - a wipe
-/// on a mirrored clip still wipes the way the frame is seen - and the plan
+/// The plan draws them when nothing is left in the chain after them. The
+/// crop and the flips come before the effects and the transition fades -
+/// a vignette is centred on the picture as cropped, a wipe on a mirrored
+/// clip still wipes the way the frame is seen - and the plan crops and
 /// flips the picture as it draws it, which is after whatever the decoder
-/// ran. Shader effects are no hindrance: the compositor flips a picture
+/// ran. Shader effects are no hindrance: the compositor prepares a picture
 /// before its passes. So the FFmpeg chain's effects and the baked fades
-/// keep their flips in the chain until they move into the plan too.
-pub(crate) fn planned_flips(clip: &ExportClip, gpu: bool) -> Option<(bool, bool)> {
-    if !(clip.flip_h || clip.flip_v) || !after_flips(clip, gpu).is_empty() {
+/// keep the geometry in the decoder until they move into the plan too.
+pub(crate) fn planned_geometry(clip: &ExportClip, gpu: bool) -> Option<PlannedGeometry> {
+    let crop = clip
+        .crop
+        .map_or(concat_render::Crop::NONE, concat_render::Crop::of);
+    if (crop.is_none() && !clip.flip_h && !clip.flip_v) || !after_flips(clip, gpu).is_empty() {
         return None;
     }
-    Some((clip.flip_h, clip.flip_v))
+    Some(PlannedGeometry {
+        crop,
+        flip_h: clip.flip_h,
+        flip_v: clip.flip_v,
+    })
 }
 
 /// The chain with the flips always in it: a layer's, which treats the
@@ -479,9 +498,17 @@ pub(crate) fn animation_of(keys: &[ExportKey]) -> Option<Animation> {
 
 /// The source's contain-fitted size inside the output frame, or `None` when
 /// the UI never learnt the source's dimensions.
-pub(crate) fn fitted_size(request: &ExportRequest, clip: &ExportClip) -> Option<(u32, u32)> {
-    let media_width = clip.media_width.filter(|value| *value > 0)?;
-    let media_height = clip.media_height.filter(|value| *value > 0)?;
+/// `whole` asks for the uncropped picture - the frame plan crops it - at
+/// the scale that fits the part the crop keeps, so the kept part lands at
+/// the same size either way and a crop costs no sharpness.
+pub(crate) fn fitted_size(
+    request: &ExportRequest,
+    clip: &ExportClip,
+    whole: bool,
+) -> Option<(u32, u32)> {
+    let source_width = clip.media_width.filter(|value| *value > 0)?;
+    let source_height = clip.media_height.filter(|value| *value > 0)?;
+    let (media_width, media_height) = (source_width, source_height);
     // What is left after the crop is what gets fitted.
     let (media_width, media_height) = match clip.crop {
         Some([left, top, right, bottom]) => (
@@ -497,8 +524,13 @@ pub(crate) fn fitted_size(request: &ExportRequest, clip: &ExportClip) -> Option<
 
     let fit = (f64::from(request.width) / f64::from(media_width))
         .min(f64::from(request.height) / f64::from(media_height));
-    let width = ((f64::from(media_width) * fit).round() as u32).max(2);
-    let height = ((f64::from(media_height) * fit).round() as u32).max(2);
+    let (fit_width, fit_height) = if whole {
+        (source_width, source_height)
+    } else {
+        (media_width, media_height)
+    };
+    let width = ((f64::from(fit_width) * fit).round() as u32).max(2);
+    let height = ((f64::from(fit_height) * fit).round() as u32).max(2);
     // Even, because a decoder asked for an odd width may round it itself and
     // then every frame read is misaligned by a pixel's worth of bytes.
     Some((width & !1, height & !1))

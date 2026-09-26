@@ -976,27 +976,30 @@ pub fn audio_pieces(clip: &ExportClip) -> Vec<AudioClip> {
 }
 
 /// The plan's layer for one clip at one instant, filled in: the picture
-/// decoded, its effects resolved, on its track. The crop, the flips and
-/// the transition fades come baked from the decoder's chain, and the
-/// cutout has already cut the picture, so the layer carries none of
-/// them; moving those into the plan is the next step, and the plan has
-/// the fields for it.
+/// decoded, its effects resolved, on its track, and its crop and flips
+/// where the plan draws them (`geometry`; see `resolve::planned_geometry`).
+/// A clip without planned geometry has them baked in by the decoder's
+/// chain, as the transition fades still are, and the cutout has already
+/// cut the picture either way.
 fn filled(
     layer: &PlannedLayer,
     frame: std::sync::Arc<Frame>,
     track: usize,
     effects: Vec<ShaderPass>,
-    flips: Option<&(bool, bool)>,
+    geometry: Option<&resolve::PlannedGeometry>,
 ) -> PlannedLayer {
-    let (flip_h, flip_v) = flips.copied().unwrap_or((false, false));
-    PlannedLayer {
+    let mut filled = PlannedLayer {
         source: Some(frame),
         track,
         effects,
-        flip_h,
-        flip_v,
         ..layer.clone()
+    };
+    if let Some(geometry) = geometry {
+        filled.crop = geometry.crop;
+        filled.flip_h = geometry.flip_h;
+        filled.flip_v = geometry.flip_v;
     }
+    filled
 }
 
 /// A stack already drawn, as a layer over the whole frame on the lowest
@@ -1036,7 +1039,7 @@ fn render_picture(
         treatments,
         transitions,
         pre_chains,
-        flips,
+        geometry,
         ranges,
         chains,
         reveal_maps,
@@ -1108,7 +1111,7 @@ fn render_picture(
                         frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
                         passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
-                        flips.get(&layer.clip),
+                        geometry.get(&layer.clip),
                     ));
                 }
                 continue;
@@ -1181,7 +1184,7 @@ fn render_picture(
                     std::sync::Arc::new(frame),
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
-                    flips.get(&layer.clip),
+                    geometry.get(&layer.clip),
                 ));
             }
         }
@@ -1549,7 +1552,7 @@ pub fn preview_sources_of(
         treatments,
         transitions,
         pre_chains,
-        flips,
+        geometry,
         ranges: _,
         chains,
         reveal_maps,
@@ -1597,7 +1600,7 @@ pub fn preview_sources_of(
                     frame,
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(chains, reveal_maps, timeline, layer.clip, time),
-                    flips.get(&layer.clip),
+                    geometry.get(&layer.clip),
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -2354,28 +2357,32 @@ mod tests {
         assert!(chain.starts_with("hue=s=0,fade=t=in"), "was: {chain}");
     }
 
-    /// A flip goes to the frame plan when nothing in the chain comes after
-    /// it, and stays first in the chain when something does: a wipe on a
-    /// mirrored clip must still wipe the way the frame is seen.
+    /// The crop and flips go to the frame plan when nothing in the chain
+    /// comes after them, and stay first in the decoder's filters when
+    /// something does: a wipe on a mirrored clip must still wipe the way
+    /// the frame is seen.
     #[test]
-    fn flips_go_to_the_plan_unless_the_chain_runs_after_them() {
+    fn geometry_goes_to_the_plan_unless_the_chain_runs_after_it() {
         let mut clips = vec![
             clip("video", 0, 0.0, 2.0, 0.0),
             clip("video", 0, 2.0, 2.0, 0.0),
         ];
         clips[0].flip_h = true;
+        clips[0].crop = Some([0.25, 0.0, 0.0, 0.5]);
         clips[1].flip_v = true;
-        assert_eq!(resolve::planned_flips(&clips[0], true), Some((true, false)));
+        let planned = resolve::planned_geometry(&clips[0], true).expect("planned");
+        assert!(planned.flip_h && !planned.flip_v);
+        assert_eq!(planned.crop, concat_render::Crop::of([0.25, 0.0, 0.0, 0.5]));
         assert_eq!(resolve::full_chain(&clips[0], true), "");
 
         clips[1].transition = spec("wipe-left", 0.5);
         resolve_transitions(&mut clips, FrameRate::THIRTY, true);
-        assert_eq!(resolve::planned_flips(&clips[1], true), None);
+        assert_eq!(resolve::planned_geometry(&clips[1], true), None);
         let chain = resolve::full_chain(&clips[1], true);
         assert!(chain.starts_with("vflip,"), "was: {chain}");
 
-        let unflipped = clip("video", 0, 0.0, 2.0, 0.0);
-        assert_eq!(resolve::planned_flips(&unflipped, true), None);
+        let untouched = clip("video", 0, 0.0, 2.0, 0.0);
+        assert_eq!(resolve::planned_geometry(&untouched, true), None);
     }
 
     #[test]

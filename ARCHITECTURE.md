@@ -112,9 +112,13 @@ flowchart LR
   wipes into edges, mask, opacity) are computed once in the plan so the two
   cannot drift.
 
-Still baked into the decoder's FFmpeg chain rather than filled into the plan
-by the export: the crop, the flips and the transition fades. The plan has the
-fields; the tests fill them; the export does not yet.
+The export and the monitor fill a clip's crop and flips into the plan
+(`resolve::planned_geometry`) whenever nothing in its FFmpeg chain runs after
+them; the decoder then delivers the whole picture, at the scale that fits the
+part the crop keeps. A clip whose chain does run after them - an FFmpeg-chain
+effect, or a baked wipe or fade - keeps its crop and flips in the decoder's
+chain, as the transition fades still are, until those move into the plan
+too.
 
 ## 3. Effects
 
@@ -321,8 +325,9 @@ time to present a token.
 ## 10. Known gaps
 
 - The gestures and the stage still live on the controller.
-- The crop, the flips and the transition fades reach the compositor baked
-  into the decoder's chain, not through the plan.
+- The transition fades reach the compositor baked into the decoder's chain,
+  not through the plan, and so do the crop and flips of a clip whose chain
+  runs after them (see §2).
 - `ExportClip` remains the CLI and API wire type and the title rasteriser's
   output.
 - Cached frames are uploaded to the GPU again unless they were drawn in the
