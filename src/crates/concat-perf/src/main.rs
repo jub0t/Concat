@@ -443,49 +443,57 @@ impl Media {
 
     fn synthesise() -> Media {
         Self::synthesise_as(
-            "perf-1080p",
-            (Self::WIDTH, Self::HEIGHT),
-            90,
-            VideoCodec::H264,
-            false,
-            false,
+            &Spec {
+                name: "perf-1080p",
+                size: (Self::WIDTH, Self::HEIGHT),
+                frames: 90,
+                ..Spec::PHONE_4K
+            }
+            .clean(),
         )
     }
 
-    /// `frames` of a `width` x `height` gradient in `codec`, in a folder of
-    /// its own so each file's drop takes only its own.
-    fn synthesise_as(
-        name: &str,
-        (width, height): (u32, u32),
-        frames: u32,
-        codec: VideoCodec,
-        ten_bit: bool,
-        grain: bool,
-    ) -> Media {
+    /// The file `spec` describes, in a folder of its own so each file's
+    /// drop takes only its own.
+    fn synthesise_as(spec: &Spec) -> Media {
+        let Spec {
+            name,
+            size: (width, height),
+            frames,
+            codec,
+            ten_bit,
+            phone,
+            hdr,
+        } = *spec;
         let dir = std::env::temp_dir().join(format!("concat-perf-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let path = dir.join(format!("{name}.mp4"));
-        let mut encoder = Encoder::create(
-            &path,
-            width,
-            height,
-            FrameRate::THIRTY,
-            &EncodeOptions {
-                codec,
-                ten_bit,
-                preset: "veryfast".to_owned(),
-                hardware: false,
-                // Grain stands for a phone's footage, and so does its rate:
-                // held at the 50 Mb/s an iPhone records 4K at 30 with,
-                // rather than whatever a codec's quality target lands on.
-                rate_mode: if grain { RateMode::Cbr } else { RateMode::Vbr },
-                bitrate_kbps: if grain { 50_000 } else { 0 },
-                ..EncodeOptions::default()
-            },
-        )
+        let options = EncodeOptions {
+            codec,
+            ten_bit,
+            preset: "veryfast".to_owned(),
+            hardware: false,
+            // A phone's footage has grain, and so a phone's rate: held at
+            // the 50 Mb/s an iPhone records 4K at 30 with, rather than
+            // whatever a codec's quality target lands on.
+            rate_mode: if phone { RateMode::Cbr } else { RateMode::Vbr },
+            bitrate_kbps: if phone { 50_000 } else { 0 },
+            ..EncodeOptions::default()
+        };
+        let mut encoder = match hdr {
+            Some(pq) => Encoder::create_mislabelled_hdr(
+                &path,
+                width,
+                height,
+                FrameRate::THIRTY,
+                &options,
+                pq,
+            ),
+            None => Encoder::create(&path, width, height, FrameRate::THIRTY, &options),
+        }
         .expect("the linked FFmpeg encodes the codec");
         for index in 0..frames {
-            let picture = if grain {
+            let picture = if phone {
                 grainy(width, height, index as u8)
             } else {
                 gradient(width, height, index as u8)
@@ -494,6 +502,45 @@ impl Media {
         }
         encoder.finish().expect("finishes");
         Media { path, frames }
+    }
+}
+
+/// What a synthetic file is.
+#[derive(Clone, Copy)]
+struct Spec {
+    name: &'static str,
+    size: (u32, u32),
+    frames: u32,
+    codec: VideoCodec,
+    ten_bit: bool,
+    /// Grain and a phone's 50 Mb/s; a clean gradient at the codec's own
+    /// quality target otherwise.
+    phone: bool,
+    /// Tagged HDR over the same pictures: `Some(false)` HLG, `Some(true)`
+    /// PQ. The decoder's path is chosen by the tag.
+    hdr: Option<bool>,
+}
+
+impl Spec {
+    /// 4K at 30 as an iPhone records it, less the HDR.
+    const PHONE_4K: Spec = Spec {
+        name: "perf-4k",
+        size: (3840, 2160),
+        frames: 60,
+        codec: VideoCodec::Hevc,
+        ten_bit: true,
+        phone: true,
+        hdr: None,
+    };
+
+    /// The same with no grain, in 8-bit H.264: the original table's file.
+    fn clean(self) -> Spec {
+        Spec {
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            phone: false,
+            ..self
+        }
     }
 }
 
@@ -613,22 +660,21 @@ fn decode_hardware(media: &Media) -> Option<Measure> {
 /// converted on the CPU, which the zero-copy phase of the HDR plan removes.
 fn decode_4k() -> Vec<Measure> {
     concat_media::set_hardware_decode(true);
-    let h264 = Media::synthesise_as(
-        "perf-4k-h264",
-        (3840, 2160),
-        60,
-        VideoCodec::H264,
-        false,
-        true,
-    );
-    let hevc = Media::synthesise_as(
-        "perf-4k-hevc10",
-        (3840, 2160),
-        60,
-        VideoCodec::Hevc,
-        true,
-        true,
-    );
+    let h264 = Media::synthesise_as(&Spec {
+        name: "perf-4k-h264",
+        codec: VideoCodec::H264,
+        ten_bit: false,
+        ..Spec::PHONE_4K
+    });
+    let hevc = Media::synthesise_as(&Spec {
+        name: "perf-4k-hevc10",
+        ..Spec::PHONE_4K
+    });
+    let hlg = Media::synthesise_as(&Spec {
+        name: "perf-4k-hlg",
+        hdr: Some(false),
+        ..Spec::PHONE_4K
+    });
     // The bitrate beside where it decoded, so a reading can be held against
     // a phone's: an iPhone's 4K at 30 is about 50 Mb/s.
     let rate = |media: &Media| {
@@ -648,6 +694,28 @@ fn decode_4k() -> Vec<Measure> {
         &hevc.path,
         &DecodeOptions::default().in_software(),
         hevc.frames,
+    );
+    // Three tracks of it playing at once, as a picture-in-picture or a
+    // split screen does: the slowest of the three is what the monitor gets.
+    let (three_fps, three_on) = std::thread::scope(|scope| {
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                scope.spawn(|| decode_with(&hevc.path, &DecodeOptions::default(), hevc.frames))
+            })
+            .collect();
+        readers
+            .into_iter()
+            .map(|reader| reader.join().expect("a reader"))
+            .fold((f64::INFINITY, None), |(slowest, _), (fps, on)| {
+                (slowest.min(fps), on)
+            })
+    });
+    // An iPhone's HDR as the app reads it today: HLG, converted to SDR on
+    // the way in, at the monitor's size. The conversion is the cost here.
+    let (hlg_fps, hlg_on) = decode_with(
+        &hlg.path,
+        &DecodeOptions::default().scaled_to(960, 540),
+        hlg.frames,
     );
     concat_media::set_hardware_decode(false);
     vec![
@@ -674,6 +742,20 @@ fn decode_4k() -> Vec<Measure> {
                 "what a machine without the chip gets, {:.0} Mb/s",
                 rate(&hevc)
             ),
+        },
+        Measure {
+            name: "decode 3 streams of 4K HEVC 10-bit at once",
+            value: three_fps,
+            unit: "fps",
+            budget: Budget::AtLeast(24.0),
+            note: format!("the slowest stream; {}", used(three_on, &hevc)),
+        },
+        Measure {
+            name: "decode 4K HLG to the SDR monitor, 960x540",
+            value: hlg_fps,
+            unit: "fps",
+            budget: Budget::AtLeast(30.0),
+            note: format!("tone-mapped on the CPU; {}", used(hlg_on, &hlg)),
         },
     ]
 }

@@ -288,6 +288,41 @@ impl Encoder {
         )
     }
 
+    /// [`Encoder::create`] tagged as HDR - BT.2020, 10-bit, HLG or PQ -
+    /// over frames that are sRGB pictures. The tag is a lie, and the name
+    /// says so: it exists for the perf harness, which times the decoder's
+    /// HDR path, and the path is chosen by the tag, not the pixels. Nothing
+    /// that writes a file a person will watch may call it; real HDR export
+    /// is a phase of the HDR plan, not this.
+    #[doc(hidden)]
+    pub fn create_mislabelled_hdr(
+        path: impl AsRef<Path>,
+        width: u32,
+        height: u32,
+        frame_rate: FrameRate,
+        options: &EncodeOptions,
+        pq: bool,
+    ) -> Result<Self> {
+        use ffmpeg::color::{Primaries, Space, TransferCharacteristic};
+        let transfer = if pq {
+            TransferCharacteristic::SMPTE2084
+        } else {
+            TransferCharacteristic::ARIB_STD_B67
+        };
+        let options = EncodeOptions {
+            ten_bit: true,
+            ..options.clone()
+        };
+        Self::create_tagged(
+            path,
+            width,
+            height,
+            frame_rate,
+            &options,
+            (Primaries::BT2020, transfer, Space::BT2020NCL),
+        )
+    }
+
     /// [`Encoder::create`] with the colour the file is tagged as. Crate
     /// private, and only the tests use it for anything but BT.709: the
     /// frames are sRGB whatever the tag says, so any other tag is a lie
