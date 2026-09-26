@@ -13,7 +13,6 @@
 
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
-
 <table width="100%">
   <tr>
     <td align="center" width="33%">
