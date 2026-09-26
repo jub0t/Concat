@@ -11,8 +11,8 @@
 //! is the same API on a socket, for callers that are other processes.
 //! `preview` is how the window's effect cards get their pictures: one still
 //! through one package at its defaults. `check` is what an author runs on
-//! an effect package before sharing it: the same load the window does, and
-//! its fixtures, with every fault named.
+//! an effect package before sharing it: the same load the window does, its
+//! fixtures, and its probes on the GPU, with every fault named.
 
 use std::error::Error;
 use std::io::{BufRead, Write};
@@ -114,7 +114,7 @@ enum Command {
 
     /// Check effect packages before sharing them: load each folder the way
     /// the window does, hold its id against the built-ins, run its
-    /// fixtures, and name every fault. `path` is one package folder - the
+    /// fixtures and its probes, and name every fault. `path` is one package folder - the
     /// one with `effect.toml` in it - or a folder of them, such as the
     /// app's own effects folder. Exits non-zero when any package fails.
     Check {
@@ -303,8 +303,12 @@ fn check(path: &Path) -> Result<(), Box<dyn Error>> {
     };
     let taken = concat_effects::Catalogue::builtin();
     let mut failed = 0;
+    let mut gpu = None;
     for folder in &folders {
-        let problems = concat_effects::Package::check_folder(folder, taken);
+        let mut problems = concat_effects::Package::check_folder(folder, taken);
+        if problems.is_empty() {
+            problems = check_probes(folder, &mut gpu);
+        }
         if problems.is_empty() {
             println!("ok    {}", folder.display());
         } else {
@@ -322,6 +326,45 @@ fn check(path: &Path) -> Result<(), Box<dyn Error>> {
     }
     println!("{} package(s) checked", folders.len());
     Ok(())
+}
+
+/// The probes of the package in `folder`, each run on the GPU, one line
+/// per probe that does not hold. The compositor is made on the first
+/// package that has any, and a machine that cannot make one says so as a
+/// fault: a probe that did not run has not passed.
+fn check_probes(folder: &Path, gpu: &mut Option<WgpuCompositor>) -> Vec<String> {
+    // A folder that does not load was reported by `check_folder`.
+    let Ok(package) = concat_effects::Package::from_folder(folder) else {
+        return Vec::new();
+    };
+    if package.probes.is_empty() {
+        return Vec::new();
+    }
+    if gpu.is_none() {
+        *gpu = WgpuCompositor::new();
+    }
+    let Some(gpu) = gpu.as_mut() else {
+        return vec![format!(
+            "{}: no GPU or software renderer is available to run its probes on",
+            package.id()
+        )];
+    };
+    let mut problems = Vec::new();
+    for (n, probe) in package.probes.iter().enumerate() {
+        let Some(pass) = package.probe_pass(probe) else {
+            continue;
+        };
+        let label = probe.label(n);
+        match gpu.probe(&[pass], probe.input, 8, 0.0) {
+            Some(got) => {
+                if let Err(error) = probe.check(got) {
+                    problems.push(format!("{}: {label}\n  {error}", package.id()));
+                }
+            }
+            None => problems.push(format!("{}: {label}: the GPU did not answer", package.id())),
+        }
+    }
+    problems
 }
 
 fn probe(path: &PathBuf) -> Result<(), Box<dyn Error>> {

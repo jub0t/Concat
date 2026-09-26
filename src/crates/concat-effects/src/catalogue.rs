@@ -82,6 +82,9 @@ pub struct Package {
     transition: Option<TransitionShader>,
     /// The pinned outputs shipped with the package.
     pub fixtures: Vec<Fixture>,
+    /// The pinned colours shipped with the package: what its shader makes
+    /// of a picture, checked on a GPU.
+    pub probes: Vec<Probe>,
     /// The folder the package was loaded from; None for a built-in.
     pub folder: Option<std::path::PathBuf>,
     /// The table the manifest's `[lut]` names, read at load.
@@ -122,11 +125,77 @@ pub struct Fixture {
     pub chain: String,
 }
 
+/// One pinned colour from `fixtures.toml`'s `[[probe]]`s: a picture of one
+/// colour through the package's shader at these parameters comes out as
+/// this colour. Both are in the compositor's working space - linear light,
+/// 1.0 the white of an SDR picture - and the check is made on a GPU, where
+/// the shader runs: concat-render's suite for the built-ins, `concat-cli
+/// check` for anyone's.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Probe {
+    /// A name for the failure message.
+    #[serde(default)]
+    pub name: String,
+    /// The starting point every parameter takes.
+    #[serde(default)]
+    pub at: At,
+    /// Parameters set on top of `at`, a filter's `intensity` among them.
+    #[serde(default)]
+    pub params: BTreeMap<String, f64>,
+    /// The colour of every pixel going in, straight RGBA.
+    pub input: [f32; 4],
+    /// The colour the middle pixel must come out as.
+    pub expect: [f32; 4],
+    /// How far a channel may land from `expect`, as a fraction of the
+    /// expected value (of 0.01, for a value nearer zero than that). Half
+    /// floats keep about three significant digits; the default allows a
+    /// few steps of them.
+    #[serde(default = "Probe::default_tolerance")]
+    pub tolerance: f32,
+}
+
+impl Probe {
+    fn default_tolerance() -> f32 {
+        0.004
+    }
+
+    /// What a failure message calls the probe, the `n`th in its file.
+    pub fn label(&self, n: usize) -> String {
+        case_label(&self.name, n)
+    }
+
+    /// Whether `got` is the colour the probe expects, to its tolerance; the
+    /// failure shows both.
+    pub fn check(&self, got: [f32; 4]) -> Result<(), String> {
+        let close = self.expect.iter().zip(got).all(|(want, got)| {
+            let allowed = self.tolerance * want.abs().max(0.01);
+            (got - want).abs() <= allowed
+        });
+        if close {
+            Ok(())
+        } else {
+            Err(format!("expected {:?}\n  rendered {got:?}", self.expect))
+        }
+    }
+}
+
+/// What a failure message calls the `n`th case of a fixtures file.
+fn case_label(name: &str, n: usize) -> String {
+    if name.is_empty() {
+        format!("case {}", n + 1)
+    } else {
+        name.to_owned()
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FixtureFile {
     #[serde(default, rename = "case")]
     cases: Vec<Fixture>,
+    #[serde(default, rename = "probe")]
+    probes: Vec<Probe>,
 }
 
 impl Package {
@@ -268,14 +337,33 @@ impl Package {
             }
         };
 
-        let fixtures = match fixtures {
-            None => Vec::new(),
+        let (fixtures, probes) = match fixtures {
+            None => (Vec::new(), Vec::new()),
             Some(source) => {
                 let file: FixtureFile = toml::from_str(source)
                     .map_err(|error| invalid(format!("fixtures: {error}")))?;
-                file.cases
+                (file.cases, file.probes)
             }
         };
+        if !probes.is_empty() && shader.is_none() {
+            return Err(invalid(
+                "fixtures: a [[probe]] pins what a [wgsl] shader draws, and the package has none"
+                    .to_owned(),
+            ));
+        }
+        for (n, probe) in probes.iter().enumerate() {
+            let filter = manifest.effect.kind == Kind::Filter;
+            if let Some(key) = probe
+                .params
+                .keys()
+                .find(|key| manifest.param(key).is_none() && !(filter && key.as_str() == INTENSITY))
+            {
+                return Err(invalid(format!(
+                    "fixtures: probe `{}` sets `{key}`, which is not a parameter",
+                    probe.label(n)
+                )));
+            }
+        }
 
         if manifest.lut.is_some() && table.is_none() {
             // The table is a file beside the manifest, and only a folder
@@ -294,6 +382,7 @@ impl Package {
             shader,
             transition,
             fixtures,
+            probes,
             folder,
             lut,
         };
@@ -445,9 +534,38 @@ impl Package {
     /// runs once before the package is offered. None for a package with
     /// no shader.
     pub fn trial_pass(&self) -> Option<ShaderPass> {
+        self.pass(&BTreeMap::new(), None)
+    }
+
+    /// The pass this package's shader makes with the parameters in `set`,
+    /// or None for a package with no shader. Keys the manifest does not
+    /// declare are dropped, but for a filter's intensity, which mixes the
+    /// look over the untouched picture; an effect is always whole.
+    pub fn pass(
+        &self,
+        set: &BTreeMap<String, f64>,
+        reveal_map: Option<Arc<RevealMap>>,
+    ) -> Option<ShaderPass> {
         let shader = self.shader.as_ref()?;
-        let values = self.resolve(&BTreeMap::new());
-        Some(shader.pass(&values, &self.manifest.params, 1.0, self.lut.clone(), None))
+        let intensity = if self.kind() == Kind::Filter {
+            (set.get(INTENSITY).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0) as f32
+        } else {
+            1.0
+        };
+        let values = self.resolve(set);
+        Some(shader.pass(
+            &values,
+            &self.manifest.params,
+            intensity,
+            self.lut.clone(),
+            reveal_map,
+        ))
+    }
+
+    /// The pass a probe checks: the parameters at its starting point with
+    /// its own set on top. None for a package with no shader.
+    pub fn probe_pass(&self, probe: &Probe) -> Option<ShaderPass> {
+        self.pass(&self.set_at(probe.at, &probe.params), None)
     }
 
     /// The shader, when the package renders on the GPU.
@@ -502,6 +620,13 @@ impl Package {
                 (param.key.clone(), value)
             })
             .collect()
+    }
+
+    /// Every declared parameter at `at`, with `set` on top.
+    fn set_at(&self, at: At, set: &BTreeMap<String, f64>) -> BTreeMap<String, f64> {
+        let mut params = self.params_at(at);
+        params.extend(set.iter().map(|(key, value)| (key.clone(), *value)));
+        params
     }
 
     /// Every declared parameter: the value in `set`, or the default. Keys
@@ -622,15 +747,8 @@ impl Package {
     pub fn check_fixtures(&self) -> Vec<String> {
         let mut failures = Vec::new();
         for (n, case) in self.fixtures.iter().enumerate() {
-            let mut params = self.params_at(case.at);
-            for (key, value) in &case.params {
-                params.insert(key.clone(), *value);
-            }
-            let label = if case.name.is_empty() {
-                format!("case {}", n + 1)
-            } else {
-                case.name.clone()
-            };
+            let params = self.set_at(case.at, &case.params);
+            let label = case_label(&case.name, n);
             match self.ffmpeg_fragment(&params, case.index) {
                 Ok(Some(chain)) if chain == case.chain => {}
                 Ok(Some(chain)) => failures.push(format!(
@@ -1020,22 +1138,8 @@ impl Catalogue {
             .iter()
             .filter(|applied| applied.enabled)
             .filter_map(|applied| {
-                let package = self.get(&applied.id)?;
-                let shader = package.shader()?;
-                let set = params_of(applied);
-                let intensity = if package.kind() == Kind::Filter {
-                    (set.get(INTENSITY).copied().unwrap_or(100.0) / 100.0).clamp(0.0, 1.0) as f32
-                } else {
-                    1.0
-                };
-                let values = package.resolve(&set);
-                Some(shader.pass(
-                    &values,
-                    &package.manifest.params,
-                    intensity,
-                    package.lut.clone(),
-                    reveal_map.clone(),
-                ))
+                self.get(&applied.id)?
+                    .pass(&params_of(applied), reveal_map.clone())
             })
             .collect()
     }

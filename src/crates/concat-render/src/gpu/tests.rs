@@ -898,3 +898,118 @@ fn an_hdr_frame_is_conformed_to_sdr_on_the_way_in() {
         "PQ 1000 nits came out {pq_peak:?}"
     );
 }
+
+/// A pass of a format 2 package - the scene-linear contract - with `body`
+/// as its shader and no knobs, at `intensity`.
+fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {
+    let manifest = concat_effects::Manifest::parse(&format!(
+        "format = 2\n[effect]\nid = \"{id}\"\nname = \"Test\"\nkind = \"effect\"\n[wgsl]\nentry = \"effect.wgsl\"\n"
+    ))
+    .expect("a manifest");
+    let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
+    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+}
+
+/// Within `tolerance` of `want` a channel, relative, for the colour and
+/// alpha alike.
+fn near(got: [f32; 4], want: [f32; 4], tolerance: f32) -> bool {
+    got.iter()
+        .zip(want)
+        .all(|(got, want)| (got - want).abs() <= tolerance * want.abs().max(0.01))
+}
+
+/// Every built-in package's probes: a picture of one working-space colour
+/// through its shader comes out as the probe pins, in floats.
+#[test]
+fn every_package_probe_holds() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut failures = Vec::new();
+    let mut probed = 0;
+    for package in concat_effects::Catalogue::builtin().packages() {
+        for (n, probe) in package.probes.iter().enumerate() {
+            let pass = package
+                .probe_pass(probe)
+                .expect("a probed package has a shader");
+            let got = gpu.probe(&[pass], probe.input, 8, 0.0).expect("reads back");
+            probed += 1;
+            if let Err(error) = probe.check(got) {
+                failures.push(format!("{}: {}\n  {error}", package.id(), probe.label(n)));
+            }
+        }
+    }
+    eprintln!("{probed} probes");
+    assert!(probed > 0, "no package has a probe");
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// A format 2 stack hands its light on unclipped: four times the light and
+/// a quarter of it again is the picture it was, a highlight far above
+/// white in between. The same stack in format 1 is clipped to white at the
+/// second pass, as those packages always were.
+#[test]
+fn a_scene_linear_stack_keeps_the_light_above_white() {
+    let Some(mut gpu) = gpu() else { return };
+    const UP: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(c.rgb * 4.0, c.a); }";
+    const DOWN: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(c.rgb * 0.25, c.a); }";
+    let colour = [0.7, 0.35, 0.1, 1.0];
+    let linear = [
+        scene_linear("test.up", UP, 1.0),
+        scene_linear("test.down", DOWN, 1.0),
+    ];
+    let between = gpu.probe(&linear[..1], colour, 8, 0.0).expect("reads back");
+    assert!(near(between, [2.8, 1.4, 0.4, 1.0], 0.004), "{between:?}");
+    let got = gpu.probe(&linear, colour, 8, 0.0).expect("reads back");
+    assert!(near(got, colour, 0.004), "there and back gave {got:?}");
+
+    let legacy = [
+        package("test.up", UP, "", &[], 1.0),
+        package("test.down", DOWN, "", &[], 1.0),
+    ];
+    let clipped = gpu.probe(&legacy, colour, 8, 0.0).expect("reads back");
+    assert!(clipped[0] < 0.1, "format 1 clips at white: {clipped:?}");
+}
+
+/// `to_log` puts middle grey, SDR white and black where ACEScct does, and
+/// `from_log` brings any level back - a highlight, the toe, a negative
+/// channel - as it went in.
+#[test]
+fn the_log_space_goes_there_and_back() {
+    let Some(mut gpu) = gpu() else { return };
+    let to_log = scene_linear(
+        "test.log",
+        "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(to_log(c.rgb), c.a); }",
+        1.0,
+    );
+    let got = gpu
+        .probe(std::slice::from_ref(&to_log), [0.18, 1.0, 0.0, 1.0], 4, 0.0)
+        .expect("reads back");
+    assert!(near(got, [0.4136, 0.5548, 0.0729, 1.0], 0.002), "{got:?}");
+
+    let round = scene_linear(
+        "test.round",
+        "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(from_log(to_log(c.rgb)), c.a); }",
+        1.0,
+    );
+    for colour in [[6.0, 0.18, -0.02, 1.0], [0.001, 0.0, 1.0, 1.0]] {
+        let got = gpu
+            .probe(std::slice::from_ref(&round), colour, 4, 0.0)
+            .expect("reads back");
+        assert!(near(got, colour, 0.004), "{colour:?} came back {got:?}");
+    }
+}
+
+/// A format 2 pass is mixed over the untouched layer in light: a quarter
+/// of the way from 0.2 to white is 0.4.
+#[test]
+fn a_scene_linear_pass_mixes_by_intensity_in_light() {
+    let Some(mut gpu) = gpu() else { return };
+    let white = scene_linear(
+        "test.white",
+        "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(1.0, 1.0, 1.0, sample(uv).a); }",
+        0.25,
+    );
+    let got = gpu
+        .probe(&[white], [0.2, 0.2, 0.2, 1.0], 4, 0.0)
+        .expect("reads back");
+    assert!(near(got, [0.4, 0.4, 0.4, 1.0], 0.004), "{got:?}");
+}

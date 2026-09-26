@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.exposure"
+name = "Exposure"
+kind = "effect"
+category = "Color"
+order = 10
+intensity = "stops"
+description = "Brighter or darker by stops of light, as the lens would make it, highlights kept."
+
+[[param]]
+key = "stops"
+label = "Exposure"
+min = -4
+max = 4
+default = 0
+step = 0.05
+unit = "EV"
+animate = true
+
+[wgsl]
+entry = "effect.wgsl"

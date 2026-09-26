@@ -1289,6 +1289,7 @@ version = "0.2.4"
 dependencies = [
  "concat-core",
  "concat-effects",
+ "half",
  "log",
  "pollster",
  "wgpu",

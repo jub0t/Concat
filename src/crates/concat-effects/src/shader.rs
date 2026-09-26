@@ -11,6 +11,16 @@
 //! and is stitched on here so every package shares one contract and no
 //! package can bind things differently.
 //!
+//! The contract has two editions, chosen by the manifest's `format`
+//! ([`Contract`]). From format 2 a shader samples the compositor's working
+//! space as it is - linear light, unclipped, 1.0 the white of an SDR
+//! picture - and is given the scene-linear library: exposure in stops, a
+//! log space for what the eye judges, contrast and saturation that never
+//! clip. A format 1 shader, written before the working space was linear,
+//! is handed the gamma-encoded `0..1` picture it expects and the
+//! display-referred grading library it was written against, and its
+//! result is taken back into light, so it looks as it always did.
+//!
 //! The stitched module is parsed and validated when the package loads, the
 //! same way a chain template is, so a broken shader is a load error and not
 //! a black frame. Its `Params` struct is read back through naga for the
@@ -25,9 +35,10 @@ use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
 
 use crate::manifest::{Manifest, Param, ParamType};
 
-/// What every package's shader can see. Group 0 is the layer, group 1 the
-/// host's frame block and the package's own parameters.
-pub const PRELUDE: &str = r#"// ── the host's half of the contract; see concat-effects/src/shader.rs ──
+/// What an effect's shader binds: the layer at group 0, the host's frame
+/// block and the package's own parameters at group 1, its table at group 2
+/// and a title's reveal map at group 3.
+const EFFECT_HEAD: &str = r#"// ── the host's half of the contract; see concat-effects/src/shader.rs ──
 struct Frame {
     /// The layer's size in pixels.
     size: vec2<f32>,
@@ -55,24 +66,109 @@ struct Frame {
 @group(3) @binding(0) var reveal_texture: texture_2d<f32>;
 @group(3) @binding(1) var reveal_sampler: sampler;
 
+/// A title's per-word reveal order at `uv`, 0..1 - the word painted there,
+/// 0 for the first and 1 for the last, and 0 wherever no word was. A
+/// pass over anything but a title reads the identity map here, which is
+/// 0 everywhere: `reveal_order(uv) <= progress` is then always true, so a
+/// package built on it is a no-op off a title with no special casing.
+fn reveal_order(uv: vec2<f32>) -> f32 {
+    return textureSampleLevel(reveal_texture, reveal_sampler, uv, 0.0).r;
+}
+"#;
+
+/// An effect's `sample` under the format 1 contract.
+const EFFECT_SAMPLE_LEGACY: &str = r#"
 /// The layer's colour at `uv`, straight alpha, in the gamma-encoded Rec. 709
-/// `0..1` today's packages were written for (see `legacy_in`).
+/// `0..1` format 1 packages were written for (see `legacy_in`).
 fn sample(uv: vec2<f32>) -> vec4<f32> {
     return legacy_in(textureSample(source, source_sampler, uv));
 }
+"#;
 
+/// An effect's `sample` under the scene-linear contract.
+const EFFECT_SAMPLE_LINEAR: &str = r#"
+/// The layer's colour at `uv`, straight alpha, in the working space as it
+/// is: linear light on Rec. 709 primaries, extended - negative in a channel
+/// outside Rec. 709's gamut, above 1.0 in a highlight - with 1.0 the white
+/// of an SDR picture (203 nits).
+fn sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(source, source_sampler, uv);
+}
+"#;
+
+/// What a transition's shader binds: the outgoing picture and the incoming
+/// one at group 0, the frame block - its spare slot the progress - and the
+/// parameters at group 1, the table at group 2, and no reveal map.
+const TRANSITION_HEAD: &str = r#"// ── the host's half of a transition; see concat-effects/src/shader.rs ──
+struct Frame {
+    /// The layer's size in pixels.
+    size: vec2<f32>,
+    /// Seconds into the timeline.
+    time: f32,
+    /// How far through the cut, 0 the outgoing picture, 1 the incoming one.
+    progress: f32,
+}
+
+@group(0) @binding(0) var from_texture: texture_2d<f32>;
+@group(0) @binding(1) var from_sampler: sampler;
+@group(0) @binding(2) var to_texture: texture_2d<f32>;
+@group(0) @binding(3) var to_sampler: sampler;
+@group(1) @binding(0) var<uniform> frame: Frame;
+@group(1) @binding(1) var<uniform> params: Params;
+@group(2) @binding(0) var lut_texture: texture_3d<f32>;
+@group(2) @binding(1) var lut_sampler: sampler;
+
+/// What the shared helpers read: the outgoing picture, so `soften` and its
+/// like work on the from-side with no wiring by the author.
+fn sample(uv: vec2<f32>) -> vec4<f32> {
+    return from_at(uv);
+}
+"#;
+
+/// A transition's two pictures under the format 1 contract.
+const TRANSITION_SAMPLE_LEGACY: &str = r#"
+/// The outgoing picture's colour at `uv`, straight alpha, gamma-encoded
+/// Rec. 709 as format 1 packages were written for (see `legacy_in`).
+fn from_at(uv: vec2<f32>) -> vec4<f32> {
+    return legacy_in(textureSample(from_texture, from_sampler, uv));
+}
+
+/// The incoming picture's colour at `uv`, likewise.
+fn to_at(uv: vec2<f32>) -> vec4<f32> {
+    return legacy_in(textureSample(to_texture, to_sampler, uv));
+}
+"#;
+
+/// A transition's two pictures under the scene-linear contract.
+const TRANSITION_SAMPLE_LINEAR: &str = r#"
+/// The outgoing picture's colour at `uv`, straight alpha, in the working
+/// space as it is (see an effect's `sample`).
+fn from_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(from_texture, from_sampler, uv);
+}
+
+/// The incoming picture's colour at `uv`, likewise.
+fn to_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(to_texture, to_sampler, uv);
+}
+"#;
+
+/// What every shader is given whatever it is and whichever contract it
+/// keeps: they read only the frame's size and the table, which both heads
+/// declare.
+const BASICS: &str = r#"
 /// One pixel, as a fraction of the layer.
 fn texel() -> vec2<f32> {
     return vec2<f32>(1.0, 1.0) / frame.size;
 }
 
-/// Luminance, Rec. 709.
+/// Luminance, by Rec. 709's weights: the primaries the working space is on.
 fn luma(rgb: vec3<f32>) -> f32 {
     return dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
 }
 
-/// The package's look-up table applied to a colour - the identity when
-/// the package ships none, so the call is always safe. Sampled at the
+/// The package's look-up table applied to a colour in `0..1` - the identity
+/// when the package ships none, so the call is always safe. Sampled at the
 /// texel centres, so the table's ends land on black and white exactly.
 fn lut(rgb: vec3<f32>) -> vec3<f32> {
     let n = f32(textureDimensions(lut_texture).x);
@@ -85,17 +181,13 @@ fn hash(p: vec2<f32>, seed: f32) -> f32 {
     let q = vec3<f32>(p, seed);
     return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
 }
+"#;
 
-/// A title's per-word reveal order at `uv`, 0..1 - the word painted there,
-/// 0 for the first and 1 for the last, and 0 wherever no word was. A
-/// pass over anything but a title reads the identity map here, which is
-/// 0 everywhere: `reveal_order(uv) <= progress` is then always true, so a
-/// package built on it is a no-op off a title with no special casing.
-fn reveal_order(uv: vec2<f32>) -> f32 {
-    return textureSampleLevel(reveal_texture, reveal_sampler, uv, 0.0).r;
-}
-
-// ── the grading library ──
+/// The format 1 library: the way into and out of the gamma-encoded picture
+/// those packages were written for, and the display-referred grading
+/// helpers they are built from.
+const LEGACY_LIBRARY: &str = r#"
+// ── the grading library (format 1) ──
 
 /// The compositor's working space - linear light on Rec. 709 primaries,
 /// extended past `0..1`, with 1.0 the white of an SDR picture - brought into
@@ -377,9 +469,62 @@ fn edge_at(uv: vec2<f32>) -> f32 {
 }
 "#;
 
-/// The stages the host draws with: a full-screen triangle, and a fragment
-/// that mixes the package's colour over the untouched layer by intensity.
-pub const POSTLUDE: &str = r#"
+/// The format 2 library: helpers that hold for any level of light.
+const LINEAR_LIBRARY: &str = r#"
+// ── the scene-linear library (format 2) ──
+//
+// A format 2 shader samples the working space as it is, and nothing here
+// clips it. A multiply - exposure, a white balance, a gain - belongs in
+// light, where it is what a lens or a lamp would do. A judgement of the
+// eye - contrast, a curve, a look - belongs in log, where a stop is the
+// same distance at every level, so one setting reads the same on an SDR
+// timeline and an HDR one.
+
+/// Middle grey: 18 % of SDR white, the level a contrast turns about.
+const MID_GREY: f32 = 0.18;
+
+/// Light scaled by `stops`: 1 is twice the light, -1 half, 0 as shot.
+fn exposure(rgb: vec3<f32>, stops: f32) -> vec3<f32> {
+    return rgb * exp2(stops);
+}
+
+/// Light into log, on ACEScct's curve (Academy S-2016-001): above its toe a
+/// stop is 1/17.52 of the scale at every level, middle grey sits at 0.414
+/// and SDR white at 0.555; below 2^-7 a straight toe carries black, and the
+/// negative channel of a colour outside Rec. 709, through without a pole.
+fn to_log(rgb: vec3<f32>) -> vec3<f32> {
+    let toe = rgb * 10.5402377416545 + vec3<f32>(0.0729055341958355);
+    let curve = (log2(max(rgb, vec3<f32>(0.0078125))) + vec3<f32>(9.72)) / 17.52;
+    return select(curve, toe, rgb <= vec3<f32>(0.0078125));
+}
+
+/// Log back into light: `to_log` undone, held to the largest value the
+/// compositor's half floats store.
+fn from_log(log: vec3<f32>) -> vec3<f32> {
+    let toe = (log - vec3<f32>(0.0729055341958355)) / 10.5402377416545;
+    let curve = min(exp2(log * 17.52 - vec3<f32>(9.72)), vec3<f32>(65504.0));
+    return select(curve, toe, log <= vec3<f32>(0.155251141552511));
+}
+
+/// Contrast about middle grey, in log: 1 as shot, 0 flat grey, 2 every
+/// level twice as many stops from grey. Grey stays where it is, and a
+/// highlight above white is pushed or pulled like any other level.
+fn contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    let grey = to_log(vec3<f32>(MID_GREY));
+    return from_log((to_log(rgb) - grey) * amount + grey);
+}
+
+/// Saturation about luminance, in light: 1 as shot, 0 grey, above 1
+/// richer. A colour pushed past Rec. 709's gamut goes negative in a
+/// channel rather than clipping, so turning it back down restores it.
+fn saturation(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    return mix(vec3<f32>(luma(rgb)), rgb, amount);
+}
+"#;
+
+/// The vertex stage every shader draws with: one triangle over the whole
+/// target, the clip trimming it to the square.
+const VERTEX: &str = r#"
 struct VsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -387,7 +532,6 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
-    // One triangle over the whole target; the clip trims it to the square.
     let x = f32(i32(index & 1u) * 4 - 1);
     let y = f32(i32(index >> 1u) * 4 - 1);
     var out: VsOut;
@@ -395,7 +539,11 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
     out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
     return out;
 }
+"#;
 
+/// An effect's fragment under the format 1 contract: the package's colour
+/// mixed over the untouched layer by intensity, then taken back into light.
+const EFFECT_FRAGMENT_LEGACY: &str = r#"
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base = sample(in.uv);
@@ -403,6 +551,85 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     return legacy_out(mix(base, treated, clamp(frame.intensity, 0.0, 1.0)));
 }
 "#;
+
+/// An effect's fragment under the scene-linear contract: the package's
+/// colour mixed over the untouched layer by intensity, in light.
+const EFFECT_FRAGMENT_LINEAR: &str = r#"
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let base = sample(in.uv);
+    let treated = effect(in.uv);
+    return mix(base, treated, clamp(frame.intensity, 0.0, 1.0));
+}
+"#;
+
+/// A transition's fragment under the format 1 contract: the package owns
+/// the blend, so the pipeline does no mixing of its own.
+const TRANSITION_FRAGMENT_LEGACY: &str = r#"
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return legacy_out(transition(in.uv, frame.progress));
+}
+"#;
+
+/// A transition's fragment under the scene-linear contract.
+const TRANSITION_FRAGMENT_LINEAR: &str = r#"
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    return transition(in.uv, frame.progress);
+}
+"#;
+
+/// Which edition of the contract a package's shader is stitched into, by
+/// the format its manifest declares; see the module doc.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Contract {
+    /// Format 1: the picture gamma-encoded and clipped to `0..1`, the
+    /// display-referred grading library, the result taken back into light.
+    Legacy,
+    /// Format 2 on: the working space as it is, and the scene-linear
+    /// library.
+    Linear,
+}
+
+impl Contract {
+    /// The edition `manifest` asks for.
+    pub fn of(manifest: &Manifest) -> Contract {
+        if manifest.scene_linear() {
+            Contract::Linear
+        } else {
+            Contract::Legacy
+        }
+    }
+
+    /// Everything the host stitches after a package's body for `entry`:
+    /// the head, the sampling, the basics, the library and the draw stages.
+    fn host(self, entry: Entry) -> String {
+        let (head, sampling, fragment) = match (entry, self) {
+            (Entry::Effect, Contract::Legacy) => {
+                (EFFECT_HEAD, EFFECT_SAMPLE_LEGACY, EFFECT_FRAGMENT_LEGACY)
+            }
+            (Entry::Effect, Contract::Linear) => {
+                (EFFECT_HEAD, EFFECT_SAMPLE_LINEAR, EFFECT_FRAGMENT_LINEAR)
+            }
+            (Entry::Transition, Contract::Legacy) => (
+                TRANSITION_HEAD,
+                TRANSITION_SAMPLE_LEGACY,
+                TRANSITION_FRAGMENT_LEGACY,
+            ),
+            (Entry::Transition, Contract::Linear) => (
+                TRANSITION_HEAD,
+                TRANSITION_SAMPLE_LINEAR,
+                TRANSITION_FRAGMENT_LINEAR,
+            ),
+        };
+        let library = match self {
+            Contract::Legacy => LEGACY_LIBRARY,
+            Contract::Linear => LINEAR_LIBRARY,
+        };
+        [head, sampling, BASICS, library, VERTEX, fragment].concat()
+    }
+}
 
 /// Where one parameter lands in the uniform buffer.
 #[derive(Clone, Debug, PartialEq)]
@@ -423,12 +650,13 @@ pub struct Shader {
 }
 
 impl Shader {
-    /// Stitches `body` into the host's contract, checks it, and reads the
-    /// `Params` struct for where each of the manifest's parameters lands.
-    /// Every declared parameter must be a field of the struct; a field the
+    /// Stitches `body` into the host's contract - the edition the
+    /// manifest's format asks for - checks it, and reads the `Params`
+    /// struct for where each of the manifest's parameters lands. Every
+    /// declared parameter must be a field of the struct; a field the
     /// manifest does not declare is allowed and stays zero.
     pub fn compile(manifest: &Manifest, body: &str) -> Result<Shader, String> {
-        let (source, slots, span) = stitch(manifest, body, Entry::Effect, PRELUDE, POSTLUDE)?;
+        let (source, slots, span) = stitch(manifest, body, Entry::Effect)?;
         Ok(Shader {
             package: manifest.effect.id.clone(),
             key: pipeline_key(&manifest.effect.id, manifest.effect.version, &source),
@@ -664,18 +892,17 @@ impl Entry {
     }
 }
 
-/// Stitches a package `body` into the host's contract, parses and validates
-/// the result with naga, and reads its `Params` struct for where each declared
-/// parameter lands. Shared by [`Shader`] and [`TransitionShader`], which differ
-/// only in their prelude/postlude and entry function. Returns the finished
-/// module, the parameter slots in declaration order, and the padded uniform
-/// span.
+/// Stitches a package `body` into the host's contract for `entry`, in the
+/// edition its manifest's format asks for, parses and validates the result
+/// with naga, and reads its `Params` struct for where each declared
+/// parameter lands. Shared by [`Shader`] and [`TransitionShader`], which
+/// differ only in the host's half and the entry function. Returns the
+/// finished module, the parameter slots in declaration order, and the
+/// padded uniform span.
 fn stitch(
     manifest: &Manifest,
     body: &str,
     entry: Entry,
-    prelude: &str,
-    postlude: &str,
 ) -> Result<(Arc<str>, Vec<Slot>, usize), String> {
     let declares_params = body
         .split("struct")
@@ -684,15 +911,15 @@ fn stitch(
     if !body.contains(&format!("fn {}", entry.name())) {
         return Err(format!("the shader declares no `{}`", entry.signature()));
     }
-    let mut source = String::with_capacity(prelude.len() + body.len() + postlude.len() + 64);
+    let host = Contract::of(manifest).host(entry);
+    let mut source = String::with_capacity(host.len() + body.len() + 64);
     if !declares_params {
         // A package with no knobs still has to bind something.
         source.push_str("struct Params { _unused: f32 }\n");
     }
     source.push_str(body);
     source.push('\n');
-    source.push_str(prelude);
-    source.push_str(postlude);
+    source.push_str(&host);
 
     let module =
         naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;
@@ -824,114 +1051,6 @@ fn lay_params(
     bytes
 }
 
-/// The marker that opens the grading library inside [`PRELUDE`]. A transition
-/// reuses that same library by slicing it out here rather than copying it.
-const GRADING_MARKER: &str = "// ── the grading library ──";
-
-/// The shared grading library: the second half of [`PRELUDE`], from the
-/// grading marker to the end. It only reads `sample`, `texel`, `luma`, `hash`,
-/// `frame.size` and `frame.time`, all of which the transition head supplies,
-/// so it works unchanged over two inputs.
-fn grading() -> &'static str {
-    let at = PRELUDE
-        .find(GRADING_MARKER)
-        .expect("the prelude carries a grading library");
-    &PRELUDE[at..]
-}
-
-/// The transition head: the host's half of a two-input transition. It binds
-/// the outgoing picture and the incoming one at group 0, repurposes the
-/// frame's spare slot as `progress`, and re-declares the same basics the
-/// effect head does so the shared grading library (appended after this) works.
-/// `sample` reads the outgoing picture, so a helper like `soften` needs no
-/// wiring.
-const TRANSITION_HEAD: &str = r#"// ── the host's half of a transition; see concat-effects/src/shader.rs ──
-struct Frame {
-    /// The layer's size in pixels.
-    size: vec2<f32>,
-    /// Seconds into the timeline.
-    time: f32,
-    /// How far through the cut, 0 the outgoing picture, 1 the incoming one.
-    progress: f32,
-}
-
-@group(0) @binding(0) var from_texture: texture_2d<f32>;
-@group(0) @binding(1) var from_sampler: sampler;
-@group(0) @binding(2) var to_texture: texture_2d<f32>;
-@group(0) @binding(3) var to_sampler: sampler;
-@group(1) @binding(0) var<uniform> frame: Frame;
-@group(1) @binding(1) var<uniform> params: Params;
-@group(2) @binding(0) var lut_texture: texture_3d<f32>;
-@group(2) @binding(1) var lut_sampler: sampler;
-
-/// The outgoing picture's colour at `uv`, straight alpha, gamma-encoded
-/// Rec. 709 as the packages were written for (see `legacy_in`).
-fn from_at(uv: vec2<f32>) -> vec4<f32> {
-    return legacy_in(textureSample(from_texture, from_sampler, uv));
-}
-
-/// The incoming picture's colour at `uv`, likewise.
-fn to_at(uv: vec2<f32>) -> vec4<f32> {
-    return legacy_in(textureSample(to_texture, to_sampler, uv));
-}
-
-/// What the shared grading helpers read: the outgoing picture, so `soften`
-/// and its like work on the from-side with no wiring by the author.
-fn sample(uv: vec2<f32>) -> vec4<f32> {
-    return from_at(uv);
-}
-
-/// One pixel, as a fraction of the layer.
-fn texel() -> vec2<f32> {
-    return vec2<f32>(1.0, 1.0) / frame.size;
-}
-
-/// Luminance, Rec. 709.
-fn luma(rgb: vec3<f32>) -> f32 {
-    return dot(rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-}
-
-/// The package's look-up table applied to a colour - the identity when the
-/// package ships none. Sampled at the texel centres.
-fn lut(rgb: vec3<f32>) -> vec3<f32> {
-    let n = f32(textureDimensions(lut_texture).x);
-    let uvw = clamp(rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * (n - 1.0) / n + vec3<f32>(0.5 / n);
-    return textureSampleLevel(lut_texture, lut_sampler, uvw, 0.0).rgb;
-}
-
-/// A hash in 0..1 from a point and a seed, for grain and dither.
-fn hash(p: vec2<f32>, seed: f32) -> f32 {
-    let q = vec3<f32>(p, seed);
-    return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
-}
-
-"#;
-
-/// The transition's draw stages: a full-screen triangle, and a fragment that
-/// hands the whole result to the package's `transition` - it owns the blend,
-/// so the pipeline does no mixing of its own.
-const TRANSITION_POSTLUDE: &str = r#"
-struct VsOut {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
-    let x = f32(i32(index & 1u) * 4 - 1);
-    let y = f32(i32(index >> 1u) * 4 - 1);
-    var out: VsOut;
-    out.position = vec4<f32>(x, y, 0.0, 1.0);
-    out.uv = vec2<f32>((x + 1.0) * 0.5, 1.0 - (y + 1.0) * 0.5);
-    return out;
-}
-
-@fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return legacy_out(transition(in.uv, frame.progress));
-}
-"#;
-
 /// A transition package's shader, stitched, checked and laid out.
 #[derive(Clone, Debug)]
 pub struct TransitionShader {
@@ -943,17 +1062,11 @@ pub struct TransitionShader {
 
 impl TransitionShader {
     /// Stitches `body` into the transition contract - two bound pictures and a
-    /// progress - checks it, and reads the `Params` struct for its parameters'
-    /// layout. Every declared parameter must be a field of the struct.
+    /// progress, in the edition the manifest's format asks for - checks it,
+    /// and reads the `Params` struct for its parameters' layout. Every
+    /// declared parameter must be a field of the struct.
     pub fn compile(manifest: &Manifest, body: &str) -> Result<TransitionShader, String> {
-        let prelude = format!("{TRANSITION_HEAD}{}", grading());
-        let (source, slots, span) = stitch(
-            manifest,
-            body,
-            Entry::Transition,
-            &prelude,
-            TRANSITION_POSTLUDE,
-        )?;
+        let (source, slots, span) = stitch(manifest, body, Entry::Transition)?;
         Ok(TransitionShader {
             key: pipeline_key(&manifest.effect.id, manifest.effect.version, &source),
             source,
@@ -1049,6 +1162,69 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
         assert_eq!(bytes.len(), 16);
         assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 2.0);
         assert_eq!(f32::from_le_bytes(bytes[4..8].try_into().unwrap()), 0.5);
+    }
+
+    fn linear_manifest(kind: &str, table: &str) -> Manifest {
+        Manifest::parse(&format!(
+            "format = 2\n[effect]\nid = \"test.light\"\nname = \"Light\"\nkind = \"{kind}\"\n[{table}]\nentry = \"effect.wgsl\"\n"
+        ))
+        .expect("a valid manifest")
+    }
+
+    /// A format 2 shader samples the working space with nothing between it
+    /// and the texture, is mixed back in light, and is given the
+    /// scene-linear library in place of the display-referred one, whose
+    /// helpers clip; a format 1 shader keeps the wrapper and the library it
+    /// was written against.
+    #[test]
+    fn the_format_picks_the_edition_of_the_contract() {
+        let linear = Shader::compile(
+            &linear_manifest("effect", "wgsl"),
+            "fn effect(uv: vec2<f32>) -> vec4<f32> {
+                let c = sample(uv);
+                let graded = saturation(contrast(exposure(c.rgb, 1.0), 1.2), 0.9);
+                return vec4<f32>(from_log(to_log(graded)) * luma(vec3<f32>(MID_GREY)), c.a);
+            }",
+        )
+        .expect("the scene-linear library is there");
+        assert_eq!(
+            Contract::of(&linear_manifest("effect", "wgsl")),
+            Contract::Linear
+        );
+        assert!(!linear.source().contains("legacy_"), "no wrapper");
+        assert!(
+            linear
+                .source()
+                .contains("return mix(base, treated, clamp(frame.intensity, 0.0, 1.0));"),
+            "mixed in light"
+        );
+        let clipping = Shader::compile(
+            &linear_manifest("effect", "wgsl"),
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(s_curve(sample(uv).rgb, 1.0), 1.0); }",
+        );
+        assert!(clipping.is_err(), "a display-referred helper is not given");
+
+        let legacy = Shader::compile(
+            &manifest(""),
+            "fn effect(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(s_curve(sample(uv).rgb, 1.0), 1.0); }",
+        )
+        .expect("the display-referred library is there");
+        assert_eq!(Contract::of(&manifest("")), Contract::Legacy);
+        assert!(
+            legacy
+                .source()
+                .contains("return legacy_in(textureSample(source, source_sampler, uv));")
+        );
+        assert!(legacy.source().contains("return legacy_out(mix("));
+
+        let transition = TransitionShader::compile(
+            &linear_manifest("transition", "transition"),
+            "fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
+                return mix(from_at(uv), to_at(uv), progress) * exp2(0.0) + vec4<f32>(exposure(sample(uv).rgb, 0.0) * 0.0, 0.0);
+            }",
+        )
+        .expect("a scene-linear transition");
+        assert!(!transition.source().contains("legacy_"), "no wrapper");
     }
 
     #[test]

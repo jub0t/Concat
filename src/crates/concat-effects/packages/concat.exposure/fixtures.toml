@@ -1,0 +1,37 @@
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture, 0.18 middle grey. Checked on the GPU by concat-render's suite.
+
+[[probe]]
+name = "default"
+input = [0.18, 0.18, 0.18, 1.0]
+expect = [0.18, 0.18, 0.18, 1.0]
+
+[[probe]]
+name = "minimum"
+at = "min"
+input = [0.8, 0.4, 0.2, 1.0]
+expect = [0.05, 0.025, 0.0125, 1.0]
+
+[[probe]]
+name = "maximum"
+at = "max"
+input = [0.1, 0.05, 0.02, 1.0]
+expect = [1.6, 0.8, 0.32, 1.0]
+
+[[probe]]
+name = "a highlight above white comes down unclipped"
+params = { stops = -1.5 }
+input = [4.0, 2.0, 0.5, 1.0]
+expect = [1.4142, 0.7071, 0.1768, 1.0]
+
+[[probe]]
+name = "a colour outside Rec. 709 keeps its negative channel"
+params = { stops = 1 }
+input = [0.5, 0.2, -0.05, 1.0]
+expect = [1.0, 0.4, -0.1, 1.0]
+
+[[probe]]
+name = "alpha is left alone"
+params = { stops = 2 }
+input = [0.2, 0.1, 0.05, 0.5]
+expect = [0.8, 0.4, 0.2, 0.5]
