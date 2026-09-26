@@ -986,11 +986,15 @@ fn filled(
     frame: std::sync::Arc<Frame>,
     track: usize,
     effects: Vec<ShaderPass>,
+    flips: Option<&(bool, bool)>,
 ) -> PlannedLayer {
+    let (flip_h, flip_v) = flips.copied().unwrap_or((false, false));
     PlannedLayer {
         source: Some(frame),
         track,
         effects,
+        flip_h,
+        flip_v,
         ..layer.clone()
     }
 }
@@ -1032,6 +1036,7 @@ fn render_picture(
         treatments,
         transitions,
         pre_chains,
+        flips,
         ranges,
         chains,
         reveal_maps,
@@ -1103,6 +1108,7 @@ fn render_picture(
                         frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
                         passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
+                        flips.get(&layer.clip),
                     ));
                 }
                 continue;
@@ -1175,6 +1181,7 @@ fn render_picture(
                     std::sync::Arc::new(frame),
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
+                    flips.get(&layer.clip),
                 ));
             }
         }
@@ -1542,6 +1549,7 @@ pub fn preview_sources_of(
         treatments,
         transitions,
         pre_chains,
+        flips,
         ranges: _,
         chains,
         reveal_maps,
@@ -1589,6 +1597,7 @@ pub fn preview_sources_of(
                     frame,
                     tracks.get(&layer.clip).copied().unwrap_or(0),
                     passes_at(chains, reveal_maps, timeline, layer.clip, time),
+                    flips.get(&layer.clip),
                 ))
             }
             Err(error) => failures.push(format!("{}: {error}", layer.media.display())),
@@ -2343,6 +2352,30 @@ mod tests {
         // decoder's chain is built.
         let chain = resolve::full_chain(&clips[1], false);
         assert!(chain.starts_with("hue=s=0,fade=t=in"), "was: {chain}");
+    }
+
+    /// A flip goes to the frame plan when nothing in the chain comes after
+    /// it, and stays first in the chain when something does: a wipe on a
+    /// mirrored clip must still wipe the way the frame is seen.
+    #[test]
+    fn flips_go_to_the_plan_unless_the_chain_runs_after_them() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 2.0, 0.0),
+            clip("video", 0, 2.0, 2.0, 0.0),
+        ];
+        clips[0].flip_h = true;
+        clips[1].flip_v = true;
+        assert_eq!(resolve::planned_flips(&clips[0], true), Some((true, false)));
+        assert_eq!(resolve::full_chain(&clips[0], true), "");
+
+        clips[1].transition = spec("wipe-left", 0.5);
+        resolve_transitions(&mut clips, FrameRate::THIRTY, true);
+        assert_eq!(resolve::planned_flips(&clips[1], true), None);
+        let chain = resolve::full_chain(&clips[1], true);
+        assert!(chain.starts_with("vflip,"), "was: {chain}");
+
+        let unflipped = clip("video", 0, 0.0, 2.0, 0.0);
+        assert_eq!(resolve::planned_flips(&unflipped, true), None);
     }
 
     #[test]

@@ -30,7 +30,10 @@ pub(crate) struct CutoutJob {
 impl CutoutJob {
     /// The job for a clip, or `None` when it has no cutout or no masks to
     /// cut with.
-    pub(crate) fn of(clip: &ExportClip) -> Option<CutoutJob> {
+    /// `flipped` says whether the frame the cut is given has the clip's
+    /// flips in it already: it has when they run in the decoder's chain,
+    /// and not when the frame plan draws them (see [`planned_flips`]).
+    pub(crate) fn of(clip: &ExportClip, flipped: bool) -> Option<CutoutJob> {
         let cutout = clip.cutout.clone()?;
         if clip.mask_dir.is_empty() {
             return None;
@@ -47,8 +50,8 @@ impl CutoutJob {
                     .crop
                     .map(|edges| edges.map(|edge| edge as f32))
                     .unwrap_or([0.0; 4]),
-                flip_h: clip.flip_h,
-                flip_v: clip.flip_v,
+                flip_h: clip.flip_h && flipped,
+                flip_v: clip.flip_v && flipped,
             },
             aspect,
         })
@@ -92,6 +95,9 @@ pub(crate) struct BuiltTimeline {
     pub(crate) tracks: HashMap<ClipId, usize>,
     /// The clip's pre-fit chain - its crop - where it has one.
     pub(crate) pre_chains: HashMap<ClipId, String>,
+    /// The flips the frame plan draws, for the clips whose flips are not
+    /// in their chain: `(across, upside down)`. See [`planned_flips`].
+    pub(crate) flips: HashMap<ClipId, (bool, bool)>,
     /// The levels the clip's file is read as, where the person has said.
     pub(crate) ranges: HashMap<ClipId, concat_media::ColorRange>,
     /// The clip's applied effects, on a GPU renderer: the passes are
@@ -206,6 +212,7 @@ pub(crate) fn build_timeline(
     let mut tracks_of: HashMap<ClipId, usize> = HashMap::new();
     let mut treatments: Vec<Treatment> = Vec::new();
     let mut pre_chains: HashMap<ClipId, String> = HashMap::new();
+    let mut flips: HashMap<ClipId, (bool, bool)> = HashMap::new();
     let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
@@ -230,7 +237,7 @@ pub(crate) fn build_timeline(
         // A layer has no pixels to decode: it is a treatment over the
         // stack, kept beside the timeline rather than in it.
         if clip.kind == ClipKind::Layer {
-            let chain = full_chain(clip, gpu);
+            let chain = layer_chain(clip, gpu);
             let effects = if gpu {
                 shaded(&clip.effects)
             } else {
@@ -287,6 +294,10 @@ pub(crate) fn build_timeline(
             if !chain.is_empty() {
                 filter_chains.insert(id, chain);
             }
+            let planned = planned_flips(clip, gpu);
+            if let Some(flip) = planned {
+                flips.insert(id, flip);
+            }
             let pre = pre_chain(clip);
             if !pre.is_empty() {
                 pre_chains.insert(id, pre);
@@ -303,7 +314,7 @@ pub(crate) fn build_timeline(
                     reveal_maps.insert(id, Arc::clone(map));
                 }
             }
-            if let Some(job) = CutoutJob::of(clip) {
+            if let Some(job) = CutoutJob::of(clip, planned.is_none()) {
                 cutouts.insert(id, job);
             }
             if clip.highlighted {
@@ -321,6 +332,7 @@ pub(crate) fn build_timeline(
         treatments,
         transitions,
         pre_chains,
+        flips,
         ranges,
         chains,
         reveal_maps,
@@ -350,8 +362,35 @@ pub(crate) fn pre_chain(clip: &ExportClip) -> String {
 /// treatment of the picture like any other, and comes first so the effects
 /// see the picture the viewer will - then the effects this backend runs as
 /// chains, then the transition fades. On the GPU every effect with a shader
-/// is left out here and carried by [`shader_passes`] instead.
+/// is left out here and carried by [`shader_passes`] instead, and the flips
+/// are left out when the frame plan draws them ([`planned_flips`]).
 pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
+    if planned_flips(clip, gpu).is_some() {
+        return after_flips(clip, gpu);
+    }
+    layer_chain(clip, gpu)
+}
+
+/// The flips the frame plan draws for this clip, `(across, upside down)`,
+/// or `None` when it has none or they stay in its chain.
+///
+/// The plan draws them when nothing is left in the chain after them. A
+/// flip has to come before the effects and the transition fades - a wipe
+/// on a mirrored clip still wipes the way the frame is seen - and the plan
+/// flips the picture as it draws it, which is after whatever the decoder
+/// ran. Shader effects are no hindrance: the compositor flips a picture
+/// before its passes. So the FFmpeg chain's effects and the baked fades
+/// keep their flips in the chain until they move into the plan too.
+pub(crate) fn planned_flips(clip: &ExportClip, gpu: bool) -> Option<(bool, bool)> {
+    if !(clip.flip_h || clip.flip_v) || !after_flips(clip, gpu).is_empty() {
+        return None;
+    }
+    Some((clip.flip_h, clip.flip_v))
+}
+
+/// The chain with the flips always in it: a layer's, which treats the
+/// stack beneath and is not drawn from a planned picture of its own.
+fn layer_chain(clip: &ExportClip, gpu: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     if clip.flip_h {
         parts.push("hflip".to_owned());
@@ -359,6 +398,17 @@ pub(crate) fn full_chain(clip: &ExportClip, gpu: bool) -> String {
     if clip.flip_v {
         parts.push("vflip".to_owned());
     }
+    let rest = after_flips(clip, gpu);
+    if !rest.is_empty() {
+        parts.push(rest);
+    }
+    parts.join(",")
+}
+
+/// What runs after the flips: the backend's chain effects, then the
+/// transition fades.
+fn after_flips(clip: &ExportClip, gpu: bool) -> String {
+    let mut parts: Vec<String> = Vec::new();
     let effects = if clip.effects.is_empty() {
         clip.video_filter_chain.clone()
     } else if gpu {
