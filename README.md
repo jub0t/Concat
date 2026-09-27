@@ -15,29 +15,21 @@
 
 <table width="100%">
   <tr>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <a href="#sponsoring"><b>Your logo here</b></a><br />
       <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
-    <td align="center" width="34%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
-    </td>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <a href="#sponsoring"><b>Your logo here</b></a><br />
       <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
   </tr>
   <tr>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <a href="#sponsoring"><b>Your logo here</b></a><br />
       <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
-    <td align="center" width="34%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
-    </td>
-    <td align="center" width="33%">
+    <td align="center" width="50%">
       <a href="#sponsoring"><b>Your logo here</b></a><br />
       <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
