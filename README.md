@@ -16,18 +16,9 @@
 <table width="100%">
   <tr>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
-    </td>
-    <td align="center" width="50%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="https://proxyon.io/"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/proxyon_sponsor_logo.png" alt="Proxyon" width="80" /></a><br />
+      <a href="https://proxyon.io/"><b>Proxyon</b></a><br />
+      <sub>Pay-as-you-go proxies for developers<br />Use code <b>JUB0T</b> for 20% off</sub>
     </td>
     <td align="center" width="50%">
       <a href="#sponsoring"><b>Your logo here</b></a><br />
