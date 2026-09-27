@@ -19,7 +19,7 @@
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.4-b394ff?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.4" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-b394ff?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
-  <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Sponsor Concat on Patreon" /></a>
+  <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-b394ff?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
 </p>
 
 ## Sponsors
@@ -142,11 +142,11 @@ The [ROADMAP](./ROADMAP.MD) lays out what sponsorship pays for, and what each pi
 
 **Payment Methods**
 
-Monthly through Patreon, or straight to a wallet.
+Pick a tier on [the website](https://concatenate.pages.dev/#sponsor) ($25, $100 or $250), or send straight to a wallet.
 
 | Method | Address |
 |---|---|
-| 🧡 **Patreon** | <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Become a patron of Concat" /></a> |
+| 🌐 **Website** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-b394ff?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
 | ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
 | ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
 | Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
