@@ -22,6 +22,8 @@
   <a href="https://www.patreon.com/5012480/join"><img src="https://img.shields.io/badge/Patreon-Become%20a%20patron-b394ff?style=flat-square&logo=patreon&logoColor=F8F8F8&labelColor=212123" alt="Sponsor Concat on Patreon" /></a>
 </p>
 
+## Sponsors
+
 <table width="100%">
   <tr>
     <td align="center" width="50%">
