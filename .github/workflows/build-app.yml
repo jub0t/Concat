@@ -532,6 +532,7 @@ jobs:
           Icon=concat
           Categories=AudioVideo;Video;
           Terminal=false
+          StartupWMClass=concat
           DESKTOP
           cp LICENSE THIRD_PARTY_NOTICES.md "stage/$name/"
           # The binary must resolve every library from the folder alone.

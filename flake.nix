@@ -189,6 +189,7 @@
               icon = "concat";
               desktopName = "Concat";
               comment = "Free and open source video editor";
+              startupWMClass = "concat";
               categories = [
                 "AudioVideo"
                 "AudioVideoEditing"

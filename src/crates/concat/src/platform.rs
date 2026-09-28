@@ -364,6 +364,12 @@ pub fn select_backend(
             .with_winit_window_attributes_hook(|attributes| attributes.with_decorations(false));
     }
     selector.select()?;
+    // The desktop entry's name (concat.desktop, in every Linux package and
+    // the flake), as the window's Wayland app_id and X11 class, so a dock
+    // or a task switcher files the running window under the launcher it
+    // came from - its icon, its pin - rather than as an unknown app. Slint
+    // ignores it off Linux and the BSDs.
+    let _ = slint::set_xdg_app_id("concat");
     Ok(gpu)
 }
 
