@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "concat"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-api",
  "concat-core",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "concat-android"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "android-build",
  "android_logger",
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "concat-api"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "base64 0.22.1",
  "concat-effects",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "concat-cli"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "clap",
  "concat-api",
@@ -1201,11 +1201,11 @@ dependencies = [
 
 [[package]]
 name = "concat-core"
-version = "0.2.4"
+version = "0.2.5"
 
 [[package]]
 name = "concat-effects"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-project",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "concat-export"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-effects",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "concat-host"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-effects",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "concat-media"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "ffmpeg-the-third",
@@ -1264,7 +1264,7 @@ dependencies = [
 
 [[package]]
 name = "concat-perf"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-effects",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "concat-project"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "serde",
@@ -1287,7 +1287,7 @@ dependencies = [
 
 [[package]]
 name = "concat-render"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-effects",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "concat-server"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-api",
  "getrandom 0.3.4",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "concat-speech"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "bzip2 0.6.1",
  "concat-host",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "concat-text"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "fontdb 0.23.0",
  "rustybuzz",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "concat-vision"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "concat-core",
  "concat-project",
