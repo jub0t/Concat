@@ -299,7 +299,19 @@ fn session(path: &Path, accelerated: bool) -> Result<Session, String> {
             path.file_name().unwrap_or_default().to_string_lossy()
         );
     }
-    #[cfg(not(target_os = "macos"))]
+    // DirectML, the GPU of any vendor through Direct3D 12. The runtime is
+    // built with it on Windows already, for the cutout models (concat-vision).
+    #[cfg(target_os = "windows")]
+    if accelerated {
+        builder = builder
+            .with_execution_providers([ort::ep::DirectML::default().build()])
+            .map_err(|error| format!("onnx runtime: directml: {error}"))?;
+        log::info!(
+            "chatterbox: {} asked to run on DirectML",
+            path.file_name().unwrap_or_default().to_string_lossy()
+        );
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = accelerated;
     builder
         .commit_from_file(path)

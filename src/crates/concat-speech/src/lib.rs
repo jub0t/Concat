@@ -26,7 +26,10 @@ pub use transcribe::Transcriber;
 pub use tts::Speech;
 
 /// Whether the voices ask for the machine's own accelerator: CoreML, the
-/// Mac's GPU and Neural Engine. Not a setting. Measured on an M5 against
+/// Mac's GPU and Neural Engine, and on Windows DirectML for Chatterbox -
+/// Kokoro and Pocket run through sherpa's own runtime, which k2-fsa builds
+/// for the CPU there, so they stay on it. Linux has no accelerator in the
+/// runtime the app ships. Not a setting. Measured on an M5 against
 /// the CPU, a warm read took 10.3 s against 14.8 for Kokoro (and came out
 /// sample for sample the same), 5.6 against 6.5 for Pocket and 48.6
 /// against 60.6 for Chatterbox. The one cost is Chatterbox's load, about
@@ -34,7 +37,7 @@ pub use tts::Speech;
 /// run since the engine stays loaded. A model that will not load for CoreML
 /// at all loads for the CPU instead (tts.rs).
 pub const fn accelerated() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", target_os = "windows"))
 }
 
 /// Progress for one model download.

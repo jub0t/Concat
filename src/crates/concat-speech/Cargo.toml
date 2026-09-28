@@ -73,6 +73,11 @@ whisper-rs = { version = "0.16", features = ["metal"] }
 # runtime in place of the plain one.
 ort = { workspace = true, optional = true, features = ["coreml"] }
 
+# DirectML, so Chatterbox runs on any Direct3D 12 GPU; the same runtime
+# build concat-vision's cutouts use.
+[target.'cfg(target_os = "windows")'.dependencies]
+ort = { workspace = true, optional = true, features = ["directml"] }
+
 [features]
 chatterbox = ["dep:ort", "dep:tokenizers"]
 
