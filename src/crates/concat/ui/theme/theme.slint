@@ -52,7 +52,7 @@ export global Theme {
     /// Settings > Appearance picks it (lib.rs, `on_settings_accent_changed`)
     /// the way it picks `dark`, and it retones the window the same way.
     /// Remembered by name rather than by number, so a list that grows or
-    /// reorders keeps everyone's choice; 0 is Lime, the default. One past
+    /// reorders keeps everyone's choice; 0 is Blue, the default. One past
     /// the last name is the custom colour, `accent-custom`.
     in-out property <int> accent-choice: 0;
     /// A colour picked by hand in place of any on the list. Read only while
@@ -69,7 +69,7 @@ export global Theme {
     /// name is the English word Settings shows for it, and the id it is
     /// remembered under in settings.json, lower-cased; the dialog holds the
     /// same list wrapped for translation, in this order.
-    out property <[string]> accent-names: ["Lime", "Sky", "Violet", "Rose", "Amber", "Mint"];
+    out property <[string]> accent-names: ["Blue", "Lime", "Sky", "Violet", "Rose", "Amber", "Mint"];
     /// The playhead's colour when one was picked by hand in Settings >
     /// Appearance, in place of the palette's own. Read only while
     /// `playhead-is-custom`, and one colour under both palettes, for the

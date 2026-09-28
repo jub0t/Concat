@@ -233,7 +233,7 @@ mod tests {
     /// A file from before the accent existed still loads, and reads as the
     /// default.
     #[test]
-    fn older_file_without_an_accent_is_lime() {
+    fn older_file_without_an_accent_is_the_default() {
         let back: Preferences = serde_json::from_str(r#"{"dark": false}"#).unwrap();
         assert_eq!(back.dark, Some(false));
         assert_eq!(back.accent, None);

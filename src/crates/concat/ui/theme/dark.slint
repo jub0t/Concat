@@ -123,23 +123,24 @@ export global Dark {
 
     // accents
     //
-    // Lime, not blue. The two places that carry the look are the selection
-    // highlight and every activated tool, and both are the accent; making it
-    // the one accent as well says the same thing with one token instead of
-    // three.
+    // Blue, the logo's #0568fd. The two places that carry the look are the
+    // selection highlight and every activated tool, and both are the accent;
+    // making the brand's colour the accent says the same thing with one token
+    // instead of three.
     //
-    // Six to choose from, and Settings › Appearance picks one. The first is
-    // the default, and the one the rest of this file means by "lime". Each
-    // is legible against near-black and near-white alike, which is what a
-    // selection has to be: it lands on whatever happens to be underneath it.
-    // What sits *on* each therefore has to be dark ink, and is fixed with it:
-    // `on` is a deep shade of the same hue, `hover` a step brighter, `soft`
-    // the colour at 20% for a wash. A dark accent would want #ffffff for its
-    // ink instead, which is the light palette's whole answer.
+    // Seven to choose from, and Settings › Appearance picks one. The first is
+    // the default. The six after it are each legible against near-black and
+    // near-white alike, which is what a selection has to be: it lands on
+    // whatever happens to be underneath it. What sits *on* those therefore
+    // has to be dark ink, and is fixed with it: `on` is a deep shade of the
+    // same hue, `hover` a step brighter, `soft` the colour at 20% for a wash.
+    // Blue is the dark accent among them and wants #ffffff for its ink,
+    // which is the light palette's whole answer.
     //
     // The same order as `light.slint` and as `accent-names` in theme.slint,
     // which is where each one's name lives.
     out property <[Accent]> accents: [
+        { accent: #0568fd, hover: #2d80ff, soft: #0568fd33, on: #ffffff },   // blue
         { accent: #cbf53f, hover: #d9ff63, soft: #cbf53f33, on: #15220a },   // lime
         { accent: #5fb8ff, hover: #82c9ff, soft: #5fb8ff33, on: #061c33 },   // sky
         { accent: #b394ff, hover: #c6b0ff, soft: #b394ff33, on: #1d0f3d },   // violet
@@ -227,8 +228,8 @@ export global Dark {
     /// lanes now carry while staying under `line-strong`, so the rules place a
     /// clip without competing with it.
     out property <color> grid: #ffffff24;
-    // Lime: the palette's first accent, as a colour of its own rather than a
-    // read of the accent, so a change of accent leaves the playhead where the
+    // Lime: the palette's second accent, as a colour of its own rather than
+    // a read of the accent, so a change of accent leaves the playhead where the
     // eye learnt to find it. Settings > Appearance can put any colour in its
     // place (theme.slint, `playhead-custom`).
     out property <color> playhead: #cbf53f;
