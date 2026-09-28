@@ -115,7 +115,7 @@ running when this was written; score carried from 23 Sep and adjusted only by ha
 |---|---|
 | fmt | ✅ 0 files would change (8 on 23 Sep) |
 | clippy | ✅ 0 warnings |
-| tests | ⚠️ **647 passed, 2 failed**, 1 ignored (650 in all, 544 on 23 Sep). Both failures are window tests that saw German where they expected English (`format::tests::phrases_are_coarse`: "gestern" for "yesterday"; `panes::speech::tests::a_voice_name_reads_as_a_person_would_say_it`): the process-wide locale leaking between tests in one binary, not a product bug. CI on `main` is green. |
+| tests | ⚠️ **647 passed, 2 failed**, 1 ignored (650 in all, 544 on 23 Sep). Both failures are window tests that saw German where they expected English (`format::tests::phrases_are_coarse`: "gestern" for "yesterday"; `panes::speech::tests::a_voice_name_reads_as_a_person_would_say_it`): the process-wide locale leaking between tests in one binary (confirmed: both pass alone, and the suite passes with `--test-threads=1`), not a product bug. CI on `main` is green. |
 | perf --check | ✅ 22 of 22 within budget: GPU composite 2.3 ms (3.2), 720p export 204 fps (115), HDR export 111 fps, 4K HLG deep-for-GPU 140 fps vs 29 tone-mapped on the CPU, 4K HEVC 10-bit hardware 112 fps and software 43, three 4K streams 61 fps, 4K Gaussian blur 6.1 ms at radius 10 and 9.3 at 50 |
 | CI on `main` | ✅ green at head; 3 of today's 12 runs were red between 10:12 and 11:02 UTC, fixed by `d1d3265` |
 
