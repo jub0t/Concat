@@ -1337,9 +1337,13 @@ name = "concat-text"
 version = "0.2.5"
 dependencies = [
  "fontdb 0.23.0",
+ "memmap2",
  "rustybuzz",
  "tiny-skia 0.12.0",
  "ttf-parser",
+ "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-script",
 ]
 
 [[package]]

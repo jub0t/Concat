@@ -29,12 +29,18 @@
 //! stores them, so a title looks the same at 720p and 4K. Everything here
 //! converts to pixels once, at the top.
 
+use std::collections::HashMap;
 use std::fmt;
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
 
 use tiny_skia::{
     Color, FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
     Stroke, Transform,
 };
+use unicode_bidi::ParagraphBidiInfo;
+use unicode_linebreak::BreakOpportunity;
+use unicode_script::{Script, UnicodeScript};
 
 /// How a title's lines sit within their block, and which point of the block
 /// the clip's position holds still: its left edge, its centre or its right
@@ -196,6 +202,22 @@ impl std::error::Error for Error {}
 /// carries. Built once and kept; loading the system's fonts is the slow part.
 pub struct Fonts {
     db: fontdb::Database,
+    /// What titles have learnt about the faces, kept for the next one.
+    cache: Mutex<Cache>,
+}
+
+/// A face's bytes: the file mapped, or the data a font was loaded from.
+type FaceData = Arc<dyn AsRef<[u8]> + Send + Sync>;
+
+#[derive(Default)]
+struct Cache {
+    /// Each face a title has been set in, opened once, with its index in
+    /// its collection.
+    data: HashMap<fontdb::ID, (FaceData, u32)>,
+    /// Per character, every face that can draw it, in the database's
+    /// order. Learnt a title's missing characters at a time, since each
+    /// lesson reads every face; emptied when a font is added.
+    covers: HashMap<char, Vec<fontdb::ID>>,
 }
 
 impl Default for Fonts {
@@ -230,13 +252,25 @@ impl Fonts {
         for face in BUNDLED {
             db.load_font_data(face.to_vec());
         }
-        Fonts { db }
+        Fonts {
+            db,
+            cache: Mutex::default(),
+        }
     }
 
     /// Adds one font file. A file that does not parse is skipped; a title
     /// that names its family falls back to a system face.
     pub fn add_file(&mut self, path: &std::path::Path) -> bool {
-        self.db.load_font_file(path).is_ok()
+        let added = self.db.load_font_file(path).is_ok();
+        if added {
+            // The new face may draw what nothing could before.
+            self.cache
+                .get_mut()
+                .unwrap_or_else(|e| e.into_inner())
+                .covers
+                .clear();
+        }
+        added
     }
 
     /// Every family the database knows, once each, in alphabetical order
@@ -276,7 +310,7 @@ fn family_names(db: &fontdb::Database) -> Vec<String> {
 impl Fonts {
     /// The best face for a style: the named family at the nearest weight and
     /// slant, then any sans-serif, then anything at all.
-    fn pick(&self, style: &TitleStyle) -> Result<Vec<u8>, Error> {
+    fn pick(&self, style: &TitleStyle) -> Result<fontdb::ID, Error> {
         let mut family = style
             .font_family
             .trim()
@@ -302,27 +336,204 @@ impl Fonts {
             stretch: fontdb::Stretch::Normal,
             style: slant,
         };
-        let id = self
-            .db
+        self.db
             .query(&query)
             .or_else(|| self.db.faces().next().map(|face| face.id))
-            .ok_or(Error::NoFont)?;
-        // Copied out: the shaper and the outliner both want a slice that
-        // outlives the database borrow, and a face is a few hundred KB.
-        self.db
-            .with_face_data(id, |data, index| {
-                // Multi-face collections: keep only the face that answered.
-                // rustybuzz takes the index, so the whole blob travels.
-                (data.to_vec(), index)
-            })
-            .map(|(data, index)| {
-                // Encode the index in front so the caller can hand both on.
-                let mut out = index.to_le_bytes().to_vec();
-                out.extend(data);
-                out
-            })
-            .ok_or(Error::BadFont)
+            .ok_or(Error::NoFont)
     }
+
+    /// The faces a title is set in and which of them sets each character.
+    ///
+    /// The style's own face sets everything it has a glyph for. A character
+    /// it lacks is lent by another face that can draw it - one the title
+    /// already borrows from if one can, so a line of Japanese is not set in
+    /// three faces, else the nearest in weight and slant. What nothing can
+    /// draw stays with the style's face, whose .notdef box says so.
+    fn cast(&self, style: &TitleStyle) -> Result<Casting, Error> {
+        let own_id = self.pick(style)?;
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let own = self.data(&mut cache, own_id).ok_or(Error::BadFont)?;
+        let own_face =
+            ttf_parser::Face::parse((*own.0).as_ref(), own.1).map_err(|_| Error::BadFont)?;
+
+        let mut missing: Vec<char> = style
+            .content
+            .chars()
+            .filter(|&ch| {
+                !ch.is_control()
+                    && own_face.glyph_index(ch).is_none()
+                    && !cache.covers.contains_key(&ch)
+            })
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        self.learn(&mut cache, &missing);
+
+        let want = Want {
+            weight: style.font_weight.clamp(100.0, 900.0).round() as u16,
+            italic: style.italic,
+        };
+        let mut ids = vec![own_id];
+        let paragraphs = style
+            .content
+            .lines()
+            .map(|text| self.assign(text, &own_face, &cache, want, &mut ids))
+            .collect();
+        let mut faces = vec![own.clone()];
+        for &id in &ids[1..] {
+            // A face that will not open sets its characters in the style's
+            // face instead: boxes, but in the right places.
+            faces.push(self.data(&mut cache, id).unwrap_or_else(|| own.clone()));
+        }
+        Ok(Casting { faces, paragraphs })
+    }
+
+    /// Reads every face once for the characters in `chars`, and remembers
+    /// which faces can draw each.
+    fn learn(&self, cache: &mut Cache, chars: &[char]) {
+        if chars.is_empty() {
+            return;
+        }
+        for &ch in chars {
+            cache.covers.insert(ch, Vec::new());
+        }
+        for info in self.db.faces() {
+            // Apple's last resort draws every character as a labelled box:
+            // a face that answers everything is no answer.
+            if info
+                .families
+                .iter()
+                .any(|(name, _)| name.contains("LastResort"))
+            {
+                continue;
+            }
+            self.db.with_face_data(info.id, |data, index| {
+                let Ok(face) = ttf_parser::Face::parse(data, index) else {
+                    return;
+                };
+                for &ch in chars {
+                    if draws(&face, ch)
+                        && let Some(faces) = cache.covers.get_mut(&ch)
+                    {
+                        faces.push(info.id);
+                    }
+                }
+            });
+        }
+    }
+
+    /// Which of `ids` sets each byte of one paragraph, adding the faces it
+    /// borrows to `ids`. Index 0 is the style's own face.
+    fn assign(
+        &self,
+        text: &str,
+        own: &ttf_parser::Face<'_>,
+        cache: &Cache,
+        want: Want,
+        ids: &mut Vec<fontdb::ID>,
+    ) -> Vec<usize> {
+        let mut out = vec![0; text.len()];
+        let mut last = 0;
+        for (at, ch) in text.char_indices() {
+            let covers = cache.covers.get(&ch).map_or(&[][..], Vec::as_slice);
+            let lends = |ids: &[fontdb::ID], index: usize| index != 0 && covers.contains(&ids[index]);
+            let index = if joins(ch) && at > 0 {
+                // A mark, a joiner, a skin tone: with what it modifies.
+                last
+            } else if own.glyph_index(ch).is_some() {
+                0
+            } else if lends(ids, last) {
+                last
+            } else if let Some(index) = (1..ids.len()).find(|&index| lends(ids, index)) {
+                index
+            } else if let Some(id) = self.nearest(covers, want) {
+                ids.push(id);
+                ids.len() - 1
+            } else {
+                0
+            };
+            out[at..at + ch.len_utf8()].fill(index);
+            last = index;
+        }
+        out
+    }
+
+    /// Of the faces in `covers`, the one closest to the style's slant and
+    /// weight; the database's order breaks a tie.
+    fn nearest(&self, covers: &[fontdb::ID], want: Want) -> Option<fontdb::ID> {
+        covers
+            .iter()
+            .filter_map(|&id| self.db.face(id))
+            .min_by_key(|info| {
+                let italic = info.style != fontdb::Style::Normal;
+                (italic != want.italic, info.weight.0.abs_diff(want.weight))
+            })
+            .map(|info| info.id)
+    }
+
+    /// A face's bytes, opened once and kept.
+    fn data(&self, cache: &mut Cache, id: fontdb::ID) -> Option<(FaceData, u32)> {
+        if let Some(found) = cache.data.get(&id) {
+            return Some(found.clone());
+        }
+        let info = self.db.face(id)?;
+        let data: FaceData = match &info.source {
+            fontdb::Source::Binary(data) | fontdb::Source::SharedFile(_, data) => data.clone(),
+            fontdb::Source::File(path) => {
+                let file = std::fs::File::open(path).ok()?;
+                // SAFETY: a font file changed on disk while mapped would be
+                // read torn - the risk fontdb takes on every system face it
+                // reads, and a font being rewritten under a running editor
+                // is not a case worth copying tens of megabytes to avoid.
+                Arc::new(unsafe { memmap2::Mmap::map(&file) }.ok()?)
+            }
+        };
+        cache.data.insert(id, (data.clone(), info.index));
+        Some((data, info.index))
+    }
+}
+
+/// The weight and slant a borrowed face should come closest to.
+#[derive(Clone, Copy)]
+struct Want {
+    weight: u16,
+    italic: bool,
+}
+
+/// A title's faces, and which sets each character; see [`Fonts::cast`].
+struct Casting {
+    /// Each face's bytes and index in its collection, the style's first.
+    faces: Vec<(FaceData, u32)>,
+    /// Per line of the content, per byte, the index of the face that sets
+    /// it.
+    paragraphs: Vec<Vec<usize>>,
+}
+
+/// Whether `face` can draw `ch`: it has a glyph, and the glyph is an outline.
+/// A colour emoji face maps its characters to pictures with no outline,
+/// which would paint nothing here, so it does not count.
+fn draws(face: &ttf_parser::Face<'_>, ch: char) -> bool {
+    struct Nowhere;
+    impl ttf_parser::OutlineBuilder for Nowhere {
+        fn move_to(&mut self, _: f32, _: f32) {}
+        fn line_to(&mut self, _: f32, _: f32) {}
+        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
+        fn close(&mut self) {}
+    }
+    let Some(glyph) = face.glyph_index(ch) else {
+        return false;
+    };
+    ch.is_whitespace() || face.outline_glyph(glyph, &mut Nowhere).is_some()
+}
+
+/// A character that belongs with the one before it and is set in its face:
+/// a combining mark, a joiner or variation selector, an emoji's skin tone
+/// or tag.
+fn joins(ch: char) -> bool {
+    ch.script() == Script::Inherited
+        || ('\u{1F3FB}'..='\u{1F3FF}').contains(&ch)
+        || ('\u{E0020}'..='\u{E007F}').contains(&ch)
 }
 
 /// One shaped line: its outline path in pixels, pen at the origin, its
@@ -386,97 +597,184 @@ impl ttf_parser::OutlineBuilder for Outliner<'_> {
     }
 }
 
-/// Shapes one line and outlines it, pen starting at (0, 0) on the baseline.
-/// A paragraph as the lines it wraps to within `max_w` pixels: words are
-/// added while they fit, and a word that fits nowhere gets a line of its
-/// own rather than being cut. No limit, one line.
-fn wrap_line(
-    face: &rustybuzz::Face<'_>,
-    text: &str,
+/// What setting a line needs: the title's faces, in [`Casting`]'s order,
+/// and its sizes in pixels.
+struct Setter<'a> {
+    faces: &'a [rustybuzz::Face<'a>],
     em: f32,
     tracking: f32,
-    max_w: f32,
-) -> Vec<Line> {
-    if text.trim().is_empty() {
-        return vec![shape_line(face, text, em, tracking)];
-    }
-    // Word boundaries as byte ranges into `text`, so a growing candidate is
-    // a real prefix of the source - keeping its own inter-word spacing -
-    // rather than words rejoined with a single space.
-    let mut bounds: Vec<(usize, usize)> = Vec::new();
-    let mut start: Option<usize> = None;
-    for (index, ch) in text.char_indices() {
-        if ch.is_whitespace() {
-            if let Some(word_start) = start.take() {
-                bounds.push((word_start, index));
-            }
-        } else if start.is_none() {
-            start = Some(index);
-        }
-    }
-    if let Some(word_start) = start {
-        bounds.push((word_start, text.len()));
-    }
-
-    let mut lines = Vec::new();
-    let mut line_start = bounds[0].0;
-    let mut shaped = shape_line(face, "", em, tracking);
-    let mut words: Vec<(f32, f32)> = Vec::new();
-    for &(word_start, word_end) in &bounds {
-        let trial = shape_line(face, &text[line_start..word_end], em, tracking);
-        // A word that fits nowhere still gets a line of its own.
-        if max_w <= 0.0 || trial.width <= max_w || words.is_empty() {
-            words.push((shaped.width, trial.width));
-            shaped = trial;
-        } else {
-            shaped.words = std::mem::take(&mut words);
-            lines.push(shaped);
-            line_start = word_start;
-            shaped = shape_line(face, &text[line_start..word_end], em, tracking);
-            words.push((0.0, shaped.width));
-        }
-    }
-    shaped.words = words;
-    lines.push(shaped);
-    lines
 }
 
-fn shape_line(face: &rustybuzz::Face<'_>, text: &str, em: f32, tracking: f32) -> Line {
-    if text.is_empty() {
-        return Line {
-            path: None,
-            width: 0.0,
-            words: Vec::new(),
+/// One line of the content, ready to be set: its text, its directions,
+/// and the face each byte is set in.
+struct Paragraph<'a> {
+    text: &'a str,
+    bidi: ParagraphBidiInfo<'a>,
+    face_of: &'a [usize],
+}
+
+impl Setter<'_> {
+    /// A paragraph as the lines it wraps to within `max_w` pixels. A line
+    /// may end wherever Unicode's line breaking allows - at a space, or
+    /// between two characters of a script that has none - and takes breaks
+    /// while it fits; a stretch that fits nowhere gets a line of its own
+    /// rather than being cut. No limit, one line. Space at either end of a
+    /// line is not set.
+    fn wrap(&self, para: &Paragraph<'_>, max_w: f32) -> Vec<Line> {
+        let text = para.text;
+        if text.trim().is_empty() {
+            return vec![self.set(para, 0..text.len(), true)];
+        }
+        let trimmed = |from: usize, to: usize| from + text[from..to].trim_end().len();
+        let mut line_start = text.len() - text.trim_start().len();
+        if max_w <= 0.0 && !text.contains(MANDATORY) {
+            return vec![self.set(para, line_start..trimmed(line_start, text.len()), true)];
+        }
+        let mut lines = Vec::new();
+        // Where the line being built may end: the last break that fitted.
+        let mut fitted: Option<usize> = None;
+        for (at, kind) in unicode_linebreak::linebreaks(text) {
+            if at <= line_start {
+                continue;
+            }
+            let end = trimmed(line_start, at);
+            let fits = max_w <= 0.0
+                || fitted.is_none()
+                || self.set(para, line_start..end, false).width <= max_w;
+            if !fits && let Some(last) = fitted {
+                lines.push(self.set(para, line_start..trimmed(line_start, last), true));
+                line_start = last;
+            }
+            fitted = Some(at);
+            if kind == BreakOpportunity::Mandatory {
+                lines.push(self.set(para, line_start..trimmed(line_start, at), true));
+                line_start = at;
+                fitted = None;
+            }
+        }
+        if lines.is_empty() {
+            lines.push(self.set(para, line_start..line_start, true));
+        }
+        lines
+    }
+
+    /// Shapes `range` of a paragraph as one line, pen starting at (0, 0) on
+    /// the baseline, and outlines it when `outline` - a line only being
+    /// measured is not.
+    ///
+    /// The line's runs are laid left to right in the order they are seen,
+    /// which for right-to-left text is not the order they are read; each
+    /// run is split where its face changes, and shaped piece by piece.
+    fn set(&self, para: &Paragraph<'_>, range: Range<usize>, outline: bool) -> Line {
+        if range.is_empty() {
+            return Line {
+                path: None,
+                width: 0.0,
+                words: Vec::new(),
+            };
+        }
+        let (levels, runs) = para.bidi.visual_runs(range.clone());
+        let mut builder = PathBuilder::new();
+        let mut pen = 0.0_f32;
+        // Each glyph's cluster, as a byte into the paragraph, and the span
+        // it advances over.
+        let mut spans: Vec<(usize, f32, f32)> = Vec::new();
+        for run in runs {
+            let rtl = levels[run.start].is_rtl();
+            let mut pieces = Vec::new();
+            let mut start = run.start;
+            for at in run.clone() {
+                if para.face_of[at] != para.face_of[start] {
+                    pieces.push(start..at);
+                    start = at;
+                }
+            }
+            pieces.push(start..run.end);
+            // Read right to left, the piece read first is seen last.
+            if rtl {
+                pieces.reverse();
+            }
+            for piece in pieces {
+                let face = &self.faces[para.face_of[piece.start]];
+                let scale = self.em / face.units_per_em() as f32;
+                let mut buffer = rustybuzz::UnicodeBuffer::new();
+                buffer.push_str(&para.text[piece.clone()]);
+                buffer.set_direction(if rtl {
+                    rustybuzz::Direction::RightToLeft
+                } else {
+                    rustybuzz::Direction::LeftToRight
+                });
+                let shaped = rustybuzz::shape(face, &[], buffer);
+                for (info, position) in shaped
+                    .glyph_infos()
+                    .iter()
+                    .zip(shaped.glyph_positions().iter())
+                {
+                    if outline {
+                        let mut outliner = Outliner {
+                            builder: &mut builder,
+                            scale,
+                            x: pen + position.x_offset as f32 * scale,
+                            y: -(position.y_offset as f32 * scale),
+                        };
+                        face.outline_glyph(ttf_parser::GlyphId(info.glyph_id as u16), &mut outliner);
+                    }
+                    let advance = position.x_advance as f32 * scale;
+                    spans.push((piece.start + info.cluster as usize, pen, pen + advance));
+                    pen += advance + self.tracking;
+                }
+            }
+        }
+        // The tracking after the last glyph is air nobody sees.
+        let width = if spans.is_empty() {
+            0.0
+        } else {
+            (pen - self.tracking).max(0.0)
         };
-    }
-    let scale = em / face.units_per_em() as f32;
-    let mut buffer = rustybuzz::UnicodeBuffer::new();
-    buffer.push_str(text);
-    let shaped = rustybuzz::shape(face, &[], buffer);
-    let mut builder = PathBuilder::new();
-    let mut pen = 0.0_f32;
-    for (info, position) in shaped
-        .glyph_infos()
-        .iter()
-        .zip(shaped.glyph_positions().iter())
-    {
-        let glyph = ttf_parser::GlyphId(info.glyph_id as u16);
-        let mut outliner = Outliner {
-            builder: &mut builder,
-            scale,
-            x: pen + position.x_offset as f32 * scale,
-            y: -(position.y_offset as f32 * scale),
+        let words = if outline {
+            words(para.text, range)
+                .into_iter()
+                .filter_map(|word| {
+                    spans
+                        .iter()
+                        .filter(|(cluster, _, _)| word.contains(cluster))
+                        .fold(None, |span: Option<(f32, f32)>, &(_, left, right)| {
+                            Some(span.map_or((left, right), |(l, r)| (l.min(left), r.max(right))))
+                        })
+                })
+                .collect()
+        } else {
+            Vec::new()
         };
-        face.outline_glyph(glyph, &mut outliner);
-        pen += position.x_advance as f32 * scale + tracking;
+        Line {
+            path: builder.finish(),
+            width,
+            words,
+        }
     }
-    // The tracking after the last glyph is air nobody sees.
-    let width = (pen - tracking).max(0.0);
-    Line {
-        path: builder.finish(),
-        width,
-        words: Vec::new(),
+}
+
+/// Line separators other than the newline the content is split at: a line
+/// break inside a paragraph.
+const MANDATORY: &[char] = &['\u{b}', '\u{c}', '\r', '\u{85}', '\u{2028}', '\u{2029}'];
+
+/// The words of `range`, in reading order: the stretches between the places
+/// a line may break, less their spaces. Words as a space-separated script
+/// has them, and each character of one that has no spaces.
+fn words(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
+    let mut words = Vec::new();
+    let mut start = range.start;
+    for (at, _) in unicode_linebreak::linebreaks(&text[range.clone()]) {
+        let at = range.start + at;
+        let word = &text[start..at];
+        let lead = word.len() - word.trim_start().len();
+        let body = word.trim().len();
+        if body > 0 {
+            words.push(start + lead..start + lead + body);
+        }
+        start = at;
     }
+    words
 }
 
 /// A separable box blur over premultiplied RGBA, run twice for a soft
@@ -607,27 +905,48 @@ fn paint(
     let tracking = style.tracking as f32 * frame_h;
     let pitch = em * (style.line_height.max(0.5) as f32);
 
-    let blob = fonts.pick(style)?;
-    let (index_bytes, data) = blob.split_at(4);
-    let index = u32::from_le_bytes([
-        index_bytes[0],
-        index_bytes[1],
-        index_bytes[2],
-        index_bytes[3],
-    ]);
-    let face = rustybuzz::Face::from_slice(data, index).ok_or(Error::BadFont)?;
-    let upem = face.units_per_em() as f32;
-    let ascent = face.ascender() as f32 / upem * em;
-    let descent = -(face.descender() as f32) / upem * em;
+    let casting = fonts.cast(style)?;
+    let own = {
+        let (data, index) = &casting.faces[0];
+        rustybuzz::Face::from_slice((**data).as_ref(), *index).ok_or(Error::BadFont)?
+    };
+    // A borrowed face that will not parse sets its characters in the
+    // style's own: boxes, but the line still holds together.
+    let faces: Vec<rustybuzz::Face<'_>> = casting
+        .faces
+        .iter()
+        .map(|(data, index)| {
+            rustybuzz::Face::from_slice((**data).as_ref(), *index).unwrap_or_else(|| own.clone())
+        })
+        .collect();
+    // The line's metrics are the style's face's, whatever it borrows: the
+    // pitch and the block should not jump because one character came from
+    // elsewhere.
+    let upem = own.units_per_em() as f32;
+    let ascent = own.ascender() as f32 / upem * em;
+    let descent = -(own.descender() as f32) / upem * em;
 
     // Shape every line with the pen at the origin; placement comes after,
     // once the block's width is known. A paragraph wider than the style's
-    // limit is wrapped at its spaces first.
+    // limit is wrapped first.
     let max_w = (style.max_width as f32) * width as f32;
+    let setter = Setter {
+        faces: &faces,
+        em,
+        tracking,
+    };
     let lines: Vec<Line> = style
         .content
         .lines()
-        .flat_map(|line| wrap_line(&face, line, em, tracking, max_w))
+        .zip(&casting.paragraphs)
+        .flat_map(|(text, face_of)| {
+            let para = Paragraph {
+                text,
+                bidi: ParagraphBidiInfo::new(text, None),
+                face_of,
+            };
+            setter.wrap(&para, max_w)
+        })
         .collect();
     let rows = lines.len().max(1);
     let words_w = lines.iter().map(|line| line.width).fold(0.0, f32::max);
@@ -1213,6 +1532,82 @@ mod tests {
         let (first, last) = painted_span(&out.png);
         assert!(first < centre && last > centre);
         assert_eq!(out.block_dx, 0);
+    }
+
+    // ── scripts the style's face lacks ──
+
+    /// A character the style's face has no glyph for is set in a face that
+    /// can draw it, when the machine has one - not in the style's .notdef
+    /// box. Skipped on a machine with no face for it.
+    #[test]
+    fn a_character_the_face_lacks_is_borrowed_from_one_that_has_it() {
+        let fonts = Fonts::new();
+        let mut han = style("漢字 and words");
+        han.font_family = BUNDLED_FAMILY.to_owned();
+        let casting = fonts.cast(&han).expect("casts");
+        let face_of = &casting.paragraphs[0];
+        // The Latin stays in the style's face.
+        assert_eq!(face_of[han.content.find('a').expect("an a")], 0);
+        if casting.faces.len() == 1 {
+            eprintln!("no face on this machine draws 漢; skipped");
+            return;
+        }
+        let (data, index) = &casting.faces[face_of[0]];
+        let lent = ttf_parser::Face::parse((**data).as_ref(), *index).expect("parses");
+        assert!(draws(&lent, '漢') && draws(&lent, '字'));
+        assert_eq!(face_of[0], face_of['漢'.len_utf8()], "one face for the run");
+    }
+
+    /// A combining mark is set in the face of the character it sits on,
+    /// whichever face that is, so the two are shaped together.
+    #[test]
+    fn a_mark_is_set_with_what_it_marks() {
+        let fonts = Fonts::new();
+        let content = "漢\u{301}e\u{301}";
+        let casting = fonts.cast(&style(content)).expect("casts");
+        let face_of = &casting.paragraphs[0];
+        let mark = '漢'.len_utf8();
+        assert_eq!(face_of[mark], face_of[0]);
+        let second = mark + '\u{301}'.len_utf8() + 1;
+        assert_eq!(face_of[second], face_of[second - 1]);
+    }
+
+    /// Right-to-left words are laid right to left: the first read is the
+    /// rightmost. The order holds whatever face draws them.
+    #[test]
+    fn right_to_left_words_run_right_to_left() {
+        let fonts = Fonts::new();
+        let out = render(&fonts, &style("שלום עולם"), 640, 360).expect("renders");
+        assert_eq!(out.words.len(), 2, "{:?}", out.words);
+        assert!(
+            out.words[0].x > out.words[1].x,
+            "the first word read is on the right: {:?}",
+            out.words
+        );
+    }
+
+    /// A script without spaces still wraps under a width limit, between its
+    /// characters, and each character is a word of its own.
+    #[test]
+    fn a_script_without_spaces_wraps_between_its_characters() {
+        let fonts = Fonts::new();
+        let content = "漢字漢字漢字漢字漢字漢字";
+        let one = render(&fonts, &style(content), 640, 360).expect("renders");
+        let mut narrow = style(content);
+        narrow.max_width = 0.2;
+        let wrapped = render(&fonts, &narrow, 640, 360).expect("renders");
+        assert!(wrapped.block_height > one.block_height, "it wrapped");
+        assert_eq!(wrapped.words.len(), content.chars().count());
+    }
+
+    /// A line separator inside a paragraph breaks the line.
+    #[test]
+    fn a_line_separator_breaks_the_line() {
+        let fonts = Fonts::new();
+        let one = render(&fonts, &style("One Two"), 640, 360).expect("renders");
+        let two = render(&fonts, &style("One\u{2028}Two"), 640, 360).expect("renders");
+        assert!(two.block_height > one.block_height);
+        assert!(two.block_width < one.block_width);
     }
 
     /// The canvas is the frame; the block is not.

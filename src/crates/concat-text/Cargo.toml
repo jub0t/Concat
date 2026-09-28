@@ -15,6 +15,17 @@ fontdb = "0.23"
 rustybuzz = "0.20"
 # Outlines out of the font, into paths.
 ttf-parser = "0.25"
+# The font files a title borrows from, mapped rather than read: a CJK
+# collection is tens of megabytes, and a title wants a few glyphs of it.
+memmap2 = "0.9"
+# Right-to-left text: the Unicode bidirectional algorithm, which puts a
+# line's runs in the order they are seen.
+unicode-bidi = "0.3"
+# Where a line may wrap, by UAX #14: at spaces, and between the characters
+# of scripts that have none.
+unicode-linebreak = "0.1"
+# A character's script, for the marks that belong with the one before.
+unicode-script = "0.5"
 # Fill, stroke and anti-aliasing of those paths, and the PNG encoder.
 tiny-skia = { version = "0.12", features = ["png-format"] }
 
