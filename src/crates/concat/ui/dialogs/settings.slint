@@ -48,7 +48,8 @@ export struct SystemFactData {
 
 export struct SettingsData {
     open: bool,
-    /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About
+    /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About,
+    /// 6 Version
     tab: int,
     language: int,
     /// the playhead stops at the end of the content
@@ -73,6 +74,20 @@ export struct SettingsData {
     /// "3 installed · 612 MB on disk"
     disk: string,
     version: string,
+    /// what the Version page says under the version: looking, up to date,
+    /// a newer release out, or why it could not look
+    update-status: string,
+    checking: bool,
+    /// which of the sheet's `versions` the dropdown shows
+    version-choice: int,
+    /// a switch in flight: how far its download is, and "12 MB of 90 MB"
+    installing: bool,
+    install-progress: float,
+    install-transferred: string,
+    /// Install is live: a release is listed and this build came from a
+    /// package that can be put in place; and why not, when not
+    can-install: bool,
+    install-note: string,
 }
 
 // Accuracy, as pips rather than a number: five little bars say "third of five"
@@ -398,6 +413,10 @@ export component SettingsDialog inherits Modal {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
+    /// the releases a person can switch to, newest first, and beside each
+    /// the day it came out - or that it is this one
+    in property <[string]> versions;
+    in property <[string]> version-details;
     in property <[string]> languages;
     /// The system report, as rows. See system_facts() in main.rs.
     in property <[SystemFactData]> system-facts;
@@ -432,6 +451,11 @@ export component SettingsDialog inherits Modal {
     callback server-token-edited(text: string);
     /// A fresh random token, in place of whatever is there.
     callback server-token-generated();
+    /// the Version page: look for the releases, pick one, put it in place
+    callback check-updates();
+    callback version-chosen(index: int);
+    callback install-version();
+    callback install-cancel();
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -568,6 +592,12 @@ export component SettingsDialog inherits Modal {
                         glyph: Glyph.lock;
                         current: root.data.tab == 4;
                         clicked => { root.page-changed(4); }
+                    }
+                    if !root.phone: PageTab {
+                        label: I18n.t("settings.version");
+                        glyph: Glyph.tag;
+                        current: root.data.tab == 6;
+                        clicked => { root.page-changed(6); }
                     }
                     PageTab {
                         label: I18n.t("settings.about");
@@ -1001,6 +1031,105 @@ export component SettingsDialog inherits Modal {
                         Button {
                             label: I18n.t("settings.newToken");
                             clicked => { root.server-token-generated(); }
+                        }
+                    }
+                }
+            }
+
+            // The Version page: which release this is, whether a newer one
+            // is out, and any release from 0.2.5 on put in this one's place.
+            // A desk's affair, like the Remote page: a phone's store does
+            // its updating.
+            if root.data.tab == 6 && !root.phone: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("settings.version");
+
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        Text {
+                            text: I18n.t1("settings.concat", "\{root.data.version}");
+                            color: Theme.fg;
+                            font-size: Theme.fs-lg;
+                            font-weight: Theme.weight-title;
+                        }
+
+                        Text {
+                            text: root.data.update-status;
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            alignment: start;
+
+                            Button {
+                                label: root.data.checking
+                                    ? I18n.t("settings.checkingForUpdates")
+                                    : I18n.t("settings.checkForUpdates");
+                                enabled: !root.data.checking;
+                                clicked => { root.check-updates(); }
+                            }
+                        }
+                    }
+                }
+
+                DialogSection {
+                    title: I18n.t("settings.switchVersion");
+                    hint: I18n.t("settings.switchVersionNote");
+
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Select {
+                                horizontal-stretch: 1;
+                                options: root.versions;
+                                details: root.version-details;
+                                current: root.data.version-choice;
+                                placeholder: I18n.t("settings.noReleasesYet");
+                                enabled: root.versions.length > 0 && !root.data.installing;
+                                changed(index) => { root.version-chosen(index); }
+                            }
+
+                            if !root.data.installing: Button {
+                                label: I18n.t("settings.install");
+                                glyph: Glyph.import;
+                                primary: true;
+                                enabled: root.data.can-install;
+                                clicked => { root.install-version(); }
+                            }
+
+                            if root.data.installing: Button {
+                                label: I18n.t("common.cancel");
+                                glyph: Glyph.close;
+                                ghost: true;
+                                clicked => { root.install-cancel(); }
+                            }
+                        }
+
+                        if root.data.install-note != "": Text {
+                            text: root.data.install-note;
+                            color: Theme.fg-muted;
+                            font-size: Theme.fs-sm;
+                            wrap: word-wrap;
+                        }
+
+                        if root.data.installing: VerticalLayout {
+                            spacing: 6px;
+
+                            Progress { value: root.data.install-progress; }
+
+                            Text {
+                                text: root.data.install-transferred;
+                                color: Theme.fg-muted;
+                                font-family: Theme.font-technical;
+                                font-size: Theme.fs-sm;
+                            }
                         }
                     }
                 }

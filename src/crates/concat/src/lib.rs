@@ -252,6 +252,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         app.set_app_menu_items(ModelRc::from(models.bar.clone()));
         app.set_transcribers(ModelRc::from(models.transcribers.clone()));
         app.set_voices(ModelRc::from(models.voices.clone()));
+        app.set_versions(ModelRc::from(models.versions.clone()));
+        app.set_version_details(ModelRc::from(models.version_details.clone()));
         editor.set_seats(ModelRc::from(models.seats.clone()));
         editor.set_dividers(ModelRc::from(models.dividers.clone()));
         app.set_recents(ModelRc::from(models.recents.clone()));
@@ -1402,6 +1404,18 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_settings_server_token_generated(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ServerTokenGenerated));
+    }));
+    app.on_settings_check_updates(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::CheckUpdates));
+    }));
+    app.on_settings_version_chosen(on_window!(|state, index: i32| {
+        state.handle(Msg::Settings(SettingsMsg::VersionChosen(index)));
+    }));
+    app.on_settings_install_version(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::InstallVersion));
+    }));
+    app.on_settings_install_cancel(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::InstallCancel));
     }));
     app.on_model_activated(on_window!(|state, id: SharedString| {
         state.handle(Msg::Settings(SettingsMsg::ModelActivated(id.to_string())));

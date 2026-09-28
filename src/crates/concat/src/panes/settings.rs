@@ -14,8 +14,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_host::models::SourcePreference;
+use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
 use slint::SharedString;
 
 use crate::host::{on_ui, spawn};
@@ -69,7 +71,29 @@ pub enum SettingsMsg {
         id: String,
         result: Result<(), String>,
     },
+    /// The Version page asks GitHub for the releases.
+    CheckUpdates,
+    /// The releases, newest first, or why they could not be had.
+    UpdatesFetched(Result<Vec<Release>, String>),
+    /// A release picked from the Version page's list.
+    VersionChosen(i32),
+    /// Put the picked release in this one's place.
+    InstallVersion,
+    InstallCancel,
+    /// The switch's worker reporting its download, in megabytes.
+    InstallProgress {
+        fetched: f32,
+        total: f32,
+    },
+    /// The switch's worker is done: what it did, or why not.
+    InstallFinished {
+        version: Version,
+        result: Result<Installed, String>,
+    },
 }
+
+/// The Version page's index in the column of pages.
+const VERSION_PAGE: i32 = 6;
 
 /// One downloadable model, as the settings sheet shows it.
 #[derive(Clone, Debug)]
@@ -144,6 +168,24 @@ pub struct SettingsPane {
     pub transcribers: Vec<ModelState>,
     /// The voice models, installed or not.
     pub voices: Vec<ModelState>,
+    /// The Version page's list: the stable releases from 0.2.5 on, newest
+    /// first, once GitHub has been asked.
+    pub releases: Vec<Release>,
+    /// Which of `releases` the page's dropdown shows.
+    pub version_choice: usize,
+    /// What the Version page says under the version: looking, up to date,
+    /// a newer release, or why it could not look.
+    pub update_status: String,
+    /// GitHub has been asked and has not answered yet.
+    pub checking: bool,
+    /// GitHub has answered this run: the page asks once when it is opened,
+    /// and again only when the button is pressed.
+    checked: bool,
+    /// A switch in flight: megabytes fetched, and megabytes in all once
+    /// the server has said.
+    install: Option<(f32, f32)>,
+    /// The running switch's stop flag.
+    install_cancel: Arc<AtomicBool>,
 }
 
 impl SettingsPane {
@@ -176,7 +218,15 @@ impl SettingsPane {
                 self.open = true;
             }
             SettingsMsg::Close => self.open = false,
-            SettingsMsg::PageChanged(index) => self.tab = index,
+            SettingsMsg::PageChanged(index) => {
+                self.tab = index;
+                // The Version page looks for the releases the first time it
+                // is opened in a run, so it has something to say and to list
+                // without a press; the button looks again.
+                if index == VERSION_PAGE && !self.checked {
+                    self.check_updates();
+                }
+            }
             SettingsMsg::ShowLog => {
                 // The file this run is writing, when there is one, so the
                 // manager opens with it selected; the folder when there is
@@ -315,7 +365,156 @@ impl SettingsPane {
                 }
                 self.refresh(studio);
             }
+            SettingsMsg::CheckUpdates => self.check_updates(),
+            SettingsMsg::UpdatesFetched(result) => {
+                self.checking = false;
+                match result {
+                    Ok(releases) => {
+                        self.checked = true;
+                        let current = Version::current();
+                        self.update_status = match updates::standing(current, &releases) {
+                            Standing::Latest => tf("settings.upToDate", &[&current]),
+                            Standing::Behind(newer) => {
+                                tf("settings.updateAvailable", &[&newer, &current])
+                            }
+                            Standing::Ahead => tf("settings.aheadOfReleases", &[&current]),
+                            Standing::NoReleases => t("settings.noReleasesYet"),
+                        };
+                        // The list starts on its newest release, which is
+                        // the one most people opened the page for.
+                        self.version_choice = 0;
+                        self.releases = releases;
+                    }
+                    Err(error) => self.update_status = tf("settings.couldNotCheck", &[&error]),
+                }
+            }
+            SettingsMsg::VersionChosen(index) => {
+                self.version_choice =
+                    (index.max(0) as usize).min(self.releases.len().saturating_sub(1));
+            }
+            SettingsMsg::InstallVersion => self.install_version(studio),
+            SettingsMsg::InstallCancel => self.install_cancel.store(true, Ordering::Relaxed),
+            SettingsMsg::InstallProgress { fetched, total } => {
+                if self.install.is_some() {
+                    self.install = Some((fetched, total));
+                }
+            }
+            SettingsMsg::InstallFinished { version, result } => {
+                self.install = None;
+                match result {
+                    Ok(Installed::InstallerRunning) => {
+                        log::info!("update: the installer for {version} is running; closing");
+                        studio.notify(&tf("settings.installerOpened", &[&version]), false);
+                        quit_for_switch();
+                    }
+                    Ok(Installed::Replaced) => {
+                        log::info!("update: {version} is in place; starting it");
+                        if let Err(error) = updates::relaunch() {
+                            log::warn!("update: could not arrange the start: {error}");
+                        }
+                        studio.notify(&tf("settings.versionInstalled", &[&version]), false);
+                        quit_for_switch();
+                    }
+                    Ok(Installed::Opened) => {
+                        studio.notify(&tf("settings.packageOpened", &[&version]), false);
+                    }
+                    // A cancel is a choice, not a failure worth a toast.
+                    Err(_) if self.install_cancel.load(Ordering::Relaxed) => {}
+                    Err(error) => {
+                        log::warn!("update: {version} could not be installed: {error}");
+                        studio.notify(&tf("settings.couldNotInstall", &[&version, &error]), true);
+                    }
+                }
+            }
         }
+    }
+
+    /// Asks GitHub for the releases on a worker; the answer comes back as
+    /// [`SettingsMsg::UpdatesFetched`].
+    fn check_updates(&mut self) {
+        if self.checking {
+            return;
+        }
+        self.checking = true;
+        self.update_status = t("settings.checkingForUpdates");
+        spawn(updates::fetch_releases, |studio, _, _, result| {
+            studio.handle(Msg::Settings(SettingsMsg::UpdatesFetched(result)));
+        });
+    }
+
+    /// Fetches the chosen release's package for this machine on a worker,
+    /// checks it against the release's digest, and puts it in place. The
+    /// download reports as [`SettingsMsg::InstallProgress`] and the whole
+    /// ends as [`SettingsMsg::InstallFinished`].
+    fn install_version(&mut self, studio: &mut Studio) {
+        if self.install.is_some() {
+            return;
+        }
+        let Some(release) = self.releases.get(self.version_choice).cloned() else {
+            return;
+        };
+        let kind = match updates::installed_as() {
+            Ok(kind) => kind,
+            Err(why) => {
+                studio.notify(&fixed_note(why), true);
+                return;
+            }
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.install_cancel = Arc::clone(&cancel);
+        self.install = Some((0.0, 0.0));
+        let folder = updates::folder(&studio.host.dirs);
+        let version = release.version;
+        log::info!(
+            "update: switching to {version} by its {} package",
+            kind.key()
+        );
+        spawn(
+            move || {
+                let result = updates::fetch_package(&release, kind)
+                    .and_then(|package| {
+                        let mut report = |received: u64, total: u64| {
+                            let msg = SettingsMsg::InstallProgress {
+                                fetched: received as f32 / 1_000_000.0,
+                                total: total as f32 / 1_000_000.0,
+                            };
+                            on_ui(move |studio, _, _| studio.handle(Msg::Settings(msg)));
+                        };
+                        updates::download_package(&package, &folder, &cancel, &mut report)
+                    })
+                    .and_then(|path| updates::install(&path, kind));
+                (version, result)
+            },
+            |studio, _, _, (version, result)| {
+                studio.handle(Msg::Settings(SettingsMsg::InstallFinished {
+                    version,
+                    result,
+                }));
+            },
+        );
+    }
+
+    /// The Version page's list: each release's number.
+    pub fn version_rows(&self) -> Vec<SharedString> {
+        self.releases
+            .iter()
+            .map(|release| release.version.to_string().into())
+            .collect()
+    }
+
+    /// Beside each release: the day it came out, or that it is this one.
+    pub fn version_details(&self) -> Vec<SharedString> {
+        let current = Version::current();
+        self.releases
+            .iter()
+            .map(|release| {
+                if release.version == current {
+                    t("settings.thisVersion").into()
+                } else {
+                    release.published.as_str().into()
+                }
+            })
+            .collect()
     }
 
     /// The remembered download source: its place in the menu, and itself.
@@ -568,8 +767,61 @@ impl SettingsPane {
                 .into()
             },
             version: env!("CARGO_PKG_VERSION").into(),
+            update_status: self.update_status.as_str().into(),
+            checking: self.checking,
+            version_choice: self.version_choice as i32,
+            installing: self.install.is_some(),
+            install_progress: match self.install {
+                Some((fetched, total)) if total > 0.0 => (fetched / total).min(1.0),
+                _ => 0.0,
+            },
+            install_transferred: match self.install {
+                Some((fetched, total)) if total > 0.0 => tf(
+                    "settings.mbOfMb",
+                    &[&format!("{fetched:.0}"), &format!("{total:.0}")],
+                ),
+                Some(_) => tf(
+                    "settings.downloadingVersion",
+                    &[&self
+                        .releases
+                        .get(self.version_choice)
+                        .map(|release| release.version.to_string())
+                        .unwrap_or_default()],
+                ),
+                None => String::new(),
+            }
+            .into(),
+            can_install: self.install.is_none()
+                && !self.releases.is_empty()
+                && updates::installed_as().is_ok(),
+            install_note: updates::installed_as()
+                .err()
+                .map(fixed_note)
+                .unwrap_or_default()
+                .into(),
         }
     }
+}
+
+/// Why the Install button is off, in words.
+fn fixed_note(why: Fixed) -> String {
+    match why {
+        Fixed::Flatpak => t("settings.fromFlatpak"),
+        Fixed::Store => t("settings.fromStore"),
+        Fixed::NotFromPackage => t("settings.notFromPackage"),
+    }
+}
+
+/// Closes the app on the event loop's next turn, the way File › Close
+/// Window does, so an installer can replace its files or the build put in
+/// place can start.
+fn quit_for_switch() {
+    on_ui(|studio, app, _| {
+        log::info!("close: quitting for a version switch");
+        studio.close_project();
+        slint::ComponentHandle::window(app).hide().ok();
+        slint::quit_event_loop().ok();
+    });
 }
 
 /// A fresh token: 128 bits from the OS's randomness, as the standard

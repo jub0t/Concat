@@ -204,6 +204,8 @@ export component App inherits Window {
     in property <SettingsData> settings;
     in property <[ModelData]> transcribers;
     in property <[ModelData]> voices;
+    in property <[string]> versions;
+    in property <[string]> version-details;
     in property <[string]> languages;
     /// Settings > About's copyable block. Gathered once in main.rs and
     /// never republished — every line of it is fixed for the life of the
@@ -247,6 +249,10 @@ export component App inherits Window {
     callback settings-server-port-edited(port: int);
     callback settings-server-token-edited(text: string);
     callback settings-server-token-generated();
+    callback settings-check-updates();
+    callback settings-version-chosen(index: int);
+    callback settings-install-version();
+    callback settings-install-cancel();
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -606,6 +612,8 @@ export component App inherits Window {
         data: root.settings;
         transcribers: root.transcribers;
         voices: root.voices;
+        versions: root.versions;
+        version-details: root.version-details;
         languages: root.languages;
         system-facts: root.system-facts;
         system-report: root.system-report;
@@ -628,6 +636,10 @@ export component App inherits Window {
         server-port-edited(port) => { root.settings-server-port-edited(port); }
         server-token-edited(text) => { root.settings-server-token-edited(text); }
         server-token-generated => { root.settings-server-token-generated(); }
+        check-updates => { root.settings-check-updates(); }
+        version-chosen(index) => { root.settings-version-chosen(index); }
+        install-version => { root.settings-install-version(); }
+        install-cancel => { root.settings-install-cancel(); }
         model-activated(id) => { root.model-activated(id); }
         model-download(id) => { root.model-download(id); }
         model-cancel(id) => { root.model-cancel(id); }
