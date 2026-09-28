@@ -88,18 +88,7 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 
 ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
-**System requirements**
-
-Concat runs everything on your machine, so the hardware sets the ceiling. Minimum is what a build runs on at all; recommended is what makes 1080p editing feel smooth and keeps 4K exports and captions from being a wait.
-
-| | Minimum | Recommended |
-|---|---|---|
-| **CPU** | Any 64-bit processor from 2013 or later | 6 cores or more |
-| **GPU** | None. Without a usable GPU the window and monitor fall back to the CPU | Any GPU with Metal (macOS), DirectX 12 (Windows) or Vulkan (Linux) |
-| **RAM** | **4 GB** | **16 GB** for 4K timelines and the larger caption models |
-| **Storage** | **500 MB** for the app and the smallest caption model | **2 GB** for every optional model, plus room for projects and exports |
-
-Optional models download from Settings on first use and then never need the network again: auto-captions 78 MB to 488 MB depending on the whisper size you pick, text-to-speech 132 MB or 349 MB, person cutout 15 MB, object cutout 179 MB, and the cutout brush 40 MB.
+**System requirements** and the optional model sizes are on [the website](https://concatenate.pages.dev/guides/system-requirements).
 
 ## Get started
 
@@ -138,7 +127,7 @@ Concat has no paywall and never will: no watermark, no account, no paid tier. Sp
 
 **Where it goes**
 
-The [ROADMAP](./ROADMAP.MD) lays out what sponsorship pays for, and what each piece costs.
+The [roadmap](https://concatenate.pages.dev/roadmap) lays out what sponsorship pays for, and what each piece costs.
 
 **Payment Methods**
 
