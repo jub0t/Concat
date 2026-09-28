@@ -61,6 +61,44 @@ export component ContextMenu inherits Rectangle {
     in property <length> menu-height;
 
     callback selected(id: string);
+    /// Left or right from the keyboard: the menu beside this one, for a
+    /// menu bar to open. `by` is -1 or 1.
+    callback neighbour(by: int);
+
+    /// Opened from the keyboard: the first row is highlighted and the
+    /// surface takes the keys - the arrows, Return, Escape - so a menu is
+    /// usable without a pointer. Read when `token` changes.
+    in property <bool> keyboard;
+    /// The row the keyboard is on, or -1.
+    property <int> hot: -1;
+
+    /// Whether row `i` is one the keyboard can land on.
+    pure function usable(i: int) -> bool {
+        i >= 0 && i < root.items.length && root.items[i].kind == MenuRow.action
+            && root.items[i].enabled
+    }
+    pure function wrap(i: int) -> int {
+        Math.mod(i + root.items.length, root.items.length)
+    }
+    /// The next row the keyboard can land on from `from`, going `by`,
+    /// round the end. The expression language has no loop, so it looks a
+    /// fixed way ahead: past a separator and a heading is the most any of
+    /// these menus puts between two actions.
+    pure function next(from: int, by: int) -> int {
+        usable(wrap(from + by)) ? wrap(from + by)
+            : usable(wrap(from + 2 * by)) ? wrap(from + 2 * by)
+            : usable(wrap(from + 3 * by)) ? wrap(from + 3 * by)
+            : usable(wrap(from + 4 * by)) ? wrap(from + 4 * by)
+            : from
+    }
+    /// Reports row `i` and closes, the way a press on it does.
+    function choose(i: int) {
+        if (usable(i)) {
+            root.chosen = root.items[i].id;
+            report.running = true;
+            surface.close();
+        }
+    }
 
     /// Where the menu was asked for, in this element's own coordinates.
     property <length> at-x;
@@ -88,6 +126,9 @@ export component ContextMenu inherits Rectangle {
             root.at-y = root.request-y + root.menu-height > root.height
                 ? Math.max(0px, root.request-y - root.menu-height)
                 : root.request-y;
+            // From the top down, the way a menu opens from the keyboard
+            // everywhere: -1 steps onto row 0 or the first usable one.
+            root.hot = root.keyboard ? next(-1, 1) : -1;
             surface.show();
         }
     }
@@ -114,12 +155,52 @@ export component ContextMenu inherits Rectangle {
         }
     }
 
+    /// Which way the keyboard left for the menu beside this one, held for
+    /// the same beat as `chosen`: the next menu's rows would otherwise be
+    /// built under this surface while it still stands.
+    property <int> leaving-by;
+    leave := Timer {
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.neighbour(root.leaving-by);
+        }
+    }
+
     surface := PopupWindow {
         x: root.at-x;
         y: root.at-y;
         width: MenuMetrics.width;
         height: root.menu-height;
         close-policy: close-on-click-outside;
+
+        // Made afresh each time the surface shows, so this is each opening.
+        FocusScope {
+            init => {
+                if (root.keyboard) {
+                    self.focus();
+                }
+            }
+            key-pressed(event) => {
+                if (event.text == Key.DownArrow) {
+                    root.hot = next(root.hot, 1);
+                } else if (event.text == Key.UpArrow) {
+                    root.hot = next(root.hot < 0 ? 0 : root.hot, -1);
+                } else if (event.text == Key.Return || event.text == " ") {
+                    choose(root.hot);
+                } else if (event.text == Key.Escape) {
+                    surface.close();
+                } else if (event.text == Key.LeftArrow || event.text == Key.RightArrow) {
+                    root.leaving-by = event.text == Key.LeftArrow ? -1 : 1;
+                    leave.running = true;
+                    surface.close();
+                } else {
+                    return reject;
+                }
+                accept
+            }
+        }
 
         Rectangle {
             background: Theme.raised;
@@ -132,7 +213,7 @@ export component ContextMenu inherits Rectangle {
                 padding: 6px;
                 alignment: start;
 
-                for item in root.items: Rectangle {
+                for item[index] in root.items: Rectangle {
                     height: item.kind == MenuRow.separator ? MenuMetrics.separator
                         : item.kind == MenuRow.label ? MenuMetrics.label
                         : MenuMetrics.action;
@@ -160,12 +241,13 @@ export component ContextMenu inherits Rectangle {
 
                     if item.kind == MenuRow.action: row := Rectangle {
                         border-radius: Theme.r-xs;
-                        background: !(touch.has-hover && item.enabled) ? Colors.transparent
+                        property <bool> lit: (touch.has-hover || root.hot == index) && item.enabled;
+                        background: !row.lit ? Colors.transparent
                             : item.danger ? Theme.danger-soft
                             : Theme.field;
 
                         property <brush> ink: !item.enabled ? Theme.fg-dim
-                            : (item.danger && touch.has-hover) ? Theme.danger
+                            : (item.danger && row.lit) ? Theme.danger
                             : Theme.fg;
 
                         HorizontalLayout {

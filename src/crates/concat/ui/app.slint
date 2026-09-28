@@ -326,6 +326,18 @@ export component App inherits Window {
         keys.focus();
     }
 
+    // The strip's menus from the keyboard, the way Windows and Linux reach
+    // a menu bar: F10 opens File, Alt with a menu's letter opens that one,
+    // and in an open menu the arrows, Return and Escape do the rest. A Mac
+    // has its own conventions for this and none of them are these.
+    property <int> keyboard-menu: -1;
+    property <int> keyboard-menu-token;
+    property <bool> menu-by-keyboard;
+    function open-menu-from-keys(index: int) {
+        root.keyboard-menu = index;
+        root.keyboard-menu-token += 1;
+    }
+
     /// The bottom-right notice: what just happened, said once. Set from Rust
     /// and watched by its token — see ToastLayer, which owns the timing.
     in property <ToastData> toast;
@@ -401,6 +413,26 @@ export component App inherits Window {
             keys: @keys(Control + Y);
             enabled: !root.on-start && !root.macos;
             activated => { root.app-menu-selected("redo"); }
+        }
+        KeyBinding {
+            keys: @keys(F10);
+            enabled: !root.on-start && !root.macos && !root.phone;
+            activated => { root.open-menu-from-keys(0); }
+        }
+        KeyBinding {
+            keys: @keys(Alt + F);
+            enabled: !root.on-start && !root.macos && !root.phone;
+            activated => { root.open-menu-from-keys(0); }
+        }
+        KeyBinding {
+            keys: @keys(Alt + E);
+            enabled: !root.on-start && !root.macos && !root.phone;
+            activated => { root.open-menu-from-keys(1); }
+        }
+        KeyBinding {
+            keys: @keys(Alt + V);
+            enabled: !root.on-start && !root.macos && !root.phone;
+            activated => { root.open-menu-from-keys(2); }
         }
         // Open and Close Window work from the launch screen too: it opens
         // projects, and it is a window.
@@ -559,11 +591,14 @@ export component App inherits Window {
                 status: root.project-status;
 
                 menu: root.open-menu;
-                menu-opened(index, at-x) => {
+                keyboard-menu: root.keyboard-menu;
+                keyboard-token: root.keyboard-menu-token;
+                menu-opened(index, at-x, keyboard) => {
                     // Under the strip, which is 32px tall - both measured
                     // from the window's corner, past the system's bars.
                     appmenu.request-x = at-x + root.safe-area-insets.left;
                     appmenu.request-y = 32px + root.safe-area-insets.top;
+                    root.menu-by-keyboard = keyboard;
                     root.menu-opened(index);
                 }
 
@@ -815,7 +850,10 @@ export component App inherits Window {
         items: root.app-menu-items;
         menu-height: root.app-menu-height;
         token: root.app-menu-token;
+        keyboard: root.menu-by-keyboard;
         selected(id) => { root.app-menu-selected(id); }
+        // The arrows walk the strip: File, Edit, View and round again.
+        neighbour(by) => { root.open-menu-from-keys(Math.mod(root.open-menu + by, 3)); }
     }
 
     // Last of all, and over everything including the sheets: an export that

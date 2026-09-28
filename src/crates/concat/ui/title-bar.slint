@@ -135,9 +135,15 @@ export component TitleBar inherits Rectangle {
     callback close();
     /// A menu was asked for: which one, and where its label sits in the strip,
     /// so the sheet can hang off it.
-    callback menu-opened(index: int, at-x: length);
+    callback menu-opened(index: int, at-x: length, keyboard: bool);
     /// Which menu is open, or -1.
     in property <int> menu: -1;
+    /// A menu asked for from the keyboard (F10, Alt+F/E/V, the arrows in
+    /// an open one): `keyboard-menu` is which, and a change of
+    /// `keyboard-token` is the asking. The label opens itself, since only
+    /// it knows where it is.
+    in property <int> keyboard-menu: -1;
+    in property <int> keyboard-token;
     callback open-settings();
     /// A view was picked from the add-panel list.
     callback add-pane(kind: PaneKind);
@@ -204,21 +210,39 @@ export component TitleBar inherits Rectangle {
             label: I18n.t("titleBar.file");
             current: root.menu == 0;
             clicked => {
-                root.menu-opened(0, file.absolute-position.x - root.absolute-position.x);
+                root.menu-opened(0, file.absolute-position.x - root.absolute-position.x, false);
+            }
+            property <int> asked: root.keyboard-token;
+            changed asked => {
+                if (root.keyboard-menu == 0) {
+                    root.menu-opened(0, file.absolute-position.x - root.absolute-position.x, true);
+                }
             }
         }
         if !root.minimal: edit := MenuLabel {
             label: I18n.t("titleBar.edit");
             current: root.menu == 1;
             clicked => {
-                root.menu-opened(1, edit.absolute-position.x - root.absolute-position.x);
+                root.menu-opened(1, edit.absolute-position.x - root.absolute-position.x, false);
+            }
+            property <int> asked: root.keyboard-token;
+            changed asked => {
+                if (root.keyboard-menu == 1) {
+                    root.menu-opened(1, edit.absolute-position.x - root.absolute-position.x, true);
+                }
             }
         }
         if !root.minimal: view := MenuLabel {
             label: I18n.t("titleBar.view");
             current: root.menu == 2;
             clicked => {
-                root.menu-opened(2, view.absolute-position.x - root.absolute-position.x);
+                root.menu-opened(2, view.absolute-position.x - root.absolute-position.x, false);
+            }
+            property <int> asked: root.keyboard-token;
+            changed asked => {
+                if (root.keyboard-menu == 2) {
+                    root.menu-opened(2, view.absolute-position.x - root.absolute-position.x, true);
+                }
             }
         }
 
