@@ -641,20 +641,14 @@ export component ExportDialog inherits Rectangle {
                     background: Theme.line;
                 }
 
-                // The format on one edge and the close on the other, the
-                // title centred against the whole strip between them.
+                // The close on the trailing edge and the title centred
+                // against the whole strip. Nothing on the leading edge:
+                // that corner is the window's traffic lights on a Mac, and
+                // the format is in the Summary anyway.
                 HorizontalLayout {
                     padding-left: Theme.pad;
                     padding-right: 12px;
                     spacing: 8px;
-
-                    if root.columns > 1: Text {
-                        text: root.data.format;
-                        color: Theme.fg-dim;
-                        font-family: Theme.font-technical;
-                        font-size: Theme.fs-sm;
-                        vertical-alignment: center;
-                    }
 
                     Rectangle { horizontal-stretch: 1; }
 
