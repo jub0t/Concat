@@ -562,6 +562,7 @@
   "export.high": "높음",
   "export.master": "마스터",
   "export.mixingAudio": "오디오 믹싱 중",
+  "export.notOnThisDevice": "이 기기에서 사용 불가",
   "export.nothingTimelineExport": "타임라인에 내보낼 것이 없습니다",
   "export.nothingToExport": "내보낼 것이 없습니다",
   "export.output": "출력",

@@ -147,7 +147,14 @@ impl ExportPane {
             }
             ExportMsg::RateChanged(index) => self.rate = (index.max(0) as usize).min(2),
             ExportMsg::QualityChanged(index) => self.quality = (index.max(0) as usize).min(2),
-            ExportMsg::CodecChanged(index) => self.codec = (index.max(0) as usize).min(2),
+            // A codec this device cannot encode is not taken: the picker
+            // says so under it, and the choice before stands.
+            ExportMsg::CodecChanged(index) => {
+                let index = (index.max(0) as usize).min(concat_media::VideoCodec::ALL.len() - 1);
+                if concat_media::VideoCodec::ALL[index].encodable() {
+                    self.codec = index;
+                }
+            }
             ExportMsg::TenBitChanged(on) => self.ten_bit = on,
             ExportMsg::HdrChanged(on) => self.sdr = !on,
             ExportMsg::ColorRangeChanged(index) => {
@@ -240,7 +247,7 @@ impl ExportPane {
                 * pixels
                 * (rate / 30.0)
                 * self.codec(studio).size_factor()
-                * if self.ten_bit || self.hdr(studio) {
+                * if self.deep(studio) {
                     1.05
                 } else {
                     1.0
@@ -261,10 +268,27 @@ impl ExportPane {
         }
     }
 
-    /// Whether the file is written HDR: the timeline is, and the sheet was
-    /// not told to tone-map it to SDR.
+    /// Whether the file is written HDR: the timeline is, the sheet was
+    /// not told to tone-map it to SDR, and the codec an HDR file would be
+    /// written in can be written at ten bits here - on a phone it cannot,
+    /// and the file is tone-mapped rather than failing.
     pub fn hdr(&self, studio: &Studio) -> bool {
-        studio.timeline().video.color_space.is_hdr() && !self.sdr
+        let chosen =
+            concat_media::VideoCodec::ALL[self.codec.min(concat_media::VideoCodec::ALL.len() - 1)];
+        let deep = match chosen {
+            concat_media::VideoCodec::H264 => concat_media::VideoCodec::Hevc,
+            codec => codec,
+        };
+        studio.timeline().video.color_space.is_hdr()
+            && !self.sdr
+            && deep.ten_bit_available()
+            && deep.encodable()
+    }
+
+    /// Whether the file is written at ten bits: HDR always, SDR when the
+    /// switch asks and the codec can be written that deep here.
+    pub fn deep(&self, studio: &Studio) -> bool {
+        self.hdr(studio) || (self.ten_bit && self.codec(studio).ten_bit_available())
     }
 
     /// The range the file is written in: the Advanced section's choice
@@ -306,7 +330,7 @@ impl ExportPane {
             crf: EXPORT_CRF[self.quality.min(2)],
             preset: "veryfast".into(),
             codec: self.codec(studio),
-            ten_bit: self.ten_bit || self.hdr(studio),
+            ten_bit: self.deep(studio),
             rate_mode: if self.advanced && self.rate_mode == 1 {
                 concat_media::RateMode::Cbr
             } else {
@@ -409,9 +433,15 @@ impl ExportPane {
                 .iter()
                 .position(|codec| *codec == self.codec(studio))
                 .unwrap_or(0) as i32,
+            h264_encodable: concat_media::VideoCodec::H264.encodable(),
+            hevc_encodable: concat_media::VideoCodec::Hevc.encodable(),
+            av1_encodable: concat_media::VideoCodec::Av1.encodable(),
             ten_bit: self.ten_bit,
             hdr_timeline: studio.timeline().video.color_space.is_hdr(),
             hdr: self.hdr(studio),
+            deep_available: concat_media::VideoCodec::ALL
+                .iter()
+                .any(|codec| codec.ten_bit_available()),
             hdr_label: match studio.timeline().video.color_space {
                 concat_project::model::ColorSpace::Pq => "HDR (PQ)",
                 _ => "HDR (HLG)",
@@ -427,7 +457,7 @@ impl ExportPane {
                 // will be doing it.
                 let codec = self.codec(studio);
                 let mut words = vec![codec.label().to_owned()];
-                if self.ten_bit || self.hdr(studio) {
+                if self.deep(studio) {
                     words.push("10-bit".to_owned());
                 }
                 if self.hdr(studio) {
@@ -442,11 +472,7 @@ impl ExportPane {
                 if self.color_range() == ColorRange::Full {
                     words.push(t("export.fullRange"));
                 }
-                if codec
-                    .encoders(true)
-                    .first()
-                    .is_some_and(|name| name.ends_with("_videotoolbox"))
-                {
+                if codec.hardware_encoded(true, self.deep(studio)) {
                     words.push(format!("· {}", t("export.hardware")));
                 }
                 words.join(" ")

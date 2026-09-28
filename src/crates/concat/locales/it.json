@@ -562,6 +562,7 @@
   "export.high": "Alta",
   "export.master": "Master",
   "export.mixingAudio": "Mixaggio dell'audio",
+  "export.notOnThisDevice": "Non su questo dispositivo",
   "export.nothingTimelineExport": "Non c'è nulla sulla timeline da esportare",
   "export.nothingToExport": "Niente da esportare",
   "export.output": "Uscita",
