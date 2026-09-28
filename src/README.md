@@ -134,8 +134,9 @@ number means and what is not measured.
 ## Driving Concat without the window
 
 The full reference - every method, every edit command, every type, and a
-page per transport - is in [`docs/`](../docs/README.md) at the repository
-root. What follows is the short version.
+page per transport - lives on the website at
+[concatenate.pages.dev/docs](https://concatenate.pages.dev/docs). What follows
+is the short version.
 
 Everything the window does to a project, a script can do through the Concat
 API: `concat-api` is the one dispatcher, and the transports only carry it.

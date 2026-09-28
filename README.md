@@ -112,7 +112,7 @@ Download it, open it, drop footage in, cut. No account, no setup.
 > [!IMPORTANT]
 > The best way to contribute is to grab a build from the [Releases](https://github.com/jub0t/Concat/releases) page and use it: find where it breaks, and say where it could be better.
 >
-> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [docs/](./docs/README.md) is the developer reference for the Concat API and its transports: JSON-RPC, gRPC and MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
+> Ready to write code? [CONTRIBUTING.md](./CONTRIBUTING.md) covers setup, the layout of the tree, the checks to run, and how contributions are licensed. Driving Concat from a script, a service or an agent? [The developer docs](https://concatenate.pages.dev/docs) cover the Concat API and its transports: JSON-RPC, gRPC and MCP. [This Discussion](https://github.com/jub0t/Concat/discussions/3) is where the project was announced.
 > 
 > Contributors are free to claim a `@Contributor` role in the Discord server, just ask for it.
 
@@ -142,7 +142,7 @@ The [ROADMAP](./ROADMAP.MD) lays out what sponsorship pays for, and what each pi
 
 **Payment Methods**
 
-Pick a tier on [the website](https://concatenate.pages.dev/#sponsor) ($25, $100 or $250), or send straight to a wallet.
+Pick a tier on [the website](https://concatenate.pages.dev/#sponsor), or send straight to a wallet.
 
 | Method | Address |
 |---|---|
