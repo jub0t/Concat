@@ -4,10 +4,11 @@
 //! The `.cube` file: the look-up table format every grading tool writes.
 //!
 //! A header of `LUT_3D_SIZE n`, optionally a `TITLE` and a `DOMAIN_MIN` /
-//! `DOMAIN_MAX`, then `n³` rows of three numbers, red changing fastest.
-//! Read with the same tolerance as a manifest: comments and blank lines
-//! are skipped, a domain other than 0..1 is rescaled, and anything the
-//! rows do not add up to is an error naming the line.
+//! `DOMAIN_MAX` (or DaVinci Resolve's `LUT_3D_INPUT_RANGE`), then `n³` rows
+//! of three numbers, red changing fastest. Read with the same tolerance as
+//! a manifest: a byte-order mark, comments, blank lines and keywords the
+//! table does not need are skipped, a domain other than 0..1 is rescaled,
+//! and anything the rows do not add up to is an error naming the line.
 
 use concat_core::Lut;
 
@@ -17,6 +18,7 @@ pub const LARGEST_TABLE: u32 = 65;
 
 /// Parses the text of a `.cube` file into a table.
 pub fn parse(text: &str) -> Result<Lut, String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut size: Option<u32> = None;
     let mut domain_min = [0.0f32; 3];
     let mut domain_max = [1.0f32; 3];
@@ -57,6 +59,21 @@ pub fn parse(text: &str) -> Result<Lut, String> {
                     domain_max = triple;
                 }
             }
+            "LUT_3D_INPUT_RANGE" => {
+                let mut pair = [0.0f32; 2];
+                for slot in &mut pair {
+                    *slot = words
+                        .next()
+                        .and_then(|w| w.parse().ok())
+                        .ok_or_else(|| format!("line {at}: {head} needs two numbers"))?;
+                }
+                domain_min = [pair[0]; 3];
+                domain_max = [pair[1]; 3];
+            }
+            // Another tool's keyword, such as Resolve's `LUT_IN_VIDEO_RANGE`:
+            // nothing the table's rows depend on.
+            _ if head.starts_with(|c: char| c.is_ascii_alphabetic())
+                && head.parse::<f32>().is_err() => {}
             _ => {
                 let mut triple = [0.0f32; 3];
                 let mut rest = line.split_whitespace();
@@ -140,6 +157,43 @@ mod tests {
             (out[0] - 0.3).abs() < 0.01
                 && (out[1] - 0.6).abs() < 0.01
                 && (out[2] - 0.9).abs() < 0.01
+        );
+    }
+
+    /// A table saved with a byte-order mark reads like one without.
+    #[test]
+    fn a_byte_order_mark_is_skipped() {
+        let lut = parse(&format!("\u{feff}{}", identity(3))).expect("parses");
+        assert_eq!(lut.size, 3);
+    }
+
+    /// DaVinci Resolve writes its domain as `LUT_3D_INPUT_RANGE`, and other
+    /// tools add keywords of their own; neither stops a table reading.
+    #[test]
+    fn resolve_input_range_and_unknown_keywords_are_read() {
+        let mut text = String::from(
+            "# Created by: DaVinci Resolve\nLUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0.0 2.0\n\
+             LUT_IN_VIDEO_RANGE\n",
+        );
+        for b in 0..2 {
+            for g in 0..2 {
+                for r in 0..2 {
+                    text.push_str(&format!("{} {} {}\n", r * 2, g * 2, b * 2));
+                }
+            }
+        }
+        let lut = parse(&text).expect("parses");
+        let out = lut.sample([0.5, 0.25, 1.0]);
+        assert!(
+            (out[0] - 0.5).abs() < 0.01
+                && (out[1] - 0.25).abs() < 0.01
+                && (out[2] - 1.0).abs() < 0.01,
+            "{out:?}"
+        );
+        assert!(
+            parse("LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0.0\n")
+                .unwrap_err()
+                .contains("line 2")
         );
     }
 

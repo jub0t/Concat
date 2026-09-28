@@ -89,13 +89,15 @@ pub fn import(dir: &Path, path: &Path) -> Result<String, String> {
     }
     let id = format!("user.{slug}");
     let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-    crate::cube::parse(&text)?;
+    // A byte-order mark would hide a `TITLE` on the first line from `space_of`.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    crate::cube::parse(text)?;
     let folder = dir.join(&id);
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let written = manifest(&id, stem.trim(), TABLE, space_of(path, &text));
+    let written = manifest(&id, stem.trim(), TABLE, space_of(path, text));
     std::fs::write(folder.join("effect.toml"), written).map_err(|error| error.to_string())?;
     std::fs::write(folder.join("effect.wgsl"), SHADER).map_err(|error| error.to_string())?;
-    std::fs::write(folder.join(TABLE), &text).map_err(|error| error.to_string())?;
+    std::fs::write(folder.join(TABLE), text).map_err(|error| error.to_string())?;
     // A still an earlier import drew for this name: the card drawn from the
     // package's own shader replaces it.
     let _ = std::fs::remove_file(folder.join("preview.png"));
@@ -224,6 +226,25 @@ mod tests {
             Some(Space::Log)
         );
         assert!(import(&looks, &dir.join("missing.cube")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A table saved with a byte-order mark still has its title read for
+    /// the space, and its package keeps the table without the mark.
+    #[test]
+    fn a_table_with_a_byte_order_mark_imports() {
+        let dir = scratch("bom");
+        let source = dir.join("Grade.cube");
+        std::fs::write(&source, format!("\u{feff}{}", table("Grade ACEScct"))).expect("a table");
+        let looks = dir.join("looks");
+        let id = import(&looks, &source).expect("imports");
+        let package = Package::from_folder(&looks.join(&id)).expect("loads");
+        assert_eq!(
+            package.manifest.wgsl.as_ref().map(|wgsl| wgsl.space),
+            Some(Space::Log)
+        );
+        let kept = std::fs::read_to_string(looks.join(&id).join(TABLE)).expect("the table");
+        assert!(kept.starts_with("TITLE"), "{kept:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
