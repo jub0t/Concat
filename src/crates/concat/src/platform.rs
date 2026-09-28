@@ -24,7 +24,7 @@ use slint::PlatformError;
 // The winit backend, and so these, exist everywhere but Android, which
 // draws through Slint's android-activity backend and has no winit at all.
 #[cfg(not(target_os = "android"))]
-use slint::winit_030::winit::event::{ElementState, WindowEvent};
+use slint::winit_030::winit::event::{ElementState, MouseButton, WindowEvent};
 #[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event_loop::ActiveEventLoop;
 #[cfg(not(target_os = "android"))]
@@ -47,6 +47,12 @@ use crate::gpu::Gpu;
 /// the focus back (App.blur) before Slint routes the press, and whatever
 /// was pressed then takes the focus itself if it wants it - another input
 /// does, so a click from one field into the next still lands a caret.
+///
+/// And on Linux, the window's edges. X11 and Wayland take the resize
+/// borders away with the decorations, where Windows keeps them, so a
+/// press within a few pixels of the frame is handed to the window manager
+/// as a resize (winit's `drag_resize_window`) before Slint sees it, and
+/// the pointer wears the matching arrow while it is there.
 #[cfg(not(target_os = "android"))]
 struct DropHandler {
     pending: Vec<PathBuf>,
@@ -55,6 +61,53 @@ struct DropHandler {
     /// says where it moved, and a press says only that it happened.
     cursor: Option<(f32, f32)>,
     on_pressed_away: Box<dyn Fn()>,
+    /// Whether this window draws its own resize edges: Linux, undecorated.
+    edges: bool,
+    /// The edge the pointer is on, while it is on one.
+    edge: Option<ResizeDirection>,
+}
+
+#[cfg(not(target_os = "android"))]
+use slint::winit_030::winit::window::{CursorIcon, ResizeDirection};
+
+/// How far in from the frame a press still resizes, in logical pixels.
+/// Wide enough to find without aiming, narrow enough to leave the strip's
+/// buttons and the panes' own edges theirs.
+#[cfg(not(target_os = "android"))]
+const EDGE: f64 = 6.0;
+
+/// The edge of a `width` × `height` window that (`x`, `y`) is on, all in
+/// physical pixels, with `band` the depth of an edge. Corners first, so the
+/// diagonal wins where two edges meet.
+#[cfg(not(target_os = "android"))]
+fn edge_at(x: f64, y: f64, width: f64, height: f64, band: f64) -> Option<ResizeDirection> {
+    let (west, east) = (x < band, x >= width - band);
+    let (north, south) = (y < band, y >= height - band);
+    Some(match (north, south, west, east) {
+        (true, _, true, _) => ResizeDirection::NorthWest,
+        (true, _, _, true) => ResizeDirection::NorthEast,
+        (_, true, true, _) => ResizeDirection::SouthWest,
+        (_, true, _, true) => ResizeDirection::SouthEast,
+        (true, ..) => ResizeDirection::North,
+        (_, true, ..) => ResizeDirection::South,
+        (_, _, true, _) => ResizeDirection::West,
+        (_, _, _, true) => ResizeDirection::East,
+        _ => return None,
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+fn edge_cursor(edge: ResizeDirection) -> CursorIcon {
+    match edge {
+        ResizeDirection::North => CursorIcon::NResize,
+        ResizeDirection::South => CursorIcon::SResize,
+        ResizeDirection::West => CursorIcon::WResize,
+        ResizeDirection::East => CursorIcon::EResize,
+        ResizeDirection::NorthWest => CursorIcon::NwResize,
+        ResizeDirection::NorthEast => CursorIcon::NeResize,
+        ResizeDirection::SouthWest => CursorIcon::SwResize,
+        ResizeDirection::SouthEast => CursorIcon::SeResize,
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -68,6 +121,9 @@ impl DropHandler {
             on_dropped: Box::new(on_dropped),
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
+            edges: cfg!(not(any(target_os = "macos", target_os = "windows", target_os = "ios")))
+                && !phone(),
+            edge: None,
         }
     }
 }
@@ -117,6 +173,42 @@ impl CustomApplicationHandler for DropHandler {
                     .or_else(|| winit_window.map(|window| window.scale_factor()))
                     .unwrap_or(1.0);
                 self.cursor = Some(((position.x / scale) as f32, (position.y / scale) as f32));
+                if let Some(window) = winit_window.filter(|_| self.edges) {
+                    let size = window.inner_size();
+                    let edge = (window.is_resizable()
+                        && !window.is_maximized()
+                        && window.fullscreen().is_none())
+                    .then(|| {
+                        edge_at(
+                            position.x,
+                            position.y,
+                            f64::from(size.width),
+                            f64::from(size.height),
+                            EDGE * scale,
+                        )
+                    })
+                    .flatten();
+                    if edge != self.edge {
+                        // Off an edge the arrow goes back to the default and
+                        // Slint puts its own on at the next change of hover.
+                        window.set_cursor(edge.map_or(CursorIcon::Default, edge_cursor));
+                        self.edge = edge;
+                    }
+                    if edge.is_some() {
+                        return EventResult::PreventDefault;
+                    }
+                }
+            }
+            WindowEvent::CursorLeft { .. } => self.edge = None,
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } if self.edge.is_some() => {
+                if let (Some(window), Some(edge)) = (winit_window, self.edge) {
+                    let _ = window.drag_resize_window(edge);
+                }
+                return EventResult::PreventDefault;
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
@@ -545,5 +637,20 @@ mod tests {
             assert_eq!(keys(&["Control", ","]), "Ctrl+,");
             assert_eq!(delete_key(true), "Shift+Del");
         }
+    }
+
+    /// The frame's edges resize, corners diagonally, and the middle of the
+    /// window is nobody's edge.
+    #[test]
+    fn a_press_near_the_frame_finds_its_edge() {
+        let at = |x, y| edge_at(x, y, 1000.0, 800.0, 6.0);
+        assert_eq!(at(500.0, 400.0), None);
+        assert_eq!(at(2.0, 400.0), Some(ResizeDirection::West));
+        assert_eq!(at(997.0, 400.0), Some(ResizeDirection::East));
+        assert_eq!(at(500.0, 0.0), Some(ResizeDirection::North));
+        assert_eq!(at(500.0, 799.0), Some(ResizeDirection::South));
+        assert_eq!(at(1.0, 1.0), Some(ResizeDirection::NorthWest));
+        assert_eq!(at(999.0, 799.0), Some(ResizeDirection::SouthEast));
+        assert_eq!(at(6.0, 400.0), None);
     }
 }
