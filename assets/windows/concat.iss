@@ -58,9 +58,23 @@ ArchitecturesInstallIn64BitMode={#Arch}
 ; administrator to install a video editor into one's own account.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; Follow Windows' display language when the setup speaks it, and ask only
+; when it does not.
+ShowLanguageDialog=auto
 
 [Languages]
+; The app's languages that Inno Setup ships an official translation for.
+; Chinese, Persian, Croatian and Korean are not among them, and a setup in
+; those asks which language to use.
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
