@@ -709,29 +709,67 @@ pub struct WgpuCompositor {
 }
 
 impl WgpuCompositor {
-    /// Builds a compositor on the best available adapter, or `None` when the
-    /// machine has nothing usable - callers fall back to the CPU path.
+    /// Builds a compositor on a device of its own, or `None` when the
+    /// machine has nothing usable.
+    ///
+    /// The platform's own API is asked first: Metal, Direct3D 12 or
+    /// Vulkan. Every API wgpu was built with is asked only when that one
+    /// gives nothing. It is the API the window draws on, so whatever driver
+    /// has been drawing the monitor is the one an export or a card draws on
+    /// too. Asked for every API at once, wgpu ranks them in a fixed order
+    /// with Vulkan ahead of Direct3D, so on a Windows laptop it went past
+    /// the Direct3D device the window was drawing on to NVIDIA's Vulkan
+    /// driver, and opened a WGL context on a thread of its own besides;
+    /// the export died in the driver at its first frame, with nothing in
+    /// the log (issue #202). The GPU where there is one; the software
+    /// adapter where there is not, which draws the same pictures, slower -
+    /// the one road left since the CPU compositor went.
     ///
     /// Native only: it blocks on the adapter and device requests, and on the
     /// web there is no thread to block. A web caller awaits those requests
     /// itself and hands the result to [`WgpuCompositor::with_device`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        // The GPU where there is one; the software adapter where there is
-        // not, which draws the same pictures, slower - the one road left
-        // since the CPU compositor went.
-        let adapter = [false, true].into_iter().find_map(|software| {
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                force_fallback_adapter: software,
-                ..Default::default()
-            }))
-            .ok()
-        })?;
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-        Some(Self::with_device(device, queue))
+        let own = if cfg!(target_vendor = "apple") {
+            wgpu::Backends::METAL
+        } else if cfg!(windows) {
+            wgpu::Backends::DX12
+        } else {
+            wgpu::Backends::VULKAN
+        };
+        [own, wgpu::Backends::all()]
+            .into_iter()
+            .find_map(Self::on_backends)
+    }
+
+    /// A compositor on the best adapter among `backends`, hardware before
+    /// software, or `None` when none of them opens a device.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn on_backends(backends: wgpu::Backends) -> Option<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        [false, true].into_iter().find_map(|software| {
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    force_fallback_adapter: software,
+                    ..Default::default()
+                }))
+                .ok()?;
+            let (device, queue) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                    .ok()?;
+            Some(Self::with_device(device, queue))
+        })
+    }
+
+    /// The adapter this compositor's device was opened on - its name, its
+    /// kind and its API - for the log line that says what an export drew
+    /// on.
+    pub fn adapter_info(&self) -> wgpu::AdapterInfo {
+        self.device.adapter_info()
     }
 
     /// A second compositor on this one's device, with pipelines, pools and

@@ -1225,6 +1225,7 @@ dependencies = [
  "concat-project",
  "concat-render",
  "concat-vision",
+ "log",
  "serde",
 ]
 

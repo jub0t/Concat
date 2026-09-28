@@ -690,6 +690,59 @@ fn one_clip_exports_whole_at_every_rate() {
     }
 }
 
+/// Issue #202: on Windows laptops with NVIDIA chips an export took the app
+/// down at its first frame, with nothing in the log. The export had opened
+/// a device of its own through every API wgpu was built with, where the
+/// window draws on one API and one device that has worked for every
+/// monitor frame. So the window lends the export a sibling of the monitor's
+/// compositor, on the window's device: an export drawn on a lent compositor
+/// writes the same picture as one drawn on a device of its own.
+#[test]
+fn an_export_draws_on_a_lent_compositor() {
+    let Some(window) = export::WgpuCompositor::new() else {
+        eprintln!("no GPU or software renderer here; nothing to lend");
+        return;
+    };
+    let scratch = Scratch::new("lent");
+    let source = scratch.path().join("clock.mp4");
+    picture(&source, FrameRate::THIRTY, 2, VideoCodec::H264);
+    let mut studio = Studio::new(scratch.path(), "Lent", video(WIDTH, HEIGHT, 30, 1));
+    let media = studio.import(&source);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id: media,
+        start: 0.0,
+    });
+    let spec = ExportSpec {
+        output: scratch
+            .path()
+            .join("lent.mp4")
+            .to_string_lossy()
+            .into_owned(),
+        crf: 18,
+        preset: "ultrafast".to_owned(),
+        codec: VideoCodec::H264,
+        ten_bit: false,
+        rate_mode: RateMode::Vbr,
+        bitrate_kbps: 0,
+        color_range: concat_media::ColorRange::Limited,
+        hdr: false,
+    };
+    let request = export::request(&studio.session, &spec, Vec::new());
+    let written = export::run_on(
+        &request,
+        Some(window.sibling()),
+        &AtomicBool::new(false),
+        |_| {},
+    )
+    .unwrap_or_else(|error| panic!("the export on a lent compositor failed: {error}"));
+
+    let exported = Exported::read("lent", Path::new(&written), (30, 1));
+    exported.expect_length(2.0);
+    exported.expect_second(0.5, 0);
+    exported.expect_second(1.5, 1);
+    exported.expect_no_sound();
+}
+
 /// A crop and the flips reach the exported picture, in source terms: the
 /// crop names the source's own edges, the flips mirror what the crop kept,
 /// and a cropped picture is fitted into the frame and centred, bars

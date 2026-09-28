@@ -344,10 +344,17 @@ impl ExportPane {
         self.written.clear();
         self.started_at = Some(std::time::Instant::now());
 
+        // The export draws on the window's device - a sibling of the
+        // monitor's compositor - not on a second device opened through the
+        // drivers for the export alone, which on Windows laptops with NVIDIA
+        // chips took the whole app down at the first frame with nothing in
+        // the log (issue #202). None without a GPU here, and the render then
+        // opens what it can.
+        let compositor = studio.host.monitor.sibling();
         spawn(
             move || {
                 let job = job;
-                export::run(&request, job.cancel_flag(), |progress| {
+                export::run_on(&request, compositor, job.cancel_flag(), |progress| {
                     let fraction = if progress.total > 0 {
                         progress.frame as f32 / progress.total as f32
                     } else {

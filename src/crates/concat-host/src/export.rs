@@ -11,8 +11,9 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use concat_export::{ExportClip, ExportRequest, Reporter, render};
+use concat_export::{ExportClip, ExportRequest, Reporter, render_on};
 pub use concat_media::{ColorRange, RateMode, VideoCodec};
+pub use concat_render::WgpuCompositor;
 
 use crate::jobs::{Job, SingleFlight};
 use crate::session::Session;
@@ -83,9 +84,25 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
 
 /// Renders `request` and returns the path written, reporting through
 /// `progress` and stopping at the next frame once `cancel` is set. Blocks for
-/// the whole render: run it on its own thread.
+/// the whole render: run it on its own thread. Draws on a device of its
+/// own; [`run_on`] draws on one the caller lends.
 pub fn run(
     request: &ExportRequest,
+    cancel: &AtomicBool,
+    progress: impl FnMut(Progress),
+) -> Result<String, String> {
+    run_on(request, None, cancel, progress)
+}
+
+/// [`run`] drawing on `compositor` where the caller has one to lend: the
+/// window's, a sibling of its monitor's (see `Monitor::sibling`), so the
+/// export draws on the device that has drawn the monitor all along rather
+/// than opening a second one through the drivers, which on Windows laptops
+/// with NVIDIA chips took the app down at the first frame (issue #202).
+/// `None` draws as [`run`] does.
+pub fn run_on(
+    request: &ExportRequest,
+    compositor: Option<WgpuCompositor>,
     cancel: &AtomicBool,
     mut progress: impl FnMut(Progress),
 ) -> Result<String, String> {
@@ -96,8 +113,9 @@ pub fn run(
             stage,
         });
     };
-    render(
+    render_on(
         request,
+        compositor,
         Reporter {
             progress: &mut report,
             cancel,

@@ -21,6 +21,7 @@ concat-effects.workspace = true
 # frame before it is placed. Reading only; the host finds them.
 concat-vision.workspace = true
 serde = { version = "1", features = ["derive"] }
+log = "0.4"
 
 [lints]
 workspace = true
