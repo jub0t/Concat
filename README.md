@@ -30,7 +30,7 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-## Sponsors
+## Paid Sponsors
 
 <table width="100%">
   <tr>
