@@ -28,7 +28,7 @@ import { ClipKind, StageGuideData, StageItemData } from "../timeline/model.slint
 //
 // The stage sits on a canvas, not in a frame. Fitted by default, and it
 // follows the pane while it is; but a wheel pans it, a ctrl or cmd wheel
-// zooms it about the pointer, a ctrl drag or a middle drag anywhere moves
+// zooms it about the pointer, an alt drag or a middle drag anywhere moves
 // it - as does a plain drag on the well, where there is nothing to select -
 // and from then on it stays where it was put until it is fitted again: the
 // picker in the tray, or a double-click on the well. A pane squeezed into
@@ -498,7 +498,7 @@ component StageOverlay inherits Rectangle {
     callback grip-pressed(id: string, grip: int, x: float, y: float);
     callback dragged(x: float, y: float, snap: bool);
     callback released();
-    /// A ctrl drag or a middle drag over the stage moves the view, not a
+    /// An alt drag or a middle drag over the stage moves the view, not a
     /// picture. The points are in the parent's frame - `x` plus `mouse-x` -
     /// because this overlay is what the drag moves, and a delta measured
     /// against a moving origin comes back as zero on every event after the
@@ -523,15 +523,17 @@ component StageOverlay inherits Rectangle {
             if (event.kind == PointerEventKind.down
                 && (event.button == PointerEventButton.middle
                     || (event.button == PointerEventButton.left
-                        && event.modifiers.control))) {
+                        && event.modifiers.alt))) {
                 self.panning = true;
                 root.pan-pressed(root.x + self.mouse-x, root.y + self.mouse-y);
             } else if (event.kind == PointerEventKind.down
                 && event.button == PointerEventButton.left) {
                 self.live = true;
-                // Shift or cmd adds to the selection; ctrl is the view's.
+                // Shift, or the platform's command key - ⌘ on a Mac, Ctrl
+                // elsewhere - adds to the selection, as it does in the
+                // lanes and the media pane; alt is the view's.
                 root.pressed(self.mouse-x / root.width, self.mouse-y / root.height,
-                    event.modifiers.shift || event.modifiers.meta);
+                    event.modifiers.shift || event.modifiers.control || event.modifiers.meta);
             } else if (event.kind == PointerEventKind.up
                 || event.kind == PointerEventKind.cancel) {
                 if (self.live) {
