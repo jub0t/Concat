@@ -44,8 +44,8 @@ package = "app.concat.editor"
 apk_name = "Concat"
 build_targets = ["aarch64-linux-android"]
 runtime_libs = "../../vendor/sherpa-onnx/jniLibs"
-# The launcher icon, at every density Android asks for; made from the
-# repository's logo by scripts/generate-icons.sh.
+# The launcher icon, at every density Android asks for (48, 72, 96, 144,
+# 192px); rendered from assets/new_concat_logo_512_rounded_light_theme.svg.
 resources = "res"
 
 [package.metadata.android.sdk]
