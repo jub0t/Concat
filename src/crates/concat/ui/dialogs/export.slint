@@ -4,16 +4,23 @@
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
-import { Button, CopyChip, DialogRow, DialogSection, Field, Modal, Progress } from "../primitives/modal.slint";
+import { Button, CopyChip, DialogRow, DialogSection, Field, Progress } from "../primitives/modal.slint";
 import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
+import { PaneScroll } from "../workspace/pane.slint";
 
-// The export dialog.
+// The export sheet.
 //
 // It states the format, asks where the file goes, offers three quality
 // presets and starts. The deciding number sits *on* each preset — what the
 // file will actually weigh — because that is the thing the choice hinges on,
 // and it belongs where the choice is made.
+//
+// It covers the window and slides up from the bottom edge, and its groups
+// are laid out across the width rather than down it: three columns on a
+// laptop, two on a narrow window, and one that scrolls on a phone held
+// upright. The footer - the Export button, the progress, the result -
+// stays pinned under them whatever the body is doing.
 
 export enum ExportPhase { idle, running, done, failed }
 
@@ -172,9 +179,410 @@ component QualityCard inherits Rectangle {
     }
 }
 
-export component ExportDialog inherits Modal {
+// ── the groups ───────────────────────────────────────────────────────────
+//
+// One component each, so the sheet can deal them into however many columns
+// its width holds without writing any of them twice.
+
+component SummarySection inherits DialogSection {
     in property <ExportData> data;
 
+    title: I18n.t("export.summary");
+
+    Rectangle {
+        border-radius: Theme.r;
+        // The ground the 1px gaps show through.
+        background: Theme.line;
+        clip: true;
+
+        VerticalLayout {
+            spacing: 1px;
+
+            Fact { label: I18n.t("export.format"); value: root.data.format + " · " + root.data.encoding; }
+            Fact { label: I18n.t("common.duration"); value: root.data.duration; }
+            Fact { label: I18n.t("export.contents"); value: root.data.contents; }
+        }
+    }
+}
+
+component DestinationSection inherits DialogSection {
+    in property <ExportData> data;
+
+    callback name-edited(name: string);
+    callback browse();
+
+    title: I18n.t("export.destination");
+
+    DialogRow {
+        Field {
+            value: root.data.name;
+            technical: true;
+            edited(text) => { root.name-edited(text); }
+        }
+
+        Button {
+            label: I18n.t("export.browse");
+            glyph: Glyph.import;
+            clicked => { root.browse(); }
+        }
+    }
+
+    // The whole path under the field rather than in it, so the part
+    // you are editing is never the part that gets truncated away.
+    Text {
+        text: root.data.path;
+        color: Theme.fg-dim;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
+        overflow: elide;
+    }
+}
+
+component OutputSection inherits DialogSection {
+    in property <ExportData> data;
+
+    callback resolution-changed(index: int);
+    callback rate-changed(index: int);
+    callback codec-changed(index: int);
+    callback ten-bit-changed(on: bool);
+    callback hdr-changed(on: bool);
+
+    title: I18n.t("export.output");
+
+    DialogRow {
+        label: I18n.t("export.resolution");
+        Select {
+            current: root.data.resolution;
+            options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
+            details: ["4K", "QHD", "1080p", "720p"];
+            changed(index) => { root.resolution-changed(index); }
+        }
+    }
+
+    DialogRow {
+        label: I18n.t("common.frameRate");
+        Select {
+            current: root.data.rate;
+            options: ["24 fps", "30 fps", "60 fps"];
+            changed(index) => { root.rate-changed(index); }
+        }
+    }
+
+    // An HDR timeline is written as it is by default, or rolled off
+    // to SDR for wherever HDR does not play.
+    if root.data.hdr-timeline && root.data.deep-available: DialogRow {
+        label: I18n.t("common.color");
+        Select {
+            current: root.data.hdr ? 0 : 1;
+            options: [root.data.hdr-label, "SDR"];
+            details: [I18n.t("export.asTheTimeline"), I18n.t("export.toneMapped")];
+            changed(index) => { root.hdr-changed(index == 0); }
+        }
+    }
+
+    // The standard, not the encoder: which encoder makes it is the
+    // platform's business, and the Format line says when the hardware
+    // one will. H.264 is left out of an HDR file, which it does not
+    // carry.
+    if !root.data.hdr: DialogRow {
+        label: I18n.t("export.codec");
+        Select {
+            current: root.data.codec;
+            options: ["H.264", "HEVC", "AV1"];
+            details: [
+                root.data.h264-encodable ? I18n.t("export.playsEverywhere") : I18n.t("export.notOnThisDevice"),
+                root.data.hevc-encodable ? I18n.t("export.halfTheSize") : I18n.t("export.notOnThisDevice"),
+                root.data.av1-encodable ? I18n.t("export.smallest") : I18n.t("export.notOnThisDevice"),
+            ];
+            changed(index) => { root.codec-changed(index); }
+        }
+    }
+
+    if root.data.hdr: DialogRow {
+        label: I18n.t("export.codec");
+        Select {
+            current: root.data.codec - 1;
+            options: ["HEVC", "AV1"];
+            details: [
+                root.data.hevc-encodable ? I18n.t("export.halfTheSize") : I18n.t("export.notOnThisDevice"),
+                root.data.av1-encodable ? I18n.t("export.smallest") : I18n.t("export.notOnThisDevice"),
+            ];
+            changed(index) => { root.codec-changed(index + 1); }
+        }
+    }
+
+    // HDR is ten bits always, so the switch is for SDR alone.
+    if !root.data.hdr && root.data.deep-available: DialogRow {
+        label: I18n.t("export.tenBitColour");
+        HorizontalLayout {
+            alignment: end;
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: root.data.ten-bit;
+                    toggled(on) => { root.ten-bit-changed(on); }
+                }
+            }
+        }
+    }
+}
+
+component QualitySection inherits DialogSection {
+    in property <ExportData> data;
+
+    callback quality-changed(index: int);
+
+    title: I18n.t("common.quality");
+
+    HorizontalLayout {
+        spacing: 6px;
+
+        QualityCard {
+            label: I18n.t("export.high");
+            note: I18n.t("export.master");
+            size: root.data.size-high;
+            current: root.data.quality == 0;
+            clicked => { root.quality-changed(0); }
+        }
+        QualityCard {
+            label: I18n.t("common.balanced");
+            note: I18n.t("export.recommended");
+            size: root.data.size-balanced;
+            current: root.data.quality == 1;
+            clicked => { root.quality-changed(1); }
+        }
+        QualityCard {
+            label: I18n.t("common.small");
+            note: I18n.t("export.share");
+            size: root.data.size-small;
+            current: root.data.quality == 2;
+            clicked => { root.quality-changed(2); }
+        }
+    }
+}
+
+// The switch, and what it opens: the bitrate, and the levels the file is
+// written in. Limited is what every player and YouTube expect; full is for
+// screen content bound for a PC player that reads the tag. Both are tagged
+// true, so the choice is about the player, not about the picture.
+// https://github.com/jub0t/Concat/issues/103
+component AdvancedSection inherits VerticalLayout {
+    in property <ExportData> data;
+    in property <bool> first;
+
+    callback advanced-toggled(on: bool);
+    callback rate-mode-changed(index: int);
+    callback bitrate-changed(text: string);
+    callback color-range-changed(index: int);
+
+    DialogSection {
+        first: root.first;
+        title: I18n.t("export.advanced");
+
+        DialogRow {
+            label: I18n.t("export.showAdvancedOptions");
+            Switch {
+                checked: root.data.advanced;
+                toggled(on) => { root.advanced-toggled(on); }
+            }
+        }
+    }
+
+    if root.data.advanced: DialogSection {
+        title: I18n.t("export.bitrate");
+
+        DialogRow {
+            label: I18n.t("common.mode");
+            Select {
+                current: root.data.rate-mode;
+                options: [I18n.t("export.vbr"), I18n.t("export.cbr")];
+                changed(index) => { root.rate-mode-changed(index); }
+            }
+        }
+        if root.data.rate-mode == 1: DialogRow {
+            label: I18n.t("export.targetBitrate");
+            Field {
+                value: root.data.bitrate + " kbps";
+                edited(text) => { root.bitrate-changed(text); }
+            }
+        }
+    }
+
+    if root.data.advanced: DialogSection {
+        title: I18n.t("export.colour");
+
+        DialogRow {
+            label: I18n.t("common.colourRange");
+            Select {
+                current: root.data.color-range;
+                options: [I18n.t("common.limited"), I18n.t("common.full")];
+                details: [I18n.t("export.videoYoutube"), I18n.t("export.screenContent")];
+                changed(index) => { root.color-range-changed(index); }
+            }
+        }
+    }
+}
+
+// What is under the groups: the failure, the progress, the result, and
+// the button that starts it all.
+component ExportFooter inherits VerticalLayout {
+    in property <ExportData> data;
+    /// The button runs the footer's width on a phone, and keeps to a
+    /// button's width on a desk, where the width would make it a banner.
+    in property <bool> narrow;
+
+    callback begin();
+    callback cancel();
+    callback reveal();
+    callback again();
+
+    property <bool> running: root.data.phase == ExportPhase.running;
+
+    spacing: 10px;
+
+    // A failure says what went wrong where the action was, not in a
+    // separate alert to be dismissed before you can try again.
+    if root.data.phase == ExportPhase.failed: Rectangle {
+        border-radius: Theme.r;
+        background: Theme.danger-soft;
+
+        HorizontalLayout {
+            padding: 10px;
+            spacing: 8px;
+
+            VerticalLayout {
+                alignment: start;
+                Icon { glyph: Glyph.close; size: 13px; tint: Theme.danger; }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.data.message;
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
+            VerticalLayout {
+                alignment: start;
+                CopyChip { text: root.data.message; }
+            }
+        }
+    }
+
+    if root.running: HorizontalLayout {
+        spacing: 8px;
+
+        Text {
+            text: root.data.stage;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: "\{Math.round(root.data.progress * 100)}%";
+            color: Theme.fg-muted;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.data.eta;
+            color: Theme.fg-muted;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.running: Progress { value: root.data.progress; }
+
+    if root.running: HorizontalLayout {
+        alignment: start;
+        Button {
+            label: I18n.t("export.cancelExport");
+            glyph: Glyph.close;
+            ghost: true;
+            clicked => { root.cancel(); }
+        }
+    }
+
+    if root.data.phase == ExportPhase.done: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        VerticalLayout {
+            alignment: center;
+            Icon { glyph: Glyph.check; size: 15px; tint: Theme.green; }
+        }
+
+        Text {
+            text: I18n.t1("export.exported", "\{root.data.done-size}");
+            color: Theme.green;
+            font-size: Theme.fs;
+            font-weight: Theme.weight-title;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.data.phase == ExportPhase.done: HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+
+        Button {
+            label: I18n.t("export.showInFolder");
+            glyph: Glyph.import;
+            clicked => { root.reveal(); }
+        }
+        Button {
+            label: I18n.t("export.exportAgain");
+            ghost: true;
+            clicked => { root.again(); }
+        }
+    }
+
+    if root.data.phase == ExportPhase.idle || root.data.phase == ExportPhase.failed:
+    HorizontalLayout {
+        alignment: root.narrow ? stretch : end;
+        Button {
+            block: true;
+            primary: true;
+            large: true;
+            min-width: root.narrow ? 0px : 320px;
+            glyph: Glyph.export;
+            label: root.data.empty ? I18n.t("export.nothingToExport")
+                : I18n.t("export.exportEstimate") + (root.data.quality == 0 ? root.data.size-high
+                    : root.data.quality == 1 ? root.data.size-balanced
+                    : root.data.size-small);
+            enabled: !root.data.empty && root.data.name != "";
+            clicked => { root.begin(); }
+        }
+    }
+}
+
+// Lays its children out at most `max` wide, centred in whatever width it
+// is given: a sheet the width of a 4K monitor is not read across.
+component Measure inherits HorizontalLayout {
+    in property <length> max: 1180px;
+
+    Rectangle { horizontal-stretch: 1; }
+    VerticalLayout {
+        max-width: root.max;
+        horizontal-stretch: 1000;
+        @children
+    }
+    Rectangle { horizontal-stretch: 1; }
+}
+
+export component ExportDialog inherits Rectangle {
+    in property <ExportData> data;
+    /// A finger drives it: the body scrolls under a drag as well as a wheel.
+    in property <bool> phone;
+
+    callback closed();
     callback name-edited(name: string);
     callback browse();
     callback resolution-changed(index: int);
@@ -193,354 +601,259 @@ export component ExportDialog inherits Modal {
     callback again();
 
     property <bool> running: root.data.phase == ExportPhase.running;
+    /// How many columns the width holds. Three groups a column wide need
+    /// about 330px each; under two of those the sheet is a phone's single
+    /// column and scrolls.
+    property <int> columns: root.width >= 1080px ? 3 : root.width >= 720px ? 2 : 1;
 
-    open: root.data.open;
-    title: I18n.t("common.export");
-    glyph: Glyph.export;
-    surface-width: 470px;
-    dismissable: !root.running;
+    /// How far down the sheet is, as a share of the window: 0 up, 1 gone.
+    /// A share rather than a length, so a window resized while the sheet is
+    /// away does not animate it back into view on the way to the new edge.
+    /// A quick start and a long settle: it arrives with a swoosh and lands
+    /// softly, and leaves the same way down.
+    property <float> lowered: root.data.open ? 0 : 1;
+    animate lowered { duration: 380ms; easing: cubic-bezier(0.16, 1, 0.3, 1); }
 
-    // The sheet's own header carries the fact it is acting on.
-    note: root.data.format;
+    // Up while open, and while it is still sliding away after closing, so
+    // the way out is seen as well as the way in.
+    visible: root.data.open || root.lowered < 1;
 
-    VerticalLayout {
-        DialogSection {
-            first: true;
-            title: I18n.t("export.summary");
+    sheet := Rectangle {
+        x: 0;
+        y: root.height * root.lowered;
+        width: root.width;
+        height: root.height;
+        background: Theme.panel;
 
+        // Nothing under the sheet takes a press while it is up.
+        TouchArea { }
+
+        VerticalLayout {
+            // ── the header ───────────────────────────────────────────────
             Rectangle {
-                border-radius: Theme.r;
-                // The ground the 1px gaps show through.
-                background: Theme.line;
-                clip: true;
+                height: 52px;
 
-                VerticalLayout {
-                    spacing: 1px;
-
-                    Fact { label: I18n.t("export.format"); value: root.data.format + " · " + root.data.encoding; }
-                    Fact { label: I18n.t("common.duration"); value: root.data.duration; }
-                    Fact { label: I18n.t("export.contents"); value: root.data.contents; }
-                }
-            }
-        }
-
-        if !root.running: DialogSection {
-            title: I18n.t("export.destination");
-
-            DialogRow {
-                Field {
-                    value: root.data.name;
-                    technical: true;
-                    edited(text) => { root.name-edited(text); }
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 1px;
+                    width: parent.width;
+                    height: 1px;
+                    background: Theme.line;
                 }
 
-                Button {
-                    label: I18n.t("export.browse");
-                    glyph: Glyph.import;
-                    clicked => { root.browse(); }
-                }
-            }
-
-            // The whole path under the field rather than in it, so the part
-            // you are editing is never the part that gets truncated away.
-            Text {
-                text: root.data.path;
-                color: Theme.fg-dim;
-                font-family: Theme.font-technical;
-                font-size: Theme.fs-sm;
-                overflow: elide;
-            }
-        }
-
-        if !root.running: DialogSection {
-            title: I18n.t("export.output");
-
-            DialogRow {
-                label: I18n.t("export.resolution");
-                Select {
-                    current: root.data.resolution;
-                    options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
-                    details: ["4K", "QHD", "1080p", "720p"];
-                    changed(index) => { root.resolution-changed(index); }
-                }
-            }
-
-            DialogRow {
-                label: I18n.t("common.frameRate");
-                Select {
-                    current: root.data.rate;
-                    options: ["24 fps", "30 fps", "60 fps"];
-                    changed(index) => { root.rate-changed(index); }
-                }
-            }
-
-            // An HDR timeline is written as it is by default, or rolled off
-            // to SDR for wherever HDR does not play.
-            if root.data.hdr-timeline && root.data.deep-available: DialogRow {
-                label: I18n.t("common.color");
-                Select {
-                    current: root.data.hdr ? 0 : 1;
-                    options: [root.data.hdr-label, "SDR"];
-                    details: [I18n.t("export.asTheTimeline"), I18n.t("export.toneMapped")];
-                    changed(index) => { root.hdr-changed(index == 0); }
-                }
-            }
-
-            // The standard, not the encoder: which encoder makes it is the
-            // platform's business, and the Format line above says when
-            // the hardware one will. H.264 is left out of an HDR file,
-            // which it does not carry.
-            if !root.data.hdr: DialogRow {
-                label: I18n.t("export.codec");
-                Select {
-                    current: root.data.codec;
-                    options: ["H.264", "HEVC", "AV1"];
-                    details: [
-                        root.data.h264-encodable ? I18n.t("export.playsEverywhere") : I18n.t("export.notOnThisDevice"),
-                        root.data.hevc-encodable ? I18n.t("export.halfTheSize") : I18n.t("export.notOnThisDevice"),
-                        root.data.av1-encodable ? I18n.t("export.smallest") : I18n.t("export.notOnThisDevice"),
-                    ];
-                    changed(index) => { root.codec-changed(index); }
-                }
-            }
-
-            if root.data.hdr: DialogRow {
-                label: I18n.t("export.codec");
-                Select {
-                    current: root.data.codec - 1;
-                    options: ["HEVC", "AV1"];
-                    details: [
-                        root.data.hevc-encodable ? I18n.t("export.halfTheSize") : I18n.t("export.notOnThisDevice"),
-                        root.data.av1-encodable ? I18n.t("export.smallest") : I18n.t("export.notOnThisDevice"),
-                    ];
-                    changed(index) => { root.codec-changed(index + 1); }
-                }
-            }
-
-            // HDR is ten bits always, so the switch is for SDR alone.
-            if !root.data.hdr && root.data.deep-available: DialogRow {
-                label: I18n.t("export.tenBitColour");
+                // The format on one edge and the close on the other, the
+                // title centred against the whole strip between them.
                 HorizontalLayout {
-                    alignment: end;
+                    padding-left: Theme.pad;
+                    padding-right: 12px;
+                    spacing: 8px;
+
+                    if root.columns > 1: Text {
+                        text: root.data.format;
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    // Gone, not disabled, while a job is running: there is
+                    // no safe answer to pressing it, so it should not be
+                    // there to press. It points down, the way the sheet
+                    // leaves.
+                    if !root.running: VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 32px;
+                            height: 32px;
+                            border-radius: Theme.r-sm;
+                            background: shut.has-hover ? Theme.field : Colors.transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 14px;
+                                tint: shut.has-hover ? Theme.fg : Theme.fg-muted;
+                            }
+
+                            shut := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.closed(); }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    x: (parent.width - self.preferred-width) / 2;
+                    y: 0;
+                    width: self.preferred-width;
+                    height: parent.height;
+                    spacing: 8px;
+
                     VerticalLayout {
                         alignment: center;
-                        Switch {
-                            checked: root.data.ten-bit;
-                            toggled(on) => { root.ten-bit-changed(on); }
+                        Icon { glyph: Glyph.export; size: 16px; tint: Theme.accent; }
+                    }
+
+                    Text {
+                        text: I18n.t("common.export");
+                        color: Theme.fg;
+                        font-size: Theme.fs-lg;
+                        font-weight: Theme.weight-title;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // ── the groups ───────────────────────────────────────────────
+            PaneScroll {
+                vertical-stretch: 1;
+                finger: root.phone;
+
+                Measure {
+                    padding-top: 8px;
+                    padding-bottom: 16px;
+
+                    if root.running || root.columns == 1: VerticalLayout {
+                        SummarySection { first: true; data: root.data; }
+                        if !root.running: DestinationSection {
+                            data: root.data;
+                            name-edited(name) => { root.name-edited(name); }
+                            browse => { root.browse(); }
+                        }
+                        if !root.running: OutputSection {
+                            data: root.data;
+                            resolution-changed(index) => { root.resolution-changed(index); }
+                            rate-changed(index) => { root.rate-changed(index); }
+                            codec-changed(index) => { root.codec-changed(index); }
+                            ten-bit-changed(on) => { root.ten-bit-changed(on); }
+                            hdr-changed(on) => { root.hdr-changed(on); }
+                        }
+                        if !root.running: QualitySection {
+                            data: root.data;
+                            quality-changed(index) => { root.quality-changed(index); }
+                        }
+                        if !root.running: AdvancedSection {
+                            data: root.data;
+                            advanced-toggled(on) => { root.advanced-toggled(on); }
+                            rate-mode-changed(index) => { root.rate-mode-changed(index); }
+                            bitrate-changed(text) => { root.bitrate-changed(text); }
+                            color-range-changed(index) => { root.color-range-changed(index); }
+                        }
+                    }
+
+                    // Two columns: what and where on the left with the
+                    // quality, how on the right.
+                    if !root.running && root.columns == 2: HorizontalLayout {
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            alignment: start;
+                            horizontal-stretch: 1;
+                            SummarySection { first: true; data: root.data; }
+                            DestinationSection {
+                                data: root.data;
+                                name-edited(name) => { root.name-edited(name); }
+                                browse => { root.browse(); }
+                            }
+                            QualitySection {
+                                data: root.data;
+                                quality-changed(index) => { root.quality-changed(index); }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: start;
+                            horizontal-stretch: 1;
+                            OutputSection {
+                                first: true;
+                                data: root.data;
+                                resolution-changed(index) => { root.resolution-changed(index); }
+                                rate-changed(index) => { root.rate-changed(index); }
+                                codec-changed(index) => { root.codec-changed(index); }
+                                ten-bit-changed(on) => { root.ten-bit-changed(on); }
+                                hdr-changed(on) => { root.hdr-changed(on); }
+                            }
+                            AdvancedSection {
+                                data: root.data;
+                                advanced-toggled(on) => { root.advanced-toggled(on); }
+                                rate-mode-changed(index) => { root.rate-mode-changed(index); }
+                                bitrate-changed(text) => { root.bitrate-changed(text); }
+                                color-range-changed(index) => { root.color-range-changed(index); }
+                            }
+                        }
+                    }
+
+                    // Three columns, in the order a file is decided: what
+                    // and where, what shape, how good.
+                    if !root.running && root.columns == 3: HorizontalLayout {
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            alignment: start;
+                            horizontal-stretch: 1;
+                            SummarySection { first: true; data: root.data; }
+                            DestinationSection {
+                                data: root.data;
+                                name-edited(name) => { root.name-edited(name); }
+                                browse => { root.browse(); }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: start;
+                            horizontal-stretch: 1;
+                            OutputSection {
+                                first: true;
+                                data: root.data;
+                                resolution-changed(index) => { root.resolution-changed(index); }
+                                rate-changed(index) => { root.rate-changed(index); }
+                                codec-changed(index) => { root.codec-changed(index); }
+                                ten-bit-changed(on) => { root.ten-bit-changed(on); }
+                                hdr-changed(on) => { root.hdr-changed(on); }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: start;
+                            horizontal-stretch: 1;
+                            QualitySection {
+                                first: true;
+                                data: root.data;
+                                quality-changed(index) => { root.quality-changed(index); }
+                            }
+                            AdvancedSection {
+                                data: root.data;
+                                advanced-toggled(on) => { root.advanced-toggled(on); }
+                                rate-mode-changed(index) => { root.rate-mode-changed(index); }
+                                bitrate-changed(text) => { root.bitrate-changed(text); }
+                                color-range-changed(index) => { root.color-range-changed(index); }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if !root.running: DialogSection {
-            title: I18n.t("common.quality");
-
-            HorizontalLayout {
-                spacing: 6px;
-
-                QualityCard {
-                    label: I18n.t("export.high");
-                    note: I18n.t("export.master");
-                    size: root.data.size-high;
-                    current: root.data.quality == 0;
-                    clicked => { root.quality-changed(0); }
-                }
-                QualityCard {
-                    label: I18n.t("common.balanced");
-                    note: I18n.t("export.recommended");
-                    size: root.data.size-balanced;
-                    current: root.data.quality == 1;
-                    clicked => { root.quality-changed(1); }
-                }
-                QualityCard {
-                    label: I18n.t("common.small");
-                    note: I18n.t("export.share");
-                    size: root.data.size-small;
-                    current: root.data.quality == 2;
-                    clicked => { root.quality-changed(2); }
-                }
-            }
-        }
-
-        if !root.running: DialogSection {
-            title: I18n.t("export.advanced");
-
-            DialogRow {
-                label: I18n.t("export.showAdvancedOptions");
-                Switch {
-                    checked: root.data.advanced;
-                    toggled(on) => { root.advanced-toggled(on); }
-                }
-            }
-        }
-
-        if !root.running && root.data.advanced: DialogSection {
-            title: I18n.t("export.bitrate");
-
-            DialogRow {
-                label: I18n.t("common.mode");
-                Select {
-                    current: root.data.rate-mode;
-                    options: [I18n.t("export.vbr"), I18n.t("export.cbr")];
-                    changed(index) => { root.rate-mode-changed(index); }
-                }
-            }
-            if root.data.rate-mode == 1: DialogRow {
-                label: I18n.t("export.targetBitrate");
-                Field {
-                    value: root.data.bitrate + " kbps";
-                    edited(text) => { root.bitrate-changed(text); }
-                }
-            }
-        }
-
-        // The levels the file is written in. Limited is what every player
-        // and YouTube expect; full is for screen content bound for a PC
-        // player that reads the tag. Both are tagged true, so the choice
-        // is about the player, not about the picture.
-        // https://github.com/jub0t/Concat/issues/103
-        if !root.running && root.data.advanced: DialogSection {
-            title: I18n.t("export.colour");
-
-            DialogRow {
-                label: I18n.t("common.colourRange");
-                Select {
-                    current: root.data.color-range;
-                    options: [I18n.t("common.limited"), I18n.t("common.full")];
-                    details: [I18n.t("export.videoYoutube"), I18n.t("export.screenContent")];
-                    changed(index) => { root.color-range-changed(index); }
-                }
-            }
-        }
-
-        // ── the footer ───────────────────────────────────────────────────
-        Rectangle {
-            height: 1px;
-            background: Theme.line;
-        }
-
-        VerticalLayout {
-            padding: 14px;
-            spacing: 10px;
-
-            // A failure says what went wrong where the action was, not in a
-            // separate alert to be dismissed before you can try again.
-            if root.data.phase == ExportPhase.failed: Rectangle {
-                border-radius: Theme.r;
-                background: Theme.danger-soft;
-
-                HorizontalLayout {
-                    padding: 10px;
-                    spacing: 8px;
-
-                    VerticalLayout {
-                        alignment: start;
-                        Icon { glyph: Glyph.close; size: 13px; tint: Theme.danger; }
-                    }
-
-                    Text {
-                        horizontal-stretch: 1;
-                        text: root.data.message;
-                        color: Theme.danger;
-                        font-size: Theme.fs-sm;
-                        wrap: word-wrap;
-                    }
-
-                    VerticalLayout {
-                        alignment: start;
-                        CopyChip { text: root.data.message; }
-                    }
-                }
+            // ── the footer ───────────────────────────────────────────────
+            Rectangle {
+                height: 1px;
+                background: Theme.line;
             }
 
-            if root.running: HorizontalLayout {
-                spacing: 8px;
+            // The groups pad themselves; the footer is padded to match.
+            Measure {
+                padding: 14px;
 
-                Text {
-                    text: root.data.stage;
-                    color: Theme.fg;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    horizontal-stretch: 1;
-                    text: "\{Math.round(root.data.progress * 100)}%";
-                    color: Theme.fg-muted;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    text: root.data.eta;
-                    color: Theme.fg-muted;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                }
-            }
-
-            if root.running: Progress { value: root.data.progress; }
-
-            if root.running: HorizontalLayout {
-                alignment: start;
-                Button {
-                    label: I18n.t("export.cancelExport");
-                    glyph: Glyph.close;
-                    ghost: true;
-                    clicked => { root.cancel(); }
-                }
-            }
-
-            if root.data.phase == ExportPhase.done: HorizontalLayout {
-                spacing: 8px;
-                alignment: start;
-
-                VerticalLayout {
-                    alignment: center;
-                    Icon { glyph: Glyph.check; size: 15px; tint: Theme.green; }
-                }
-
-                Text {
-                    text: I18n.t1("export.exported", "\{root.data.done-size}");
-                    color: Theme.green;
-                    font-size: Theme.fs;
-                    font-weight: Theme.weight-title;
-                    vertical-alignment: center;
-                }
-            }
-
-            if root.data.phase == ExportPhase.done: HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-
-                Button {
-                    label: I18n.t("export.showInFolder");
-                    glyph: Glyph.import;
-                    clicked => { root.reveal(); }
-                }
-                Button {
-                    label: I18n.t("export.exportAgain");
-                    ghost: true;
-                    clicked => { root.again(); }
-                }
-            }
-
-            if root.data.phase == ExportPhase.idle || root.data.phase == ExportPhase.failed:
-            HorizontalLayout {
-                Button {
-                    block: true;
-                    primary: true;
-                    large: true;
-                    glyph: Glyph.export;
-                    label: root.data.empty ? I18n.t("export.nothingToExport")
-                        : I18n.t("export.exportEstimate") + (root.data.quality == 0 ? root.data.size-high
-                            : root.data.quality == 1 ? root.data.size-balanced
-                            : root.data.size-small);
-                    enabled: !root.data.empty && root.data.name != "";
-                    clicked => { root.begin(); }
+                ExportFooter {
+                    data: root.data;
+                    narrow: root.columns == 1;
+                    begin => { root.begin(); }
+                    cancel => { root.cancel(); }
+                    reveal => { root.reveal(); }
+                    again => { root.again(); }
                 }
             }
         }
