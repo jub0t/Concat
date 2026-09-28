@@ -224,9 +224,15 @@ export component ContextMenu inherits Rectangle {
                             clicked => {
                                 // The id first, while the row still exists;
                                 // the report after the close - see `chosen`.
+                                // The timer is armed before the close, not
+                                // after: closing tears down the surface this
+                                // handler runs in, and anything after it
+                                // never ran, so no row reported at all (#220).
+                                // It still fires on the next turn of the
+                                // loop, when the surface is gone.
                                 root.chosen = item.id;
-                                surface.close();
                                 report.running = true;
+                                surface.close();
                             }
                         }
                     }
