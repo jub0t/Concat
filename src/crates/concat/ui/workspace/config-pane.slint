@@ -207,11 +207,9 @@ export component ConfigPane inherits Rectangle {
     // picture - its placement, its speed, its colour; Audio
     // the level, the fades and the voice and room chain; Effects the two
     // shelves and the picture's chain. A still loses Audio, a sound clip
-    // keeps Audio alone, and a title gets Text plus Effects — the export
-    // pipeline already runs a title's effect chain (it is rasterised to a
-    // picture before anything else touches it), so the tab has real work
-    // to do; offering Video or Audio on a title would still be offering
-    // panels that can only say "nothing here".
+    // keeps Audio alone, and a title gets Text alone: its look is its
+    // typography, stroke and box, all on the Text tab, and Video or Audio
+    // on a title would be panels that can only say "nothing here".
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
     property <bool> is-audio: root.selected.kind == ClipKind.audio;
@@ -219,14 +217,14 @@ export component ConfigPane inherits Rectangle {
     /// it has no transform, no gain and no rate, and every other tab could
     /// only say "nothing here".
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
-    property <[string]> tabs: root.is-text ? ["Text", "Effects"]
+    property <[string]> tabs: root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
         : root.is-image ? ["Video", "Effects"]
         : root.is-audio ? ["Audio"]
         : ["Video", "Audio", "Effects"];
     /// The same tabs in the interface's language. `tabs` stays English,
     /// because the panels are picked by comparing against it.
-    property <[string]> tabs-shown: root.is-text ? [I18n.t("common.text"), I18n.t("common.effects")]
+    property <[string]> tabs-shown: root.is-text ? [I18n.t("common.text")]
         : root.is-layer ? [I18n.t("configPane.filter")]
         : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
         : root.is-audio ? [I18n.t("common.audio")]
