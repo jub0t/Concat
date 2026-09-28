@@ -5,8 +5,11 @@
 //! project: the recents list, remembered settings, downloaded models.
 //!
 //! Two directories, named by the app identifier and following each
-//! platform's convention for configuration and data. On macOS and Windows
-//! they are the same folder; on Linux they follow the XDG split.
+//! platform's convention for configuration and data. On macOS they are the
+//! same folder. On Windows the settings roam (`%APPDATA%`) and the models
+//! and caches stay on the machine (`%LOCALAPPDATA%`), since gigabytes of
+//! model have no business following a domain profile to every PC it logs
+//! into. On Linux they follow the XDG split.
 //!
 //! Or one directory, chosen by the person running the app: a folder named
 //! `portable` beside the executable holds both, and nothing is written
@@ -46,14 +49,15 @@ impl AppDirs {
                 data: dir,
             })
         } else if cfg!(windows) {
-            let dir = std::env::var_os("APPDATA")
+            let config = std::env::var_os("APPDATA")
                 .map(PathBuf::from)
                 .ok_or_else(|| "APPDATA is not set".to_owned())?
                 .join(IDENTIFIER);
-            Ok(AppDirs {
-                config: dir.clone(),
-                data: dir,
-            })
+            let data = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map_or_else(|| config.clone(), |base| base.join(IDENTIFIER));
+            move_data(&config, &data);
+            Ok(AppDirs { config, data })
         } else {
             // Linux follows the XDG split. Android arrives here too: the
             // activity names both bases before the window starts, since an
@@ -88,6 +92,37 @@ impl AppDirs {
     }
 }
 
+/// The folders under `data`, each named where it is made: models, caches
+/// and logs. What is not listed is the settings', and stays in `config`.
+const DATA_FOLDERS: [&str; 7] = [
+    "cutout-models",   // concat-vision, models.rs
+    "whisper-models",  // concat-speech, transcribe.rs
+    "tts-models",      // concat-speech, tts.rs
+    "cards",           // concat, studio.rs
+    "titles",          // titles.rs
+    "updates",         // updates.rs
+    "logs",            // logs.rs
+];
+
+/// Moves what an older build kept under `from` - Windows kept models and
+/// settings in one roaming folder - into `to`, once: a folder already at
+/// `to` is left alone. A rename, so nothing is copied when both are on one
+/// volume, as %APPDATA% and %LOCALAPPDATA% are; a folder that will not move
+/// stays behind, and is downloaded or rebuilt again where it is now looked
+/// for.
+fn move_data(from: &Path, to: &Path) {
+    if from == to {
+        return;
+    }
+    for name in DATA_FOLDERS {
+        let (old, new) = (from.join(name), to.join(name));
+        if old.is_dir() && !new.exists() {
+            let _ = std::fs::create_dir_all(to);
+            let _ = std::fs::rename(&old, &new);
+        }
+    }
+}
+
 /// The `portable` folder beside the executable, when someone has made one.
 /// A folder rather than a marker file, because it *is* where everything
 /// then goes, and its presence is the whole of the switch: no flag, no
@@ -116,5 +151,27 @@ mod tests {
         assert!(dirs.config.ends_with(IDENTIFIER));
         assert!(dirs.data.ends_with(IDENTIFIER));
         assert!(dirs.config.is_absolute());
+    }
+
+    /// An older layout's models move to the new home once, and the settings
+    /// beside them stay where they were.
+    #[test]
+    fn the_models_move_and_the_settings_stay() {
+        let root = std::env::temp_dir().join(format!("concat-dirs-{}", std::process::id()));
+        let (roaming, local) = (root.join("roaming"), root.join("local"));
+        std::fs::create_dir_all(roaming.join("whisper-models")).unwrap();
+        std::fs::write(roaming.join("whisper-models").join("base.bin"), b"model").unwrap();
+        std::fs::write(roaming.join("settings.json"), b"{}").unwrap();
+
+        move_data(&roaming, &local);
+        assert!(local.join("whisper-models").join("base.bin").is_file());
+        assert!(!roaming.join("whisper-models").exists());
+        assert!(roaming.join("settings.json").is_file());
+        assert!(!local.join("settings.json").exists());
+
+        // A second run finds them moved and changes nothing.
+        move_data(&roaming, &local);
+        assert!(local.join("whisper-models").join("base.bin").is_file());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
