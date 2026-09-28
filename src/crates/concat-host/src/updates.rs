@@ -207,6 +207,9 @@ pub enum PackageKind {
     Dmg,
     /// The Windows installer, `Concat-<version>-windows-<arch>-setup.exe`.
     Setup,
+    /// The Windows Installer package, `Concat-<version>-windows-<arch>.msi`:
+    /// the per-machine install an administrator deploys.
+    Msi,
     /// A Linux AppImage: one file, started where it lies.
     AppImage,
     /// A Debian package.
@@ -223,6 +226,7 @@ impl PackageKind {
         match self {
             PackageKind::Dmg => "dmg",
             PackageKind::Setup => "setup",
+            PackageKind::Msi => "msi",
             PackageKind::AppImage => "appimage",
             PackageKind::Deb => "deb",
             PackageKind::Rpm => "rpm",
@@ -251,7 +255,14 @@ pub fn installed_as() -> Result<PackageKind, Fixed> {
         if cfg!(target_os = "macos") {
             Ok(PackageKind::Dmg)
         } else if cfg!(target_os = "windows") {
-            Ok(PackageKind::Setup)
+            let dir = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(Path::to_path_buf));
+            windows_kind(
+                dir.as_deref()
+                    .is_some_and(|dir| dir.join("unins000.exe").is_file()),
+                dir.as_deref().is_some_and(in_program_files),
+            )
         } else if cfg!(target_os = "linux") {
             linux_kind(
                 std::env::var_os("APPIMAGE").is_some(),
@@ -264,6 +275,29 @@ pub fn installed_as() -> Result<PackageKind, Fixed> {
             Err(Fixed::Store)
         }
     })
+}
+
+/// A Windows install, from what sits beside the executable. The setup
+/// leaves its uninstaller there; the .msi leaves none and always installs
+/// under Program Files. Anything else - the portable zip, a build from the
+/// tree - came from no installer, and an update from here would put a
+/// second copy beside it rather than replace it.
+fn windows_kind(uninstaller: bool, program_files: bool) -> Result<PackageKind, Fixed> {
+    if uninstaller {
+        Ok(PackageKind::Setup)
+    } else if program_files {
+        Ok(PackageKind::Msi)
+    } else {
+        Err(Fixed::NotFromPackage)
+    }
+}
+
+/// Whether `dir` is under one of Windows' Program Files folders.
+fn in_program_files(dir: &Path) -> bool {
+    ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .any(|root| dir.starts_with(root))
 }
 
 /// A Linux install, from what is on the machine: an AppImage says so in
@@ -457,6 +491,16 @@ pub fn install(package: &Path, kind: PackageKind) -> Result<Installed, String> {
             Command::new(package)
                 .spawn()
                 .map_err(|error| format!("could not start {}: {error}", package.display()))?;
+            Ok(Installed::InstallerRunning)
+        }
+        // msiexec asks for the elevation a per-machine package needs, and
+        // the package's MajorUpgrade takes the old version out.
+        PackageKind::Msi => {
+            Command::new("msiexec")
+                .arg("/i")
+                .arg(package)
+                .spawn()
+                .map_err(|error| format!("could not start msiexec: {error}"))?;
             Ok(Installed::InstallerRunning)
         }
         PackageKind::Dmg => replace_from_dmg(package),
@@ -784,9 +828,17 @@ mod tests {
             linux_kind(false, false, false, false, false),
             Err(Fixed::NotFromPackage)
         );
+        // The setup's uninstaller wins even under Program Files, where an
+        // administrator's run of the setup also puts it; the .msi is the
+        // Program Files install without one; the portable zip is neither.
+        assert_eq!(windows_kind(true, false), Ok(PackageKind::Setup));
+        assert_eq!(windows_kind(true, true), Ok(PackageKind::Setup));
+        assert_eq!(windows_kind(false, true), Ok(PackageKind::Msi));
+        assert_eq!(windows_kind(false, false), Err(Fixed::NotFromPackage));
         for kind in [
             PackageKind::Dmg,
             PackageKind::Setup,
+            PackageKind::Msi,
             PackageKind::AppImage,
             PackageKind::Deb,
             PackageKind::Rpm,
