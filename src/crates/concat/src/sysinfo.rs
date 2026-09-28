@@ -48,8 +48,14 @@ pub fn os_description() -> String {
     }
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: the app is a GUI-subsystem binary with no
+        // console to lend, so cmd would open one of its own and it would
+        // flash up over Settings for the moment `ver` takes.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         std::process::Command::new("cmd")
             .args(["/c", "ver"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok()
             .filter(|out| out.status.success())
