@@ -44,6 +44,10 @@ path = "src/main.rs"
 # (see platform.rs). The renderer and wgpu features are the same on all
 # three.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Where the desktop really is: Windows' known folder, which OneDrive may
+# have moved, and the XDG user dirs, which name it in the desktop's own
+# language. New projects default to a folder on it.
+dirs = "6"
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-default",

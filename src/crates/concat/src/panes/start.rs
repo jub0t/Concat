@@ -70,13 +70,7 @@ impl Default for StartPane {
         Self {
             composing: false,
             name: "Untitled project".into(),
-            // A phone has no desk: its projects live at the top of the
-            // folder the file manager shows for the app.
-            location: home_folder(if cfg!(target_os = "android") {
-                "Concat"
-            } else {
-                "Desktop/Concat"
-            }),
+            location: default_location(),
             aspect: 0,
             // 1080p, not the first of the three. The size everything else
             // in the app assumes, and the one a phone and a desk agree on.
@@ -88,6 +82,22 @@ impl Default for StartPane {
             error: String::new(),
         }
     }
+}
+
+/// Where a new project goes unless told otherwise: a Concat folder on the
+/// desktop. The desktop the system names, not `~/Desktop`: on Windows
+/// OneDrive often moves it, and on Linux it is called what the desktop's
+/// language calls it. A phone has no desk: its projects live at the top of
+/// the folder the file manager shows for the app.
+fn default_location() -> String {
+    if cfg!(target_os = "android") {
+        return home_folder("Concat");
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Some(desktop) = dirs::desktop_dir() {
+        return desktop.join("Concat").to_string_lossy().into_owned();
+    }
+    home_folder("Desktop/Concat")
 }
 
 impl StartPane {
