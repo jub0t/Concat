@@ -8777,19 +8777,41 @@ impl Studio {
                     true,
                 ),
                 rule(),
+                // The last row is each platform's own word for leaving:
+                // Close Window on a Mac, where ⌘W is it; Exit on Windows,
+                // where Alt+F4 is; Quit on Linux, with Ctrl+Q. Off the Mac
+                // Ctrl+W closes the document instead, which is the project.
                 row(
                     "close-project",
                     t("studio.closeProject"),
                     Glyph::Import,
-                    "",
+                    &if platform::MACOS {
+                        String::new()
+                    } else {
+                        platform::keys(&["Control", "W"])
+                    },
                     true,
                 ),
                 MenuItemData {
                     id: "close-window".into(),
-                    label: t("studio.closeWindow").into(),
+                    label: if platform::MACOS {
+                        t("studio.closeWindow")
+                    } else if cfg!(windows) {
+                        t("studio.exit")
+                    } else {
+                        t("studio.quit")
+                    }
+                    .into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Close,
-                    shortcut: platform::keys(&["Control", "W"]).into(),
+                    shortcut: if platform::MACOS {
+                        platform::keys(&["Control", "W"])
+                    } else if cfg!(windows) {
+                        platform::keys(&["Alt", "F4"])
+                    } else {
+                        platform::keys(&["Control", "Q"])
+                    }
+                    .into(),
                     enabled: true,
                     danger: true,
                     checkable: false,

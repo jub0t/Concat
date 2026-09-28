@@ -434,14 +434,25 @@ export component App inherits Window {
             enabled: !root.on-start && !root.macos && !root.phone;
             activated => { root.open-menu-from-keys(2); }
         }
-        // Open and Close Window work from the launch screen too: it opens
+        // Open and leaving work from the launch screen too: it opens
         // projects, and it is a window.
         KeyBinding {
             keys: @keys(Control + O);
             activated => { root.app-menu-selected("open"); }
         }
+        // ⌘W closes the window on a Mac. Elsewhere Ctrl+W closes the
+        // document - the project - and Ctrl+Q quits; Windows' Alt+F4 is
+        // the system's, and arrives as the window's close request.
         KeyBinding {
             keys: @keys(Control + W);
+            enabled: root.macos || !root.on-start;
+            activated => {
+                root.app-menu-selected(root.macos ? "close-window" : "close-project");
+            }
+        }
+        KeyBinding {
+            keys: @keys(Control + Q);
+            enabled: !root.macos;
             activated => { root.app-menu-selected("close-window"); }
         }
         // The editor's chords, each the shortcut its menu row names.
