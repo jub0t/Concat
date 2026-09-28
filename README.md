@@ -84,8 +84,8 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 
 **Platforms**
 
-- ✅ **Windows** · x86_64
-- ✅ **macOS** · Intel and Apple silicon. The binaries are unsigned, so if macOS refuses to open it: `xattr -dr com.apple.quarantine /Applications/Concat.app`
+- ✅ **Windows** · x86_64 and ARM. A setup and an `.msi`. If SmartScreen stops an unsigned build: **More info** › **Run anyway**
+- ✅ **macOS** · Intel and Apple silicon. If macOS refuses to open an unsigned build: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 and ARM. `.deb`, `.rpm`, `.AppImage` and an Arch package
 - ✅ **Android** · phones and tablets
 - 🧪 **iOS / iPadOS** · iPhone and iPad, sideloaded
