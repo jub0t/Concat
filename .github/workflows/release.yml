@@ -114,7 +114,8 @@ jobs:
           ls -l
           sha256sum -- * > SHA256SUMS
 
-      # The notes are the commits since the previous tag; see the script.
+      # The notes are the tag's section of CHANGELOG.md, or the commits
+      # since the previous tag where it has none; see the script.
       - name: Write the notes
         id: notes
         run: |
@@ -122,7 +123,7 @@ jobs:
           cd source
           tag="${{ needs.check.outputs.tag }}"
           previous=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
-          .github/release-notes.sh "$previous" "$tag" "Concat ${tag#v}" > "$RUNNER_TEMP/notes.md"
+          .github/release-notes.sh "$previous" "$tag" "${tag#v}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
       - uses: softprops/action-gh-release@v3
