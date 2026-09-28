@@ -89,13 +89,17 @@ impl VideoCodec {
     /// encoders (scripts/ffmpeg-mobile.sh), and its cores are no match for
     /// its chip anyway.
     ///
-    /// On a desktop the software encoders lead, and the platform's own
+    /// On a desktop the software encoders lead, and the machine's own
     /// comes after them for an FFmpeg built without them. With `hardware`,
-    /// VideoToolbox leads for HEVC on macOS, which is many times faster
-    /// than x265 and, at these rates, as good to look at. H.264 stays with
-    /// x264 wherever it is linked: the hardware H.264 encoders spend
-    /// noticeably more bits for the same picture, and H.264 is the choice
-    /// made for compatibility, not speed.
+    /// the GPU's leads for HEVC and AV1: VideoToolbox on macOS, and on
+    /// Windows and Linux NVIDIA's NVENC, Intel's Quick Sync and AMD's AMF,
+    /// in that order - many times faster than x265 and, at these rates, as
+    /// good to look at. Whichever of those the machine has no chip for
+    /// does not open, and the export takes the next. H.264 stays with x264
+    /// wherever it is linked: the hardware H.264 encoders spend noticeably
+    /// more bits for the same picture, and H.264 is the choice made for
+    /// compatibility, not speed. Media Foundation, Windows' own, is last:
+    /// it runs on whatever the machine has, and says little about how.
     pub fn encoders(self, hardware: bool) -> &'static [&'static str] {
         let macos = cfg!(target_os = "macos");
         let windows = cfg!(target_os = "windows");
@@ -115,13 +119,25 @@ impl VideoCodec {
         }
         match self {
             VideoCodec::H264 if macos => &["libx264", "h264_videotoolbox"],
-            VideoCodec::H264 if windows => &["libx264", "h264_mf"],
-            VideoCodec::H264 => &["libx264"],
+            VideoCodec::H264 if windows => {
+                &["libx264", "h264_nvenc", "h264_qsv", "h264_amf", "h264_mf"]
+            }
+            VideoCodec::H264 => &["libx264", "h264_nvenc", "h264_qsv", "h264_amf"],
             VideoCodec::Hevc if hardware && macos => &["hevc_videotoolbox", "libx265"],
             VideoCodec::Hevc if macos => &["libx265", "hevc_videotoolbox"],
-            VideoCodec::Hevc if windows => &["libx265", "hevc_mf"],
-            VideoCodec::Hevc => &["libx265"],
-            VideoCodec::Av1 => &["libsvtav1", "libaom-av1"],
+            VideoCodec::Hevc if hardware && windows => {
+                &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libx265", "hevc_mf"]
+            }
+            VideoCodec::Hevc if windows => {
+                &["libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_mf"]
+            }
+            VideoCodec::Hevc if hardware => &["hevc_nvenc", "hevc_qsv", "hevc_amf", "libx265"],
+            VideoCodec::Hevc => &["libx265", "hevc_nvenc", "hevc_qsv", "hevc_amf"],
+            VideoCodec::Av1 if macos => &["libsvtav1", "libaom-av1"],
+            VideoCodec::Av1 if hardware => {
+                &["av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"]
+            }
+            VideoCodec::Av1 => &["libsvtav1", "libaom-av1", "av1_nvenc", "av1_qsv", "av1_amf"],
         }
     }
 
@@ -166,10 +182,13 @@ impl VideoCodec {
     }
 
     /// Whether the encoder an export would pick first is the platform's
-    /// hardware rather than the CPU.
+    /// hardware rather than the CPU: the first linked one that is software
+    /// or opens here. A desktop FFmpeg links NVENC, Quick Sync and AMF
+    /// whatever GPU is in the box, so linked alone would say hardware on a
+    /// machine that encodes on the CPU.
     pub fn hardware_encoded(self, hardware: bool, ten_bit: bool) -> bool {
         self.linked(hardware, ten_bit)
-            .next()
+            .find(|name| !Family::of(name).hardware() || opens_here(self, name))
             .is_some_and(|name| Family::of(name).hardware())
     }
 
@@ -311,6 +330,12 @@ enum Family {
     MediaCodec,
     /// Windows': semi-planar 4:2:0 at eight bits, steered by a bitrate.
     MediaFoundation,
+    /// NVIDIA's NVENC: semi-planar 4:2:0, steered by a constant quality.
+    Nvenc,
+    /// Intel's Quick Sync: semi-planar 4:2:0, steered by a quality (ICQ).
+    Qsv,
+    /// AMD's AMF: semi-planar 4:2:0 at eight bits, steered by a QP.
+    Amf,
 }
 
 impl Family {
@@ -321,6 +346,12 @@ impl Family {
             Family::MediaCodec
         } else if encoder_name.ends_with("_mf") {
             Family::MediaFoundation
+        } else if encoder_name.ends_with("_nvenc") {
+            Family::Nvenc
+        } else if encoder_name.ends_with("_qsv") {
+            Family::Qsv
+        } else if encoder_name.ends_with("_amf") {
+            Family::Amf
         } else {
             Family::Software
         }
@@ -383,14 +414,39 @@ fn opens(codec: VideoCodec, encoder_name: &'static str) -> bool {
     result.is_ok()
 }
 
-/// Whether the encoder takes ten-bit pictures. FFmpeg's MediaCodec and
-/// Media Foundation encoders take eight-bit input only, and VideoToolbox
-/// makes ten-bit HEVC but not ten-bit H.264.
+/// [`opens`], asked once per encoder and remembered for the process: the
+/// answer is the machine's, and each question opens an encoder.
+fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static KNOWN: OnceLock<Mutex<HashMap<&'static str, bool>>> = OnceLock::new();
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some(answer) = known
+        .lock()
+        .ok()
+        .and_then(|map| map.get(encoder_name).copied())
+    {
+        return answer;
+    }
+    let answer = opens(codec, encoder_name);
+    if let Ok(mut map) = known.lock() {
+        map.insert(encoder_name, answer);
+    }
+    answer
+}
+
+/// Whether the encoder takes ten-bit pictures. FFmpeg's MediaCodec,
+/// Media Foundation and AMF encoders are fed eight bits only here;
+/// VideoToolbox makes ten-bit HEVC but not ten-bit H.264, and NVENC and
+/// Quick Sync make ten-bit HEVC and AV1.
 fn takes_ten_bits(encoder_name: &str) -> bool {
     match Family::of(encoder_name) {
         Family::Software => true,
         Family::VideoToolbox => encoder_name.starts_with("hevc_"),
-        Family::MediaCodec | Family::MediaFoundation => false,
+        Family::Nvenc | Family::Qsv => {
+            encoder_name.starts_with("hevc_") || encoder_name.starts_with("av1_")
+        }
+        Family::MediaCodec | Family::MediaFoundation | Family::Amf => false,
     }
 }
 
@@ -564,6 +620,45 @@ fn open_video(
         // Windows' Media Foundation, whatever the machine has behind it.
         _ if family == Family::MediaFoundation => ffmpeg::dict! {
             "rate_control" => if cbr { "cbr" } else { "u_vbr" },
+        },
+        // The GPUs' own. Each is told the CRF as its own constant quality
+        // in VBR - NVENC's CQ, Quick Sync's ICQ and AMF's QP all run on
+        // the same 0-51 scale as x264's CRF - and the target in CBR.
+        _ if family == Family::Nvenc && cbr => ffmpeg::dict! {
+            "preset" => "p5",
+            "rc" => "cbr",
+            "b" => bitrate.as_str(),
+            "maxrate" => bitrate.as_str(),
+            "bufsize" => bufsize.as_str(),
+        },
+        _ if family == Family::Nvenc => ffmpeg::dict! {
+            "preset" => "p5",
+            "rc" => "vbr",
+            "cq" => &options.crf.min(51).to_string(),
+            // No ceiling but the quality's.
+            "b" => "0",
+        },
+        _ if family == Family::Qsv && cbr => ffmpeg::dict! {
+            "preset" => "medium",
+            "b" => bitrate.as_str(),
+            "maxrate" => bitrate.as_str(),
+            "bufsize" => bufsize.as_str(),
+        },
+        _ if family == Family::Qsv => ffmpeg::dict! {
+            "preset" => "medium",
+            "global_quality" => &options.crf.clamp(1, 51).to_string(),
+        },
+        _ if family == Family::Amf && cbr => ffmpeg::dict! {
+            "quality" => "quality",
+            "rc" => "cbr",
+            "b" => bitrate.as_str(),
+        },
+        _ if family == Family::Amf => ffmpeg::dict! {
+            "quality" => "quality",
+            "rc" => "cqp",
+            "qp_i" => &options.crf.min(51).to_string(),
+            "qp_p" => &options.crf.min(51).to_string(),
+            "qp_b" => &options.crf.min(51).to_string(),
         },
         _ => ffmpeg::dict! {},
     };
@@ -1456,8 +1551,21 @@ mod tests {
         assert!(Family::of("h264_mediacodec").steered_by_bitrate());
         assert!(!Family::of("libx264").steered_by_bitrate());
         assert!(takes_ten_bits("libx265") && takes_ten_bits("hevc_videotoolbox"));
-        for eight in ["h264_videotoolbox", "hevc_mediacodec", "h264_mediacodec", "hevc_mf"] {
+        for eight in [
+            "h264_videotoolbox",
+            "hevc_mediacodec",
+            "h264_mediacodec",
+            "hevc_mf",
+            "h264_nvenc",
+            "hevc_amf",
+        ] {
             assert!(!takes_ten_bits(eight), "{eight}");
+        }
+        assert!(takes_ten_bits("hevc_nvenc") && takes_ten_bits("av1_qsv"));
+        for gpu in ["h264_nvenc", "hevc_qsv", "av1_amf"] {
+            assert!(Family::of(gpu).hardware(), "{gpu}");
+            assert_eq!(Family::of(gpu).pixel_format(false), Pixel::NV12, "{gpu}");
+            assert!(!Family::of(gpu).steered_by_bitrate(), "{gpu}");
         }
     }
 
