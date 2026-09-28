@@ -651,16 +651,39 @@ jobs:
           ls -l stage
 
       # ── Package: Windows ───────────────────────────────────────────────
+      # Authenticode-signed with the repository's certificate when it has
+      # one - the program, then each installer - so SmartScreen and the
+      # UAC prompt name the publisher instead of warning about an unknown
+      # one; unsigned otherwise, which is what a fork's build gets.
       - name: Stage (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          CERT_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           $ErrorActionPreference = "Stop"
           $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
+          $pfx = $null
+          if ($env:CERT_PFX) {
+            $pfx = "$env:RUNNER_TEMP\cert.pfx"
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $signtool) { throw "signtool.exe is not in the Windows SDK" }
+          } else {
+            Write-Host "No signing certificate: the build is unsigned."
+          }
+          function Sign($file) {
+            if (-not $pfx) { return }
+            & $signtool.FullName sign /f $pfx /p $env:CERT_PASSWORD /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 /d Concat $file
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $file" }
+          }
           New-Item -ItemType Directory -Force "stage\$name" | Out-Null
           Copy-Item "src\target\${{ matrix.target }}\app\concat.exe" "stage\$name\"
+          Sign "stage\$name\concat.exe"
           Copy-Item "$env:FFMPEG_DIR\bin\*.dll" "stage\$name\"
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
@@ -678,6 +701,7 @@ jobs:
             "/DStage=$PWD\stage\$name" "/DOut=$PWD\stage" assets\windows\concat.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name-setup.exe")) { throw "stage\$name-setup.exe is not there" }
+          Sign "stage\$name-setup.exe"
           # And the .msi, with WiX, for the machines an administrator
           # deploys to. See assets/windows/concat.wxs.
           dotnet tool install --global wix --version $env:WIX_VERSION | Out-Null
@@ -687,6 +711,8 @@ jobs:
             -o "stage\$name.msi" assets\windows\concat.wxs
           if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
+          Sign "stage\$name.msi"
+          if ($pfx) { Remove-Item -Force $pfx }
           # The folder itself is not published: the two installers are.
           Remove-Item -Recurse -Force "stage\$name"
 
