@@ -135,14 +135,14 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.undo;
-            label: I18n.t("tray.undo");
+            label: I18n.t1("tray.undo", @keys(Control + Z).to-string());
             icon-size: 16px;
             enabled: root.can-undo;
             clicked => { root.undo(); }
         }
         TrayButton {
             glyph: Glyph.redo;
-            label: I18n.t("tray.redo");
+            label: I18n.t1("tray.redo", @keys(Control + Shift + Z).to-string());
             icon-size: 16px;
             enabled: root.can-redo;
             clicked => { root.redo(); }
@@ -155,7 +155,7 @@ export component TimelineTray inherits Rectangle {
         // already where you were looking.
         TrayButton {
             glyph: Glyph.split;
-            label: I18n.t("tray.splitAtPlayhead");
+            label: I18n.t1("tray.splitAtPlayhead", @keys(Control + B).to-string());
             icon-size: 16px;
             clicked => { root.split(); }
         }

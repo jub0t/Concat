@@ -966,11 +966,11 @@
   "tray.panTool": "ابزار Pan (H)",
   "tray.playerFollowsResizePlayhead": "پخش‌کننده برش را دنبال می‌کند: نشانگر پخش همراه لبه‌ای که برش می‌دهید حرکت می‌کند",
   "tray.previewAxisOptions": "گزینه‌های محور پیش‌نمایش",
-  "tray.redo": "انجام مجدد (⇧⌘Z)",
-  "tray.splitAtPlayhead": "تقسیم در نشانگر پخش (B، یا ⌘B برای همه کلیپ‌ها)",
+  "tray.redo": "انجام مجدد ({0})",
+  "tray.splitAtPlayhead": "تقسیم در نشانگر پخش (B، یا {0} برای همه کلیپ‌ها)",
   "tray.textToSpeech": "تبدیل متن به گفتار",
   "tray.turnOffPreviewAxis": "خاموش کردن محور پیش‌نمایش (S)",
   "tray.turnOnPreviewAxis": "روشن کردن محور پیش‌نمایش (S)",
-  "tray.undo": "واگرد (⌘Z)",
+  "tray.undo": "واگرد ({0})",
   "tray.zoomToFit": "بزرگ‌نمایی متناسب"
 }

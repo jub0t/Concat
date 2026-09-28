@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Il player segue l'accorciamento: la testina di riproduzione segue il bordo che accorci",
   "tray.previewAxisOptions": "Opzioni dell'asse di anteprima",
-  "tray.redo": "Ripeti (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Dividi alla testina (B, o ⌘B per tutte le clip)",
+  "tray.redo": "Ripeti ({0})",
+  "tray.splitAtPlayhead": "Dividi alla testina (B, o {0} per tutte le clip)",
   "tray.textToSpeech": "Sintesi vocale",
   "tray.turnOffPreviewAxis": "Disattiva l'asse di anteprima (S)",
   "tray.turnOnPreviewAxis": "Attiva l'asse di anteprima (S)",
-  "tray.undo": "Annulla (⌘Z)",
+  "tray.undo": "Annulla ({0})",
   "tray.zoomToFit": "Adatta alla vista"
 }

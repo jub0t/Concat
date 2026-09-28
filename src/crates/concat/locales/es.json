@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "El reproductor sigue el recorte: el cabezal de reproducción acompaña el borde que recortas",
   "tray.previewAxisOptions": "Opciones del eje de previsualización",
-  "tray.redo": "Rehacer (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Dividir en el cabezal (B, o ⌘B para todos los clips)",
+  "tray.redo": "Rehacer ({0})",
+  "tray.splitAtPlayhead": "Dividir en el cabezal (B, o {0} para todos los clips)",
   "tray.textToSpeech": "Texto a voz",
   "tray.turnOffPreviewAxis": "Desactivar el eje de previsualización (S)",
   "tray.turnOnPreviewAxis": "Activar el eje de previsualización (S)",
-  "tray.undo": "Deshacer (⌘Z)",
+  "tray.undo": "Deshacer ({0})",
   "tray.zoomToFit": "Ajustar a la vista"
 }

@@ -304,6 +304,30 @@ pub fn report_startup_failure(error: &str) {
 /// where the traffic lights stay the window's.
 pub const OWN_WINDOW_BUTTONS: bool = !MACOS;
 
+/// A shortcut as this platform writes it, from the parts a `@keys` takes:
+/// `["Control", "Shift", "Z"]` reads ⇧⌘Z on a Mac and Ctrl+Shift+Z on
+/// Windows and Linux, because Slint takes `Control` for ⌘ there. The same
+/// parts as the binding in app.slint, so a menu row names the keys that
+/// work on the machine it is shown on.
+pub fn keys(parts: &[&str]) -> String {
+    slint::Keys::from_parts(parts.iter().copied())
+        .map(|keys| keys.to_string())
+        .unwrap_or_default()
+}
+
+/// The delete key as this platform writes it: ⌫ on a Mac, Del elsewhere,
+/// with Shift in front for the ripple delete. Either key deletes
+/// (app.slint); these are the names each platform's own menus use.
+pub fn delete_key(shift: bool) -> String {
+    let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+    match (apple, shift) {
+        (true, false) => "⌫".into(),
+        (true, true) => "⇧⌫".into(),
+        (false, false) => "Del".into(),
+        (false, true) => "Shift+Del".into(),
+    }
+}
+
 /// Minimises the window: the strip's first button.
 pub fn minimize(window: &slint::Window) {
     #[cfg(not(target_os = "android"))]
@@ -501,5 +525,25 @@ pub fn reveal(path: &str) -> Result<(), String> {
         Err(format!(
             "this device has no file manager to open {path} with"
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A menu row names the keys the way the platform it runs on does:
+    /// the Mac's glyphs there, Ctrl and Shift spelled out everywhere else.
+    #[test]
+    fn shortcuts_read_the_way_the_platform_writes_them() {
+        if cfg!(target_os = "macos") {
+            assert_eq!(keys(&["Control", "Shift", "Z"]), "⇧⌘Z");
+            assert_eq!(keys(&["Control", ","]), "⌘,");
+            assert_eq!(delete_key(true), "⇧⌫");
+        } else {
+            assert_eq!(keys(&["Control", "Shift", "Z"]), "Ctrl+Shift+Z");
+            assert_eq!(keys(&["Control", ","]), "Ctrl+,");
+            assert_eq!(delete_key(true), "Shift+Del");
+        }
     }
 }

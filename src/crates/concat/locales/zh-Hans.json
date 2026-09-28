@@ -966,11 +966,11 @@
   "tray.panTool": "平移工具 (H)",
   "tray.playerFollowsResizePlayhead": "播放器跟随修剪：播放头随你修剪的边缘移动",
   "tray.previewAxisOptions": "预览坐标轴选项",
-  "tray.redo": "重做 (⇧⌘Z)",
-  "tray.splitAtPlayhead": "在播放头处分割（B，或用 ⌘B 分割所有片段）",
+  "tray.redo": "重做 ({0})",
+  "tray.splitAtPlayhead": "在播放头处分割（B，或用 {0} 分割所有片段）",
   "tray.textToSpeech": "文字转语音",
   "tray.turnOffPreviewAxis": "关闭预览坐标轴 (S)",
   "tray.turnOnPreviewAxis": "打开预览坐标轴 (S)",
-  "tray.undo": "撤销 (⌘Z)",
+  "tray.undo": "撤销 ({0})",
   "tray.zoomToFit": "缩放至适合"
 }

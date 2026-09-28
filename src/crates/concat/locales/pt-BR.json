@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "O player acompanha o corte: a agulha segue a borda que você arrasta",
   "tray.previewAxisOptions": "Opções do eixo de prévia",
-  "tray.redo": "Refazer (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Dividir no cursor (B, ou ⌘B para todos os clipes)",
+  "tray.redo": "Refazer ({0})",
+  "tray.splitAtPlayhead": "Dividir no cursor (B, ou {0} para todos os clipes)",
   "tray.textToSpeech": "Texto para fala",
   "tray.turnOffPreviewAxis": "Desligar o eixo de prévia (S)",
   "tray.turnOnPreviewAxis": "Ligar o eixo de prévia (S)",
-  "tray.undo": "Desfazer (⌘Z)",
+  "tray.undo": "Desfazer ({0})",
   "tray.zoomToFit": "Ajustar à janela"
 }

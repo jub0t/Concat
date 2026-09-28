@@ -360,7 +360,11 @@ export component App inherits Window {
     //     rather than from a check on the target.
     //
     // `Control` in a binding is the platform's own command modifier: Slint
-    // remaps it to ⌘ on macOS, which is also what the menu row beside it says.
+    // remaps it to ⌘ on macOS and leaves it Ctrl on Windows and Linux, and
+    // the menu row beside it is written from the same keys (platform.rs,
+    // `keys`), so what a row says is what works on the machine it is on.
+    // Bindings rather than letters compared in `key-pressed`: a binding
+    // matches whatever the case, so Caps Lock does not turn every chord off.
     keys := FocusScope {
         width: 100%;
         height: 100%;
@@ -388,6 +392,80 @@ export component App inherits Window {
             enabled: !root.on-start;
             activated => { root.app-menu-selected("redo"); }
         }
+        // Windows and Linux redo on Ctrl+Y as well; on a Mac ⌘Y is not redo.
+        KeyBinding {
+            keys: @keys(Control + Y);
+            enabled: !root.on-start && !root.macos;
+            activated => { root.app-menu-selected("redo"); }
+        }
+        // Open and Close Window work from the launch screen too: it opens
+        // projects, and it is a window.
+        KeyBinding {
+            keys: @keys(Control + O);
+            activated => { root.app-menu-selected("open"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + W);
+            activated => { root.app-menu-selected("close-window"); }
+        }
+        // The editor's chords, each the shortcut its menu row names.
+        KeyBinding {
+            keys: @keys(Control + B);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("split"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + A);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("select-all"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + C);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("copy"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + V);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("paste"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + D);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("duplicate"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + E);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("export"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + I);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("import"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + ",");
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("settings"); }
+        }
+        // Zoom in on = as well as +: they share a key on most layouts, and
+        // nobody reaches for Shift to zoom.
+        KeyBinding {
+            keys: @keys(Control + "=");
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("zoom-in"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + Plus);
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("zoom-in"); }
+        }
+        KeyBinding {
+            keys: @keys(Control + "-");
+            enabled: !root.on-start;
+            activated => { Editor.shortcut("zoom-out"); }
+        }
 
         // The rest of the keyboard, laid out the way every editor has
         // taught its users: the chord key with a letter for an edit, a
@@ -400,25 +478,10 @@ export component App inherits Window {
             if (root.on-start) {
                 return reject;
             }
-            // The command key arrives as meta on a Mac and as control
-            // everywhere else; either is the chord key.
+            // A chord is the bindings' above; one they did not take is
+            // nobody's, and must not fall through to the bare letters
+            // below - Ctrl+H is not the hand.
             if (event.modifiers.control || event.modifiers.meta) {
-                if (event.modifiers.shift || event.modifiers.alt) {
-                    return reject;
-                }
-                if (event.text == "b") { Editor.shortcut("split"); return accept; }
-                if (event.text == "a") { Editor.shortcut("select-all"); return accept; }
-                if (event.text == "c") { Editor.shortcut("copy"); return accept; }
-                if (event.text == "v") { Editor.shortcut("paste"); return accept; }
-                if (event.text == "d") { Editor.shortcut("duplicate"); return accept; }
-                if (event.text == "e") { Editor.shortcut("export"); return accept; }
-                if (event.text == "i") { Editor.shortcut("import"); return accept; }
-                if (event.text == ",") { Editor.shortcut("settings"); return accept; }
-                if (event.text == "=" || event.text == "+") {
-                    Editor.shortcut("zoom-in");
-                    return accept;
-                }
-                if (event.text == "-") { Editor.shortcut("zoom-out"); return accept; }
                 return reject;
             }
             if (event.modifiers.alt) {
@@ -450,19 +513,21 @@ export component App inherits Window {
             if (event.modifiers.shift) {
                 return reject;
             }
+            // Lower-cased, so Caps Lock leaves the letters alone.
+            let letter = event.text.to-lowercase();
             // B splits the selected clips at the playhead, or every clip
-            // when nothing is selected; ⌘B above splits every clip either
-            // way. There was a razor tool on B and this split on S, and
-            // the two did the same thing by different pointers.
-            if (event.text == "b") { Editor.shortcut("split-selected"); return accept; }
-            if (event.text == "n") { Editor.shortcut("snap"); return accept; }
-            if (event.text == "s") { Editor.shortcut("preview-axis"); return accept; }
-            if (event.text == "m") { Editor.shortcut("mute"); return accept; }
+            // when nothing is selected; the chord B above splits every clip
+            // either way. There was a razor tool on B and this split on S,
+            // and the two did the same thing by different pointers.
+            if (letter == "b") { Editor.shortcut("split-selected"); return accept; }
+            if (letter == "n") { Editor.shortcut("snap"); return accept; }
+            if (letter == "s") { Editor.shortcut("preview-axis"); return accept; }
+            if (letter == "m") { Editor.shortcut("mute"); return accept; }
             // H is the hand: the pan tool, on and off, the key every
             // editor's canvas grabs with. It and J were the flips once;
             // flipping is the inspector's and the clip menu's now, and J
             // is free.
-            if (event.text == "h") { Editor.shortcut("pan"); return accept; }
+            if (letter == "h") { Editor.shortcut("pan"); return accept; }
             return reject;
         }
 

@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Reprodukcija prati skraćivanje: glava za reprodukciju prati rub koji skraćujete",
   "tray.previewAxisOptions": "Mogućnosti osi pregleda",
-  "tray.redo": "Ponovi (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Podijeli na playheadu (B, ili ⌘B za svaki klip)",
+  "tray.redo": "Ponovi ({0})",
+  "tray.splitAtPlayhead": "Podijeli na playheadu (B, ili {0} za svaki klip)",
   "tray.textToSpeech": "Tekst u govor",
   "tray.turnOffPreviewAxis": "Isključi os pregleda (S)",
   "tray.turnOnPreviewAxis": "Uključi os pregleda (S)",
-  "tray.undo": "Poništi (⌘Z)",
+  "tray.undo": "Poništi ({0})",
   "tray.zoomToFit": "Povećaj da stane"
 }

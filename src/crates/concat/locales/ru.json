@@ -966,11 +966,11 @@
   "tray.panTool": "Инструмент «Рука» (H)",
   "tray.playerFollowsResizePlayhead": "Плеер следует за подрезкой: курсор движется вместе с краем, который вы подрезаете",
   "tray.previewAxisOptions": "Параметры оси предпросмотра",
-  "tray.redo": "Повторить (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Разрезать по курсору (B, или ⌘B для всех клипов)",
+  "tray.redo": "Повторить ({0})",
+  "tray.splitAtPlayhead": "Разрезать по курсору (B, или {0} для всех клипов)",
   "tray.textToSpeech": "Озвучить текст",
   "tray.turnOffPreviewAxis": "Выключить ось предпросмотра (S)",
   "tray.turnOnPreviewAxis": "Включить ось предпросмотра (S)",
-  "tray.undo": "Отменить (⌘Z)",
+  "tray.undo": "Отменить ({0})",
   "tray.zoomToFit": "Вместить"
 }

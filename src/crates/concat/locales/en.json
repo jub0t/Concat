@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Player follows the resize: the playhead rides the edge you trim",
   "tray.previewAxisOptions": "Preview axis options",
-  "tray.redo": "Redo (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Split at playhead (B, or ⌘B for every clip)",
+  "tray.redo": "Redo ({0})",
+  "tray.splitAtPlayhead": "Split at playhead (B, or {0} for every clip)",
   "tray.textToSpeech": "Text to Speech",
   "tray.turnOffPreviewAxis": "Turn off Preview Axis (S)",
   "tray.turnOnPreviewAxis": "Turn on Preview Axis (S)",
-  "tray.undo": "Undo (⌘Z)",
+  "tray.undo": "Undo ({0})",
   "tray.zoomToFit": "Zoom to fit"
 }

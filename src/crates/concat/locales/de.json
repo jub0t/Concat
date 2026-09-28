@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Wiedergabe folgt dem Kürzen: Der Abspielkopf wandert mit der Kante, die du kürzt",
   "tray.previewAxisOptions": "Optionen der Vorschauachse",
-  "tray.redo": "Wiederholen (⇧⌘Z)",
-  "tray.splitAtPlayhead": "Am Abspielkopf teilen (B, oder ⌘B für jeden Clip)",
+  "tray.redo": "Wiederholen ({0})",
+  "tray.splitAtPlayhead": "Am Abspielkopf teilen (B, oder {0} für jeden Clip)",
   "tray.textToSpeech": "Text zu Sprache",
   "tray.turnOffPreviewAxis": "Vorschauachse ausschalten (S)",
   "tray.turnOnPreviewAxis": "Vorschauachse einschalten (S)",
-  "tray.undo": "Rückgängig (⌘Z)",
+  "tray.undo": "Rückgängig ({0})",
   "tray.zoomToFit": "Einpassen"
 }

@@ -966,11 +966,11 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "プレーヤーがトリミングに追従：再生ヘッドがトリミング中の端に合わせて動きます",
   "tray.previewAxisOptions": "プレビュー軸のオプション",
-  "tray.redo": "やり直す (⇧⌘Z)",
-  "tray.splitAtPlayhead": "再生ヘッドで分割 (B、すべてのクリップは ⌘B)",
+  "tray.redo": "やり直す ({0})",
+  "tray.splitAtPlayhead": "再生ヘッドで分割 (B、すべてのクリップは {0})",
   "tray.textToSpeech": "テキスト読み上げ",
   "tray.turnOffPreviewAxis": "プレビュー軸をオフにする (S)",
   "tray.turnOnPreviewAxis": "プレビュー軸をオンにする (S)",
-  "tray.undo": "取り消す (⌘Z)",
+  "tray.undo": "取り消す ({0})",
   "tray.zoomToFit": "全体を表示"
 }

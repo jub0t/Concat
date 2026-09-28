@@ -60,6 +60,7 @@ use crate::host::{
 };
 use crate::i18n::{self, t, tf};
 use crate::panes::settings::installed;
+use crate::platform;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
@@ -8464,19 +8465,19 @@ impl Studio {
         };
 
         let mut rows = vec![
-            action("copy", t("common.copy"), Glyph::Copy, "⌘C", true),
+            action("copy", t("common.copy"), Glyph::Copy, &platform::keys(&["Control", "C"]), true),
             action(
                 "duplicate",
                 t("studio.duplicate"),
                 Glyph::Plus,
-                "⌘D",
+                &platform::keys(&["Control", "D"]),
                 !locked,
             ),
             action(
                 "paste",
                 t("studio.paste"),
                 Glyph::Plus,
-                "⌘V",
+                &platform::keys(&["Control", "V"]),
                 self.clipboard.is_some(),
             ),
             rule(),
@@ -8562,7 +8563,7 @@ impl Studio {
             label: t("common.delete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
-            shortcut: "⌫".into(),
+            shortcut: platform::delete_key(false).into(),
             enabled: !locked,
             danger: true,
             checkable: false,
@@ -8573,7 +8574,7 @@ impl Studio {
             label: t("studio.rippleDelete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
-            shortcut: "⇧⌫".into(),
+            shortcut: platform::delete_key(true).into(),
             enabled: !locked,
             danger: true,
             checkable: false,
@@ -8742,9 +8743,9 @@ impl Studio {
                     "",
                     has_selection_media,
                 ),
-                row("open", t("studio.openProject"), Glyph::Import, "⌘O", true),
-                row("import", t("studio.importMedia"), Glyph::Import, "⌘I", true),
-                row("save", t("studio.save"), Glyph::Import, "⌘S", true),
+                row("open", t("studio.openProject"), Glyph::Import, &platform::keys(&["Control", "O"]), true),
+                row("import", t("studio.importMedia"), Glyph::Import, &platform::keys(&["Control", "I"]), true),
+                row("save", t("studio.save"), Glyph::Import, &platform::keys(&["Control", "S"]), true),
                 row(
                     "export",
                     t("studio.export"),
@@ -8772,7 +8773,7 @@ impl Studio {
                     "settings",
                     t("studio.settings"),
                     Glyph::Settings,
-                    "⌘,",
+                    &platform::keys(&["Control", ","]),
                     true,
                 ),
                 rule(),
@@ -8788,7 +8789,7 @@ impl Studio {
                     label: t("studio.closeWindow").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Close,
-                    shortcut: "⌘W".into(),
+                    shortcut: platform::keys(&["Control", "W"]).into(),
                     enabled: true,
                     danger: true,
                     checkable: false,
@@ -8796,14 +8797,14 @@ impl Studio {
                 },
             ],
             1 => vec![
-                row("undo", t("studio.undo"), Glyph::Undo, "⌘Z", can_undo),
-                row("redo", t("studio.redo"), Glyph::Redo, "⇧⌘Z", can_redo),
+                row("undo", t("studio.undo"), Glyph::Undo, &platform::keys(&["Control", "Z"]), can_undo),
+                row("redo", t("studio.redo"), Glyph::Redo, &platform::keys(&["Control", "Shift", "Z"]), can_redo),
                 rule(),
                 row(
                     "split",
                     t("studio.splitAtPlayhead"),
                     Glyph::Razor,
-                    "⌘B",
+                    &platform::keys(&["Control", "B"]),
                     straddled,
                 ),
                 MenuItemData {
@@ -8816,7 +8817,7 @@ impl Studio {
                     .into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Trash,
-                    shortcut: "⌫".into(),
+                    shortcut: platform::delete_key(false).into(),
                     enabled: selected > 0,
                     danger: true,
                     checkable: false,
@@ -8832,7 +8833,7 @@ impl Studio {
                     .into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Trash,
-                    shortcut: "⇧⌫".into(),
+                    shortcut: platform::delete_key(true).into(),
                     enabled: selected > 0,
                     danger: true,
                     checkable: false,
