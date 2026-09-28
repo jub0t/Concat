@@ -129,6 +129,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [build-dependencies]
 slint-build = "1.18"
+# The .exe's icon, for Explorer and the Start menu, as a Windows resource.
+# Used only when the target is Windows; see build.rs.
+winresource = "0.1"
 
 [lints]
 workspace = true

@@ -37,6 +37,19 @@ fn main() {
         .expect("the Slint compiler thread panicked")
         .expect("failed to compile ui/app.slint");
 
+    // The .exe's icon. The window's own is set in app.slint, but Explorer,
+    // the Start menu and a pinned taskbar button read the file's resources,
+    // and without one they show Windows' generic program icon. Needs the
+    // Windows SDK's rc.exe, which an MSVC toolchain has.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let icon = "../../../assets/icons/concat.ico";
+        println!("cargo:rerun-if-changed={icon}");
+        winresource::WindowsResource::new()
+            .set_icon(icon)
+            .compile()
+            .expect("could not embed the Windows icon");
+    }
+
     // Three facts about the build that the built thing cannot ask for at run
     // time. Settings > About shows them in the block a bug report is copied
     // out of: which triple this binary is for, which profile it came out of,
