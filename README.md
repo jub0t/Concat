@@ -2,11 +2,7 @@
 <table width="100%">
   <tr>
     <td align="left" width="120">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/mark-dark.png" />
-        <source media="(prefers-color-scheme: light)" srcset="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/mark-light.png" />
-        <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/mark-light.png" alt="Concat" width="100" />
-      </picture>
+      <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/concat-mark.png" alt="Concat" width="100" />
     </td>
     <td align="">
       <h1>Concat</h1>
