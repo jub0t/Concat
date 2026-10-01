@@ -1113,6 +1113,46 @@ fn every_package_probe_holds() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
+/// The prelude's hue turn leaves a colour as it was when it turns it by
+/// nothing - the identity every HSL band rests on.
+#[test]
+fn a_hue_turn_of_nothing_is_the_colour_it_was() {
+    let Some(mut gpu) = gpu() else { return };
+    const TURN: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(hue_rotate(c.rgb, 0.0), c.a); }";
+    let pass = package("test.turn", TURN, "", &[], 1.0);
+    for colour in [
+        [0.8, 0.05, 0.05, 1.0],
+        [0.05, 0.6, 0.1, 1.0],
+        [0.1, 0.2, 0.9, 1.0],
+    ] {
+        let got = gpu
+            .probe(std::slice::from_ref(&pass), colour, 8, 0.0)
+            .expect("reads back");
+        // Half floats through the display encoding and back: a hundredth
+        // of a channel, where the turn that was wrong moved one by 0.09.
+        assert!(near(got, colour, 0.01), "{colour:?} came back {got:?}");
+    }
+}
+
+/// Halation's glow is not held at white: a brighter highlight lights the
+/// picture around it more.
+#[test]
+fn halation_glows_brighter_from_light_past_white() {
+    let Some(mut gpu) = gpu() else { return };
+    const GLOW: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(halation(uv, vec3<f32>(0.0), 0.5, 4.0, vec3<f32>(1.0), 1.0), c.a); }";
+    let pass = package("test.glow", GLOW, "", &[], 1.0);
+    let white = gpu
+        .probe(std::slice::from_ref(&pass), [1.0, 1.0, 1.0, 1.0], 8, 0.0)
+        .expect("reads back");
+    let past = gpu
+        .probe(&[pass], [4.0, 4.0, 4.0, 1.0], 8, 0.0)
+        .expect("reads back");
+    assert!(
+        past[0] > white[0] * 1.5,
+        "white glows {white:?}, four times white {past:?}"
+    );
+}
+
 /// A format 2 stack hands its light on unclipped: four times the light and
 /// a quarter of it again is the picture it was, a highlight far above
 /// white in between.

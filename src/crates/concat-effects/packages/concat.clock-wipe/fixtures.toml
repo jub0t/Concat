@@ -1,9 +1,10 @@
 # Colours in the working space: linear light, 1.0 the white of an SDR
-# picture. A cut from one colour to another, and its middle pixel.
+# picture. A cut from one colour to another, and its middle pixel - which
+# lies a pixel from the centre, so the hand's soft edge is part of it.
 
 [[probe]]
 name = "default"
 input = [0.8, 0.5, 0.3, 1]
 to = [0.05, 0.15, 0.4, 1]
 progress = 0.37
-expect = [0.7998, 0.5, 0.30005, 1]
+expect = [0.64307, 0.427, 0.3208, 1]

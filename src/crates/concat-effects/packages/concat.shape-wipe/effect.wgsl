@@ -24,7 +24,11 @@ fn star_d(p: vec2<f32>) -> f32 {
 
 fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     let p = smoothstep(0.0, 1.0, progress);
-    let c = (uv - vec2<f32>(0.5)) * 2.0;
+    // The shapes in units of half the frame's shorter side, so a circle is
+    // round on any frame; `reach` is how far out its corners are.
+    let unit = 0.5 * min(frame.size.x, frame.size.y);
+    let c = (uv - vec2<f32>(0.5)) * frame.size / unit;
+    let reach = length(frame.size) / (2.0 * unit);
     var d: f32;
     if (params.shape < 0.5) {
         d = length(c);
@@ -33,7 +37,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
     } else {
         d = star_d(c);
     }
-    let threshold = p * 3.0 - 1.0;
+    let threshold = p * (reach + 1.6) - 1.0;
     let soft = max(params.softness * 0.01, 0.02) * 1.5;
     let m = smoothstep(threshold - soft, threshold + soft, d);
     return mix(to_at(uv), from_at(uv), m);

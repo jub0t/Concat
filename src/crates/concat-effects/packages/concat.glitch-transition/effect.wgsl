@@ -11,7 +11,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         from_at(vec2<f32>(clamp(ux + k * 0.01, 0.0, 1.0), uv.y)).r,
         from_at(vec2<f32>(ux, uv.y)).g,
         from_at(vec2<f32>(clamp(ux - k * 0.01, 0.0, 1.0), uv.y)).b,
-        1.0,
+        from_at(vec2<f32>(ux, uv.y)).a,
     );
     let b = to_at(vec2<f32>(clamp(uv.x - jitter, 0.0, 1.0), uv.y));
     return mix(a, b, smoothstep(0.0, 1.0, progress));

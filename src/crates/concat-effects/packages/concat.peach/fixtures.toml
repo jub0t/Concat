@@ -1,10 +1,11 @@
 # Colours in the working space: linear light, 1.0 the white of an SDR
-# picture. Pinned from the format 1 shader, so the look is what it was.
+# picture. Pinned from the format 1 shader, so the look is what it was,
+# but for its hue turn, which no longer shifts a colour it does not turn.
 
 [[probe]]
 name = "default"
 input = [0.3, 0.2, 0.12, 1]
-expect = [0.34595, 0.22803, 0.14636, 1]
+expect = [0.35059, 0.23145, 0.14905, 1]
 
 [[probe]]
 name = "minimum"

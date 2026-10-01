@@ -74,6 +74,6 @@ fn effect(uv: vec2<f32>) -> vec4<f32> {
     let c = sample(uv);
     let pulse = 0.6 + 0.4 * sin(frame.time * params.speed);
     let strength = params.amount * 0.01 * pulse;
-    let bloom = clamp(to_display(down_at(uv).rgb) * strength, vec3<f32>(0.0), vec3<f32>(1.0));
+    let bloom = max(to_display(down_at(uv).rgb) * strength, vec3<f32>(0.0));
     return vec4<f32>(from_display(screen(to_display(c.rgb), bloom)), c.a);
 }

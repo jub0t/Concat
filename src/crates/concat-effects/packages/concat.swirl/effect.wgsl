@@ -1,12 +1,14 @@
 struct Params { twist: f32 }
 
+/// Where `uv` was before the twist. Taken in pixels, so the swirl is round
+/// on any frame; its reach is measured in heights of the frame.
 fn swirl_uv(uv: vec2<f32>, amount: f32) -> vec2<f32> {
-    let c = uv - vec2<f32>(0.5);
-    let d = length(c);
+    let c = (uv - vec2<f32>(0.5)) * frame.size;
+    let d = length(c) / frame.size.y;
     let a = amount * (1.0 - smoothstep(0.0, 0.7, d));
     let s = sin(a);
     let co = cos(a);
-    return vec2<f32>(c.x * co - c.y * s, c.x * s + c.y * co) + vec2<f32>(0.5);
+    return vec2<f32>(c.x * co - c.y * s, c.x * s + c.y * co) / frame.size + vec2<f32>(0.5);
 }
 
 // The twist peaks at the middle of the cut and resolves at both ends.

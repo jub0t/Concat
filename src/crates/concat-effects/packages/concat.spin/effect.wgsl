@@ -4,12 +4,15 @@ fn in_bounds(uv: vec2<f32>) -> bool {
     return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0;
 }
 
+/// Where `uv` was before the picture turned by `angle` and grew by `scale`
+/// about its centre. The turn is taken in pixels, so a frame wider than it
+/// is tall turns rigidly rather than shearing.
 fn spin_uv(uv: vec2<f32>, angle: f32, scale: f32) -> vec2<f32> {
-    let c = uv - vec2<f32>(0.5);
+    let c = (uv - vec2<f32>(0.5)) * frame.size;
     let s = sin(angle);
     let co = cos(angle);
     let r = vec2<f32>(c.x * co - c.y * s, c.x * s + c.y * co) / max(scale, 0.0001);
-    return r + vec2<f32>(0.5);
+    return r / frame.size + vec2<f32>(0.5);
 }
 
 fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {

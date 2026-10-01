@@ -386,10 +386,13 @@ fn film_curve(rgb: vec3<f32>, toe: f32, shoulder: f32) -> vec3<f32> {
 }
 
 /// Every hue turned by `degrees`, brightness held: a rotation in the
-/// YIQ plane, the same for every pixel.
+/// YIQ plane, the same for every pixel. YIQ is built on Rec. 601's luma,
+/// not `luma`'s Rec. 709: its rows and their inverse only undo each other
+/// with the weights they were made with, so a turn of nothing is the
+/// colour it was.
 fn hue_rotate(rgb: vec3<f32>, degrees: f32) -> vec3<f32> {
     let a = radians(degrees);
-    let y = luma(rgb);
+    let y = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
     let i = dot(rgb, vec3<f32>(0.596, -0.274, -0.322));
     let q = dot(rgb, vec3<f32>(0.211, -0.523, 0.312));
     let i2 = i * cos(a) - q * sin(a);
@@ -422,12 +425,13 @@ fn halation(uv: vec2<f32>, rgb: vec3<f32>, threshold: f32, radius: f32, tint: ve
     var sum = vec3<f32>(0.0);
     for (var y: i32 = -2; y <= 2; y++) {
         for (var x: i32 = -2; x <= 2; x++) {
-            let s = sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
-            let bright = smoothstep(threshold, 1.0, luma(s));
-            sum += s * bright;
+            let s = sample_premultiplied(uv + vec2<f32>(f32(x), f32(y)) * t);
+            let bright = smoothstep(threshold, 1.0, luma(s.rgb / max(s.a, 1e-6)));
+            sum += s.rgb * bright;
         }
     }
-    let glow = clamp(sum / 25.0 * tint * amount, vec3<f32>(0.0), vec3<f32>(1.0));
+    // Light past white glows past white: only the floor is held.
+    let glow = max(sum / 25.0 * tint * amount, vec3<f32>(0.0));
     return screen(rgb, glow);
 }
 
@@ -471,16 +475,18 @@ fn skin_mask(rgb: vec3<f32>) -> f32 {
 }
 
 /// The layer averaged over a square of taps `radius` pixels across: a
-/// bloom, a soft denoise, the blur an unsharp mask subtracts.
+/// bloom, a soft denoise, the blur an unsharp mask subtracts. The taps are
+/// summed premultiplied, so a transparent pixel's colour never bleeds into
+/// the picture beside it, and the average is handed back straight.
 fn soften(uv: vec2<f32>, radius: f32) -> vec3<f32> {
     let t = texel() * radius * 0.5;
-    var sum = vec3<f32>(0.0);
+    var sum = vec4<f32>(0.0);
     for (var y: i32 = -2; y <= 2; y++) {
         for (var x: i32 = -2; x <= 2; x++) {
-            sum += sample(uv + vec2<f32>(f32(x), f32(y)) * t).rgb;
+            sum += sample_premultiplied(uv + vec2<f32>(f32(x), f32(y)) * t);
         }
     }
-    return sum / 25.0;
+    return sum.rgb / max(sum.a, 1e-6);
 }
 
 /// Grain: noise that changes every frame, centred on zero, `amount` as a

@@ -8,13 +8,13 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         from_at(vec2<f32>(uv.x + k, uv.y)).r,
         from_at(uv).g,
         from_at(vec2<f32>(uv.x - k, uv.y)).b,
-        1.0,
+        from_at(uv).a,
     );
     let b = vec4<f32>(
         to_at(vec2<f32>(uv.x - k, uv.y)).r,
         to_at(uv).g,
         to_at(vec2<f32>(uv.x + k, uv.y)).b,
-        1.0,
+        to_at(uv).a,
     );
     return mix(a, b, smoothstep(0.0, 1.0, progress));
 }
