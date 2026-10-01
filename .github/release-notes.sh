@@ -109,7 +109,7 @@ A self-contained build for every platform Concat ships on.
 |---|---|---|---|
 | macOS | `macos-arm64.dmg` | `macos-x86_64.dmg` | |
 | Windows | | `windows-x86_64-setup.exe`, `.msi` | `windows-aarch64-setup.exe`, `.msi` |
-| Linux | | `linux-x86_64.deb`, `.rpm`, `.AppImage` | `linux-aarch64.deb`, `.rpm`, `.AppImage` |
+| Linux | | `linux-x86_64.deb`, `.rpm`, `x86_64.AppImage` | `linux-aarch64.deb`, `.rpm`, `aarch64.AppImage` |
 | Android | | | `android-arm64.apk` |
 | iOS / iPadOS | | | `ios-arm64.ipa` |
 

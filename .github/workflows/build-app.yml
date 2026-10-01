@@ -645,8 +645,11 @@ jobs:
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
           chmod +x appimagetool
           # Extract-and-run: the runner has no FUSE to mount the tool with.
-          ./appimagetool --appimage-extract-and-run "$appdir" "stage/$name.AppImage"
-          chmod +x "stage/$name.AppImage"
+          # No "linux" in its name: every AppImage is for Linux, and the
+          # AppImage catalog's check warns about names that say so.
+          appimage="stage/Concat-${VERSION}-${{ matrix.arch }}.AppImage"
+          ./appimagetool --appimage-extract-and-run "$appdir" "$appimage"
+          chmod +x "$appimage"
 
           rm -r "$STAGE" "$appdir"
           ls -l stage
