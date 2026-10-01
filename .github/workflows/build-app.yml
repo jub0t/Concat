@@ -8,6 +8,7 @@ name: Build app
 #   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
 #   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst
 #   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
+#                                                          (+ .msix for the Store, apart)
 #
 # Installers and binaries only: the program is not shipped as an archive
 # of a folder to unpack, so what a person downloads is what they run.
@@ -666,6 +667,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           CERT_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # The identity Partner Center reserved for the app. Unset, no
+          # .msix is made: a fork has no Store listing to make one for.
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+          MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+          MSSTORE_DISPLAY_NAME: ${{ vars.MSSTORE_DISPLAY_NAME || 'Concat' }}
         run: |
           $ErrorActionPreference = "Stop"
           $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
@@ -717,6 +724,38 @@ jobs:
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
           Sign "stage\$name.msi"
           if ($pfx) { Remove-Item -Force $pfx }
+          # And the .msix, for the Microsoft Store, from the same folder with
+          # the manifest and logos beside it. See assets/windows/AppxManifest.xml.
+          # Into store/, not stage/: the Store signs it and takes it, and an
+          # unsigned package in the release is one nobody can install.
+          if ($env:MSSTORE_IDENTITY_NAME -and $env:MSSTORE_PUBLISHER) {
+            $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+              Sort-Object FullName -Descending | Select-Object -First 1
+            if (-not $makeappx) { throw "makeappx.exe is not in the Windows SDK" }
+            $pack = "$env:RUNNER_TEMP\msix"
+            Copy-Item -Recurse "stage\$name" $pack
+            Copy-Item -Recurse assets\windows\store "$pack\Assets"
+            # The Store's four-part version, whose last part must be 0.
+            $fill = [ordered]@{
+              "{IdentityName}" = $env:MSSTORE_IDENTITY_NAME
+              "{Publisher}" = $env:MSSTORE_PUBLISHER
+              "{PublisherDisplayName}" = $env:MSSTORE_PUBLISHER_DISPLAY_NAME
+              "{DisplayName}" = $env:MSSTORE_DISPLAY_NAME
+              "{Version}" = "$env:VERSION.0"
+              "{Arch}" = "${{ matrix.wix }}"
+            }
+            $manifest = Get-Content -Raw assets\windows\AppxManifest.xml
+            foreach ($word in $fill.Keys) {
+              $manifest = $manifest.Replace($word, [Security.SecurityElement]::Escape($fill[$word]))
+            }
+            Set-Content -Encoding utf8 -NoNewline "$pack\AppxManifest.xml" $manifest
+            New-Item -ItemType Directory -Force store | Out-Null
+            & $makeappx.FullName pack /o /d $pack /p "store\$name.msix"
+            if ($LASTEXITCODE -ne 0) { throw "makeappx failed with $LASTEXITCODE" }
+            Remove-Item -Recurse -Force $pack
+          } else {
+            Write-Host "No Store identity in the repository's variables: no .msix."
+          }
           # The folder itself is not published: the two installers are.
           Remove-Item -Recurse -Force "stage\$name"
 
@@ -724,4 +763,13 @@ jobs:
         with:
           name: Concat-${{ matrix.platform }}-${{ matrix.arch }}
           path: stage/*
+          if-no-files-found: error
+
+      # The Store's package, apart from the release's bundles: release.yml
+      # bundles the two architectures and submits them.
+      - uses: actions/upload-artifact@v7
+        if: matrix.platform == 'windows' && hashFiles('store/*.msix') != ''
+        with:
+          name: Store-windows-${{ matrix.arch }}
+          path: store/*.msix
           if-no-files-found: error

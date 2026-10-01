@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Concat's MSIX manifest, for the Microsoft Store.
+
+  build-app.yml fills the {Braced} words in and packs the staged folder
+  (the one the .exe and .msi are made of) with this beside it and the
+  logos under store/ as Assets. The identity is the one Partner Center
+  reserved for the app, read from the repository's variables; see the
+  Store job in release.yml. The Store signs the package itself, so it is
+  not signed here, and it goes to the Store only - not to the release.
+
+  A desktop program in a package: full trust, the files as they are. The
+  Store keeps it up to date, so the app's own updater stands down when it
+  finds itself installed under WindowsApps (see concat-host's updates.rs).
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap rescap">
+  <Identity Name="{IdentityName}"
+            Publisher="{Publisher}"
+            Version="{Version}"
+            ProcessorArchitecture="{Arch}" />
+  <Properties>
+    <DisplayName>{DisplayName}</DisplayName>
+    <PublisherDisplayName>{PublisherDisplayName}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="Concat" Executable="concat.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="{DisplayName}"
+                          Description="Video editor"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

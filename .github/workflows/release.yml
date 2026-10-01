@@ -15,6 +15,10 @@ name: Release
 # FFmpeg runtime libraries beside the binary; the Android .apk is signed
 # with the repository's key, and the iOS .ipa is signed by the tester on
 # the way onto the phone. Nothing is built until CI has passed on the tag.
+#
+# A release that is not a pre-release also goes to the Microsoft Store,
+# once it is published here, when the repository is set up for it; see
+# the store job.
 on:
   push:
     tags: ["v*"]
@@ -80,9 +84,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The bundles only: the Store's packages are the store job's.
       - uses: actions/download-artifact@v8
         with:
           path: bundles
+          pattern: Concat-*
           merge-multiple: true
 
       # The tree the release is cut from: the notes are read out of its
@@ -134,3 +140,66 @@ jobs:
           body_path: ${{ runner.temp }}/notes.md
           fail_on_unmatched_files: true
           files: bundles/*
+
+  # The Windows packages to the Microsoft Store: the two .msix files the
+  # build made, as one .msixbundle, submitted to the app's listing with
+  # Microsoft's msstore CLI and committed for certification. The Store
+  # signs the package and keeps installs up to date.
+  #
+  # Pre-releases stay here: the Store's version is the release's number,
+  # and v0.3.0-beta.1 and v0.3.0 would both be 0.3.0.0.
+  #
+  # Needs, from Partner Center, repository variables:
+  #   MSSTORE_PRODUCT_ID              the app's Store ID, e.g. 9NBLGGH4R315
+  #   MSSTORE_IDENTITY_NAME           Package/Identity/Name
+  #   MSSTORE_PUBLISHER               Package/Identity/Publisher, CN=...
+  #   MSSTORE_PUBLISHER_DISPLAY_NAME  Package/Properties/PublisherDisplayName
+  #   MSSTORE_DISPLAY_NAME            the reserved name, if not Concat
+  # and secrets, from the Entra ID app associated with the account:
+  #   MSSTORE_TENANT_ID, MSSTORE_SELLER_ID, MSSTORE_CLIENT_ID,
+  #   MSSTORE_CLIENT_SECRET
+  # Without the product ID the job is skipped, as it is on a fork.
+  store:
+    name: Microsoft Store
+    needs: [check, publish]
+    if: ${{ !contains(needs.check.outputs.tag, '-') && vars.MSSTORE_PRODUCT_ID != '' }}
+    runs-on: windows-2022
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: store
+          pattern: Store-windows-*
+          merge-multiple: true
+
+      - name: Bundle
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $makeappx) { throw "makeappx.exe is not in the Windows SDK" }
+          $packages = @(Get-ChildItem store\*.msix)
+          if ($packages.Count -ne 2) { throw "expected the x86_64 and aarch64 .msix, found $($packages.Count)" }
+          & $makeappx.FullName bundle /o /bv "$env:VERSION.0" /d store /p "Concat-$env:VERSION-windows.msixbundle"
+          if ($LASTEXITCODE -ne 0) { throw "makeappx failed with $LASTEXITCODE" }
+
+      - uses: microsoft/setup-msstore-cli@v1
+
+      - name: Submit
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+          TENANT_ID: ${{ secrets.MSSTORE_TENANT_ID }}
+          SELLER_ID: ${{ secrets.MSSTORE_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.MSSTORE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID `
+            --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { throw "msstore could not sign in" }
+          msstore publish "Concat-$env:VERSION-windows.msixbundle" -id $env:PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) { throw "msstore publish failed with $LASTEXITCODE" }

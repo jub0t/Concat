@@ -240,7 +240,8 @@ impl PackageKind {
 pub enum Fixed {
     /// A Flatpak: Flatpak keeps it up to date.
     Flatpak,
-    /// A phone: its store keeps it up to date.
+    /// A phone, or the Microsoft Store's package: the store keeps it up
+    /// to date.
     Store,
     /// Not installed from any package this knows - a build from the tree,
     /// a distribution's own package.
@@ -259,6 +260,7 @@ pub fn installed_as() -> Result<PackageKind, Fixed> {
                 .ok()
                 .and_then(|exe| exe.parent().map(Path::to_path_buf));
             windows_kind(
+                dir.as_deref().is_some_and(in_windows_apps),
                 dir.as_deref()
                     .is_some_and(|dir| dir.join("unins000.exe").is_file()),
                 dir.as_deref().is_some_and(in_program_files),
@@ -277,19 +279,30 @@ pub fn installed_as() -> Result<PackageKind, Fixed> {
     })
 }
 
-/// A Windows install, from what sits beside the executable. The setup
-/// leaves its uninstaller there; the .msi leaves none and always installs
-/// under Program Files. Anything else - the portable zip, a build from the
-/// tree - came from no installer, and an update from here would put a
-/// second copy beside it rather than replace it.
-fn windows_kind(uninstaller: bool, program_files: bool) -> Result<PackageKind, Fixed> {
-    if uninstaller {
+/// A Windows install, from where the executable is and what sits beside
+/// it. The Store's package lives under WindowsApps, which is itself under
+/// Program Files, and the Store updates it. The setup leaves its
+/// uninstaller beside the program; the .msi leaves none and always
+/// installs under Program Files. Anything else - the portable zip, a build
+/// from the tree - came from no installer, and an update from here would
+/// put a second copy beside it rather than replace it.
+fn windows_kind(store: bool, uninstaller: bool, program_files: bool) -> Result<PackageKind, Fixed> {
+    if store {
+        Err(Fixed::Store)
+    } else if uninstaller {
         Ok(PackageKind::Setup)
     } else if program_files {
         Ok(PackageKind::Msi)
     } else {
         Err(Fixed::NotFromPackage)
     }
+}
+
+/// Whether `dir` is inside a packaged app's folder: Windows installs every
+/// .msix under a `WindowsApps` folder, wherever the volume.
+fn in_windows_apps(dir: &Path) -> bool {
+    dir.components()
+        .any(|part| part.as_os_str().eq_ignore_ascii_case("WindowsApps"))
 }
 
 /// Whether `dir` is under one of Windows' Program Files folders.
@@ -828,13 +841,24 @@ mod tests {
             linux_kind(false, false, false, false, false),
             Err(Fixed::NotFromPackage)
         );
-        // The setup's uninstaller wins even under Program Files, where an
-        // administrator's run of the setup also puts it; the .msi is the
-        // Program Files install without one; the portable zip is neither.
-        assert_eq!(windows_kind(true, false), Ok(PackageKind::Setup));
-        assert_eq!(windows_kind(true, true), Ok(PackageKind::Setup));
-        assert_eq!(windows_kind(false, true), Ok(PackageKind::Msi));
-        assert_eq!(windows_kind(false, false), Err(Fixed::NotFromPackage));
+        // The Store's package is the Store's, though it sits under Program
+        // Files. The setup's uninstaller wins even under Program Files,
+        // where an administrator's run of the setup also puts it; the .msi
+        // is the Program Files install without one; the portable zip is
+        // neither.
+        assert_eq!(windows_kind(true, false, true), Err(Fixed::Store));
+        assert_eq!(windows_kind(false, true, false), Ok(PackageKind::Setup));
+        assert_eq!(windows_kind(false, true, true), Ok(PackageKind::Setup));
+        assert_eq!(windows_kind(false, false, true), Ok(PackageKind::Msi));
+        assert_eq!(
+            windows_kind(false, false, false),
+            Err(Fixed::NotFromPackage)
+        );
+        assert!(in_windows_apps(Path::new(
+            "C:/Program Files/WindowsApps/Concat_0.2.6.0_x64__abc"
+        )));
+        assert!(in_windows_apps(Path::new("D:/windowsapps/Concat")));
+        assert!(!in_windows_apps(Path::new("C:/Program Files/Concat")));
         for kind in [
             PackageKind::Dmg,
             PackageKind::Setup,
