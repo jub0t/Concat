@@ -138,18 +138,8 @@ Concat에는 유료 장벽이 없고 앞으로도 없을 것입니다: 워터마
 
 [로드맵](https://concatenate.pages.dev/roadmap)에 후원금이 무엇에 쓰이고 각 항목에 얼마가 드는지 나와 있습니다.
 
-**결제 방법**
+[웹사이트](https://concatenate.pages.dev/#sponsor)에서 등급을 고르세요.
 
-[웹사이트](https://concatenate.pages.dev/#sponsor)에서 등급을 고르거나, 지갑으로 바로 보내세요.
-
-| 방법 | 주소 |
-|---|---|
-| 🌐 **웹사이트** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> 암호화폐로 기부하셨나요? 지갑 송금에는 이름이 남지 않으니 인사를 남겨 주세요: [관리자의 GitHub 프로필](https://github.com/jub0t)에 있는 소셜 계정 중 하나로, 또는 [Concat Discord 서버](https://discord.gg/DVuPfpXfqP)에서.
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 지금은 후원이 어렵더라도 스타 하나, 버그 보고 하나, 영상을 편집하는 누군가에게 건네는 한마디도 큰 힘이 됩니다.

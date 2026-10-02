@@ -138,18 +138,8 @@ Concat tidak punya paywall dan tidak akan pernah: tanpa tanda air, tanpa akun, t
 
 [Peta jalan](https://concatenate.pages.dev/roadmap) memaparkan apa yang dibiayai sponsor, dan berapa biaya tiap bagiannya.
 
-**Metode pembayaran**
+Pilih tingkat di [situs web](https://concatenate.pages.dev/#sponsor).
 
-Pilih tingkat di [situs web](https://concatenate.pages.dev/#sponsor), atau kirim langsung ke dompet.
-
-| Metode | Alamat |
-|---|---|
-| 🌐 **Situs web** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Berdonasi dengan kripto? Transfer dompet tidak membawa nama, jadi sapalah: hubungi lewat salah satu media sosial di [profil GitHub pemelihara](https://github.com/jub0t), atau di [server Discord Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Belum bisa ikut menyumbang? Sebuah bintang, laporan bug, atau sepatah kata kepada seseorang yang menyunting video juga sangat berarti.

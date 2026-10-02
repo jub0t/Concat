@@ -138,18 +138,8 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 
 [מפת הדרכים](https://concatenate.pages.dev/roadmap) מפרטת מה החסות מממנת וכמה עולה כל חלק.
 
-**אמצעי תשלום**
+בחרו רמה [באתר](https://concatenate.pages.dev/#sponsor).
 
-בחרו רמה [באתר](https://concatenate.pages.dev/#sponsor), או שלחו ישירות לארנק.
-
-| אמצעי | כתובת |
-|---|---|
-| 🌐 **אתר** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> תרמתם בקריפטו? העברה לארנק לא נושאת שם, אז תגידו שלום: דרך אחת הרשתות ב-[פרופיל ה-GitHub של המתחזק](https://github.com/jub0t), או ב-[שרת ה-Discord של Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 לא יכולים לתרום כרגע? גם כוכב, דיווח על באג או מילה למישהו שעורך וידאו שווים הרבה.

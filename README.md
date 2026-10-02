@@ -30,6 +30,8 @@
 
 
 
+
+
 ## Paid Sponsors
 
 <table width="100%">
@@ -137,18 +139,8 @@ Concat has no paywall and never will: no watermark, no account, no paid tier. Sp
 
 The [roadmap](https://concatenate.pages.dev/roadmap) lays out what sponsorship pays for, and what each piece costs.
 
-**Payment Methods**
+Pick a tier on [the website](https://concatenate.pages.dev/#sponsor).
 
-Pick a tier on [the website](https://concatenate.pages.dev/#sponsor), or send straight to a wallet.
-
-| Method | Address |
-|---|---|
-| 🌐 **Website** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Donated in crypto? A wallet transfer carries no name, so do say hello: reach out through any of the socials on [the maintainer's GitHub profile](https://github.com/jub0t), or in the [Concat Discord server](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Not in a position to chip in? A star, a bug report, or a word to someone who edits video counts for a lot too.

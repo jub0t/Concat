@@ -138,18 +138,8 @@ Concat non ha un paywall e non lo avrà mai: niente filigrana, niente account, n
 
 La [roadmap](https://concatenate.pages.dev/roadmap) spiega cosa paga la sponsorizzazione, e quanto costa ogni pezzo.
 
-**Metodi di pagamento**
+Scegli un livello sul [sito web](https://concatenate.pages.dev/#sponsor).
 
-Scegli un livello sul [sito web](https://concatenate.pages.dev/#sponsor), o invia direttamente a un wallet.
-
-| Metodo | Indirizzo |
-|---|---|
-| 🌐 **Sito web** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Hai donato in cripto? Un trasferimento a un wallet non porta un nome, quindi fatti vivo: tramite uno dei social sul [profilo GitHub del manutentore](https://github.com/jub0t), o nel [server Discord di Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Non sei in condizione di contribuire? Anche una stella, una segnalazione di bug o una parola a qualcuno che monta video contano molto.

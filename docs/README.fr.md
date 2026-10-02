@@ -138,18 +138,8 @@ Concat n’a pas de paywall et n’en aura jamais : pas de filigrane, pas de com
 
 La [feuille de route](https://concatenate.pages.dev/roadmap) détaille ce que le sponsoring finance, et ce que coûte chaque pièce.
 
-**Moyens de paiement**
+Choisissez un palier sur [le site web](https://concatenate.pages.dev/#sponsor).
 
-Choisissez un palier sur [le site web](https://concatenate.pages.dev/#sponsor), ou envoyez directement vers un portefeuille.
-
-| Moyen | Adresse |
-|---|---|
-| 🌐 **Site web** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Vous avez donné en crypto ? Un virement vers un portefeuille ne porte pas de nom, alors dites bonjour : par l’un des réseaux du [profil GitHub du mainteneur](https://github.com/jub0t), ou sur le [serveur Discord de Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Pas en mesure de participer ? Une étoile, un rapport de bug ou un mot à quelqu’un qui monte de la vidéo comptent beaucoup aussi.

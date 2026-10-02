@@ -138,18 +138,8 @@ Concat に有料の壁はなく、これからもありません。透かしな�
 
 [ロードマップ](https://concatenate.pages.dev/roadmap) に、スポンサー費用で何を進めるか、それぞれにいくらかかるかが載っています。
 
-**支払い方法**
+[ウェブサイト](https://concatenate.pages.dev/#sponsor) でティアを選んでください。
 
-[ウェブサイト](https://concatenate.pages.dev/#sponsor) でティアを選ぶか、ウォレットへ直接送ってください。
-
-| 方法 | アドレス |
-|---|---|
-| 🌐 **ウェブサイト** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> 暗号資産で寄付しましたか? ウォレット送金には名前が付かないので、ぜひ声をかけてください。[メンテナーの GitHub プロフィール](https://github.com/jub0t) にある SNS のどれか、または [Concat の Discord サーバー](https://discord.gg/DVuPfpXfqP) で。
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 今は支援できなくても、スター、バグ報告、動画を編集する誰かへの一言も大きな力になります。

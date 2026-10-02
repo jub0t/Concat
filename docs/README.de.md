@@ -138,18 +138,8 @@ Concat hat keine Bezahlschranke und wird nie eine haben: kein Wasserzeichen, kei
 
 Die [Roadmap](https://concatenate.pages.dev/roadmap) zeigt, was Sponsoring bezahlt und was jedes Stück kostet.
 
-**Zahlungswege**
+Wähle eine Stufe auf [der Website](https://concatenate.pages.dev/#sponsor).
 
-Wähle eine Stufe auf [der Website](https://concatenate.pages.dev/#sponsor) oder schick direkt an eine Wallet.
-
-| Weg | Adresse |
-|---|---|
-| 🌐 **Website** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> In Krypto gespendet? Eine Wallet-Überweisung trägt keinen Namen, also sag Hallo: über eines der sozialen Profile auf [dem GitHub-Profil des Maintainers](https://github.com/jub0t) oder im [Concat-Discord-Server](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Gerade nicht in der Lage, etwas beizusteuern? Ein Stern, ein Fehlerbericht oder ein Wort an jemanden, der Video schneidet, zählt auch eine Menge.

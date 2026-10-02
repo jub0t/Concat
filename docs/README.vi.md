@@ -138,18 +138,8 @@ Concat không có tường phí và sẽ không bao giờ có: không watermark,
 
 [Lộ trình](https://concatenate.pages.dev/roadmap) trình bày tài trợ chi trả cho những gì, và mỗi phần tốn bao nhiêu.
 
-**Phương thức thanh toán**
+Chọn một mức trên [trang web](https://concatenate.pages.dev/#sponsor).
 
-Chọn một mức trên [trang web](https://concatenate.pages.dev/#sponsor), hoặc gửi thẳng vào ví.
-
-| Phương thức | Địa chỉ |
-|---|---|
-| 🌐 **Trang web** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Đã quyên góp bằng tiền mã hóa? Một giao dịch ví không mang tên, nên hãy chào một tiếng: qua bất kỳ mạng xã hội nào trên [hồ sơ GitHub của người bảo trì](https://github.com/jub0t), hoặc trong [máy chủ Discord của Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Chưa thể đóng góp? Một ngôi sao, một báo cáo lỗi, hay một lời giới thiệu với ai đó làm video cũng rất đáng quý.

@@ -138,18 +138,8 @@ Concat nema naplatu i nikada je neće imati: bez vodenog žiga, bez računa, bez
 
 [Plan razvoja](https://concatenate.pages.dev/roadmap) prikazuje što sponzorstvo plaća i koliko koja stavka stoji.
 
-**Načini plaćanja**
+Odaberite razinu na [web-stranici](https://concatenate.pages.dev/#sponsor).
 
-Odaberite razinu na [web-stranici](https://concatenate.pages.dev/#sponsor) ili pošaljite izravno na novčanik.
-
-| Način | Adresa |
-|---|---|
-| 🌐 **Web-stranica** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Donirali ste u kriptovaluti? Prijenos na novčanik ne nosi ime, pa se javite: putem bilo koje društvene mreže na [GitHub profilu održavatelja](https://github.com/jub0t) ili na [Concat Discord poslužitelju](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Niste u mogućnosti pridonijeti? Zvjezdica, prijava greške ili riječ nekome tko montira video također puno znače.

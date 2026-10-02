@@ -138,18 +138,8 @@ Concat 沒有付費牆，以後也不會有：無浮水印、無帳號、無付�
 
 [路線圖](https://concatenate.pages.dev/roadmap) 列出了贊助用於哪些事，以及每一項的花費。
 
-**付款方式**
+在 [官網](https://concatenate.pages.dev/#sponsor) 選一個方案。
 
-在 [官網](https://concatenate.pages.dev/#sponsor) 選一個方案，或直接轉到錢包。
-
-| 方式 | 地址 |
-|---|---|
-| 🌐 **官網** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> 用加密貨幣捐款了？錢包轉帳不帶名字，所以請來打個招呼：透過 [維護者 GitHub 頁面](https://github.com/jub0t) 上的任一社群帳號，或在 [Concat Discord 伺服器](https://discord.gg/DVuPfpXfqP) 裡。
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 暫時不方便出力？一個 Star、一份 bug 回報，或者向剪影片的朋友提一句，同樣意義重大。

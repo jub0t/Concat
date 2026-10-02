@@ -138,18 +138,8 @@ Concat в **бете**: он работает, но шероховатости �
 
 [Дорожная карта](https://concatenate.pages.dev/roadmap) показывает, что оплачивает спонсорство и сколько стоит каждая часть.
 
-**Способы оплаты**
+Выберите уровень на [сайте](https://concatenate.pages.dev/#sponsor).
 
-Выберите уровень на [сайте](https://concatenate.pages.dev/#sponsor) или отправьте прямо на кошелёк.
-
-| Способ | Адрес |
-|---|---|
-| 🌐 **Сайт** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Пожертвовали в крипте? Перевод на кошелёк не несёт имени, так что дайте о себе знать: через любую соцсеть в [профиле мейнтейнера на GitHub](https://github.com/jub0t) или на [сервере Concat в Discord](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Нет возможности помочь деньгами? Звезда, сообщение об ошибке или слово тому, кто монтирует видео, тоже значат очень много.

@@ -138,18 +138,8 @@ Concat میں کوئی پے وال نہیں ہے اور کبھی نہیں ہوگ
 
 [روڈ میپ](https://concatenate.pages.dev/roadmap) بتاتا ہے کہ سپانسرشپ سے کیا بنتا ہے اور ہر حصے کی لاگت کتنی ہے۔
 
-**ادائیگی کے طریقے**
+[ویب سائٹ](https://concatenate.pages.dev/#sponsor) پر ایک درجہ چنیں۔
 
-[ویب سائٹ](https://concatenate.pages.dev/#sponsor) پر ایک درجہ چنیں، یا براہ راست والٹ پر بھیجیں۔
-
-| طریقہ | پتہ |
-|---|---|
-| 🌐 **ویب سائٹ** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> کرپٹو میں عطیہ دیا؟ والٹ ٹرانسفر پر نام نہیں ہوتا، اس لیے سلام ضرور کریں: [مینٹینر کی GitHub پروفائل](https://github.com/jub0t) پر دیے کسی بھی سوشل سے، یا [Concat Discord سرور](https://discord.gg/DVuPfpXfqP) پر۔
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 ابھی حصہ ڈالنے کی پوزیشن میں نہیں؟ ایک اسٹار، ایک بگ رپورٹ، یا ویڈیو ایڈٹ کرنے والے کسی کو ایک بات بتانا بھی بہت معنی رکھتا ہے۔

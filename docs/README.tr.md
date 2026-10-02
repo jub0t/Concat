@@ -138,18 +138,8 @@ Concat’in ödeme duvarı yok ve asla olmayacak: filigran yok, hesap yok, ücre
 
 [Yol haritası](https://concatenate.pages.dev/roadmap) sponsorluğun neyi karşıladığını ve her parçanın ne kadara mal olduğunu anlatır.
 
-**Ödeme yöntemleri**
+[Web sitesinde](https://concatenate.pages.dev/#sponsor) bir katman seçin.
 
-[Web sitesinde](https://concatenate.pages.dev/#sponsor) bir katman seçin ya da doğrudan bir cüzdana gönderin.
-
-| Yöntem | Adres |
-|---|---|
-| 🌐 **Web sitesi** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Kriptoyla mı bağış yaptınız? Bir cüzdan transferi isim taşımaz, o yüzden bir merhaba deyin: [bakımcının GitHub profilindeki](https://github.com/jub0t) sosyal hesaplardan biriyle ya da [Concat Discord sunucusunda](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Katkıda bulunacak durumda değil misiniz? Bir yıldız, bir hata bildirimi ya da video düzenleyen birine bir söz de çok şey ifade eder.

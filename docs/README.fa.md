@@ -138,18 +138,8 @@ Concat دیوار پرداخت ندارد و هرگز نخواهد داشت: ب�
 
 [نقشهٔ راه](https://concatenate.pages.dev/roadmap) نشان می‌دهد حمایت مالی خرج چه چیزهایی می‌شود و هر بخش چقدر هزینه دارد.
 
-**روش‌های پرداخت**
+در [وب‌سایت](https://concatenate.pages.dev/#sponsor) یک سطح انتخاب کنید.
 
-در [وب‌سایت](https://concatenate.pages.dev/#sponsor) یک سطح انتخاب کنید، یا مستقیماً به یک کیف پول بفرستید.
-
-| روش | نشانی |
-|---|---|
-| 🌐 **وب‌سایت** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> با رمزارز کمک کرده‌اید؟ انتقال به کیف پول نامی همراه ندارد، پس سلامی بکنید: از طریق یکی از شبکه‌های اجتماعی در [پروفایل GitHub نگهدارنده](https://github.com/jub0t)، یا در [سرور Discord مربوط به Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 الان نمی‌توانید کمک مالی کنید؟ یک ستاره، یک گزارش اشکال یا یک کلمه به کسی که ویدیو تدوین می‌کند هم خیلی ارزش دارد.

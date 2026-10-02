@@ -138,18 +138,8 @@ Concat у **беті**: він працює, але шорсткості ще є
 
 [Дорожня карта](https://concatenate.pages.dev/roadmap) показує, що оплачує спонсорство і скільки коштує кожна частина.
 
-**Способи оплати**
+Оберіть рівень на [сайті](https://concatenate.pages.dev/#sponsor).
 
-Оберіть рівень на [сайті](https://concatenate.pages.dev/#sponsor) або надішліть просто на гаманець.
-
-| Спосіб | Адреса |
-|---|---|
-| 🌐 **Сайт** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> Пожертвували в крипті? Переказ на гаманець не несе імені, тож дайте про себе знати: через будь-яку соцмережу в [профілі мейнтейнера на GitHub](https://github.com/jub0t) або на [сервері Concat у Discord](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 Немає змоги допомогти грошима? Зірка, повідомлення про помилку чи слово тому, хто монтує відео, теж важать дуже багато.

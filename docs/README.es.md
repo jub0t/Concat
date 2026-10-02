@@ -138,18 +138,8 @@ Concat no tiene muro de pago y nunca lo tendrá: sin marca de agua, sin cuenta, 
 
 La [hoja de ruta](https://concatenate.pages.dev/roadmap) expone lo que paga el patrocinio y lo que cuesta cada pieza.
 
-**Formas de pago**
+Elige un nivel en [el sitio web](https://concatenate.pages.dev/#sponsor).
 
-Elige un nivel en [el sitio web](https://concatenate.pages.dev/#sponsor), o envía directamente a una cartera.
-
-| Método | Dirección |
-|---|---|
-| 🌐 **Sitio web** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> ¿Has donado en cripto? Una transferencia a una cartera no lleva nombre, así que saluda: escribe por cualquiera de las redes del [perfil de GitHub del mantenedor](https://github.com/jub0t) o en el [servidor de Discord de Concat](https://discord.gg/DVuPfpXfqP).
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 ¿No puedes aportar ahora? Una estrella, un informe de error o una mención a alguien que edite vídeo también cuentan mucho.

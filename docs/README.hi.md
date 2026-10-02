@@ -138,18 +138,8 @@ Concat में कोई पेवॉल नहीं है और कभी 
 
 [रोडमैप](https://concatenate.pages.dev/roadmap) बताता है कि प्रायोजन से क्या-क्या बनता है और हर हिस्से की लागत कितनी है।
 
-**भुगतान के तरीके**
+[वेबसाइट](https://concatenate.pages.dev/#sponsor) पर एक टियर चुनें।
 
-[वेबसाइट](https://concatenate.pages.dev/#sponsor) पर एक टियर चुनें, या सीधे वॉलेट पर भेजें।
-
-| तरीका | पता |
-|---|---|
-| 🌐 **वेबसाइट** | <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a> |
-| ₿ **Bitcoin** (BTC) | `bc1qm83zxguthu0swkl0kw4wdna9j8qegkekzxcf6s` |
-| ɱ **Monero** (XMR) | `46vFjD41NbNdf7yfdm2WYmJidaaExYpA1RaDnayjFyp7KCtCeMfjNKudKbSt52rHvLLuowwpeoNpFUkAtSca3L6TSXfAzcf` |
-| Ł **Litecoin** (LTC) | `LbaYr9JEiUUJB5S9rEgriseMoPoUZzAaZS` |
-
-> [!IMPORTANT]
-> क्रिप्टो में दान किया? वॉलेट ट्रांसफ़र पर नाम नहीं होता, इसलिए हैलो ज़रूर कहें: [मेंटेनर की GitHub प्रोफ़ाइल](https://github.com/jub0t) पर दिए किसी भी सोशल से, या [Concat Discord सर्वर](https://discord.gg/DVuPfpXfqP) पर।
+<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
 
 अभी योगदान देने की स्थिति में नहीं हैं? एक स्टार, एक बग रिपोर्ट, या वीडियो एडिट करने वाले किसी को एक बात बताना भी बहुत मायने रखता है।
