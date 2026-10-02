@@ -1145,6 +1145,7 @@ dependencies = [
  "concat-vision",
  "dirs",
  "image",
+ "libc",
  "log",
  "opener",
  "pollster",
@@ -1154,6 +1155,8 @@ dependencies = [
  "slint",
  "slint-build",
  "toml",
+ "wayland-backend",
+ "wayland-client",
  "wgpu",
  "winresource",
 ]

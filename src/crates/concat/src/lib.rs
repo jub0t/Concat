@@ -48,6 +48,31 @@ mod prefs;
 mod presets;
 mod studio;
 mod sysinfo;
+/// Native Wayland file drops, which winit does not report; see the module.
+#[cfg(target_os = "linux")]
+mod wayland_drop;
+/// Elsewhere the listener is a name that starts nothing, so platform.rs
+/// reads the same on every desktop.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+mod wayland_drop {
+    /// Nothing to listen to: no desktop but Linux draws through Wayland.
+    pub struct Listener;
+
+    impl Listener {
+        /// Never starts; see the Linux module for what it would do.
+        ///
+        /// # Safety
+        ///
+        /// Nothing is dereferenced; the contract is the Linux module's.
+        pub unsafe fn start(
+            _display: std::ptr::NonNull<std::ffi::c_void>,
+            _surface: std::ptr::NonNull<std::ffi::c_void>,
+            _sink: impl Fn(Vec<std::path::PathBuf>) + Send + 'static,
+        ) -> Option<Listener> {
+            None
+        }
+    }
+}
 
 use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};

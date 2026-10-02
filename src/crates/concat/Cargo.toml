@@ -70,6 +70,16 @@ rfd = "0.17"
 # Reveal an exported file in the platform's file manager.
 opener = { version = "0.8", features = ["reveal"] }
 
+# Native Wayland file drops; see wayland_drop.rs. winit 0.30 reports a
+# dropped file on X11 and not on Wayland, so the window listens for one
+# itself on the display winit opened. The same two crates winit draws
+# with, libwayland loaded at run time as winit loads it; libc for the
+# pipe the drop is read through and the poll that waits on it.
+[target.'cfg(target_os = "linux")'.dependencies]
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
+libc = "0.2"
+
 [target.'cfg(target_os = "ios")'.dependencies]
 slint = { version = "1.18", default-features = false, features = [
     "std",

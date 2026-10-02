@@ -14,9 +14,10 @@
 //! android-activity backend, which the activity sets up before [`crate::run`]
 //! is called. File dialogs are the desktop's: on a phone a pick goes through
 //! the system's document picker, which arrives with the phone layout. A drag
-//! in from the OS is a desktop thing for the same reason: winit only reports
-//! `DroppedFile` on macOS, Windows and X11 - not Wayland, which has no such
-//! event as of this winit, and not iOS, which has no such gesture.
+//! in from the OS is a desktop thing for the same reason: winit reports
+//! `DroppedFile` on macOS, Windows and X11, and not on iOS, which has no
+//! such gesture - nor on Wayland, where the window listens for the drop
+//! itself; see [`crate::wayland_drop`].
 
 use std::path::PathBuf;
 
@@ -38,6 +39,9 @@ use crate::gpu::Gpu;
 /// Dropped files. winit reports one path per event, in a burst, and the
 /// burst is over when the loop is about to wait, so the paths are held
 /// and handed over together: one probe, one notice, however many files.
+/// On Wayland winit reports nothing, and the window's own listener puts
+/// the paths of a drop in `arrived` from its thread and wakes the loop,
+/// which hands them over the same way.
 ///
 /// A press away from the field being typed into. Slint keeps the focus
 /// where it is until something else takes it, so a number field stayed in
@@ -57,6 +61,13 @@ use crate::gpu::Gpu;
 struct DropHandler {
     pending: Vec<PathBuf>,
     on_dropped: Box<dyn Fn(Vec<PathBuf>)>,
+    /// Paths a Wayland drop delivered, from the listener's thread.
+    arrived: std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>>,
+    /// The Wayland listener, once the window is up and is a Wayland one;
+    /// `wayland_tried` says the question has been asked, whatever the
+    /// answer, so it is asked once.
+    wayland: Option<crate::wayland_drop::Listener>,
+    wayland_tried: bool,
     /// Where the pointer last was, in logical pixels of the window: winit
     /// says where it moved, and a press says only that it happened.
     cursor: Option<(f32, f32)>,
@@ -119,6 +130,9 @@ impl DropHandler {
         Self {
             pending: Vec::new(),
             on_dropped: Box::new(on_dropped),
+            arrived: Default::default(),
+            wayland: None,
+            wayland_tried: false,
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
             edges: cfg!(not(any(target_os = "macos", target_os = "windows", target_os = "ios")))
@@ -165,6 +179,10 @@ impl CustomApplicationHandler for DropHandler {
         slint_window: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
+        if !self.wayland_tried && let Some(window) = winit_window {
+            self.wayland_tried = true;
+            self.wayland = listen_for_wayland_drops(window, &self.arrived);
+        }
         match event {
             WindowEvent::DroppedFile(path) => self.pending.push(path.clone()),
             WindowEvent::CursorMoved { position, .. } => {
@@ -226,11 +244,51 @@ impl CustomApplicationHandler for DropHandler {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) -> EventResult {
+        if let Ok(mut arrived) = self.arrived.lock() {
+            self.pending.append(&mut arrived);
+        }
         if !self.pending.is_empty() {
             (self.on_dropped)(std::mem::take(&mut self.pending));
         }
         EventResult::Propagate
     }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) -> EventResult {
+        // Before winit closes its display, which the listener reads.
+        self.wayland = None;
+        EventResult::Propagate
+    }
+}
+
+/// The Wayland drop listener for `window`, when the window is a Wayland
+/// one: it puts each drop's paths in `arrived` and wakes the event loop,
+/// whose next `about_to_wait` hands them over. None on any other display.
+#[cfg(not(target_os = "android"))]
+fn listen_for_wayland_drops(
+    window: &WinitWindow,
+    arrived: &std::sync::Arc<std::sync::Mutex<Vec<PathBuf>>>,
+) -> Option<crate::wayland_drop::Listener> {
+    use slint::winit_030::winit::raw_window_handle::{
+        HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let display = window.display_handle().ok()?.as_raw();
+    let surface = window.window_handle().ok()?.as_raw();
+    let (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(surface)) =
+        (display, surface)
+    else {
+        return None;
+    };
+    let arrived = std::sync::Arc::clone(arrived);
+    let sink = move |paths: Vec<PathBuf>| {
+        if let Ok(mut held) = arrived.lock() {
+            held.extend(paths);
+        }
+        // An empty errand, run on the loop's thread: what wakes it.
+        let _ = slint::invoke_from_event_loop(|| {});
+    };
+    // SAFETY: winit keeps the display for the life of the event loop, and
+    // the listener is dropped in `exiting`, before the loop is.
+    unsafe { crate::wayland_drop::Listener::start(display.display, surface.surface, sink) }
 }
 
 /// Whether the window draws the macOS traffic lights over its own strip.
