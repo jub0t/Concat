@@ -1246,6 +1246,33 @@ fn knob_range(property: model::KeyProperty) -> (f64, f64) {
     }
 }
 
+/// The keyable property a batch edits relative to the first clip, for the
+/// fields that place a picture; None for every field a batch sets outright.
+fn relative_property(field: ClipField) -> Option<model::KeyProperty> {
+    match field {
+        ClipField::OffsetX => Some(model::KeyProperty::OffsetX),
+        ClipField::OffsetY => Some(model::KeyProperty::OffsetY),
+        ClipField::Rotation => Some(model::KeyProperty::Rotation),
+        ClipField::Scale => Some(model::KeyProperty::Scale),
+        _ => None,
+    }
+}
+
+/// What a batch's knob means for one of its clips. The knob shows the
+/// first clip's value, `reference`, and the others keep their distance
+/// from it: a position or a turn moves by the amount the knob moved, a
+/// scale by the factor, so a row of titles slides together rather than
+/// landing on one spot. The first clip itself lands on the knob's value.
+fn batch_value(field: ClipField, value: f64, reference: f64, current: f64) -> f64 {
+    match field {
+        ClipField::OffsetX | ClipField::OffsetY | ClipField::Rotation => {
+            current + (value - reference)
+        }
+        ClipField::Scale if reference > 0.0 => current * (value / reference),
+        _ => value,
+    }
+}
+
 /// Writes a keyable property the way the person means it: the constant
 /// while the property has no keys, and once it rides, the key at `at` -
 /// put on if there was none, with the ease of the key behind it. The engine
@@ -4039,6 +4066,15 @@ impl Studio {
         self.commit_targets = ids.clone();
         self.begin_echo();
         let value = f64::from(value);
+        // A batch keeps its shape: the knob shows the first clip's value,
+        // and what it is turned to is read against that; see `batch_value`.
+        let reference = (ids.len() > 1)
+            .then(|| relative_property(field))
+            .flatten()
+            .and_then(|property| {
+                self.clip(&ids[0])
+                    .map(|clip| shown(clip, property, place_in(clip, self.playhead)))
+            });
         for id in ids {
             // The media's tracks, read before the echo is borrowed: a row of
             // the Audio panel's list is a stream index of the file.
@@ -4056,6 +4092,13 @@ impl Studio {
                 .clip(&id)
                 .map(|clip| place_in(clip, self.playhead))
                 .unwrap_or(0.0);
+            let value = match (reference, relative_property(field)) {
+                (Some(reference), Some(property)) => self
+                    .clip(&id)
+                    .map(|clip| batch_value(field, value, reference, shown(clip, property, at)))
+                    .unwrap_or(value),
+                _ => value,
+            };
             let Some(clip) = self.echo_clip_mut(&id) else {
                 continue;
             };
@@ -9572,6 +9615,24 @@ mod tests {
     /// A knob over a property with no keys writes the constant; over one
     /// that rides, it writes the key at the playhead and leaves the
     /// constant alone. The echo's keys then become one command each.
+    /// A batch's position and turn move by the knob's change and its scale
+    /// by the knob's factor; the first clip, the knob's reference, lands on
+    /// the knob's value, and a field that is not a placement is set outright.
+    #[test]
+    fn a_batch_keeps_its_shape_about_the_first_clip() {
+        use super::{ClipField, batch_value, relative_property};
+        // The first clip was at 0.1 and the knob now reads 0.3: everyone
+        // moves right by 0.2.
+        assert_eq!(batch_value(ClipField::OffsetX, 0.3, 0.1, 0.1), 0.3);
+        assert!((batch_value(ClipField::OffsetX, 0.3, 0.1, -0.5) - -0.3).abs() < 1e-12);
+        assert_eq!(batch_value(ClipField::Rotation, 90.0, 0.0, 45.0), 135.0);
+        // Scale is a factor: the first doubled, so the second doubles.
+        assert_eq!(batch_value(ClipField::Scale, 2.0, 1.0, 0.5), 1.0);
+        // A size is a size for every title in the batch.
+        assert_eq!(batch_value(ClipField::FontSize, 0.08, 0.05, 0.02), 0.08);
+        assert_eq!(relative_property(ClipField::FontSize), None);
+    }
+
     #[test]
     fn a_keyed_property_is_written_as_a_key_and_committed_as_commands() {
         use concat_project::model::{Clip, ClipKind, KeyEase, KeyProperty};
