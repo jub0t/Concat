@@ -1271,6 +1271,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // tree is a binding away from it; it is also remembered.
     app.on_settings_theme_changed({
         move |dark| {
+            log::info!("settings: theme {}", if dark { "dark" } else { "light" });
             Shell::with(|shell, app| {
                 app.global::<Theme>().set_dark(dark);
                 let mut studio = shell.studio.borrow_mut();
@@ -1283,6 +1284,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // remembered under the name the global lists it by.
     app.on_settings_accent_changed({
         move |index| {
+            log::info!("settings: accent {index}");
             Shell::with(|shell, app| {
                 let theme = app.global::<Theme>();
                 let names = theme.get_accent_names();
@@ -1545,6 +1547,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_app_menu_selected({
         move |action| {
+            log::info!("menu: {action}");
             Shell::with(|shell, app| {
                 {
                     let mut state = shell.studio.borrow_mut();

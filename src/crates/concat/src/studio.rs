@@ -1297,6 +1297,20 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
     }
 }
 
+/// A command as the activity trail names it: its kind, and for a batch
+/// the kinds inside it. Never its contents - a patch carries a title's
+/// words - which is what keeps a line a line.
+fn command_name(command: &Command) -> String {
+    if let Command::Batch { commands } = command {
+        let inside: Vec<String> = commands.iter().map(command_name).collect();
+        return format!("Batch[{}]", inside.join(", "));
+    }
+    let text = format!("{command:?}");
+    text.chars()
+        .take_while(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
 /// The commands that turn `before` into `after`, clip `id` as the echo
 /// left it against the document's: a transform, a cutout, a speed, the
 /// keys, and one patch for everything else that differs. Empty when
@@ -2109,6 +2123,7 @@ impl Studio {
     /// A refusal becomes a notice; the echo, if any, is dropped either way,
     /// because the session's project is the truth again.
     pub fn apply(&mut self, command: Command) -> Option<String> {
+        log::info!("edit: {}", command_name(&command));
         self.flush_commit();
         self.echo = None;
         // Anything but an inspector commit ends the coalescing window; the
@@ -2137,6 +2152,9 @@ impl Studio {
     /// bookkeeping, but the editor folds it into the gesture's undo step
     /// and the coalescing window stays open for the next move.
     fn apply_within(&mut self, gesture: &str, command: Command) {
+        // A knob's gesture, folded into one step; said at Debug, since a
+        // dial turned is many of these.
+        log::debug!("edit: {} ({gesture})", command_name(&command));
         self.echo = None;
         let Some(session) = self.session.as_mut() else {
             return;
@@ -2457,6 +2475,7 @@ impl Studio {
         // pointer that happens to be over the lanes must not stay on it.
         self.end_hover();
         self.playing = true;
+        log::debug!("playback: playing from {:.3}s", self.playhead);
         self.host.playback.play(f64::from(self.playhead));
         // The clock is the audio device's; this follows it at 30 Hz and
         // asks the monitor for the frame under it each time.
@@ -2502,6 +2521,9 @@ impl Studio {
     }
 
     pub fn pause(&mut self) {
+        if self.playing {
+            log::debug!("playback: paused at {:.3}s", self.playhead);
+        }
         self.playing = false;
         self.transport.stop();
         self.host.playback.pause();
@@ -4342,6 +4364,7 @@ impl Studio {
     /// so it is there next session and for every project, and registered
     /// on this project; the selected title is set in the first of them.
     pub fn import_fonts(&mut self, paths: Vec<std::path::PathBuf>) {
+        log::info!("fonts: importing {} file(s)", paths.len());
         let mut first: Option<String> = None;
         for path in paths {
             let families = concat_text::families_in(&path);
@@ -6382,6 +6405,7 @@ impl Studio {
     /// Opens a project as the session and leaves the launch screen, or
     /// says why it could not.
     pub fn open_project(&mut self, info: ProjectInfo) -> Result<(), String> {
+        log::info!("project: opening {}", info.path);
         if self
             .host
             .open_projects
@@ -6506,6 +6530,7 @@ impl Studio {
 
     /// Saves, then closes the session and returns to the launch screen.
     pub fn close_project(&mut self) {
+        log::info!("project: closing {}", self.project_name);
         // Words still being typed land in the save, not on the floor.
         self.flush_commit();
         self.pause();
@@ -6589,6 +6614,10 @@ impl Studio {
     /// rest of the window without borrowing itself twice; a pane never
     /// reads its own slot on the studio.
     pub fn handle(&mut self, msg: crate::panes::Msg) {
+        // The activity trail: what the person did, for the log.
+        if let Some((level, line)) = crate::panes::activity(&msg) {
+            log::log!(level, "{line}");
+        }
         match msg {
             crate::panes::Msg::Export(msg) => {
                 let mut pane = std::mem::take(&mut self.export);
@@ -8949,6 +8978,7 @@ impl Studio {
 
     /// A row of a bin card's menu, for the media it was opened on.
     pub fn media_action(&mut self, id: &str, action: &str) {
+        log::info!("media menu: {action} on {id}");
         let Some(row) = self.media.row_of(id) else {
             return;
         };
@@ -9375,6 +9405,7 @@ impl Studio {
     /// menu's own handler in lib.rs, so a key and the row that advertises
     /// it are one thing.
     pub fn shortcut(&mut self, action: &str) {
+        log::info!("shortcut: {action}");
         match action {
             "split" => {
                 let at = self.playhead;
@@ -9445,6 +9476,7 @@ impl Studio {
     /// keyboard's chords both land here, so a shortcut and the row that
     /// advertises it cannot disagree.
     pub fn clip_action(&mut self, id: &str, action: &str) {
+        log::info!("clip menu: {action} on {id}");
         let Some(clip) = self.clip(id).cloned() else {
             return;
         };
