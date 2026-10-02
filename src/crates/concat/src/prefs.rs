@@ -72,6 +72,10 @@ pub struct Preferences {
     /// kept from a title by the Text panel's "Use for new titles"; its
     /// words are empty. None starts titles in the bundled face.
     pub title_style: Option<concat_project::model::TextStyle>,
+    /// What the log records, by the name concat_host::logs reads: `info`
+    /// unless the Settings sheet was asked for more or less. CONCAT_LOG in
+    /// the environment overrides it for one run.
+    pub log_level: Option<String>,
 }
 
 impl Preferences {

@@ -181,18 +181,47 @@ fn prune(folder: &Path) {
 }
 
 fn level_from_environment() -> log::LevelFilter {
-    match std::env::var(LEVEL_VARIABLE)
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    environment_level().unwrap_or(log::LevelFilter::Info)
+}
+
+/// The level `CONCAT_LOG` names, when it names one: a run's own ceiling,
+/// over the one the Settings sheet remembers.
+pub fn environment_level() -> Option<log::LevelFilter> {
+    level_named(&std::env::var(LEVEL_VARIABLE).unwrap_or_default())
+}
+
+/// A level by the name the environment and the preferences use: `error`,
+/// `warn`, `info`, `debug`, `trace` or `off`, in any case.
+pub fn level_named(name: &str) -> Option<log::LevelFilter> {
+    Some(match name.trim().to_ascii_lowercase().as_str() {
         "error" => log::LevelFilter::Error,
         "warn" => log::LevelFilter::Warn,
+        "info" => log::LevelFilter::Info,
         "debug" => log::LevelFilter::Debug,
         "trace" => log::LevelFilter::Trace,
         "off" => log::LevelFilter::Off,
-        _ => log::LevelFilter::Info,
+        _ => return None,
+    })
+}
+
+/// The name [`level_named`] reads back.
+pub fn level_name(level: log::LevelFilter) -> &'static str {
+    match level {
+        log::LevelFilter::Error => "error",
+        log::LevelFilter::Warn => "warn",
+        log::LevelFilter::Info => "info",
+        log::LevelFilter::Debug => "debug",
+        log::LevelFilter::Trace => "trace",
+        log::LevelFilter::Off => "off",
     }
+}
+
+/// Sets the level for the rest of the run - the Settings sheet's choice,
+/// or the remembered one applied at launch - and says so in the log, at
+/// a level every setting but Off lets through.
+pub fn set_level(level: log::LevelFilter) {
+    log::set_max_level(level);
+    log::error!("log level: {level}");
 }
 
 /// The open file and how much of its allowance is gone.

@@ -73,11 +73,11 @@ impl Gpu {
         // https://github.com/jub0t/Concat/issues/135
         let info = adapter.get_info();
         log::info!(
-            "GPU adapter: {} ({:?}, {:?}, driver {})",
+            "GPU adapter: {} ({:?}, {:?}, {})",
             info.name,
             info.device_type,
             info.backend,
-            info.driver_info
+            driver_of(&info)
         );
         let _ = ADAPTER.set(if info.device_type == wgpu::DeviceType::Cpu {
             format!("{} · {} · software rasteriser", info.name, info.backend)
@@ -97,6 +97,12 @@ impl Gpu {
             ..Default::default()
         }))
         .ok()?;
+        // Said in the log when it dies, with wgpu's reason: the one line a
+        // report of "the GPU device was lost" needs, which until now there
+        // was none of. https://github.com/jub0t/Concat/issues/223
+        device.set_device_lost_callback(|reason, message| {
+            log::error!("the window's GPU device was lost ({reason:?}): {message}");
+        });
         Some(Gpu {
             instance,
             adapter,
@@ -120,5 +126,22 @@ impl Gpu {
             device: self.device.clone(),
             queue: self.queue.clone(),
         }
+    }
+}
+
+/// The adapter's driver as the log names it: the driver and its version
+/// where the API reports them, and "driver unknown" where it does not -
+/// Direct3D 12 reports neither, and an empty "driver )" read as a fault.
+/// https://github.com/jub0t/Concat/issues/223
+pub fn driver_of(info: &wgpu::AdapterInfo) -> String {
+    let named = [info.driver.trim(), info.driver_info.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if named.is_empty() {
+        "driver unknown".to_owned()
+    } else {
+        format!("driver {named}")
     }
 }

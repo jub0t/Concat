@@ -40,6 +40,8 @@ pub enum SettingsMsg {
     /// Show this run's log in the file manager.
     ShowLog,
     LanguageChanged(i32),
+    /// The log level's row: an index into [`LOG_LEVELS`].
+    LogLevelChanged(i32),
     PlayheadStopsChanged(bool),
     /// The magnetic timeline switch; the tray's button is the same fact.
     MagneticChanged(bool),
@@ -249,6 +251,16 @@ impl SettingsPane {
                     i18n::select(&language.code, &studio.host.dirs);
                 }
                 studio.prefs.save(&studio.host.dirs);
+            }
+            SettingsMsg::LogLevelChanged(index) => {
+                let Some(level) = LOG_LEVELS.get(index.max(0) as usize) else {
+                    return;
+                };
+                studio.prefs.log_level = Some(concat_host::logs::level_name(*level).to_owned());
+                studio.prefs.save(&studio.host.dirs);
+                // Applied now, whatever the environment said: a person at
+                // the sheet is asking for this run too.
+                concat_host::logs::set_level(*level);
             }
             SettingsMsg::PlayheadStopsChanged(on) => {
                 self.playhead_stops = on;
@@ -740,6 +752,10 @@ impl SettingsPane {
             open: self.open,
             tab: self.tab,
             language: self.language as i32,
+            log_level: LOG_LEVELS
+                .iter()
+                .position(|level| *level == log::max_level())
+                .unwrap_or(2) as i32,
             playhead_stops: self.playhead_stops,
             magnetic: studio.prefs.magnetic,
             download_source: self.download_source as i32,
@@ -826,6 +842,17 @@ fn quit_for_switch() {
 
 /// A fresh token: 128 bits from the OS's randomness, as the standard
 /// library hands it out through its hasher's seed, spelled in hex.
+/// The log level row's choices, in the order the sheet lists them:
+/// errors only, warnings, normal, debug, everything.
+/// https://github.com/jub0t/Concat/issues/223
+const LOG_LEVELS: [log::LevelFilter; 5] = [
+    log::LevelFilter::Error,
+    log::LevelFilter::Warn,
+    log::LevelFilter::Info,
+    log::LevelFilter::Debug,
+    log::LevelFilter::Trace,
+];
+
 pub fn new_token() -> String {
     use std::hash::{BuildHasher, Hasher};
     let word = |salt: u64| {

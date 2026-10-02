@@ -239,6 +239,7 @@ export component App inherits Window {
     callback settings-page-changed(index: int);
     callback settings-show-log();
     callback settings-language-changed(index: int);
+    callback settings-log-level-changed(index: int);
     callback settings-theme-changed(dark: bool);
     callback settings-accent-changed(index: int);
     callback settings-accent-custom-changed(colour: color);
@@ -739,6 +740,7 @@ export component App inherits Window {
         page-changed(index) => { root.settings-page-changed(index); }
         show-log => { root.settings-show-log(); }
         language-changed(index) => { root.settings-language-changed(index); }
+        log-level-changed(index) => { root.settings-log-level-changed(index); }
         theme-changed(dark) => { root.settings-theme-changed(dark); }
         accent-changed(index) => { root.settings-accent-changed(index); }
         accent-custom-changed(colour) => { root.settings-accent-custom-changed(colour); }

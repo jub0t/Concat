@@ -1842,6 +1842,17 @@ impl Studio {
     /// read off disk.
     pub fn new(host: Host) -> Self {
         let prefs = Preferences::load(&host.dirs);
+        // The remembered log level, unless this run's environment named
+        // one: CONCAT_LOG is the louder ask.
+        if concat_host::logs::environment_level().is_none()
+            && let Some(level) = prefs
+                .log_level
+                .as_deref()
+                .and_then(concat_host::logs::level_named)
+            && level != log::max_level()
+        {
+            concat_host::logs::set_level(level);
+        }
         // The words first, so everything published from here on is in
         // the remembered language.
         i18n::select(prefs.locale.as_deref().unwrap_or(i18n::ENGLISH), &host.dirs);

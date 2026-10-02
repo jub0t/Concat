@@ -1438,6 +1438,13 @@ fn render_picture(
         );
         while compositor.lost() {
             losses += 1;
+            let adapter = compositor.adapter_info();
+            log::error!(
+                "export: the GPU device on {} was lost drawing frame {index} of {total_frames} \
+                 ({:.3}s into the cut); the frame is drawn again on the next device",
+                adapter.name,
+                time.as_f64(),
+            );
             compositor = recovered(losses, hdr)?;
             composed = composite_treated(
                 &mut compositor,

@@ -52,6 +52,9 @@ export struct SettingsData {
     /// 6 Version
     tab: int,
     language: int,
+    /// what the log records: 0 errors only, 1 warnings, 2 normal, 3
+    /// debug, 4 everything
+    log-level: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
     /// the magnetic timeline: deleting and trimming close the gap
@@ -429,6 +432,7 @@ export component SettingsDialog inherits Modal {
     /// Opens the folder this run's log is being written into.
     callback show-log();
     callback language-changed(index: int);
+    callback log-level-changed(index: int);
     /// The theme, chosen rather than flipped. A toggle in the strip could only
     /// say "the other one"; a page with two named options can say which one is
     /// on, which is the whole reason it moved in here.
@@ -644,6 +648,28 @@ export component SettingsDialog inherits Modal {
                         options: root.languages;
                         current: root.data.language;
                         changed(index) => { root.language-changed(index); }
+                    }
+                }
+
+                // What the log records. Normal is what a bug report needs
+                // most days; Debug and Everything are for when a report
+                // asks, and the file grows faster for them. CONCAT_LOG in
+                // the environment overrides this for one run.
+                // https://github.com/jub0t/Concat/issues/223
+                DialogSection {
+                    title: I18n.t("settings.logLevel");
+                    hint: I18n.t("settings.logLevelHint");
+
+                    Select {
+                        options: [
+                            I18n.t("settings.logErrors"),
+                            I18n.t("settings.logWarnings"),
+                            I18n.t("settings.logNormal"),
+                            I18n.t("settings.logDebug"),
+                            I18n.t("settings.logEverything"),
+                        ];
+                        current: root.data.log-level;
+                        changed(index) => { root.log-level-changed(index); }
                     }
                 }
 

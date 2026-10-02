@@ -780,6 +780,11 @@ impl WgpuCompositor {
             let (device, queue) =
                 pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                     .ok()?;
+            // The reason, when it dies, in the log: see the window's device.
+            let name = adapter.get_info().name;
+            device.set_device_lost_callback(move |reason, message| {
+                log::error!("the compositor's GPU device on {name} was lost ({reason:?}): {message}");
+            });
             Some(Self::with_device(device, queue))
         })
     }
@@ -3431,15 +3436,22 @@ impl WgpuCompositor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = mapped_tx.send(result);
         });
-        if self
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .is_err()
-        {
+        // Each way the readback fails is said: these are the lines behind
+        // "the GPU device was lost", and there were none (#223).
+        if let Err(error) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
+            log::error!("GPU readback: the device did not finish the frame: {error}");
             return None;
         }
-        if !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
-            return None;
+        match mapped_rx.try_recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                log::error!("GPU readback: the frame's buffer would not map: {error}");
+                return None;
+            }
+            Err(_) => {
+                log::error!("GPU readback: the device finished without answering the map");
+                return None;
+            }
         }
 
         if deep {

@@ -1406,6 +1406,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     app.on_settings_language_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Settings(SettingsMsg::LanguageChanged(index)));
     }));
+    app.on_settings_log_level_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Settings(SettingsMsg::LogLevelChanged(index)));
+    }));
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::PlayheadStopsChanged(on)));
     }));
