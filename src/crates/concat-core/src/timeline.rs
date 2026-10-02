@@ -94,6 +94,12 @@ pub struct Clip {
     pub animation: Option<Animation>,
     /// How the clip's colour meets what is beneath it.
     pub blend: Blend,
+    /// One frame, held: every instant of the clip maps to `source_start`,
+    /// and no decoder is paced along it. The pre-roll of a transition into
+    /// a clip with no footage before its in-point is made of this - its
+    /// first frame shown for the length of the dissolve, where other
+    /// editors show "repeated frames".
+    pub hold: bool,
 }
 
 /// How a layer's colour meets what is beneath it.
@@ -215,6 +221,7 @@ impl Clip {
             retime: None,
             animation: None,
             blend: Blend::Normal,
+            hold: false,
         }
     }
 
@@ -285,6 +292,9 @@ impl Clip {
         if !self.contains(time) {
             return None;
         }
+        if self.hold {
+            return Some(self.source_start);
+        }
         let forward = match &self.retime {
             // The area under the curve, in fractions of the clip's length,
             // scaled back to seconds. Approximated to a rational at the end
@@ -310,10 +320,10 @@ impl Clip {
     }
 
     /// Whether a decoder can be paced at one rate for this clip: false when
-    /// the speed changes over it, in which case every frame has to be
-    /// sought by its own source time.
+    /// the speed changes over it, or when it holds one frame, in which case
+    /// every frame has to be sought by its own source time.
     pub fn is_paced(&self) -> bool {
-        self.retime.is_none()
+        self.retime.is_none() && !self.hold
     }
 }
 
@@ -591,6 +601,21 @@ mod tests {
         let clip = timeline.clip(id).expect("clip exists");
         assert_eq!(clip.source_time_at(seconds(2)), Some(seconds(10)));
         assert_eq!(clip.source_time_at(seconds(3)), Some(seconds(11)));
+    }
+
+    #[test]
+    fn a_held_clip_maps_every_instant_to_its_in_point() {
+        let (mut timeline, _, id) = fixture(); // covers timeline [2, 5)
+        {
+            let clip = timeline.clip_mut(id).expect("clip exists");
+            clip.source_start = seconds(10);
+            clip.hold = true;
+        }
+        let clip = timeline.clip(id).expect("clip exists");
+        assert_eq!(clip.source_time_at(seconds(2)), Some(seconds(10)));
+        assert_eq!(clip.source_time_at(seconds(4)), Some(seconds(10)), "held");
+        assert_eq!(clip.source_time_at(seconds(5)), None, "still ends");
+        assert!(!clip.is_paced(), "sought, never paced");
     }
 
     #[test]

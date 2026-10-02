@@ -181,6 +181,11 @@ pub struct ExportClip {
     /// transition resolution below, never by the UI directly.
     #[serde(default)]
     pub video_fade_in: f64,
+    /// One frame - the one at `source_start` - held for the clip's length.
+    /// Set by transition resolution for the pre-roll of a clip with no
+    /// footage before its in-point, never by the UI; see [`pre_roll`].
+    #[serde(skip)]
+    pub hold: bool,
     /// The source's pixel width, when the UI knows it. What makes an
     /// aspect-correct decode possible - absent, the frame is filled edge to
     /// edge the way it always was.
@@ -255,6 +260,7 @@ impl ExportClip {
             opacity: 1.0,
             transition: None,
             video_fade_in: 0.0,
+            hold: false,
             media_width: None,
             media_height: None,
             has_audio: None,
@@ -526,7 +532,7 @@ pub(crate) fn transitions_at(shapes: &[TransitionShape], frame: i64) -> Vec<Tran
 /// `combine_transition`. Legacy ids are matched first and never reach this
 /// path, so a project saved before packaged transitions existed renders
 /// exactly as it always did.
-fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<TransitionSpan> {
+fn resolve_transitions(clips: &mut Vec<ExportClip>, rate: FrameRate) -> Vec<TransitionSpan> {
     for clip in clips.iter_mut() {
         clip.track *= 2;
     }
@@ -535,12 +541,6 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
     let fps = rate.fps().as_f64();
     let frame = 1.0 / fps;
 
-    struct Cut {
-        incoming: usize,
-        outgoing: usize,
-        kind: String,
-        duration: f64,
-    }
     let mut cuts: Vec<Cut> = Vec::new();
     for (incoming, clip) in clips.iter().enumerate() {
         let Some(transition) = &clip.transition else {
@@ -572,26 +572,11 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
     for cut in cuts {
         match cut.kind.as_str() {
             "cross-fade" | "push" | "zoom" | "wipe-left" | "wipe-right" => {
-                let (a_track, a_duration) = {
-                    let a = &clips[cut.outgoing];
-                    (a.track, a.duration)
-                };
-                let b = &mut clips[cut.incoming];
-
-                // The incoming clip extends backwards over the outgoing one.
-                let d = cut.duration.min(a_duration).min(b.duration);
-                if d < frame {
+                // The picture before the cut on the lane above: the
+                // incoming clip itself, or its first frame held.
+                let Some((incoming, d)) = pre_roll(clips, &cut, frame) else {
                     continue;
-                }
-                b.start -= d;
-                b.duration += d;
-                if b.kind != ClipKind::Image {
-                    b.source_start = (b.source_start - d * b.speed).max(0.0);
-                }
-                // Sound rides the picture: the pre-roll fades in rather than
-                // arriving at full level a dissolve early.
-                b.fade_in = b.fade_in.max(d);
-                b.track = a_track + 1;
+                };
 
                 // How the two blend across the overlap. A shape that cannot
                 // be applied - a clip the user has already keyed on the
@@ -603,9 +588,9 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                     // same ease over the same seconds, which is what keeps
                     // them glued.
                     "push" => {
-                        rides(clips, cut.outgoing, cut.incoming, "offsetX")
+                        rides(clips, cut.outgoing, incoming, "offsetX")
                             && ride(
-                                &mut clips[cut.incoming],
+                                &mut clips[incoming],
                                 "offsetX",
                                 1.0,
                                 0.0,
@@ -626,9 +611,9 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                     // The old picture grows as it dissolves into the new one,
                     // which settles from a little large to its own size.
                     "zoom" => {
-                        rides(clips, cut.outgoing, cut.incoming, "scale")
+                        rides(clips, cut.outgoing, incoming, "scale")
                             && ride(
-                                &mut clips[cut.incoming],
+                                &mut clips[incoming],
                                 "scale",
                                 1.25,
                                 1.0,
@@ -646,7 +631,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                                 EASE_IN,
                             )
                             && {
-                                clips[cut.incoming].video_fade_in = d;
+                                clips[incoming].video_fade_in = d;
                                 true
                             }
                     }
@@ -654,7 +639,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                     // picture behind it, from the clip's new, earlier start.
                     "wipe-left" | "wipe-right" => {
                         let frames = ((d * fps).round() as i64).max(1);
-                        clips[cut.incoming]
+                        clips[incoming]
                             .transition_shapes
                             .push(TransitionShape::Wipe {
                                 // A wipe to the left uncovers the new picture
@@ -667,7 +652,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                     _ => false,
                 };
                 if !shaped {
-                    clips[cut.incoming].video_fade_in = d;
+                    clips[incoming].video_fade_in = d;
                 }
             }
             "fade-black" | "fade-white" => {
@@ -707,22 +692,10 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                 .get(kind)
                 .is_some_and(|package| package.transition().is_some()) =>
             {
-                let (a_track, a_duration) = {
-                    let a = &clips[cut.outgoing];
-                    (a.track, a.duration)
-                };
-                let b = &mut clips[cut.incoming];
-                let d = cut.duration.min(a_duration).min(b.duration);
-                if d < frame {
+                let Some((incoming, d)) = pre_roll(clips, &cut, frame) else {
                     continue;
-                }
-                b.start -= d;
-                b.duration += d;
-                if b.kind != ClipKind::Image {
-                    b.source_start = (b.source_start - d * b.speed).max(0.0);
-                }
-                b.fade_in = b.fade_in.max(d);
-                b.track = a_track + 1;
+                };
+                let b = &mut clips[incoming];
                 // The dissolve a GPU-less path shows; the shader's own blend
                 // overrides it where a GPU runs the transition.
                 b.video_fade_in = d;
@@ -731,7 +704,7 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
                 spans.push(TransitionSpan {
                     start,
                     end,
-                    to_track: a_track + 1,
+                    to_track: b.track,
                     id: cut.kind.clone(),
                     params: BTreeMap::new(),
                 });
@@ -743,6 +716,103 @@ fn resolve_transitions(clips: &mut [ExportClip], rate: FrameRate) -> Vec<Transit
         }
     }
     spans
+}
+
+/// A cut with a transition on it: which clip comes in, which goes out, and
+/// what the UI asked for across it.
+struct Cut {
+    incoming: usize,
+    outgoing: usize,
+    kind: String,
+    duration: f64,
+}
+
+/// The overlap a transition crosses: the picture shown on the lane above
+/// the outgoing clip for the transition's length before the cut. Returns
+/// the index of the clip that is that overlap, and the length, which is
+/// capped by both clips; `None` for a cut too short to overlap at all.
+///
+/// The overlap is the incoming clip itself, extended backwards with its
+/// source clock wound back the same way, when it has that much footage
+/// before its in-point - a still always has. Without that handle the clip
+/// is left exactly where the cut put it, and a copy of its first frame is
+/// held on the lane above for the transition's length instead: the
+/// "repeated frames" every editor shows over a cut with no handle. Winding
+/// the start back without the clock, as this once did, played everything
+/// after the cut early and ran the last of it off the file's end into
+/// black (#236). The hold is the clip with no sound, no keys and no fades
+/// of its own, so the picture coming in is the one the clip then plays;
+/// a keyed placement is held where its ride has it at the clip's head.
+fn pre_roll(clips: &mut Vec<ExportClip>, cut: &Cut, frame: f64) -> Option<(usize, f64)> {
+    let (a_track, a_duration) = {
+        let a = &clips[cut.outgoing];
+        (a.track, a.duration)
+    };
+    let b = &clips[cut.incoming];
+    let d = cut.duration.min(a_duration).min(b.duration);
+    if d < frame {
+        return None;
+    }
+    // Footage before the in-point, in timeline seconds.
+    let handle = if b.kind == ClipKind::Image {
+        d
+    } else {
+        b.source_start / b.speed.max(f64::EPSILON)
+    };
+    if handle + frame / 2.0 >= d {
+        let b = &mut clips[cut.incoming];
+        b.start -= d;
+        b.duration += d;
+        if b.kind != ClipKind::Image {
+            b.source_start = (b.source_start - d * b.speed).max(0.0);
+        }
+        // Sound rides the picture: the pre-roll fades in rather than
+        // arriving at full level a dissolve early.
+        b.fade_in = b.fade_in.max(d);
+        b.track = a_track + 1;
+        return Some((cut.incoming, d));
+    }
+
+    let mut hold = b.clone();
+    hold.hold = true;
+    hold.start = b.start - d;
+    hold.duration = d;
+    hold.track = a_track + 1;
+    hold.speed = 1.0;
+    hold.speed_curve.clear();
+    hold.muted = true;
+    hold.has_audio = Some(false);
+    hold.volume = 0.0;
+    hold.fade_in = 0.0;
+    hold.fade_out = 0.0;
+    hold.transition = None;
+    hold.video_fade_in = 0.0;
+    hold.transition_shapes.clear();
+    // Keys are absolute and a keyed property's constant is the neutral
+    // value, so the head of each ride becomes the hold's constant.
+    let heads: Vec<(String, f64)> = ["scale", "offsetX", "offsetY", "rotation", "opacity"]
+        .into_iter()
+        .filter_map(|property| {
+            hold.animation
+                .iter()
+                .filter(|key| key.property == property)
+                .min_by(|a, b| a.at.total_cmp(&b.at))
+                .map(|key| (property.to_owned(), key.value))
+        })
+        .collect();
+    hold.animation.clear();
+    for (property, value) in heads {
+        match property.as_str() {
+            "scale" => hold.scale = value,
+            "offsetX" => hold.offset_x = value,
+            "offsetY" => hold.offset_y = value,
+            "rotation" => hold.rotation = value,
+            "opacity" => hold.opacity = value,
+            _ => {}
+        }
+    }
+    clips.push(hold);
+    Some((clips.len() - 1, d))
 }
 
 /// The timing functions the transition shapes ride on, as `ExportKey` holds
@@ -2330,25 +2400,40 @@ mod tests {
         assert!((span.progress(Rational::from_int(4)) - 1.0).abs() < 1e-9);
     }
 
+    /// A clip with less footage before its in-point than the transition
+    /// is long keeps its place and its clock - winding the start back
+    /// without the clock played everything after the cut early and ran
+    /// the end off the file into black (#236) - and its first frame is
+    /// held on the lane above for the transition's length instead.
     #[test]
-    fn a_cross_fade_clamps_source_start_to_zero_not_duration() {
+    fn a_clip_without_the_handle_stays_put_and_its_first_frame_is_held() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 0.25),
         ];
+        clips[1].fade_in = 0.25;
         clips[1].transition = spec("cross-fade", 2.0);
         resolve_transitions(&mut clips, FrameRate::THIRTY);
 
-        // Even with limited handle, the transition preserves its full duration,
-        // clamping source_start to 0.0 rather than shortening the dissolve.
-        assert_eq!(clips[1].video_fade_in, 2.0);
-        assert_eq!(clips[1].source_start, 0.0);
-        assert_eq!(clips[1].start, 2.0);
-        assert_eq!(clips[1].duration, 6.0);
+        let b = &clips[1];
+        assert_eq!((b.start, b.duration, b.source_start), (4.0, 4.0, 0.25));
+        assert_eq!(b.video_fade_in, 0.0, "the clip itself does not ramp");
+        assert_eq!(b.track, 0, "on its own lane, after the outgoing clip");
+        assert_eq!(b.fade_in, 0.25, "its own sound fade, not the dissolve's");
+
+        assert_eq!(clips.len(), 3, "the hold is a clip of its own");
+        let hold = &clips[2];
+        assert!(hold.hold);
+        assert_eq!((hold.start, hold.duration), (2.0, 2.0));
+        assert_eq!(hold.source_start, 0.25, "the frame the clip starts on");
+        assert_eq!(hold.track, 1, "directly above the outgoing clip");
+        assert_eq!(hold.video_fade_in, 2.0, "the dissolve rides the hold");
+        assert!(hold.muted);
+        assert_eq!(hold.has_audio, Some(false));
     }
 
     #[test]
-    fn a_cross_fade_on_untrimmed_clip_succeeds() {
+    fn a_cross_fade_on_untrimmed_clip_holds_the_first_frame() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 0.0),
@@ -2357,14 +2442,15 @@ mod tests {
         resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
-        assert_eq!(b.start, 3.0);
-        assert_eq!(b.duration, 5.0);
-        assert_eq!(b.source_start, 0.0);
-        assert_eq!(b.video_fade_in, 1.0);
+        assert_eq!((b.start, b.duration, b.source_start), (4.0, 4.0, 0.0));
+        assert_eq!(b.video_fade_in, 0.0);
+        let hold = &clips[2];
+        assert_eq!((hold.start, hold.duration, hold.source_start), (3.0, 1.0, 0.0));
+        assert_eq!(hold.video_fade_in, 1.0);
     }
 
     #[test]
-    fn a_packaged_transition_on_untrimmed_clip_succeeds() {
+    fn a_packaged_transition_on_untrimmed_clip_spans_the_hold() {
         let mut clips = vec![
             clip("video", 0, 0.0, 4.0, 0.0),
             clip("video", 0, 4.0, 4.0, 0.0),
@@ -2373,11 +2459,48 @@ mod tests {
         let spans = resolve_transitions(&mut clips, FrameRate::THIRTY);
 
         let b = &clips[1];
-        assert_eq!(b.start, 3.0);
-        assert_eq!(b.duration, 5.0);
-        assert_eq!(b.source_start, 0.0);
-        assert_eq!(b.video_fade_in, 1.0);
+        assert_eq!((b.start, b.duration, b.source_start), (4.0, 4.0, 0.0));
+        let hold = &clips[2];
+        assert!(hold.hold);
+        assert_eq!((hold.start, hold.duration), (3.0, 1.0));
+        assert_eq!(hold.video_fade_in, 1.0);
         assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start, Rational::from_int(3));
+        assert_eq!(spans[0].end, Rational::from_int(4));
+        assert_eq!(spans[0].to_track, 1, "the hold's lane");
+    }
+
+    /// A push into a clip with no handle slides the hold in, and the clip
+    /// then starts where the hold leaves it; a keyed placement on the clip
+    /// is held at its head, not played again over the pre-roll.
+    #[test]
+    fn a_push_without_the_handle_rides_the_hold() {
+        let mut clips = vec![
+            clip("video", 0, 0.0, 4.0, 0.0),
+            clip("video", 0, 4.0, 4.0, 0.0),
+        ];
+        clips[1].animation.push(ExportKey {
+            property: "scale".to_owned(),
+            at: 0.0,
+            value: 2.0,
+            ease: linear_ease(),
+        });
+        clips[1].animation.push(ExportKey {
+            property: "scale".to_owned(),
+            at: 1.0,
+            value: 1.0,
+            ease: linear_ease(),
+        });
+        clips[1].transition = spec("push", 1.0);
+        resolve_transitions(&mut clips, FrameRate::THIRTY);
+
+        let hold = &clips[2];
+        assert_eq!(keys_on(hold, "offsetX"), vec![(0.0, 1.0), (1.0, 0.0)]);
+        assert!(keys_on(hold, "scale").is_empty(), "the ride stays on the clip");
+        assert_eq!(hold.scale, 2.0, "held where the ride starts");
+        assert_eq!(keys_on(&clips[0], "offsetX"), vec![(0.75, 0.0), (1.0, -1.0)]);
+        assert_eq!(keys_on(&clips[1], "scale").len(), 2, "the user's keys are untouched");
+        assert!(keys_on(&clips[1], "offsetX").is_empty());
     }
 
     #[test]

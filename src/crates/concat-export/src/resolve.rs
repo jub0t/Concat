@@ -249,6 +249,7 @@ pub(crate) fn build_timeline(
 
         let mut engine_clip = Clip::new(MediaRef::new(&clip.path), start, duration);
         engine_clip.source_start = quantise(clip.source_start, rate);
+        engine_clip.hold = clip.hold;
         // The same clamp the audio path applies, so a 2x clip means the same
         // thing to picture and sound. A still has no meaningful rate.
         if clip.kind != ClipKind::Image {
