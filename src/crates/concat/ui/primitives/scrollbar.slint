@@ -94,3 +94,74 @@ export component ThinScrollbar inherits Rectangle {
         }
     }
 }
+
+// The same bar laid on its side: an 8px-tall gutter under something that
+// scrolls across, the lanes of the timeline. One component per axis rather
+// than an orientation switch, because every binding above names an axis
+// and a switch would double each of them.
+export component ThinHScrollbar inherits Rectangle {
+    /// visible extent of the thing being scrolled
+    in property <length> viewport;
+    /// its full extent
+    in property <length> content;
+    /// how far along it is parked, 0..overflow
+    in property <length> offset;
+    in property <length> min-thumb: 24px;
+    in property <float> max-thumb: 1.0;
+
+    callback scrolled(offset: length);
+
+    property <length> overflow: Math.max(0px, root.content - root.viewport);
+    property <length> thumb-w: Math.max(root.min-thumb,
+        Math.min(root.viewport * root.max-thumb,
+            root.viewport * root.viewport / Math.max(root.content, 1px)));
+    property <length> travel: Math.max(0px, root.viewport - root.thumb-w);
+    property <length> thumb-x: root.overflow > 0px
+        ? root.travel * Math.min(root.offset, root.overflow) / root.overflow
+        : 0px;
+
+    height: 8px;
+    background: transparent;
+    visible: root.overflow > 0px;
+
+    thumb := Rectangle {
+        x: root.thumb-x;
+        y: 2px;
+        width: root.thumb-w;
+        height: 4px;
+        border-radius: 2px;
+        background: (grab.pressed || grab.has-hover) ? Theme.fg-dim : Theme.line-strong;
+
+        animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+    }
+
+    grab := TouchArea {
+        property <length> origin;
+        property <length> from;
+
+        mouse-cursor: default;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                self.origin = self.absolute-position.x + self.mouse-x;
+                if (self.mouse-x < root.thumb-x || self.mouse-x > root.thumb-x + root.thumb-w) {
+                    self.from = root.travel > 0px
+                        ? root.overflow * Math.max(0px, self.mouse-x - root.thumb-w / 2)
+                            / root.travel
+                        : 0px;
+                    root.scrolled(Math.max(0px, Math.min(root.overflow, self.from)));
+                } else {
+                    self.from = root.offset;
+                }
+            }
+        }
+
+        moved => {
+            if (root.travel > 0px) {
+                root.scrolled(Math.max(0px, Math.min(root.overflow,
+                    self.from + (self.absolute-position.x + self.mouse-x - self.origin)
+                        * root.overflow / root.travel)));
+            }
+        }
+    }
+}

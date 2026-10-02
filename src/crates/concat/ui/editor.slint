@@ -316,6 +316,8 @@ export global Editor {
     in-out property <float> frame-rate;
     in-out property <float> scroll-left;
     in-out property <float> seconds-per-pixel;
+    /// Where the cut ends, in seconds: how far the lanes can scroll to.
+    in-out property <float> duration-seconds;
 
     callback tab-selected(index: int);
     callback tab-renamed(index: int, name: string);

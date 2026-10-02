@@ -8,7 +8,7 @@ import { I18n } from "../i18n.slint";
 import { Glyph } from "../icons.slint";
 import { ContextMenu, MenuItemData, MenuMetrics, MenuRow } from "../primitives/context-menu.slint";
 import { HairlineSplitter } from "splitter.slint";
-import { ThinScrollbar } from "../primitives/scrollbar.slint";
+import { ThinHScrollbar, ThinScrollbar } from "../primitives/scrollbar.slint";
 import {
     ClipData, DropData, TimelineTabData, TimelineTool, TrackData, TrackSize,
 } from "../timeline/model.slint";
@@ -88,6 +88,8 @@ export component TimelinePane inherits Rectangle {
     in property <float> frame-rate: 30;
     in property <float> scroll-left;
     in property <float> seconds-per-pixel: 0.05;
+    /// Where the cut ends, in seconds; see the bar under the lanes.
+    in property <float> duration-seconds;
     in-out property <length> track-scroll;
 
     callback scrubbed(seconds: float);
@@ -447,6 +449,28 @@ export component TimelinePane inherits Rectangle {
                 // reported as it changes, and once at first layout.
                 changed width => { root.lanes-resized(self.width / 1px); }
                 init => { root.lanes-resized(self.width / 1px); }
+            }
+
+            // Across the bottom of the lanes: where the view is along the
+            // cut, and a thumb to drag it there. Zoomed in, the lanes show
+            // a slice of the cut and nothing said which slice or how to
+            // get back to the start short of the wheel. The extent is the
+            // cut's length with a screen's worth of room after it, and
+            // never less than wherever the view has already been scrolled
+            // to, so the thumb cannot vanish from under a drag.
+            // https://github.com/jub0t/Concat/issues/237
+            ThinHScrollbar {
+                x: lanes.x;
+                y: parent.height - self.height;
+                width: lanes.width;
+                viewport: lanes.width;
+                content: Math.max(
+                    (root.duration-seconds / root.seconds-per-pixel) * 1px + lanes.width / 4,
+                    (root.scroll-left / root.seconds-per-pixel) * 1px + lanes.width);
+                offset: (root.scroll-left / root.seconds-per-pixel) * 1px;
+                scrolled(offset) => {
+                    root.scrolled(Math.max(0, (offset / 1px) * root.seconds-per-pixel));
+                }
             }
         }
     }
