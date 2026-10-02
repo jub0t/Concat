@@ -130,6 +130,8 @@ component Clip inherits Rectangle {
 
     /// A press landed: the caller resolves the selection before any drag.
     callback pressed(additive: bool, edge: int);
+    /// A press with the split tool: cut here, `x` into the clip.
+    callback split-at(x: length);
     /// Window-space delta since the press: seconds across, pixels down. Not
     /// lanes down — the lanes differ in height, so which row a drag has
     /// reached is a question only the side holding the heights can answer.
@@ -517,7 +519,8 @@ component Clip inherits Rectangle {
     // the same fix, as the workspace splitters.
     touch := TouchArea {
         enabled: !root.locked;
-        mouse-cursor: root.edge-at >= 0 ? MouseCursor.ew-resize : MouseCursor.grab;
+        mouse-cursor: root.tool == TimelineTool.split ? MouseCursor.crosshair
+            : root.edge-at >= 0 ? MouseCursor.ew-resize : MouseCursor.grab;
 
         changed mouse-x => {
             if (self.has-hover && !self.pressed) { root.hovered(self.mouse-x); }
@@ -541,6 +544,12 @@ component Clip inherits Rectangle {
             }
             if (event.kind == PointerEventKind.down
                 && event.button == PointerEventButton.left) {
+                // The split tool cuts where the press lands and starts no
+                // gesture: nothing is selected or moved by it.
+                if (root.tool == TimelineTool.split) {
+                    root.split-at(self.mouse-x);
+                    return;
+                }
                 self.origin-x = self.absolute-position.x + self.mouse-x;
                 self.origin-y = self.absolute-position.y + self.mouse-y;
                 root.pressed(event.modifiers.shift || event.modifiers.control
@@ -959,6 +968,8 @@ export component Lanes inherits Rectangle {
         }
     }
     callback clip-pressed(id: string, additive: bool, edge: int);
+    /// The split tool pressed a clip: cut it at `seconds` on the timeline.
+    callback clip-split(id: string, seconds: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     /// Right-click on a clip. The caller fills the menu and bumps `menu-token`;
@@ -1290,6 +1301,9 @@ export component Lanes inherits Rectangle {
                 root.press-scroll = root.scroll-left;
                 root.clip-dragging = true;
                 root.clip-pressed(entry.id, additive, edge);
+            }
+            split-at(x) => {
+                root.clip-split(entry.id, entry.start + x / root.px-per-second);
             }
             // The clip reports its delta from the press; a view that has
             // scrolled since then is added, so the clip stays under the

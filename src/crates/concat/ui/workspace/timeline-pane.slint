@@ -97,6 +97,7 @@ export component TimelinePane inherits Rectangle {
     /// A press on an empty stretch of lane; see Editor.blur.
     callback floor-pressed();
     callback clip-pressed(id: string, additive: bool, edge: int);
+    callback clip-split(id: string, seconds: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     in property <[MenuItemData]> menu-items;
@@ -418,6 +419,7 @@ export component TimelinePane inherits Rectangle {
                 hover-ended => { root.hover-ended(); }
                 floor-pressed => { root.floor-pressed(); }
                 clip-pressed(id, additive, edge) => { root.clip-pressed(id, additive, edge); }
+                clip-split(id, seconds) => { root.clip-split(id, seconds); }
                 clip-dragged(seconds, pixels) => { root.clip-dragged(seconds, pixels); }
                 clip-released => { root.clip-released(); }
                 menu-items: root.menu-items;

@@ -562,11 +562,10 @@ export component App inherits Window {
             }
             // Lower-cased, so Caps Lock leaves the letters alone.
             let letter = event.text.to-lowercase();
-            // B splits the selected clips at the playhead, or every clip
-            // when nothing is selected; the chord B above splits every clip
-            // either way. There was a razor tool on B and this split on S,
-            // and the two did the same thing by different pointers.
-            if (letter == "b") { Editor.shortcut("split-selected"); return accept; }
+            // B is the razor: the split tool, on and off, the key every
+            // editor cuts with. The chord B above splits at the playhead.
+            // https://github.com/jub0t/Concat/issues/241
+            if (letter == "b") { Editor.shortcut("split-tool"); return accept; }
             if (letter == "n") { Editor.shortcut("snap"); return accept; }
             if (letter == "s") { Editor.shortcut("preview-axis"); return accept; }
             if (letter == "m") { Editor.shortcut("mute"); return accept; }

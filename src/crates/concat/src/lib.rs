@@ -877,6 +877,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                                       edge: i32| {
         state.clip_pressed(id.as_str(), additive, edge);
     }));
+    editor.on_clip_split(on_lanes!(|state, id: SharedString, seconds: f32| {
+        state.split_clip_at(&id, seconds);
+    }));
     editor.on_clip_dragged(on_lanes!(|state, seconds: f32, pixels: f32| {
         state.clip_dragged(seconds, pixels);
     }));

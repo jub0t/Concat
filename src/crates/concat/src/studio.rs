@@ -5921,6 +5921,30 @@ impl Studio {
         }
     }
 
+    /// The split tool pressed clip `id` at `seconds`: one cut, on the
+    /// frame nearest the press, unless it is within a frame of either end
+    /// or the lane is locked.
+    /// https://github.com/jub0t/Concat/issues/241
+    pub fn split_clip_at(&mut self, id: &str, seconds: f32) {
+        let Some(clip) = self.clip(id).cloned() else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let fps = f64::from(self.frame_rate().max(1.0));
+        let at = (f64::from(seconds) * fps).round() / fps;
+        let edge = f64::from(MIN_DURATION);
+        if at <= clip.start + edge || at >= clip.start + clip.duration - edge {
+            return;
+        }
+        self.flush_commit();
+        self.apply(Command::SplitClips {
+            clip_ids: vec![id.to_owned()],
+            time: at,
+        });
+    }
+
     /// Delete: the selection goes, and the hole stays unless the timeline
     /// is magnetic.
     pub fn delete_selected(&mut self) {
@@ -8647,7 +8671,7 @@ impl Studio {
                 "split",
                 t("studio.splitAtPlayhead"),
                 Glyph::Split,
-                "S",
+                &platform::keys(&["Control", "B"]),
                 straddled && !locked,
             ),
             action(
@@ -9246,6 +9270,14 @@ impl Studio {
             "split-selected" => {
                 let at = self.playhead;
                 self.split_at(at, true);
+            }
+            // B: the razor, on and off.
+            "split-tool" => {
+                self.lanes.tool = if self.lanes.tool == TimelineTool::Split {
+                    TimelineTool::Select
+                } else {
+                    TimelineTool::Split
+                };
             }
             "select-all" => self.select_all(),
             // The phone's way out of the clip tools: nothing selected, the

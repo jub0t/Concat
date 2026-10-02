@@ -159,6 +159,19 @@ export component TimelineTray inherits Rectangle {
             icon-size: 16px;
             clicked => { root.split(); }
         }
+        // And the razor, a tool rather than a verb: on, a click on a clip
+        // cuts it where the pointer is. B turns it on and off.
+        // https://github.com/jub0t/Concat/issues/241
+        TrayButton {
+            glyph: Glyph.razor;
+            label: I18n.t("tray.splitTool");
+            icon-size: 16px;
+            checked: root.tool == TimelineTool.split;
+            clicked => {
+                root.tool-changed(root.tool == TimelineTool.split
+                    ? TimelineTool.select : TimelineTool.split);
+            }
+        }
         TrayButton {
             glyph: Glyph.merge;
             // The reason a blocked Merge is blocked rides on the button rather

@@ -21,6 +21,8 @@ export enum ClipKind { video, audio, image, text, filter }
 export enum TimelineTool {
     /// grab, move, trim, band-select
     select,
+    /// click a clip to cut it where the pointer is; B turns it on and off
+    split,
 }
 
 /// One tab. A project holds several timelines the way it holds sequences in
