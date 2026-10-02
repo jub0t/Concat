@@ -5921,6 +5921,108 @@ impl Studio {
         }
     }
 
+    /// Save Video Frame As: the frame under the playhead, drawn at the
+    /// output's full size rather than the monitor's, written as a PNG
+    /// where the person says - offered in the project's frames folder -
+    /// and put in the bin, selected, so it can go straight onto a lane as
+    /// a freeze frame. The dialog opens on the next turn of the loop, as
+    /// every dialog reached from a right-click menu must.
+    /// https://github.com/jub0t/Concat/issues/238
+    pub fn save_frame_as(&mut self) {
+        if self.playing {
+            self.pause();
+        }
+        let Some((clips, settings)) = self.preview_clips() else {
+            return;
+        };
+        let Some(project_dir) = self
+            .session
+            .as_ref()
+            .map(|session| std::path::PathBuf::from(session.path()))
+        else {
+            return;
+        };
+        let (width, height) = self.output_size();
+        let spec = concat_host::preview::FrameSpec {
+            time: f64::from(self.playhead),
+            width,
+            height,
+            moving: false,
+            color_space: self.project().active().video.color_space,
+        };
+        let monitor = self.host.monitor.clone();
+        let out_dir = project_dir.join("frames");
+        let suggested = format!(
+            "frame-{}.png",
+            frames_timecode(self.playhead, self.frame_rate()).replace(':', ".")
+        );
+        let title = t("lib.saveFrame");
+        let family = t("lib.pngImage");
+        crate::host::on_ui(move |studio, _, _| {
+            let file = if cfg!(any(target_os = "android", target_os = "ios")) {
+                out_dir.join(&suggested)
+            } else {
+                let Some(chosen) = crate::platform::save_file(
+                    &title,
+                    &out_dir,
+                    &suggested,
+                    (family.as_str(), &["png"]),
+                ) else {
+                    return;
+                };
+                if chosen
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                {
+                    chosen
+                } else {
+                    chosen.with_extension("png")
+                }
+            };
+            let written = file.to_string_lossy().into_owned();
+            studio.notify(&t("studio.savingFrame"), false);
+            spawn_in_project(
+                move || -> Result<concat_host::media::MediaSummary, String> {
+                    let pixels = monitor.frame(clips, &settings, spec)?;
+                    let image = image::RgbaImage::from_raw(width, height, pixels)
+                        .ok_or_else(|| "the frame came back the wrong size".to_owned())?;
+                    if let Some(parent) = file.parent() {
+                        std::fs::create_dir_all(parent).map_err(|error| {
+                            format!("could not create {}: {error}", parent.display())
+                        })?;
+                    }
+                    image.save(&file).map_err(|error| error.to_string())?;
+                    concat_host::media::probe(&file.to_string_lossy())
+                },
+                move |studio, _, _, result| match result {
+                    Ok(summary) => {
+                        let item = summary.to_new_media();
+                        let path = item.path.clone();
+                        let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
+                            studio
+                                .project()
+                                .media
+                                .iter()
+                                .find(|item| item.path == path)
+                                .map(|item| item.id.clone())
+                        });
+                        studio.media.filter = MediaFilter::All;
+                        studio.media.selected.clear();
+                        if let Some(id) = minted {
+                            studio.media.selected.insert(id);
+                        }
+                        studio.media_jump += 1;
+                        studio.notify(&tf("studio.frameSaved", &[&written]), false);
+                    }
+                    Err(error) => {
+                        log::warn!("save frame: {error}");
+                        studio.notify(&tf("studio.couldNotSaveFrame", &[&error]), true);
+                    }
+                },
+            );
+        });
+    }
+
     /// The split tool pressed clip `id` at `seconds`: one cut, on the
     /// frame nearest the press, unless it is within a frame of either end
     /// or the lane is locked.

@@ -11,6 +11,7 @@ import { Select } from "../primitives/select.slint";
 import { Pane, PaneHeader } from "pane.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { ClipKind, StageGuideData, StageItemData } from "../timeline/model.slint";
+import { ContextMenu, MenuMetrics, MenuRow } from "../primitives/context-menu.slint";
 
 // The programme monitor: a header that says what the output is, a stage on a
 // sunken viewport, and a transport tray under it in three parts — timecode on
@@ -498,6 +499,8 @@ component StageOverlay inherits Rectangle {
     callback grip-pressed(id: string, grip: int, x: float, y: float);
     callback dragged(x: float, y: float, snap: bool);
     callback released();
+    /// A right-click on the picture, at (`x`, `y`) in the overlay.
+    callback context-requested(x: length, y: length);
     /// An alt drag or a middle drag over the stage moves the view, not a
     /// picture. The points are in the parent's frame - `x` plus `mouse-x` -
     /// because this overlay is what the drag moves, and a delta measured
@@ -519,6 +522,14 @@ component StageOverlay inherits Rectangle {
             : root.painting ? MouseCursor.crosshair : MouseCursor.default;
 
         pointer-event(event) => {
+            // The right button opens the frame's menu and does nothing
+            // else; on the release, as the lanes' menus do.
+            if (event.button == PointerEventButton.right) {
+                if (event.kind == PointerEventKind.up) {
+                    root.context-requested(self.mouse-x, self.mouse-y);
+                }
+                return;
+            }
             self.snap = event.modifiers.shift;
             if (event.kind == PointerEventKind.down
                 && (event.button == PointerEventButton.middle
@@ -644,6 +655,11 @@ export component PreviewPane inherits Rectangle {
 
     // The stage's own gestures; see the Editor global for what each means.
     callback stage-pressed(x: float, y: float, additive: bool);
+    /// The picture's right-click menu chose Save Video Frame As.
+    /// https://github.com/jub0t/Concat/issues/238
+    callback save-frame();
+    /// Bumped on every right-click on the picture; opens `frame-menu`.
+    property <int> frame-token;
     callback stage-grip-pressed(id: string, grip: int, x: float, y: float);
     callback stage-dragged(x: float, y: float, snap: bool);
     callback stage-released();
@@ -920,7 +936,7 @@ export component PreviewPane inherits Rectangle {
             // The selection, over the stage and the same size as it. A
             // sibling rather than a child because the stage clips, and a grip
             // sits half outside the edge it belongs to.
-            StageOverlay {
+            overlay := StageOverlay {
                 x: stage.x;
                 y: stage.y;
                 width: stage.width;
@@ -938,6 +954,12 @@ export component PreviewPane inherits Rectangle {
                 pan-pressed(x, y) => { viewport.grab(x, y); }
                 pan-dragged(x, y) => { viewport.drag-to(x, y); }
                 pan-released => { }
+                // In the pane's coordinates: the menu's surface is the pane.
+                context-requested(x, y) => {
+                    frame-menu.request-x = self.absolute-position.x - root.absolute-position.x + x;
+                    frame-menu.request-y = self.absolute-position.y - root.absolute-position.y + y;
+                    root.frame-token += 1;
+                }
             }
             }
         }
@@ -1085,6 +1107,36 @@ export component PreviewPane inherits Rectangle {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // The picture's right-click menu: one row, hosted here so its surface
+    // is the whole pane rather than the picture it was opened over.
+    // https://github.com/jub0t/Concat/issues/238
+    frame-menu := ContextMenu {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        items: [
+            {
+                id: "save-frame",
+                label: I18n.t("previewPane.saveFrameAs"),
+                kind: MenuRow.action,
+                glyph: Glyph.image,
+                shortcut: "",
+                enabled: true,
+                danger: false,
+                checkable: false,
+                checked: false,
+            },
+        ];
+        menu-height: MenuMetrics.action + MenuMetrics.padding;
+        token: root.frame-token;
+        selected(id) => {
+            if (id == "save-frame") {
+                root.save-frame();
             }
         }
     }

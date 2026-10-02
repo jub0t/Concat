@@ -193,6 +193,7 @@ export component Seat inherits Rectangle {
             }
             stage-dragged(x, y, snap) => { Editor.stage-dragged(x, y, snap); }
             stage-released => { Editor.stage-released(); }
+            save-frame => { Editor.save-frame(); }
         }
 
     if root.kind == PaneKind.inspector: ConfigPane {
