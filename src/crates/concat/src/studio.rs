@@ -5379,34 +5379,58 @@ impl Studio {
             .take(60)
             .collect();
         let suggested = format!("{}.wav", slug.trim());
-        let file = if cfg!(any(target_os = "android", target_os = "ios")) {
-            out_dir.join(&suggested)
-        } else {
-            let Some(chosen) = crate::platform::save_file(
-                &t("lib.exportAudio"),
-                &out_dir,
-                &suggested,
-                (t("lib.wavAudio").as_str(), &["wav"]),
-            ) else {
-                return;
-            };
-            if chosen
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
-            {
-                chosen
+        // The dialog on the next turn of the event loop, never from here:
+        // this is reached from a right-click menu's row, which reports
+        // through a timer, and a blocking dialog opened inside a timer's
+        // callback spins the loop back into Slint's timers - "Recursion in
+        // timer code", and the app aborts (on macOS; Windows and Linux
+        // were spared only by their dialogs not pumping the loop).
+        let name = clip.name.clone();
+        let title = t("lib.exportAudio");
+        let family = t("lib.wavAudio");
+        crate::host::on_ui(move |studio, _, _| {
+            let file = if cfg!(any(target_os = "android", target_os = "ios")) {
+                out_dir.join(&suggested)
             } else {
-                chosen.with_extension("wav")
-            }
-        };
+                let Some(chosen) = crate::platform::save_file(
+                    &title,
+                    &out_dir,
+                    &suggested,
+                    (family.as_str(), &["wav"]),
+                ) else {
+                    return;
+                };
+                if chosen
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+                {
+                    chosen
+                } else {
+                    chosen.with_extension("wav")
+                }
+            };
+            studio.write_clip_audio(&name, pieces, duration, file, out_dir);
+        });
+    }
+
+    /// Mixes `pieces` - one clip's sound, `duration` seconds of it - into
+    /// `file`, and puts the file in the bin, selected. The second half of
+    /// [`Studio::export_clip_audio`], after the person has said where.
+    fn write_clip_audio(
+        &mut self,
+        name: &str,
+        pieces: Vec<concat_media::audio::AudioClip>,
+        duration: f64,
+        file: std::path::PathBuf,
+        out_dir: std::path::PathBuf,
+    ) {
         let out_dir = file
             .parent()
             .map(std::path::Path::to_path_buf)
             .unwrap_or(out_dir);
         let written = file.to_string_lossy().into_owned();
         log::info!(
-            "export audio: {} ({duration:.2}s, {} piece(s)) to {written}",
-            clip.name,
+            "export audio: {name} ({duration:.2}s, {} piece(s)) to {written}",
             pieces.len(),
         );
         self.notify(&t("studio.exportingAudio"), false);
