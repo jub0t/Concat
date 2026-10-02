@@ -65,6 +65,11 @@ icon = "@mipmap/ic_launcher"
 [package.metadata.android.application.activity]
 config_changes = "orientation|keyboardHidden|screenSize"
 launch_mode = "singleTop"
+# Upright only. The phone shell is drawn for a screen held upright - the
+# monitor over the lanes over the bar - and turned on its side it left no
+# room for any of them (#221, #222, #229). Until there is a shell for a
+# wide screen, the activity stays portrait, tablets included.
+orientation = "portrait"
 
 [lints]
 workspace = true

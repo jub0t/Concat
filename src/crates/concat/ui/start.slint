@@ -1037,6 +1037,11 @@ export component StartScreen inherits Rectangle {
 
     /// A phone held upright, or a window squeezed that far: under this the
     /// rail is gone and its verbs sit on the heading's row.
+    /// A phone: no folder picker, so no Open and no Choose - projects live
+    /// in the app's own folder, which the page already lists, and the
+    /// location is shown rather than typed. See platform::pick_folder.
+    /// https://github.com/jub0t/Concat/issues/222
+    in property <bool> phone;
     property <bool> narrow: root.width < 680px;
     /// Under this the rail keeps its verbs but loses its words.
     property <bool> compact-rail: root.width < 940px;
@@ -1124,7 +1129,7 @@ export component StartScreen inherits Rectangle {
                         // the heading, since there is no column to put
                         // them in. The third verb is already on the page,
                         // as the first card.
-                        if root.narrow: VerticalLayout {
+                        if root.narrow && !root.phone: VerticalLayout {
                             alignment: center;
                             horizontal-stretch: 0;
                             BarAction {
@@ -1219,6 +1224,11 @@ export component NewProjectDialog inherits Modal {
     /// A phone held upright: every label over its value, every chip row
     /// across the width, the button across the width with its line under
     /// it.
+    /// A phone: no folder picker, so no Open and no Choose - projects live
+    /// in the app's own folder, which the page already lists, and the
+    /// location is shown rather than typed. See platform::pick_folder.
+    /// https://github.com/jub0t/Concat/issues/222
+    in property <bool> phone;
     property <bool> narrow: root.width < 680px;
     /// A project needs somewhere to go. Everything else has a default.
     property <bool> can-create: !root.data.busy && root.data.location != "";
@@ -1276,7 +1286,17 @@ export component NewProjectDialog inherits Modal {
             label: I18n.upper("start.location");
             stacked: root.narrow;
 
-            HorizontalLayout {
+            // On a phone the folder is the app's own, shown and not typed.
+            if root.phone: Text {
+                text: root.data.location;
+                color: Theme.fg-muted;
+                font-size: Theme.fs;
+                font-family: Theme.font-technical;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if !root.phone: HorizontalLayout {
                 spacing: 12px;
 
                 PlainInput {

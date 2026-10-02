@@ -629,6 +629,7 @@ export component App inherits Window {
 
                 recents: root.recents;
                 busy: root.start.busy;
+                phone: root.phone;
 
                 compose => { root.start-compose(); }
                 open => { root.start-open(); }
@@ -674,6 +675,7 @@ export component App inherits Window {
         width: root.width;
         height: root.height;
         data: root.start;
+        phone: root.phone;
         aspects: root.start-aspects;
         sizes: root.start-sizes;
         rates: root.start-rates;
