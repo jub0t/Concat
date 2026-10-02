@@ -5077,6 +5077,12 @@ impl Studio {
                     stretch_y: Some(after.stretch_y),
                 });
             }
+            // A keyed property is dragged as a key at the playhead, not as
+            // its constant - see `write_keyable` - so the keys the gesture
+            // put on the echo have to be committed too, or the picture
+            // snaps back to the ride the document still holds.
+            // https://github.com/jub0t/Concat/issues/228
+            commands.extend(key_commands(&id, before, after));
             // A title's wrap width, from its side grips.
             if after.text != before.text {
                 commands.push(Command::UpdateClip {
