@@ -696,6 +696,7 @@ impl Api {
                     width,
                     height,
                     moving: false,
+                    proxy: false,
                     color_space: session.video().color_space,
                 },
             )

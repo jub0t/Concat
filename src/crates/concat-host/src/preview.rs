@@ -34,9 +34,14 @@ pub struct FrameSpec {
     /// Preview frame height in pixels.
     pub height: u32,
     /// The picture is moving - playing - rather than paused or scrubbed:
-    /// what reads a file's proxy where it has one, and tells the
-    /// scheduler which way to decode ahead.
+    /// what tells the scheduler which way to decode ahead.
     pub moving: bool,
+    /// Read each file's proxy where it has one - the low stand-in that
+    /// keeps playback smooth - rather than the file. A moving picture at
+    /// less than full quality; at Full the file itself plays, since a
+    /// proxy drawn at full size is a blur, which is what Full was picked
+    /// against.
+    pub proxy: bool,
     /// What the timeline is output in: an HDR one keeps its clips' light
     /// above white and is rolled off for the SDR screen.
     pub color_space: ColorSpace,
@@ -162,7 +167,7 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<concat_export::PreviewSources, String> {
         let plan = self.plan_for(clips, settings, spec);
-        concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)
+        concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.proxy)
     }
 
     /// Draws [`Monitor::frame_sources`] into a texture on the device this
@@ -290,16 +295,16 @@ impl Monitor {
         spec: FrameSpec,
     ) -> Result<Vec<u8>, String> {
         let plan = self.plan_for(clips, settings, spec);
-        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.moving)?;
+        let sources = concat_export::preview_sources_of(&self.pool, &plan, spec.time, spec.proxy)?;
         sources.pixels()
     }
 
     /// Decode-ahead for the playback stream: hands the scheduler the next
     /// `frames` instants after `spec.time`, so the following
     /// [`Monitor::frame`] pulls are cache hits instead of decode waits.
-    /// Clamped, so a confused caller cannot queue a long decode march. A
-    /// moving picture reads proxies, the way [`Monitor::frame`] does for
-    /// it, so what is decoded ahead is what will be asked for.
+    /// Clamped, so a confused caller cannot queue a long decode march. The
+    /// proxies are read where [`Monitor::frame`] would read them, so what
+    /// is decoded ahead is what will be asked for.
     pub fn prefetch(
         &self,
         clips: Arc<Vec<ExportClip>>,
@@ -308,7 +313,7 @@ impl Monitor {
         frames: u32,
     ) {
         let plan = self.plan_for(clips, settings, spec);
-        let moments = concat_export::preview_moments(&plan, spec.time, frames.min(8), spec.moving);
+        let moments = concat_export::preview_moments(&plan, spec.time, frames.min(8), spec.proxy);
         let fps = (settings.rate_num as f64 / settings.rate_den.max(1) as f64).max(1.0);
         crate::scheduler().advance(
             concat_media::Cursor {

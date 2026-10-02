@@ -240,11 +240,15 @@ impl MonitorPane {
         let Some((clips, settings)) = studio.preview_clips() else {
             return;
         };
+        let quality = self.quality_of(studio.project());
         let spec = FrameSpec {
             time: f64::from(studio.preview_time()),
             width,
             height,
             moving: studio.playing,
+            // Playback reads the proxies at Half and Quarter; Full plays
+            // the files themselves, or Full would be the proxy blurred up.
+            proxy: studio.playing && quality > 0,
             color_space: studio.project().active().video.color_space,
         };
         let monitor = studio.host.monitor.clone();

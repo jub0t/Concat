@@ -6026,6 +6026,7 @@ impl Studio {
             width,
             height,
             moving: false,
+            proxy: false,
             color_space: self.project().active().video.color_space,
         };
         let monitor = self.host.monitor.clone();
