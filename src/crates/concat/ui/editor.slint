@@ -365,6 +365,9 @@ export global Editor {
     callback save-frame();
     /// The split tool pressed a clip: cut it at `seconds`.
     callback clip-split(id: string, seconds: float);
+    /// A clip's volume line on the lanes dragged to `gain`, linear, 1
+    /// being unity: written to the clip as the inspector's knob would be.
+    callback clip-volume(id: string, gain: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     in-out property <[MenuItemData]> menu-items;

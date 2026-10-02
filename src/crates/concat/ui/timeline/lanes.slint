@@ -132,6 +132,9 @@ component Clip inherits Rectangle {
     callback pressed(additive: bool, edge: int);
     /// A press with the split tool: cut here, `x` into the clip.
     callback split-at(x: length);
+    /// The volume line dragged to `gain` - linear, 1 being unity, 2 the
+    /// top of the band - while the drag lasts.
+    callback volume-dragged(gain: float);
     /// Window-space delta since the press: seconds across, pixels down. Not
     /// lanes down — the lanes differ in height, so which row a drag has
     /// reached is a question only the side holding the heights can answer.
@@ -576,6 +579,94 @@ component Clip inherits Rectangle {
         property <length> origin-y;
     }
 
+    // ── the volume line ───────────────────────────────────────────────────
+    //
+    // A line across the sound - the whole body of a sound clip, the band
+    // under a video's frames - at the clip's gain: the middle is unity,
+    // the top is twice, the floor is silence. Dragged, it sets the volume
+    // without a trip to the inspector, the way every phone editor's does.
+    // Over the clip's own touch area, so the grab is the line's.
+    property <bool> sounded: root.item.kind == ClipKind.audio || root.banded;
+    /// The sound's top and height within the clip.
+    property <length> sound-top: root.header-h + (root.banded ? root.frames-h : 0px);
+    property <length> sound-h: root.banded ? root.band-h : root.body-h;
+    /// The gain shown: the drag's while a drag lasts, the clip's otherwise.
+    property <bool> volume-live;
+    /// The pointer is on the line; kept here, since the line, its grab
+    /// and its label are each their own conditional element.
+    property <bool> volume-hover;
+    property <float> drag-gain;
+    property <float> shown-gain: root.volume-live ? root.drag-gain : root.item.volume;
+    property <length> volume-y: root.sound-top
+        + root.sound-h * (1 - Math.clamp(root.shown-gain, 0, 2) / 2);
+
+    if root.sounded && root.sound-h >= 12px && !root.locked: Rectangle {
+        x: 0;
+        y: root.volume-y - 1px;
+        width: parent.width;
+        height: (root.volume-hover || root.volume-live) ? 2px : 1px;
+        background: Theme.accent;
+        opacity: (root.volume-hover || root.volume-live) ? 1.0 : 0.7;
+    }
+
+    if root.sounded && root.sound-h >= 12px && !root.locked: volume-grab := TouchArea {
+        x: 0;
+        y: root.volume-y - 5px;
+        width: parent.width;
+        height: 10px;
+        mouse-cursor: MouseCursor.ns-resize;
+
+        property <length> origin-y;
+        property <float> origin-gain;
+
+        changed has-hover => { root.volume-hover = self.has-hover; }
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                self.origin-y = self.absolute-position.y + self.mouse-y;
+                self.origin-gain = root.item.volume;
+                root.drag-gain = root.item.volume;
+                root.volume-live = true;
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                root.volume-live = false;
+            }
+        }
+        moved => {
+            if (root.volume-live && root.sound-h > 0px) {
+                // Pixels down are gain off, two gains the height of the
+                // sound; unity snaps, so the line finds 100% by feel.
+                let gain = Math.clamp(self.origin-gain
+                    - (self.absolute-position.y + self.mouse-y - self.origin-y)
+                        / root.sound-h * 2, 0, 2);
+                root.drag-gain = Math.abs(gain - 1) < 0.04 ? 1 : gain;
+                root.volume-dragged(root.drag-gain);
+            }
+        }
+    }
+
+    // What the line is at, while it is held or hovered.
+    if root.sounded && root.sound-h >= 12px && !root.locked
+        && (root.volume-live || root.volume-hover): Rectangle {
+        x: 6px;
+        y: Math.max(root.header-h, root.volume-y - self.height - 4px);
+        width: volume-label.preferred-width + 10px;
+        height: 16px;
+        border-radius: Theme.r-sm;
+        background: Theme.accent;
+
+        volume-label := Text {
+            x: 5px;
+            height: parent.height;
+            text: "\{Math.round(root.shown-gain * 100)} %";
+            color: Theme.on-accent;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+            vertical-alignment: center;
+        }
+    }
+
     // ── the transition overlay & cut seam controls ────────────────────────
     //
     // Centered symmetrically across the cut seam (x = 0):
@@ -974,6 +1065,8 @@ export component Lanes inherits Rectangle {
     callback clip-pressed(id: string, additive: bool, edge: int);
     /// The split tool pressed a clip: cut it at `seconds` on the timeline.
     callback clip-split(id: string, seconds: float);
+    /// A clip's volume line dragged to `gain`.
+    callback clip-volume(id: string, gain: float);
     callback clip-dragged(seconds: float, pixels: length);
     callback clip-released();
     /// Right-click on a clip. The caller fills the menu and bumps `menu-token`;
@@ -1309,6 +1402,7 @@ export component Lanes inherits Rectangle {
             split-at(x) => {
                 root.clip-split(entry.id, entry.start + x / root.px-per-second);
             }
+            volume-dragged(gain) => { root.clip-volume(entry.id, gain); }
             // The clip reports its delta from the press; a view that has
             // scrolled since then is added, so the clip stays under the
             // pointer while the edge scrolls it along.

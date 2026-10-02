@@ -880,6 +880,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_clip_split(on_lanes!(|state, id: SharedString, seconds: f32| {
         state.split_clip_at(&id, seconds);
     }));
+    editor.on_clip_volume(on_lanes!(|state, id: SharedString, gain: f32| {
+        state.clip_volume(&id, gain);
+    }));
     editor.on_save_frame(on_window!(|state| {
         state.save_frame_as();
     }));

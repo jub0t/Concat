@@ -6101,6 +6101,31 @@ impl Studio {
         });
     }
 
+    /// The volume line on clip `id` dragged to `gain`: written the way the
+    /// inspector's knob writes it - the constant, or a key at the playhead
+    /// once the volume rides - and committed as the knob's moves are, one
+    /// undo step a drag. The clip need not be selected.
+    pub fn clip_volume(&mut self, id: &str, gain: f32) {
+        let Some(clip) = self.clip(id) else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let at = place_in(clip, self.playhead);
+        self.commit_targets = vec![id.to_owned()];
+        self.begin_echo();
+        if let Some(clip) = self.echo_clip_mut(id) {
+            write_keyable(
+                clip,
+                model::KeyProperty::Volume,
+                f64::from(gain).clamp(0.0, 2.0),
+                at,
+            );
+        }
+        self.clip_commit();
+    }
+
     /// The split tool pressed clip `id` at `seconds`: one cut, on the
     /// frame nearest the press, unless it is within a frame of either end
     /// or the lane is locked.
