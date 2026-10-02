@@ -926,10 +926,43 @@ fn paint(
     let ascent = own.ascender() as f32 / upem * em;
     let descent = -(own.descender() as f32) / upem * em;
 
-    // Shape every line with the pen at the origin; placement comes after,
-    // once the block's width is known. A paragraph wider than the style's
-    // limit is wrapped first.
+    // The box's limits, where the style sets them; zero is a box the words
+    // size.
     let max_w = (style.max_width as f32) * width as f32;
+    let max_h = (style.max_height as f32) * frame_h;
+    // The plate's padding is part of the block: it is what a monitor should
+    // outline, and what the title's neighbours should keep clear of. A
+    // sized axis is exact - a box asked for at 400 by 120 is 400 by 120,
+    // plate and all - so the air is only added on an axis the words size.
+    let plate = colour(&style.background);
+    let pad_x = if plate.is_some() && max_w <= 0.0 {
+        (style.background_padding_x.max(0.0) as f32) * frame_h
+    } else {
+        0.0
+    };
+    let pad_y = if plate.is_some() && max_h <= 0.0 {
+        (style.background_padding_y.max(0.0) as f32) * frame_h
+    } else {
+        0.0
+    };
+    // Where a line may run to. A sized box wraps at its own width. Without
+    // one the words would be set on one line however long, and the canvas
+    // is the frame: whatever ran past its edge was never drawn, so a long
+    // title lost its end. They wrap at the frame's edge instead - the
+    // whole width for a centred block, half of it for one anchored at the
+    // centre and growing one way - less the plate's air on either side.
+    let wrap_w = if max_w > 0.0 {
+        max_w
+    } else {
+        let room = match style.align {
+            Align::Center => width as f32,
+            Align::Left | Align::Right => width as f32 / 2.0,
+        };
+        (room - 2.0 * pad_x).max(em)
+    };
+
+    // Shape every line with the pen at the origin; placement comes after,
+    // once the block's width is known.
     let setter = Setter {
         faces: &faces,
         em,
@@ -945,7 +978,7 @@ fn paint(
                 bidi: ParagraphBidiInfo::new(text, None),
                 face_of,
             };
-            setter.wrap(&para, max_w)
+            setter.wrap(&para, wrap_w)
         })
         .collect();
     let rows = lines.len().max(1);
@@ -958,10 +991,7 @@ fn paint(
 
     // The box the words sit in. Sized by the style where the style says,
     // and by the words where it does not; never smaller than the words,
-    // so a word no line can hold is still whole. A sized axis is exact -
-    // a box asked for at 400 by 120 is 400 by 120, plate and all - so the
-    // plate's air is only added on an axis the words size themselves.
-    let max_h = (style.max_height as f32) * frame_h;
+    // so a word no line can hold is still whole.
     let box_w = if max_w > 0.0 {
         max_w.max(words_w)
     } else {
@@ -971,19 +1001,6 @@ fn paint(
         max_h.max(words_h)
     } else {
         words_h
-    };
-    // The plate's padding is part of the block: it is what a monitor should
-    // outline, and what the title's neighbours should keep clear of.
-    let plate = colour(&style.background);
-    let pad_x = if plate.is_some() && max_w <= 0.0 {
-        (style.background_padding_x.max(0.0) as f32) * frame_h
-    } else {
-        0.0
-    };
-    let pad_y = if plate.is_some() && max_h <= 0.0 {
-        (style.background_padding_y.max(0.0) as f32) * frame_h
-    } else {
-        0.0
     };
     let outer_w = box_w + 2.0 * pad_x;
     let outer_h = box_h + 2.0 * pad_y;
@@ -1220,6 +1237,33 @@ mod tests {
         tiny.max_width = 0.01;
         let rendered = render(&fonts, &tiny, 640, 360).expect("renders");
         assert!(rendered.block_width > 7);
+    }
+
+    /// A title with no box of its own wraps at the frame's edge rather than
+    /// running off it: the block is never wider than the frame, and a block
+    /// anchored at the centre and growing one way never wider than half.
+    #[test]
+    fn a_title_without_a_box_wraps_at_the_frames_edge() {
+        let fonts = Fonts::new();
+        let long = "the quick brown fox jumps over the lazy dog again and again and again";
+        let short = render(&fonts, &style("fox"), 640, 360).expect("renders");
+        let centred = render(&fonts, &style(long), 640, 360).expect("renders");
+        assert!(centred.block_width <= 640, "{}", centred.block_width);
+        assert!(
+            centred.block_height > short.block_height,
+            "{} vs {}",
+            centred.block_height,
+            short.block_height
+        );
+        let mut left = style(long);
+        left.align = Align::Left;
+        let left = render(&fonts, &left, 640, 360).expect("renders");
+        assert!(left.block_width <= 320, "{}", left.block_width);
+        // The plate's air counts: the plate stays on the canvas too.
+        let mut plated = style(long);
+        plated.background = "#000000".to_owned();
+        let plated = render(&fonts, &plated, 640, 360).expect("renders");
+        assert!(plated.block_width <= 640, "{}", plated.block_width);
     }
 
     /// Every word gets a box, in reading order, left to right on a line and
