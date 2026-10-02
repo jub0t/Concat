@@ -169,6 +169,14 @@
           env.SKIA_BINARIES_URL = skiaBinariesUrl pkgs;
           env.ORT_LIB_LOCATION = "${pkgs.onnxruntime}/lib";
           env.ORT_PREFER_DYNAMIC_LINK = "1";
+          # The release profile compiles each crate as one codegen unit, and
+          # the window crate - mostly the Slint compiler's output, one
+          # enormous module - then wants more memory than a sandboxed
+          # builder has, and rustc is killed part way through ("rustc was
+          # terminated by a deadly signal"). Sixteen units keep every piece
+          # a size a builder can hold; the thin LTO still joins them.
+          # https://github.com/jub0t/Concat/issues/225
+          env.CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "16";
 
           nativeBuildInputs = (nativeInputs pkgs) ++ [
             pkgs.wrapGAppsHook3
