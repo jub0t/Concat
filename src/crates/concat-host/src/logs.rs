@@ -217,11 +217,29 @@ pub fn level_name(level: log::LevelFilter) -> &'static str {
 }
 
 /// Sets the level for the rest of the run - the Settings sheet's choice,
-/// or the remembered one applied at launch - and says so in the log, at
-/// a level every setting but Off lets through.
+/// or the remembered one applied at launch - and says so in the log.
+///
+/// The level is Concat's own: what the app says about what it is doing,
+/// for whoever is chasing a bug with it. The crates underneath - wgpu,
+/// naga, Slint, fontdb, the decoders - stay at warnings and errors
+/// whatever the sheet says, since at Debug they bury a run in lines
+/// nobody asked for. `CONCAT_LOG` in the environment is the other kind
+/// of switch and raises the lot; see [`Logger::enabled`].
 pub fn set_level(level: log::LevelFilter) {
     log::set_max_level(level);
-    log::error!("log level: {level}");
+    log::info!("log level: {level}");
+}
+
+/// Whether the environment set the level: then every crate's lines come
+/// through at it, not only Concat's.
+fn firehose() -> bool {
+    static FIREHOSE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FIREHOSE.get_or_init(|| environment_level().is_some())
+}
+
+/// Whether a target is one of Concat's own crates.
+fn own(target: &str) -> bool {
+    target.starts_with("concat")
 }
 
 /// The open file and how much of its allowance is gone.
@@ -241,7 +259,12 @@ struct Logger {
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::max_level()
+        if metadata.level() > log::max_level() {
+            return false;
+        }
+        // Concat's own lines at the level asked for; the crates underneath
+        // at warnings and up, unless the environment asked for everything.
+        own(metadata.target()) || firehose() || metadata.level() <= log::Level::Warn
     }
 
     fn log(&self, record: &log::Record<'_>) {
