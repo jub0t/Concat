@@ -114,7 +114,7 @@ HEAD = """<div align="center">
 - ✅ **macOS** · {mac}
 - ✅ **Linux** · {linux}
 - ✅ **Android** · {android}
-- 🧪 **iOS / iPadOS** · {ios}
+- ✅ **iOS / iPadOS** · {ios}
 
 {legend}
 

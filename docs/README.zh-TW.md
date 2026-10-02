@@ -92,7 +92,7 @@ Concat 處於 **測試版**：能用，但還有毛邊。遇到了請 [告訴我
 - ✅ **macOS** · Intel 與 Apple 晶片。如果 macOS 拒絕開啟未簽署版本：`xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 與 ARM。`.deb`、`.rpm`、`.AppImage` 與 Arch 套件。另有 **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** 上的 Flatpak，這是一個社群 Flatpak 儲存庫，封裝每個版本的 x86_64 `.deb` 並隨之更新
 - ✅ **Android** · 手機與平板
-- 🧪 **iOS / iPadOS** · iPhone 與 iPad，需側載
+- ✅ **iOS / iPadOS** · iPhone 與 iPad，需側載
 
 ✅ 已支援 · 🚧 開發中 · 🧪 待測試
 

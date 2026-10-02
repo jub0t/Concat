@@ -92,7 +92,7 @@ O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://githu
 - ✅ **macOS** · Intel e Apple Silicon. Se o macOS se recusar a abrir uma build sem assinatura: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 e ARM. `.deb`, `.rpm`, `.AppImage` e um pacote para Arch. Também um Flatpak no **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, um remoto Flatpak da comunidade que empacota o `.deb` x86_64 de cada versão e se atualiza com ela
 - ✅ **Android** · celulares e tablets
-- 🧪 **iOS / iPadOS** · iPhone e iPad, por sideload
+- ✅ **iOS / iPadOS** · iPhone e iPad, por sideload
 
 ✅ Suportado · 🚧 Em andamento · 🧪 A testar
 

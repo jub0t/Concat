@@ -92,7 +92,7 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 - ✅ **macOS** · Intel ve Apple Silicon. macOS imzasız bir derlemeyi açmayı reddederse: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 ve ARM. `.deb`, `.rpm`, `.AppImage` ve bir Arch paketi. Ayrıca her sürümün x86_64 `.deb`’ini saran ve onunla güncellenen topluluk Flatpak deposu **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** üzerinde bir Flatpak
 - ✅ **Android** · telefonlar ve tabletler
-- 🧪 **iOS / iPadOS** · iPhone ve iPad, sideload ile
+- ✅ **iOS / iPadOS** · iPhone ve iPad, sideload ile
 
 ✅ Destekleniyor · 🚧 Çalışılıyor · 🧪 Test edilecek
 

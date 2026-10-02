@@ -92,7 +92,7 @@ Concat در مرحلهٔ **بتا** است: کار می‌کند و هنوز ل�
 - ✅ **macOS** · Intel و Apple Silicon. اگر macOS از باز کردن نسخهٔ امضانشده خودداری کرد: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 و ARM. ‏`.deb`، `.rpm`، `.AppImage` و یک بستهٔ Arch. همچنین یک Flatpak روی **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**، یک مخزن Flatpak اجتماعی که `.deb` معماری x86_64 هر انتشار را بسته‌بندی می‌کند و همراه آن به‌روز می‌شود
 - ✅ **Android** · گوشی‌ها و تبلت‌ها
-- 🧪 **iOS / iPadOS** · iPhone و iPad، با نصب جانبی
+- ✅ **iOS / iPadOS** · iPhone و iPad، با نصب جانبی
 
 ✅ پشتیبانی‌شده · 🚧 در دست کار · 🧪 در انتظار آزمایش
 

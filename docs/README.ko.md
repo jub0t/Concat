@@ -92,7 +92,7 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 - ✅ **macOS** · Intel과 Apple Silicon. macOS가 서명되지 않은 빌드를 열지 않으면: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64와 ARM. `.deb`, `.rpm`, `.AppImage`, Arch 패키지. 그리고 **[Flatpark](https://flatpark.org/apps/app.concat.editor/)**의 Flatpak도 있습니다. 각 릴리스의 x86_64 `.deb`를 감싸고 릴리스와 함께 업데이트되는 커뮤니티 Flatpak 원격 저장소입니다
 - ✅ **Android** · 휴대폰과 태블릿
-- 🧪 **iOS / iPadOS** · iPhone과 iPad, 사이드로드
+- ✅ **iOS / iPadOS** · iPhone과 iPad, 사이드로드
 
 ✅ 지원 · 🚧 작업 중 · 🧪 테스트 예정
 

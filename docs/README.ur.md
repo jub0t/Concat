@@ -92,7 +92,7 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 - ✅ **macOS** · Intel اور Apple Silicon۔ اگر macOS غیر دستخط شدہ بلڈ کھولنے سے انکار کرے: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 اور ARM۔ ‏`.deb`، `.rpm`، `.AppImage` اور ایک Arch پیکج۔ ساتھ ہی **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** پر ایک Flatpak، جو ایک کمیونٹی Flatpak ریموٹ ہے اور ہر ریلیز کی x86_64 ‏`.deb` کو لپیٹ کر اس کے ساتھ اپ ڈیٹ ہوتا ہے
 - ✅ **Android** · فون اور ٹیبلٹ
-- 🧪 **iOS / iPadOS** · iPhone اور iPad، سائیڈ لوڈ کے ذریعے
+- ✅ **iOS / iPadOS** · iPhone اور iPad، سائیڈ لوڈ کے ذریعے
 
 ✅ معاون · 🚧 کام جاری · 🧪 آزمائش باقی
 

@@ -92,7 +92,7 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 - ✅ **macOS** · Intel ו-Apple Silicon. אם macOS מסרב לפתוח גרסה לא חתומה: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 ו-ARM. ‏`.deb`, ‏`.rpm`, ‏`.AppImage` וחבילת Arch. וגם Flatpak ב-**[Flatpark](https://flatpark.org/apps/app.concat.editor/)**, מאגר Flatpak קהילתי שעוטף את ה-`.deb` ל-x86_64 של כל גרסה ומתעדכן איתה
 - ✅ **Android** · טלפונים וטאבלטים
-- 🧪 **iOS / iPadOS** · iPhone ו-iPad, בהתקנה צדדית
+- ✅ **iOS / iPadOS** · iPhone ו-iPad, בהתקנה צדדית
 
 ✅ נתמך · 🚧 בעבודה · 🧪 טרם נבדק
 

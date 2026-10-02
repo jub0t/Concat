@@ -92,7 +92,7 @@ Concat は **ベータ版** です。動きますが、まだ粗い部分があ�
 - ✅ **macOS** · Intel と Apple シリコン。macOS が未署名ビルドを開かないときは: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 と ARM。`.deb`、`.rpm`、`.AppImage`、Arch パッケージ。さらに **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** 上の Flatpak も。各リリースの x86_64 `.deb` を包み、リリースに合わせて更新されるコミュニティ運営の Flatpak リモートです
 - ✅ **Android** · スマートフォンとタブレット
-- 🧪 **iOS / iPadOS** · iPhone と iPad、サイドロード
+- ✅ **iOS / iPadOS** · iPhone と iPad、サイドロード
 
 ✅ 対応 · 🚧 作業中 · 🧪 検証待ち
 

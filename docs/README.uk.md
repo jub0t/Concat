@@ -92,7 +92,7 @@ Concat у **беті**: він працює, але шорсткості ще є
 - ✅ **macOS** · Intel і Apple Silicon. Якщо macOS відмовляється відкрити непідписану збірку: `xattr -dr com.apple.quarantine /Applications/Concat.app`
 - ✅ **Linux** · x86_64 і ARM. `.deb`, `.rpm`, `.AppImage` і пакет для Arch. А ще Flatpak на **[Flatpark](https://flatpark.org/apps/app.concat.editor/)** - спільнотному Flatpak-репозиторії, який обгортає `.deb` x86_64 кожного релізу й оновлюється разом із ним
 - ✅ **Android** · телефони та планшети
-- 🧪 **iOS / iPadOS** · iPhone та iPad, через sideload
+- ✅ **iOS / iPadOS** · iPhone та iPad, через sideload
 
 ✅ Підтримується · 🚧 У роботі · 🧪 Треба перевірити
 
