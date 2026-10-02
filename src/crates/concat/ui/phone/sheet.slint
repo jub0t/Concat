@@ -26,6 +26,12 @@ export component PhoneSheet inherits Rectangle {
 
     callback closed();
 
+    /// How far the header has been dragged down, while it is held: the
+    /// sheet follows the finger, and past `dismiss-at` on release it is
+    /// closed, as a phone's sheets are. Zero when nothing is held.
+    property <length> drag;
+    property <length> dismiss-at: 80px;
+
     visible: root.open;
     background: transparent;
 
@@ -37,7 +43,7 @@ export component PhoneSheet inherits Rectangle {
 
     surface := Rectangle {
         x: 0;
-        y: root.height - self.height;
+        y: root.height - self.height + root.drag;
         width: root.width;
         height: root.sheet-height;
         background: Theme.panel;
@@ -55,6 +61,32 @@ export component PhoneSheet inherits Rectangle {
             // ── the header ────────────────────────────────────────────────
             Rectangle {
                 height: 50px;
+
+                // The swipe: a drag down on the header slides the sheet
+                // with the finger and, let go of far enough down, closes
+                // it. Measured in the window's coordinates, since this
+                // area moves with the sheet it drags. Under the tick,
+                // which is declared later and takes its own presses.
+                // https://github.com/jub0t/Concat/issues/221
+                grab := TouchArea {
+                    property <length> origin;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            self.origin = self.absolute-position.y + self.mouse-y;
+                            root.drag = 0px;
+                        } else if (event.kind == PointerEventKind.up
+                            || event.kind == PointerEventKind.cancel) {
+                            if (root.drag > root.dismiss-at) {
+                                root.closed();
+                            }
+                            root.drag = 0px;
+                        }
+                    }
+                    moved => {
+                        root.drag = Math.max(0px,
+                            self.absolute-position.y + self.mouse-y - self.origin);
+                    }
+                }
 
                 Rectangle {
                     x: 0;
