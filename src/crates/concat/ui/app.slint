@@ -701,6 +701,11 @@ export component App inherits Window {
         height: root.height;
         phone: root.phone;
         data: root.export;
+        preview-frame: Editor.preview-frame;
+        playhead: Editor.playhead;
+        duration-seconds: Editor.duration-seconds;
+        frame-rate: Editor.frame-rate;
+        seek(seconds) => { Editor.seek(seconds); }
 
         closed => { root.export-closed(); }
         name-edited(name) => { root.export-name-edited(name); }

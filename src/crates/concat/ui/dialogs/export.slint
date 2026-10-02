@@ -8,6 +8,7 @@ import { Button, CopyChip, DialogRow, DialogSection, Field, Progress } from "../
 import { Select } from "../primitives/select.slint";
 import { Switch } from "../inspector/controls.slint";
 import { PaneScroll } from "../workspace/pane.slint";
+import { Fmt } from "../util.slint";
 
 // The export sheet.
 //
@@ -183,6 +184,91 @@ component QualityCard inherits Rectangle {
 //
 // One component each, so the sheet can deal them into however many columns
 // its width holds without writing any of them twice.
+
+// The picture at the playhead, small, and a strip to scrub it: a last
+// look at the cut before the file is written, without leaving the sheet.
+// The frame is the monitor's own, which keeps drawing under the sheet.
+component PreviewSection inherits DialogSection {
+    in property <image> frame;
+    in property <float> playhead;
+    in property <float> duration;
+    in property <float> frame-rate;
+
+    callback seek(seconds: float);
+
+    title: I18n.t("common.preview");
+
+    property <float> share: root.duration > 0
+        ? Math.clamp(root.playhead / root.duration, 0, 1) : 0;
+
+    Rectangle {
+        height: self.width * 9 / 16;
+        border-radius: Theme.r;
+        background: Theme.stage;
+        clip: true;
+
+        Image {
+            width: 100%;
+            height: 100%;
+            source: root.frame;
+            image-fit: contain;
+        }
+    }
+
+    // The scrub strip: the playhead's share of the cut, dragged.
+    Rectangle {
+        height: 24px;
+
+        track := Rectangle {
+            x: 0;
+            y: (parent.height - self.height) / 2;
+            width: parent.width;
+            height: 4px;
+            border-radius: 2px;
+            background: Theme.line-strong;
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width * root.share;
+                height: parent.height;
+                border-radius: 2px;
+                background: Theme.accent;
+            }
+        }
+
+        Rectangle {
+            x: track.width * root.share - self.width / 2;
+            y: (parent.height - self.height) / 2;
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: Theme.accent;
+        }
+
+        TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.seek(Math.clamp(self.mouse-x / self.width, 0, 1) * root.duration);
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    root.seek(Math.clamp(self.mouse-x / self.width, 0, 1) * root.duration);
+                }
+            }
+        }
+    }
+
+    Text {
+        text: Fmt.frames-timecode(root.playhead, root.frame-rate)
+            + " / " + Fmt.frames-timecode(root.duration, root.frame-rate);
+        color: Theme.fg-dim;
+        font-family: Theme.font-technical;
+        font-size: Theme.fs-sm;
+    }
+}
 
 component SummarySection inherits DialogSection {
     in property <ExportData> data;
@@ -369,13 +455,17 @@ component QualitySection inherits DialogSection {
 component AdvancedSection inherits VerticalLayout {
     in property <ExportData> data;
     in property <bool> first;
+    /// The bitrate and colour groups shown outright, with no switch to
+    /// show them: a sheet that has the window has room for them, and a
+    /// switch there was one more thing to click before a choice.
+    in property <bool> always;
 
     callback advanced-toggled(on: bool);
     callback rate-mode-changed(index: int);
     callback bitrate-changed(text: string);
     callback color-range-changed(index: int);
 
-    DialogSection {
+    if !root.always: DialogSection {
         first: root.first;
         title: I18n.t("export.advanced");
 
@@ -388,7 +478,8 @@ component AdvancedSection inherits VerticalLayout {
         }
     }
 
-    if root.data.advanced: DialogSection {
+    if root.always || root.data.advanced: DialogSection {
+        first: root.always && root.first;
         title: I18n.t("export.bitrate");
 
         DialogRow {
@@ -408,7 +499,7 @@ component AdvancedSection inherits VerticalLayout {
         }
     }
 
-    if root.data.advanced: DialogSection {
+    if root.always || root.data.advanced: DialogSection {
         title: I18n.t("export.colour");
 
         DialogRow {
@@ -581,6 +672,13 @@ export component ExportDialog inherits Rectangle {
     in property <ExportData> data;
     /// A finger drives it: the body scrolls under a drag as well as a wheel.
     in property <bool> phone;
+    /// The monitor's frame and where the playhead is, for the preview
+    /// group; a scrub there seeks the cut.
+    in property <image> preview-frame;
+    in property <float> playhead;
+    in property <float> duration-seconds;
+    in property <float> frame-rate;
+    callback seek(seconds: float);
 
     callback closed();
     callback name-edited(name: string);
@@ -741,13 +839,24 @@ export component ExportDialog inherits Rectangle {
 
                     // Two columns: what and where on the left with the
                     // quality, how on the right.
+                    // Two columns: the picture, what it is and where it
+                    // goes on the left with the quality; how on the right,
+                    // the advanced groups open.
                     if !root.running && root.columns == 2: HorizontalLayout {
                         spacing: 12px;
 
                         VerticalLayout {
                             alignment: start;
                             horizontal-stretch: 1;
-                            SummarySection { first: true; data: root.data; }
+                            PreviewSection {
+                                first: true;
+                                frame: root.preview-frame;
+                                playhead: root.playhead;
+                                duration: root.duration-seconds;
+                                frame-rate: root.frame-rate;
+                                seek(seconds) => { root.seek(seconds); }
+                            }
+                            SummarySection { data: root.data; }
                             DestinationSection {
                                 data: root.data;
                                 name-edited(name) => { root.name-edited(name); }
@@ -772,6 +881,7 @@ export component ExportDialog inherits Rectangle {
                                 hdr-changed(on) => { root.hdr-changed(on); }
                             }
                             AdvancedSection {
+                                always: true;
                                 data: root.data;
                                 advanced-toggled(on) => { root.advanced-toggled(on); }
                                 rate-mode-changed(index) => { root.rate-mode-changed(index); }
@@ -781,20 +891,24 @@ export component ExportDialog inherits Rectangle {
                         }
                     }
 
-                    // Three columns, in the order a file is decided: what
-                    // and where, what shape, how good.
+                    // Three columns: the picture and what it is; what
+                    // shape and where it goes; how good, the advanced
+                    // groups open under it.
                     if !root.running && root.columns == 3: HorizontalLayout {
                         spacing: 12px;
 
                         VerticalLayout {
                             alignment: start;
                             horizontal-stretch: 1;
-                            SummarySection { first: true; data: root.data; }
-                            DestinationSection {
-                                data: root.data;
-                                name-edited(name) => { root.name-edited(name); }
-                                browse => { root.browse(); }
+                            PreviewSection {
+                                first: true;
+                                frame: root.preview-frame;
+                                playhead: root.playhead;
+                                duration: root.duration-seconds;
+                                frame-rate: root.frame-rate;
+                                seek(seconds) => { root.seek(seconds); }
                             }
+                            SummarySection { data: root.data; }
                         }
 
                         VerticalLayout {
@@ -809,6 +923,11 @@ export component ExportDialog inherits Rectangle {
                                 ten-bit-changed(on) => { root.ten-bit-changed(on); }
                                 hdr-changed(on) => { root.hdr-changed(on); }
                             }
+                            DestinationSection {
+                                data: root.data;
+                                name-edited(name) => { root.name-edited(name); }
+                                browse => { root.browse(); }
+                            }
                         }
 
                         VerticalLayout {
@@ -820,6 +939,7 @@ export component ExportDialog inherits Rectangle {
                                 quality-changed(index) => { root.quality-changed(index); }
                             }
                             AdvancedSection {
+                                always: true;
                                 data: root.data;
                                 advanced-toggled(on) => { root.advanced-toggled(on); }
                                 rate-mode-changed(index) => { root.rate-mode-changed(index); }
