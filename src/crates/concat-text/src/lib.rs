@@ -1136,23 +1136,34 @@ fn paint(
 }
 
 /// A rectangle with rounded corners, radius clamped to half the short side.
+///
+/// Each corner is a cubic Bézier through the usual circle constant, which
+/// is a quarter circle to within a thousandth of the radius. The corners
+/// were quadratics once, with the control point at the corner itself: a
+/// parabola, which bends hardest at its middle - some forty percent
+/// harder than the circle there - and barely at its ends. On a plate as
+/// tall as it is round, which a one-line title is once the frame is
+/// portrait and the plate's air scales with its height, the two sides
+/// came to visible points.
 fn push_rounded_rect(builder: &mut PathBuilder, rect: Rect, radius: f32) {
+    // 4/3 · (√2 − 1): where a cubic's control points sit along the
+    // tangents for a quarter circle.
+    const KAPPA: f32 = 0.552_284_8;
     let r = radius
         .min(rect.width() / 2.0)
         .min(rect.height() / 2.0)
         .max(0.0);
+    let k = r * (1.0 - KAPPA);
     let (l, t, rgt, b) = (rect.left(), rect.top(), rect.right(), rect.bottom());
-    // Quadratic corners: close enough to circular at these sizes, and half
-    // the segments of a cubic approximation.
     builder.move_to(l + r, t);
     builder.line_to(rgt - r, t);
-    builder.quad_to(rgt, t, rgt, t + r);
+    builder.cubic_to(rgt - k, t, rgt, t + k, rgt, t + r);
     builder.line_to(rgt, b - r);
-    builder.quad_to(rgt, b, rgt - r, b);
+    builder.cubic_to(rgt, b - k, rgt - k, b, rgt - r, b);
     builder.line_to(l + r, b);
-    builder.quad_to(l, b, l, b - r);
+    builder.cubic_to(l + k, b, l, b - k, l, b - r);
     builder.line_to(l, t + r);
-    builder.quad_to(l, t, l + r, t);
+    builder.cubic_to(l, t + k, l + k, t, l + r, t);
     builder.close();
 }
 
@@ -1400,6 +1411,16 @@ mod tests {
         let (corner, edge) = probe(&rendered.png);
         assert_eq!(corner, 0, "a rounded corner is clear");
         assert_eq!(edge, 255, "and the edge between the corners is painted");
+
+        // And the corner is a circular arc. Its radius is 36 pixels, so
+        // the top-left arc is centred on (196, 144): the pixel at (169,
+        // 117) is a pixel and a half outside it, and (171, 119) a pixel
+        // and a half inside. The parabola the corners once were passed
+        // through the first of those and painted it.
+        let pixmap = Pixmap::decode_png(&rendered.png).expect("our own PNG decodes");
+        let at = |x: u32, y: u32| pixmap.pixel(x, y).map(|p| p.alpha()).unwrap_or(0);
+        assert!(at(169, 117) < 32, "outside the arc: {}", at(169, 117));
+        assert_eq!(at(171, 119), 255, "inside the arc");
     }
 
     /// The plate's air follows the style's padding: the block is the words
