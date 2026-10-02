@@ -91,10 +91,9 @@ export global Light {
 
     // accents
     //
-    // The logo's blue, kept at the logo's own value, then the dark palette's
-    // six, each taken down to where a near-white ground can hold it. At these
-    // values each of the six clears 4.5:1 against `panel` as ink and white
-    // clears 5:1 on it as a fill (the blue sits at 4.45:1 and 4.8:1), which
+    // The dark palette's six, each taken down to where a near-white ground
+    // can hold it. At these values each clears 4.5:1 against `panel` as ink
+    // and white clears 5:1 on it as a fill, which
     // is what lets one token keep doing both jobs — the 41 places that tint a
     // glyph or a border with it and the 26 that fill a control with it are
     // the same token, and
@@ -103,13 +102,12 @@ export global Light {
     //
     // Hover goes darker, not lighter: on this ground more contrast is more
     // engagement, which is the same sentence the dark palette's brighter hover
-    // is saying. The ink is white on all seven, because every one is now dark —
+    // is saying. The ink is white on all six, because every one is now dark —
     // the pairing the dark palette insists on, honoured from the other side.
     // `soft` is the colour at 18%.
     //
     // The same order as `dark.slint` and as `accent-names` in theme.slint.
     out property <[Accent]> accents: [
-        { accent: #0568fd, hover: #0457d6, soft: #0568fd2e, on: #ffffff },   // blue
         { accent: #4d7c0f, hover: #3f680b, soft: #4d7c0f2e, on: #ffffff },   // lime
         { accent: #1f66d1, hover: #1a55b0, soft: #1f66d12e, on: #ffffff },   // sky
         { accent: #7239e6, hover: #6030c8, soft: #7239e62e, on: #ffffff },   // violet

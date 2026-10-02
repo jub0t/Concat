@@ -123,24 +123,19 @@ export global Dark {
 
     // accents
     //
-    // Blue, the logo's #0568fd. The two places that carry the look are the
-    // selection highlight and every activated tool, and both are the accent;
-    // making the brand's colour the accent says the same thing with one token
-    // instead of three.
+    // The two places that carry the look are the selection highlight and
+    // every activated tool, and both are the accent.
     //
-    // Seven to choose from, and Settings › Appearance picks one. The first is
-    // the default. The six after it are each legible against near-black and
+    // Six to choose from, and Settings › Appearance picks one. The first,
+    // lime, is the default. Each is legible against near-black and
     // near-white alike, which is what a selection has to be: it lands on
-    // whatever happens to be underneath it. What sits *on* those therefore
+    // whatever happens to be underneath it. What sits *on* them therefore
     // has to be dark ink, and is fixed with it: `on` is a deep shade of the
     // same hue, `hover` a step brighter, `soft` the colour at 20% for a wash.
-    // Blue is the dark accent among them and wants #ffffff for its ink,
-    // which is the light palette's whole answer.
     //
     // The same order as `light.slint` and as `accent-names` in theme.slint,
     // which is where each one's name lives.
     out property <[Accent]> accents: [
-        { accent: #0568fd, hover: #2d80ff, soft: #0568fd33, on: #ffffff },   // blue
         { accent: #cbf53f, hover: #d9ff63, soft: #cbf53f33, on: #15220a },   // lime
         { accent: #5fb8ff, hover: #82c9ff, soft: #5fb8ff33, on: #061c33 },   // sky
         { accent: #b394ff, hover: #c6b0ff, soft: #b394ff33, on: #1d0f3d },   // violet
