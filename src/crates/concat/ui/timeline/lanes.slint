@@ -950,13 +950,17 @@ export component Lanes inherits Rectangle {
     property <bool> hover-on;
 
     function hover-at(x: length) {
-        if (!root.preview-axis) {
+        // Tracked for the preview axis, and for the razor's edge below;
+        // only the axis moves the monitor.
+        if (!root.preview-axis && root.tool != TimelineTool.split) {
             return;
         }
         hover-off-timer.running = false;
         root.hover-x = x;
         root.hover-on = true;
-        root.hovered(Math.max(0, root.seconds-at(x)));
+        if (root.preview-axis) {
+            root.hovered(Math.max(0, root.seconds-at(x)));
+        }
     }
     /// A beat later, not at once: the pointer crossing from a clip to the
     /// floor leaves one surface before it reaches the next, and the
@@ -1611,6 +1615,22 @@ export component Lanes inherits Rectangle {
             width: 1px;
             height: root.height;
             background: Theme.fg-dim;
+            visible: self.x >= 0px && self.x <= root.width;
+        }
+
+        // ── the razor's edge ─────────────────────────────────────────────
+        //
+        // Where the split tool will cut: the frame under the pointer, as a
+        // line across the lanes in the accent, so it reads as a blade and
+        // not as the dim hover line. Under the playhead, over the clips.
+        // https://github.com/jub0t/Concat/issues/241
+        if root.tool == TimelineTool.split && root.hover-on: Rectangle {
+            x: root.at(Math.round(root.seconds-at(root.hover-x) * root.frame-rate)
+                / Math.max(1, root.frame-rate));
+            y: 0;
+            width: 1px;
+            height: root.height;
+            background: Theme.accent;
             visible: self.x >= 0px && self.x <= root.width;
         }
 
