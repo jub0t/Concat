@@ -778,6 +778,9 @@ pub struct Studio {
     /// and not a clip's: the two share one set of rows and one token.
     pub menu_media: Option<String>,
     pub menu_token: i32,
+    /// The run of one kind of continuous message being folded into one
+    /// line of the activity trail; see `note_activity`.
+    activity_burst: Option<crate::panes::Burst>,
     pub toast: ToastState,
 
     // ── the launch screen ──
@@ -1909,6 +1912,7 @@ impl Studio {
             menu_target: None,
             menu_media: None,
             menu_token: 0,
+            activity_burst: None,
             toast: ToastState::default(),
             on_start: true,
             start: crate::panes::start::StartPane::default(),
@@ -2122,7 +2126,47 @@ impl Studio {
     /// Applies one command to the session and reports the id it minted.
     /// A refusal becomes a notice; the echo, if any, is dropped either way,
     /// because the session's project is the truth again.
+    /// Logs one line of the activity trail, folding a burst of one kind
+    /// of message into its first line and, when the burst ends - a
+    /// different message, an edit, or a pause - one line with the count.
+    fn note_activity(&mut self, activity: crate::panes::Activity) {
+        use crate::panes::Burst;
+        let now = std::time::Instant::now();
+        let Some(key) = activity.burst else {
+            self.end_burst();
+            log::log!(activity.level, "{}", activity.line);
+            return;
+        };
+        match &mut self.activity_burst {
+            Some(burst) if burst.key == key && now.duration_since(burst.last) < Burst::GAP => {
+                burst.count += 1;
+                burst.line = activity.line;
+                burst.last = now;
+            }
+            _ => {
+                self.end_burst();
+                log::log!(activity.level, "{}", activity.line);
+                self.activity_burst = Some(Burst {
+                    key,
+                    line: activity.line,
+                    count: 1,
+                    began: now,
+                    last: now,
+                });
+            }
+        }
+    }
+
+    /// Ends the burst being folded, if one is, with its count.
+    fn end_burst(&mut self) {
+        if let Some(burst) = self.activity_burst.take() {
+            burst.flush();
+        }
+    }
+
     pub fn apply(&mut self, command: Command) -> Option<String> {
+        // An edit ends whatever burst the view was in.
+        self.end_burst();
         log::info!("edit: {}", command_name(&command));
         self.flush_commit();
         self.echo = None;
@@ -6614,9 +6658,10 @@ impl Studio {
     /// rest of the window without borrowing itself twice; a pane never
     /// reads its own slot on the studio.
     pub fn handle(&mut self, msg: crate::panes::Msg) {
-        // The activity trail: what the person did, for the log.
-        if let Some((level, line)) = crate::panes::activity(&msg) {
-            log::log!(level, "{line}");
+        // The activity trail: what the person did, for the log. A burst
+        // - a wheel's zooms - is one line and a count; see `Burst`.
+        if let Some(activity) = crate::panes::activity(&msg) {
+            self.note_activity(activity);
         }
         match msg {
             crate::panes::Msg::Export(msg) => {

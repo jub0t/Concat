@@ -57,7 +57,7 @@ pub enum Msg {
 /// every progress tick. Typing is said by name and never quoted - a
 /// project's name, a server's token - and an outcome by its path or its
 /// count rather than its data.
-pub fn activity(msg: &Msg) -> Option<(log::Level, String)> {
+pub fn activity(msg: &Msg) -> Option<Activity> {
     use captions::CaptionsMsg;
     use export::ExportMsg;
     use log::Level::{Debug, Info};
@@ -82,26 +82,37 @@ pub fn activity(msg: &Msg) -> Option<(log::Level, String)> {
         | Msg::Settings(SettingsMsg::ModelProgress { .. } | SettingsMsg::InstallProgress { .. }) => {
             return None;
         }
-        Msg::Export(ExportMsg::Start) => return Some((Info, "export: started".to_owned())),
+        // A wheel tick that zooms by nothing - a trackpad's idle events -
+        // did nothing, and says nothing.
+        Msg::Timeline(TimelineMsg::Zoomed { factor, .. }) if (factor - 1.0).abs() < 1e-6 => {
+            return None;
+        }
+        Msg::Export(ExportMsg::Start) => {
+            return Some(Activity::once(Info, "export: started".to_owned()));
+        }
         Msg::Export(ExportMsg::Finished(Ok(path))) => {
-            return Some((Info, format!("export: finished, {path}")));
+            return Some(Activity::once(Info, format!("export: finished, {path}")));
         }
         Msg::Export(ExportMsg::Finished(Err(error))) => {
-            return Some((Info, format!("export: failed, {error}")));
+            return Some(Activity::once(Info, format!("export: failed, {error}")));
         }
-        Msg::Captions(CaptionsMsg::Begin) => return Some((Info, "captions: started".to_owned())),
+        Msg::Captions(CaptionsMsg::Begin) => {
+            return Some(Activity::once(Info, "captions: started".to_owned()));
+        }
         Msg::Captions(CaptionsMsg::Finished(Ok(segments))) => {
-            return Some((
+            return Some(Activity::once(
                 Info,
                 format!("captions: finished, {} segments", segments.len()),
             ));
         }
         Msg::Captions(CaptionsMsg::Finished(Err(error))) => {
-            return Some((Info, format!("captions: failed, {error}")));
+            return Some(Activity::once(Info, format!("captions: failed, {error}")));
         }
-        Msg::Speech(SpeechMsg::Begin) => return Some((Info, "speech: started".to_owned())),
+        Msg::Speech(SpeechMsg::Begin) => {
+            return Some(Activity::once(Info, "speech: started".to_owned()));
+        }
         Msg::Speech(SpeechMsg::Finished(result)) => {
-            return Some((
+            return Some(Activity::once(
                 Info,
                 match result.as_ref() {
                     Ok(summary) => format!("speech: finished, {}", summary.path),
@@ -118,7 +129,7 @@ pub fn activity(msg: &Msg) -> Option<(log::Level, String)> {
                         .unwrap_or_default()
                 })
                 .collect();
-            return Some((
+            return Some(Activity::once(
                 Info,
                 format!(
                     "import: {} file(s): {}",
@@ -129,13 +140,16 @@ pub fn activity(msg: &Msg) -> Option<(log::Level, String)> {
         }
         Msg::Media(MediaMsg::Imported(results)) => {
             let failed = results.iter().filter(|result| result.is_err()).count();
-            return Some((
+            return Some(Activity::once(
                 Info,
                 format!("import: {} added, {failed} failed", results.len() - failed),
             ));
         }
         Msg::Relink(RelinkMsg::Show(missing)) => {
-            return Some((Info, format!("relink: {} file(s) missing", missing.len())));
+            return Some(Activity::once(
+                Info,
+                format!("relink: {} file(s) missing", missing.len()),
+            ));
         }
         _ => {}
     }
@@ -152,17 +166,79 @@ pub fn activity(msg: &Msg) -> Option<(log::Level, String)> {
     // Typing: by name, never quoted. A name, a path, a token are nothing
     // the log needs, and a keystroke each is not worth a line at Normal.
     if inner.ends_with("Edited") || inner == "ServerTokenGenerated" {
-        return Some((Debug, format!("{outer}: {inner}")));
+        return Some(Activity {
+            level: Debug,
+            line: format!("{outer}: {inner}"),
+            burst: Some(format!("{outer}: {inner}")),
+        });
     }
-    // The view moving under the person, and a sheet's own housekeeping,
-    // are for Debug; a choice made is for Normal.
+    // The view moving under the person is a burst - a wheel's worth of
+    // zooms is one line with a count, not a line a tick - and for Debug
+    // with a sheet's own housekeeping; a choice made is for Normal.
+    let continuous = matches!(
+        inner.as_str(),
+        "Select" | "Band" | "Zoomed" | "ZoomIn" | "ZoomOut" | "ZoomToFit"
+    );
     let level = match inner.as_str() {
         "Select" | "Band" | "Zoomed" | "ZoomIn" | "ZoomOut" | "ZoomToFit" | "PageChanged"
         | "Restore" | "Reset" | "Opened" | "Closed" | "SnapToggled" | "MagneticToggled"
         | "UpdatesFetched" => Debug,
         _ => Info,
     };
-    Some((level, format!("{outer}: {}", cap(body, 160))))
+    Some(Activity {
+        level,
+        line: format!("{outer}: {}", cap(body, 160)),
+        burst: continuous.then(|| format!("{outer}: {inner}")),
+    })
+}
+
+/// One line of the activity trail: its level, its words, and for a
+/// message that comes in bursts - a wheel's zooms, a drag's selections,
+/// a field's keystrokes - the key the burst is folded under, so a run of
+/// them is one line and a count rather than a line a tick.
+pub struct Activity {
+    pub level: log::Level,
+    pub line: String,
+    pub burst: Option<String>,
+}
+
+impl Activity {
+    fn once(level: log::Level, line: impl Into<String>) -> Activity {
+        Activity {
+            level,
+            line: line.into(),
+            burst: None,
+        }
+    }
+}
+
+/// A burst of one kind of message as it is being folded: its key, the
+/// latest line, how many so far, when it began and when the last came.
+pub struct Burst {
+    pub key: String,
+    pub line: String,
+    pub count: u32,
+    pub began: std::time::Instant,
+    pub last: std::time::Instant,
+}
+
+impl Burst {
+    /// How long after the last of a burst the next of its kind is a new
+    /// burst rather than more of the same.
+    pub const GAP: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// The burst's line for the log: the first was said as it came; the
+    /// rest are a count over the time they took.
+    pub fn flush(&self) {
+        if self.count > 1 {
+            log::debug!(
+                "{} (×{} over {:.1}s)",
+                self.line,
+                self.count,
+                self.last.duration_since(self.began).as_secs_f64()
+            );
+        }
+    }
 }
 
 /// `text`, or its first `max` characters and an ellipsis.
