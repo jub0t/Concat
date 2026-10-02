@@ -576,6 +576,7 @@
   "export.showInFolder": "Show in folder",
   "export.smallest": "Smallest",
   "export.summary": "Summary",
+  "export.timelineSize": "Timeline",
   "export.targetBitrate": "Target bitrate",
   "export.tenBitColour": "10-bit colour",
   "export.toneMapped": "Tone-mapped, plays anywhere",

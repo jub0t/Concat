@@ -31,6 +31,10 @@ export component Select inherits Rectangle {
     /// `options` is fine; a row past its end simply has none.
     in property <[Glyph]> icons;
     in property <bool> enabled: true;
+    /// Rows that are shown and cannot be picked, by index: greyed, and a
+    /// press or Enter on one does nothing. Shorter than `options` leaves
+    /// the rest pickable.
+    in property <[bool]> disabled;
     /// drop the field background, for a select used as panel chrome
     in property <bool> flat;
     /// Size `natural-width` to the current option rather than the widest.
@@ -112,8 +116,13 @@ export component Select inherits Rectangle {
 
     animate background { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
 
+    /// Whether row `index` is one of the `disabled`.
+    pure function off(index: int) -> bool {
+        return index < root.disabled.length && root.disabled[index];
+    }
+
     function commit(index: int) {
-        if (index >= 0 && index < root.options.length) {
+        if (index >= 0 && index < root.options.length && !root.off(index)) {
             root.current = index;
             root.changed(index);
         }
@@ -322,7 +331,8 @@ export component Select inherits Rectangle {
                 for option[index] in root.options: Rectangle {
                     height: root.row-h;
                     border-radius: Theme.r-sm;
-                    background: index == root.active ? Theme.accent : Colors.transparent;
+                    background: index == root.active && !root.off(index)
+                        ? Theme.accent : Colors.transparent;
 
                     HorizontalLayout {
                         padding-left: 6px;
@@ -341,7 +351,8 @@ export component Select inherits Rectangle {
                         Text {
                             horizontal-stretch: 1;
                             text: option;
-                            color: index == root.active ? Theme.on-accent : Theme.fg-muted;
+                            color: root.off(index) ? Theme.fg-dim
+                                : index == root.active ? Theme.on-accent : Theme.fg-muted;
                             font-size: Theme.fs;
                             vertical-alignment: center;
                             overflow: elide;
@@ -349,7 +360,7 @@ export component Select inherits Rectangle {
 
                         if index < root.details.length: Text {
                             text: root.details[index];
-                            color: index == root.active ? Theme.on-accent : Theme.fg-dim;
+                            color: index == root.active && !root.off(index) ? Theme.on-accent : Theme.fg-dim;
                             font-family: Theme.font-technical;
                             font-size: Theme.fs-sm;
                             vertical-alignment: center;
@@ -366,11 +377,11 @@ export component Select inherits Rectangle {
                     }
 
                     TouchArea {
-                        mouse-cursor: pointer;
+                        mouse-cursor: root.off(index) ? MouseCursor.default : MouseCursor.pointer;
                         // pointer-enter has no dedicated callback; has-hover
                         // drives the highlight instead.
                         changed has-hover => {
-                            if (self.has-hover) {
+                            if (self.has-hover && !root.off(index)) {
                                 root.active = index;
                             }
                         }

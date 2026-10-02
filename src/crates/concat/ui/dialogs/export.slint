@@ -37,6 +37,12 @@ export struct ExportData {
     /// "8 clips · 3 titles"
     contents: string,
     resolution: int,
+    /// the resolution ladder as this project would come out at each
+    /// rung - "1080 × 1920" on a 9:16 edit - with its names, and which
+    /// rungs cannot be picked: every one but the timeline's own
+    resolutions: [string],
+    resolution-details: [string],
+    resolution-disabled: [bool],
     rate: int,
     quality: int,
     /// index into the codec list: H.264, HEVC, AV1
@@ -337,10 +343,15 @@ component OutputSection inherits DialogSection {
 
     DialogRow {
         label: I18n.t("export.resolution");
+        // The timeline's own size, and the ladder it sits on for scale:
+        // a 9:16 edit is 1080 × 1920, not 1920 × 1080, and it exports at
+        // the size it was cut at - the other rungs are shown and cannot be
+        // picked. https://github.com/jub0t/Concat/issues/109
         Select {
             current: root.data.resolution;
-            options: ["3840 × 2160", "2560 × 1440", "1920 × 1080", "1280 × 720"];
-            details: ["4K", "QHD", "1080p", "720p"];
+            options: root.data.resolutions;
+            details: root.data.resolution-details;
+            disabled: root.data.resolution-disabled;
             changed(index) => { root.resolution-changed(index); }
         }
     }

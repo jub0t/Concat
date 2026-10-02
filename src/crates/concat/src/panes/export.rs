@@ -25,6 +25,7 @@ use crate::studio::{
     AUDIO_BPS, EXPORT_CRF, EXPORT_RATES, EXPORT_SHORT_SIDES, EXPORT_TIERS, Studio, home_folder,
 };
 use crate::ui::{ExportData, ExportPhase};
+use slint::{ModelRc, SharedString, VecModel};
 
 /// Everything that can happen to the export sheet.
 #[derive(Clone, Debug)]
@@ -139,11 +140,18 @@ impl ExportPane {
                 self.open = true;
                 self.phase = ExportPhase::Idle;
                 self.message.clear();
+                // The timeline's own size: the one rung that can be picked.
+                self.resolution = Self::own_rung(studio);
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
             ExportMsg::ResolutionChanged(index) => {
-                self.resolution = (index.max(0) as usize).min(3);
+                // Only the timeline's own rung is taken; the sheet greys the
+                // rest, and this is the same rule for a caller that did not.
+                let index = index.max(0) as usize;
+                if index == Self::own_rung(studio) {
+                    self.resolution = index;
+                }
             }
             ExportMsg::RateChanged(index) => self.rate = (index.max(0) as usize).min(2),
             ExportMsg::QualityChanged(index) => self.quality = (index.max(0) as usize).min(2),
@@ -216,11 +224,39 @@ impl ExportPane {
         }
     }
 
-    /// The frame the export renders at: the sheet's short side, scaled
-    /// along the project's aspect and rounded to even dimensions, which is
-    /// what the encoder's chroma subsampling needs.
-    pub fn size(&self, studio: &Studio) -> (u32, u32) {
-        let short = EXPORT_SHORT_SIDES[self.resolution.min(EXPORT_SHORT_SIDES.len() - 1)];
+    /// The resolution ladder for this project: the standard short sides,
+    /// with the project's own among them where it is not already - a
+    /// custom frame has its own rung - from largest to smallest.
+    fn ladder(studio: &Studio) -> Vec<u32> {
+        let mut rungs: Vec<u32> = EXPORT_SHORT_SIDES.to_vec();
+        let own = Self::own_short(studio);
+        if !rungs.contains(&own) {
+            rungs.push(own);
+        }
+        rungs.sort_unstable_by(|a, b| b.cmp(a));
+        rungs
+    }
+
+    /// The project's short side, in pixels.
+    fn own_short(studio: &Studio) -> u32 {
+        let (width, height) = studio.output_size();
+        width.min(height).max(2)
+    }
+
+    /// The rung of the ladder that is the project's own size: the one
+    /// the sheet lets be picked, since an edit exports at the size it was
+    /// cut at. https://github.com/jub0t/Concat/issues/109
+    fn own_rung(studio: &Studio) -> usize {
+        let own = Self::own_short(studio);
+        Self::ladder(studio)
+            .iter()
+            .position(|rung| *rung == own)
+            .unwrap_or(0)
+    }
+
+    /// `short` scaled along the project's aspect and rounded to even
+    /// dimensions, which is what the encoder's chroma subsampling needs.
+    fn frame_for(studio: &Studio, short: u32) -> (u32, u32) {
         let (project_w, project_h) = studio.output_size();
         let (project_w, project_h) = (project_w.max(1) as f64, project_h.max(1) as f64);
         let even = |side: f64| ((side / 2.0).round() as u32 * 2).max(2);
@@ -229,6 +265,14 @@ impl ExportPane {
         } else {
             (short, even(short as f64 * project_h / project_w))
         }
+    }
+
+    /// The frame the export renders at: the sheet's rung of the ladder,
+    /// along the project's aspect.
+    pub fn size(&self, studio: &Studio) -> (u32, u32) {
+        let ladder = Self::ladder(studio);
+        let short = ladder[self.resolution.min(ladder.len() - 1)];
+        Self::frame_for(studio, short)
     }
 
     /// A rough size of the file at one quality tier, in bytes.
@@ -423,6 +467,36 @@ impl ExportPane {
             }
             .into(),
             resolution: self.resolution as i32,
+            resolutions: {
+                let sizes: Vec<SharedString> = Self::ladder(studio)
+                    .iter()
+                    .map(|rung| {
+                        let (width, height) = Self::frame_for(studio, *rung);
+                        format!("{width} × {height}").into()
+                    })
+                    .collect();
+                ModelRc::new(VecModel::from(sizes))
+            },
+            resolution_details: {
+                let names: Vec<SharedString> = Self::ladder(studio)
+                    .iter()
+                    .map(|rung| match rung {
+                        2160 => "4K".into(),
+                        1440 => "QHD".into(),
+                        1080 => "1080p".into(),
+                        720 => "720p".into(),
+                        _ => t("export.timelineSize").into(),
+                    })
+                    .collect();
+                ModelRc::new(VecModel::from(names))
+            },
+            resolution_disabled: {
+                let own = Self::own_rung(studio);
+                let off: Vec<bool> = (0..Self::ladder(studio).len())
+                    .map(|rung| rung != own)
+                    .collect();
+                ModelRc::new(VecModel::from(off))
+            },
             rate: self.rate as i32,
             quality: self.quality as i32,
             codec: concat_media::VideoCodec::ALL

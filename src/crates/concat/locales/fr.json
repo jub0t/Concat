@@ -576,6 +576,7 @@
   "export.showInFolder": "Afficher dans le dossier",
   "export.smallest": "Le plus petit",
   "export.summary": "Résumé",
+  "export.timelineSize": "Timeline",
   "export.targetBitrate": "Target bitrate",
   "export.tenBitColour": "Couleur 10 bits",
   "export.toneMapped": "Ramené en SDR, lisible partout",
