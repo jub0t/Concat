@@ -465,4 +465,23 @@ mod tests {
         let dirs = AppDirs::under(Path::new("/tmp/concat-test"));
         assert_eq!(folder(&dirs), Path::new("/tmp/concat-test/logs"));
     }
+
+    /// Every level the sheet offers reads back under the name it is kept
+    /// as, in any case, and a name that is no level is None.
+    #[test]
+    fn level_names_round_trip() {
+        for level in [
+            log::LevelFilter::Error,
+            log::LevelFilter::Warn,
+            log::LevelFilter::Info,
+            log::LevelFilter::Debug,
+            log::LevelFilter::Trace,
+            log::LevelFilter::Off,
+        ] {
+            assert_eq!(level_named(level_name(level)), Some(level));
+        }
+        assert_eq!(level_named(" DEBUG "), Some(log::LevelFilter::Debug));
+        assert_eq!(level_named("loud"), None);
+        assert_eq!(level_named(""), None);
+    }
 }
