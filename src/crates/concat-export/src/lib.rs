@@ -1170,6 +1170,48 @@ fn best_compositor() -> Result<WgpuCompositor, String> {
 const NO_RENDERER: &str = "no GPU or software renderer is available to draw with - on Linux, \
      install Mesa's Vulkan drivers (lavapipe)";
 
+/// How many times an export's device may die under it before the export
+/// gives up: the first death is answered with a fresh device on the GPU,
+/// which a reset adapter opens again; the next with the software adapter,
+/// which draws the same picture however slowly; a third says the machine
+/// cannot draw this export at all.
+const DEVICE_LOSSES: u32 = 3;
+
+/// A compositor to go on with after the export's device died, `losses`
+/// deaths in; see [`DEVICE_LOSSES`]. It draws as the dead one did -
+/// delivering HDR or not - and the log says what it is drawing on.
+///
+/// A device can die under an export: Windows resets an adapter whose
+/// command takes too long, and a card shared with the window, the hardware
+/// decoder and the encoder can run out of memory. Both ended the export
+/// with "the GPU device was lost" on 8 GB NVIDIA cards (#223); the frames
+/// already encoded are kept and the next is drawn on the new device.
+fn recovered(losses: u32, hdr: bool) -> Result<WgpuCompositor, String> {
+    if losses >= DEVICE_LOSSES {
+        return Err(format!(
+            "the GPU device was lost {losses} times part way through the export; nothing \
+             on this machine can draw it to the end"
+        ));
+    }
+    let fresh = if losses == 1 {
+        WgpuCompositor::new()
+    } else {
+        WgpuCompositor::software()
+    };
+    let mut compositor = fresh.ok_or_else(|| {
+        format!("the GPU device was lost part way through the export, and {NO_RENDERER}")
+    })?;
+    compositor.deliver_hdr(hdr);
+    let adapter = compositor.adapter_info();
+    log::warn!(
+        "export: the GPU device was lost; going on with {} ({:?}, {:?})",
+        adapter.name,
+        adapter.device_type,
+        adapter.backend
+    );
+    Ok(compositor)
+}
+
 /// A compositor for the frames drawn without a window: the API's and the
 /// command line's previews. Made once and kept, since making a device is
 /// far slower than drawing one small frame on it.
@@ -1253,6 +1295,9 @@ fn render_picture(
         Encoder::create(destination, request.width, request.height, rate, &options)
     }
     .map_err(|error| error.to_string())?;
+
+    // How many devices have died under this export so far; see `recovered`.
+    let mut losses = 0;
 
     // One decoder per clip, opened at its in-point the first time the clip is
     // needed and dropped the moment it leaves the playhead. Every decoder is
@@ -1374,21 +1419,32 @@ fn render_picture(
             }
         }
 
-        let composed = composite_treated(
+        let frame_plan = FramePlan {
+            time,
+            width: request.width,
+            height: request.height,
+            layers,
+            treatments: Vec::new(),
+            output: output_of(request.color_space),
+        };
+        // The plan is kept for a second drawing: a frame drawn on a device
+        // that died under it is black, and is drawn again on the device
+        // that takes over. The copy is cheap - the pictures are shared.
+        let mut composed = composite_treated(
             &mut compositor,
-            FramePlan {
-                time,
-                width: request.width,
-                height: request.height,
-                layers,
-                treatments: Vec::new(),
-                output: output_of(request.color_space),
-            },
+            frame_plan.clone(),
             &treatments,
             &transitions,
         );
-        if compositor.lost() {
-            return Err("the GPU device was lost part way through the export".to_owned());
+        while compositor.lost() {
+            losses += 1;
+            compositor = recovered(losses, hdr)?;
+            composed = composite_treated(
+                &mut compositor,
+                frame_plan.clone(),
+                &treatments,
+                &transitions,
+            );
         }
         encoder
             .write_frame(&composed)
@@ -2344,6 +2400,21 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A device that dies under an export is replaced: first by a fresh
+    /// one on the GPU, then by the software adapter; the third death ends
+    /// the export with a message that says how many there were.
+    #[test]
+    fn an_export_gives_up_after_enough_device_losses() {
+        let Err(error) = recovered(DEVICE_LOSSES, false) else {
+            panic!("a third loss gives up");
+        };
+        assert!(error.contains("lost 3 times"), "{error}");
+        if WgpuCompositor::new().is_some() {
+            let fresh = recovered(1, true).expect("a machine that draws opens another device");
+            assert!(!fresh.lost());
+        }
     }
 
     #[test]

@@ -1812,3 +1812,12 @@ fn the_fisheye_fills_the_frame() {
         );
     }
 }
+
+/// The software-only constructor opens the software adapter and nothing
+/// else; a machine without one - a Mac - gets None rather than a GPU.
+#[test]
+fn the_software_compositor_draws_on_a_software_adapter_or_not_at_all() {
+    if let Some(gpu) = WgpuCompositor::software() {
+        assert_eq!(gpu.adapter_info().device_type, wgpu::DeviceType::Cpu);
+    }
+}

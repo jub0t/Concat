@@ -730,6 +730,23 @@ impl WgpuCompositor {
     /// itself and hands the result to [`WgpuCompositor::with_device`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Option<Self> {
+        Self::own_api_first(false)
+    }
+
+    /// A compositor on the machine's software adapter alone - WARP on
+    /// Windows, lavapipe on Linux - or `None` where it has none, as a Mac
+    /// has not. For going on with an export whose GPU has died under it
+    /// (#223): slower, and nothing left to lose.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn software() -> Option<Self> {
+        Self::own_api_first(true)
+    }
+
+    /// [`WgpuCompositor::new`]'s order of asking: the platform's own API,
+    /// then every API wgpu was built with. `software_only` leaves the
+    /// hardware adapters out.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn own_api_first(software_only: bool) -> Option<Self> {
         let own = if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
         } else if cfg!(windows) {
@@ -739,18 +756,20 @@ impl WgpuCompositor {
         };
         [own, wgpu::Backends::all()]
             .into_iter()
-            .find_map(Self::on_backends)
+            .find_map(|backends| Self::on_backends(backends, software_only))
     }
 
     /// A compositor on the best adapter among `backends`, hardware before
-    /// software, or `None` when none of them opens a device.
+    /// software - or software alone - or `None` when none of them opens a
+    /// device.
     #[cfg(not(target_arch = "wasm32"))]
-    fn on_backends(backends: wgpu::Backends) -> Option<Self> {
+    fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        [false, true].into_iter().find_map(|software| {
+        let choices: &[bool] = if software_only { &[true] } else { &[false, true] };
+        choices.iter().copied().find_map(|software| {
             let adapter =
                 pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
