@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Une inversion est déjà en cours ; un clip à la fois",
   "studio.reversedClipNowShows": "Inversé ; le clip affiche désormais la copie",
   "studio.reversing": "Inversion de {0}…",
-  "studio.rippleDelete": "Supprimer et refermer",
-  "studio.rippleDeleteClips": "Supprimer et refermer {0} clips",
   "studio.save": "Enregistrer",
   "studio.saveAsTemplate": "Enregistrer comme modèle…",
   "studio.savedTemplate": "Modèle « {0} » enregistré",

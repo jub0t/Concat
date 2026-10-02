@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Ters çevirme zaten sürüyor; her seferinde bir klip",
   "studio.reversedClipNowShows": "Ters çevrildi; klip artık kopyayı gösteriyor",
   "studio.reversing": "{0} ters çevriliyor…",
-  "studio.rippleDelete": "Kaydırarak sil",
-  "studio.rippleDeleteClips": "{0} klibi kaydırarak sil",
   "studio.save": "Kaydet",
   "studio.saveAsTemplate": "Şablon olarak kaydet…",
   "studio.savedTemplate": "“{0}” şablonu kaydedildi",

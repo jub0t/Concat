@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "逆再生の処理中です。一度に1クリップまで",
   "studio.reversedClipNowShows": "逆再生になりました。クリップはコピーを表示しています",
   "studio.reversing": "{0} を逆再生に変換中…",
-  "studio.rippleDelete": "リップル削除",
-  "studio.rippleDeleteClips": "{0} 個のクリップをリップル削除",
   "studio.save": "保存",
   "studio.saveAsTemplate": "テンプレートとして保存…",
   "studio.savedTemplate": "テンプレート「{0}」を保存しました",

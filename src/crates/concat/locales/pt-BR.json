@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Reverter já está em andamento; um clipe por vez",
   "studio.reversedClipNowShows": "Revertido; o clipe agora mostra a cópia",
   "studio.reversing": "Revertendo {0}…",
-  "studio.rippleDelete": "Excluir com ondulação",
-  "studio.rippleDeleteClips": "Excluir {0} clipes com ondulação",
   "studio.save": "Salvar",
   "studio.saveAsTemplate": "Salvar como modelo…",
   "studio.savedTemplate": "Modelo “{0}” salvo",

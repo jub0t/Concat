@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Reverse is already at work; one clip at a time",
   "studio.reversedClipNowShows": "Reversed; the clip now shows the copy",
   "studio.reversing": "Reversing {0}…",
-  "studio.rippleDelete": "Ripple delete",
-  "studio.rippleDeleteClips": "Ripple delete {0} clips",
   "studio.save": "Save",
   "studio.saveAsTemplate": "Save as template…",
   "studio.savedTemplate": "Saved template “{0}”",

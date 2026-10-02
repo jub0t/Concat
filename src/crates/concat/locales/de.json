@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Rückwärts läuft bereits; ein Clip nach dem anderen",
   "studio.reversedClipNowShows": "Umgekehrt; der Clip zeigt jetzt die Kopie",
   "studio.reversing": "{0} wird umgekehrt…",
-  "studio.rippleDelete": "Löschen und Lücke schließen",
-  "studio.rippleDeleteClips": "{0} Clips löschen und Lücke schließen",
   "studio.save": "Speichern",
   "studio.saveAsTemplate": "Als Vorlage speichern…",
   "studio.savedTemplate": "Vorlage „{0}“ gespeichert",

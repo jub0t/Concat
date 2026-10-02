@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "역재생 처리가 이미 진행 중입니다. 한 번에 한 클립만",
   "studio.reversedClipNowShows": "역재생 완료. 클립이 이제 복사본을 표시합니다",
   "studio.reversing": "{0} 역재생 처리 중…",
-  "studio.rippleDelete": "리플 삭제",
-  "studio.rippleDeleteClips": "클립 {0}개 리플 삭제",
   "studio.save": "저장",
   "studio.saveAsTemplate": "템플릿으로 저장…",
   "studio.savedTemplate": "템플릿 “{0}”을(를) 저장했습니다",

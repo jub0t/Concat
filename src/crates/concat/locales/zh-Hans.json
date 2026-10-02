@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "倒放处理已在进行；一次一个片段",
   "studio.reversedClipNowShows": "已倒放；片段现在显示副本",
   "studio.reversing": "正在倒放处理 {0}…",
-  "studio.rippleDelete": "波纹删除",
-  "studio.rippleDeleteClips": "波纹删除 {0} 个片段",
   "studio.save": "保存",
   "studio.saveAsTemplate": "保存为模板…",
   "studio.savedTemplate": "已保存模板“{0}”",

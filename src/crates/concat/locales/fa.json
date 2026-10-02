@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "معکوس‌کردن در حال انجام است؛ هر بار یک کلیپ",
   "studio.reversedClipNowShows": "معکوس شد؛ کلیپ اکنون نسخهٔ کپی را نشان می‌دهد",
   "studio.reversing": "در حال معکوس‌کردن {0}…",
-  "studio.rippleDelete": "حذف با بستن فاصله",
-  "studio.rippleDeleteClips": "حذف {0} کلیپ با بستن فاصله",
   "studio.save": "ذخیره",
   "studio.saveAsTemplate": "ذخیره به‌عنوان قالب…",
   "studio.savedTemplate": "قالب «{0}» ذخیره شد",

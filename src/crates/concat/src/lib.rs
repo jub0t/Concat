@@ -1592,7 +1592,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             state.seek(end);
                         }
                         "delete" => state.delete_selected(),
-                        "ripple-delete" => state.ripple_delete_selected(),
                         "split" => {
                             let at = state.playhead;
                             state.split_at(at, false);

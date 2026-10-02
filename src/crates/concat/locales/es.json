@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Invertir ya está en marcha; un clip a la vez",
   "studio.reversedClipNowShows": "Invertido; el clip ahora muestra la copia",
   "studio.reversing": "Invirtiendo {0}…",
-  "studio.rippleDelete": "Eliminar y cerrar el hueco",
-  "studio.rippleDeleteClips": "Eliminar {0} clips y cerrar el hueco",
   "studio.save": "Guardar",
   "studio.saveAsTemplate": "Guardar como plantilla…",
   "studio.savedTemplate": "Plantilla «{0}» guardada",

@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "倒轉處理已在進行；一次一個片段",
   "studio.reversedClipNowShows": "已倒轉；片段現在顯示副本",
   "studio.reversing": "正在倒轉處理 {0}…",
-  "studio.rippleDelete": "漣漪刪除",
-  "studio.rippleDeleteClips": "漣漪刪除 {0} 個片段",
   "studio.save": "儲存",
   "studio.saveAsTemplate": "儲存為範本…",
   "studio.savedTemplate": "已儲存範本「{0}」",

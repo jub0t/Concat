@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Реверс уже выполняется; по одному клипу за раз",
   "studio.reversedClipNowShows": "Реверс готов; клип теперь показывает копию",
   "studio.reversing": "Реверс {0}…",
-  "studio.rippleDelete": "Удалить со сдвигом",
-  "studio.rippleDeleteClips": "Удалить со сдвигом клипы: {0}",
   "studio.save": "Сохранить",
   "studio.saveAsTemplate": "Сохранить как шаблон…",
   "studio.savedTemplate": "Шаблон «{0}» сохранён",

@@ -8731,17 +8731,9 @@ impl Studio {
             checkable: false,
             checked: false,
         });
-        rows.push(MenuItemData {
-            id: "ripple-delete".into(),
-            label: t("studio.rippleDelete").into(),
-            kind: MenuRow::Action,
-            glyph: Glyph::Trash,
-            shortcut: platform::delete_key(true).into(),
-            enabled: !locked,
-            danger: true,
-            checkable: false,
-            checked: false,
-        });
+        // One Delete, not a Delete and a Ripple Delete: whether a delete
+        // closes the gap is the tray's magnetic switch, a setting of the
+        // timeline rather than a choice to make at every clip.
         rows
     }
 
@@ -9032,22 +9024,6 @@ impl Studio {
                     kind: MenuRow::Action,
                     glyph: Glyph::Trash,
                     shortcut: platform::delete_key(false).into(),
-                    enabled: selected > 0,
-                    danger: true,
-                    checkable: false,
-                    checked: false,
-                },
-                MenuItemData {
-                    id: "ripple-delete".into(),
-                    label: if selected > 1 {
-                        tf("studio.rippleDeleteClips", &[&selected])
-                    } else {
-                        t("studio.rippleDelete")
-                    }
-                    .into(),
-                    kind: MenuRow::Action,
-                    glyph: Glyph::Trash,
-                    shortcut: platform::delete_key(true).into(),
                     enabled: selected > 0,
                     danger: true,
                     checkable: false,

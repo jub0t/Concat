@@ -889,8 +889,6 @@
   "studio.reverseAlreadyWorkOne": "Obrtanje je već u tijeku; jedan po jedan klip",
   "studio.reversedClipNowShows": "Obrnuto; klip sada prikazuje kopiju",
   "studio.reversing": "Obrtanje {0}…",
-  "studio.rippleDelete": "Brisanje s pomakom",
-  "studio.rippleDeleteClips": "Brisanje s pomakom: {0} klipova",
   "studio.save": "Spremi",
   "studio.saveAsTemplate": "Spremi kao predložak…",
   "studio.savedTemplate": "Spremljen predložak “{0}”",
