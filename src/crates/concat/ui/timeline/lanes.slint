@@ -605,7 +605,9 @@ component Clip inherits Rectangle {
         y: root.volume-y - 1px;
         width: parent.width;
         height: (root.volume-hover || root.volume-live) ? 2px : 1px;
-        background: Theme.accent;
+        // White, not the accent: the accent is the selection's, and a
+        // line in it on every sound read as every sound being selected.
+        background: Colors.white;
         opacity: (root.volume-hover || root.volume-live) ? 1.0 : 0.7;
     }
 
@@ -654,13 +656,13 @@ component Clip inherits Rectangle {
         width: volume-label.preferred-width + 10px;
         height: 16px;
         border-radius: Theme.r-sm;
-        background: Theme.accent;
+        background: Colors.white;
 
         volume-label := Text {
             x: 5px;
             height: parent.height;
             text: "\{Math.round(root.shown-gain * 100)} %";
-            color: Theme.on-accent;
+            color: Colors.black;
             font-family: Theme.font-technical;
             font-size: Theme.fs-sm;
             vertical-alignment: center;
