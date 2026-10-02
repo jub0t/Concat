@@ -17,7 +17,8 @@ import { NumberField } from "primitives/number-field.slint";
 //
 // The rail is what makes it a launcher rather than a list. Everything you
 // can do before a project is open is one column of verbs: start a new one,
-// open a folder from disk, change the settings. The page beside it is the
+// open a folder from disk. The settings are behind the title strip's gear,
+// as they are in the editor. The page beside it is the
 // projects: every one this machine has opened, as a grid of posters, with
 // one more card at the head of it that starts a new one. That card is the
 // first thing on the page and the size of everything after it, so an empty
@@ -708,7 +709,6 @@ component Rail inherits Rectangle {
 
     callback compose();
     callback open();
-    callback settings();
 
     background: Theme.launch-panel;
 
@@ -739,20 +739,16 @@ component Rail inherits Rectangle {
 
         Rectangle { vertical-stretch: 1; }
 
+        // No Settings row: the title strip's gear is on this screen as it
+        // is on the editor's, and two doors to the same room on one page
+        // read as clutter.
+        // https://github.com/jub0t/Concat/issues/206
         RailItem {
             label: I18n.t("start.openProject");
             glyph: Glyph.folder;
             compact: root.compact;
             enabled: root.enabled;
             clicked => { root.open(); }
-        }
-
-        RailItem {
-            label: I18n.t("common.settings");
-            glyph: Glyph.settings;
-            compact: root.compact;
-            enabled: root.enabled;
-            clicked => { root.settings(); }
         }
     }
 }
@@ -1076,7 +1072,6 @@ export component StartScreen inherits Rectangle {
         enabled: !root.busy;
         compose => { root.compose(); }
         open => { root.open(); }
-        settings => { root.open-settings(); }
     }
 
     Rectangle {
