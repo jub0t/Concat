@@ -68,6 +68,10 @@ pub struct Preferences {
     /// The Concat API on a socket while the window is open.
     #[serde(default)]
     pub server: ServerPrefs,
+    /// The look new titles start from and generated captions are set in,
+    /// kept from a title by the Text panel's "Use for new titles"; its
+    /// words are empty. None starts titles in the bundled face.
+    pub title_style: Option<concat_project::model::TextStyle>,
 }
 
 impl Preferences {

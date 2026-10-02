@@ -672,6 +672,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
     // Font files, the way media files come in: the system's picker, and
     // the answer later, on the window's thread.
+    editor.on_text_style_default(on_window!(|state| {
+        state.use_title_style_for_new();
+    }));
     editor.on_import_font(|| {
         Shell::with(|shell, _| {
             if shell.studio.borrow().session.is_none() {

@@ -838,7 +838,9 @@ pub struct Studio {
     /// then clears the selection on the release - and a commit that looked
     /// the clip up in the selection at landing time found nothing and
     /// dropped the words with the echo.
-    commit_target: Option<String>,
+    /// The clips the echo was written for; see `commit_now`. Several when
+    /// the inspector edits every selected title at once.
+    commit_targets: Vec<String>,
     commit_timer: slint::Timer,
     /// What the catalogue shelves were last built from; while nothing in
     /// it changes the shelves are not rebuilt.
@@ -971,12 +973,17 @@ fn align_of(align: TextAlign) -> TextAlignment {
 }
 
 /// A title as it is first placed: the embedded face, centred, white.
-fn new_title_style() -> TextStyle {
-    TextStyle {
-        content: "New title".to_owned(),
+fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
+    // The look a title was kept as, when one was (see
+    // `Studio::use_title_style_for_new`); the bundled face otherwise.
+    let base = prefs.title_style.clone().unwrap_or_else(|| TextStyle {
         font_family: "Hanken Grotesk".to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
+    });
+    TextStyle {
+        content: "New title".to_owned(),
+        ..base
     }
 }
 
@@ -1261,6 +1268,98 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
     }
+}
+
+/// The commands that turn `before` into `after`, clip `id` as the echo
+/// left it against the document's: a transform, a cutout, a speed, the
+/// keys, and one patch for everything else that differs. Empty when
+/// nothing does.
+fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
+    let mut commands = Vec::new();
+    if after.scale != before.scale
+        || after.offset_x != before.offset_x
+        || after.offset_y != before.offset_y
+        || after.rotation != before.rotation
+        || after.stretch_x != before.stretch_x
+        || after.stretch_y != before.stretch_y
+    {
+        commands.push(Command::SetClipTransform {
+            clip_id: id.to_owned(),
+            scale: Some(after.scale),
+            offset_x: Some(after.offset_x),
+            offset_y: Some(after.offset_y),
+            rotation: Some(after.rotation),
+            stretch_x: Some(after.stretch_x),
+            stretch_y: Some(after.stretch_y),
+        });
+    }
+    if after.cutout != before.cutout {
+        commands.push(Command::SetClipCutout {
+            clip_id: id.to_owned(),
+            cutout: after.cutout.clone(),
+        });
+    }
+    if after.speed != before.speed {
+        commands.push(Command::SetClipSpeed {
+            clip_id: id.to_owned(),
+            speed: after.speed,
+        });
+    }
+    let mut patch = ClipPatch::default();
+    if after.name != before.name {
+        patch.name = Some(after.name.clone());
+    }
+    if after.volume != before.volume {
+        patch.volume = Some(after.volume);
+    }
+    if after.fade_in != before.fade_in {
+        patch.fade_in = Some(after.fade_in);
+    }
+    if after.fade_out != before.fade_out {
+        patch.fade_out = Some(after.fade_out);
+    }
+    if after.opacity != before.opacity {
+        patch.opacity = Some(after.opacity);
+    }
+    if after.preserve_pitch != before.preserve_pitch {
+        patch.preserve_pitch = Some(after.preserve_pitch);
+    }
+    if after.audio_stream != before.audio_stream {
+        patch.audio_stream = Some(after.audio_stream);
+    }
+    if after.flip_h != before.flip_h {
+        patch.flip_h = Some(after.flip_h);
+    }
+    if after.flip_v != before.flip_v {
+        patch.flip_v = Some(after.flip_v);
+    }
+    if after.blend != before.blend {
+        patch.blend = Some(if after.blend.is_empty() {
+            "normal".to_owned()
+        } else {
+            after.blend.clone()
+        });
+    }
+    if after.crop != before.crop {
+        patch.crop = Some(after.crop);
+    }
+    commands.extend(key_commands(id, before, after));
+    if after.text != before.text {
+        patch.text = Some(after.text.clone());
+    }
+    if after.video_effects != before.video_effects {
+        patch.video_effects = Some(after.video_effects.clone());
+    }
+    if after.filters != before.filters {
+        patch.filters = Some(after.filters.clone());
+    }
+    if patch != ClipPatch::default() {
+        commands.push(Command::UpdateClip {
+            clip_id: id.to_owned(),
+            patch,
+        });
+    }
+    commands
 }
 
 /// The commands that turn `before`'s keys into `after`'s: a `SetClipKey`
@@ -1778,7 +1877,7 @@ impl Studio {
             revision: 0,
             flat: None,
             commit_pending: false,
-            commit_target: None,
+            commit_targets: Vec::new(),
             commit_timer: slint::Timer::default(),
             shelf_stamp: std::cell::RefCell::new(None),
             look_art: std::cell::RefCell::new(HashMap::new()),
@@ -3013,7 +3112,7 @@ impl Studio {
                 found.offset_y,
                 presets::install_font(&self.host.dirs, found),
             ),
-            None => (new_title_style(), None, None),
+            None => (new_title_style(&self.prefs), None, None),
         };
         // Over the picture, not under it: the first free lane above every
         // occupied one, minted at the top when there is none. A drop onto a
@@ -3035,6 +3134,29 @@ impl Studio {
     }
 
     /// The selected clip's id, when exactly one is selected.
+    /// The clips the inspector's knobs write to: the one selected clip, or
+    /// every selected clip when two or more are selected and all of them
+    /// are titles - a batch of captions styled together. Anything else
+    /// selected together is nothing the inspector edits.
+    /// https://github.com/jub0t/Concat/issues/224
+    pub fn edit_targets(&self) -> Vec<String> {
+        if let Some(id) = self.sole_selection() {
+            return vec![id];
+        }
+        if self.selection.len() < 2 {
+            return Vec::new();
+        }
+        let titles = self.selection.iter().all(|id| {
+            self.clip(id)
+                .is_some_and(|clip| clip.kind == model::ClipKind::Text)
+        });
+        if titles {
+            self.selection.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn sole_selection(&self) -> Option<String> {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
@@ -3910,193 +4032,205 @@ impl Studio {
     /// One field of the selected clip, on the echo. `clip_commit` turns the
     /// accumulated edits into commands.
     pub fn clip_set(&mut self, field: ClipField, value: f32) {
-        let Some(id) = self.sole_selection() else {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
             return;
-        };
-        self.commit_target = Some(id.clone());
-        // The media's tracks, read before the echo is borrowed: a row of
-        // the Audio panel's list is a stream index of the file.
-        let audio_tracks: Vec<u32> = if field == ClipField::AudioTrack {
-            self.clip(&id)
-                .and_then(|clip| self.project().media_by_id(&clip.media_id))
-                .map(|item| item.audio_tracks.iter().map(|track| track.index).collect())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        // Where the playhead sits in the clip: a keyed property is written
-        // there, as a key.
-        let at = self
-            .clip(&id)
-            .map(|clip| place_in(clip, self.playhead))
-            .unwrap_or(0.0);
+        }
+        self.commit_targets = ids.clone();
         self.begin_echo();
         let value = f64::from(value);
-        let Some(clip) = self.echo_clip_mut(&id) else {
-            return;
-        };
-        let text = clip.text.get_or_insert_with(TextStyle::default);
-        match field {
-            ClipField::Scale => {
-                write_keyable(clip, model::KeyProperty::Scale, value.clamp(0.05, 8.0), at)
-            }
-            ClipField::AudioTrack => {
-                // The first row is the file's default and is stored as such,
-                // so a clip on the first track saves as every clip did before
-                // there were tracks to choose.
-                let row = value.max(0.0) as usize;
-                clip.audio_stream = (row > 0).then(|| audio_tracks.get(row).copied()).flatten();
-            }
-            ClipField::StretchX => clip.stretch_x = value.clamp(0.1, 10.0),
-            ClipField::StretchY => clip.stretch_y = value.clamp(0.1, 10.0),
-            ClipField::OffsetX => write_keyable(
-                clip,
-                model::KeyProperty::OffsetX,
-                value.clamp(-1.0, 1.0),
-                at,
-            ),
-            ClipField::OffsetY => write_keyable(
-                clip,
-                model::KeyProperty::OffsetY,
-                value.clamp(-1.0, 1.0),
-                at,
-            ),
-            ClipField::Rotation => write_keyable(
-                clip,
-                model::KeyProperty::Rotation,
-                value.clamp(-180.0, 180.0),
-                at,
-            ),
-            ClipField::Opacity => {
-                write_keyable(clip, model::KeyProperty::Opacity, value.clamp(0.0, 1.0), at)
-            }
-            ClipField::CutoutFeather => {
-                clip.cutout.get_or_insert_with(model::Cutout::auto).feather =
-                    value.clamp(0.0, model::MAX_FEATHER);
-            }
-            ClipField::Volume => {
-                write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
-            }
-            ClipField::Speed => {
-                let speed = value.clamp(0.0625, 16.0);
-                clip.duration = (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));
-                clip.speed = speed;
-            }
-            ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
-            ClipField::FlipH => clip.flip_h = value != 0.0,
-            ClipField::FlipV => clip.flip_v = value != 0.0,
-            ClipField::Blend => {
-                let mode = concat_core::Blend::ALL
-                    .get(value.max(0.0) as usize)
-                    .copied()
-                    .unwrap_or_default();
-                clip.blend = if mode == concat_core::Blend::Normal {
-                    String::new()
-                } else {
-                    mode.name().to_owned()
-                };
-            }
-            ClipField::CropLeft
-            | ClipField::CropTop
-            | ClipField::CropRight
-            | ClipField::CropBottom => {
-                let mut crop = clip.crop.unwrap_or_default();
-                let edge = match field {
-                    ClipField::CropLeft => &mut crop.left,
-                    ClipField::CropTop => &mut crop.top,
-                    ClipField::CropRight => &mut crop.right,
-                    _ => &mut crop.bottom,
-                };
-                *edge = value.clamp(0.0, 0.9);
-                let crop = crop.tidy();
-                clip.crop = (!crop.is_none()).then_some(crop);
-            }
-            ClipField::FadeIn => clip.fade_in = value.clamp(0.0, clip.duration / 2.0),
-            ClipField::FadeOut => clip.fade_out = value.clamp(0.0, clip.duration / 2.0),
-            ClipField::FontSize => text.font_size = value.clamp(0.01, 0.5),
-            ClipField::FontWeight => text.font_weight = value.clamp(100.0, 900.0),
-            ClipField::Italic => text.italic = value != 0.0,
-            ClipField::TextOpacity => text.opacity = value.clamp(0.0, 1.0),
-            ClipField::Align => {
-                text.align = match value as i32 {
-                    0 => TextAlign::Left,
-                    2 => TextAlign::Right,
-                    _ => TextAlign::Center,
+        for id in ids {
+            // The media's tracks, read before the echo is borrowed: a row of
+            // the Audio panel's list is a stream index of the file.
+            let audio_tracks: Vec<u32> = if field == ClipField::AudioTrack {
+                self.clip(&id)
+                    .and_then(|clip| self.project().media_by_id(&clip.media_id))
+                    .map(|item| item.audio_tracks.iter().map(|track| track.index).collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            // Where the playhead sits in the clip: a keyed property is written
+            // there, as a key.
+            let at = self
+                .clip(&id)
+                .map(|clip| place_in(clip, self.playhead))
+                .unwrap_or(0.0);
+            let Some(clip) = self.echo_clip_mut(&id) else {
+                continue;
+            };
+            let text = clip.text.get_or_insert_with(TextStyle::default);
+            match field {
+                ClipField::Scale => {
+                    write_keyable(clip, model::KeyProperty::Scale, value.clamp(0.05, 8.0), at)
+                }
+                ClipField::AudioTrack => {
+                    // The first row is the file's default and is stored as such,
+                    // so a clip on the first track saves as every clip did before
+                    // there were tracks to choose.
+                    let row = value.max(0.0) as usize;
+                    clip.audio_stream = (row > 0).then(|| audio_tracks.get(row).copied()).flatten();
+                }
+                ClipField::StretchX => clip.stretch_x = value.clamp(0.1, 10.0),
+                ClipField::StretchY => clip.stretch_y = value.clamp(0.1, 10.0),
+                ClipField::OffsetX => write_keyable(
+                    clip,
+                    model::KeyProperty::OffsetX,
+                    value.clamp(-1.0, 1.0),
+                    at,
+                ),
+                ClipField::OffsetY => write_keyable(
+                    clip,
+                    model::KeyProperty::OffsetY,
+                    value.clamp(-1.0, 1.0),
+                    at,
+                ),
+                ClipField::Rotation => write_keyable(
+                    clip,
+                    model::KeyProperty::Rotation,
+                    value.clamp(-180.0, 180.0),
+                    at,
+                ),
+                ClipField::Opacity => {
+                    write_keyable(clip, model::KeyProperty::Opacity, value.clamp(0.0, 1.0), at)
+                }
+                ClipField::CutoutFeather => {
+                    clip.cutout.get_or_insert_with(model::Cutout::auto).feather =
+                        value.clamp(0.0, model::MAX_FEATHER);
+                }
+                ClipField::Volume => {
+                    write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
+                }
+                ClipField::Speed => {
+                    let speed = value.clamp(0.0625, 16.0);
+                    clip.duration =
+                        (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));
+                    clip.speed = speed;
+                }
+                ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
+                ClipField::FlipH => clip.flip_h = value != 0.0,
+                ClipField::FlipV => clip.flip_v = value != 0.0,
+                ClipField::Blend => {
+                    let mode = concat_core::Blend::ALL
+                        .get(value.max(0.0) as usize)
+                        .copied()
+                        .unwrap_or_default();
+                    clip.blend = if mode == concat_core::Blend::Normal {
+                        String::new()
+                    } else {
+                        mode.name().to_owned()
+                    };
+                }
+                ClipField::CropLeft
+                | ClipField::CropTop
+                | ClipField::CropRight
+                | ClipField::CropBottom => {
+                    let mut crop = clip.crop.unwrap_or_default();
+                    let edge = match field {
+                        ClipField::CropLeft => &mut crop.left,
+                        ClipField::CropTop => &mut crop.top,
+                        ClipField::CropRight => &mut crop.right,
+                        _ => &mut crop.bottom,
+                    };
+                    *edge = value.clamp(0.0, 0.9);
+                    let crop = crop.tidy();
+                    clip.crop = (!crop.is_none()).then_some(crop);
+                }
+                ClipField::FadeIn => clip.fade_in = value.clamp(0.0, clip.duration / 2.0),
+                ClipField::FadeOut => clip.fade_out = value.clamp(0.0, clip.duration / 2.0),
+                ClipField::FontSize => text.font_size = value.clamp(0.01, 0.5),
+                ClipField::FontWeight => text.font_weight = value.clamp(100.0, 900.0),
+                ClipField::Italic => text.italic = value != 0.0,
+                ClipField::TextOpacity => text.opacity = value.clamp(0.0, 1.0),
+                ClipField::Align => {
+                    text.align = match value as i32 {
+                        0 => TextAlign::Left,
+                        2 => TextAlign::Right,
+                        _ => TextAlign::Center,
+                    }
+                }
+                ClipField::StrokeWidth => text.stroke_width = value.clamp(0.0, 0.15),
+                ClipField::Shadow => text.shadow = value != 0.0,
+                ClipField::LineHeight => text.line_height = value.clamp(0.7, 2.5),
+                ClipField::Tracking => text.tracking = value.clamp(-0.05, 0.3),
+                ClipField::TextWidth => text.max_width = value.clamp(0.0, 2.0),
+                ClipField::TextHeight => text.max_height = value.clamp(0.0, 2.0),
+                // The stroke's opacity is its colour's alpha; see `hex_rgba`.
+                ClipField::StrokeOpacity => {
+                    let edge = colour_of(&text.stroke_color);
+                    text.stroke_color = hex_rgba(slint::Color::from_argb_u8(
+                        (value.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        edge.red(),
+                        edge.green(),
+                        edge.blue(),
+                    ));
+                }
+                // The background's opacity is its colour's alpha the same way.
+                // Never zero from the dial: fully transparent is how "no
+                // background" is stored, and the switch is what takes it away.
+                ClipField::BackgroundOpacity => {
+                    let plate = colour_of(&text.background);
+                    text.background = hex_with_alpha(slint::Color::from_argb_u8(
+                        (value.clamp(0.01, 1.0) * 255.0).round() as u8,
+                        plate.red(),
+                        plate.green(),
+                        plate.blue(),
+                    ));
+                }
+                ClipField::BackgroundRadius => text.background_radius = value.clamp(0.0, 0.2),
+                ClipField::BackgroundPaddingX => {
+                    text.background_padding_x = value.clamp(0.0, 0.5);
+                }
+                ClipField::BackgroundPaddingY => {
+                    text.background_padding_y = value.clamp(0.0, 0.5);
                 }
             }
-            ClipField::StrokeWidth => text.stroke_width = value.clamp(0.0, 0.15),
-            ClipField::Shadow => text.shadow = value != 0.0,
-            ClipField::LineHeight => text.line_height = value.clamp(0.7, 2.5),
-            ClipField::Tracking => text.tracking = value.clamp(-0.05, 0.3),
-            ClipField::TextWidth => text.max_width = value.clamp(0.0, 2.0),
-            ClipField::TextHeight => text.max_height = value.clamp(0.0, 2.0),
-            // The stroke's opacity is its colour's alpha; see `hex_rgba`.
-            ClipField::StrokeOpacity => {
-                let edge = colour_of(&text.stroke_color);
-                text.stroke_color = hex_rgba(slint::Color::from_argb_u8(
-                    (value.clamp(0.0, 1.0) * 255.0).round() as u8,
-                    edge.red(),
-                    edge.green(),
-                    edge.blue(),
-                ));
+            // A media clip has no text; the placeholder must not linger.
+            if clip.kind != model::ClipKind::Text {
+                clip.text = None;
             }
-            // The background's opacity is its colour's alpha the same way.
-            // Never zero from the dial: fully transparent is how "no
-            // background" is stored, and the switch is what takes it away.
-            ClipField::BackgroundOpacity => {
-                let plate = colour_of(&text.background);
-                text.background = hex_with_alpha(slint::Color::from_argb_u8(
-                    (value.clamp(0.01, 1.0) * 255.0).round() as u8,
-                    plate.red(),
-                    plate.green(),
-                    plate.blue(),
-                ));
-            }
-            ClipField::BackgroundRadius => text.background_radius = value.clamp(0.0, 0.2),
-            ClipField::BackgroundPaddingX => {
-                text.background_padding_x = value.clamp(0.0, 0.5);
-            }
-            ClipField::BackgroundPaddingY => {
-                text.background_padding_y = value.clamp(0.0, 0.5);
-            }
-        }
-        // A media clip has no text; the placeholder must not linger.
-        if clip.kind != model::ClipKind::Text {
-            clip.text = None;
         }
     }
 
     pub fn clip_set_text(&mut self, field: ClipTextField, value: &str) {
-        let Some(id) = self.sole_selection() else {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
             return;
-        };
+        }
+        // The words are each title's own: a batch is styled together, never
+        // made to say the same thing.
+        if field == ClipTextField::Content && ids.len() > 1 {
+            return;
+        }
         // One of the app's own fonts goes on the project before the title
         // is set in it, as a command of its own: the painter reads the
         // project's fonts, and the echo below is not the project.
         if field == ClipTextField::FontFamily {
             self.ensure_font(value);
         }
-        self.commit_target = Some(id.clone());
+        self.commit_targets = ids.clone();
         self.begin_echo();
-        let Some(clip) = self.echo_clip_mut(&id) else {
-            return;
-        };
-        if clip.kind != model::ClipKind::Text {
-            return;
-        }
-        let text = clip.text.get_or_insert_with(TextStyle::default);
-        match field {
-            ClipTextField::Content => {
-                text.content = value.to_owned();
-                let first = value.lines().next().unwrap_or("").trim().to_owned();
-                clip.name = if first.is_empty() {
-                    "Title".into()
-                } else {
-                    first
-                };
+        for id in ids {
+            let Some(clip) = self.echo_clip_mut(&id) else {
+                continue;
+            };
+            if clip.kind != model::ClipKind::Text {
+                continue;
             }
-            ClipTextField::FontFamily => text.font_family = value.to_owned(),
-            _ => {}
+            let text = clip.text.get_or_insert_with(TextStyle::default);
+            match field {
+                ClipTextField::Content => {
+                    text.content = value.to_owned();
+                    let first = value.lines().next().unwrap_or("").trim().to_owned();
+                    clip.name = if first.is_empty() {
+                        "Title".into()
+                    } else {
+                        first
+                    };
+                }
+                ClipTextField::FontFamily => text.font_family = value.to_owned(),
+                _ => {}
+            }
         }
         // The words are on the echo now; show them. A title being typed is
         // painted in memory at the monitor's size, the way a grip drag is,
@@ -4207,24 +4341,48 @@ impl Studio {
     }
 
     pub fn clip_set_colour(&mut self, field: ClipTextField, value: slint::Color) {
-        let Some(id) = self.sole_selection() else {
+        let ids = self.edit_targets();
+        if ids.is_empty() {
             return;
-        };
-        self.commit_target = Some(id.clone());
+        }
+        self.commit_targets = ids.clone();
         self.begin_echo();
-        let Some(clip) = self.echo_clip_mut(&id) else {
+        for id in ids {
+            let Some(clip) = self.echo_clip_mut(&id) else {
+                continue;
+            };
+            if clip.kind != model::ClipKind::Text {
+                continue;
+            }
+            let text = clip.text.get_or_insert_with(TextStyle::default);
+            match field {
+                ClipTextField::Color => text.color = hex_of(value),
+                ClipTextField::StrokeColor => text.stroke_color = hex_rgba(value),
+                ClipTextField::Background => text.background = hex_with_alpha(value),
+                _ => {}
+            }
+        }
+    }
+
+    /// The selected title's look becomes the one new titles start from,
+    /// and the one generated captions are set in: its family, weight,
+    /// colours, stroke, shadow and background, never its words. Kept in
+    /// the preferences, so it outlives the project.
+    /// https://github.com/jub0t/Concat/issues/224
+    pub fn use_title_style_for_new(&mut self) {
+        let Some(mut style) = self
+            .edit_targets()
+            .first()
+            .and_then(|id| self.clip(id))
+            .filter(|clip| clip.kind == model::ClipKind::Text)
+            .and_then(|clip| clip.text.clone())
+        else {
             return;
         };
-        if clip.kind != model::ClipKind::Text {
-            return;
-        }
-        let text = clip.text.get_or_insert_with(TextStyle::default);
-        match field {
-            ClipTextField::Color => text.color = hex_of(value),
-            ClipTextField::StrokeColor => text.stroke_color = hex_rgba(value),
-            ClipTextField::Background => text.background = hex_with_alpha(value),
-            _ => {}
-        }
+        style.content.clear();
+        self.prefs.title_style = Some(style);
+        self.prefs.save(&self.host.dirs);
+        self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
     }
 
     /// The inspector's gesture is over: what differs between the echo and
@@ -4261,117 +4419,37 @@ impl Studio {
     }
 
     fn commit_now(&mut self) {
-        // The clip the echo was written for, whatever is selected now; see
-        // `commit_target`. The selection is the fallback for a commit asked
+        // The clips the echo was written for, whatever is selected now; see
+        // `commit_targets`. The selection is the fallback for a commit asked
         // for with nothing written, which has nothing to land anyway.
-        let Some(id) = self.commit_target.take().or_else(|| self.sole_selection()) else {
-            self.echo = None;
-            return;
-        };
-        let (Some(after), Some(before)) = (
-            self.echo
-                .as_ref()
-                .and_then(|echo| echo.active().clip(&id))
-                .cloned(),
-            self.session
-                .as_ref()
-                .and_then(|session| session.project().active().clip(&id))
-                .cloned(),
-        ) else {
-            self.echo = None;
+        let mut ids = std::mem::take(&mut self.commit_targets);
+        if ids.is_empty() {
+            ids = self.sole_selection().into_iter().collect();
+        }
+        let Some(echo) = self.echo.take() else {
             return;
         };
         let mut commands = Vec::new();
-        if after.scale != before.scale
-            || after.offset_x != before.offset_x
-            || after.offset_y != before.offset_y
-            || after.rotation != before.rotation
-            || after.stretch_x != before.stretch_x
-            || after.stretch_y != before.stretch_y
-        {
-            commands.push(Command::SetClipTransform {
-                clip_id: id.clone(),
-                scale: Some(after.scale),
-                offset_x: Some(after.offset_x),
-                offset_y: Some(after.offset_y),
-                rotation: Some(after.rotation),
-                stretch_x: Some(after.stretch_x),
-                stretch_y: Some(after.stretch_y),
-            });
+        for id in &ids {
+            let (Some(after), Some(before)) = (
+                echo.active().clip(id),
+                self.session
+                    .as_ref()
+                    .and_then(|session| session.project().active().clip(id)),
+            ) else {
+                continue;
+            };
+            commands.extend(clip_commands(id, before, after));
         }
-        if after.cutout != before.cutout {
-            commands.push(Command::SetClipCutout {
-                clip_id: id.clone(),
-                cutout: after.cutout.clone(),
-            });
-        }
-        if after.speed != before.speed {
-            commands.push(Command::SetClipSpeed {
-                clip_id: id.clone(),
-                speed: after.speed,
-            });
-        }
-        let mut patch = ClipPatch::default();
-        if after.name != before.name {
-            patch.name = Some(after.name.clone());
-        }
-        if after.volume != before.volume {
-            patch.volume = Some(after.volume);
-        }
-        if after.fade_in != before.fade_in {
-            patch.fade_in = Some(after.fade_in);
-        }
-        if after.fade_out != before.fade_out {
-            patch.fade_out = Some(after.fade_out);
-        }
-        if after.opacity != before.opacity {
-            patch.opacity = Some(after.opacity);
-        }
-        if after.preserve_pitch != before.preserve_pitch {
-            patch.preserve_pitch = Some(after.preserve_pitch);
-        }
-        if after.audio_stream != before.audio_stream {
-            patch.audio_stream = Some(after.audio_stream);
-        }
-        if after.flip_h != before.flip_h {
-            patch.flip_h = Some(after.flip_h);
-        }
-        if after.flip_v != before.flip_v {
-            patch.flip_v = Some(after.flip_v);
-        }
-        if after.blend != before.blend {
-            patch.blend = Some(if after.blend.is_empty() {
-                "normal".to_owned()
-            } else {
-                after.blend.clone()
-            });
-        }
-        if after.crop != before.crop {
-            patch.crop = Some(after.crop);
-        }
-        commands.extend(key_commands(&id, &before, &after));
-        if after.text != before.text {
-            patch.text = Some(after.text.clone());
-        }
-        if after.video_effects != before.video_effects {
-            patch.video_effects = Some(after.video_effects.clone());
-        }
-        if after.filters != before.filters {
-            patch.filters = Some(after.filters.clone());
-        }
-        if patch != ClipPatch::default() {
-            commands.push(Command::UpdateClip { clip_id: id, patch });
-        }
-        self.echo = None;
         if commands.is_empty() {
             return;
         }
         // One undo step per gesture, not per pointer move: a commit that
-        // changes the same things on the same clip as the last, within a
+        // changes the same things on the same clips as the last, within a
         // moment of it, folds into the last one's step. The editor does the
         // folding; this decides when a pause is long enough to be a new
         // gesture on the same knob.
-        let key = format!("{}:{}", after.id, commit_key(&commands));
+        let key = format!("{}:{}", ids.join("+"), commit_key(&commands));
         let now = std::time::Instant::now();
         let continues = self
             .last_commit
@@ -7875,7 +7953,10 @@ impl Studio {
     /// The selection, flattened for the inspector: exactly one clip or
     /// nothing.
     fn selected(&self) -> SelectedClipData {
-        let Some(clip) = self.sole_selection().and_then(|id| self.clip(&id)) else {
+        // The one clip, or the first of a batch of titles: the panel shows
+        // its values and writes to all of them; see `edit_targets`.
+        let targets = self.edit_targets();
+        let Some(clip) = targets.first().and_then(|id| self.clip(id)) else {
             return SelectedClipData::default();
         };
         // A keyed property shows what it is worth at the playhead, which is
@@ -7892,6 +7973,7 @@ impl Studio {
         });
         SelectedClipData {
             present: true,
+            batch: targets.len() as i32,
             frame_width: self.output_size().0 as i32,
             frame_height: self.output_size().1 as i32,
             id: clip.id.as_str().into(),
@@ -8472,7 +8554,13 @@ impl Studio {
         };
 
         let mut rows = vec![
-            action("copy", t("common.copy"), Glyph::Copy, &platform::keys(&["Control", "C"]), true),
+            action(
+                "copy",
+                t("common.copy"),
+                Glyph::Copy,
+                &platform::keys(&["Control", "C"]),
+                true,
+            ),
             action(
                 "duplicate",
                 t("studio.duplicate"),
@@ -8750,9 +8838,27 @@ impl Studio {
                     "",
                     has_selection_media,
                 ),
-                row("open", t("studio.openProject"), Glyph::Import, &platform::keys(&["Control", "O"]), true),
-                row("import", t("studio.importMedia"), Glyph::Import, &platform::keys(&["Control", "I"]), true),
-                row("save", t("studio.save"), Glyph::Import, &platform::keys(&["Control", "S"]), true),
+                row(
+                    "open",
+                    t("studio.openProject"),
+                    Glyph::Import,
+                    &platform::keys(&["Control", "O"]),
+                    true,
+                ),
+                row(
+                    "import",
+                    t("studio.importMedia"),
+                    Glyph::Import,
+                    &platform::keys(&["Control", "I"]),
+                    true,
+                ),
+                row(
+                    "save",
+                    t("studio.save"),
+                    Glyph::Import,
+                    &platform::keys(&["Control", "S"]),
+                    true,
+                ),
                 row(
                     "export",
                     t("studio.export"),
@@ -8826,8 +8932,20 @@ impl Studio {
                 },
             ],
             1 => vec![
-                row("undo", t("studio.undo"), Glyph::Undo, &platform::keys(&["Control", "Z"]), can_undo),
-                row("redo", t("studio.redo"), Glyph::Redo, &platform::keys(&["Control", "Shift", "Z"]), can_redo),
+                row(
+                    "undo",
+                    t("studio.undo"),
+                    Glyph::Undo,
+                    &platform::keys(&["Control", "Z"]),
+                    can_undo,
+                ),
+                row(
+                    "redo",
+                    t("studio.redo"),
+                    Glyph::Redo,
+                    &platform::keys(&["Control", "Shift", "Z"]),
+                    can_redo,
+                ),
                 rule(),
                 row(
                     "split",

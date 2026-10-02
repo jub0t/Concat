@@ -146,6 +146,9 @@ export global Editor {
     /// join the user's own fonts, for good, and the title is set in the
     /// first of them.
     callback import-font();
+    /// The Text tab's "Use for new titles": the selected title's look
+    /// becomes the one new titles and captions start from.
+    callback text-style-default();
 
     // The effect catalogue's shelves, published once, and the selected
     // clip's two chains with a row per parameter. See PresetStack.

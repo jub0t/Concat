@@ -186,6 +186,7 @@ export component ConfigPane inherits Rectangle {
     /// The Text tab's font picker and its import button; see Editor.
     in property <[string]> font-families;
     callback import-font();
+    callback text-style-default();
 
     /// The cutout's brush and controls; see Editor.
     in property <int> brush-tool;
@@ -589,6 +590,7 @@ export component ConfigPane inherits Rectangle {
                     set-colour(field, value) => { root.clip-set-colour(field, value); }
                     commit => { root.clip-commit(); }
                     import-font => { root.import-font(); }
+                    set-default => { root.text-style-default(); }
                 }
 
                 // Audio: the level and fades, then the voice and room chain

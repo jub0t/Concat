@@ -255,6 +255,9 @@ export enum ClipTextField {
 /// is how a panel ends up showing two clips at once.
 export struct SelectedClipData {
     present: bool,
+    /// how many clips the panel writes to: one, or every selected title
+    /// when several are selected together, shown by the first's values
+    batch: int,
     id: string,
     /// the output frame's size, so a fraction can be shown in pixels
     frame-width: int,

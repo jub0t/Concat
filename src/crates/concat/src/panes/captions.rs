@@ -137,6 +137,7 @@ impl CaptionsPane {
                             return;
                         };
                         let look = subject.look;
+                        let base = studio.prefs.title_style.clone();
                         let commands: Vec<Command> = segments
                             .into_iter()
                             .filter_map(|segment| {
@@ -147,6 +148,7 @@ impl CaptionsPane {
                                         subject.start + segment.start / subject.speed,
                                         ((segment.end - segment.start) / subject.speed).max(0.2),
                                         look,
+                                        base.as_ref(),
                                     )
                                 })
                             })
@@ -185,10 +187,11 @@ impl CaptionsPane {
         }
         let look = self.look();
         let mut at = f64::from(studio.playhead);
+        let base = studio.prefs.title_style.clone();
         let commands: Vec<Command> = lines
             .into_iter()
             .map(|(text, seconds)| {
-                let command = caption_clip(text, at, seconds, look);
+                let command = caption_clip(text, at, seconds, look, base.as_ref());
                 at += seconds;
                 command
             })
@@ -266,19 +269,38 @@ impl CaptionsPane {
 
 /// One caption as a title clip: its words, when and for how long, and
 /// its look.
-fn caption_clip(text: String, start: f64, duration: f64, look: (f64, f64)) -> Command {
+fn caption_clip(
+    text: String,
+    start: f64,
+    duration: f64,
+    look: (f64, f64),
+    base: Option<&TextStyle>,
+) -> Command {
     let (offset_y, font_size) = look;
-    Command::AddTextClip {
-        track_id: None,
-        above: true,
-        start,
-        style: Some(TextStyle {
+    // The kept look where there is one - family, weight, colours, stroke,
+    // shadow, background - at the caption's own size and place; the
+    // bundled face otherwise.
+    let style = match base {
+        Some(base) => TextStyle {
+            content: text,
+            font_size,
+            max_width: 0.0,
+            max_height: 0.0,
+            ..base.clone()
+        },
+        None => TextStyle {
             content: text,
             font_family: "Hanken Grotesk".to_owned(),
             font_size,
             font_weight: 600.0,
             ..TextStyle::default()
-        }),
+        },
+    };
+    Command::AddTextClip {
+        track_id: None,
+        above: true,
+        start,
+        style: Some(style),
         duration: Some(duration),
         offset_y: Some(offset_y),
     }

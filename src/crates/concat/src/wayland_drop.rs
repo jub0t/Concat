@@ -75,7 +75,10 @@ impl Listener {
         // popup is not a drop on the editor. Unknowable means any.
         // SAFETY: the caller's surface pointer is winit's live proxy.
         let surface = unsafe {
-            wayland_client::backend::ObjectId::from_ptr(WlSurface::interface(), surface.as_ptr().cast())
+            wayland_client::backend::ObjectId::from_ptr(
+                WlSurface::interface(),
+                surface.as_ptr().cast(),
+            )
         }
         .ok()
         .map(|id| id.protocol_id());
@@ -121,12 +124,16 @@ struct State {
     sink: Box<dyn Fn(Vec<PathBuf>) + Send>,
 }
 
-fn listen(display: usize, surface: Option<u32>, sink: Box<dyn Fn(Vec<PathBuf>) + Send>, stop: Arc<AtomicBool>) {
+fn listen(
+    display: usize,
+    surface: Option<u32>,
+    sink: Box<dyn Fn(Vec<PathBuf>) + Send>,
+    stop: Arc<AtomicBool>,
+) {
     // SAFETY: `display` is winit's live wl_display, which `Listener::start`'s
     // caller keeps alive until the listener - and so this thread - is gone.
-    let backend = unsafe {
-        wayland_client::backend::Backend::from_foreign_display(display as *mut _)
-    };
+    let backend =
+        unsafe { wayland_client::backend::Backend::from_foreign_display(display as *mut _) };
     let conn = Connection::from_backend(backend);
     let mut queue = conn.new_event_queue::<State>();
     let qh = queue.handle();
@@ -335,7 +342,8 @@ fn receive(conn: &Connection, offer: &WlDataOffer) -> Vec<PathBuf> {
         return Vec::new();
     }
     // SAFETY: both ends are fresh descriptors this function owns.
-    let (read_end, write_end) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    let (read_end, write_end) =
+        unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
     for fd in [&read_end, &write_end] {
         // SAFETY: an open descriptor of ours; the flag only closes it on exec.
         unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };

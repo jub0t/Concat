@@ -247,11 +247,7 @@ impl ExportPane {
                 * pixels
                 * (rate / 30.0)
                 * self.codec(studio).size_factor()
-                * if self.deep(studio) {
-                    1.05
-                } else {
-                    1.0
-                }
+                * if self.deep(studio) { 1.05 } else { 1.0 }
         };
         (video + AUDIO_BPS) * studio.duration().max(1.0) / 8.0
     }

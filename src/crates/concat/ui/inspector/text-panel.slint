@@ -8,6 +8,7 @@ import { IconButton, Row, Section, SectionBody, SectionHeader } from "../primiti
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
 import { NumberField } from "../primitives/number-field.slint";
+import { Button } from "../primitives/modal.slint";
 import {
     ColourField, HelpButton, InspectorFmt, Param, ParamFormat, SwitchRow,
 } from "controls.slint";
@@ -42,6 +43,13 @@ export component TextPanel inherits VerticalLayout {
     callback commit();
     /// The square beside the font picker: bring a font file of your own in.
     callback import-font();
+    /// Keep this title's look for new titles and captions.
+    callback set-default();
+
+    /// Several titles selected together: every knob writes to all of them
+    /// and the words, each title's own, are not offered.
+    /// https://github.com/jub0t/Concat/issues/224
+    property <bool> batch: root.selected.batch > 1;
 
     // Local editing state, seeded rather than bound — see the note on
     // AdjustPanel, which has the same problem for the same reason.
@@ -148,8 +156,22 @@ export component TextPanel inherits VerticalLayout {
         return v <= 0 ? I18n.t("common.autoValue") : "\{Math.round(v)}";
     }
 
+    // ── a batch ──────────────────────────────────────────────────────────
+    if root.batch: SectionBody {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        padding-top: 10px;
+        padding-bottom: 6px;
+        Text {
+            text: I18n.t1("textPanel.editingTitles", "\{root.selected.batch}");
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+    }
+
     // ── content ──────────────────────────────────────────────────────────
-    Section {
+    if !root.batch: Section {
         first: true;
         content := SectionHeader {
             title: I18n.t("textPanel.content");
@@ -250,6 +272,18 @@ export component TextPanel inherits VerticalLayout {
                 glyph: Glyph.import;
                 label: I18n.t("textPanel.importFont");
                 clicked => { root.import-font(); }
+            }
+        }
+
+        // This look, kept: what new titles and generated captions start
+        // from. The words stay this title's own.
+        Row {
+            label: "";
+            label-width: root.label-w;
+            Button {
+                label: I18n.t("textPanel.useForNewTitles");
+                ghost: true;
+                clicked => { root.set-default(); }
             }
         }
 

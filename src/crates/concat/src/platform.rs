@@ -135,8 +135,11 @@ impl DropHandler {
             wayland_tried: false,
             cursor: None,
             on_pressed_away: Box::new(on_pressed_away),
-            edges: cfg!(not(any(target_os = "macos", target_os = "windows", target_os = "ios")))
-                && !phone(),
+            edges: cfg!(not(any(
+                target_os = "macos",
+                target_os = "windows",
+                target_os = "ios"
+            ))) && !phone(),
             edge: None,
         }
     }
@@ -179,7 +182,9 @@ impl CustomApplicationHandler for DropHandler {
         slint_window: Option<&slint::Window>,
         event: &WindowEvent,
     ) -> EventResult {
-        if !self.wayland_tried && let Some(window) = winit_window {
+        if !self.wayland_tried
+            && let Some(window) = winit_window
+        {
             self.wayland_tried = true;
             self.wayland = listen_for_wayland_drops(window, &self.arrived);
         }
