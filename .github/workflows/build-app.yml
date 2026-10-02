@@ -73,10 +73,20 @@ env:
   # ggml (whisper.cpp's kernels) tunes itself to the machine it is built
   # on unless told otherwise, and these bundles run on other machines: a
   # runner with AVX-512 or SVE would leave a binary that faults on a CPU
-  # without them. Off, ggml compiles to the portable baseline instead -
-  # AVX2 with FMA and F16C on x86_64, NEON on ARM. whisper-rs-sys forwards
-  # every GGML_* variable to CMake as a define.
+  # without them. Off, ggml does not probe the runner - but its own
+  # instruction-set switches still default to on, which on x86_64 means
+  # AVX2 with FMA, F16C and BMI2: the whole CPU backend is compiled with
+  # /arch:AVX2 (or -mavx2) and the editor dies at launch with an illegal
+  # instruction on a Sandy Bridge or Ivy Bridge machine, which has AVX
+  # and nothing newer (#193). The baseline is AVX: every x86_64 CPU since
+  # 2011 runs it, and whisper on the CPU is somewhat slower for the rest.
+  # NEON on ARM, where these switches are not read. whisper-rs-sys
+  # forwards every GGML_* variable to CMake as a define.
   GGML_NATIVE: "OFF"
+  GGML_AVX2: "OFF"
+  GGML_FMA: "OFF"
+  GGML_F16C: "OFF"
+  GGML_BMI2: "OFF"
 
 jobs:
   app:
