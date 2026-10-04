@@ -3431,26 +3431,57 @@ impl Studio {
         (duration >= frame).then_some(duration)
     }
 
+    /// The cut a transition from the library goes on. Two clips selected
+    /// that meet on one track name the cut between them - the simple way,
+    /// and the one the Transitions page asks for. One clip selected names
+    /// the cut into it, for a transition picked after a click on the lane.
+    /// The incoming clip's id, or what to say instead.
+    fn transition_cut(&self) -> Result<String, String> {
+        match self.selection.as_slice() {
+            [one] => Ok(one.clone()),
+            [a, b] => {
+                let (Some(a), Some(b)) = (self.clip(a), self.clip(b)) else {
+                    return Err(t("studio.selectTwoAdjacentClips"));
+                };
+                let (first, second) = if a.start <= b.start { (a, b) } else { (b, a) };
+                if self
+                    .outgoing_of(second)
+                    .is_some_and(|outgoing| outgoing.id == first.id)
+                {
+                    Ok(second.id.clone())
+                } else {
+                    Err(t("studio.clipsDoNotMeet"))
+                }
+            }
+            _ => Err(t("studio.selectTwoAdjacentClips")),
+        }
+    }
+
+    /// Puts the catalogue transition `id` on the cut the selection names;
+    /// see [`Studio::transition_cut`].
     pub fn apply_transition(&mut self, id: &str) {
-        let Some(clip_id) = self.sole_selection() else {
-            self.notify(&t("studio.selectClipTransitionLeads"), true);
-            return;
+        let clip_id = match self.transition_cut() {
+            Ok(clip_id) => clip_id,
+            Err(why) => {
+                self.notify(&why, true);
+                return;
+            }
         };
         let Some(clip) = self.clip(&clip_id) else {
             return;
         };
-        if !clip.kind.is_visual() {
+        // One clip with nothing meeting it has no cut to put a transition
+        // on: the answer is the other clip, not a longer one.
+        let Some(outgoing) = self.outgoing_of(clip) else {
+            self.notify(&t("studio.selectTwoAdjacentClips"), true);
+            return;
+        };
+        if !clip.kind.is_visual() || !outgoing.kind.is_visual() {
             self.notify(&t("studio.selectVideoImageClip"), true);
             return;
         }
         let Some(duration) = self.transition_duration(clip, 0.5) else {
-            self.notify(
-                &t(
-                    "There's no room for a transition here - place an adjacent clip \
-                     before this one on the same track to dissolve from",
-                ),
-                true,
-            );
+            self.notify(&t("studio.noRoomForTransition"), true);
             return;
         };
         self.apply(Command::UpdateClip {
