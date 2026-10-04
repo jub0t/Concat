@@ -29,7 +29,7 @@ pub mod speed;
 
 pub use commands::{Command, CommandError, Outcome, why_not_merge};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
-pub use editor::Editor;
+pub use editor::{Editor, RetiredFields};
 pub use model::Project;
 
 #[cfg(test)]
@@ -3848,6 +3848,52 @@ mod tests {
         assert_eq!(
             clip.name, "square",
             "an empty name falls back to the figure's"
+        );
+    }
+
+    /// 0.2.4's reverse flag and preset animations come off as the document
+    /// is read, with the clips that had them named; a false flag or a null
+    /// animation is taken off without being named.
+    #[test]
+    fn retired_clip_fields_are_dropped_and_named() {
+        let mut editor = Editor::new();
+        for (index, name) in ["Backwards", "Bouncy", "Plain"].into_iter().enumerate() {
+            editor
+                .apply(Command::AddLayerClip {
+                    track_id: None,
+                    start: index as f64 * 2.0,
+                    duration: Some(1.0),
+                    effect_id: "concat.warm".into(),
+                    name: name.into(),
+                })
+                .expect("a layer");
+        }
+        let mut document = editor.to_document(&settings());
+        let clips = document["timelines"][0]["clips"]
+            .as_array_mut()
+            .expect("clips");
+        assert!(clips.len() >= 3, "{clips:?}");
+        clips[0]["reverse"] = serde_json::json!(true);
+        clips[1]["animationIn"] = serde_json::json!({"name": "bounce", "duration": 0.5});
+        clips[2]["reverse"] = serde_json::json!(false);
+        clips[2]["animationLoop"] = serde_json::Value::Null;
+        let names: Vec<String> = clips
+            .iter()
+            .map(|clip| clip["name"].as_str().unwrap_or_default().to_owned())
+            .collect();
+
+        let mut reopened = Editor::from_document(&document).expect("reads");
+        let retired = reopened.drop_retired_fields();
+        assert_eq!(retired.reversed, vec![names[0].clone()]);
+        assert_eq!(retired.animated, vec![names[1].clone()]);
+        for clip in &reopened.project().active().clips {
+            for key in ["reverse", "animationIn", "animationLoop"] {
+                assert!(!clip.extra.contains_key(key), "{key} on {}", clip.name);
+            }
+        }
+        assert_eq!(
+            reopened.drop_retired_fields(),
+            crate::RetiredFields::default()
         );
     }
 }

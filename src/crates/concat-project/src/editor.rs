@@ -106,6 +106,52 @@ impl Editor {
         changed
     }
 
+    /// Takes off the clip fields earlier versions wrote and this one no
+    /// longer reads - 0.2.4's `reverse` flag and its preset animations -
+    /// as the document is read, the way [`Editor::upgrade_links`] does: not
+    /// a step to undo. They rode along unread, so a reversed clip played
+    /// forwards and an animated one sat still with nothing said (audit
+    /// 2026-09-28, #5). Returns the names of the clips that had each, so
+    /// the open can say which; the next save makes it so.
+    pub fn drop_retired_fields(&mut self) -> RetiredFields {
+        use std::sync::Arc;
+        const ANIMATIONS: [&str; 4] = [
+            "animationIn",
+            "animationOut",
+            "animationCombo",
+            "animationLoop",
+        ];
+        let mut found = RetiredFields::default();
+        for timeline in &mut self.project.timelines {
+            for index in 0..timeline.clips.len() {
+                let extra = &timeline.clips[index].extra;
+                let reversed = extra.get("reverse").and_then(|v| v.as_bool()) == Some(true);
+                let animated = ANIMATIONS
+                    .iter()
+                    .any(|key| extra.get(*key).is_some_and(|value| !value.is_null()));
+                let any = extra.contains_key("reverse")
+                    || ANIMATIONS.iter().any(|key| extra.contains_key(*key));
+                if !any {
+                    continue;
+                }
+                let name = timeline.clips[index].name.clone();
+                if reversed && !found.reversed.contains(&name) {
+                    found.reversed.push(name.clone());
+                }
+                if animated && !found.animated.contains(&name) {
+                    found.animated.push(name);
+                }
+                let timeline = Arc::make_mut(timeline);
+                let clip = Arc::make_mut(&mut timeline.clips[index]);
+                clip.extra.remove("reverse");
+                for key in ANIMATIONS {
+                    clip.extra.remove(key);
+                }
+            }
+        }
+        found
+    }
+
     /// The current state, read-only: all mutation goes through
     /// [`Editor::apply`] so nothing can change without being undoable.
     pub fn project(&self) -> &Project {
@@ -305,4 +351,13 @@ impl Default for Editor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The clips [`Editor::drop_retired_fields`] found, by name, each once.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RetiredFields {
+    /// Clips an earlier version played backwards, which now play forwards.
+    pub reversed: Vec<String>,
+    /// Clips an earlier version moved with a preset animation.
+    pub animated: Vec<String>,
 }

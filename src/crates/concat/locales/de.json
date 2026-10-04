@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "Der Clip hat sich während des Umkehrens geändert; bitte erneut umkehren",
   "studio.clipHasNoSound": "Dieser Clip hat keinen Ton zum Exportieren",
   "studio.clipsDoNotMeet": "Diese beiden Clips stoßen auf derselben Spur nicht aneinander",
+  "studio.clipsLostAnimations": "{0} bewegten sich mit voreingestellten Animationen, die diese Version nicht mehr hat; Keyframes leisten dasselbe. Speichere, um die Änderung zu behalten.",
+  "studio.clipsNowForwards": "{0} liefen in einer früheren Version rückwärts und laufen jetzt vorwärts. Wähle einen aus und drücke Rückwärts in der Leiste, um ihn wieder umzukehren; speichere, um die Änderung zu behalten.",
   "studio.closeProject": "Projekt schließen",
   "studio.closeWindow": "Fenster schließen",
   "studio.couldNotExportAudio": "Audio konnte nicht exportiert werden: {0}",

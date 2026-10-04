@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "逆再生の処理中にクリップが変更されました。もう一度実行してください",
   "studio.clipHasNoSound": "このクリップには書き出す音声がありません",
   "studio.clipsDoNotMeet": "その2つのクリップは同じトラックで隣り合っていません",
+  "studio.clipsLostAnimations": "{0} はこのバージョンにはないプリセットアニメーションで動いていました。キーフレームで同じことができます。変更を残すには保存してください。",
+  "studio.clipsNowForwards": "{0} は以前のバージョンで逆再生されていましたが、今は順再生になります。もう一度逆にするには、クリップを選んでトレイの「逆再生」を押してください。変更を残すには保存してください。",
   "studio.closeProject": "プロジェクトを閉じる",
   "studio.closeWindow": "ウィンドウを閉じる",
   "studio.couldNotExportAudio": "音声を書き出せませんでした: {0}",

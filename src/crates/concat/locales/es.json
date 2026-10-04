@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "El clip cambió mientras se invertía; inviértelo de nuevo",
   "studio.clipHasNoSound": "Este clip no tiene sonido que exportar",
   "studio.clipsDoNotMeet": "Esos dos clips no se tocan en la misma pista",
+  "studio.clipsLostAnimations": "{0} se movían con animaciones predefinidas que esta versión ya no tiene; los fotogramas clave hacen lo mismo. Guarda para conservar el cambio.",
+  "studio.clipsNowForwards": "{0} se reproducían al revés en una versión anterior y ahora van hacia delante. Selecciona uno y pulsa Invertir en la bandeja para invertirlo de nuevo; guarda para conservar el cambio.",
   "studio.closeProject": "Cerrar proyecto",
   "studio.closeWindow": "Cerrar ventana",
   "studio.couldNotExportAudio": "No se pudo exportar el audio: {0}",

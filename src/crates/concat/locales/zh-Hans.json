@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "倒放处理期间片段已更改；请重新倒放",
   "studio.clipHasNoSound": "这个片段没有可导出的声音",
   "studio.clipsDoNotMeet": "这两个片段在同一轨道上并不相邻",
+  "studio.clipsLostAnimations": "{0} 使用了本版本已不再提供的预设动画；关键帧可以实现同样的效果。保存即可保留此更改。",
+  "studio.clipsNowForwards": "{0} 在早期版本中倒放，现在改为正放。选中一个并按托盘上的“倒放”即可再次倒放；保存即可保留此更改。",
   "studio.closeProject": "关闭项目",
   "studio.closeWindow": "关闭窗口",
   "studio.couldNotExportAudio": "无法导出音频：{0}",

@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "역재생 처리 중에 클립이 바뀌었습니다. 다시 실행하세요",
   "studio.clipHasNoSound": "이 클립에는 내보낼 소리가 없습니다",
   "studio.clipsDoNotMeet": "두 클립이 같은 트랙에서 맞닿아 있지 않습니다",
+  "studio.clipsLostAnimations": "{0}은(는) 이 버전에 더 이상 없는 프리셋 애니메이션으로 움직였습니다. 키프레임으로 같은 효과를 낼 수 있습니다. 변경 사항을 유지하려면 저장하세요.",
+  "studio.clipsNowForwards": "{0}은(는) 이전 버전에서 거꾸로 재생되었지만 이제 정방향으로 재생됩니다. 하나를 선택하고 트레이의 역재생을 눌러 다시 뒤집으세요. 변경 사항을 유지하려면 저장하세요.",
   "studio.closeProject": "프로젝트 닫기",
   "studio.closeWindow": "창 닫기",
   "studio.couldNotExportAudio": "오디오를 내보낼 수 없습니다: {0}",

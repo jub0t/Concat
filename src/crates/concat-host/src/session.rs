@@ -26,6 +26,8 @@ pub struct Session {
     /// The links to retired effects the open rewrote, old id and new, each
     /// pair once: what the window names as the project opens.
     upgraded: Vec<(String, String)>,
+    /// The clips whose retired fields the open took off.
+    retired: concat_project::RetiredFields,
 }
 
 /// What every mutating call returns: the authoritative state plus history
@@ -115,11 +117,15 @@ impl Session {
             }
             changed
         });
+        // Fields an earlier version wrote and this one does not read, off
+        // the clips, with the clips named for the window to say so.
+        let retired = editor.drop_retired_fields();
         Ok(Session {
             path: path.to_owned(),
             settings,
             editor,
             upgraded,
+            retired,
         })
     }
 
@@ -142,6 +148,13 @@ impl Session {
     /// document named none; the change is the document's once it is saved.
     pub fn upgraded(&self) -> &[(String, String)] {
         &self.upgraded
+    }
+
+    /// The clips this open found with fields an earlier version wrote and
+    /// this one no longer reads, now taken off: reversed ones that play
+    /// forwards, animated ones that hold still. Empty for most documents.
+    pub fn retired(&self) -> &concat_project::RetiredFields {
+        &self.retired
     }
 
     /// The project folder.

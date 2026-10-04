@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "Klip ters çevrilirken değişti; yeniden ters çevir",
   "studio.clipHasNoSound": "Bu klipte dışa aktarılacak ses yok",
   "studio.clipsDoNotMeet": "Bu iki klip aynı parçada birbirine değmiyor",
+  "studio.clipsLostAnimations": "{0} bu sürümde artık bulunmayan hazır animasyonlarla hareket ediyordu; anahtar kareler aynı işi görür. Değişikliği korumak için kaydedin.",
+  "studio.clipsNowForwards": "{0} önceki bir sürümde tersten oynuyordu, artık ileri oynuyor. Birini seçip tepsideki Ters Çevir'e basarak yeniden ters çevirin; değişikliği korumak için kaydedin.",
   "studio.closeProject": "Projeyi kapat",
   "studio.closeWindow": "Pencereyi kapat",
   "studio.couldNotExportAudio": "Ses dışa aktarılamadı: {0}",

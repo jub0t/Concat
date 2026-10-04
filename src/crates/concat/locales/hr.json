@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "Klip se promijenio tijekom obrtanja; obrni ga ponovno",
   "studio.clipHasNoSound": "Ovaj isječak nema zvuka za izvoz",
   "studio.clipsDoNotMeet": "Ta se dva isječka ne dodiruju na istoj traci",
+  "studio.clipsLostAnimations": "{0} su se kretali unaprijed zadanim animacijama koje ova verzija više nema; ključni kadrovi rade isto. Spremi da zadržiš promjenu.",
+  "studio.clipsNowForwards": "{0} su se u ranijoj verziji reproducirali unatrag, a sada idu naprijed. Odaberi jedan i pritisni Obrnuto na traci da ga ponovno obrneš; spremi da zadržiš promjenu.",
   "studio.closeProject": "Zatvori projekt",
   "studio.closeWindow": "Zatvori prozor",
   "studio.couldNotExportAudio": "Zvuk nije moguće izvesti: {0}",

@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "倒轉處理期間片段已變更；請重新倒轉",
   "studio.clipHasNoSound": "這個片段沒有可匯出的聲音",
   "studio.clipsDoNotMeet": "這兩個片段在同一軌道上並不相鄰",
+  "studio.clipsLostAnimations": "{0} 使用了本版本已不再提供的預設動畫；關鍵影格可以達到相同效果。儲存即可保留這項變更。",
+  "studio.clipsNowForwards": "{0} 在較早版本中倒放，現在改為正放。選取一個並按托盤上的「倒轉播放」即可再次倒放；儲存即可保留這項變更。",
   "studio.closeProject": "關閉專案",
   "studio.closeWindow": "關閉視窗",
   "studio.couldNotExportAudio": "無法匯出音訊：{0}",

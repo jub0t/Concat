@@ -865,6 +865,8 @@
   "studio.clipChangedWhileBeing": "The clip changed while it was being reversed; reverse it again",
   "studio.clipHasNoSound": "This clip has no sound to export",
   "studio.clipsDoNotMeet": "Those two clips don't meet on the same track",
+  "studio.clipsLostAnimations": "{0} moved with preset animations, which this version no longer has; keyframes do the same work. Save to keep the change.",
+  "studio.clipsNowForwards": "{0} played backwards in an earlier version and now play forwards. Select one and press Reverse on the tray to reverse it again; save to keep the change.",
   "studio.closeProject": "Close project",
   "studio.closeWindow": "Close window",
   "studio.couldNotExportAudio": "Could not export the audio: {0}",
