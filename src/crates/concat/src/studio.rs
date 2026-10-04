@@ -6285,6 +6285,13 @@ impl Studio {
             return;
         }
         let at = place_in(clip, self.playhead);
+        // An edit still waiting to land on other clips - words typed into a
+        // title a moment ago - lands first; otherwise this drag took over
+        // its echo and its targets, and the words went with them (audit
+        // 2026-10-04, #9). The drag's own moves share one commit.
+        if self.commit_pending && self.commit_targets != [id] {
+            self.flush_commit();
+        }
         self.commit_targets = vec![id.to_owned()];
         self.begin_echo();
         if let Some(clip) = self.echo_clip_mut(id) {
