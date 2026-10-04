@@ -22,7 +22,7 @@ use crate::i18n::{self, t, tf};
 use crate::panes::Msg;
 use crate::platform;
 use crate::studio::{
-    AUDIO_BPS, EXPORT_CRF, EXPORT_RATES, EXPORT_SHORT_SIDES, EXPORT_TIERS, Studio, home_folder,
+    AUDIO_BPS, EXPORT_CRF, EXPORT_SHORT_SIDES, EXPORT_TIERS, RATES, Studio, home_folder,
 };
 use crate::ui::{ExportData, ExportPhase};
 use slint::{ModelRc, SharedString, VecModel};
@@ -110,7 +110,7 @@ impl Default for ExportPane {
             name: "Untitled".into(),
             folder: home_folder("Movies"),
             resolution: 2,
-            rate: 1,
+            rate: 0,
             quality: 1,
             codec: 0,
             ten_bit: false,
@@ -140,8 +140,10 @@ impl ExportPane {
                 self.open = true;
                 self.phase = ExportPhase::Idle;
                 self.message.clear();
-                // The timeline's own size: the one rung that can be picked.
+                // The timeline's own size: the one rung that can be picked;
+                // and its own rate, first on the rate list.
                 self.resolution = Self::own_rung(studio);
+                self.rate = 0;
             }
             ExportMsg::Close => self.open = false,
             ExportMsg::NameEdited(name) => self.name = name,
@@ -153,7 +155,9 @@ impl ExportPane {
                     self.resolution = index;
                 }
             }
-            ExportMsg::RateChanged(index) => self.rate = (index.max(0) as usize).min(2),
+            ExportMsg::RateChanged(index) => {
+                self.rate = (index.max(0) as usize).min(Self::rates(studio).len() - 1);
+            }
             ExportMsg::QualityChanged(index) => self.quality = (index.max(0) as usize).min(2),
             // A codec this device cannot encode is not taken: the picker
             // says so under it, and the choice before stands.
@@ -237,6 +241,46 @@ impl ExportPane {
         rungs
     }
 
+    /// The rates the sheet offers: the timeline's own first - what it is
+    /// exported at unless the person picks another - then every other
+    /// rate a project can be made at. A 25 fps cut used to export at 30
+    /// unless someone noticed (audit 2026-10-04, #8).
+    fn rates(studio: &Studio) -> Vec<(i64, i64)> {
+        let video = studio.project().active().video;
+        Self::rates_around((video.rate_num, video.rate_den.max(1)))
+    }
+
+    /// [`ExportPane::rates`] for a timeline at `own`.
+    fn rates_around(own: (i64, i64)) -> Vec<(i64, i64)> {
+        let same = |(num, den): (i64, i64)| num * own.1 == own.0 * den;
+        std::iter::once(own)
+            .chain(
+                RATES
+                    .iter()
+                    .map(|&(_, num, den)| (num, den))
+                    .filter(|&rate| !same(rate)),
+            )
+            .collect()
+    }
+
+    /// The rate the export renders at.
+    fn rate(&self, studio: &Studio) -> (i64, i64) {
+        let rates = Self::rates(studio);
+        rates[self.rate.min(rates.len() - 1)]
+    }
+
+    /// A rate as the sheet names it: "23.976 fps", "25 fps".
+    fn rate_name((num, den): (i64, i64)) -> String {
+        let name = match RATES.iter().find(|&&(_, n, d)| n * den == num * d) {
+            Some((name, _, _)) => (*name).to_owned(),
+            None => {
+                let fps = format!("{:.3}", crate::studio::fps_of(num, den));
+                fps.trim_end_matches('0').trim_end_matches('.').to_owned()
+            }
+        };
+        format!("{name} fps")
+    }
+
     /// The project's short side, in pixels.
     fn own_short(studio: &Studio) -> u32 {
         let (width, height) = studio.output_size();
@@ -278,7 +322,7 @@ impl ExportPane {
     /// A rough size of the file at one quality tier, in bytes.
     pub fn size_bytes(&self, studio: &Studio, tier: usize) -> f32 {
         let (width, height) = self.size(studio);
-        let (num, den) = EXPORT_RATES[self.rate.min(2)];
+        let (num, den) = self.rate(studio);
         let rate = num as f32 / den as f32;
         let pixels = (width as f32 * height as f32) / (1920.0 * 1080.0);
         // In CBR the bitrate is the number, not the tier; the pixels, rate
@@ -394,7 +438,7 @@ impl ExportPane {
             .collect();
         let mut request = export::request(session, &spec, titles);
         let (width, height) = self.size(studio);
-        let (num, den) = EXPORT_RATES[self.rate.min(2)];
+        let (num, den) = self.rate(studio);
         request.width = width;
         request.height = height;
         request.rate_num = num;
@@ -442,7 +486,7 @@ impl ExportPane {
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> ExportData {
         let (width, height) = self.size(studio);
-        let (num, den) = EXPORT_RATES[self.rate.min(2)];
+        let (num, den) = self.rate(studio);
         let rate = num as f32 / den as f32;
         let clips = studio.timeline().clips.len();
         let titles = studio
@@ -498,6 +542,19 @@ impl ExportPane {
                 ModelRc::new(VecModel::from(off))
             },
             rate: self.rate as i32,
+            rates: {
+                let names: Vec<SharedString> = Self::rates(studio)
+                    .into_iter()
+                    .map(|rate| Self::rate_name(rate).into())
+                    .collect();
+                ModelRc::new(VecModel::from(names))
+            },
+            rate_details: {
+                let mut details: Vec<SharedString> =
+                    vec![SharedString::new(); Self::rates(studio).len()];
+                details[0] = t("export.timelineSize").into();
+                ModelRc::new(VecModel::from(details))
+            },
             quality: self.quality as i32,
             codec: concat_media::VideoCodec::ALL
                 .iter()
@@ -568,5 +625,28 @@ impl ExportPane {
             done_size: bytes(self.size_bytes(studio, self.quality)).into(),
             empty: clips == 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The timeline's rate leads the list and is not offered twice; the
+    /// NTSC fractions keep their camera names.
+    #[test]
+    fn the_timeline_rate_comes_first() {
+        let rates = ExportPane::rates_around((25, 1));
+        assert_eq!(rates[0], (25, 1));
+        assert_eq!(rates.iter().filter(|rate| **rate == (25, 1)).count(), 1);
+        assert_eq!(rates.len(), RATES.len());
+        let rates = ExportPane::rates_around((50, 2));
+        assert_eq!(rates.len(), RATES.len(), "25 written as 50/2 is still 25");
+        let odd = ExportPane::rates_around((15, 1));
+        assert_eq!((odd[0], odd.len()), ((15, 1), RATES.len() + 1));
+        assert_eq!(ExportPane::rate_name((24000, 1001)), "23.976 fps");
+        assert_eq!(ExportPane::rate_name((25, 1)), "25 fps");
+        assert_eq!(ExportPane::rate_name((15, 1)), "15 fps");
+        assert_eq!(ExportPane::rate_name((12500, 1000)), "12.5 fps");
     }
 }

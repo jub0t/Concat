@@ -44,6 +44,10 @@ export struct ExportData {
     resolution-details: [string],
     resolution-disabled: [bool],
     rate: int,
+    /// the rates offered, the timeline's own first, with its name under
+    /// it; the export is at the timeline's rate unless another is picked
+    rates: [string],
+    rate-details: [string],
     quality: int,
     /// index into the codec list: H.264, HEVC, AV1
     codec: int,
@@ -360,7 +364,8 @@ component OutputSection inherits DialogSection {
         label: I18n.t("common.frameRate");
         Select {
             current: root.data.rate;
-            options: ["24 fps", "30 fps", "60 fps"];
+            options: root.data.rates;
+            details: root.data.rate-details;
             changed(index) => { root.rate-changed(index); }
         }
     }

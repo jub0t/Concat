@@ -151,7 +151,6 @@ const WAVE_STEPS: f32 = 30.0;
 /// so a 9:16 edit exports as 1080 x 1920 and a 21:9 one as 2520 x 1080 -
 /// the picker chooses how fine, never which way round.
 pub const EXPORT_SHORT_SIDES: [u32; 4] = [2160, 1440, 1080, 720];
-pub const EXPORT_RATES: [(i64, i64); 3] = [(24, 1), (30, 1), (60, 1)];
 /// Narrower than this, in logical pixels, and the workspace shows the
 /// compact dock: a phone, a tablet held upright, a desktop window squeezed
 /// to a corner. Four panes across less than this is four slivers.
