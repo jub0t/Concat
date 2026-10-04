@@ -272,7 +272,7 @@ export component ConfigPane inherits Rectangle {
     property <[string]> sections: root.heading == "Video"
             ? (root.is-shape ? ["Basic"] : ["Basic", "Enhance", "Adjust"])
         : root.heading == "Audio"
-            ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
+            ? ["Sound"]
         : root.heading == "Effects" ? ["Effects"]
         : root.heading == "Text" ? ["Text"]
         : ["Layer"];
@@ -281,7 +281,7 @@ export component ConfigPane inherits Rectangle {
             ? (root.is-shape ? [I18n.t("configPane.basic")]
                 : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
-            ? (root.is-audio ? [I18n.t("configPane.sound"), I18n.t("common.speed")] : [I18n.t("configPane.sound")])
+            ? [I18n.t("configPane.sound")]
         : root.heading == "Effects" ? [I18n.t("common.effects")]
         : root.heading == "Text" ? [I18n.t("common.text")]
         : [I18n.t("common.layer")];
@@ -641,12 +641,6 @@ export component ConfigPane inherits Rectangle {
                     enhance-set(on) => { root.clip-enhance-set(on); }
                 }
 
-                if root.showing == "Speed": SpeedPanel {
-                    selected: root.selected;
-                    set(field, value) => { root.clip-set(field, value); }
-                    commit => { root.clip-commit(); }
-                }
-
                 if root.showing == "Adjust": AdjustPanel {
                     params: root.adjust-params;
                     wheels: root.adjust-wheels;
@@ -680,6 +674,15 @@ export component ConfigPane inherits Rectangle {
                     AudioPanel {
                         selected: root.selected;
                         audio-tracks: root.audio-tracks;
+                        set(field, value) => { root.clip-set(field, value); }
+                        commit => { root.clip-commit(); }
+                    }
+                    // A sound clip's speed, under its level and fades: one
+                    // knob is not a page of its own. A picture's sound
+                    // rides the picture's, set under Video › Basic.
+                    if root.is-audio: SpeedPanel {
+                        first: false;
+                        selected: root.selected;
                         set(field, value) => { root.clip-set(field, value); }
                         commit => { root.clip-commit(); }
                     }
