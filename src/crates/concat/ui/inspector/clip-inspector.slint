@@ -957,6 +957,11 @@ export component VideoPanel inherits VerticalLayout {
     callback transition-remove();
     callback transition-duration-set(seconds: float);
 
+    /// A shape is a figure, not footage: there is no background to take
+    /// away, nothing to crop off its edges and no cut to ride in on, so
+    /// those three sections stay out of its panel.
+    property <bool> figure: root.selected.kind == ClipKind.shape;
+
     /// Which keyer is on the chain, and where: -1 for none. Scans the first
     /// eight links, as PresetStack does, for want of a model lookup.
     pure function keyer-at(id: string) -> int {
@@ -1190,7 +1195,7 @@ export component VideoPanel inherits VerticalLayout {
     // monitor over it - and chroma key drops a colour. A key is the chroma
     // package on the chain, which is why its knobs read from the chain's
     // own rows. One at a time: ticking a block unticks the others.
-    Section {
+    if !root.figure: Section {
         cutout := SectionHeader {
             title: I18n.t("clipInspector.removeBackground");
             collapsible: true;
@@ -1394,7 +1399,7 @@ export component VideoPanel inherits VerticalLayout {
 
     // What is cut off the source before it is fitted. Fractions of the
     // source's own edges, so a crop survives a change of output size.
-    Section {
+    if !root.figure: Section {
         crop := SectionHeader {
             title: I18n.t("clipInspector.crop");
             collapsible: true;
@@ -1462,7 +1467,7 @@ export component VideoPanel inherits VerticalLayout {
     // Studio::apply_transition. The section always shows, so its place in
     // the panel is stable, with a note in place of controls when there is
     // none: applying one from the Transitions tab is what puts it here.
-    Section {
+    if !root.figure: Section {
         transition := SectionHeader {
             title: I18n.t("clipInspector.transition");
             collapsible: true;
