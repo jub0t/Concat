@@ -2085,6 +2085,80 @@ mod tests {
         assert_eq!(timeline.clip(&clip_id).expect("exists").muted, None);
     }
 
+    /// Where a lane sits in `tracks`; the window draws index 0 at the bottom.
+    fn row_of(timeline: &crate::model::Timeline, track_id: &str) -> usize {
+        timeline
+            .tracks
+            .iter()
+            .position(|track| track.id == track_id)
+            .expect("lane")
+    }
+
+    /// The video on the second lane, a clip under it on the first for as
+    /// long as it runs when `occupied`. Returns the editor and the video.
+    fn video_over_lane(occupied: bool) -> (Editor, String) {
+        let mut editor = Editor::new();
+        let media_id = editor
+            .apply(media("/a.mp4", 10.0, true))
+            .expect("adds")
+            .created_id
+            .expect("id");
+        while editor.project().active().tracks.len() < 2 {
+            editor.apply(Command::AddTrack).expect("adds");
+        }
+        let (bottom, upper) = {
+            let tracks = &editor.project().active().tracks;
+            (tracks[0].id.clone(), tracks[1].id.clone())
+        };
+        if occupied {
+            lane(&mut editor, &media_id, &bottom, &[0.0]);
+        }
+        let video = lane(&mut editor, &media_id, &upper, &[0.0]).remove(0);
+        (editor, video)
+    }
+
+    #[test]
+    fn a_detached_sound_takes_the_free_lane_straight_under_its_video() {
+        let (mut editor, video) = video_over_lane(false);
+        let lanes = editor.project().active().tracks.len();
+        let bottom = editor.project().active().tracks[0].id.clone();
+        let sound = editor
+            .apply(Command::DetachAudio { clip_id: video })
+            .expect("detaches")
+            .created_id
+            .expect("sound");
+        let timeline = editor.project().active();
+        assert_eq!(timeline.clip(&sound).expect("exists").track_id, bottom);
+        assert_eq!(timeline.tracks.len(), lanes, "no lane added");
+    }
+
+    #[test]
+    fn a_detached_sound_gets_a_new_lane_under_its_video_rather_than_over_it() {
+        let (mut editor, video) = video_over_lane(true);
+        let lanes = editor.project().active().tracks.len();
+        let sound = editor
+            .apply(Command::DetachAudio {
+                clip_id: video.clone(),
+            })
+            .expect("detaches")
+            .created_id
+            .expect("sound");
+        let timeline = editor.project().active();
+        assert_eq!(timeline.tracks.len(), lanes + 1);
+        let video_row = row_of(timeline, &timeline.clip(&video).expect("exists").track_id);
+        let sound_row = row_of(timeline, &timeline.clip(&sound).expect("exists").track_id);
+        assert_eq!(sound_row + 1, video_row, "straight under the picture");
+        assert_eq!(
+            timeline
+                .clips
+                .iter()
+                .filter(|clip| clip.track_id == timeline.tracks[sound_row].id)
+                .count(),
+            1,
+            "a lane of its own"
+        );
+    }
+
     /// A file with two audio tracks detaches as two sound clips, one per
     /// track, each on its own lane and named for its track; reattaching
     /// takes both back. A clip's chosen track survives the document.
@@ -2129,6 +2203,17 @@ mod tests {
         assert_ne!(
             sounds[0].track_id, sounds[1].track_id,
             "each on its own lane"
+        );
+        let video_row = row_of(timeline, &timeline.clip(&clip_id).expect("exists").track_id);
+        assert_eq!(
+            row_of(timeline, &sounds[0].track_id) + 1,
+            video_row,
+            "the first track straight under the picture"
+        );
+        assert_eq!(
+            row_of(timeline, &sounds[1].track_id) + 2,
+            video_row,
+            "the second straight under the first"
         );
         assert!(
             sounds
