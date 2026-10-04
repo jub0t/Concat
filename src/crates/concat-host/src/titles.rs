@@ -89,8 +89,11 @@ type LivePaintings = (
     std::collections::VecDeque<u64>,
 );
 
-/// How many live paintings are kept; see `Titles::live`.
-const LIVE_KEPT: usize = 16;
+/// The live paintings kept, in bytes of pixels; see `Titles::live`. Each
+/// is a picture the frame's size - 8 MB at 1080p, 33 MB at 4K - so a count
+/// cost four times as much on a 4K timeline as on an HD one. 128 MB keeps
+/// sixteen HD paintings or four 4K ones, and always the newest.
+const LIVE_BYTES: usize = 128 * 1024 * 1024;
 
 impl Titles {
     /// A painter that caches under the app's data directory.
@@ -267,7 +270,10 @@ impl Titles {
         {
             order.push_back(key);
         }
-        while order.len() > LIVE_KEPT {
+        let held = |kept: &HashMap<u64, (Art, Arc<Frame>)>| -> usize {
+            kept.values().map(|(_, frame)| frame.pixels().len()).sum()
+        };
+        while order.len() > 1 && held(kept) > LIVE_BYTES {
             if let Some(oldest) = order.pop_front() {
                 kept.remove(&oldest);
             }

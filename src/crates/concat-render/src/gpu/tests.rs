@@ -673,6 +673,17 @@ fn a_frame_drawn_before_is_not_uploaded_again() {
 /// The pool keeps what it uploaded only up to its limits: a long run of
 /// distinct frames - here more small ones than the texture cap - leaves it
 /// holding no more than the cap and the byte budget allow.
+/// The pool costs system memory unless the card has its own, and its
+/// budget says so.
+#[test]
+fn the_pool_budget_follows_what_the_textures_cost() {
+    let discrete = pool_budget_for(wgpu::DeviceType::DiscreteGpu);
+    let integrated = pool_budget_for(wgpu::DeviceType::IntegratedGpu);
+    let software = pool_budget_for(wgpu::DeviceType::Cpu);
+    assert_eq!(discrete, 512 * 1024 * 1024);
+    assert!(discrete > integrated && integrated > software);
+}
+
 #[test]
 fn the_pool_stays_within_its_limits() {
     let Some(mut gpu) = gpu() else { return };
@@ -693,7 +704,13 @@ fn the_pool_stays_within_its_limits() {
         "{} textures",
         gpu.pool_textures
     );
-    assert!(gpu.pool_bytes <= POOL_BUDGET);
+    assert!(gpu.pool_bytes <= gpu.pool_budget);
+    // Shrunk when playback stops: down to the share asked for, oldest
+    // first, and back to nothing on zero.
+    gpu.shrink_pool(0.25);
+    assert!(gpu.pool_bytes <= gpu.pool_budget / 4);
+    gpu.shrink_pool(0.0);
+    assert_eq!((gpu.pool_bytes, gpu.pool_textures), (0, 0));
     let counted: usize = gpu.pool.values().map(Vec::len).sum();
     assert_eq!(counted, gpu.pool_textures, "the count is the pool's");
 }

@@ -271,7 +271,10 @@ fn spawn_at<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
-    concat_host::scheduler().submit(priority, move || deliver(None, work(), then));
+    // Art is of the project open when it was asked for: a strip still
+    // decoding when another project opens is dropped, not filed under it.
+    let epoch = project_epoch();
+    concat_host::scheduler().submit(priority, move || deliver(Some(epoch), work(), then));
 }
 
 /// Runs `body` on the event-loop thread from anywhere, with a full publish

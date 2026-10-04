@@ -1247,6 +1247,7 @@ dependencies = [
  "concat-text",
  "concat-vision",
  "cpal",
+ "libc",
  "log",
  "memmap2",
  "png 0.17.16",
@@ -1254,6 +1255,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "ureq 2.12.1",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

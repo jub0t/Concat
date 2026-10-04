@@ -561,9 +561,24 @@ struct PooledTexture {
 /// still has rather than growing: the source-texture cache's budget. The
 /// pool is also the cache - a frame uploaded stays in its texture until
 /// the texture is wanted for something else - so a scrub back over ground
-/// the monitor has shown finds its frames on the device. 512 MB is 64
-/// frames at 1080p, or 256 at the monitor's usual 960 by 540.
-const POOL_BUDGET: u64 = 512 * 1024 * 1024;
+/// the monitor has shown finds its frames on the device.
+///
+/// Chosen by what the textures cost the machine. On a card of its own they
+/// live in the card's memory, which nothing else in the app wants: 512 MB,
+/// 64 frames at 1080p. On integrated graphics - Intel, AMD's APUs, Apple's
+/// chips - and on a virtual GPU they come out of system memory beside the
+/// frame cache, so half that; on the software adapter they are system
+/// memory outright, so a quarter.
+pub fn pool_budget_for(device: wgpu::DeviceType) -> u64 {
+    const MB: u64 = 1024 * 1024;
+    match device {
+        wgpu::DeviceType::DiscreteGpu => 512 * MB,
+        wgpu::DeviceType::Cpu => 128 * MB,
+        wgpu::DeviceType::IntegratedGpu
+        | wgpu::DeviceType::VirtualGpu
+        | wgpu::DeviceType::Other => 256 * MB,
+    }
+}
 
 /// The LUTs and the reveal maps kept on the device, at most: a look is a
 /// megabyte at 65 a side, and each one a person tries stayed on the device
@@ -683,8 +698,10 @@ pub struct WgpuCompositor {
     /// composites a size has gone unclaimed: a timeline moves past a clip
     /// size forever, and its textures should not outlive that by much.
     pool: HashMap<(u32, u32), Vec<PooledTexture>>,
-    /// What the pool's textures hold, in bytes; see [`POOL_BUDGET`].
+    /// What the pool's textures hold, in bytes; see [`pool_budget_for`].
     pool_bytes: u64,
+    /// What `pool_bytes` may reach; see [`pool_budget_for`].
+    pool_budget: u64,
     /// How many textures the pool holds; see [`POOL_TEXTURES`].
     pool_textures: usize,
     /// Composites drawn so far; see [`PooledTexture::drawn`].
@@ -813,6 +830,8 @@ impl WgpuCompositor {
     /// Builds a compositor on a device the caller owns - the window's, so a
     /// texture this draws is one the window can show.
     pub fn with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        // Read before the device moves into the compositor below.
+        let budget = pool_budget_for(device.adapter_info().device_type);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("concat compositor"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
@@ -1223,6 +1242,7 @@ impl WgpuCompositor {
             vertex_capacity: 6 * 8,
             pool: HashMap::new(),
             pool_bytes: 0,
+            pool_budget: budget,
             pool_textures: 0,
             composites: 0,
             uploads: 0,
@@ -2137,6 +2157,40 @@ impl WgpuCompositor {
         }
     }
 
+    /// Lets the pool go down to `share` of its budget, least recently drawn
+    /// first: what the monitor asks for when playback stops, so a pool that
+    /// filled while frames streamed past does not keep that memory while
+    /// the picture sits still. A scrub back over what was let go uploads
+    /// it again from the frame cache, which is quick.
+    pub fn shrink_pool(&mut self, share: f64) {
+        let keep = (self.pool_budget as f64 * share.clamp(0.0, 1.0)) as u64;
+        while self.pool_bytes > keep {
+            let oldest = self
+                .pool
+                .iter()
+                .flat_map(|(key, pool)| {
+                    pool.iter()
+                        .enumerate()
+                        .map(move |(slot, texture)| (*key, slot, texture.drawn))
+                })
+                .min_by_key(|(_, _, drawn)| *drawn);
+            let Some((key, slot, _)) = oldest else {
+                break;
+            };
+            self.pool
+                .get_mut(&key)
+                .expect("found above")
+                .swap_remove(slot);
+            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
+            self.pool_textures -= 1;
+        }
+    }
+
+    /// The most the layer pool holds, in bytes; see [`pool_budget_for`].
+    pub fn pool_budget(&self) -> u64 {
+        self.pool_budget
+    }
+
     /// Retires texture sizes the timeline has moved past. 300 unclaimed
     /// composites (ten seconds of 30fps export) says a size is gone for
     /// good, not just between two clips of it.
@@ -2177,7 +2231,7 @@ impl WgpuCompositor {
         // Back under budget, least recently drawn first, never a texture
         // this composite claimed: a pool grows past the budget only when
         // one composite needs that much.
-        while self.pool_bytes > POOL_BUDGET || self.pool_textures > POOL_TEXTURES {
+        while self.pool_bytes > self.pool_budget || self.pool_textures > POOL_TEXTURES {
             let oldest = self
                 .pool
                 .iter()
@@ -2524,7 +2578,7 @@ impl WgpuCompositor {
         let spare = (used..pool.len())
             .find(|&slot| pool[slot].holds == 0)
             .or_else(|| {
-                (self.pool_bytes + bytes > POOL_BUDGET || self.pool_textures >= POOL_TEXTURES)
+                (self.pool_bytes + bytes > self.pool_budget || self.pool_textures >= POOL_TEXTURES)
                     .then(|| (used..pool.len()).min_by_key(|&slot| pool[slot].drawn))
                     .flatten()
             });

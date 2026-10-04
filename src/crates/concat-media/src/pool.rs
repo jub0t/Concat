@@ -460,6 +460,9 @@ struct Readers {
     warm: HashMap<ReaderKey, Arc<Mutex<Reader>>>,
     /// Recency order for reader eviction, oldest first.
     order: Vec<ReaderKey>,
+    /// When each warm reader was last asked for; see
+    /// [`ReaderPool::close_idle`].
+    touched: HashMap<ReaderKey, std::time::Instant>,
     /// Readers kept warm before the least-recently-used is dropped.
     max: usize,
 }
@@ -551,6 +554,7 @@ impl ReaderPool {
             readers: Mutex::new(Readers {
                 warm: HashMap::new(),
                 order: Vec::new(),
+                touched: HashMap::new(),
                 max: max_readers.max(1),
             }),
             facts: Mutex::new(HashMap::new()),
@@ -563,6 +567,58 @@ impl ReaderPool {
     /// 512 MB of frames, eight warm readers - enough for a busy timeline.
     pub fn with_defaults() -> Self {
         Self::new(512 * 1024 * 1024, 8)
+    }
+
+    /// The frame cache a machine with `total_memory` bytes of RAM gets: a
+    /// sixteenth of it, between 256 MB and 1 GB - 512 MB on an 8 GB
+    /// machine, a gigabyte from 16 GB up. A fixed 512 MB was a sixteenth of
+    /// a small laptop's memory and a thirtieth of an editing workstation's.
+    /// Unknown memory gets the 512 MB the pool always had.
+    pub fn frame_budget(total_memory: Option<u64>) -> usize {
+        const MB: u64 = 1024 * 1024;
+        let bytes = match total_memory {
+            Some(total) => (total / 16).clamp(256 * MB, 1024 * MB),
+            None => 512 * MB,
+        };
+        usize::try_from(bytes).unwrap_or(usize::MAX)
+    }
+
+    /// A pool sized for a machine with `total_memory` bytes of RAM; see
+    /// [`ReaderPool::frame_budget`]. Eight warm readers at most, and those
+    /// not asked for in a while are closed by [`ReaderPool::close_idle`].
+    pub fn sized_for(total_memory: Option<u64>) -> Self {
+        Self::new(Self::frame_budget(total_memory), 8)
+    }
+
+    /// Closes the warm readers nobody has asked for in `idle`, and that no
+    /// decode is using now: a decoder holds its own buffers - a 4K one, a
+    /// hardware one, a good deal - and eight kept open for files the
+    /// playhead left long ago is memory spent on nothing. A reader closed
+    /// here is opened again on the next frame wanted from it, at the cost
+    /// of one seek. Returns how many went.
+    pub fn close_idle(&self, idle: std::time::Duration) -> usize {
+        let Ok(mut readers) = self.readers.lock() else {
+            return 0;
+        };
+        let now = std::time::Instant::now();
+        let doomed: Vec<ReaderKey> = readers
+            .warm
+            .iter()
+            .filter(|(key, reader)| {
+                Arc::strong_count(reader) == 1
+                    && readers
+                        .touched
+                        .get(*key)
+                        .is_none_or(|at| now.duration_since(*at) >= idle)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in &doomed {
+            readers.warm.remove(key);
+            readers.touched.remove(key);
+            readers.order.retain(|entry| entry != key);
+        }
+        doomed.len()
     }
 
     /// Makes `frame` the still at `path`, a name no file has, until
@@ -1067,6 +1123,9 @@ impl ReaderPool {
                 })?;
             readers.order.retain(|entry| entry != &key);
             readers.order.push(key.clone());
+            readers
+                .touched
+                .insert(key.clone(), std::time::Instant::now());
             if let Some(reader) = readers.warm.get(&key) {
                 return Ok(Arc::clone(reader));
             }
@@ -1104,7 +1163,11 @@ impl ReaderPool {
                 break;
             }
             readers.warm.remove(&coldest);
+            readers.touched.remove(&coldest);
         }
+        readers
+            .touched
+            .insert(key.clone(), std::time::Instant::now());
         readers.warm.insert(key, Arc::clone(&opened));
         Ok(opened)
     }
@@ -1115,6 +1178,7 @@ impl ReaderPool {
         if let Ok(mut readers) = self.readers.lock() {
             readers.warm.clear();
             readers.order.clear();
+            readers.touched.clear();
         }
         if let Ok(mut facts) = self.facts.lock() {
             facts.clear();
@@ -1345,6 +1409,43 @@ pub(crate) mod tests {
     /// frame at its level, fitted by no one here: no treated frame is made
     /// and every size asked for is the same cached frame. With a chain it
     /// is fitted and treated as before, `any_size` notwithstanding.
+    /// The frame cache is a sixteenth of the machine's memory, held
+    /// between 256 MB and 1 GB, and the old 512 MB when memory is unknown.
+    #[test]
+    fn the_frame_cache_is_sized_to_the_machine() {
+        const GB: u64 = 1024 * 1024 * 1024;
+        let mb = |bytes: usize| bytes / (1024 * 1024);
+        assert_eq!(mb(ReaderPool::frame_budget(Some(2 * GB))), 256);
+        assert_eq!(mb(ReaderPool::frame_budget(Some(8 * GB))), 512);
+        assert_eq!(mb(ReaderPool::frame_budget(Some(16 * GB))), 1024);
+        assert_eq!(mb(ReaderPool::frame_budget(Some(128 * GB))), 1024);
+        assert_eq!(mb(ReaderPool::frame_budget(None)), 512);
+    }
+
+    /// A reader nobody has asked for in a while is closed; one asked for
+    /// since is kept, and the next frame from a closed one opens it again.
+    #[test]
+    fn idle_readers_are_closed_and_reopened_on_demand() {
+        let path = counting_video("idle-readers", 32, 10);
+        let pool = ReaderPool::new(64 * 1024 * 1024, 4);
+        let at =
+            |frame: i64| FrameRequest::new(&path, FrameRate::THIRTY.time_of_frame(frame), 32, 32);
+        pool.frame(&at(1)).expect("decodes");
+        let warm = |pool: &ReaderPool| pool.readers.lock().expect("lock").warm.len();
+        assert_eq!(warm(&pool), 1);
+        assert_eq!(
+            pool.close_idle(std::time::Duration::from_secs(60)),
+            0,
+            "fresh"
+        );
+        assert_eq!(warm(&pool), 1);
+        assert_eq!(pool.close_idle(std::time::Duration::ZERO), 1, "idle");
+        assert_eq!(warm(&pool), 0);
+        pool.frame(&at(7)).expect("decodes again");
+        assert_eq!(warm(&pool), 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn an_untreated_frame_at_any_size_is_the_source_itself() {
         let path = counting_video("any-size", 64, 30);

@@ -109,6 +109,18 @@ impl Monitor {
         }
     }
 
+    /// Lets the GPU's frame textures go down to a quarter of their budget,
+    /// for when playback stops: the pool fills as frames stream past, and a
+    /// still picture needs only the few it shows. Nothing without a GPU.
+    pub fn shrink(&self) {
+        #[cfg(feature = "gpu")]
+        if let Some(gpu) = self.gpu.as_ref() {
+            gpu.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .shrink_pool(0.25);
+        }
+    }
+
     /// A compositor of its own on the window's device, for work off the
     /// monitor's thread - the effect cards. None without a GPU here.
     #[cfg(feature = "gpu")]

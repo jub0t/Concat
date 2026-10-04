@@ -2058,6 +2058,21 @@ impl Studio {
     /// Asks before the track on lane `row` goes, empty or not: a track is
     /// a whole lane of the cut, and the button that drops it sits beside
     /// the ones that hide and mute it.
+    /// Lets go of every picture and waveform made for the project's media,
+    /// as a project closes or another opens: the bin's thumbnails, the
+    /// filmstrips, the waveform pyramids and their drawn envelopes. They
+    /// were never dropped, so each project opened in a session added its
+    /// art to the last one's until the app quit.
+    fn forget_art(&mut self) {
+        self.peaks.clear();
+        self.strips.clear();
+        self.windows.clear();
+        self.art_pending.clear();
+        self.window_pending.clear();
+        self.waves.borrow_mut().clear();
+        self.media.thumbs.clear();
+    }
+
     pub fn ask_remove_track(&mut self, row: i32) {
         let Some(track_id) = self.row_track(row).map(|track| track.id.clone()) else {
             return;
@@ -2657,9 +2672,14 @@ impl Studio {
         if self.playing {
             log::debug!("playback: paused at {:.3}s", self.playhead);
         }
+        let was_playing = self.playing;
         self.playing = false;
         self.transport.stop();
         self.host.playback.pause();
+        // The textures playback streamed through are let go once it stops.
+        if was_playing {
+            self.host.monitor.shrink();
+        }
     }
 
     /// Moves the playhead, the transport with it, and asks for the frame.
@@ -6779,6 +6799,7 @@ impl Studio {
                 }
                 self.session = Some(session);
                 crate::host::next_project_epoch();
+                self.forget_art();
                 self.art_failed.clear();
                 self.art_stamp = None;
                 self.proxied.clear();
@@ -6926,6 +6947,7 @@ impl Studio {
         // Whatever a worker still brings back for this project is dropped
         // at delivery; the sheets that were waiting on one stop waiting.
         crate::host::next_project_epoch();
+        self.forget_art();
         self.art_failed.clear();
         self.art_stamp = None;
         self.proxied.clear();

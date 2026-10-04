@@ -27,6 +27,7 @@ pub mod export;
 pub mod jobs;
 pub mod logs;
 pub mod media;
+pub mod memory;
 pub mod models;
 pub mod playback;
 pub mod preview;
@@ -58,7 +59,9 @@ pub fn scheduler() -> &'static std::sync::Arc<concat_media::Prefetcher> {
         std::sync::OnceLock::new();
     SCHEDULER.get_or_init(|| {
         std::sync::Arc::new(concat_media::Prefetcher::with_defaults(
-            std::sync::Arc::new(concat_media::ReaderPool::with_defaults()),
+            // The frame cache is a share of the machine's memory, not one
+            // size for a small laptop and a workstation alike.
+            std::sync::Arc::new(concat_media::ReaderPool::sized_for(memory::total())),
         ))
     })
 }

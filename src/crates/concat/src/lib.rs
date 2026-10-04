@@ -1789,7 +1789,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
         shell.studio.borrow().publish(&app, &shell.models);
     }
 
+    // Decoders nobody has asked a frame of for ten seconds are closed,
+    // looked at every five: each holds buffers of its own, and the playhead
+    // leaves files behind. One reopens on its next frame. Held here, for
+    // the life of the loop.
+    let reader_sweep = slint::Timer::default();
+    reader_sweep.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_secs(5),
+        || {
+            let closed = concat_host::scheduler()
+                .pool()
+                .close_idle(std::time::Duration::from_secs(10));
+            if closed > 0 {
+                log::debug!("memory: closed {closed} idle decoder(s)");
+            }
+        },
+    );
+
     let result = app.run();
+    drop(reader_sweep);
     log::info!("close: event loop exited (ok={})", result.is_ok());
     std::process::exit(0);
 }

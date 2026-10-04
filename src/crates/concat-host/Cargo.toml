@@ -45,5 +45,12 @@ serde_json.workspace = true
 cpal = "0.16"
 memmap2 = "0.9"
 
+# The machine's memory, for sizing the caches to it; see memory.rs.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+
 [lints]
 workspace = true
