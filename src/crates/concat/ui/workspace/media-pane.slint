@@ -1739,14 +1739,11 @@ export component MediaPane inherits Rectangle {
                 padding-right: 8px;
                 spacing: 8px;
 
-                // A sunken track and nothing else. No border: this sits
-                // inside a pane that is already outlined, and a second rule
-                // 8px in from the first reads as a box in a box. That is what
-                // separates it from `SegmentedControl`, where the border is
-                // doing real work because that control sits loose in a form
-                // row with nothing else to bound it.
+                // The chips sit straight on the header, in its own colour:
+                // no sunken track and no border, so the strip reads as the
+                // pane's top bar and not as a box set into it. The current
+                // page's chip is the only lift.
                 track := Rectangle {
-                    background: Theme.well;
                     border-radius: Theme.r;
                     clip: true;
 
@@ -1837,7 +1834,7 @@ export component MediaPane inherits Rectangle {
                         x: 0;
                         height: parent.height;
                         glyph: Glyph.chevron-left;
-                        fade: @linear-gradient(90deg, Theme.well 60%, transparent);
+                        fade: @linear-gradient(90deg, Theme.panel 60%, transparent);
                         clicked => {
                             strip.content-x = Math.min(0px, strip.content-x + strip.width * 0.6);
                         }
@@ -1846,7 +1843,7 @@ export component MediaPane inherits Rectangle {
                         x: parent.width - self.width;
                         height: parent.height;
                         glyph: Glyph.chevron-right;
-                        fade: @linear-gradient(270deg, Theme.well 60%, transparent);
+                        fade: @linear-gradient(270deg, Theme.panel 60%, transparent);
                         clicked => {
                             strip.content-x = Math.max(root.strip-floor, strip.content-x - strip.width * 0.6);
                         }
