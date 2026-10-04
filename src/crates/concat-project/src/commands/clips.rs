@@ -119,6 +119,54 @@ pub(super) fn apply(
             })
         }
 
+        Command::AddShapeClip {
+            track_id,
+            above,
+            start,
+            style,
+            duration,
+            name,
+        } => {
+            let style = style.unwrap_or_default().tidy();
+            let duration = duration
+                .unwrap_or(DEFAULT_TEXT_DURATION)
+                .max(MIN_CLIP_DURATION);
+            let timeline = project.active_mut();
+            let track_id = match track_id {
+                Some(id) if timeline.track(&id).is_some() => id,
+                Some(_) => return Err(CommandError::TrackGone),
+                None if above => match first_free_track_above(timeline, start, duration) {
+                    Some(id) => id,
+                    None => {
+                        let id = mint.next("t");
+                        timeline.tracks.push(Track {
+                            id: id.clone(),
+                            visible: true,
+                            muted: false,
+                            extra: Default::default(),
+                        });
+                        id
+                    }
+                },
+                None => {
+                    first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
+                }
+            };
+            let id = mint.next("c");
+            let name = if name.trim().is_empty() {
+                style.kind.id().to_owned()
+            } else {
+                name
+            };
+            let mut clip = Clip::blank(id.clone(), track_id, ClipKind::Shape, name, start, duration);
+            clip.shape = Some(style);
+            timeline.clips.push(Arc::new(clip));
+            Ok(Outcome {
+                created_id: Some(id),
+                applied: true,
+            })
+        }
+
         Command::AddLayerClip {
             track_id,
             start,

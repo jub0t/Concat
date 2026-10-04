@@ -3788,4 +3788,64 @@ mod tests {
         let missing = project.missing_media();
         assert_eq!(missing.len(), 0);
     }
+
+
+    #[test]
+    fn shape_clips_survive_without_media_and_carry_their_figure() {
+        use crate::model::{ClipKind, ShapeKind, ShapeStyle};
+        let mut editor = Editor::new();
+        let clip_id = editor
+            .apply(Command::AddShapeClip {
+                above: true,
+                track_id: None,
+                start: 1.0,
+                style: Some(ShapeStyle {
+                    kind: ShapeKind::Arrow,
+                    fill: "#ff8800".to_owned(),
+                    ..ShapeStyle::default()
+                }),
+                duration: Some(2.5),
+                name: "Flèche".to_owned(),
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        {
+            let clip = editor.project().active().clip(&clip_id).expect("exists");
+            assert_eq!(clip.kind, ClipKind::Shape);
+            assert_eq!(clip.name, "Flèche", "named by the caller, in its language");
+            assert_eq!(clip.duration, 2.5, "a stated duration lands directly");
+            assert!(clip.media_id.is_empty(), "no file behind it");
+            let shape = clip.shape.as_ref().expect("carries its figure");
+            assert_eq!(shape.kind, ShapeKind::Arrow);
+            assert_eq!(shape.fill, "#ff8800");
+        }
+
+        let document = editor.to_document(&settings());
+        let restored = Editor::from_document(&document).expect("loads");
+        assert_eq!(restored.project(), editor.project());
+
+        // A number out of range is pulled back in, not refused: the reader
+        // runs the same tidy over a hand-edited file.
+        let wild = editor
+            .apply(Command::AddShapeClip {
+                above: false,
+                track_id: None,
+                start: 0.0,
+                style: Some(ShapeStyle {
+                    size: 40.0,
+                    stroke_width: -1.0,
+                    ..ShapeStyle::default()
+                }),
+                duration: None,
+                name: String::new(),
+            })
+            .expect("adds")
+            .created_id
+            .expect("id");
+        let clip = editor.project().active().clip(&wild).expect("exists");
+        let shape = clip.shape.as_ref().expect("figure");
+        assert_eq!((shape.size, shape.stroke_width), (2.0, 0.0));
+        assert_eq!(clip.name, "square", "an empty name falls back to the figure's");
+    }
 }

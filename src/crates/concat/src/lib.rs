@@ -693,6 +693,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_library_add_text(on_window!(|state, preset: SharedString| {
         state.place_at_playhead(&format!("text:{preset}:Title"));
     }));
+    // A figure from the Stickers page, named in the interface's language.
+    editor.on_library_add_shape(on_window!(
+        |state, shape: SharedString, label: SharedString| {
+            state.place_at_playhead(&format!("shape:{shape}:{label}"));
+        }
+    ));
     // A filter is a layer over a span of the timeline; an effect goes on
     // the selected clip's chain, and audio on the sound's.
     editor.on_library_apply_filter(on_window!(
@@ -1732,6 +1738,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ClipKind::Image => (theme.get_kind_image(), theme.get_kind_image_well()),
                     ClipKind::Text => (theme.get_kind_text(), theme.get_kind_text_well()),
                     ClipKind::Filter => (theme.get_kind_filter(), theme.get_kind_filter_well()),
+                    ClipKind::Shape => (theme.get_kind_shape(), theme.get_kind_shape_well()),
                 };
                 let wave = studio
                     .peaks

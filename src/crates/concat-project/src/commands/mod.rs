@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
     CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, SpeedPoint,
-    Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    ShapeStyle, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -321,6 +321,27 @@ pub enum Command {
         /// SetClipTransform. Lower thirds are made of this.
         #[serde(default)]
         offset_y: Option<f64>,
+    },
+    /// Places a shape: a clip with no media behind it that draws one
+    /// figure over the picture, minting a "c" id. Lands the way a title
+    /// does - above the picture - since a shape is drawn over it.
+    AddShapeClip {
+        /// The lane to place it on; None picks a lane as `above` says, as
+        /// [`Command::AddTextClip`] does.
+        track_id: Option<String>,
+        /// See [`Command::AddTextClip::above`].
+        #[serde(default)]
+        above: bool,
+        /// Timeline position in seconds, floored at 0.
+        start: f64,
+        /// The figure and its paint. None means [`ShapeStyle::default`].
+        style: Option<ShapeStyle>,
+        /// Seconds on the timeline; the editorial default when absent.
+        #[serde(default)]
+        duration: Option<f64>,
+        /// What the lane calls it: the figure's name in the interface's
+        /// language, which the document cannot know.
+        name: String,
     },
     /// Places a layer: a look or an effect over a span of the timeline that
     /// treats everything beneath it. No media; the chain starts as the one
@@ -865,6 +886,18 @@ impl Command {
             Command::AddClip { start, .. } | Command::AddClipAtFirstFree { start, .. } => {
                 bad([*start])
             }
+            Command::AddShapeClip {
+                start,
+                duration,
+                style,
+                ..
+            } => {
+                bad([*start])
+                    || bad(*duration)
+                    || style
+                        .iter()
+                        .any(|style| bad([style.size, style.stroke_width]))
+            }
             Command::AddTextClip {
                 start,
                 duration,
@@ -1019,6 +1052,7 @@ pub fn apply(
         command @ (Command::AddClip { .. }
         | Command::AddClipAtFirstFree { .. }
         | Command::AddTextClip { .. }
+        | Command::AddShapeClip { .. }
         | Command::AddLayerClip { .. }
         | Command::MoveClips { .. }
         | Command::TrimClip { .. }

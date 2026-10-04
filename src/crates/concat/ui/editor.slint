@@ -107,6 +107,9 @@ export global Editor {
     /// A title placed at the playhead in the look `preset` names;
     /// "default" is the plain title.
     callback library-add-text(preset: string);
+    /// The Stickers page placed a shape: which figure, and what to call
+    /// the clip, in the interface's language.
+    callback library-add-shape(shape: string, label: string);
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
     /// Filters page: lay the look down as a layer at the playhead.

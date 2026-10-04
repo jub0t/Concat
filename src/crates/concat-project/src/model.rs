@@ -62,6 +62,10 @@ pub enum ClipKind {
     /// lives in [`Clip::video_effects`], its strength in [`Clip::opacity`]
     /// and its ramps in the fades.
     Layer,
+    /// A shape: a square, a circle, an arrow, drawn over the picture. No
+    /// media behind it; what it is and how it is painted lives in
+    /// [`Clip::shape`], and it is placed and scaled like a still.
+    Shape,
 }
 
 impl ClipKind {
@@ -837,6 +841,118 @@ pub enum TextAlign {
     Right,
 }
 
+/// Which figure a shape clip draws. The names are written into project
+/// files, so they are stable for ever.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShapeKind {
+    /// Four equal sides; the default, and what the reader falls back to.
+    #[default]
+    Square,
+    /// A disc.
+    Circle,
+    /// Equilateral, point up.
+    Triangle,
+    /// A slanted rectangle, leaning right.
+    Parallelogram,
+    /// A rectangle narrower at the top.
+    Trapezoid,
+    /// A horizontal rule, `stroke_width` thick.
+    Line,
+    /// A horizontal rule with a head on its right end.
+    Arrow,
+}
+
+impl ShapeKind {
+    /// The name a document writes, and what a library payload carries.
+    pub fn id(self) -> &'static str {
+        match self {
+            ShapeKind::Square => "square",
+            ShapeKind::Circle => "circle",
+            ShapeKind::Triangle => "triangle",
+            ShapeKind::Parallelogram => "parallelogram",
+            ShapeKind::Trapezoid => "trapezoid",
+            ShapeKind::Line => "line",
+            ShapeKind::Arrow => "arrow",
+        }
+    }
+
+    /// The figure `id` names, if this build knows it.
+    pub fn parse(id: &str) -> Option<ShapeKind> {
+        [
+            ShapeKind::Square,
+            ShapeKind::Circle,
+            ShapeKind::Triangle,
+            ShapeKind::Parallelogram,
+            ShapeKind::Trapezoid,
+            ShapeKind::Line,
+            ShapeKind::Arrow,
+        ]
+        .into_iter()
+        .find(|kind| kind.id() == id)
+    }
+}
+
+/// How a shape clip is painted. Sizes are fractions of the frame's height,
+/// as a title's are, so a shape composed against 1080p is the same shape at
+/// 4K. A style arriving in a command needs only the fields it changes.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShapeStyle {
+    /// The figure.
+    #[serde(deserialize_with = "wire::shape_kind")]
+    pub kind: ShapeKind,
+    /// The figure's longer side, as a fraction of frame height.
+    pub size: f64,
+    /// The inside's colour as `#rrggbb[aa]`; empty for an outline alone.
+    pub fill: String,
+    /// The outline's colour, drawn when `stroke_width` is above zero. A
+    /// line and an arrow are all stroke, drawn in this colour, and fall
+    /// back to `fill` when it is empty.
+    pub stroke: String,
+    /// The outline's thickness as a fraction of frame height; zero for a
+    /// figure with no outline. A line's and an arrow's own thickness.
+    pub stroke_width: f64,
+}
+
+impl ShapeStyle {
+    /// The default look of one figure: solid white, no outline.
+    pub fn of(kind: ShapeKind) -> ShapeStyle {
+        ShapeStyle {
+            kind,
+            ..ShapeStyle::default()
+        }
+    }
+
+    /// Every number back in its range; see [`TextStyle::tidy`].
+    pub fn tidy(mut self) -> ShapeStyle {
+        fn finite(value: f64, fallback: f64) -> f64 {
+            if value.is_finite() { value } else { fallback }
+        }
+        let base = ShapeStyle::default();
+        self.size = finite(self.size, base.size).clamp(0.01, 2.0);
+        self.stroke_width = finite(self.stroke_width, base.stroke_width).clamp(0.0, 0.5);
+        self
+    }
+}
+
+impl Default for ShapeStyle {
+    fn default() -> ShapeStyle {
+        ShapeStyle {
+            kind: ShapeKind::Square,
+            // A third of the frame's height: big enough to be the point of
+            // the frame, small enough to leave the picture around it.
+            size: 0.35,
+            fill: "#ffffff".to_owned(),
+            stroke: String::new(),
+            // A line or an arrow is nothing but its stroke, so the default
+            // is a visible rule and not zero; a filled figure ignores it
+            // until it is given an outline colour.
+            stroke_width: 0.012,
+        }
+    }
+}
+
 /// A title's styling. Sizes are fractions of the frame, so a title composed
 /// against 1080p lands correctly exported at 4K. A style arriving in a
 /// command needs only the fields it changes; the rest are the default's, so
@@ -976,7 +1092,7 @@ pub(crate) mod wire {
     use serde::{Deserialize, Deserializer};
     use serde_json::Value;
 
-    use super::{ClipKind, ColorSpace, MediaKind, ParamKey, TextAlign};
+    use super::{ClipKind, ColorSpace, MediaKind, ParamKey, ShapeKind, TextAlign};
 
     /// The entries of a list that parse, in order; not a list at all is
     /// an empty one.
@@ -1062,6 +1178,12 @@ pub(crate) mod wire {
     pub fn text_align<'de, D: Deserializer<'de>>(deserializer: D) -> Result<TextAlign, D::Error> {
         let value = Value::deserialize(deserializer)?;
         Ok(serde_json::from_value(value).unwrap_or(TextAlign::Center))
+    }
+
+    /// A shape by name, a square for one this build does not know.
+    pub fn shape_kind<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ShapeKind, D::Error> {
+        let value = Value::deserialize(deserializer)?;
+        Ok(serde_json::from_value(value).unwrap_or_default())
     }
 }
 
@@ -1215,6 +1337,10 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub text: Option<TextStyle>,
+    /// The figure, when this is a shape clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub shape: Option<ShapeStyle>,
     /// Fields this build does not know, kept so a document written by a
     /// newer or a different build round-trips through this one intact.
     #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
@@ -1309,6 +1435,7 @@ impl Clip {
             detached_from: None,
             transition_in: None,
             text: None,
+            shape: None,
             extra: Map::new(),
         }
     }
@@ -1381,6 +1508,7 @@ impl Clip {
             }
         }
         self.text = self.text.take().map(TextStyle::tidy);
+        self.shape = self.shape.take().map(ShapeStyle::tidy);
         if self.muted == Some(false) {
             self.muted = None;
         }

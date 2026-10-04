@@ -33,6 +33,7 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image
             : kind == ClipKind.text ? Theme.kind-text
             : kind == ClipKind.filter ? Theme.kind-filter
+            : kind == ClipKind.shape ? Theme.kind-shape
             : Theme.kind-video;
     }
     public pure function well(kind: ClipKind) -> color {
@@ -40,6 +41,7 @@ global Paint {
             : kind == ClipKind.image ? Theme.kind-image-well
             : kind == ClipKind.text ? Theme.kind-text-well
             : kind == ClipKind.filter ? Theme.kind-filter-well
+            : kind == ClipKind.shape ? Theme.kind-shape-well
             : Theme.kind-video-well;
     }
     public pure function badge(kind: ClipKind) -> Glyph {
@@ -47,6 +49,7 @@ global Paint {
             : kind == ClipKind.image ? Glyph.image
             : kind == ClipKind.text ? Glyph.text-mark
             : kind == ClipKind.filter ? Glyph.filter
+            : kind == ClipKind.shape ? Glyph.shapes
             : Glyph.film;
     }
 }
@@ -158,9 +161,11 @@ component Clip inherits Rectangle {
     /// is all strip: its name is its words, and a body under it would show
     /// the same words a second time in a taller clip. A filter layer is all
     /// strip too - one bar, the look's mark before its name - since it has
-    /// no picture and no sound to show under a header.
+    /// no picture and no sound to show under a header. A shape is all strip
+    /// for the title's reason: its name says what it is.
     property <bool> all-strip: root.item.kind == ClipKind.text
-        || root.item.kind == ClipKind.filter;
+        || root.item.kind == ClipKind.filter
+        || root.item.kind == ClipKind.shape;
     property <length> header-h: root.all-strip ? root.height : 17px;
     /// An all-strip clip wears its kind's mark before its name, the way a
     /// look or a title is told from a sound on the lanes at a glance.

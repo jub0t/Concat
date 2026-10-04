@@ -217,6 +217,9 @@ export component PhoneEditor inherits Rectangle {
     property <bool> is-image: root.kind == ClipKind.image;
     property <bool> is-text: root.kind == ClipKind.text;
     property <bool> is-layer: root.kind == ClipKind.filter;
+    /// A shape has a placement and nothing else a picture has: no colour
+    /// to adjust, no chain, no transition, no frame to freeze.
+    property <bool> is-shape: root.kind == ClipKind.shape;
     /// A picture: what has a placement, a colour and a chain of effects.
     property <bool> is-picture: root.is-video || root.is-image;
 
@@ -722,7 +725,7 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("common.delete");
                 clicked => { Editor.delete-selected(); }
             }
-            if root.is-picture: ToolItem {
+            if root.is-picture || root.is-shape: ToolItem {
                 glyph: Glyph.fit;
                 label: I18n.t("phone.edit");
                 current: root.sheet == "clip-video";
@@ -787,13 +790,13 @@ export component PhoneEditor inherits Rectangle {
                 enabled: Editor.reversible;
                 clicked => { Editor.shortcut("reverse"); }
             }
-            if root.is-picture: ToolItem {
+            if root.is-picture || root.is-shape: ToolItem {
                 glyph: Glyph.flip-h;
                 label: I18n.t("timelinePane.mirror");
                 enabled: Editor.picture-selected;
                 clicked => { Editor.shortcut("mirror"); }
             }
-            if root.is-picture: ToolItem {
+            if root.is-picture || root.is-shape: ToolItem {
                 glyph: Glyph.rotate;
                 label: I18n.t("timelinePane.rotate");
                 enabled: Editor.picture-selected;

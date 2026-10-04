@@ -213,6 +213,10 @@ export component ConfigPane inherits Rectangle {
     // on a title would be panels that can only say "nothing here".
     property <bool> is-text: root.selected.kind == ClipKind.text;
     property <bool> is-image: root.selected.kind == ClipKind.image;
+    /// A shape gets one tab, Vector Image, with the placement panel
+    /// alone: it has no sound, no rate, no colour to adjust and no chain
+    /// of effects - a figure is its fill and its outline, nothing more.
+    property <bool> is-shape: root.selected.kind == ClipKind.shape;
     property <bool> is-audio: root.selected.kind == ClipKind.audio;
     /// A filter layer gets its own lone tab for the same reason a title does:
     /// it has no transform, no gain and no rate, and every other tab could
@@ -220,6 +224,7 @@ export component ConfigPane inherits Rectangle {
     property <bool> is-layer: root.selected.kind == ClipKind.filter;
     property <[string]> tabs: root.is-text ? ["Text"]
         : root.is-layer ? ["Filter"]
+        : root.is-shape ? ["Video"]
         : root.is-image ? ["Video", "Effects"]
         : root.is-audio ? ["Audio"]
         : ["Video", "Audio", "Effects"];
@@ -227,6 +232,7 @@ export component ConfigPane inherits Rectangle {
     /// because the panels are picked by comparing against it.
     property <[string]> tabs-shown: root.is-text ? [I18n.t("common.text")]
         : root.is-layer ? [I18n.t("configPane.filter")]
+        : root.is-shape ? [I18n.t("configPane.vectorImage")]
         : root.is-image ? [I18n.t("common.video"), I18n.t("common.effects")]
         : root.is-audio ? [I18n.t("common.audio")]
         : [I18n.t("common.video"), I18n.t("common.audio"), I18n.t("common.effects")];
@@ -257,7 +263,8 @@ export component ConfigPane inherits Rectangle {
 
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
-            ? (root.is-image ? ["Basic", "Adjust"]
+            ? (root.is-shape ? ["Basic"]
+                : root.is-image ? ["Basic", "Adjust"]
                 : ["Basic", "Speed", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
@@ -266,7 +273,8 @@ export component ConfigPane inherits Rectangle {
         : ["Layer"];
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
-            ? (root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.adjust")]
+            ? (root.is-shape ? [I18n.t("configPane.basic")]
+                : root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.adjust")]
                 : [I18n.t("configPane.basic"), I18n.t("common.speed"), I18n.t("common.adjust")])
         : root.heading == "Audio"
             ? (root.is-audio ? [I18n.t("configPane.sound"), I18n.t("common.speed")] : [I18n.t("configPane.sound")])

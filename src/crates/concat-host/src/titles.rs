@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
-//! Titles, rendered and remembered.
+//! Titles and shapes, rendered and remembered.
 //!
-//! The flattener leaves text clips out on purpose: the compositor only knows
-//! pictures. This is where a title becomes one. Each text clip's style is
-//! painted by `concat-text` onto a frame-sized transparent PNG in the app's
-//! data directory, and the clip rejoins the flattened list as an image clip
-//! pointing at that file, carrying the text clip's timing, transform and
-//! opacity. The monitor, playback prefetch and the exporter then treat it as
-//! any other still.
+//! The flattener leaves text and shape clips out on purpose: the compositor
+//! only knows pictures. This is where a title or a shape becomes one. Each
+//! clip's style is painted by `concat-text` onto a frame-sized transparent
+//! PNG in the app's data directory, and the clip rejoins the flattened list
+//! as an image clip pointing at that file, carrying the clip's timing,
+//! transform and opacity. The monitor, playback prefetch and the exporter
+//! then treat it as any other still.
 //!
 //! The file is keyed by everything that changes the pixels - the style, the
 //! frame size, the fonts the project carries - so a title that has not
 //! changed is never painted twice, across sessions included. What a title
 //! does *not* key on is where it sits or when it plays: moving one is free.
+//! A shape is a title with no words, as far as this file is concerned.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -24,15 +25,17 @@ use concat_core::frame::Frame;
 use concat_core::shader::RevealMap;
 
 use concat_export::{ClipKind, ExportClip};
-use concat_project::model::{ClipKind as ModelClipKind, Project, TextAlign, TextStyle};
-use concat_text::{Align, Fonts, TitleStyle, WordRect};
+use concat_project::model::{
+    ClipKind as ModelClipKind, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
+};
+use concat_text::{Align, Figure, Fonts, TitleStyle, WordRect};
 
 use crate::dirs::AppDirs;
 
-/// One title, ready for the compositor.
+/// One title or shape, ready for the compositor.
 #[derive(Clone)]
 pub struct TitleClip {
-    /// The text clip this was painted from.
+    /// The text or shape clip this was painted from.
     pub clip_id: String,
     /// The image clip that stands in for it.
     pub clip: ExportClip,
@@ -47,6 +50,14 @@ pub struct TitleClip {
     /// what the monitor is to show under `clip.path`, a name no file has.
     /// See [`Titles::clips_live`].
     pub frame: Option<Arc<Frame>>,
+}
+
+/// What is painted: a title's words or a shape's figure. One painter for
+/// both, since they are cached, keyed and handed on the same way.
+#[derive(Clone, Copy)]
+enum Painting<'a> {
+    Title(&'a TextStyle),
+    Shape(&'a ShapeStyle),
 }
 
 /// What one render left behind.
@@ -95,9 +106,9 @@ impl Titles {
         }
     }
 
-    /// Every text clip on the active timeline, as an image clip each, for a
-    /// `width` × `height` frame. A title that fails to paint is left out and
-    /// said once on stderr; the rest of the edit still renders.
+    /// Every text and shape clip on the active timeline, as an image clip
+    /// each, for a `width` × `height` frame. One that fails to paint is left
+    /// out and said once on stderr; the rest of the edit still renders.
     pub fn clips(&self, project: &Project, width: u32, height: u32) -> Vec<TitleClip> {
         self.clips_with(project, width, height, false)
     }
@@ -116,9 +127,18 @@ impl Titles {
         let timeline = project.active();
         let mut out = Vec::new();
         for clip in &timeline.clips {
-            if clip.kind != ModelClipKind::Text {
-                continue;
-            }
+            let (text, shape);
+            let painting = match clip.kind {
+                ModelClipKind::Text => {
+                    text = clip.text.clone().unwrap_or_default();
+                    Painting::Title(&text)
+                }
+                ModelClipKind::Shape => {
+                    shape = clip.shape.clone().unwrap_or_default();
+                    Painting::Shape(&shape)
+                }
+                _ => continue,
+            };
             let Some(index) = timeline
                 .tracks
                 .iter()
@@ -127,12 +147,11 @@ impl Titles {
                 continue;
             };
             let track = &timeline.tracks[index];
-            let text = clip.text.clone().unwrap_or_default();
             let painted = if live {
-                self.painted_live(project, &text, width, height)
+                self.painted_live(project, painting, width, height)
                     .map(|(path, art, frame)| (path, art, Some(frame)))
             } else {
-                self.painted(project, &text, width, height)
+                self.painted(project, painting, width, height)
                     .map(|(path, art)| (path, art, None))
             };
             let (path, art, frame) = match painted {
@@ -164,15 +183,30 @@ impl Titles {
                     // to make a long caption fit, and honouring it here
                     // kept those captions squashed after the wrap arrived.
                     // https://github.com/jub0t/Concat/issues/119
-                    stretch_x: 1.0,
-                    stretch_y: 1.0,
+                    // A shape is pulled: that is how a square becomes
+                    // the rectangle that was wanted.
+                    stretch_x: match painting {
+                        Painting::Title(_) => 1.0,
+                        Painting::Shape(_) => clip.stretch_x,
+                    },
+                    stretch_y: match painting {
+                        Painting::Title(_) => 1.0,
+                        Painting::Shape(_) => clip.stretch_y,
+                    },
                     // The style's own opacity multiplies the clip's: a
                     // half-transparent title fades to half, not to solid.
-                    opacity: (clip.opacity * text.opacity).clamp(0.0, 1.0),
+                    opacity: match painting {
+                        Painting::Title(text) => (clip.opacity * text.opacity).clamp(0.0, 1.0),
+                        Painting::Shape(_) => clip.opacity.clamp(0.0, 1.0),
+                    },
                     media_width: Some(width),
                     media_height: Some(height),
                     has_audio: Some(false),
-                    reveal_map: Some(Arc::clone(&art.reveal)),
+                    // A shape has no words to reveal one at a time.
+                    reveal_map: match painting {
+                        Painting::Title(_) => Some(Arc::clone(&art.reveal)),
+                        Painting::Shape(_) => None,
+                    },
                     ..ExportClip::blank(ClipKind::Image, clip.start, clip.duration, index)
                 },
                 block: art.block,
@@ -188,11 +222,11 @@ impl Titles {
     fn painted_live(
         &self,
         project: &Project,
-        style: &TextStyle,
+        painting: Painting<'_>,
         width: u32,
         height: u32,
     ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
-        let key = key_of(project, style, width, height);
+        let key = key_of(project, painting, width, height);
         let path = PathBuf::from(format!("memory://titles/{key:016x}"));
         if let Some((art, frame)) = self
             .live
@@ -203,18 +237,18 @@ impl Titles {
         {
             return Ok((path, art.clone(), Arc::clone(frame)));
         }
-        let title = title_style(style);
-        let rendered = {
-            let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
-            let fonts = fonts.get_or_insert_with(Fonts::new);
-            let mut loaded = self.loaded_files.lock().unwrap_or_else(|e| e.into_inner());
-            for font in &project.fonts {
-                if !font.path.is_empty() && loaded.insert(font.path.clone()) {
-                    fonts.add_file(Path::new(&font.path));
-                }
+        let rendered = match painting {
+            Painting::Title(style) => {
+                let title = title_style(style);
+                let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+                let fonts = self.fonts_for(project, &mut fonts);
+                concat_text::render_frame(fonts, &title, width, height)
+                    .map_err(|error| error.to_string())?
             }
-            concat_text::render_frame(fonts, &title, width, height)
-                .map_err(|error| error.to_string())?
+            Painting::Shape(style) => {
+                concat_text::render_shape_frame(&shape_style(style), width, height)
+                    .map_err(|error| error.to_string())?
+            }
         };
         let art = Art {
             block: (rendered.block_width, rendered.block_height),
@@ -246,11 +280,11 @@ impl Titles {
     fn painted(
         &self,
         project: &Project,
-        style: &TextStyle,
+        painting: Painting<'_>,
         width: u32,
         height: u32,
     ) -> Result<(PathBuf, Art), String> {
-        let key = key_of(project, style, width, height);
+        let key = key_of(project, painting, width, height);
         let png = self.dir.join(format!("{key:016x}.png"));
         let side = self.dir.join(format!("{key:016x}.json"));
 
@@ -273,18 +307,16 @@ impl Titles {
             return Ok((png, art));
         }
 
-        let title = title_style(style);
-        let rendered = {
-            let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
-            let fonts = fonts.get_or_insert_with(Fonts::new);
-            // The project's own files, each loaded once for the process.
-            let mut loaded = self.loaded_files.lock().unwrap_or_else(|e| e.into_inner());
-            for font in &project.fonts {
-                if !font.path.is_empty() && loaded.insert(font.path.clone()) {
-                    fonts.add_file(Path::new(&font.path));
-                }
+        let rendered = match painting {
+            Painting::Title(style) => {
+                let title = title_style(style);
+                let mut fonts = self.fonts.lock().unwrap_or_else(|e| e.into_inner());
+                let fonts = self.fonts_for(project, &mut fonts);
+                concat_text::render(fonts, &title, width, height)
+                    .map_err(|error| error.to_string())?
             }
-            concat_text::render(fonts, &title, width, height).map_err(|error| error.to_string())?
+            Painting::Shape(style) => concat_text::render_shape(&shape_style(style), width, height)
+                .map_err(|error| error.to_string())?,
         };
         std::fs::create_dir_all(&self.dir).map_err(|error| error.to_string())?;
         std::fs::write(&png, &rendered.png).map_err(|error| error.to_string())?;
@@ -313,6 +345,19 @@ impl Titles {
         Ok((png, art))
     }
 
+    /// The faces, loaded once, with the project's own files added - each
+    /// loaded once for the process.
+    fn fonts_for<'a>(&self, project: &Project, held: &'a mut Option<Fonts>) -> &'a Fonts {
+        let fonts = held.get_or_insert_with(Fonts::new);
+        let mut loaded = self.loaded_files.lock().unwrap_or_else(|e| e.into_inner());
+        for font in &project.fonts {
+            if !font.path.is_empty() && loaded.insert(font.path.clone()) {
+                fonts.add_file(Path::new(&font.path));
+            }
+        }
+        fonts
+    }
+
     fn remember(&self, key: u64, art: Art) {
         self.memo
             .lock()
@@ -327,11 +372,20 @@ impl Titles {
 /// FNV-1a over the bytes, as the other caches on disk are keyed, because a
 /// file's name has to mean the same thing after a toolchain upgrade and the
 /// standard hasher makes no such promise.
-fn key_of(project: &Project, style: &TextStyle, width: u32, height: u32) -> u64 {
+fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) -> u64 {
     let mut bytes = Vec::new();
     // The style as JSON: every field, in a stable order, with no need to
-    // keep a serialiser in step with the struct.
-    bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+    // keep a serialiser in step with the struct. A shape's is prefixed, so
+    // it can never collide with a title's.
+    match painting {
+        Painting::Title(style) => {
+            bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+        }
+        Painting::Shape(style) => {
+            bytes.extend_from_slice(b"shape:");
+            bytes.extend_from_slice(serde_json::to_string(style).unwrap_or_default().as_bytes());
+        }
+    }
     bytes.push(0);
     bytes.extend_from_slice(&width.to_le_bytes());
     bytes.extend_from_slice(&height.to_le_bytes());
@@ -446,13 +500,33 @@ fn title_style(style: &TextStyle) -> TitleStyle {
     }
 }
 
+/// The document's shape, in the painter's terms.
+fn shape_style(style: &ShapeStyle) -> concat_text::ShapeStyle {
+    concat_text::ShapeStyle {
+        figure: match style.kind {
+            ShapeKind::Square => Figure::Square,
+            ShapeKind::Circle => Figure::Circle,
+            ShapeKind::Triangle => Figure::Triangle,
+            ShapeKind::Parallelogram => Figure::Parallelogram,
+            ShapeKind::Trapezoid => Figure::Trapezoid,
+            ShapeKind::Line => Figure::Line,
+            ShapeKind::Arrow => Figure::Arrow,
+        },
+        size: style.size,
+        fill: style.fill.clone(),
+        stroke: style.stroke.clone(),
+        stroke_width: style.stroke_width,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use concat_project::{Command, Editor};
 
-    fn scratch() -> AppDirs {
-        let dir = std::env::temp_dir().join(format!("concat-titles-test-{}", std::process::id()));
+    fn scratch(name: &str) -> AppDirs {
+        let dir =
+            std::env::temp_dir().join(format!("concat-titles-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         AppDirs {
             config: dir.join("config"),
@@ -466,7 +540,7 @@ mod tests {
     /// https://github.com/jub0t/Concat/issues/119
     #[test]
     fn a_title_is_never_stretched_whatever_its_clip_says() {
-        let dirs = scratch();
+        let dirs = scratch("title");
         let mut editor = Editor::new();
         let id = editor
             .apply(Command::AddTextClip {
@@ -511,7 +585,7 @@ mod tests {
     /// same title paints nothing new.
     #[test]
     fn a_title_rejoins_as_a_still() {
-        let dirs = scratch();
+        let dirs = scratch("a_title_rejo");
         let mut editor = Editor::new();
         let id = editor
             .apply(Command::AddTextClip {
@@ -591,5 +665,51 @@ mod tests {
             left[0].clip.reveal_map.as_ref().map(|r| &*r.gray)
         );
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
+    }
+
+
+    /// A shape clip rejoins the flattened list as a still at its clip's
+    /// stretch - that is how a square becomes a rectangle - with the
+    /// figure's box reported and no words to reveal.
+    #[test]
+    fn a_shape_rejoins_as_a_still_and_keeps_its_stretch() {
+        let dirs = scratch("shape");
+        let mut editor = Editor::new();
+        let id = editor
+            .apply(Command::AddShapeClip {
+                above: true,
+                track_id: None,
+                start: 0.0,
+                style: None,
+                duration: Some(3.0),
+                name: "Square".to_owned(),
+            })
+            .expect("a shape is added")
+            .created_id
+            .expect("with an id");
+        editor
+            .apply(Command::SetClipTransform {
+                clip_id: id.clone(),
+                scale: None,
+                offset_x: None,
+                offset_y: None,
+                rotation: None,
+                stretch_x: Some(2.0),
+                stretch_y: Some(0.5),
+            })
+            .expect("pulled wide");
+
+        let out = Titles::new(&dirs).clips(editor.project(), 640, 360);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].clip_id, id);
+        assert!(matches!(out[0].clip.kind, ClipKind::Image));
+        assert_eq!((out[0].clip.stretch_x, out[0].clip.stretch_y), (2.0, 0.5));
+        assert_eq!(out[0].block, (126, 126), "35 % of 360, squared");
+        assert_eq!(out[0].offset, (0, 0));
+        assert!(out[0].clip.reveal_map.is_none());
+        assert!(
+            Path::new(&out[0].clip.path).is_file(),
+            "painted to disk like a title"
+        );
     }
 }

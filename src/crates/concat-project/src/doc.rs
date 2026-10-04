@@ -262,7 +262,7 @@ fn settle_clip(
         return None;
     }
     match clip.kind {
-        ClipKind::Text | ClipKind::Layer => clip.media_id.clear(),
+        ClipKind::Text | ClipKind::Layer | ClipKind::Shape => clip.media_id.clear(),
         ClipKind::Video | ClipKind::Audio | ClipKind::Image => {
             if !media.iter().any(|item| item.id == clip.media_id) {
                 return None;
@@ -271,6 +271,9 @@ fn settle_clip(
     }
     if clip.kind != ClipKind::Text {
         clip.text = None;
+    }
+    if clip.kind != ClipKind::Shape {
+        clip.shape = None;
     }
     Some(clip.tidy())
 }

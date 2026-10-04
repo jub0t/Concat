@@ -964,6 +964,7 @@ fn kind_of(clip: &Clip) -> ClipKind {
         model::ClipKind::Image => ClipKind::Image,
         model::ClipKind::Text => ClipKind::Text,
         model::ClipKind::Layer => ClipKind::Filter,
+        model::ClipKind::Shape => ClipKind::Shape,
     }
 }
 
@@ -2064,8 +2065,11 @@ impl Studio {
                         model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
                         model::ClipKind::Audio => LANE_MEDIUM,
                         // A title is its name strip alone; a layer has no
-                        // picture at all. Neither needs a body's height.
-                        model::ClipKind::Text | model::ClipKind::Layer => LANE_SMALL,
+                        // picture at all; a shape's name says what it is.
+                        // None needs a body's height.
+                        model::ClipKind::Text
+                        | model::ClipKind::Layer
+                        | model::ClipKind::Shape => LANE_SMALL,
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -3103,6 +3107,17 @@ impl Studio {
                 duration: LAYER_DURATION,
                 row: 0,
             }),
+            // A figure from the Stickers page: the shape's name rides
+            // where a file's media id would, and the label is what the
+            // lane will call it.
+            "shape" => Some(DropPlan {
+                kind: ClipKind::Shape,
+                label: label.to_owned(),
+                media: model::ShapeKind::parse(id)?.id().to_owned(),
+                start: 0.0,
+                duration: LAYER_DURATION,
+                row: 0,
+            }),
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
             "filter" => Some(DropPlan {
@@ -3149,6 +3164,14 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
             )
+        } else if plan.kind == ClipKind::Shape {
+            self.add_shape(
+                Some(track_id),
+                f64::from(plan.start),
+                f64::from(plan.duration),
+                &plan.media,
+                &plan.label,
+            )
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
                 track_id: Some(track_id),
@@ -3179,6 +3202,8 @@ impl Studio {
         let start = f64::from(self.playhead.max(0.0));
         let created = if plan.kind == ClipKind::Text {
             self.add_title(None, start, f64::from(plan.duration), &plan.media)
+        } else if plan.kind == ClipKind::Shape {
+            self.add_shape(None, start, f64::from(plan.duration), &plan.media, &plan.label)
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
                 track_id: None,
@@ -3235,6 +3260,27 @@ impl Studio {
             }),
             None => self.apply(add),
         }
+    }
+
+    /// A shape from the Stickers page, placed the way a title is: over
+    /// the picture, on the first free lane above it.
+    fn add_shape(
+        &mut self,
+        track_id: Option<String>,
+        start: f64,
+        duration: f64,
+        shape: &str,
+        name: &str,
+    ) -> Option<String> {
+        let kind = model::ShapeKind::parse(shape).unwrap_or_default();
+        self.apply(Command::AddShapeClip {
+            track_id,
+            above: true,
+            start,
+            style: Some(model::ShapeStyle::of(kind)),
+            duration: Some(duration),
+            name: name.to_owned(),
+        })
     }
 
     /// The selected clip's id, when exactly one is selected.
@@ -3302,7 +3348,10 @@ impl Studio {
         let Some(clip) = self.clip(&clip_id).cloned() else {
             return;
         };
-        if video && !(clip.kind.is_visual() || clip.kind == model::ClipKind::Text) {
+        if video
+            && !(clip.kind.is_visual()
+                || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
+        {
             self.notify(&t("studio.selectVideoImageText"), true);
             return;
         }
@@ -4600,7 +4649,7 @@ impl Studio {
     pub fn footprint(&self, clip: &Clip) -> Footprint {
         let (width, height) = self.output_size();
         let (width, height) = (f64::from(width.max(1)), f64::from(height.max(1)));
-        let painted = (clip.kind == model::ClipKind::Text)
+        let painted = matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape)
             .then(|| self.title_blocks.get(&clip.id).copied())
             .flatten();
         let (w, h) = if let Some(((bw, bh), _)) = painted {
@@ -4629,6 +4678,21 @@ impl Studio {
                 (longest * glyph + 0.6 * em) * clip.scale / width,
                 (rows * em * text.line_height.max(0.5) + 0.5 * em) * clip.scale / height,
             )
+        } else if clip.kind == model::ClipKind::Shape {
+            // Not painted yet: the figure's box from its style, the way the
+            // painter sizes it, until the painter says.
+            let shape = clip.shape.clone().unwrap_or_default();
+            let side = shape.size.clamp(0.01, 2.0) * height;
+            let (w, h) = match shape.kind {
+                model::ShapeKind::Square | model::ShapeKind::Circle => (side, side),
+                model::ShapeKind::Triangle => (side, side * 0.866),
+                model::ShapeKind::Parallelogram | model::ShapeKind::Trapezoid => {
+                    (side, side * 0.6)
+                }
+                model::ShapeKind::Line => (side, shape.stroke_width * height),
+                model::ShapeKind::Arrow => (side, (shape.stroke_width * 4.0).max(0.18) * side),
+            };
+            (w * clip.scale / width, h * clip.scale / height)
         } else {
             let media = self.project().media_by_id(&clip.media_id);
             let source = media
@@ -4720,7 +4784,8 @@ impl Studio {
             .iter()
             .map(|clip| clip.as_ref())
             .filter(|clip| {
-                (clip.kind.is_visual() || clip.kind == model::ClipKind::Text)
+                (clip.kind.is_visual()
+                    || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
                     && showing.contains(clip.track_id.as_str())
                     && clip.start <= playhead
                     && playhead < clip.start + clip.duration
@@ -6341,6 +6406,20 @@ impl Studio {
             }
             return;
         }
+        if source.kind == model::ClipKind::Shape {
+            let created = self.apply(Command::AddShapeClip {
+                above: false,
+                track_id: Some(source.track_id.clone()),
+                start: end,
+                style: source.shape.clone(),
+                duration: Some(source.duration),
+                name: source.name.clone(),
+            });
+            if let Some(id) = created {
+                self.selection = vec![id];
+            }
+            return;
+        }
         let Some(created) = self.apply(Command::AddClip {
             media_id: source.media_id.clone(),
             track_id: source.track_id.clone(),
@@ -7144,7 +7223,8 @@ impl Studio {
             .clips
             .iter()
             .filter(|clip| {
-                (clip.kind.is_visual() || clip.kind == model::ClipKind::Text)
+                (clip.kind.is_visual()
+                    || matches!(clip.kind, model::ClipKind::Text | model::ClipKind::Shape))
                     && clip.start <= playhead
                     && playhead < clip.start + clip.duration
             })

@@ -149,6 +149,43 @@ component LibraryTab inherits Rectangle {
     }
 }
 
+// One end of the page strip: a slim button that moves the chips along by
+// most of a track, fading the chips out under itself so a chip half under
+// it reads as continuing rather than cut.
+component StripEnd inherits Rectangle {
+    in property <Glyph> glyph;
+    in property <brush> fade;
+
+    callback clicked();
+
+    y: 0;
+    width: 22px;
+    background: root.fade;
+
+    Rectangle {
+        x: root.glyph == Glyph.chevron-left ? 2px : parent.width - self.width - 2px;
+        y: (parent.height - self.height) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: Theme.r-xs;
+        background: touch.has-hover ? Theme.field-hover : Theme.field;
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            glyph: root.glyph;
+            size: 10px;
+            weight: 2.4;
+            tint: touch.has-hover ? Theme.fg : Theme.fg-muted;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 // ── the category sidebar ─────────────────────────────────────────────────────
 
 // The heading over a list of category rows, and the control that collapses
@@ -1375,6 +1412,141 @@ export component PresetGrid inherits Rectangle {
     }
 }
 
+// ── the stickers page ────────────────────────────────────────────────────────
+
+/// One figure the Shapes shelf offers: its id, which the document stores,
+/// the name under its card, and the outline the card draws, on lucide's 24
+/// grid like every other mark in the app.
+struct ShapeCardData {
+    id: string,
+    label: string,
+    commands: string,
+}
+
+// One figure, as a card: its outline in ink on a square tile, the name
+// underneath. The outline and not a filled figure, so the card says which
+// shape and not which colour - the colour is the clip's to set.
+component ShapeCard inherits Rectangle {
+    in property <ShapeCardData> shape;
+
+    callback placed();
+
+    opacity: drag.dragging ? 0.45 : 1.0;
+
+    property <string> payload: "shape:\{root.shape.id}:\{root.shape.label}";
+
+    drag := DragArea {
+        data: Payload.of(root.payload);
+        drag-image: Payload.preview(root.payload);
+        drag-image-offset-x: -8;
+        drag-image-offset-y: -4;
+        allow-copy: true;
+
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.placed(); }
+            double-clicked => { root.placed(); }
+
+            tile := Rectangle {
+                y: 0;
+                height: root.width;
+                border-radius: Theme.r;
+                background: Theme.field;
+                border-width: 1px;
+                border-color: touch.has-hover ? Theme.line-strong : Theme.line;
+
+                Path {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width * 0.5;
+                    height: self.width;
+                    viewbox-width: 24;
+                    viewbox-height: 24;
+                    commands: root.shape.commands;
+                    fill: transparent;
+                    stroke: touch.has-hover ? Theme.fg : Theme.fg-muted;
+                    // Lucide's weight on the 24 grid, scaled with the
+                    // mark, the way `Stroked` does it.
+                    stroke-width: self.width * 1.6 / 24;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                }
+
+                if touch.has-hover: Rectangle {
+                    x: parent.width - self.width - 4px;
+                    y: parent.height - self.height - 4px;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.scrim;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        glyph: Glyph.plus;
+                        size: 11px;
+                        tint: Theme.on-scrim;
+                    }
+                }
+            }
+
+            Text {
+                x: 0;
+                y: tile.height + 4px;
+                width: root.width;
+                height: 14px;
+                text: root.shape.label;
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// The Shapes shelf: the figures a shape clip can be, with the same
+// auto-fill arithmetic as PresetGrid.
+export component ShapeGrid inherits Rectangle {
+    /// Placed by a click; a drag carries the same payload itself.
+    callback placed(shape: string, label: string);
+
+    // The ids are written into project files, so they are stable for ever;
+    // see ShapeKind in concat-project.
+    property <[ShapeCardData]> shapes: [
+        { id: "square", label: I18n.t("mediaPane.shapeSquare"), commands: "M4 4h16v16H4z" },
+        { id: "circle", label: I18n.t("mediaPane.shapeCircle"),
+            commands: "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0" },
+        { id: "triangle", label: I18n.t("mediaPane.shapeTriangle"), commands: "M12 4l9 16H3z" },
+        { id: "parallelogram", label: I18n.t("mediaPane.shapeParallelogram"),
+            commands: "M8 5h13l-5 14H3z" },
+        { id: "trapezoid", label: I18n.t("mediaPane.shapeTrapezoid"), commands: "M8 5h8l5 14H3z" },
+        { id: "line", label: I18n.t("mediaPane.shapeLine"), commands: "M3 12h18" },
+        { id: "arrow", label: I18n.t("mediaPane.shapeArrow"), commands: "M3 12h18 M15 6l6 6-6 6" },
+    ];
+
+    property <length> gap: 8px;
+    property <length> min-card: 88px;
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    // A square tile, then the name under it.
+    property <length> card-h: root.card-w + 4px + 14px;
+    property <int> rows: Math.ceil(root.shapes.length / root.cols);
+
+    height: root.rows > 0 ? root.rows * (root.card-h + root.gap) - root.gap : 0px;
+
+    for entry[index] in root.shapes: ShapeCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        shape: entry;
+
+        placed => { root.placed(entry.id, entry.label); }
+    }
+}
+
 // ── the pane ─────────────────────────────────────────────────────────────────
 
 // Centred placeholder for a page with nothing on it.
@@ -1463,6 +1635,9 @@ export component MediaPane inherits Rectangle {
     in property <[string]> transition-groups;
     /// Text page: add a title at the playhead, in the look `preset` names.
     callback add-text(preset: string);
+    /// Stickers page: add the figure `shape` names at the playhead, as a
+    /// clip called `label`.
+    callback add-shape(shape: string, label: string);
     /// Catalogue pages: apply to the selected clip; Rust validates & explains.
     callback apply-effect(effect-id: string);
     callback apply-transition(transition-id: string);
@@ -1493,11 +1668,15 @@ export component MediaPane inherits Rectangle {
     callback pane-removed();
 
     property <int> tab;
+    /// How far left the page strip can be pushed: nothing, while its chips
+    /// fit. See `strip`.
+    property <length> strip-floor: Math.min(0px, strip.width - strip.content-width);
     property <bool> categories-open: true;
     property <bool> generated-open: true;
     property <bool> text-open: true;
     /// 0 = Titles, 1 = Presets
     property <int> text-category;
+    property <bool> stickers-open: true;
     property <bool> transitions-open: true;
     property <bool> effects-open: true;
     property <bool> filters-open: true;
@@ -1566,13 +1745,46 @@ export component MediaPane inherits Rectangle {
                 // separates it from `SegmentedControl`, where the border is
                 // doing real work because that control sits loose in a form
                 // row with nothing else to bound it.
-                Rectangle {
+                track := Rectangle {
                     background: Theme.well;
                     border-radius: Theme.r;
+                    clip: true;
 
-                    HorizontalLayout {
-                        padding: 2px;
-                        spacing: 2px;
+                    // The chips share the track's width while they fit, and
+                    // run past its end when they do not: seven pages in a
+                    // narrow seat would otherwise be seven labels elided to
+                    // nothing. What runs past is reached by the two end
+                    // buttons below, not a scrollbar - a bar under a row of
+                    // chips 40px tall is a second row where there is no room
+                    // for one.
+                    strip := Flickable {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.height;
+                        // A chip is clicked, not flicked: a Flickable that
+                        // took the drag would take it off the chips, and
+                        // the buttons do the moving.
+                        interactive: false;
+                        content-width: Math.max(self.width, chips.preferred-width);
+                        content-height: self.height;
+
+                        animate content-x { duration: 180ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+                        // A seat widened while the strip was scrolled would
+                        // keep the chips pushed left of a track that now
+                        // has room for them.
+                        changed width => {
+                            self.content-x = Math.max(root.strip-floor, Math.min(0px, self.content-x));
+                        }
+
+                        chips := HorizontalLayout {
+                            x: 0;
+                            y: 0;
+                            width: strip.content-width;
+                            height: strip.height;
+                            padding: 2px;
+                            spacing: 2px;
 
                         LibraryTab {
                             glyph: Glyph.film;
@@ -1587,28 +1799,56 @@ export component MediaPane inherits Rectangle {
                             clicked => { root.tab = 1; }
                         }
                         LibraryTab {
-                            glyph: Glyph.transition;
-                            label: I18n.t("mediaPane.transitions");
+                            glyph: Glyph.sticker;
+                            label: I18n.t("mediaPane.stickers");
                             current: root.tab == 2;
                             clicked => { root.tab = 2; }
                         }
                         LibraryTab {
-                            glyph: Glyph.sparkle;
-                            label: I18n.t("common.effects");
+                            glyph: Glyph.transition;
+                            label: I18n.t("mediaPane.transitions");
                             current: root.tab == 3;
                             clicked => { root.tab = 3; }
                         }
                         LibraryTab {
-                            glyph: Glyph.filter;
-                            label: I18n.t("mediaPane.filters");
+                            glyph: Glyph.sparkle;
+                            label: I18n.t("common.effects");
                             current: root.tab == 4;
                             clicked => { root.tab = 4; }
                         }
                         LibraryTab {
-                            glyph: Glyph.slot;
-                            label: I18n.t("mediaPane.templates");
+                            glyph: Glyph.filter;
+                            label: I18n.t("mediaPane.filters");
                             current: root.tab == 5;
                             clicked => { root.tab = 5; }
+                        }
+                        LibraryTab {
+                            glyph: Glyph.slot;
+                            label: I18n.t("mediaPane.templates");
+                            current: root.tab == 6;
+                            clicked => { root.tab = 6; }
+                        }
+                        }
+                    }
+
+                    // The end buttons, over the strip, each there only while
+                    // there is something past its end to go to.
+                    if strip.content-x < 0px: StripEnd {
+                        x: 0;
+                        height: parent.height;
+                        glyph: Glyph.chevron-left;
+                        fade: @linear-gradient(90deg, Theme.well 60%, transparent);
+                        clicked => {
+                            strip.content-x = Math.min(0px, strip.content-x + strip.width * 0.6);
+                        }
+                    }
+                    if strip.content-x > root.strip-floor: StripEnd {
+                        x: parent.width - self.width;
+                        height: parent.height;
+                        glyph: Glyph.chevron-right;
+                        fade: @linear-gradient(270deg, Theme.well 60%, transparent);
+                        clicked => {
+                            strip.content-x = Math.max(root.strip-floor, strip.content-x - strip.width * 0.6);
                         }
                     }
                 }
@@ -1775,7 +2015,25 @@ export component MediaPane inherits Rectangle {
                         }
                     }
 
+                    // Stickers: the one shelf there is, Shapes, so its row
+                    // is always the current one. Pictures and animated
+                    // stickers are shelves for another day.
                     if root.tab == 2: VerticalLayout {
+                        spacing: 1px;
+                        CategoryHeading {
+                            height: 26px;
+                            title: I18n.t("mediaPane.stickers");
+                            open: root.stickers-open;
+                            toggled => { root.stickers-open = !root.stickers-open; }
+                        }
+                        if root.stickers-open: CategoryRow {
+                            height: 24px;
+                            label: I18n.t("mediaPane.shapes");
+                            current: true;
+                        }
+                    }
+
+                    if root.tab == 3: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
@@ -1796,7 +2054,7 @@ export component MediaPane inherits Rectangle {
 
                     // The picture's shelves and the sound's, from the
                     // catalogue's own groups, on one page called Effects.
-                    if root.tab == 3: VerticalLayout {
+                    if root.tab == 4: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
@@ -1839,7 +2097,7 @@ export component MediaPane inherits Rectangle {
                     // Filters are colour looks, the way every video editor's
                     // users understand the word. What a voice or a room does
                     // to the sound is on the Effects page.
-                    if root.tab == 4: VerticalLayout {
+                    if root.tab == 5: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
@@ -1858,7 +2116,7 @@ export component MediaPane inherits Rectangle {
                         }
                     }
 
-                    if root.tab == 5: VerticalLayout {
+                    if root.tab == 6: VerticalLayout {
                         spacing: 1px;
                         CategoryHeading {
                             height: 26px;
@@ -2037,7 +2295,18 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 2: VerticalLayout {
+                // The figures. Each card is one shape, placed at the
+                // playhead on a click or dragged onto a lane.
+                if root.tab == 2: HorizontalLayout {
+                    padding: 8px;
+
+                    ShapeGrid {
+                        horizontal-stretch: 1;
+                        placed(shape, label) => { root.add-shape(shape, label); }
+                    }
+                }
+
+                if root.tab == 3: VerticalLayout {
                     padding: 8px;
 
                     ShelfSearch {
@@ -2053,7 +2322,7 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 3: VerticalLayout {
+                if root.tab == 4: VerticalLayout {
                     padding: 8px;
 
                     ShelfSearch {
@@ -2096,7 +2365,7 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 4: VerticalLayout {
+                if root.tab == 5: VerticalLayout {
                     padding: 8px;
 
                     // A filter is a layer over a span of the timeline,
@@ -2136,7 +2405,7 @@ export component MediaPane inherits Rectangle {
 
                 // Templates: the save affordance, then the gallery of saved
                 // templates, which shows its empty state until one is saved.
-                if root.tab == 5: HorizontalLayout {
+                if root.tab == 6: HorizontalLayout {
                     padding: 8px;
 
                     ImportButton {
@@ -2146,7 +2415,7 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                if root.tab == 5: Empty {
+                if root.tab == 6: Empty {
                     glyph: Glyph.slot;
                     text: I18n.t("mediaPane.noTemplatesYetMark");
                 }

@@ -44,7 +44,9 @@ pub fn flatten_timeline_in(
         .clips
         .iter()
         .filter_map(|clip| {
-            if clip.kind == ModelClipKind::Text {
+            // Titles and shapes rasterise separately and rejoin as stills;
+            // see concat-host's titles.
+            if matches!(clip.kind, ModelClipKind::Text | ModelClipKind::Shape) {
                 return None;
             }
             let index = timeline
@@ -77,7 +79,7 @@ pub fn flatten_timeline_in(
                 ModelClipKind::Image => ClipKind::Image,
                 // Handled above; unreachable spelled as a skip so a new
                 // kind fails soft.
-                ModelClipKind::Text | ModelClipKind::Layer => return None,
+                ModelClipKind::Text | ModelClipKind::Layer | ModelClipKind::Shape => return None,
             };
             Some(ExportClip {
                 path: media.path.clone(),

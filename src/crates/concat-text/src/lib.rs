@@ -865,19 +865,8 @@ pub fn render_frame(
     height: u32,
 ) -> Result<RenderedFrame, Error> {
     let (canvas, block, words) = paint(fonts, style, width, height)?;
-    // tiny-skia keeps premultiplied pixels; a frame carries straight alpha.
-    let mut rgba = Vec::with_capacity(canvas.pixels().len() * 4);
-    for pixel in canvas.pixels() {
-        let straight = pixel.demultiply();
-        rgba.extend_from_slice(&[
-            straight.red(),
-            straight.green(),
-            straight.blue(),
-            straight.alpha(),
-        ]);
-    }
     Ok(RenderedFrame {
-        rgba,
+        rgba: straight_rgba(&canvas),
         width,
         height,
         block_width: block.0,
@@ -1165,6 +1154,247 @@ fn push_rounded_rect(builder: &mut PathBuilder, rect: Rect, radius: f32) {
     builder.line_to(l, t + r);
     builder.cubic_to(l, t + k, l + k, t, l + r, t);
     builder.close();
+}
+
+// ── shapes ───────────────────────────────────────────────────────────────────
+//
+// A shape clip is a figure and its paint; the compositor wants a picture, the
+// same frame-sized transparent canvas a title gets, for the same reasons (see
+// the module docs). The figure is centred on the canvas, so the clip's offset
+// and rotation mean what they mean for a title, and `Rendered::block_*` is
+// the figure's own box, for a monitor to outline.
+
+/// The figures a shape clip can be. Mirrors the document's own list; this
+/// crate does not depend on the document.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Figure {
+    /// Four equal sides.
+    Square,
+    /// A disc.
+    Circle,
+    /// Equilateral, point up.
+    Triangle,
+    /// A slanted rectangle, leaning right.
+    Parallelogram,
+    /// A rectangle narrower at the top.
+    Trapezoid,
+    /// A horizontal rule.
+    Line,
+    /// A horizontal rule with a head on its right end.
+    Arrow,
+}
+
+/// Everything about a shape's look, in the document's terms: sizes are
+/// fractions of the frame's height.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ShapeStyle {
+    /// Which figure.
+    pub figure: Figure,
+    /// The figure's longer side.
+    pub size: f64,
+    /// The inside's colour, `#rrggbb[aa]`; empty for an outline alone.
+    pub fill: String,
+    /// The outline's colour; a line or an arrow is drawn in this, falling
+    /// back to `fill` when it is empty.
+    pub stroke: String,
+    /// The outline's thickness, and a line's or an arrow's own.
+    pub stroke_width: f64,
+}
+
+/// Paints `style` centred on a `width` × `height` transparent canvas and
+/// returns it PNG-encoded with the figure's box. The counterpart of
+/// [`render`] for a shape.
+pub fn render_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<Rendered, Error> {
+    let (canvas, block) = paint_shape(style, width, height)?;
+    let png = canvas
+        .encode_png()
+        .map_err(|error| Error::Encode(error.to_string()))?;
+    Ok(Rendered {
+        png,
+        width,
+        height,
+        block_width: block.0,
+        block_height: block.1,
+        block_dx: block.2,
+        block_dy: block.3,
+        words: Vec::new(),
+    })
+}
+
+/// [`render_shape`], but the pixels rather than a PNG of them; the
+/// counterpart of [`render_frame`].
+pub fn render_shape_frame(
+    style: &ShapeStyle,
+    width: u32,
+    height: u32,
+) -> Result<RenderedFrame, Error> {
+    let (canvas, block) = paint_shape(style, width, height)?;
+    Ok(RenderedFrame {
+        rgba: straight_rgba(&canvas),
+        width,
+        height,
+        block_width: block.0,
+        block_height: block.1,
+        block_dx: block.2,
+        block_dy: block.3,
+        words: Vec::new(),
+    })
+}
+
+/// tiny-skia keeps premultiplied pixels; a frame carries straight alpha.
+fn straight_rgba(canvas: &Pixmap) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(canvas.pixels().len() * 4);
+    for pixel in canvas.pixels() {
+        let straight = pixel.demultiply();
+        rgba.extend_from_slice(&[
+            straight.red(),
+            straight.green(),
+            straight.blue(),
+            straight.alpha(),
+        ]);
+    }
+    rgba
+}
+
+/// The canvas with the figure on it, and the figure's box.
+fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, Block), Error> {
+    let mut canvas = Pixmap::new(width, height).ok_or(Error::Canvas(width, height))?;
+    let frame_h = height as f32;
+    let size = (style.size.clamp(0.01, 2.0) as f32) * frame_h;
+    // The outline's thickness in pixels, never under a pixel once it is
+    // asked for at all, so a hairline at 480p is still a line.
+    let rule = {
+        let asked = (style.stroke_width.max(0.0) as f32) * frame_h;
+        if asked > 0.0 { asked.max(1.0) } else { 0.0 }
+    };
+    let cx = width as f32 / 2.0;
+    let cy = frame_h / 2.0;
+
+    // The figure's own box, before any outline: (w, h), centred.
+    let (w, h) = match style.figure {
+        Figure::Square | Figure::Circle => (size, size),
+        Figure::Triangle => (size, size * 0.866),
+        Figure::Parallelogram | Figure::Trapezoid => (size, size * 0.6),
+        Figure::Line => (size, rule),
+        Figure::Arrow => (size, (rule * 4.0).max(size * 0.18)),
+    };
+    let (left, top) = (cx - w / 2.0, cy - h / 2.0);
+    let (right, bottom) = (left + w, top + h);
+
+    let mut path = PathBuilder::new();
+    let closed = match style.figure {
+        Figure::Square => {
+            path.push_rect(Rect::from_ltrb(left, top, right, bottom).ok_or(Error::Canvas(width, height))?);
+            true
+        }
+        Figure::Circle => {
+            path.push_circle(cx, cy, size / 2.0);
+            true
+        }
+        Figure::Triangle => {
+            path.move_to(cx, top);
+            path.line_to(right, bottom);
+            path.line_to(left, bottom);
+            path.close();
+            true
+        }
+        Figure::Parallelogram => {
+            let lean = w * 0.2;
+            path.move_to(left + lean, top);
+            path.line_to(right, top);
+            path.line_to(right - lean, bottom);
+            path.line_to(left, bottom);
+            path.close();
+            true
+        }
+        Figure::Trapezoid => {
+            let inset = w * 0.2;
+            path.move_to(left + inset, top);
+            path.line_to(right - inset, top);
+            path.line_to(right, bottom);
+            path.line_to(left, bottom);
+            path.close();
+            true
+        }
+        Figure::Line => {
+            path.move_to(left + rule / 2.0, cy);
+            path.line_to(right - rule / 2.0, cy);
+            false
+        }
+        Figure::Arrow => {
+            // The head's arms are the box's half-height long, at 45°, so the
+            // head is as tall as the box says and the shaft stops short of
+            // the tip by what the stroke's round cap adds.
+            let arm = h / 2.0;
+            let tip = right - rule / 2.0;
+            path.move_to(left + rule / 2.0, cy);
+            path.line_to(tip, cy);
+            path.move_to(tip - arm, cy - arm);
+            path.line_to(tip, cy);
+            path.line_to(tip - arm, cy + arm);
+            false
+        }
+    };
+    let Some(path) = path.finish() else {
+        return Ok((canvas, (0, 0, 0, 0)));
+    };
+
+    let stroke = |colour: Color| {
+        let mut paint = Paint::default();
+        paint.set_color(colour);
+        paint.anti_alias = true;
+        paint
+    };
+    let line_style = |width: f32| Stroke {
+        width,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Stroke::default()
+    };
+
+    let fill = colour(&style.fill);
+    let edge = colour(&style.stroke);
+    if closed {
+        if let Some(fill) = fill {
+            canvas.fill_path(
+                &path,
+                &stroke(fill),
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+        }
+        if rule > 0.0 && let Some(edge) = edge {
+            canvas.stroke_path(
+                &path,
+                &stroke(edge),
+                &line_style(rule),
+                Transform::identity(),
+                None,
+            );
+        }
+    } else if rule > 0.0 && let Some(ink) = edge.or(fill) {
+        // A line or an arrow is all stroke, in the outline's colour when
+        // one is set, else the fill's.
+        canvas.stroke_path(
+            &path,
+            &stroke(ink),
+            &line_style(rule),
+            Transform::identity(),
+            None,
+        );
+    }
+
+    // The box the monitor outlines: the figure, plus the outline that
+    // straddles its edge.
+    let grown = if closed && rule > 0.0 && edge.is_some() { rule } else { 0.0 };
+    let block = (
+        (w + grown).ceil().max(1.0) as u32,
+        (h + grown).ceil().max(1.0) as u32,
+        0,
+        0,
+    );
+    Ok((canvas, block))
 }
 
 #[cfg(test)]
@@ -1696,5 +1926,49 @@ mod tests {
         let plated = render(&fonts, &plated, 640, 360).expect("renders");
         assert!(plated.block_width > one.block_width);
         assert!(plated.block_height > one.block_height);
+    }
+
+
+    /// A shape is painted centred, at the size the style says, and a rule
+    /// is all stroke in the fill's colour when no outline colour is given.
+    #[test]
+    fn a_shape_is_painted_centred_at_its_size() {
+        let square = ShapeStyle {
+            figure: Figure::Square,
+            size: 0.5,
+            fill: "#ff0000".to_owned(),
+            stroke: String::new(),
+            stroke_width: 0.0,
+        };
+        let frame = render_shape_frame(&square, 400, 200).expect("paints");
+        assert_eq!((frame.block_width, frame.block_height), (100, 100));
+        let px = |x: u32, y: u32| {
+            let at = ((y * 400 + x) * 4) as usize;
+            (frame.rgba[at], frame.rgba[at + 3])
+        };
+        assert_eq!(px(200, 100), (255, 255), "the centre is red and solid");
+        assert_eq!(px(140, 100).1, 0, "ten pixels past the edge is clear");
+        assert_eq!(px(10, 10).1, 0, "and so is the corner");
+
+        let line = ShapeStyle {
+            figure: Figure::Line,
+            size: 0.5,
+            fill: "#00ff00".to_owned(),
+            stroke: String::new(),
+            stroke_width: 0.05,
+        };
+        let frame = render_shape_frame(&line, 400, 200).expect("paints");
+        assert_eq!((frame.block_width, frame.block_height), (100, 10));
+        let at = ((100 * 400 + 200) * 4) as usize;
+        assert_eq!(
+            (frame.rgba[at + 1], frame.rgba[at + 3]),
+            (255, 255),
+            "the rule runs through the centre in the fill's green"
+        );
+        let at = ((100 * 400 + 140) * 4) as usize;
+        assert_eq!(frame.rgba[at + 3], 0, "and stops at its length");
+
+        let png = render_shape(&square, 64, 64).expect("encodes");
+        assert!(png.png.starts_with(b"\x89PNG"));
     }
 }
