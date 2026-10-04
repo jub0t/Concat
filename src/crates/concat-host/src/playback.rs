@@ -696,6 +696,11 @@ fn decode_key(spec: &ClipSpec) -> String {
         eat(b"stream");
         eat(&stream.to_le_bytes());
     }
+    // Spans decoded before a late-starting stream was measured from its
+    // first sample were cut in the wrong place on MPEG-TS and MTS files;
+    // this retires every one of them (audit 2026-10-04, #3). The disk
+    // budget sweeps the orphans.
+    eat(b"origin");
     format!("{hash:016x}")
 }
 

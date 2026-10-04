@@ -83,10 +83,13 @@ impl Default for AudioOptions {
     }
 }
 
-/// The graph between the codec and the caller, as one string.
-fn audio_filter(options: &AudioOptions) -> String {
+/// The graph between the codec and the caller, as one string. `origin` is
+/// the stream's own start, in seconds: the decoded frames carry it on their
+/// timestamps, so a cut `start` seconds into the sound is made at
+/// `origin + start` (see `ffi::start_of`).
+fn audio_filter(options: &AudioOptions, origin: f64) -> String {
     let mut parts: Vec<String> = Vec::new();
-    match (options.start, options.duration) {
+    match (options.start.map(|start| start + origin), options.duration) {
         (Some(start), Some(duration)) => {
             parts.push(format!("atrim=start={start:.6}:duration={duration:.6}"));
             parts.push("asetpts=PTS-STARTPTS".to_owned());
@@ -127,6 +130,9 @@ pub struct AudioDecoder {
     input: format::context::Input,
     stream: usize,
     time_base: ffmpeg::Rational,
+    /// The stream's first timestamp, in seconds: where its source time 0
+    /// is, the way the picture and the export mix measure it.
+    origin: f64,
     decoder: decoder::Audio,
     options: AudioOptions,
     graph: Option<filter::Graph>,
@@ -164,6 +170,11 @@ impl AudioDecoder {
             })?;
         let stream = input.stream(stream_index).expect("just found");
         let time_base = stream.time_base();
+        // A file whose sound starts late - MPEG-TS at 1.4 s, the MTS files
+        // cameras write - is measured from its first sample, as the picture
+        // and the export mix are; without this the preview's sound and a
+        // transcript ran ahead of the picture (audit 2026-10-04, #3).
+        let origin = ffi::start_of(&stream).as_f64();
         let context = ffmpeg::codec::Context::from_parameters(stream.parameters())
             .map_err(|error| ffi::fail("codec parameters", path, error))?;
         let decoder = context
@@ -176,7 +187,7 @@ impl AudioDecoder {
         if let Some(start) = options.start
             && start > 0.0
         {
-            let target = (start * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
+            let target = ((start + origin) * f64::from(ffmpeg::sys::AV_TIME_BASE)) as i64;
             input
                 .seek(target, ..=target)
                 .map_err(|error| ffi::fail("seek", path, error))?;
@@ -187,6 +198,7 @@ impl AudioDecoder {
             input,
             stream: stream_index,
             time_base,
+            origin,
             decoder,
             options: options.clone(),
             graph: None,
@@ -236,7 +248,7 @@ impl AudioDecoder {
         graph
             .output("in", 0)
             .and_then(|parser| parser.input("out", 0))
-            .and_then(|parser| parser.parse(&audio_filter(&self.options)))
+            .and_then(|parser| parser.parse(&audio_filter(&self.options, self.origin)))
             .map_err(|error| ffi::fail("filter graph", &self.path, error))?;
         graph
             .validate()
@@ -399,7 +411,7 @@ mod tests {
             stream: None,
         };
         assert_eq!(
-            audio_filter(&options),
+            audio_filter(&options, 0.0),
             "atrim=start=1.500000:duration=2.000000,asetpts=PTS-STARTPTS,atempo=2.000000,\
              aresample=16000,aformat=sample_fmts=flt:sample_rates=16000:channel_layouts=mono"
         );
@@ -407,9 +419,52 @@ mod tests {
 
     #[test]
     fn a_whole_file_has_no_trim() {
-        let graph = audio_filter(&AudioOptions::default());
+        let graph = audio_filter(&AudioOptions::default(), 1.4);
         assert!(graph.starts_with("aresample=48000,"), "{graph}");
         assert!(graph.ends_with("channel_layouts=stereo"), "{graph}");
+    }
+
+    /// The trim is made in the stream's own time, its start put back on.
+    #[test]
+    fn a_late_stream_is_trimmed_from_its_first_sample() {
+        let options = AudioOptions {
+            start: Some(0.5),
+            ..AudioOptions::default()
+        };
+        assert!(audio_filter(&options, 1.4).starts_with("atrim=start=1.900000,"));
+    }
+
+    /// A window into a file whose sound starts at 1.4 s - silence, then a
+    /// tone a second in - comes back measured from the sound's first
+    /// sample: half a second in, the tone begins half a second later, as
+    /// the picture and the export mix would have it.
+    #[test]
+    fn a_window_into_a_late_stream_lands_on_source_time() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/tone-at-1s.ts");
+        let options = AudioOptions {
+            start: Some(0.5),
+            duration: Some(1.0),
+            rate: 8_000,
+            channels: 1,
+            format: SampleFormat::F32,
+            ..AudioOptions::default()
+        };
+        let mut decoder = AudioDecoder::open(path, &options).expect("opens");
+        let mut samples: Vec<f32> = Vec::new();
+        while let Some(frame) = decoder.next_frame().expect("decodes") {
+            let bytes = &frame.data(0)[..frame.samples() * 4];
+            samples.extend(
+                bytes
+                    .chunks_exact(4)
+                    .map(|b| f32::from_ne_bytes([b[0], b[1], b[2], b[3]])),
+            );
+        }
+        let loud = |range: std::ops::Range<usize>| {
+            samples[range].iter().map(|s| s.abs()).fold(0.0_f32, f32::max)
+        };
+        assert!(samples.len() >= 7_600, "a second of sound, got {}", samples.len());
+        assert!(loud(0..3_800) < 0.01, "silence before the tone");
+        assert!(loud(4_200..7_600) > 0.08, "the tone after half a second");
     }
 
     #[test]
