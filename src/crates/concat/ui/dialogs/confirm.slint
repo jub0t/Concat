@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Button, Modal } from "../primitives/modal.slint";
+
+/// One question before something is thrown away: what it is, what goes
+/// with it, and the word on the button that does it. Rust fills it and
+/// says what the answer means; the sheet knows nothing of tracks or clips.
+export struct ConfirmData {
+    open: bool,
+    title: string,
+    message: string,
+    /// The button that goes ahead, in the danger tone: "Delete".
+    action: string,
+}
+
+// The confirmation sheet. Return goes ahead and Escape backs out, so a
+// question asked from the keyboard is answered from it; a click on the
+// scrim or the close backs out too.
+export component ConfirmDialog inherits Modal {
+    in property <ConfirmData> data;
+
+    callback confirmed();
+    callback dismissed();
+
+    open: root.data.open;
+    title: root.data.title;
+    glyph: Glyph.trash;
+    surface-width: 400px;
+
+    closed => { root.dismissed(); }
+
+    // The keys go to the sheet the moment it shows, not to whatever had
+    // focus under it.
+    changed open => {
+        if (root.open) {
+            keys.focus();
+        }
+    }
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.dismissed();
+                return accept;
+            }
+            if (event.text == Key.Return) {
+                root.confirmed();
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 16px;
+
+            Text {
+                text: root.data.message;
+                color: Theme.fg;
+                font-size: Theme.fs;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                Button {
+                    label: I18n.t("common.cancel");
+                    clicked => { root.dismissed(); }
+                }
+
+                Button {
+                    danger: true;
+                    label: root.data.action;
+                    clicked => { root.confirmed(); }
+                }
+            }
+        }
+    }
+}

@@ -870,10 +870,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.set_lane_size(row, size);
     }));
     editor.on_track_removed(on_window!(|state, row: i32| {
-        let Some(id) = state.row_track(row).map(|track| track.id.clone()) else {
-            return;
-        };
-        state.apply(concat_project::Command::RemoveTrack { track_id: id });
+        state.ask_remove_track(row);
     }));
 
     // ── the gestures ──
@@ -1260,6 +1257,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     }));
     app.on_project_apply(on_window!(|state| {
         state.handle(Msg::Project(ProjectMsg::Apply));
+    }));
+
+    app.on_confirm_accepted(on_window!(|state| {
+        state.confirm_accepted();
+    }));
+    app.on_confirm_dismissed(on_window!(|state| {
+        state.confirm = None;
     }));
 
     app.on_relink_all(on_window!(|state| {

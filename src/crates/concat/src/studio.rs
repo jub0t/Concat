@@ -770,6 +770,8 @@ pub struct Studio {
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
     pub relink: crate::panes::relink::RelinkPane,
+    /// What the confirmation sheet is asking about, while it is up.
+    pub confirm: Option<Confirm>,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -1839,6 +1841,13 @@ fn retired_effects(project: &Project) -> Vec<String> {
     names
 }
 
+/// What the confirmation sheet can ask about.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Confirm {
+    /// Deleting a whole track, and every clip on it.
+    RemoveTrack { track_id: String },
+}
+
 /// Each rewritten link as "Old → New", the new one by its package's name.
 fn upgraded_effects(pairs: &[(String, String)]) -> Vec<String> {
     let catalogue = Catalogue::builtin();
@@ -1924,6 +1933,7 @@ impl Studio {
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
+            confirm: None,
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
@@ -2031,6 +2041,51 @@ impl Studio {
     /// The track a row index names. Rows count from the top of the panel and
     /// the model stores lanes bottom-most first - the compositing order - so
     /// this is the one place the two orders meet.
+    /// Asks before the track on lane `row` goes, empty or not: a track is
+    /// a whole lane of the cut, and the button that drops it sits beside
+    /// the ones that hide and mute it.
+    pub fn ask_remove_track(&mut self, row: i32) {
+        let Some(track_id) = self.row_track(row).map(|track| track.id.clone()) else {
+            return;
+        };
+        self.confirm = Some(Confirm::RemoveTrack { track_id });
+    }
+
+    /// The confirmation sheet's answer: go ahead with what it asked about.
+    pub fn confirm_accepted(&mut self) {
+        if let Some(Confirm::RemoveTrack { track_id }) = self.confirm.take() {
+            self.apply(Command::RemoveTrack { track_id });
+        }
+    }
+
+    /// The confirmation sheet, as Slint shows it.
+    fn confirm_data(&self) -> crate::ui::ConfirmData {
+        let Some(confirm) = &self.confirm else {
+            return crate::ui::ConfirmData::default();
+        };
+        match confirm {
+            Confirm::RemoveTrack { track_id } => {
+                let clips = self
+                    .timeline()
+                    .clips
+                    .iter()
+                    .filter(|clip| &clip.track_id == track_id)
+                    .count();
+                let message = match clips {
+                    0 => t("timeline.deleteTrackEmpty"),
+                    1 => t("timeline.deleteTrackOneClip"),
+                    many => tf("timeline.deleteTrackClips", &[&many]),
+                };
+                crate::ui::ConfirmData {
+                    open: true,
+                    title: t("timeline.deleteTrackTitle").into(),
+                    message: message.into(),
+                    action: t("common.delete").into(),
+                }
+            }
+        }
+    }
+
     pub fn row_track(&self, row: i32) -> Option<&Track> {
         let tracks = &self.timeline().tracks;
         let count = tracks.len() as i32;
@@ -8901,6 +8956,7 @@ impl Studio {
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
         app.set_relink(self.relink.data());
+        app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
         let transcribers = installed(&self.settings.transcribers);

@@ -25,6 +25,7 @@ import { ExportData, ExportDialog, ExportPhase } from "dialogs/export.slint";
 import { ModelData, SettingsData, SettingsDialog, SystemFactData } from "dialogs/settings.slint";
 import { ProjectDialog, ProjectSheetData } from "dialogs/project.slint";
 import { RelinkDialog, RelinkData, MissingMediaItem } from "dialogs/relink.slint";
+import { ConfirmData, ConfirmDialog } from "dialogs/confirm.slint";
 import { CaptionsDialog, CaptionsSheetData } from "dialogs/captions.slint";
 import { SpeechDialog, SpeechSheetData } from "dialogs/speech.slint";
 import { DockDivider, DockSide, SeatBox } from "dock.slint";
@@ -796,6 +797,22 @@ export component App inherits Window {
         data: root.relink;
         relink-all => { root.relink-all(); }
         dismiss => { root.relink-dismiss(); }
+    }
+
+    // A question before something is thrown away, over the workspace;
+    // nothing asks it while another sheet is up.
+    in property <ConfirmData> confirm;
+    callback confirm-accepted();
+    callback confirm-dismissed();
+
+    ConfirmDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: root.confirm;
+        confirmed => { root.confirm-accepted(); }
+        dismissed => { root.confirm-dismissed(); }
     }
 
 
