@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Déverrouiller la piste",
   "trackHeader.unmuteLane": "Rétablir le son de la piste",
   "tray.addTrack": "Ajouter une piste",
+  "tray.addTrackBottom": "Ajouter en bas",
+  "tray.addTrackTop": "Ajouter en haut",
   "tray.deleteSelected": "Supprimer la sélection",
   "tray.freezeMirrorRotateSelected": "Figer, refléter ou pivoter le clip sélectionné",
   "tray.generateCaptions": "Générer les sous-titres",

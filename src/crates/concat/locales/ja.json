@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "トラックのロックを解除",
   "trackHeader.unmuteLane": "トラックのミュートを解除",
   "tray.addTrack": "トラックを追加",
+  "tray.addTrackBottom": "一番下に追加",
+  "tray.addTrackTop": "一番上に追加",
   "tray.deleteSelected": "選択項目を削除",
   "tray.freezeMirrorRotateSelected": "選択したクリップをフリーズ、ミラー、回転",
   "tray.generateCaptions": "字幕を生成",

@@ -401,7 +401,7 @@ export component Seat inherits Rectangle {
             delete-selected => { Editor.delete-selected(); }
             captions => { Editor.captions(); }
             speak => { Editor.speak(); }
-            add-track => { Editor.add-track(); }
+            add-track(bottom) => { Editor.add-track(bottom); }
             zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }
             lanes-resized(width) => { Editor.lanes-resized(width); }

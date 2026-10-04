@@ -3458,7 +3458,7 @@ mod tests {
                 item,
             },
             Command::Batch {
-                commands: vec![Command::AddTrack],
+                commands: vec![Command::AddTrack { bottom: false }],
             },
             Command::AddClip {
                 media_id: "m1".to_owned(),
@@ -3529,7 +3529,7 @@ mod tests {
             Command::ReattachAudio {
                 clip_id: "c1".to_owned(),
             },
-            Command::AddTrack,
+            Command::AddTrack { bottom: false },
             Command::RemoveTrack {
                 track_id: "T1".to_owned(),
             },
@@ -3894,6 +3894,34 @@ mod tests {
         assert_eq!(
             reopened.drop_retired_fields(),
             crate::RetiredFields::default()
+        );
+    }
+
+    /// A lane can be added on top of the stack or under it; the command's
+    /// old shape, with no `bottom`, still means the top.
+    #[test]
+    fn a_track_goes_on_top_or_underneath() {
+        let mut editor = Editor::new();
+        let before = editor.project().active().tracks.len();
+        let top = editor
+            .apply(Command::AddTrack { bottom: false })
+            .expect("adds")
+            .created_id
+            .expect("an id");
+        let under = editor
+            .apply(Command::AddTrack { bottom: true })
+            .expect("adds")
+            .created_id
+            .expect("an id");
+        let tracks = &editor.project().active().tracks;
+        assert_eq!(tracks.len(), before + 2);
+        assert_eq!(tracks.last().map(|t| t.id.as_str()), Some(top.as_str()));
+        assert_eq!(tracks.first().map(|t| t.id.as_str()), Some(under.as_str()));
+        let old: Command = serde_json::from_str(r#"{"op":"addTrack"}"#).expect("parses");
+        assert_eq!(old, Command::AddTrack { bottom: false });
+        assert_eq!(
+            serde_json::to_string(&Command::AddTrack { bottom: false }).expect("writes"),
+            r#"{"op":"addTrack"}"#
         );
     }
 }

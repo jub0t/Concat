@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Unlock lane",
   "trackHeader.unmuteLane": "Unmute lane",
   "tray.addTrack": "Add track",
+  "tray.addTrackBottom": "Add to bottom",
+  "tray.addTrackTop": "Add to top",
   "tray.deleteSelected": "Delete selected",
   "tray.freezeMirrorRotateSelected": "Freeze, mirror or rotate the selected clip",
   "tray.generateCaptions": "Generate Captions",

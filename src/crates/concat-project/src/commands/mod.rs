@@ -613,9 +613,14 @@ pub enum Command {
         /// The video clip - or its detached sound.
         clip_id: String,
     },
-    /// Appends a lane named after the highest "Track N" in use, minting a
-    /// "t" id.
-    AddTrack,
+    /// Adds a lane, minting a "t" id: on top of the stack, or with
+    /// `bottom` under every other lane. Absent is the top, which is what
+    /// the command did before it could do anything else.
+    AddTrack {
+        /// Under every other lane rather than on top of them.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        bottom: bool,
+    },
     /// Deletes a lane and every clip on it. Errs at the floor of one track.
     RemoveTrack {
         /// The lane to delete.
@@ -1076,7 +1081,7 @@ pub fn apply(
         command @ (Command::DetachAudio { .. } | Command::ReattachAudio { .. }) => {
             audio::apply(project, mint, command)
         }
-        command @ (Command::AddTrack
+        command @ (Command::AddTrack { .. }
         | Command::RemoveTrack { .. }
         | Command::SetTrackFlag { .. }) => tracks::apply(project, mint, command),
         command @ (Command::AddTimeline

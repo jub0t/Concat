@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Otključaj traku",
   "trackHeader.unmuteLane": "Uključi zvuk trake",
   "tray.addTrack": "Dodaj traku",
+  "tray.addTrackBottom": "Dodaj na dno",
+  "tray.addTrackTop": "Dodaj na vrh",
   "tray.deleteSelected": "Obriši odabrano",
   "tray.freezeMirrorRotateSelected": "Zamrzni, zrcali ili zakreni odabrani klip",
   "tray.generateCaptions": "Generiraj titlove",

@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Разблокировать дорожку",
   "trackHeader.unmuteLane": "Включить звук дорожки",
   "tray.addTrack": "Добавить дорожку",
+  "tray.addTrackBottom": "Добавить снизу",
+  "tray.addTrackTop": "Добавить сверху",
   "tray.deleteSelected": "Удалить выбранное",
   "tray.freezeMirrorRotateSelected": "Стоп-кадр, отражение или поворот выбранного клипа",
   "tray.generateCaptions": "Создать субтитры",

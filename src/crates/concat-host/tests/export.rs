@@ -1583,7 +1583,7 @@ fn every_edit_still_exports() {
     exported.expect_quiet(19.0);
 
     let sound_track = studio
-        .apply(Command::AddTrack)
+        .apply(Command::AddTrack { bottom: false })
         .expect("a new track has an id");
     studio.apply(Command::AddClip {
         media_id: aac,

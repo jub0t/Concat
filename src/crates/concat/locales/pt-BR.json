@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Desbloquear faixa",
   "trackHeader.unmuteLane": "Ativar o som da faixa",
   "tray.addTrack": "Adicionar faixa",
+  "tray.addTrackBottom": "Adicionar embaixo",
+  "tray.addTrackTop": "Adicionar no topo",
   "tray.deleteSelected": "Excluir seleção",
   "tray.freezeMirrorRotateSelected": "Congelar, espelhar ou girar o clipe selecionado",
   "tray.generateCaptions": "Gerar legendas",

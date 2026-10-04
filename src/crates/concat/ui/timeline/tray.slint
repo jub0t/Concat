@@ -3,7 +3,7 @@
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
-import { Glyph } from "../icons.slint";
+import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { TimelineTool } from "model.slint";
 
@@ -56,6 +56,137 @@ component TrayButton inherits IconButton {
     idle: Theme.fg;
 }
 
+// One row of the add menu and its submenu: a word, a mark at the end.
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <Glyph> trailing: Glyph.none;
+    out property <bool> hovered: touch.has-hover;
+
+    callback clicked();
+
+    height: 26px;
+    border-radius: Theme.r-sm;
+    background: touch.has-hover ? Theme.field-hover : Colors.transparent;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 6px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+        }
+
+        if root.trailing != Glyph.none: VerticalLayout {
+            alignment: center;
+            Icon { glyph: root.trailing; size: 12px; tint: Theme.fg-muted; }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The plus at the head of the tray: a menu whose first row adds a lane,
+// and whose submenu, opened by hovering that row, says where - on top of
+// the stack or under it. A click on the row itself adds on top, as the
+// plus always did.
+component AddMenu inherits Rectangle {
+    callback add-track(bottom: bool);
+
+    width: 26px;
+    height: 26px;
+
+    property <length> row-h: 26px;
+
+    TrayButton {
+        glyph: Glyph.plus;
+        label: I18n.t("tray.addTrack");
+        icon-size: 14px;
+        clicked => { list.show(); }
+    }
+
+    list := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: 168px;
+        height: root.row-h + 8px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                add := MenuItem {
+                    text: I18n.t("tray.addTrack");
+                    trailing: Glyph.chevron-right;
+                    clicked => {
+                        sub.close();
+                        list.close();
+                        root.add-track(false);
+                    }
+                    changed hovered => {
+                        if (self.hovered) {
+                            sub.show();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Beside the row it belongs to, overlapping the menu's edge by a
+        // hair so the pointer crosses no gap on its way in.
+        sub := PopupWindow {
+            x: parent.width - 4px;
+            y: 0;
+            width: 156px;
+            height: 2 * root.row-h + 8px;
+            close-policy: close-on-click-outside;
+
+            Rectangle {
+                background: Theme.raised;
+                border-width: 1px;
+                border-color: Theme.line-strong;
+                border-radius: Theme.r;
+
+                VerticalLayout {
+                    padding: 4px;
+                    alignment: start;
+
+                    MenuItem {
+                        text: I18n.t("tray.addTrackTop");
+                        clicked => {
+                            sub.close();
+                            list.close();
+                            root.add-track(false);
+                        }
+                    }
+                    MenuItem {
+                        text: I18n.t("tray.addTrackBottom");
+                        clicked => {
+                            sub.close();
+                            list.close();
+                            root.add-track(true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component TimelineTray inherits Rectangle {
     in property <TimelineTool> tool: TimelineTool.select;
     in property <bool> snap: true;
@@ -102,7 +233,8 @@ export component TimelineTray inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
-    callback add-track();
+    /// Add a lane: on top of the stack, or with `bottom` under it.
+    callback add-track(bottom: bool);
     callback fit();
     callback zoom(factor: float);
 
@@ -124,11 +256,8 @@ export component TimelineTray inherits Rectangle {
         padding-bottom: 7px;
         spacing: 4px;
 
-        TrayButton {
-            glyph: Glyph.plus;
-            label: I18n.t("tray.addTrack");
-            icon-size: 14px;
-            clicked => { root.add-track(); }
+        AddMenu {
+            add-track(bottom) => { root.add-track(bottom); }
         }
 
         Divider { }

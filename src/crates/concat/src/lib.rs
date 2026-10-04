@@ -818,8 +818,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_hover_ended(on_lanes!(|state| {
         state.handle(Msg::Timeline(TimelineMsg::HoverEnded));
     }));
-    editor.on_add_track(on_window!(|state| {
-        state.apply(concat_project::Command::AddTrack);
+    editor.on_add_track(on_window!(|state, bottom: bool| {
+        state.apply(concat_project::Command::AddTrack { bottom });
     }));
     editor.on_delete_selected(on_window!(|state| {
         state.delete_selected();

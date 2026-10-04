@@ -75,7 +75,7 @@ export component TimelinePane inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
-    callback add-track();
+    callback add-track(bottom: bool);
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
     callback lanes-resized(width: float);
@@ -346,7 +346,7 @@ export component TimelinePane inherits Rectangle {
             delete-selected => { root.delete-selected(); }
             captions => { root.captions(); }
             speak => { root.speak(); }
-            add-track => { root.add-track(); }
+            add-track(bottom) => { root.add-track(bottom); }
             fit => { root.zoom-to-fit(lanes.width); }
             // No anchor from a button: a wheel zooms about the pointer and a
             // press zooms about the view, since a press has no pointer to

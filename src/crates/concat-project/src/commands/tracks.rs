@@ -15,15 +15,22 @@ pub(super) fn apply(
     command: Command,
 ) -> Result<Outcome, CommandError> {
     match command {
-        Command::AddTrack => {
+        Command::AddTrack { bottom } => {
             let timeline = project.active_mut();
             let id = mint.next("t");
-            timeline.tracks.push(Track {
+            let track = Track {
                 id: id.clone(),
                 visible: true,
                 muted: false,
                 extra: Default::default(),
-            });
+            };
+            // The stack is stored bottom first: the last track is the lane
+            // drawn on top.
+            if bottom {
+                timeline.tracks.insert(0, track);
+            } else {
+                timeline.tracks.push(track);
+            }
             Ok(Outcome {
                 created_id: Some(id),
                 applied: true,

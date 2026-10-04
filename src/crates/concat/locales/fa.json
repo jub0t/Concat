@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "باز کردن قفل لاین",
   "trackHeader.unmuteLane": "فعال‌کردن صدا کردن لاین",
   "tray.addTrack": "افزودن ترک",
+  "tray.addTrackBottom": "افزودن در پایین",
+  "tray.addTrackTop": "افزودن در بالا",
   "tray.deleteSelected": "حذف موارد انتخاب‌شده",
   "tray.freezeMirrorRotateSelected": "فریز، آینه یا چرخش کلیپ انتخاب‌شده",
   "tray.generateCaptions": "ساخت زیرنویس‌ها",

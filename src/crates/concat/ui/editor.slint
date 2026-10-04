@@ -353,7 +353,7 @@ export global Editor {
     /// of the clip's own menu - see `clip-context`.
     callback captions();
     callback speak();
-    callback add-track();
+    callback add-track(bottom: bool);
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
     /// The lanes are this wide on screen now, in logical pixels: what

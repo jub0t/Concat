@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Sblocca traccia",
   "trackHeader.unmuteLane": "Riattiva il suono della traccia",
   "tray.addTrack": "Aggiungi traccia",
+  "tray.addTrackBottom": "Aggiungi in basso",
+  "tray.addTrackTop": "Aggiungi in alto",
   "tray.deleteSelected": "Elimina la selezione",
   "tray.freezeMirrorRotateSelected": "Blocca, specchia o ruota la clip selezionata",
   "tray.generateCaptions": "Genera sottotitoli",

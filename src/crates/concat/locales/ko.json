@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "트랙 잠금 해제",
   "trackHeader.unmuteLane": "트랙 음소거 해제",
   "tray.addTrack": "트랙 추가",
+  "tray.addTrackBottom": "맨 아래에 추가",
+  "tray.addTrackTop": "맨 위에 추가",
   "tray.deleteSelected": "선택 항목 삭제",
   "tray.freezeMirrorRotateSelected": "선택한 클립을 정지, 반전 또는 회전",
   "tray.generateCaptions": "자막 생성",

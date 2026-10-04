@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Spur entsperren",
   "trackHeader.unmuteLane": "Spur laut schalten",
   "tray.addTrack": "Spur hinzufügen",
+  "tray.addTrackBottom": "Unten hinzufügen",
+  "tray.addTrackTop": "Oben hinzufügen",
   "tray.deleteSelected": "Auswahl löschen",
   "tray.freezeMirrorRotateSelected": "Ausgewählten Clip einfrieren, spiegeln oder drehen",
   "tray.generateCaptions": "Untertitel erzeugen",

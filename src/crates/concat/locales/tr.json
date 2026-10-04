@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "Parçanın kilidini aç",
   "trackHeader.unmuteLane": "Parçanın sesini aç",
   "tray.addTrack": "Parça ekle",
+  "tray.addTrackBottom": "En alta ekle",
+  "tray.addTrackTop": "En üste ekle",
   "tray.deleteSelected": "Seçilenleri sil",
   "tray.freezeMirrorRotateSelected": "Seçili klibi dondur, aynala veya döndür",
   "tray.generateCaptions": "Altyazı oluştur",

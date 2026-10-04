@@ -337,7 +337,9 @@ mod tests {
             (1920, 1080),
             "the manifest's frame seeds the first timeline"
         );
-        let view = session.apply(Command::AddTrack).expect("adds a track");
+        let view = session
+            .apply(Command::AddTrack { bottom: false })
+            .expect("adds a track");
         assert!(view.can_undo);
         session
             .set_video(VideoSettings {

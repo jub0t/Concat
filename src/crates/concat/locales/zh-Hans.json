@@ -994,6 +994,8 @@
   "trackHeader.unlockLane": "解锁轨道",
   "trackHeader.unmuteLane": "取消轨道静音",
   "tray.addTrack": "添加轨道",
+  "tray.addTrackBottom": "添加到底部",
+  "tray.addTrackTop": "添加到顶部",
   "tray.deleteSelected": "删除所选",
   "tray.freezeMirrorRotateSelected": "定格、镜像或旋转所选片段",
   "tray.generateCaptions": "生成字幕",
