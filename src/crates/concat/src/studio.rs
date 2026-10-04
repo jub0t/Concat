@@ -7577,7 +7577,10 @@ impl Studio {
                 .rev()
                 .map(|lane| {
                     let height = self.lane_height(lane);
+                    let first = timeline.clips.iter().find(|clip| clip.track_id == lane.id);
                     let row = TrackData {
+                        typed: first.is_some(),
+                        kind: first.map_or(ClipKind::Video, |clip| kind_of(clip)),
                         id: lane.id.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,

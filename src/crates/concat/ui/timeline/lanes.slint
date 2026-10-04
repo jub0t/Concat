@@ -1253,7 +1253,9 @@ export component Lanes inherits Rectangle {
     property <float> first-tick: root.tick > 0
         ? Math.ceil(root.scroll-left / root.tick) * root.tick : 0;
 
-    background: Theme.lane;
+    // The ground off the stack, a shade apart from the first lane's, so the
+    // lane ends where it is drawn to.
+    background: Theme.panel;
     clip: true;
 
     // Ancestor of everything below, so a wheel the clips do not handle bubbles
@@ -1319,6 +1321,13 @@ export component Lanes inherits Rectangle {
             background: Math.mod(row, 2) == 0 ? Theme.lane : Theme.lane-alt;
             visible: self.y + track.height > root.ruler-height && self.y < root.height;
 
+            if row == 0: Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
             Rectangle {
                 x: 0;
                 y: parent.height - 1px;
