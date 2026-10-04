@@ -7,6 +7,147 @@ for the tag being released, and falls back to the commit subjects for a
 release that has none. Releases before 0.2.5 have their notes on the
 releases page only: https://github.com/jub0t/Concat/releases
 
+## 0.2.6 — 2026-10-04
+
+A release for the hands. The timeline gains a razor, a scrollbar and a
+volume line you can drag; titles can be styled many at a time; the
+library has a Stickers page of shapes; the export sheet shows the picture
+and follows the timeline's own size and rate. Windows and Linux get
+menus that work from the keyboard, shortcuts labelled for their own keys,
+hardware encoders, and on Windows a GPU for Chatterbox. An export now
+survives its GPU device dying under it.
+
+### Editing
+
+- B turns on the razor: a click on a clip cuts it on the frame under the
+  pointer, and a hairline shows where. Ctrl+B (⌘B on a Mac) still splits
+  every clip under the playhead (#241).
+- Every sound on the lanes wears a volume line at the clip's level. Drag
+  it to set the volume; it snaps at 100%, and a drag is one undo step.
+- A scrollbar under the lanes shows which part of the cut is in view and
+  drags the view along it (#237).
+- Select two clips that meet and click a transition to put it on the cut
+  between them, in either order.
+- A Stickers page in the library, with a Shapes shelf: square, circle,
+  triangle, parallelogram, trapezoid, line and arrow, placed with a click
+  or dragged onto a lane.
+- Deleting a track asks first, whether it holds clips or not, and says how
+  many go with it.
+- One Delete in the menus. Whether it closes the gap is the tray's
+  magnetic switch; Shift+Delete still ripples once.
+- Dragging a keyed position or scale on the monitor keeps the key instead
+  of springing back on release (#228).
+- Ctrl-click adds to the selection on the monitor, as on the lanes; Alt
+  drag pans it.
+
+### Text
+
+- Select several titles and the Text tab styles them all at once: font,
+  size, colours, stroke, shadow, background, box and alignment, one undo
+  step. Position, turn and scale move them together and keep their
+  spacing (#224).
+- "Use for new titles" keeps a title's look for every new title and every
+  generated caption, so a CJK face set once is used from then on.
+- A title with no box wraps at the frame's edge instead of running off it.
+- A title's plate has round ends when it is pill-shaped.
+
+### Monitor and playback
+
+- Save Video Frame As, from a right-click on the picture: the frame at
+  the playhead at full output size, as a PNG, placed in the bin (#238).
+- Full quality plays the files themselves; Half and Quarter play the
+  proxies.
+- On MPEG-TS and the MTS files cameras write, the preview's sound no
+  longer runs up to 1.4 s ahead of the picture, and captions land where
+  the words are. Exports were already right.
+
+### Transitions and effects
+
+- A dissolve into a clip with nothing before its in-point holds the
+  clip's first frame over the cut instead of starting the clip early and
+  running off its end into black (#236).
+- Spins, Swirl, Iris and the shape and clock wipes keep their shapes on a
+  wide frame. RGB Split and Glitch keep a title's transparency. Glows and
+  halation light past white. A hue turn of nothing changes nothing, so
+  Clean, Fair and Peach read truer.
+- A package of your own can no longer claim to replace a built-in that is
+  still installed; one that tries is refused at load with the reason. A
+  retired effect that opens as its stand-in keeps its keyframes, and the
+  project says which effects were replaced.
+- A package whose shader hangs at install no longer takes the monitor's
+  picture with it, and the install trial now runs every knob at its least
+  and its most as well as at its default.
+
+### Export
+
+- The resolution is the timeline's own, and the other sizes on the ladder
+  read as this project would come out at each: 1080 × 1920 on a 9:16 edit
+  (#109).
+- The frame rate starts at the timeline's own. A 25 fps or 23.976 cut
+  used to export at 30 unless you changed it.
+- The sheet shows the picture with a strip that scrubs the playhead, and
+  its bitrate and colour groups open outright on a wide window.
+- An export whose GPU device dies goes on, on a fresh device or then the
+  software adapter, and the frame that came back black is drawn again
+  (#223).
+- NVENC, Quick Sync and AMF encode HEVC and AV1 on Windows and Linux,
+  ahead of the software encoders, when the machine has the chip.
+
+### Windows and Linux
+
+- F10, Alt+F, Alt+E and Alt+V open the menus, and the arrows, Return and
+  Escape work in them.
+- Shortcut labels name each platform's keys: Ctrl+Shift+Z, not ⇧⌘Z.
+  Shortcuts no longer stop working with Caps Lock on. Ctrl+Y redoes, and
+  Ctrl+O and Ctrl+W open and close a project.
+- File ends in Exit (Alt+F4) on Windows and Quit (Ctrl+Q) on Linux.
+- Chatterbox runs on the GPU on Windows through DirectML, falling back to
+  the CPU.
+- On Windows: the window and the .exe carry Concat's icon, Settings ›
+  About no longer flashes a console, the setup speaks eight more
+  languages, an .msi install updates from the .msi, and releases also go
+  to the Microsoft Store.
+- On Linux: files dropped on the window import on native Wayland
+  (#158, #196); the frameless window resizes from its edges; the running
+  window belongs to its desktop entry in docks; the AppImage is named
+  Concat-<version>-<arch>.AppImage.
+- New projects default to the desktop the system names, including one
+  OneDrive has moved or one named in the session's language.
+- The x86_64 builds launch on CPUs without AVX2, such as Ivy Bridge
+  (#193).
+
+### Phone
+
+- A sheet closes on a swipe down (#221).
+- The Android app stays upright, and its launch screen drops Open project
+  and Choose location, which could not work there (#222).
+
+### Settings and logs
+
+- A Log level row on Settings' first page, from errors only to everything.
+  It applies to Concat's own lines; the libraries underneath stay at
+  warnings.
+- The log is a trail of what you did - sheets opened, edits by kind,
+  imports, exports and their results - without quoting anything typed.
+  A burst of zooms or keystrokes is one line and a count.
+- When a GPU device dies, the log says why, on which frame, and what the
+  export went on with.
+- Lime is the default accent; the blue is off the list. A colour already
+  picked is kept.
+- Settings has one door, the gear on the title strip (#206).
+
+### Changes to note
+
+- On Windows, models, caches and logs move from %APPDATA% to
+  %LOCALAPPDATA% on first launch, so a roaming profile no longer carries
+  gigabytes of models. Settings, recents, templates and looks stay where
+  they were.
+- Projects with shapes do not open correctly in 0.2.5 or earlier.
+- A project naming a retired effect that a newer one stands in for says
+  so as it opens; saving keeps the change.
+- The playback sound cache is rebuilt once, as projects are opened.
+- The README is in twenty more languages (#38).
+
 ## 0.2.5 — 2026-09-28
 
 The release where the picture pipeline moves onto the GPU end to end.
