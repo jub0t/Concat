@@ -813,6 +813,18 @@ pub struct SpeedPoint {
     pub speed: f64,
 }
 
+/// A clip's Enhance, once it has a copy: see [`Clip::enhanced`].
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Enhanced {
+    /// The bin item the clip was cut from.
+    pub original: String,
+    /// The bin item holding the enhanced copy.
+    pub copy: String,
+    /// Whether the clip shows the copy.
+    pub on: bool,
+}
+
 /// A transition on the cut into a clip.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1333,6 +1345,13 @@ pub struct Clip {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
     pub transition_in: Option<Transition>,
+    /// The clip's Enhance: the media it was cut from and the enhanced copy
+    /// of it, and which of the two it shows. Absent until Enhance has made
+    /// a copy; switching it off shows the original again without running
+    /// the model a second time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "wire::maybe")]
+    pub enhanced: Option<Enhanced>,
     /// The overlay, when this is a text clip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(deserialize_with = "wire::maybe")]
@@ -1434,6 +1453,7 @@ impl Clip {
             muted: None,
             detached_from: None,
             transition_in: None,
+            enhanced: None,
             text: None,
             shape: None,
             extra: Map::new(),

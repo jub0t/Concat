@@ -1193,6 +1193,13 @@ export component VideoPanel inherits VerticalLayout {
         cutout := SectionHeader {
             title: I18n.t("clipInspector.removeBackground");
             collapsible: true;
+            // On is whichever removal is set; going on picks the custom one
+            // when strokes are waiting for it, the automatic one otherwise.
+            switchable: true;
+            on: root.removal != 0;
+            switched(on) => {
+                root.remove-by(!on ? 0 : root.selected.cutout-strokes > 0 ? 2 : 1);
+            }
             summary: root.removal == 0 ? I18n.t("common.off")
                 : root.removal == 1 ? I18n.t("clipInspector.autoRemoval")
                 : root.removal == 2 ? I18n.t("clipInspector.customRemoval") : I18n.t("clipInspector.chromaKey");
@@ -1458,6 +1465,40 @@ export component VideoPanel inherits VerticalLayout {
     }
 }
 
+/// Enhance: the picture restored and enlarged by the model, into a copy the
+/// clip then shows. The header's tick starts it the first time; once there
+/// is a copy, it switches between the copy and the original without running
+/// the model again.
+export component EnhancePanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+
+    callback enhance-set(on: bool);
+
+    Section {
+        first: true;
+        SectionHeader {
+            title: I18n.t("common.enhance");
+            switchable: true;
+            on: root.selected.enhance-on;
+            switched(on) => { root.enhance-set(on); }
+        }
+
+        SectionBody {
+            if root.selected.enhance-progress >= 0: EnhanceRow {
+                progress: root.selected.enhance-progress;
+                fetching: root.selected.enhance-fetching;
+            }
+            if root.selected.enhance-progress < 0: Note {
+                text: root.selected.enhance-linked
+                    ? (root.selected.enhance-on
+                        ? I18n.t("clipInspector.enhanceShowingCopy")
+                        : I18n.t("clipInspector.enhanceShowingOriginal"))
+                    : I18n.t("clipInspector.enhanceExplain");
+            }
+        }
+    }
+}
+
 /// A transition picked on its own on the lanes: what it is, the clip it
 /// rides into, its length, and the way to take it off. Its own panel and
 /// not a section of the clip's, since it belongs to the cut between two
@@ -1582,10 +1623,6 @@ export component AudioPanel inherits VerticalLayout {
                 ? root.audio-tracks[root.selected.audio-track] : "";
         }
         if source.open: SectionBody {
-        if root.selected.enhance-progress >= 0: EnhanceRow {
-            progress: root.selected.enhance-progress;
-            fetching: root.selected.enhance-fetching;
-        }
         if root.audio-tracks.length > 1: Row {
             label: I18n.t("clipInspector.audioTrack");
             Select {

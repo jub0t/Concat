@@ -9,7 +9,7 @@ import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { EffectData } from "../demo/effects-panel.slint";
 import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
-    CatalogueEntryData, ColourKnobData, FilterPanel, PresetStack, SpeedPanel,
+    CatalogueEntryData, ColourKnobData, EnhancePanel, FilterPanel, PresetStack, SpeedPanel,
     TransitionPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import {
@@ -203,6 +203,8 @@ export component ConfigPane inherits Rectangle {
     callback cutout-painting(on: bool);
     callback cutout-subject(index: int);
     callback cutout-clear();
+    /// The Enhance switch: start it, or show the copy or the original.
+    callback clip-enhance-set(on: bool);
     callback transition-remove();
     callback transition-duration-set(seconds: float);
 
@@ -269,8 +271,8 @@ export component ConfigPane inherits Rectangle {
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
             ? (root.is-shape ? ["Basic"]
-                : root.is-image ? ["Basic", "Adjust"]
-                : ["Basic", "Speed", "Adjust"])
+                : root.is-image ? ["Basic", "Enhance", "Adjust"]
+                : ["Basic", "Enhance", "Speed", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
         : root.heading == "Effects" ? ["Effects"]
@@ -279,8 +281,8 @@ export component ConfigPane inherits Rectangle {
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
             ? (root.is-shape ? [I18n.t("configPane.basic")]
-                : root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.adjust")]
-                : [I18n.t("configPane.basic"), I18n.t("common.speed"), I18n.t("common.adjust")])
+                : root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")]
+                : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.speed"), I18n.t("common.adjust")])
         : root.heading == "Audio"
             ? (root.is-audio ? [I18n.t("configPane.sound"), I18n.t("common.speed")] : [I18n.t("configPane.sound")])
         : root.heading == "Effects" ? [I18n.t("common.effects")]
@@ -319,7 +321,8 @@ export component ConfigPane inherits Rectangle {
         if (root.jump-tab == "Video") { root.tab = 0; }
         else if (root.jump-tab == "Audio") { root.tab = root.is-audio ? 0 : 1; }
         else if (root.jump-tab == "Effects") { root.tab = root.tabs.length - 1; }
-        root.pick-section(0);
+        // Enhance sits second in the Video tab for a video and a still alike.
+        root.pick-section(root.jump-section == "Enhance" ? 1 : 0);
     }
     changed jump-token => { root.jump(); }
     init => { root.jump(); }
@@ -623,6 +626,11 @@ export component ConfigPane inherits Rectangle {
                     cutout-painting(on) => { root.cutout-painting(on); }
                     cutout-subject(index) => { root.cutout-subject(index); }
                     cutout-clear => { root.cutout-clear(); }
+                }
+
+                if root.showing == "Enhance": EnhancePanel {
+                    selected: root.selected;
+                    enhance-set(on) => { root.clip-enhance-set(on); }
                 }
 
                 if root.showing == "Speed": SpeedPanel {

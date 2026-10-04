@@ -1162,6 +1162,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_cutout_clear(on_window!(|state| {
         state.cutout_clear();
     }));
+    editor.on_clip_enhance_set(on_window!(|state, on: bool| {
+        state.clip_enhance_set(on);
+    }));
     editor.on_transition_remove(on_window!(|state| {
         state.remove_transition();
     }));

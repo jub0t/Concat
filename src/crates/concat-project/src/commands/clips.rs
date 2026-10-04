@@ -358,6 +358,7 @@ pub(super) fn apply(
             clip_id,
             item,
             source_start,
+            enhanced,
         } => {
             if project.active().clip(&clip_id).is_none() {
                 return Ok(Outcome::default());
@@ -396,15 +397,54 @@ pub(super) fn apply(
                 return Ok(Outcome::default());
             };
             let clip = timeline.clip_at_mut(index);
+            let link = if enhanced {
+                // The original is the one Enhance started from, kept through
+                // a second run on a clip already showing a copy.
+                let original = clip
+                    .enhanced
+                    .as_ref()
+                    .map(|link| link.original.clone())
+                    .unwrap_or_else(|| clip.media_id.clone());
+                Some(Enhanced {
+                    original,
+                    copy: media_id.clone(),
+                    on: true,
+                })
+            } else {
+                None
+            };
             // Bitwise so no assignment is short-circuited away.
             let applied = assign(&mut clip.media_id, media_id.clone())
-                | source_start.is_some_and(|start| assign(&mut clip.source_start, start.max(0.0)));
+                | source_start.is_some_and(|start| assign(&mut clip.source_start, start.max(0.0)))
+                | assign(&mut clip.enhanced, link);
             if !applied {
                 return Ok(Outcome::default());
             }
             Ok(Outcome {
                 created_id: Some(media_id),
                 applied: true,
+            })
+        }
+
+        Command::SetClipEnhanced { clip_id, on } => {
+            let timeline = project.active_mut();
+            let Some(index) = timeline.clips.iter().position(|clip| clip.id == clip_id) else {
+                return Ok(Outcome::default());
+            };
+            let Some(link) = timeline.clips[index].enhanced.clone() else {
+                return Ok(Outcome::default());
+            };
+            let clip = timeline.clip_at_mut(index);
+            let media = if on {
+                link.copy.clone()
+            } else {
+                link.original.clone()
+            };
+            let applied = assign(&mut clip.media_id, media)
+                | assign(&mut clip.enhanced, Some(Enhanced { on, ..link }));
+            Ok(Outcome {
+                created_id: None,
+                applied,
             })
         }
 

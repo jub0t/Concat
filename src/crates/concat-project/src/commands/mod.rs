@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
-    CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, ShapeStyle,
-    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    CutoutMode, Enhanced, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project,
+    ShapeStyle, SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
@@ -518,6 +518,20 @@ pub enum Command {
         /// keeps the clip's.
         #[serde(default)]
         source_start: Option<f64>,
+        /// The copy is the clip's Enhance: the clip keeps the media it
+        /// showed before as the original, so Enhance can be switched off
+        /// (see [`Command::SetClipEnhanced`]). Any other copy - a reversed
+        /// one - ends the clip's Enhance, which was of the media now gone.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        enhanced: bool,
+    },
+    /// Shows a clip's enhanced copy, or its original again. A no-op for a
+    /// clip Enhance has not made a copy for.
+    SetClipEnhanced {
+        /// The clip.
+        clip_id: String,
+        /// The copy when true, the original when false.
+        on: bool,
     },
     /// A freeze frame at `time`: splits `clip_id`, inserts a still of
     /// `duration` on the same track, and ripples later clips on that track
@@ -1064,6 +1078,7 @@ pub fn apply(
         | Command::SplitClips { .. }
         | Command::FreezeFrame { .. }
         | Command::ReplaceClipMedia { .. }
+        | Command::SetClipEnhanced { .. }
         | Command::MergeClips { .. }
         | Command::RemoveClips { .. }) => clips::apply(project, mint, command),
         command @ (Command::UpdateClip { .. }

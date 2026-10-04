@@ -5761,6 +5761,29 @@ impl Studio {
         );
     }
 
+    /// The Enhance switch in the inspector, for the one selected clip. A
+    /// clip with a copy shows it or its original; one without starts
+    /// Enhance on the switch going on, and stops a run on it going off.
+    pub fn clip_enhance_set(&mut self, on: bool) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(clip) = self.clip(&id) else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        if clip.enhanced.is_some() {
+            self.apply(Command::SetClipEnhanced { clip_id: id, on });
+            self.request_preview();
+        } else if on {
+            self.enhance_clip(&id);
+        } else if self.enhance_jobs.contains_key(&id) {
+            self.host.enhancers.cancel();
+        }
+    }
+
     pub fn enhance_clip(&mut self, id: &str) {
         if !self.enhance_jobs.is_empty() || self.host.enhancers.is_busy() {
             self.notify(&t("studio.enhanceAlreadyWorkOne"), true);
@@ -5958,6 +5981,7 @@ impl Studio {
             clip_id: id.to_owned(),
             item,
             source_start: Some(0.0),
+            enhanced: false,
         });
         self.request_preview();
         self.notify(&t("studio.reversedClipNowShows"), false);
@@ -5986,6 +6010,7 @@ impl Studio {
             clip_id: id.to_owned(),
             item,
             source_start: None,
+            enhanced: true,
         });
         self.request_preview();
         self.notify(&t("studio.enhancedClipNowShows"), false);
@@ -8711,6 +8736,9 @@ impl Studio {
                 .get(&clip.id)
                 .is_some_and(|(fetching, _)| *fetching),
             reverse_progress: self.reverse_jobs.get(&clip.id).copied().unwrap_or(-1.0),
+            enhance_linked: clip.enhanced.is_some(),
+            enhance_on: clip.enhanced.as_ref().is_some_and(|link| link.on)
+                || self.enhance_jobs.contains_key(&clip.id),
         }
     }
 
@@ -9210,17 +9238,15 @@ impl Studio {
                     && !locked
                     && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
             ),
-            // The picture restored and enlarged by the model, as a copy
-            // the clip then shows. Greyed while one is being written,
-            // since the job runs one at a time.
+            // The picture restored and enlarged by the model: the row opens
+            // the clip's Enhance in the inspector, whose switch runs it.
             action(
                 "enhance",
                 t("common.enhance"),
                 Glyph::Sparkle,
                 "",
                 !locked
-                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image)
-                    && self.enhance_jobs.is_empty(),
+                    && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
             ),
             rule(),
         ];
@@ -9885,7 +9911,14 @@ impl Studio {
                 self.split_at(at, true);
             }
             "freeze" => self.freeze_at_playhead(),
-            "enhance" => self.enhance_clip(id),
+            // The menu opens the clip's Enhance in the inspector, where its
+            // switch starts it and later turns it off and on again.
+            "enhance" => {
+                self.flush_commit();
+                self.selection = vec![id.to_owned()];
+                self.transition_selected = None;
+                self.inspector_jump = (self.inspector_jump.0 + 1, "Video", "Enhance");
+            }
             "export-audio" => self.export_clip_audio(id),
             "detach" => {
                 self.apply(Command::DetachAudio {

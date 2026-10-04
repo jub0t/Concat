@@ -752,6 +752,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 item: copy,
                 source_start: Some(0.0),
+                enhanced: false,
             })
             .expect("replaces");
         assert!(outcome.applied);
@@ -784,6 +785,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 item: copy.clone(),
                 source_start: None,
+                enhanced: false,
             })
             .expect("replaces");
         assert!(outcome.applied);
@@ -808,6 +810,7 @@ mod tests {
                 clip_id: clip_id.clone(),
                 item: copy.clone(),
                 source_start: None,
+                enhanced: false,
             })
             .expect("no-op");
         assert!(!again.applied);
@@ -822,6 +825,7 @@ mod tests {
                     ..copy
                 },
                 source_start: None,
+                enhanced: false,
             })
             .expect("no-op");
         assert!(!nobody.applied);
@@ -854,6 +858,7 @@ mod tests {
                     clip_id: clip_id.clone(),
                     item: bad,
                     source_start: None,
+                    enhanced: false,
                 })
                 .is_err()
         );
@@ -3923,5 +3928,106 @@ mod tests {
             serde_json::to_string(&Command::AddTrack { bottom: false }).expect("writes"),
             r#"{"op":"addTrack"}"#
         );
+    }
+
+    /// Enhance's copy keeps the clip's original beside it: switching it
+    /// off shows the original, on shows the copy, each one undo step, and
+    /// any other replacement - a reversed copy - ends the link.
+    #[test]
+    fn an_enhanced_clip_switches_between_copy_and_original() {
+        use crate::commands::NewMedia;
+        use crate::model::MediaKind;
+        let item = |path: &str| NewMedia {
+            path: path.into(),
+            name: path.into(),
+            duration: Some(10.0),
+            kind: MediaKind::Video,
+            width: Some(64),
+            height: Some(64),
+            frame_rate: Some(30.0),
+            frame_rate_fraction: Some("30/1".into()),
+            video_codec: None,
+            audio_codec: None,
+            has_audio: false,
+            audio_tracks: Vec::new(),
+            origin: None,
+            color_space: Default::default(),
+        };
+        let mut editor = Editor::new();
+        editor
+            .apply(Command::AddMedia {
+                item: item("/a.mp4"),
+            })
+            .expect("imports");
+        let original = editor.project().media[0].id.clone();
+        let track = editor.project().active().tracks[0].id.clone();
+        let clip = editor
+            .apply(Command::AddClip {
+                media_id: original.clone(),
+                track_id: track,
+                start: 0.0,
+                ripple: false,
+            })
+            .expect("places")
+            .created_id
+            .expect("a clip");
+        let copy = editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip.clone(),
+                item: item("/a-enhanced.mp4"),
+                source_start: None,
+                enhanced: true,
+            })
+            .expect("replaces")
+            .created_id
+            .expect("the copy");
+        let shown = |editor: &Editor| {
+            editor
+                .project()
+                .active()
+                .clip(&clip)
+                .cloned()
+                .expect("there")
+        };
+        let link = shown(&editor).enhanced.expect("linked");
+        assert_eq!(
+            (link.original.as_str(), link.copy.as_str(), link.on),
+            (original.as_str(), copy.as_str(), true)
+        );
+
+        editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: false,
+            })
+            .expect("off");
+        assert_eq!(shown(&editor).media_id, original);
+        assert!(!shown(&editor).enhanced.expect("kept").on);
+        editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: true,
+            })
+            .expect("on");
+        assert_eq!(shown(&editor).media_id, copy);
+        editor.undo();
+        assert_eq!(shown(&editor).media_id, original, "one undo step");
+
+        editor
+            .apply(Command::ReplaceClipMedia {
+                clip_id: clip.clone(),
+                item: item("/a-reversed.mp4"),
+                source_start: None,
+                enhanced: false,
+            })
+            .expect("replaces");
+        assert_eq!(shown(&editor).enhanced, None);
+        let off = editor
+            .apply(Command::SetClipEnhanced {
+                clip_id: clip.clone(),
+                on: false,
+            })
+            .expect("no-op");
+        assert!(!off.applied);
     }
 }

@@ -341,6 +341,11 @@ export struct SelectedClipData {
     // than frames being restored
     enhance-progress: float,
     enhance-fetching: bool,
+    /// Enhance has made a copy for this clip, which it shows when
+    /// `enhance-on`; the switch flips between it and the original
+    enhance-linked: bool,
+    /// The Enhance switch: the copy shown, or a run under way
+    enhance-on: bool,
     /// Reverse writing this clip's backwards copy: -1 when it is not,
     /// else how far along
     reverse-progress: float,
