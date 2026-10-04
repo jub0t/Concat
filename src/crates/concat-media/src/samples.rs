@@ -460,9 +460,16 @@ mod tests {
             );
         }
         let loud = |range: std::ops::Range<usize>| {
-            samples[range].iter().map(|s| s.abs()).fold(0.0_f32, f32::max)
+            samples[range]
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0_f32, f32::max)
         };
-        assert!(samples.len() >= 7_600, "a second of sound, got {}", samples.len());
+        assert!(
+            samples.len() >= 7_600,
+            "a second of sound, got {}",
+            samples.len()
+        );
         assert!(loud(0..3_800) < 0.01, "silence before the tone");
         assert!(loud(4_200..7_600) > 0.08, "the tone after half a second");
     }

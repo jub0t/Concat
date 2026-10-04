@@ -768,7 +768,11 @@ impl WgpuCompositor {
             backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let choices: &[bool] = if software_only { &[true] } else { &[false, true] };
+        let choices: &[bool] = if software_only {
+            &[true]
+        } else {
+            &[false, true]
+        };
         choices.iter().copied().find_map(|software| {
             let adapter =
                 pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -783,7 +787,9 @@ impl WgpuCompositor {
             // The reason, when it dies, in the log: see the window's device.
             let name = adapter.get_info().name;
             device.set_device_lost_callback(move |reason, message| {
-                log::error!("the compositor's GPU device on {name} was lost ({reason:?}): {message}");
+                log::error!(
+                    "the compositor's GPU device on {name} was lost ({reason:?}): {message}"
+                );
             });
             Some(Self::with_device(device, queue))
         })

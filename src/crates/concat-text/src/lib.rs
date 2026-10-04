@@ -436,7 +436,8 @@ impl Fonts {
         let mut last = 0;
         for (at, ch) in text.char_indices() {
             let covers = cache.covers.get(&ch).map_or(&[][..], Vec::as_slice);
-            let lends = |ids: &[fontdb::ID], index: usize| index != 0 && covers.contains(&ids[index]);
+            let lends =
+                |ids: &[fontdb::ID], index: usize| index != 0 && covers.contains(&ids[index]);
             let index = if joins(ch) && at > 0 {
                 // A mark, a joiner, a skin tone: with what it modifies.
                 last
@@ -717,7 +718,10 @@ impl Setter<'_> {
                             x: pen + position.x_offset as f32 * scale,
                             y: -(position.y_offset as f32 * scale),
                         };
-                        face.outline_glyph(ttf_parser::GlyphId(info.glyph_id as u16), &mut outliner);
+                        face.outline_glyph(
+                            ttf_parser::GlyphId(info.glyph_id as u16),
+                            &mut outliner,
+                        );
                     }
                     let advance = position.x_advance as f32 * scale;
                     spans.push((piece.start + info.cluster as usize, pen, pen + advance));
@@ -1284,7 +1288,9 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, B
     let mut path = PathBuilder::new();
     let closed = match style.figure {
         Figure::Square => {
-            path.push_rect(Rect::from_ltrb(left, top, right, bottom).ok_or(Error::Canvas(width, height))?);
+            path.push_rect(
+                Rect::from_ltrb(left, top, right, bottom).ok_or(Error::Canvas(width, height))?,
+            );
             true
         }
         Figure::Circle => {
@@ -1364,7 +1370,9 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, B
                 None,
             );
         }
-        if rule > 0.0 && let Some(edge) = edge {
+        if rule > 0.0
+            && let Some(edge) = edge
+        {
             canvas.stroke_path(
                 &path,
                 &stroke(edge),
@@ -1373,7 +1381,9 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, B
                 None,
             );
         }
-    } else if rule > 0.0 && let Some(ink) = edge.or(fill) {
+    } else if rule > 0.0
+        && let Some(ink) = edge.or(fill)
+    {
         // A line or an arrow is all stroke, in the outline's colour when
         // one is set, else the fill's.
         canvas.stroke_path(
@@ -1387,7 +1397,11 @@ fn paint_shape(style: &ShapeStyle, width: u32, height: u32) -> Result<(Pixmap, B
 
     // The box the monitor outlines: the figure, plus the outline that
     // straddles its edge.
-    let grown = if closed && rule > 0.0 && edge.is_some() { rule } else { 0.0 };
+    let grown = if closed && rule > 0.0 && edge.is_some() {
+        rule
+    } else {
+        0.0
+    };
     let block = (
         (w + grown).ceil().max(1.0) as u32,
         (h + grown).ceil().max(1.0) as u32,
@@ -1927,7 +1941,6 @@ mod tests {
         assert!(plated.block_width > one.block_width);
         assert!(plated.block_height > one.block_height);
     }
-
 
     /// A shape is painted centred, at the size the style says, and a rule
     /// is all stroke in the fill's colour when no outline colour is given.

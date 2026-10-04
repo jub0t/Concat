@@ -2083,9 +2083,9 @@ impl Studio {
                         // A title is its name strip alone; a layer has no
                         // picture at all; a shape's name says what it is.
                         // None needs a body's height.
-                        model::ClipKind::Text
-                        | model::ClipKind::Layer
-                        | model::ClipKind::Shape => LANE_SMALL,
+                        model::ClipKind::Text | model::ClipKind::Layer | model::ClipKind::Shape => {
+                            LANE_SMALL
+                        }
                     })
                     .fold(0.0_f32, f32::max);
                 if tallest > 0.0 { tallest } else { LANE_MEDIUM }
@@ -3219,7 +3219,13 @@ impl Studio {
         let created = if plan.kind == ClipKind::Text {
             self.add_title(None, start, f64::from(plan.duration), &plan.media)
         } else if plan.kind == ClipKind::Shape {
-            self.add_shape(None, start, f64::from(plan.duration), &plan.media, &plan.label)
+            self.add_shape(
+                None,
+                start,
+                f64::from(plan.duration),
+                &plan.media,
+                &plan.label,
+            )
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
                 track_id: None,
@@ -4733,9 +4739,7 @@ impl Studio {
             let (w, h) = match shape.kind {
                 model::ShapeKind::Square | model::ShapeKind::Circle => (side, side),
                 model::ShapeKind::Triangle => (side, side * 0.866),
-                model::ShapeKind::Parallelogram | model::ShapeKind::Trapezoid => {
-                    (side, side * 0.6)
-                }
+                model::ShapeKind::Parallelogram | model::ShapeKind::Trapezoid => (side, side * 0.6),
                 model::ShapeKind::Line => (side, shape.stroke_width * height),
                 model::ShapeKind::Arrow => (side, (shape.stroke_width * 4.0).max(0.18) * side),
             };
@@ -6685,7 +6689,10 @@ impl Studio {
                     .map(|session| upgraded_effects(session.upgraded()))
                     .unwrap_or_default();
                 if !upgraded.is_empty() {
-                    self.notify(&tf("studio.upgradedEffects", &[&upgraded.join(", ")]), false);
+                    self.notify(
+                        &tf("studio.upgradedEffects", &[&upgraded.join(", ")]),
+                        false,
+                    );
                 }
 
                 // Log missing media to file for debugging

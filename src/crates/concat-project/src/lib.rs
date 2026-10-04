@@ -3789,7 +3789,6 @@ mod tests {
         assert_eq!(missing.len(), 0);
     }
 
-
     #[test]
     fn shape_clips_survive_without_media_and_carry_their_figure() {
         use crate::model::{ClipKind, ShapeKind, ShapeStyle};
@@ -3846,6 +3845,9 @@ mod tests {
         let clip = editor.project().active().clip(&wild).expect("exists");
         let shape = clip.shape.as_ref().expect("figure");
         assert_eq!((shape.size, shape.stroke_width), (2.0, 0.0));
-        assert_eq!(clip.name, "square", "an empty name falls back to the figure's");
+        assert_eq!(
+            clip.name, "square",
+            "an empty name falls back to the figure's"
+        );
     }
 }

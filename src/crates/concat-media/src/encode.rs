@@ -454,7 +454,13 @@ fn takes_ten_bits(encoder_name: &str) -> bool {
 /// bitrate alone: the export sheet's rule for its size estimate - 16 Mb/s
 /// for H.264 at 1080p30 and CRF 16, halving about every five steps -
 /// scaled by the pixels, the rate and the codec's size factor.
-fn implied_kbps(codec: VideoCodec, crf: u8, width: u32, height: u32, rate: ffmpeg::Rational) -> u32 {
+fn implied_kbps(
+    codec: VideoCodec,
+    crf: u8,
+    width: u32,
+    height: u32,
+    rate: ffmpeg::Rational,
+) -> u32 {
     let fps = f64::from(rate.numerator()) / f64::from(rate.denominator().max(1));
     let pixels = f64::from(width) * f64::from(height) / (1920.0 * 1080.0);
     let mbps = 16.0
@@ -1531,11 +1537,23 @@ mod tests {
     #[test]
     fn a_bitrate_steered_encoder_gets_what_the_crf_comes_to() {
         let thirty = ffmpeg::Rational::new(30, 1);
-        assert_eq!(implied_kbps(VideoCodec::H264, 16, 1920, 1080, thirty), 16_000);
-        assert_eq!(implied_kbps(VideoCodec::H264, 26, 1920, 1080, thirty), 4_000);
-        assert_eq!(implied_kbps(VideoCodec::Hevc, 16, 1920, 1080, thirty), 9_600);
+        assert_eq!(
+            implied_kbps(VideoCodec::H264, 16, 1920, 1080, thirty),
+            16_000
+        );
+        assert_eq!(
+            implied_kbps(VideoCodec::H264, 26, 1920, 1080, thirty),
+            4_000
+        );
+        assert_eq!(
+            implied_kbps(VideoCodec::Hevc, 16, 1920, 1080, thirty),
+            9_600
+        );
         let sixty = ffmpeg::Rational::new(60, 1);
-        assert_eq!(implied_kbps(VideoCodec::H264, 16, 3840, 2160, sixty), 128_000);
+        assert_eq!(
+            implied_kbps(VideoCodec::H264, 16, 3840, 2160, sixty),
+            128_000
+        );
         // A thumbnail-sized file still gets a rate a chip will take.
         assert_eq!(implied_kbps(VideoCodec::H264, 26, 64, 64, thirty), 500);
     }
@@ -1546,8 +1564,14 @@ mod tests {
     fn each_encoder_family_takes_its_own_pictures() {
         assert_eq!(Family::of("libx264").pixel_format(false), Pixel::YUV420P);
         assert_eq!(Family::of("libx265").pixel_format(true), Pixel::YUV420P10LE);
-        assert_eq!(Family::of("hevc_videotoolbox").pixel_format(true), Pixel::P010LE);
-        assert_eq!(Family::of("h264_mediacodec").pixel_format(false), Pixel::NV12);
+        assert_eq!(
+            Family::of("hevc_videotoolbox").pixel_format(true),
+            Pixel::P010LE
+        );
+        assert_eq!(
+            Family::of("h264_mediacodec").pixel_format(false),
+            Pixel::NV12
+        );
         assert!(Family::of("h264_mediacodec").steered_by_bitrate());
         assert!(!Family::of("libx264").steered_by_bitrate());
         assert!(takes_ten_bits("libx265") && takes_ten_bits("hevc_videotoolbox"));

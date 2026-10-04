@@ -158,7 +158,8 @@ pub(super) fn apply(
             } else {
                 name
             };
-            let mut clip = Clip::blank(id.clone(), track_id, ClipKind::Shape, name, start, duration);
+            let mut clip =
+                Clip::blank(id.clone(), track_id, ClipKind::Shape, name, start, duration);
             clip.shape = Some(style);
             timeline.clips.push(Arc::new(clip));
             Ok(Outcome {

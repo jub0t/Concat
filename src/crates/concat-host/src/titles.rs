@@ -667,7 +667,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
     }
 
-
     /// A shape clip rejoins the flattened list as a still at its clip's
     /// stretch - that is how a square becomes a rectangle - with the
     /// figure's box reported and no words to reveal.

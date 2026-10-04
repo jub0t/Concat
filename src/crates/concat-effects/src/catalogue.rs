@@ -588,10 +588,12 @@ impl Package {
                 Value::Float(value) => value,
                 Value::Text(_) => return None,
             };
-            Some(match self.manifest.params.iter().find(|param| param.key == knob) {
-                Some(param) => value.clamp(param.min, param.max),
-                None => value,
-            })
+            Some(
+                match self.manifest.params.iter().find(|param| param.key == knob) {
+                    Some(param) => value.clamp(param.min, param.max),
+                    None => value,
+                },
+            )
         };
         let mut params = BTreeMap::new();
         let mut keys = BTreeMap::new();
@@ -1044,10 +1046,16 @@ impl Catalogue {
         names.extend(package.manifest.effect.aliases.iter().cloned());
         for name in &names {
             if self.by_id.contains_key(name) {
-                return Err(refuse(format!("`{name}` is already taken by another package")));
+                return Err(refuse(format!(
+                    "`{name}` is already taken by another package"
+                )));
             }
             if let Some(other) = self.packages.iter().find(|other| {
-                other.manifest.replaces.iter().any(|replaced| replaced.names(name))
+                other
+                    .manifest
+                    .replaces
+                    .iter()
+                    .any(|replaced| replaced.names(name))
             }) {
                 return Err(refuse(format!(
                     "`{name}` is a retired package `{}` stands in for",
@@ -1057,7 +1065,11 @@ impl Catalogue {
         }
         for replaced in &package.manifest.replaces {
             let bare = replaced.id.strip_prefix("concat.").unwrap_or(&replaced.id);
-            if let Some(&index) = self.by_id.get(&replaced.id).or_else(|| self.by_id.get(bare)) {
+            if let Some(&index) = self
+                .by_id
+                .get(&replaced.id)
+                .or_else(|| self.by_id.get(bare))
+            {
                 return Err(refuse(format!(
                     "it replaces `{}`, which is installed as `{}`",
                     replaced.id,
@@ -1065,9 +1077,11 @@ impl Catalogue {
                 )));
             }
             if let Some(other) = self.packages.iter().find(|other| {
-                other.manifest.replaces.iter().any(|theirs| {
-                    theirs.names(&replaced.id) || replaced.names(&theirs.id)
-                })
+                other
+                    .manifest
+                    .replaces
+                    .iter()
+                    .any(|theirs| theirs.names(&replaced.id) || replaced.names(&theirs.id))
             }) {
                 return Err(refuse(format!(
                     "`{}` already stands in for `{}`",
@@ -1333,7 +1347,10 @@ mod tests {
                 .add(stand_in(id, replaces).expect("loads"))
                 .expect_err(replaces)
                 .to_string();
-            assert!(error.contains(replaces) || error.contains("stands in"), "{error}");
+            assert!(
+                error.contains(replaces) || error.contains("stands in"),
+                "{error}"
+            );
         }
         let error = catalogue
             .add(stand_in("concat.box-blur", "nothing.at-all").expect("loads"))
@@ -1362,15 +1379,34 @@ mod tests {
         link.keys.insert(
             "level".into(),
             vec![
-                ParamKey { at: 0.0, value: 0.0, ease: KeyEase::LINEAR },
-                ParamKey { at: 0.5, value: 50.0, ease: KeyEase::LINEAR },
-                ParamKey { at: 1.0, value: 500.0, ease: KeyEase::LINEAR },
+                ParamKey {
+                    at: 0.0,
+                    value: 0.0,
+                    ease: KeyEase::LINEAR,
+                },
+                ParamKey {
+                    at: 0.5,
+                    value: 50.0,
+                    ease: KeyEase::LINEAR,
+                },
+                ParamKey {
+                    at: 1.0,
+                    value: 500.0,
+                    ease: KeyEase::LINEAR,
+                },
             ],
         );
         let upgraded = package.replacing(&link).expect("replaces it");
         assert_eq!(upgraded.params["stops"], 0.5);
-        let run: Vec<(f64, f64)> = upgraded.keys["stops"].iter().map(|k| (k.at, k.value)).collect();
-        assert_eq!(run, vec![(0.0, 0.0), (0.5, 1.0), (1.0, 2.0)], "held to the new most");
+        let run: Vec<(f64, f64)> = upgraded.keys["stops"]
+            .iter()
+            .map(|k| (k.at, k.value))
+            .collect();
+        assert_eq!(
+            run,
+            vec![(0.0, 0.0), (0.5, 1.0), (1.0, 2.0)],
+            "held to the new most"
+        );
     }
 
     /// A chain reads the frame and its own table and no other file.

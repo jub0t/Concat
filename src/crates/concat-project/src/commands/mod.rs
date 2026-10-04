@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{
     AppliedFilter, AudioTrack, Clip, ClipKind, ColorRange, ColorSpace, Crop, CustomFont, Cutout,
-    CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, SpeedPoint,
-    ShapeStyle, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
+    CutoutMode, KeyEase, KeyProperty, MediaItem, MediaKind, MediaOrigin, Project, ShapeStyle,
+    SpeedPoint, Stroke, TextStyle, Timeline, Track, Transition, VideoSettings,
 };
 
 mod audio;
