@@ -22,7 +22,8 @@ use crate::ui::{TimelineTool, TrackSize};
 
 /// The closest the timeline zooms: half a millisecond a pixel.
 pub const ZOOM_IN_LIMIT: f32 = 0.000_5;
-/// The farthest: a second and a half a pixel.
+/// The farthest for a short cut: a second and a half a pixel. A longer one
+/// may go farther; see `TimelinePane::zoom_out_limit`.
 pub const ZOOM_OUT_LIMIT: f32 = 1.5;
 /// One step of the menu's zoom, as a factor.
 const ZOOM_STEP: f32 = 1.4;
@@ -169,25 +170,26 @@ impl TimelinePane {
                 } else {
                     anchor
                 };
-                self.zoom(factor, anchor);
+                let limit = self.zoom_out_limit(studio.duration());
+                self.zoom(factor, anchor, limit);
                 self.recentre(studio.playhead);
             }
             TimelineMsg::ZoomToFit(width) => {
-                let span = studio.duration().max(1.0) * 1.05;
                 if width > 1.0 {
-                    self.seconds_per_pixel = (span / width).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
-                    self.scroll_left = 0.0;
+                    self.fit(studio.duration(), width);
                     self.recentre(studio.playhead);
                 }
             }
             TimelineMsg::ZoomIn => {
                 let anchor = self.default_anchor(studio);
-                self.zoom(1.0 / ZOOM_STEP, anchor);
+                let limit = self.zoom_out_limit(studio.duration());
+                self.zoom(1.0 / ZOOM_STEP, anchor, limit);
                 self.recentre(studio.playhead);
             }
             TimelineMsg::ZoomOut => {
                 let anchor = self.default_anchor(studio);
-                self.zoom(ZOOM_STEP, anchor);
+                let limit = self.zoom_out_limit(studio.duration());
+                self.zoom(ZOOM_STEP, anchor, limit);
                 self.recentre(studio.playhead);
             }
             TimelineMsg::Resized(width) => {
@@ -237,14 +239,34 @@ impl TimelinePane {
         }
     }
 
+    /// The farthest the view may zoom out on a cut `duration` seconds long:
+    /// far enough that the whole cut takes about half the lanes, and never
+    /// less than `ZOOM_OUT_LIMIT`. A fixed limit left a long cut that no
+    /// zoom, the fit button included, could get onto one screen.
+    fn zoom_out_limit(&self, duration: f32) -> f32 {
+        if self.width > 0.0 {
+            ZOOM_OUT_LIMIT.max(2.0 * duration.max(1.0) * 1.05 / self.width)
+        } else {
+            ZOOM_OUT_LIMIT
+        }
+    }
+
+    /// The whole cut across lanes `width` pixels wide, from its start.
+    fn fit(&mut self, duration: f32, width: f32) {
+        let span = duration.max(1.0) * 1.05;
+        let limit = ZOOM_OUT_LIMIT.max(2.0 * span / width);
+        self.seconds_per_pixel = (span / width).clamp(ZOOM_IN_LIMIT, limit);
+        self.scroll_left = 0.0;
+    }
+
     /// Zooms by a factor about an instant, so the instant under the pointer
     /// stays under it; an anchor below zero holds the left edge instead.
-    fn zoom(&mut self, factor: f32, anchor: f32) {
+    fn zoom(&mut self, factor: f32, anchor: f32, out_limit: f32) {
         let before = self.seconds_per_pixel;
         if !(factor.is_finite() && factor > 0.0) {
             return;
         }
-        let after = (before * factor).clamp(ZOOM_IN_LIMIT, ZOOM_OUT_LIMIT);
+        let after = (before * factor).clamp(ZOOM_IN_LIMIT, out_limit.max(ZOOM_IN_LIMIT));
         self.seconds_per_pixel = after;
         if anchor >= 0.0 {
             let left = anchor - (anchor - self.scroll_left) * (after / before);
@@ -326,7 +348,7 @@ mod tests {
         );
         assert!(((3.0 - view.scroll_left) / view.seconds_per_pixel - 200.0).abs() < 1e-3);
         // A zoom about the playhead keeps it where it is: the middle.
-        view.zoom(0.5, 3.0);
+        view.zoom(0.5, 3.0, ZOOM_OUT_LIMIT);
         assert!(((3.0 - view.scroll_left) / view.seconds_per_pixel - 200.0).abs() < 1e-3);
         // A scroll may take the view off its playhead, before zero included.
         view.scrolled(-4.0);
@@ -343,21 +365,47 @@ mod tests {
     fn zoom_keeps_the_anchor_under_the_pointer_and_stays_in_range() {
         let mut view = pane(1000.0, 10.0, 0.1);
         // The instant 20 s is at pixel 100; zooming in about it keeps it there.
-        view.zoom(0.5, 20.0);
+        view.zoom(0.5, 20.0, ZOOM_OUT_LIMIT);
         assert!((view.seconds_per_pixel - 0.05).abs() < 1e-6);
         assert!((view.scroll_left - 15.0).abs() < 1e-6);
         assert!(((20.0 - view.scroll_left) / view.seconds_per_pixel - 100.0).abs() < 1e-3);
         // The limits hold, and a scroll never goes negative.
-        view.zoom(1e9, -1.0);
+        view.zoom(1e9, -1.0, ZOOM_OUT_LIMIT);
         assert_eq!(view.seconds_per_pixel, ZOOM_OUT_LIMIT);
-        view.zoom(1e-9, 0.0);
+        view.zoom(1e-9, 0.0, ZOOM_OUT_LIMIT);
         assert_eq!(view.seconds_per_pixel, ZOOM_IN_LIMIT);
         assert!(view.scroll_left >= 0.0);
         // Nonsense factors change nothing.
         let before = view.seconds_per_pixel;
-        view.zoom(f32::NAN, 0.0);
-        view.zoom(0.0, 0.0);
-        view.zoom(-2.0, 0.0);
+        view.zoom(f32::NAN, 0.0, ZOOM_OUT_LIMIT);
+        view.zoom(0.0, 0.0, ZOOM_OUT_LIMIT);
+        view.zoom(-2.0, 0.0, ZOOM_OUT_LIMIT);
         assert_eq!(view.seconds_per_pixel, before);
+    }
+
+    #[test]
+    fn a_long_cut_can_be_zoomed_out_until_it_all_fits_on_screen() {
+        let mut view = pane(1000.0, 0.0, 0.05);
+        let two_hours = 7200.0;
+        let limit = view.zoom_out_limit(two_hours);
+        assert!(limit > ZOOM_OUT_LIMIT, "{limit}");
+        view.zoom(1e9, -1.0, limit);
+        assert!(
+            view.width * view.seconds_per_pixel >= two_hours,
+            "all the way out shows the whole cut"
+        );
+        view.fit(two_hours, view.width);
+        assert!(
+            view.width * view.seconds_per_pixel >= two_hours,
+            "and so does fit"
+        );
+        assert_eq!(view.scroll_left, 0.0);
+    }
+
+    #[test]
+    fn a_short_cut_keeps_the_fixed_zoom_out_limit() {
+        let view = pane(1000.0, 0.0, 0.05);
+        assert_eq!(view.zoom_out_limit(60.0), ZOOM_OUT_LIMIT);
+        assert_eq!(pane(0.0, 0.0, 0.05).zoom_out_limit(7200.0), ZOOM_OUT_LIMIT);
     }
 }
