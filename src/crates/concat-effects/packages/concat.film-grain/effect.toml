@@ -6,6 +6,7 @@ name = "Film Grain"
 version = 2
 kind = "effect"
 category = "Stylize"
+shelves = ["Retro & Film"]
 order = 41
 intensity = "amount"
 aliases = ["film-grain"]

@@ -5,6 +5,7 @@ id = "concat.bloom-pulse"
 name = "Bloom Pulse"
 kind = "effect"
 category = "Light"
+shelves = ["Featured"]
 order = 72
 version = 2
 intensity = "amount"

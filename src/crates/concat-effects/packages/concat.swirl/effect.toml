@@ -5,6 +5,7 @@ id = "concat.swirl"
 name = "Swirl"
 kind = "transition"
 category = "Spin"
+shelves = ["Distortion & Glitch"]
 order = 7
 description = "The cut twists both pictures around its centre and untwists into the next shot."
 

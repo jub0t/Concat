@@ -5,6 +5,7 @@ id = "concat.glow"
 name = "Glow"
 kind = "effect"
 category = "Stylize"
+shelves = ["Featured", "Light & Shadow"]
 order = 42
 version = 2
 intensity = "amount"

@@ -150,6 +150,12 @@ pub struct Meta {
     /// The shelf the card sits on, e.g. "Blur". Free text.
     #[serde(default)]
     pub category: String,
+    /// Other shelves the card also shows on, by name: a glow that belongs
+    /// under "Light & Shadow" as well as its own. Free text, matched as
+    /// the category is; the package says where it goes, the app names no
+    /// package.
+    #[serde(default)]
+    pub shelves: Vec<String>,
     /// The package's own version, bumped when its output changes.
     #[serde(default = "one")]
     pub version: u32,

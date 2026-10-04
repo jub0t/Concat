@@ -5,6 +5,7 @@ id = "concat.neon"
 name = "Neon"
 kind = "filter"
 category = "Stylised"
+shelves = ["Party & Club"]
 order = 51
 intensity = "glow"
 description = "Magenta in the shadows, cyan in the highlights, hard contrast, colour turned up, and the lights themselves blooming. Night streets and signage."

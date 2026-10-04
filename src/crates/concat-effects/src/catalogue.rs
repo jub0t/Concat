@@ -423,59 +423,40 @@ impl Package {
 
     /// Whether this package belongs to or matches a category filter.
     pub fn matches_category(&self, category: &str) -> bool {
-        let cat = self.category();
         if category.is_empty() || category.eq_ignore_ascii_case("All") {
             return true;
         }
-        if cat.eq_ignore_ascii_case(category) {
+        // The package's own shelf, and any it names besides.
+        let named = |shelf: &str| {
+            self.category().eq_ignore_ascii_case(shelf)
+                || self
+                    .manifest
+                    .effect
+                    .shelves
+                    .iter()
+                    .any(|own| own.eq_ignore_ascii_case(shelf))
+        };
+        if named(category) {
             return true;
         }
-        match category {
+        // The library's combined shelves, each the categories it gathers:
+        // names, never package ids, so a package of anyone's lands on one
+        // by what it says about itself (audit 2026-10-04, `matches_category`).
+        let gathers: &[&str] = match category {
             "Featured" => {
-                cat.eq_ignore_ascii_case("Featured")
-                    || self.manifest.effect.order < 10
-                    || matches!(self.id(), "concat.glow" | "concat.bloom-pulse")
+                if self.manifest.effect.order < 10 {
+                    return true;
+                }
+                &[]
             }
-            "Retro & Film" => {
-                cat.eq_ignore_ascii_case("Retro")
-                    || cat.eq_ignore_ascii_case("Film")
-                    || cat.eq_ignore_ascii_case("Cinematic")
-                    || cat.eq_ignore_ascii_case("Retro & Film")
-                    || matches!(
-                        self.id(),
-                        "concat.vhs" | "concat.film-grain" | "concat.falling-dust"
-                    )
-            }
-            "Optical & Lens" => {
-                cat.eq_ignore_ascii_case("Optical")
-                    || cat.eq_ignore_ascii_case("Lens")
-                    || cat.eq_ignore_ascii_case("Blur")
-                    || cat.eq_ignore_ascii_case("Optical & Lens")
-                    || matches!(
-                        self.id(),
-                        "concat.fisheye" | "concat.gaussian-blur" | "concat.motion-blur"
-                    )
-            }
-            "Distortion & Glitch" => {
-                cat.eq_ignore_ascii_case("Distort")
-                    || cat.eq_ignore_ascii_case("Glitch")
-                    || cat.eq_ignore_ascii_case("Distortion & Glitch")
-                    || matches!(self.id(), "concat.fisheye" | "concat.swirl")
-            }
-            "Party & Club" => {
-                cat.eq_ignore_ascii_case("Party")
-                    || cat.eq_ignore_ascii_case("Club")
-                    || cat.eq_ignore_ascii_case("Party & Club")
-                    || matches!(self.id(), "concat.neon")
-            }
-            "Light & Shadow" => {
-                cat.eq_ignore_ascii_case("Light")
-                    || cat.eq_ignore_ascii_case("Shadow")
-                    || cat.eq_ignore_ascii_case("Light & Shadow")
-                    || matches!(self.id(), "concat.glow" | "concat.bloom-pulse")
-            }
-            _ => false,
-        }
+            "Retro & Film" => &["Retro", "Film", "Cinematic"],
+            "Optical & Lens" => &["Optical", "Lens", "Blur"],
+            "Distortion & Glitch" => &["Distort", "Glitch"],
+            "Party & Club" => &["Party", "Club"],
+            "Light & Shadow" => &["Light", "Shadow"],
+            _ => &[],
+        };
+        gathers.iter().any(|shelf| named(shelf))
     }
 
     /// Which catalogue the package belongs to.
@@ -1406,6 +1387,50 @@ mod tests {
             run,
             vec![(0.0, 0.0), (0.5, 1.0), (1.0, 2.0)],
             "held to the new most"
+        );
+    }
+
+    /// The library's shelves come from what each package says: its
+    /// category, the shelves it names, and the categories a combined shelf
+    /// gathers - no package is named in the code.
+    #[test]
+    fn a_package_lands_on_the_shelves_it_names() {
+        let catalogue = Catalogue::compiled_in();
+        let on = |id: &str, shelf: &str| catalogue.get(id).expect(id).matches_category(shelf);
+        for (id, shelf) in [
+            ("concat.glow", "Featured"),
+            ("concat.glow", "Light & Shadow"),
+            ("concat.bloom-pulse", "Featured"),
+            ("concat.bloom-pulse", "Light & Shadow"),
+            ("concat.vhs", "Retro & Film"),
+            ("concat.film-grain", "Retro & Film"),
+            ("concat.falling-dust", "Retro & Film"),
+            ("concat.fisheye", "Optical & Lens"),
+            ("concat.fisheye", "Distortion & Glitch"),
+            ("concat.gaussian-blur", "Optical & Lens"),
+            ("concat.motion-blur", "Optical & Lens"),
+            ("concat.swirl", "Distortion & Glitch"),
+            ("concat.neon", "Party & Club"),
+        ] {
+            assert!(on(id, shelf), "{id} on {shelf}");
+        }
+        assert!(!on("concat.neon", "Retro & Film"));
+        assert!(on("concat.neon", "All") && on("concat.neon", ""));
+        let mut catalogue = catalogue;
+        let manifest = "format = 2\n[effect]\nid = \"a.lift\"\nname = \"Lift\"\nkind = \"effect\"\n\
+            category = \"Colour\"\nshelves = [\"party & club\"]\n\
+            [[param]]\nkey = \"stops\"\nlabel = \"Stops\"\nmin = -2\nmax = 2\n\
+            [wgsl]\nentry = \"effect.wgsl\"\n";
+        let probe = "[[probe]]\nname = \"up\"\nparams = { stops = 1 }\ninput = [0.25, 0.25, 0.25, 1]\nexpect = [0.5, 0.5, 0.5, 1]\n";
+        let shader = "struct Params { stops: f32 }\nfn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(exposure(c.rgb, params.stops), c.a); }";
+        catalogue
+            .add(Package::from_sources(manifest, Some(probe), Some(shader)).expect("loads"))
+            .expect("adds");
+        assert!(
+            catalogue
+                .get("a.lift")
+                .expect("there")
+                .matches_category("Party & Club")
         );
     }
 

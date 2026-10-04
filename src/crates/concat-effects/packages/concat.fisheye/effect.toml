@@ -6,6 +6,7 @@ name = "Fisheye"
 version = 2
 kind = "effect"
 category = "Distort"
+shelves = ["Optical & Lens"]
 order = 52
 intensity = "strength"
 aliases = ["fisheye"]
