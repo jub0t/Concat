@@ -1749,6 +1749,9 @@ export component AudioPanel inherits VerticalLayout {
 /// Audio tab's.
 export component SpeedPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
+    /// The panel's first section, with no hairline above it; false where
+    /// it follows another, as it does under Basic.
+    in property <bool> first: true;
 
     callback set(field: ClipField, value: float);
     callback commit();
@@ -1759,7 +1762,7 @@ export component SpeedPanel inherits VerticalLayout {
     changed selected => { root.seed(); }
 
     Section {
-        first: true;
+        first: root.first;
         speed := SectionHeader {
             title: I18n.t("common.speed");
             collapsible: true;
@@ -1818,44 +1821,11 @@ export component AdjustPanel inherits VerticalLayout {
             }
         }
 
-        // See PresetStack for why each row re-seeds its knob. A subhead
+        // The wheels and curves first, the knobs after: the grading tools
+        // are what a colourist reaches for, and they sit above the fold.
+        // See PresetStack for why each knob's row re-seeds it; a subhead
         // opens each run of rows that share a group.
         SectionBody {
-            for p[i] in root.params: VerticalLayout {
-                spacing: Theme.gap;
-
-                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
-                    title: p.group;
-                }
-
-                Rectangle {
-                    property <AppliedParamData> data: p;
-                    height: knob.preferred-height;
-                    changed data => { knob.value = self.data.value; }
-
-                    knob := Param {
-                        unit: p.unit;
-                        label: p.label;
-                        value: p.value;
-                        minimum: p.min;
-                        maximum: p.max;
-                        step: p.step;
-                        default-value: p.default-value;
-                        fmt: p.fmt;
-                        keyable: p.keyable;
-                        key-name: p.key;
-                        key-state: {
-                            field: ClipField.scale,
-                            keyed: p.keyed,
-                            here: p.here,
-                            prev: p.prev,
-                            next: p.next,
-                        };
-                        changed(v) => { root.set(p.key, v); root.commit(); }
-                    }
-                }
-            }
-
             // The wheels, three in a row: a puck is two knobs of the panel,
             // `<key>.x` and `<key>.y`, and the master a third.
             if root.wheels.length > 0: VerticalLayout {
@@ -1906,6 +1876,42 @@ export component AdjustPanel inherits VerticalLayout {
                     }
                 }
             }
+
+            for p[i] in root.params: VerticalLayout {
+                spacing: Theme.gap;
+
+                if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
+                    title: p.group;
+                }
+
+                Rectangle {
+                    property <AppliedParamData> data: p;
+                    height: knob.preferred-height;
+                    changed data => { knob.value = self.data.value; }
+
+                    knob := Param {
+                        unit: p.unit;
+                        label: p.label;
+                        value: p.value;
+                        minimum: p.min;
+                        maximum: p.max;
+                        step: p.step;
+                        default-value: p.default-value;
+                        fmt: p.fmt;
+                        keyable: p.keyable;
+                        key-name: p.key;
+                        key-state: {
+                            field: ClipField.scale,
+                            keyed: p.keyed,
+                            here: p.here,
+                            prev: p.prev,
+                            next: p.next,
+                        };
+                        changed(v) => { root.set(p.key, v); root.commit(); }
+                    }
+                }
+            }
+
         }
     }
 }

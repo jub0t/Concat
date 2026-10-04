@@ -270,9 +270,7 @@ export component ConfigPane inherits Rectangle {
 
     /// The sections of the current tab, as the dropdown lists them.
     property <[string]> sections: root.heading == "Video"
-            ? (root.is-shape ? ["Basic"]
-                : root.is-image ? ["Basic", "Enhance", "Adjust"]
-                : ["Basic", "Enhance", "Speed", "Adjust"])
+            ? (root.is-shape ? ["Basic"] : ["Basic", "Enhance", "Adjust"])
         : root.heading == "Audio"
             ? (root.is-audio ? ["Sound", "Speed"] : ["Sound"])
         : root.heading == "Effects" ? ["Effects"]
@@ -281,8 +279,7 @@ export component ConfigPane inherits Rectangle {
     /// The sections as the dropdown shows them; see `tabs-shown`.
     property <[string]> sections-shown: root.heading == "Video"
             ? (root.is-shape ? [I18n.t("configPane.basic")]
-                : root.is-image ? [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")]
-                : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.speed"), I18n.t("common.adjust")])
+                : [I18n.t("configPane.basic"), I18n.t("common.enhance"), I18n.t("common.adjust")])
         : root.heading == "Audio"
             ? (root.is-audio ? [I18n.t("configPane.sound"), I18n.t("common.speed")] : [I18n.t("configPane.sound")])
         : root.heading == "Effects" ? [I18n.t("common.effects")]
@@ -602,30 +599,41 @@ export component ConfigPane inherits Rectangle {
             padding: 0px;
 
             PaneScroll {
-                if root.showing == "Basic": VideoPanel {
-                    selected: root.selected;
-                    applied: root.applied-visual;
-                    params: root.visual-params;
-                    colours: root.visual-colours;
-                    brush-tool: root.brush-tool;
-                    brush-size: root.brush-size;
-                    painting: root.painting;
-                    set(field, value) => { root.clip-set(field, value); }
-                    commit => { root.clip-commit(); }
-                    chain-add(id) => { root.chain-add(false, id); }
-                    chain-remove(index) => { root.chain-remove(false, index); }
-                    chain-set-param(index, key, value) => {
-                        root.chain-set-param(false, index, key, value);
+                // Basic, with the clip's speed under it: one knob is not a
+                // page of its own.
+                if root.showing == "Basic": VerticalLayout {
+                    VideoPanel {
+                        selected: root.selected;
+                        applied: root.applied-visual;
+                        params: root.visual-params;
+                        colours: root.visual-colours;
+                        brush-tool: root.brush-tool;
+                        brush-size: root.brush-size;
+                        painting: root.painting;
+                        set(field, value) => { root.clip-set(field, value); }
+                        commit => { root.clip-commit(); }
+                        chain-add(id) => { root.chain-add(false, id); }
+                        chain-remove(index) => { root.chain-remove(false, index); }
+                        chain-set-param(index, key, value) => {
+                            root.chain-set-param(false, index, key, value);
+                        }
+                        chain-set-colour(index, key, value) => {
+                            root.chain-set-colour(index, key, value);
+                        }
+                        cutout-mode(mode) => { root.cutout-mode(mode); }
+                        cutout-tool(index) => { root.cutout-tool(index); }
+                        cutout-size(size) => { root.cutout-size(size); }
+                        cutout-painting(on) => { root.cutout-painting(on); }
+                        cutout-subject(index) => { root.cutout-subject(index); }
+                        cutout-clear => { root.cutout-clear(); }
                     }
-                    chain-set-colour(index, key, value) => {
-                        root.chain-set-colour(index, key, value);
+
+                    if !root.is-image && !root.is-shape: SpeedPanel {
+                        first: false;
+                        selected: root.selected;
+                        set(field, value) => { root.clip-set(field, value); }
+                        commit => { root.clip-commit(); }
                     }
-                    cutout-mode(mode) => { root.cutout-mode(mode); }
-                    cutout-tool(index) => { root.cutout-tool(index); }
-                    cutout-size(size) => { root.cutout-size(size); }
-                    cutout-painting(on) => { root.cutout-painting(on); }
-                    cutout-subject(index) => { root.cutout-subject(index); }
-                    cutout-clear => { root.cutout-clear(); }
                 }
 
                 if root.showing == "Enhance": EnhancePanel {
