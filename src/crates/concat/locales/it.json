@@ -909,6 +909,7 @@
   "studio.redo": "Ripeti",
   "studio.removeBackground": "Rimuovi sfondo: {0}",
   "studio.retiredEffects": "Questo progetto usa effetti che questa versione non ha più: {0}. Restano nelle sue clip, segnati come non installati.",
+  "studio.upgradedEffects": "Alcuni effetti di questo progetto si aprono come quelli che li sostituiscono: {0}. Salva per mantenere la modifica.",
   "studio.reverse": "Inversione: {0}",
   "studio.reverseAlreadyWorkOne": "Un'inversione è già in corso; una clip alla volta",
   "studio.reversedClipNowShows": "Invertita; la clip ora mostra la copia",

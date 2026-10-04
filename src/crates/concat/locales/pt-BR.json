@@ -909,6 +909,7 @@
   "studio.redo": "Refazer",
   "studio.removeBackground": "Remover fundo: {0}",
   "studio.retiredEffects": "Este projeto usa efeitos que esta versão não tem mais: {0}. Eles continuam nos clipes, marcados como não instalados.",
+  "studio.upgradedEffects": "Alguns efeitos deste projeto abrem como os que os substituem: {0}. Salve para manter a mudança.",
   "studio.reverse": "Reverter: {0}",
   "studio.reverseAlreadyWorkOne": "Reverter já está em andamento; um clipe por vez",
   "studio.reversedClipNowShows": "Revertido; o clipe agora mostra a cópia",

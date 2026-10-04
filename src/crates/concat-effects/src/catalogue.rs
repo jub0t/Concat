@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use concat_project::model::AppliedFilter;
+use concat_project::model::{AppliedFilter, ParamKey};
 use serde::Deserialize;
 
 use crate::Error;
@@ -490,6 +490,18 @@ impl Package {
         self.pass(&BTreeMap::new(), None)
     }
 
+    /// The passes an install trial runs: the shader at its defaults, then
+    /// with every knob at its least and at its most. A loop counted by a
+    /// knob costs nothing at a default of one and hangs the device at the
+    /// slider's end, so the defaults alone prove little (audit 2026-10-04,
+    /// #6). Empty for a package with no shader.
+    pub fn trial_passes(&self) -> Vec<ShaderPass> {
+        [At::Default, At::Min, At::Max]
+            .into_iter()
+            .filter_map(|at| self.pass(&self.params_at(at), None))
+            .collect()
+    }
+
     /// The pass this package's shader makes with the parameters in `set`,
     /// or None for a package with no shader. Keys the manifest does not
     /// declare are dropped, but for a filter's intensity, which mixes the
@@ -551,9 +563,11 @@ impl Package {
 
     /// `link`, a link to a retired package this one stands in for (its
     /// `[[replaces]]`), made a link to this one: its knobs worked out from
-    /// the old ones and held to this package's ranges, its keys dropped - a
-    /// chain's knobs could not carry them. `None` when this package does
-    /// not replace the link's.
+    /// the old ones and held to this package's ranges. A new knob whose
+    /// expression reads one keyed old knob rides too, each of the old keys
+    /// carried through the expression; one that reads two keyed knobs
+    /// holds, since their keys need not fall at the same moments. `None`
+    /// when this package does not replace the link's.
     pub fn replacing(&self, link: &AppliedFilter) -> Option<AppliedFilter> {
         let replaced = self
             .manifest
@@ -568,27 +582,59 @@ impl Package {
                 (knob.clone(), Value::Float(value))
             })
             .collect();
-        let params = replaced
-            .knobs
-            .iter()
-            .filter_map(|(knob, source)| {
-                let value = match Expr::parse(source).and_then(|expr| expr.eval(&old)).ok()? {
-                    Value::Int(value) => value as f64,
-                    Value::Float(value) => value,
-                    Value::Text(_) => return None,
-                };
-                let held = match self.manifest.params.iter().find(|param| &param.key == knob) {
-                    Some(param) => value.clamp(param.min, param.max),
-                    None => value,
-                };
-                Some((knob.clone(), held))
+        let held = |knob: &str, value: Value| -> Option<f64> {
+            let value = match value {
+                Value::Int(value) => value as f64,
+                Value::Float(value) => value,
+                Value::Text(_) => return None,
+            };
+            Some(match self.manifest.params.iter().find(|param| param.key == knob) {
+                Some(param) => value.clamp(param.min, param.max),
+                None => value,
             })
-            .collect();
+        };
+        let mut params = BTreeMap::new();
+        let mut keys = BTreeMap::new();
+        for (knob, source) in &replaced.knobs {
+            let Ok(expr) = Expr::parse(source) else {
+                continue;
+            };
+            let Some(value) = expr.eval(&old).ok().and_then(|value| held(knob, value)) else {
+                continue;
+            };
+            params.insert(knob.clone(), value);
+            let mut read = Vec::new();
+            expr.names(&mut read);
+            read.sort();
+            read.dedup();
+            let keyed: Vec<&String> = read
+                .iter()
+                .filter(|name| link.keys.get(*name).is_some_and(|run| !run.is_empty()))
+                .collect();
+            if let [name] = keyed.as_slice() {
+                let run: Vec<ParamKey> = link.keys[*name]
+                    .iter()
+                    .filter_map(|key| {
+                        let mut at = old.clone();
+                        at.insert((*name).clone(), Value::Float(key.value));
+                        let value = expr.eval(&at).ok().and_then(|value| held(knob, value))?;
+                        Some(ParamKey {
+                            at: key.at,
+                            value,
+                            ease: key.ease,
+                        })
+                    })
+                    .collect();
+                if !run.is_empty() {
+                    keys.insert(knob.clone(), run);
+                }
+            }
+        }
         Some(AppliedFilter {
             id: self.id().to_owned(),
             params,
             enabled: link.enabled,
-            keys: BTreeMap::new(),
+            keys,
         })
     }
 
@@ -982,16 +1028,52 @@ impl Catalogue {
         catalogue
     }
 
-    /// Adds a package. Its id and aliases must be new to the catalogue.
+    /// Adds a package. Its id and aliases must be new to the catalogue,
+    /// and so must every package its `[[replaces]]` names: a package
+    /// stands in only for one that is gone. Without that, a shared package
+    /// declaring it replaces a built-in would rewrite every link to the
+    /// built-in as each project opened (audit 2026-10-04, #2). Nor may a
+    /// package take a name another package has retired, or retire one
+    /// another package already stands in for.
     pub fn add(&mut self, package: Package) -> Result<(), Error> {
+        let refuse = |message: String| Error::Invalid {
+            id: package.id().to_owned(),
+            message,
+        };
         let mut names = vec![package.id().to_owned()];
         names.extend(package.manifest.effect.aliases.iter().cloned());
         for name in &names {
             if self.by_id.contains_key(name) {
-                return Err(Error::Invalid {
-                    id: package.id().to_owned(),
-                    message: format!("`{name}` is already taken by another package"),
-                });
+                return Err(refuse(format!("`{name}` is already taken by another package")));
+            }
+            if let Some(other) = self.packages.iter().find(|other| {
+                other.manifest.replaces.iter().any(|replaced| replaced.names(name))
+            }) {
+                return Err(refuse(format!(
+                    "`{name}` is a retired package `{}` stands in for",
+                    other.id()
+                )));
+            }
+        }
+        for replaced in &package.manifest.replaces {
+            let bare = replaced.id.strip_prefix("concat.").unwrap_or(&replaced.id);
+            if let Some(&index) = self.by_id.get(&replaced.id).or_else(|| self.by_id.get(bare)) {
+                return Err(refuse(format!(
+                    "it replaces `{}`, which is installed as `{}`",
+                    replaced.id,
+                    self.packages[index].id()
+                )));
+            }
+            if let Some(other) = self.packages.iter().find(|other| {
+                other.manifest.replaces.iter().any(|theirs| {
+                    theirs.names(&replaced.id) || replaced.names(&theirs.id)
+                })
+            }) {
+                return Err(refuse(format!(
+                    "`{}` already stands in for `{}`",
+                    other.id(),
+                    replaced.id
+                )));
             }
         }
         let index = self.packages.len();
@@ -1048,6 +1130,11 @@ impl Catalogue {
     /// `link` read as a link to the package that stands in for its retired
     /// one, if any does (see `Package::replacing`). Returns whether it was.
     pub fn upgrade(&self, link: &mut AppliedFilter) -> bool {
+        // A link to a package that is here is never rewritten, whatever
+        // claims to replace it.
+        if self.get(&link.id).is_some() {
+            return false;
+        }
         match self.packages().find_map(|package| package.replacing(link)) {
             Some(replaced) => {
                 *link = replaced;
@@ -1179,6 +1266,7 @@ impl Catalogue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use concat_project::model::KeyEase;
 
     /// A link to a retired key or blur opens as its stand-in, its knobs
     /// carried over as the `[[replaces]]` table says - the screen's colour,
@@ -1213,6 +1301,76 @@ mod tests {
         let mut kept = link("concat.sepia", &[("amount", 50.0)]);
         assert!(!catalogue.upgrade(&mut kept));
         assert_eq!(kept.id, "concat.sepia");
+    }
+
+    /// A package built from sources standing in for `replaces`: a lift
+    /// whose stops come from the old link's `level`.
+    fn stand_in(id: &str, replaces: &str) -> Result<Package, Error> {
+        let manifest = format!(
+            "format = 2\n[effect]\nid = \"{id}\"\nname = \"Lift\"\nkind = \"effect\"\n\
+             [[param]]\nkey = \"stops\"\nlabel = \"Stops\"\nmin = -2\nmax = 2\n\
+             [wgsl]\nentry = \"effect.wgsl\"\n\
+             [[replaces]]\nid = \"{replaces}\"\ndefaults = {{ level = 0 }}\nknobs = {{ stops = \"level / 50\" }}\n"
+        );
+        let probe = "[[probe]]\nname = \"up\"\nparams = { stops = 1 }\ninput = [0.25, 0.25, 0.25, 1]\nexpect = [0.5, 0.5, 0.5, 1]\n";
+        let shader = "struct Params { stops: f32 }\nfn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(exposure(c.rgb, params.stops), c.a); }";
+        Package::from_sources(&manifest, Some(probe), Some(shader))
+    }
+
+    /// A package may stand in only for one that is gone: one naming a
+    /// built-in, under either spelling, or a retired id another package
+    /// already stands in for, is refused at install; and a link to a
+    /// package that is here is never rewritten (audit 2026-10-04, #2).
+    #[test]
+    fn a_package_cannot_take_over_one_that_is_installed() {
+        let mut catalogue = Catalogue::compiled_in();
+        for (id, replaces) in [
+            ("evil.glow", "concat.glow"),
+            ("evil.glow-bare", "glow"),
+            ("evil.green", "concat.green-screen"),
+        ] {
+            let error = catalogue
+                .add(stand_in(id, replaces).expect("loads"))
+                .expect_err(replaces)
+                .to_string();
+            assert!(error.contains(replaces) || error.contains("stands in"), "{error}");
+        }
+        let error = catalogue
+            .add(stand_in("concat.box-blur", "nothing.at-all").expect("loads"))
+            .expect_err("a retired name")
+            .to_string();
+        assert!(error.contains("retired"), "{error}");
+        catalogue
+            .add(stand_in("a.lift", "a.old-lift").expect("loads"))
+            .expect("one that is gone may be stood in for");
+
+        let mut glow = AppliedFilter::new("concat.glow");
+        assert!(!catalogue.upgrade(&mut glow));
+        assert_eq!(glow.id, "concat.glow");
+        let mut old = AppliedFilter::new("a.old-lift");
+        assert!(catalogue.upgrade(&mut old));
+        assert_eq!(old.id, "a.lift");
+    }
+
+    /// A new knob that reads one keyed old knob rides with it, each key
+    /// carried through the expression at its own moment and ease.
+    #[test]
+    fn a_stand_in_carries_the_keys_of_the_knob_it_reads() {
+        let package = stand_in("a.lift", "a.old-lift").expect("loads");
+        let mut link = AppliedFilter::new("a.old-lift");
+        link.params.insert("level".into(), 25.0);
+        link.keys.insert(
+            "level".into(),
+            vec![
+                ParamKey { at: 0.0, value: 0.0, ease: KeyEase::LINEAR },
+                ParamKey { at: 0.5, value: 50.0, ease: KeyEase::LINEAR },
+                ParamKey { at: 1.0, value: 500.0, ease: KeyEase::LINEAR },
+            ],
+        );
+        let upgraded = package.replacing(&link).expect("replaces it");
+        assert_eq!(upgraded.params["stops"], 0.5);
+        let run: Vec<(f64, f64)> = upgraded.keys["stops"].iter().map(|k| (k.at, k.value)).collect();
+        assert_eq!(run, vec![(0.0, 0.0), (0.5, 1.0), (1.0, 2.0)], "held to the new most");
     }
 
     /// A chain reads the frame and its own table and no other file.

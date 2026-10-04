@@ -23,6 +23,9 @@ pub struct Session {
     path: String,
     settings: DocumentSettings,
     editor: Editor,
+    /// The links to retired effects the open rewrote, old id and new, each
+    /// pair once: what the window names as the project opens.
+    upgraded: Vec<(String, String)>,
 }
 
 /// What every mutating call returns: the authoritative state plus history
@@ -102,11 +105,21 @@ impl Session {
         // in for it, its knobs carried over (`[[replaces]]`).
         let mut editor = editor;
         let catalogue = concat_effects::Catalogue::builtin();
-        editor.upgrade_links(|link| catalogue.upgrade(link));
+        let mut upgraded: Vec<(String, String)> = Vec::new();
+        editor.upgrade_links(|link| {
+            let old = link.id.clone();
+            let changed = catalogue.upgrade(link);
+            let pair = (old, link.id.clone());
+            if changed && !upgraded.contains(&pair) {
+                upgraded.push(pair);
+            }
+            changed
+        });
         Ok(Session {
             path: path.to_owned(),
             settings,
             editor,
+            upgraded,
         })
     }
 
@@ -122,6 +135,13 @@ impl Session {
                 rate_den: info.rate_den,
             },
         )
+    }
+
+    /// The links to retired effects this open read as links to the
+    /// effects that stand in for them, old id and new. Empty when the
+    /// document named none; the change is the document's once it is saved.
+    pub fn upgraded(&self) -> &[(String, String)] {
+        &self.upgraded
     }
 
     /// The project folder.

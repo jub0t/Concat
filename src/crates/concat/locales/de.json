@@ -909,6 +909,7 @@
   "studio.redo": "Wiederholen",
   "studio.removeBackground": "Hintergrund entfernen: {0}",
   "studio.retiredEffects": "Dieses Projekt nutzt Effekte, die diese Version nicht mehr hat: {0}. Sie bleiben in den Clips, als nicht installiert markiert.",
+  "studio.upgradedEffects": "Einige Effekte in diesem Projekt öffnen sich als ihre Nachfolger: {0}. Speichere, um die Änderung zu behalten.",
   "studio.reverse": "Rückwärts: {0}",
   "studio.reverseAlreadyWorkOne": "Rückwärts läuft bereits; ein Clip nach dem anderen",
   "studio.reversedClipNowShows": "Umgekehrt; der Clip zeigt jetzt die Kopie",

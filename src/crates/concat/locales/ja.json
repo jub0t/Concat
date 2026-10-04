@@ -909,6 +909,7 @@
   "studio.redo": "やり直す",
   "studio.removeBackground": "背景を削除：{0}",
   "studio.retiredEffects": "このプロジェクトは、このバージョンにはもうないエフェクトを使っています: {0}。クリップには残り、未インストールと表示されます。",
+  "studio.upgradedEffects": "このプロジェクトの一部のエフェクトは、後継のエフェクトとして開かれます: {0}。変更を残すには保存してください。",
   "studio.reverse": "逆再生: {0}",
   "studio.reverseAlreadyWorkOne": "逆再生の処理中です。一度に1クリップまで",
   "studio.reversedClipNowShows": "逆再生になりました。クリップはコピーを表示しています",

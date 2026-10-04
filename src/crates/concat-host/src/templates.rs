@@ -322,6 +322,10 @@ pub fn instantiate(
 
     let mut editor = Editor::from_document(&document)
         .ok_or("this template holds a document this build cannot read")?;
+    // A template saved before an effect was retired opens the way a
+    // project does: its links read as links to the stand-ins.
+    let catalogue = concat_effects::Catalogue::builtin();
+    editor.upgrade_links(|link| catalogue.upgrade(link));
     if !fills.is_empty() {
         editor
             .apply(Command::Batch {

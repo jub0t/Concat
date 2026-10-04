@@ -1840,6 +1840,23 @@ fn retired_effects(project: &Project) -> Vec<String> {
     names
 }
 
+/// Each rewritten link as "Old → New", the new one by its package's name.
+fn upgraded_effects(pairs: &[(String, String)]) -> Vec<String> {
+    let catalogue = Catalogue::builtin();
+    pairs
+        .iter()
+        .map(|(old, new)| {
+            let new = catalogue
+                .get(new)
+                .map(|package| {
+                    i18n::package_text(package.id(), "name", &package.manifest.effect.name)
+                })
+                .unwrap_or_else(|| label_of(new));
+            format!("{} → {new}", label_of(old))
+        })
+        .collect()
+}
+
 fn label_of(id: &str) -> String {
     // The name after the namespace: `concat.camera-shake` is Camera Shake.
     let id = id.rsplit('.').next().unwrap_or(id);
@@ -6661,6 +6678,16 @@ impl Studio {
                 if !retired.is_empty() {
                     self.notify(&tf("studio.retiredEffects", &[&retired.join(", ")]), false);
                 }
+                // Effects that open as the ones standing in for them: the
+                // document changes when it is next saved, so say so.
+                let upgraded = self
+                    .session
+                    .as_ref()
+                    .map(|session| upgraded_effects(session.upgraded()))
+                    .unwrap_or_default();
+                if !upgraded.is_empty() {
+                    self.notify(&tf("studio.upgradedEffects", &[&upgraded.join(", ")]), false);
+                }
 
                 // Log missing media to file for debugging
                 if let Some(session) = &self.session {
@@ -6942,15 +6969,29 @@ impl Studio {
         for id in concat_effects::looks::upgrade(&dir) {
             log::info!("{id}: the imported look now reads its table in light");
         }
+        // The trials run on a compositor of their own on the window's
+        // device, never the monitor's: one that times out is dead from
+        // then on, and a refused package must not take the preview with
+        // it (audit 2026-10-04, #6). A dead one is replaced for the next.
         let monitor = &self.host.monitor;
+        let mut trialist = None;
         let errors = Catalogue::install_with(&dir, &mut |package| {
-            let Some(pass) = package.trial_pass() else {
-                return Ok(());
-            };
-            match monitor.trial(&pass, TRIAL_SIDE, TRIAL_TIMEOUT) {
-                Some(Err(why)) => Err(format!("its shader failed its trial: {why}")),
-                _ => Ok(()),
+            for pass in package.trial_passes() {
+                if trialist.is_none() {
+                    trialist = monitor.sibling();
+                }
+                let Some(gpu) = trialist.as_mut() else {
+                    return Ok(());
+                };
+                let tried = gpu.trial_at(&pass, TRIAL_SIDE, TRIAL_TIMEOUT);
+                if gpu.is_dead() {
+                    trialist = None;
+                }
+                if let Err(why) = tried {
+                    return Err(format!("its shader failed its trial: {why}"));
+                }
             }
+            Ok(())
         });
         for error in &errors {
             log::warn!("package: {error}");

@@ -909,6 +909,7 @@
   "studio.redo": "Rétablir",
   "studio.removeBackground": "Retirer l'arrière-plan : {0}",
   "studio.retiredEffects": "Ce projet utilise des effets que cette version n'a plus : {0}. Ils restent dans ses clips, marqués comme non installés.",
+  "studio.upgradedEffects": "Certains effets de ce projet s'ouvrent sous la forme de ceux qui les remplacent : {0}. Enregistrez pour conserver le changement.",
   "studio.reverse": "Inversion : {0}",
   "studio.reverseAlreadyWorkOne": "Une inversion est déjà en cours ; un clip à la fois",
   "studio.reversedClipNowShows": "Inversé ; le clip affiche désormais la copie",

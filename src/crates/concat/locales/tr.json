@@ -909,6 +909,7 @@
   "studio.redo": "Yinele",
   "studio.removeBackground": "Arka planı kaldır: {0}",
   "studio.retiredEffects": "Bu proje, bu sürümde artık bulunmayan efektler kullanıyor: {0}. Kliplerde kalırlar ve yüklü değil olarak işaretlenirler.",
+  "studio.upgradedEffects": "Bu projedeki bazı efektler, yerlerini alan efektler olarak açılıyor: {0}. Değişikliği korumak için kaydedin.",
   "studio.reverse": "Ters çevirme: {0}",
   "studio.reverseAlreadyWorkOne": "Ters çevirme zaten sürüyor; her seferinde bir klip",
   "studio.reversedClipNowShows": "Ters çevrildi; klip artık kopyayı gösteriyor",

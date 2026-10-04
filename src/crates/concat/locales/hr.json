@@ -909,6 +909,7 @@
   "studio.redo": "Ponovi",
   "studio.removeBackground": "Ukloni pozadinu: {0}",
   "studio.retiredEffects": "Ovaj projekt koristi efekte koje ova verzija više nema: {0}. Ostaju u isječcima, označeni kao neinstalirani.",
+  "studio.upgradedEffects": "Neki efekti u ovom projektu otvaraju se kao efekti koji ih zamjenjuju: {0}. Spremi da zadržiš promjenu.",
   "studio.reverse": "Obrtanje: {0}",
   "studio.reverseAlreadyWorkOne": "Obrtanje je već u tijeku; jedan po jedan klip",
   "studio.reversedClipNowShows": "Obrnuto; klip sada prikazuje kopiju",
