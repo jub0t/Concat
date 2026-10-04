@@ -494,6 +494,7 @@ mod tests {
 
     #[test]
     fn phrases_are_coarse() {
+        let _english = crate::i18n::language_lock();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis() as u64)

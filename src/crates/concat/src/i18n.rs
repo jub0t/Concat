@@ -369,14 +369,21 @@ fn parse(text: &str) -> Option<(String, HashMap<String, String>)> {
     Some((name, strings))
 }
 
+/// One test at a time may choose the language, since it is the process's;
+/// and a test that reads English must hold this too, or it reads whatever
+/// another thread chose (audit 2026-09-28, the two locale-flaky tests).
+#[cfg(test)]
+pub(crate) fn language_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// One test at a time may choose the language: it is the process's.
     fn language() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        language_lock()
     }
 
     /// The inventory: every key the app can ask for, as `en.json` lists

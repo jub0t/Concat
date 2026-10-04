@@ -667,6 +667,7 @@ mod tests {
 
     #[test]
     fn a_voice_name_reads_as_a_person_would_say_it() {
+        let _english = crate::i18n::language_lock();
         let (title, detail) = voice_label("af_heart");
         assert_eq!(title, "Heart");
         assert!(detail.contains("American"));
