@@ -60,6 +60,7 @@ component SizeMenu inherits Rectangle {
         glyph: Glyph.rows;
         label: I18n.t("trackHeader.rowHeight");
         icon-size: 12px;
+        idle: Theme.fg;
         // Lit only when the lane has been sized by hand: auto is the resting
         // state, and a button lit on every row would say nothing.
         checked: root.current != TrackSize.auto;
@@ -124,6 +125,93 @@ component SizeMenu inherits Rectangle {
     }
 }
 
+// The lane's other verbs, behind three dots at the row's trailing end.
+//
+// Delete is first, and for now alone. It is greyed on the last lane
+// standing rather than taken away, so the menu reads the same on every row.
+// Choosing it asks before anything goes; see the confirmation sheet.
+component MoreMenu inherits Rectangle {
+    in property <bool> removable;
+
+    callback removed();
+
+    width: 26px;
+    min-height: 26px;
+
+    property <length> row-h: 26px;
+
+    IconButton {
+        glyph: Glyph.more;
+        label: I18n.t("trackHeader.more");
+        icon-size: 14px;
+        idle: Theme.fg;
+        clicked => { list.show(); }
+    }
+
+    list := PopupWindow {
+        // Hung from the button's trailing edge: it is the last control in
+        // the row, and a list opening rightwards would open over the lanes.
+        x: 26px - self.width;
+        y: 26px;
+        width: 140px;
+        height: root.row-h + 8px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 4px;
+                alignment: start;
+
+                Rectangle {
+                    height: root.row-h;
+                    border-radius: Theme.r-sm;
+                    background: delete.has-hover && root.removable ? Theme.field-hover : Colors.transparent;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                glyph: Glyph.trash;
+                                size: 13px;
+                                tint: !root.removable ? Theme.fg-dim
+                                    : delete.has-hover ? Theme.danger : Theme.fg;
+                            }
+                        }
+
+                        Text {
+                            horizontal-stretch: 1;
+                            text: I18n.t("common.delete");
+                            color: !root.removable ? Theme.fg-dim
+                                : delete.has-hover ? Theme.danger : Theme.fg;
+                            font-size: Theme.fs;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    delete := TouchArea {
+                        enabled: root.removable;
+                        mouse-cursor: root.removable ? pointer : default;
+                        clicked => {
+                            list.close();
+                            root.removed();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component Header inherits Rectangle {
     in property <TrackData> track;
     in property <bool> removable;
@@ -153,12 +241,12 @@ component Header inherits Rectangle {
             // *cross* axis individually, which is the part actually wanted.
             //
             // The lane's own switches - size, lock, visibility, mute - sit
-            // against the leading edge, and the one that takes the lane
-            // away sits alone against the trailing edge, with the row's
-            // give between them: a destructive button is kept apart from
-            // the ones pressed all day, the way a form keeps Delete away
-            // from Save. A narrow column takes the squeeze from the gap,
-            // not from either end.
+            // against the leading edge, and the menu of its other verbs,
+            // Delete first, sits alone against the trailing edge, with the
+            // row's give between them: a destructive verb is kept apart
+            // from the switches pressed all day, the way a form keeps
+            // Delete away from Save. A narrow column takes the squeeze from
+            // the gap, not from either end.
 
             VerticalLayout {
                 alignment: start;
@@ -174,6 +262,7 @@ component Header inherits Rectangle {
                     glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
                     label: root.track.locked ? I18n.t("trackHeader.unlockLane") : I18n.t("trackHeader.lockLane");
                     icon-size: 12px;
+                    idle: Theme.fg;
                     checked: root.track.locked;
                     clicked => {
                         root.flag-changed(root.track.visible, root.track.muted,
@@ -191,6 +280,7 @@ component Header inherits Rectangle {
                     glyph: root.track.visible ? Glyph.eye : Glyph.eye-off;
                     label: root.track.visible ? I18n.t("trackHeader.hideLane") : I18n.t("trackHeader.showLane");
                     icon-size: 12px;
+                    idle: Theme.fg;
                     checked: !root.track.visible;
                     clicked => {
                         root.flag-changed(!root.track.visible, root.track.muted,
@@ -205,6 +295,7 @@ component Header inherits Rectangle {
                     glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
                     label: root.track.muted ? I18n.t("trackHeader.unmuteLane") : I18n.t("trackHeader.muteLane");
                     icon-size: 12px;
+                    idle: Theme.fg;
                     checked: root.track.muted;
                     clicked => {
                         root.flag-changed(root.track.visible, !root.track.muted,
@@ -215,18 +306,11 @@ component Header inherits Rectangle {
 
             Rectangle { horizontal-stretch: 1; }
 
-            // Revealed on hover, and never on the last lane standing. The
-            // slot is always there, so the switches do not slide when the
-            // cross appears.
             VerticalLayout {
                 alignment: start;
-                width: 26px;
-                if root.removable && row.has-hover: IconButton {
-                    glyph: Glyph.close;
-                    label: I18n.t("trackHeader.removeLane");
-                    icon-size: 11px;
-                    danger: true;
-                    clicked => { root.removed(); }
+                MoreMenu {
+                    removable: root.removable;
+                    removed => { root.removed(); }
                 }
             }
         }

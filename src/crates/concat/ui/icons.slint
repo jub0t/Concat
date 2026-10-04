@@ -44,6 +44,8 @@ export enum Glyph {
     plus,
     minus,
     close,
+    /// three dots in a row: a menu of more
+    more,
     check,
     chevron-down,
     chevron-left,
@@ -225,6 +227,12 @@ export component Icon inherits Rectangle {
     if root.glyph == Glyph.minus: Stroked {
         size: root.size; tint: root.tint; weight: root.weight;
         commands: "M5 12h14";
+    }
+
+    // lucide/ellipsis, as solid dots
+    if root.glyph == Glyph.more: Filled {
+        size: root.size; tint: root.tint;
+        commands: "M3 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M10 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M17 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0";
     }
 
     // lucide/x
