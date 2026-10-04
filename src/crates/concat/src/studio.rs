@@ -537,6 +537,11 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// A transition from the library: it lands on a cut, not on a lane, and
+    /// `media` is its catalogue id.
+    pub transition: bool,
+    /// The cut a transition's drop resolved to, as the incoming clip's id.
+    pub cut: Option<String>,
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -3222,6 +3227,8 @@ impl Studio {
                     }
                     .max(MIN_DURATION),
                     row: 0,
+                    transition: false,
+                    cut: None,
                 })
             }
             // A title: the preset's id rides where a file's media id would,
@@ -3233,6 +3240,8 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                transition: false,
+                cut: None,
             }),
             // A figure from the Stickers page: the shape's name rides
             // where a file's media id would, and the label is what the
@@ -3244,6 +3253,8 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                transition: false,
+                cut: None,
             }),
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
@@ -3254,6 +3265,20 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                transition: false,
+                cut: None,
+            }),
+            // A transition from its page: no clip of its own, it lands on a
+            // cut. Drawn - the chip, the ghost over the cut - as a look is.
+            "transition" => Some(DropPlan {
+                kind: ClipKind::Filter,
+                label: label.to_owned(),
+                media: id.to_owned(),
+                start: 0.0,
+                duration: 0.5,
+                row: 0,
+                transition: true,
+                cut: None,
             }),
             _ => None,
         }
@@ -3265,6 +3290,9 @@ impl Studio {
         let lanes = self.timeline().tracks.len() as i32;
         if lanes == 0 {
             return None;
+        }
+        if plan.transition {
+            return self.transition_plan(plan, seconds, row.clamp(0, lanes - 1));
         }
         plan.row = row.clamp(0, lanes - 1);
         if self
@@ -3279,8 +3307,42 @@ impl Studio {
         Some(plan)
     }
 
+    /// A transition dragged over `row` at `seconds`: the cut on that lane
+    /// nearest the pointer, among those whose two clips the pointer is over,
+    /// with the ghost centred on it as long as the transition will run.
+    /// None - the drop refused - off any cut, on a locked lane, or on a cut
+    /// with no room.
+    fn transition_plan(&self, mut plan: DropPlan, seconds: f32, row: i32) -> Option<DropPlan> {
+        let track = self
+            .row_track(row)
+            .filter(|track| !self.locked(&track.id))?;
+        let at = f64::from(seconds.max(0.0));
+        let (cut, incoming) = self
+            .picture_cuts(Some(&track.id))
+            .into_iter()
+            .filter(|(_, incoming)| {
+                self.clip(incoming).is_some_and(|clip| {
+                    let from = self.outgoing_of(clip).map_or(clip.start, |out| out.start);
+                    from <= at && at < clip.start + clip.duration
+                })
+            })
+            .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))?;
+        let duration = self.transition_duration(self.clip(&incoming)?, 0.5)?;
+        plan.row = row;
+        plan.start = (cut - duration / 2.0).max(0.0) as f32;
+        plan.duration = duration as f32;
+        plan.cut = Some(incoming);
+        Some(plan)
+    }
+
     /// Commits a plan that has a lane, and selects what it made.
     pub fn place(&mut self, plan: &DropPlan) {
+        if plan.transition {
+            if let Some(clip_id) = &plan.cut {
+                self.put_transition(clip_id, &plan.media);
+            }
+            return;
+        }
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
@@ -3323,7 +3385,7 @@ impl Studio {
     /// A card clicked rather than dragged: the playhead names the moment
     /// and the engine finds a lane with room.
     pub fn place_at_playhead(&mut self, payload: &str) {
-        let Some(plan) = self.incoming(payload) else {
+        let Some(plan) = self.incoming(payload).filter(|plan| !plan.transition) else {
             return;
         };
         let start = f64::from(self.playhead.max(0.0));
@@ -3593,32 +3655,84 @@ impl Studio {
     /// Puts the catalogue transition `id` on the cut the selection names;
     /// see [`Studio::transition_cut`].
     pub fn apply_transition(&mut self, id: &str) {
-        let clip_id = match self.transition_cut() {
-            Ok(clip_id) => clip_id,
-            Err(why) => {
-                self.notify(&why, true);
-                return;
-            }
-        };
-        let Some(clip) = self.clip(&clip_id) else {
+        // The selection's cut when it names one a picture transition can
+        // ride; else the cut at the playhead.
+        let selected = self
+            .transition_cut()
+            .ok()
+            .filter(|clip_id| self.visual_cut(clip_id));
+        let Some(clip_id) = selected.or_else(|| self.playhead_cut()) else {
+            self.notify(&t("studio.noCutAtPlayhead"), true);
             return;
         };
-        // One clip with nothing meeting it has no cut to put a transition
-        // on: the answer is the other clip, not a longer one.
-        let Some(outgoing) = self.outgoing_of(clip) else {
-            self.notify(&t("studio.selectTwoAdjacentClips"), true);
+        self.put_transition(&clip_id, id);
+    }
+
+    /// Whether `clip_id` meets a clip before it on its lane, both of them
+    /// pictures: a cut a transition into it can dissolve across.
+    fn visual_cut(&self, clip_id: &str) -> bool {
+        self.clip(clip_id).is_some_and(|clip| {
+            clip.kind.is_visual()
+                && self
+                    .outgoing_of(clip)
+                    .is_some_and(|out| out.kind.is_visual())
+        })
+    }
+
+    /// The cuts a transition can go on, at their instants, as the incoming
+    /// clip's id: every picture clip that meets a picture clip before it on
+    /// its lane. Only on `track_id` when one is named.
+    fn picture_cuts(&self, track_id: Option<&str>) -> Vec<(f64, String)> {
+        self.timeline()
+            .clips
+            .iter()
+            .filter(|clip| track_id.is_none_or(|track| clip.track_id == track))
+            .filter(|clip| self.visual_cut(&clip.id))
+            .map(|clip| (clip.start, clip.id.clone()))
+            .collect()
+    }
+
+    /// The cut nearest the playhead among those of the picture clips under
+    /// it - the cut into one, or out of one into the next.
+    fn playhead_cut(&self) -> Option<String> {
+        let at = f64::from(self.playhead.max(0.0));
+        let frame = self.frame_seconds();
+        let under: Vec<&Clip> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.kind.is_visual() && clip.start <= at && at < clip.start + clip.duration
+            })
+            .map(|clip| clip.as_ref())
+            .collect();
+        self.picture_cuts(None)
+            .into_iter()
+            .filter(|(cut, incoming)| {
+                under.iter().any(|clip| {
+                    clip.id == *incoming
+                        || (self
+                            .clip(incoming)
+                            .is_some_and(|next| next.track_id == clip.track_id)
+                            && (clip.start + clip.duration - cut).abs() < frame / 2.0)
+                })
+            })
+            .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))
+            .map(|(_, incoming)| incoming)
+    }
+
+    /// Puts the catalogue transition `id` on the cut into `clip_id`, as
+    /// long as the cut has room for one, and selects the clip.
+    fn put_transition(&mut self, clip_id: &str, id: &str) {
+        let Some(clip) = self.clip(clip_id) else {
             return;
         };
-        if !clip.kind.is_visual() || !outgoing.kind.is_visual() {
-            self.notify(&t("studio.selectVideoImageClip"), true);
-            return;
-        }
         let Some(duration) = self.transition_duration(clip, 0.5) else {
             self.notify(&t("studio.noRoomForTransition"), true);
             return;
         };
         self.apply(Command::UpdateClip {
-            clip_id,
+            clip_id: clip_id.to_owned(),
             patch: ClipPatch {
                 transition_in: Some(Some(Transition {
                     id: id.to_owned(),
@@ -3627,6 +3741,7 @@ impl Studio {
                 ..ClipPatch::default()
             },
         });
+        self.selection = vec![clip_id.to_owned()];
     }
 
     /// The clip whose incoming transition is selected: the one picked on
