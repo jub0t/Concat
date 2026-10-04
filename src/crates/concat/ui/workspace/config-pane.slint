@@ -10,14 +10,14 @@ import { EffectData } from "../demo/effects-panel.slint";
 import {
     AdjustPanel, AppliedEntryData, AppliedParamData, AudioPanel, ProcessorRows,
     CatalogueEntryData, ColourKnobData, FilterPanel, PresetStack, SpeedPanel,
-    VideoPanel,
+    TransitionPanel, VideoPanel,
 } from "../inspector/clip-inspector.slint";
 import {
     CurveData, CurveGroupData, WheelData, WheelGroupData,
 } from "../inspector/grading.slint";
 import { TextPanel } from "../inspector/text-panel.slint";
 import {
-    ClipField, ClipKind, ClipTextField, SelectedClipData,
+    ClipField, ClipKind, ClipTextField, SelectedClipData, SelectedTransitionData,
 } from "../timeline/model.slint";
 
 // The inspector column, in its two states:
@@ -26,6 +26,8 @@ import {
 //   with Modify pinned to the foot.
 // - Something selected: the clip inspector — Video, Audio and Effects, or
 //   Text alone for a title, or the layer panel for a filter on the lanes.
+// - A transition selected on its own: its panel, and nothing of the clips
+//   either side of it.
 
 // One fact: muted label left, value right. The value wraps rather than
 // elides — a folder path you cannot read is a path you have to go find.
@@ -109,6 +111,9 @@ export component ConfigPane inherits Rectangle {
     /// The selected clip's media's audio tracks; see Editor.audio-tracks.
     in property <[string]> audio-tracks;
     property <bool> has-selection: root.selected.present;
+    /// The transition selected on its own on the lanes, when no clip is.
+    in property <SelectedTransitionData> transition;
+    property <bool> on-transition: root.transition.present && !root.has-selection;
     in property <string> project-name: I18n.t("common.untitledProject");
     in property <string> project-folder: "—";
     /// The active timeline, whose frame, rate and duration the rows below
@@ -321,7 +326,7 @@ export component ConfigPane inherits Rectangle {
 
     Pane {
         // ── details ──────────────────────────────────────────────────────
-        if !root.has-selection: Rectangle {
+        if !root.has-selection && !root.on-transition: Rectangle {
             // The same 52px as the panes either side of it; see PaneHeader.
             height: 52px;
 
@@ -369,7 +374,7 @@ export component ConfigPane inherits Rectangle {
             }
         }
 
-        if !root.has-selection: PaneBody {
+        if !root.has-selection && !root.on-transition: PaneBody {
             padding: 0px;
             spacing: 0px;
 
@@ -401,7 +406,7 @@ export component ConfigPane inherits Rectangle {
             }
         }
 
-        if !root.has-selection: Rectangle {
+        if !root.has-selection && !root.on-transition: Rectangle {
             height: 49px;
 
             Rectangle {
@@ -439,6 +444,60 @@ export component ConfigPane inherits Rectangle {
                 modify-touch := TouchArea {
                     mouse-cursor: pointer;
                     clicked => { root.modify-project(); }
+                }
+            }
+        }
+
+        // ── a transition ─────────────────────────────────────────────────
+        if root.on-transition: Rectangle {
+            height: 52px;
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: 8px;
+                spacing: 8px;
+
+                Text {
+                    text: I18n.t("clipInspector.transition");
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                    font-weight: Theme.weight-title;
+                    letter-spacing: 1px;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                VerticalLayout {
+                    alignment: center;
+                    PaneSwitcher {
+                        kind: PaneKind.inspector;
+                        seat: root.pane-seat;
+                        removable: root.pane-removable;
+                        picked(kind) => { root.pane-picked(kind); }
+                        removed => { root.pane-removed(); }
+                    }
+                }
+            }
+        }
+
+        if root.on-transition: PaneBody {
+            padding: 0px;
+            spacing: 0px;
+
+            PaneScroll {
+                TransitionPanel {
+                    transition: root.transition;
+                    remove => { root.transition-remove(); }
+                    duration-set(seconds) => { root.transition-duration-set(seconds); }
                 }
             }
         }
@@ -564,8 +623,6 @@ export component ConfigPane inherits Rectangle {
                     cutout-painting(on) => { root.cutout-painting(on); }
                     cutout-subject(index) => { root.cutout-subject(index); }
                     cutout-clear => { root.cutout-clear(); }
-                    transition-remove => { root.transition-remove(); }
-                    transition-duration-set(seconds) => { root.transition-duration-set(seconds); }
                 }
 
                 if root.showing == "Speed": SpeedPanel {

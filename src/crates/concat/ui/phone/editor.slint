@@ -1037,8 +1037,6 @@ export component PhoneEditor inherits Rectangle {
             cutout-painting(on) => { Editor.cutout-painting(on); }
             cutout-subject(index) => { Editor.cutout-subject(index); }
             cutout-clear => { Editor.cutout-clear(); }
-            transition-remove => { Editor.transition-remove(); }
-            transition-duration-set(seconds) => { Editor.transition-duration-set(seconds); }
         }
 
         if root.sheet == "clip-speed": SpeedPanel {

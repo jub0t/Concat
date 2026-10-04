@@ -42,6 +42,7 @@ import {
     ClipKind,
     Keyframes,
     SelectedClipData,
+    SelectedTransitionData,
 } from "../timeline/model.slint";
 
 // The editor's clip inspector: one panel, three tabs. Adjust is direct
@@ -951,15 +952,10 @@ export component VideoPanel inherits VerticalLayout {
     /// What the automatic cutout keeps: 0 auto, 1 person, 2 object.
     callback cutout-subject(index: int);
     callback cutout-clear();
-    /// The transition riding into this clip: dropped, or set to a new
-    /// duration - clamped, same as applying one, so a drag here can never
-    /// ask for more than the cut can give it.
-    callback transition-remove();
-    callback transition-duration-set(seconds: float);
 
     /// A shape is a figure, not footage: there is no background to take
-    /// away, nothing to crop off its edges and no cut to ride in on, so
-    /// those three sections stay out of its panel.
+    /// away and nothing to crop off its edges, so those sections stay out
+    /// of its panel.
     property <bool> figure: root.selected.kind == ClipKind.shape;
 
     /// Which keyer is on the chain, and where: -1 for none. Scans the first
@@ -1012,7 +1008,6 @@ export component VideoPanel inherits VerticalLayout {
     property <float> crop-right;
     property <float> crop-bottom;
     property <float> feather;
-    property <float> transition-duration;
 
     function seed() {
         root.feather = root.selected.cutout-feather;
@@ -1027,7 +1022,6 @@ export component VideoPanel inherits VerticalLayout {
         root.crop-top = root.selected.crop-top;
         root.crop-right = root.selected.crop-right;
         root.crop-bottom = root.selected.crop-bottom;
-        root.transition-duration = root.selected.transition-duration;
     }
 
     property <[string]> blends: [
@@ -1462,57 +1456,80 @@ export component VideoPanel inherits VerticalLayout {
             }
         }
     }
+}
 
-    // The transition riding into this clip from the cut before it - see
-    // Studio::apply_transition. The section always shows, so its place in
-    // the panel is stable, with a note in place of controls when there is
-    // none: applying one from the Transitions tab is what puts it here.
-    if !root.figure: Section {
-        transition := SectionHeader {
+/// A transition picked on its own on the lanes: what it is, the clip it
+/// rides into, its length, and the way to take it off. Its own panel and
+/// not a section of the clip's, since it belongs to the cut between two
+/// clips rather than to either of them.
+export component TransitionPanel inherits VerticalLayout {
+    in property <SelectedTransitionData> transition;
+
+    /// Taken off, leaving a plain cut.
+    callback remove();
+    /// Set to a new length - clamped as applying one is, so this can never
+    /// ask for more than the cut can give it.
+    callback duration-set(seconds: float);
+
+    property <float> duration;
+
+    init => { root.duration = root.transition.duration; }
+    changed transition => { root.duration = root.transition.duration; }
+
+    Section {
+        SectionHeader {
             title: I18n.t("clipInspector.transition");
-            collapsible: true;
-            summary: root.selected.transition-id == "" ? I18n.t("common.none")
-                : root.selected.transition-name + " · "
-                    + InspectorFmt.format(ParamFormat.seconds2, root.selected.transition-duration);
+            summary: root.transition.name + " · "
+                + InspectorFmt.format(ParamFormat.seconds2, root.transition.duration);
         }
 
-        if transition.open: SectionBody {
-            if root.selected.transition-id == "": Note {
-                text: I18n.t("clipInspector.pickOneTransitionsTab");
-            }
-
-            if root.selected.transition-id != "": HorizontalLayout {
+        SectionBody {
+            HorizontalLayout {
                 padding-left: Theme.pad;
                 padding-right: Theme.pad;
                 padding-bottom: 6px;
                 spacing: 4px;
 
-                Text {
+                VerticalLayout {
                     horizontal-stretch: 1;
-                    text: root.selected.transition-name;
-                    color: Theme.fg;
-                    font-size: Theme.fs;
-                    font-weight: Theme.weight-title;
-                    vertical-alignment: center;
-                    overflow: elide;
+                    alignment: center;
+
+                    Text {
+                        text: root.transition.name;
+                        color: Theme.fg;
+                        font-size: Theme.fs;
+                        font-weight: Theme.weight-title;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: I18n.t1("clipInspector.transitionInto", root.transition.into);
+                        color: Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        overflow: elide;
+                    }
                 }
 
-                IconButton {
-                    glyph: Glyph.close;
-                    label: I18n.t1("clipInspector.remove", "\{root.selected.transition-name}");
-                    clicked => { root.transition-remove(); }
+                VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        glyph: Glyph.trash;
+                        label: I18n.t1("clipInspector.remove", root.transition.name);
+                        danger: true;
+                        clicked => { root.remove(); }
+                    }
                 }
             }
 
-            if root.selected.transition-id != "": Param {
+            Param {
                 label: I18n.t("common.duration");
-                value <=> root.transition-duration;
+                value <=> root.duration;
                 minimum: 0.05;
                 maximum: 5;
                 step: 0.05;
                 default-value: 0.5;
                 fmt: ParamFormat.seconds2;
-                changed(v) => { root.transition-duration-set(v); }
+                changed(v) => { root.duration-set(v); }
             }
         }
     }

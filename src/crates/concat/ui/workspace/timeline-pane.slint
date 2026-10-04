@@ -43,6 +43,7 @@ export component TimelinePane inherits Rectangle {
     in property <bool> preview-axis: false;
     in property <bool> preview-axis-audio;
     in property <int> selected-count;
+    in property <bool> transition-selected;
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <string> merge-blocked-because;
@@ -310,6 +311,7 @@ export component TimelinePane inherits Rectangle {
             trim-follow: root.trim-follow;
             preview-axis: root.preview-axis;
             selected-count: root.selected-count;
+            transition-selected: root.transition-selected;
             can-undo: root.can-undo;
             can-redo: root.can-redo;
             merge-blocked-because: root.merge-blocked-because;

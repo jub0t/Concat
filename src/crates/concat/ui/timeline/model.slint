@@ -98,6 +98,9 @@ export struct ClipData {
     /// seconds of timeline occupied
     duration: float,
     selected: bool,
+    /// The transition on the cut into this clip is the one selected:
+    /// picked on its own, with the clip itself unselected.
+    transition-selected: bool,
     /// at least one video effect is live: draws the `fx` chip in the header
     fx: bool,
     /// Seconds of transition on the cut into this clip; zero for none. The
@@ -256,6 +259,18 @@ export enum ClipTextField {
 /// or there is not — `present` is what says which, since a struct cannot be
 /// null. Published whole on every change: it is one row, and a partial update
 /// is how a panel ends up showing two clips at once.
+/// The transition picked on its own on the lanes, for the inspector's panel
+/// for it; `present: false` when none is.
+export struct SelectedTransitionData {
+    present: bool,
+    /// its package's name, in the interface's language
+    name: string,
+    /// seconds it covers
+    duration: float,
+    /// the name of the clip it rides into
+    into: string,
+}
+
 export struct SelectedClipData {
     present: bool,
     /// how many clips the panel writes to: one, or every selected title

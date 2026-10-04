@@ -945,6 +945,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 }
             } else {
                 state.selection = caught;
+                state.transition_selected = None;
             }
         }
     ));

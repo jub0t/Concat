@@ -692,7 +692,7 @@ component Clip inherits Rectangle {
             y: 0;
             width: parent.width;
             height: parent.height;
-            background: (root.trans-active || root.item.selected)
+            background: (root.trans-active || root.item.transition-selected)
                 ? Theme.accent.with-alpha(0.18)
                 : Theme.transition-out.with-alpha(0.15);
         }
@@ -703,7 +703,7 @@ component Clip inherits Rectangle {
             y: 0;
             width: parent.width;
             height: 1px;
-            background: (root.trans-active || root.item.selected)
+            background: (root.trans-active || root.item.transition-selected)
                 ? Theme.accent
                 : Theme.transition-in.with-alpha(0.4);
         }
@@ -712,7 +712,7 @@ component Clip inherits Rectangle {
             y: parent.height - 1px;
             width: parent.width;
             height: 1px;
-            background: (root.trans-active || root.item.selected)
+            background: (root.trans-active || root.item.transition-selected)
                 ? Theme.accent
                 : Theme.transition-in.with-alpha(0.4);
         }
@@ -724,6 +724,21 @@ component Clip inherits Rectangle {
             width: 1px;
             height: parent.height;
             background: Theme.line-strong.with-alpha(0.5);
+        }
+
+        // A press anywhere on the wash picks the transition, not the clip
+        // under it: the wash is the transition, drawn. Under the handles
+        // and the seam button, which are declared after it.
+        TouchArea {
+            enabled: !root.locked;
+            mouse-cursor: MouseCursor.pointer;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                    root.pressed(false, 2);
+                } else if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                    root.released();
+                }
+            }
         }
     }
 
@@ -926,7 +941,7 @@ component Clip inherits Rectangle {
         height: 22px;
 
         // Subtle accent glow when selected
-        if root.item.selected: Rectangle {
+        if root.item.transition-selected: Rectangle {
             x: 0;
             y: 0;
             width: parent.width;
@@ -941,11 +956,11 @@ component Clip inherits Rectangle {
             width: 18px;
             height: 18px;
             border-radius: 3px;
-            background: (root.trans-btn-hover || root.item.selected)
+            background: (root.trans-btn-hover || root.item.transition-selected)
                 ? Theme.field-hover
                 : #1e1e24;
-            border-width: (root.trans-btn-hover || root.item.selected) ? 2px : 1px;
-            border-color: (root.trans-btn-hover || root.item.selected)
+            border-width: (root.trans-btn-hover || root.item.transition-selected) ? 2px : 1px;
+            border-color: (root.trans-btn-hover || root.item.transition-selected)
                 ? Theme.accent
                 : Theme.line-strong;
 
@@ -954,7 +969,7 @@ component Clip inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 glyph: Glyph.transition;
                 size: 12px;
-                tint: (root.trans-btn-hover || root.item.selected) ? Theme.accent : Theme.fg;
+                tint: (root.trans-btn-hover || root.item.transition-selected) ? Theme.accent : Theme.fg;
             }
 
             trans-btn-touch := TouchArea {

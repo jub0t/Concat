@@ -772,6 +772,11 @@ pub struct Studio {
     pub relink: crate::panes::relink::RelinkPane,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
+    /// The clip whose incoming transition is selected, while no clip is:
+    /// a transition is picked on its own, not as part of the clip it rides
+    /// into. Read through [`Studio::selected_transition`], which holds it
+    /// to an empty clip selection and a clip that still has one.
+    pub transition_selected: Option<String>,
     pub open_menu: i32,
     pub menu_bar_token: i32,
     pub menu_target: Option<String>,
@@ -1942,6 +1947,7 @@ impl Studio {
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
             confirm: None,
+            transition_selected: None,
             open_menu: -1,
             menu_bar_token: 0,
             menu_target: None,
@@ -3581,11 +3587,30 @@ impl Studio {
         });
     }
 
-    /// Takes the transition off the selected clip, leaving a plain cut.
+    /// The clip whose incoming transition is selected: the one picked on
+    /// its own while no clip is, if it still has a transition.
+    pub fn selected_transition(&self) -> Option<&Clip> {
+        if !self.selection.is_empty() {
+            return None;
+        }
+        let id = self.transition_selected.as_deref()?;
+        self.clip(id).filter(|clip| clip.transition_in.is_some())
+    }
+
+    /// The clip a transition verb acts on: the selected transition's, or
+    /// the one selected clip's.
+    fn transition_target(&self) -> Option<String> {
+        self.selected_transition()
+            .map(|clip| clip.id.clone())
+            .or_else(|| self.sole_selection())
+    }
+
+    /// Takes the transition off its clip, leaving a plain cut.
     pub fn remove_transition(&mut self) {
-        let Some(clip_id) = self.sole_selection() else {
+        let Some(clip_id) = self.transition_target() else {
             return;
         };
+        self.transition_selected = None;
         self.apply(Command::UpdateClip {
             clip_id,
             patch: ClipPatch {
@@ -3600,7 +3625,7 @@ impl Studio {
     /// enforces, kept here so a drag on the timeline can never ask for more
     /// than the render will give it.
     pub fn set_transition_duration(&mut self, seconds: f64) {
-        let Some(clip_id) = self.sole_selection() else {
+        let Some(clip_id) = self.transition_target() else {
             return;
         };
         self.set_clip_transition_duration(&clip_id, seconds);
@@ -4009,6 +4034,21 @@ impl Studio {
         // now lands before the selection moves: a commit flushed after the
         // change would look for it on the newly selected clip and lose it.
         self.flush_commit();
+        // A press on a transition's seam or handles selects the transition,
+        // not the clip it rides into; a drag there still sets its length.
+        if edge == 2
+            && let Some(transition) = clip.transition_in.as_ref()
+        {
+            self.selection.clear();
+            self.transition_selected = Some(id.to_owned());
+            self.begin_echo();
+            self.gesture = Gesture::TransitionResize {
+                clip: id.to_owned(),
+                original_duration: transition.duration as f32,
+            };
+            return;
+        }
+        self.transition_selected = None;
         let already = self.selection.iter().any(|held| held == id);
         self.selection = if additive {
             if already {
@@ -4029,15 +4069,6 @@ impl Studio {
         };
 
         self.begin_echo();
-        if edge == 2 && self.selection.len() <= 1 {
-            if let Some(transition) = clip.transition_in.as_ref() {
-                self.gesture = Gesture::TransitionResize {
-                    clip: id.to_owned(),
-                    original_duration: transition.duration as f32,
-                };
-                return;
-            }
-        }
         if edge >= 0 && self.selection.len() <= 1 {
             self.gesture = Gesture::Trim {
                 clip: id.to_owned(),
@@ -4967,6 +4998,7 @@ impl Studio {
         let Some(id) = self.stage_hit(x, y) else {
             if !additive {
                 self.selection.clear();
+                self.transition_selected = None;
             }
             self.gesture = Gesture::None;
             return;
@@ -6340,6 +6372,11 @@ impl Studio {
     /// Delete: the selection goes, and the hole stays unless the timeline
     /// is magnetic.
     pub fn delete_selected(&mut self) {
+        // A selected transition goes on its own, leaving a plain cut.
+        if self.selected_transition().is_some() {
+            self.remove_transition();
+            return;
+        }
         let magnetic = self.prefs.magnetic;
         self.remove_selected(magnetic);
     }
@@ -6348,6 +6385,10 @@ impl Studio {
     /// it, so a rough cut needs no dragging-left after every deletion.
     /// https://github.com/jub0t/Concat/issues/106
     pub fn ripple_delete_selected(&mut self) {
+        if self.selected_transition().is_some() {
+            self.remove_transition();
+            return;
+        }
         self.remove_selected(true);
     }
 
@@ -6721,6 +6762,7 @@ impl Studio {
                 self.project_name = info.name.clone();
                 self.export.name = projects::folder_name(&info.name);
                 self.selection.clear();
+                self.transition_selected = None;
                 self.media.selected.clear();
                 self.playhead = 0.0;
                 self.handle(crate::panes::Msg::Timeline(
@@ -6869,6 +6911,7 @@ impl Studio {
         self.echo = None;
         self.dirty = false;
         self.selection.clear();
+        self.transition_selected = None;
         self.gesture = Gesture::None;
         self.handle(crate::panes::Msg::Monitor(
             crate::panes::monitor::MonitorMsg::Closed,
@@ -7360,6 +7403,9 @@ impl Studio {
                         start: clip.start as f32,
                         duration: clip.duration as f32,
                         selected: self.selection.iter().any(|id| id == &clip.id),
+                        transition_selected: self
+                            .selected_transition()
+                            .is_some_and(|picked| picked.id == clip.id),
                         fx: clip.video_effects.iter().any(|effect| effect.enabled),
                         transition_duration: clip
                             .transition_in
@@ -7442,6 +7488,7 @@ impl Studio {
         });
 
         editor.set_selected_clip(self.selected());
+        editor.set_selected_transition(self.selected_transition_data());
         // Written only when it differs: a fresh model is a change to every
         // binding that reads it, and this one is read on every publish.
         let labels = self.audio_track_labels();
@@ -8504,6 +8551,24 @@ impl Studio {
 
     /// The selection, flattened for the inspector: exactly one clip or
     /// nothing.
+    /// The selected transition, as the inspector's panel for it shows it.
+    fn selected_transition_data(&self) -> crate::ui::SelectedTransitionData {
+        let Some(clip) = self.selected_transition() else {
+            return Default::default();
+        };
+        let transition = clip.transition_in.as_ref().expect("held to one");
+        let name = Catalogue::builtin()
+            .get(&transition.id)
+            .map(|package| i18n::package_text(package.id(), "name", &package.manifest.effect.name))
+            .unwrap_or_else(|| label_of(&transition.id));
+        crate::ui::SelectedTransitionData {
+            present: true,
+            name: name.into(),
+            duration: transition.duration as f32,
+            into: clip.name.as_str().into(),
+        }
+    }
+
     fn selected(&self) -> SelectedClipData {
         // The one clip, or the first of a batch of titles: the panel shows
         // its values and writes to all of them; see `edit_targets`.
@@ -9749,6 +9814,7 @@ impl Studio {
             "deselect" => {
                 self.flush_commit();
                 self.selection.clear();
+                self.transition_selected = None;
             }
             // ⇧⌫, from the key table; plain ⌫ comes in as its own callback.
             "ripple-delete" => self.ripple_delete_selected(),

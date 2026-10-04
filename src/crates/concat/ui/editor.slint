@@ -13,7 +13,7 @@ import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { PaneKind } from "workspace/pane-switcher.slint";
 import { MenuItemData } from "primitives/context-menu.slint";
 import {
-    ClipData, ClipField, ClipTextField, DropData, SelectedClipData,
+    ClipData, ClipField, ClipTextField, DropData, SelectedClipData, SelectedTransitionData,
     StageGuideData, StageItemData, TimelineTabData, TimelineTool, TrackData,
     TrackSize,
 } from "timeline/model.slint";
@@ -132,6 +132,8 @@ export global Editor {
 
     // ── the inspector ──
     in-out property <SelectedClipData> selected-clip;
+    /// The transition selected on its own; see SelectedTransitionData.
+    in-out property <SelectedTransitionData> selected-transition;
     /// The selected clip's media's audio tracks, one label each, in file
     /// order - "Track 1 · stereo", "Mic/Aux · mono". Empty unless the file
     /// has more than one, which is when the Audio panel offers the choice.
