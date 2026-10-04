@@ -108,6 +108,12 @@ export component ThinHScrollbar inherits Rectangle {
     in property <length> offset;
     in property <length> min-thumb: 24px;
     in property <float> max-thumb: 1.0;
+    /// How thick the thumb is drawn; the gutter is 2px wider on each side.
+    in property <length> thickness: 4px;
+    /// Drawn even with nothing to scroll, the thumb then spanning the whole
+    /// gutter: under the timeline the bar is a fixture, and one that comes
+    /// and goes with the zoom reads as nothing being there at all.
+    in property <bool> always-visible: false;
 
     callback scrolled(offset: length);
 
@@ -120,16 +126,16 @@ export component ThinHScrollbar inherits Rectangle {
         ? root.travel * Math.min(root.offset, root.overflow) / root.overflow
         : 0px;
 
-    height: 8px;
+    height: root.thickness + 4px;
     background: transparent;
-    visible: root.overflow > 0px;
+    visible: root.always-visible || root.overflow > 0px;
 
     thumb := Rectangle {
         x: root.thumb-x;
         y: 2px;
         width: root.thumb-w;
-        height: 4px;
-        border-radius: 2px;
+        height: root.thickness;
+        border-radius: root.thickness / 2;
         background: (grab.pressed || grab.has-hover) ? Theme.fg-dim : Theme.line-strong;
 
         animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
