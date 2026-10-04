@@ -64,6 +64,7 @@ use crate::platform;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
+use crate::zones;
 
 /// The monitor's output sizes, matching the picker's rows.
 pub const OUTPUTS: [(i32, i32); 6] = [
@@ -538,6 +539,21 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// When no lane in the clip's band of the stack will take it: where a
+    /// new lane goes, as an index into the bottom-first tracks. `row` then
+    /// only says where the ghost is drawn - the lane next to the new one.
+    pub new_lane: Option<usize>,
+}
+
+/// `command` as is, or on a lane made for it at `new_lane`.
+fn on_new_track(new_lane: Option<usize>, command: Command) -> Command {
+    match new_lane {
+        Some(index) => Command::OnNewTrack {
+            index,
+            command: Box::new(command),
+        },
+        None => command,
+    }
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -2138,6 +2154,25 @@ impl Studio {
             .unwrap_or(0)
     }
 
+    /// What each lane holds, by row from the top, as the stack zones see
+    /// it - leaving out the clips in `skip`, which are on their way
+    /// elsewhere, so a lane they alone fill counts as empty.
+    pub fn lane_groups(&self, skip: &[&str]) -> Vec<Option<zones::Group>> {
+        let timeline = self.timeline();
+        timeline
+            .tracks
+            .iter()
+            .rev()
+            .map(|track| {
+                timeline
+                    .clips
+                    .iter()
+                    .find(|clip| clip.track_id == track.id && !skip.contains(&clip.id.as_str()))
+                    .map(|clip| zones::Group::of_model(clip.kind))
+            })
+            .collect()
+    }
+
     pub fn locked(&self, track_id: &str) -> bool {
         self.lanes
             .lane_view
@@ -3217,6 +3252,7 @@ impl Studio {
                     }
                     .max(MIN_DURATION),
                     row: 0,
+                    new_lane: None,
                 })
             }
             // A title: the preset's id rides where a file's media id would,
@@ -3228,6 +3264,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A figure from the Stickers page: the shape's name rides
             // where a file's media id would, and the label is what the
@@ -3239,6 +3276,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
@@ -3249,6 +3287,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             _ => None,
         }
@@ -3261,10 +3300,23 @@ impl Studio {
         if lanes == 0 {
             return None;
         }
-        plan.row = row.clamp(0, lanes - 1);
-        if self
-            .row_track(plan.row)
-            .is_none_or(|track| self.locked(&track.id))
+        // The lane under the pointer when the clip belongs there, else the
+        // nearest one in its band of the stack, else a new lane at the
+        // band's edge.
+        let groups = self.lane_groups(&[]);
+        let group = zones::Group::of_ui(plan.kind);
+        match zones::nearest(&groups, row.clamp(0, lanes - 1), group) {
+            Some(found) => plan.row = found,
+            None => {
+                let index = zones::new_lane_index(&groups, group);
+                plan.new_lane = Some(index);
+                plan.row = (lanes - index as i32).clamp(0, lanes - 1);
+            }
+        }
+        if plan.new_lane.is_none()
+            && self
+                .row_track(plan.row)
+                .is_none_or(|track| self.locked(&track.id))
         {
             return None;
         }
@@ -3279,12 +3331,14 @@ impl Studio {
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
+        let lane = plan.new_lane;
         let created = if plan.kind == ClipKind::Text {
             self.add_title(
                 Some(track_id),
                 f64::from(plan.start),
                 f64::from(plan.duration),
                 &plan.media,
+                lane,
             )
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
@@ -3293,22 +3347,29 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                lane,
             )
         } else if plan.kind == ClipKind::Filter {
-            self.apply(Command::AddLayerClip {
-                track_id: Some(track_id),
-                start: f64::from(plan.start),
-                duration: Some(f64::from(plan.duration)),
-                effect_id: plan.media.clone(),
-                name: plan.label.clone(),
-            })
+            self.apply(on_new_track(
+                lane,
+                Command::AddLayerClip {
+                    track_id: Some(track_id),
+                    start: f64::from(plan.start),
+                    duration: Some(f64::from(plan.duration)),
+                    effect_id: plan.media.clone(),
+                    name: plan.label.clone(),
+                },
+            ))
         } else {
-            self.apply(Command::AddClip {
-                media_id: plan.media.clone(),
-                track_id,
-                start: f64::from(plan.start),
-                ripple: true,
-            })
+            self.apply(on_new_track(
+                lane,
+                Command::AddClip {
+                    media_id: plan.media.clone(),
+                    track_id,
+                    start: f64::from(plan.start),
+                    ripple: true,
+                },
+            ))
         };
         if let Some(id) = created {
             self.selection = vec![id];
@@ -3323,7 +3384,7 @@ impl Studio {
         };
         let start = f64::from(self.playhead.max(0.0));
         let created = if plan.kind == ClipKind::Text {
-            self.add_title(None, start, f64::from(plan.duration), &plan.media)
+            self.add_title(None, start, f64::from(plan.duration), &plan.media, None)
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
                 None,
@@ -3331,6 +3392,7 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                None,
             )
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
@@ -3361,6 +3423,7 @@ impl Studio {
         start: f64,
         duration: f64,
         preset: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let (style, offset_y, font) = match self.text_presets.iter().find(|held| held.id == preset)
         {
@@ -3374,14 +3437,17 @@ impl Studio {
         // Over the picture, not under it: the first free lane above every
         // occupied one, minted at the top when there is none. A drop onto a
         // lane names its track and is placed there regardless.
-        let add = Command::AddTextClip {
-            track_id,
-            start,
-            style: Some(style),
-            duration: Some(duration),
-            offset_y,
-            above: true,
-        };
+        let add = on_new_track(
+            new_lane,
+            Command::AddTextClip {
+                track_id,
+                start,
+                style: Some(style),
+                duration: Some(duration),
+                offset_y,
+                above: true,
+            },
+        );
         match font {
             Some((family, path)) => self.apply(Command::Batch {
                 commands: vec![Command::AddFont { family, path }, add],
@@ -3399,16 +3465,20 @@ impl Studio {
         duration: f64,
         shape: &str,
         name: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let kind = model::ShapeKind::parse(shape).unwrap_or_default();
-        self.apply(Command::AddShapeClip {
-            track_id,
-            above: true,
-            start,
-            style: Some(model::ShapeStyle::of(kind)),
-            duration: Some(duration),
-            name: name.to_owned(),
-        })
+        self.apply(on_new_track(
+            new_lane,
+            Command::AddShapeClip {
+                track_id,
+                above: true,
+                start,
+                style: Some(model::ShapeStyle::of(kind)),
+                duration: Some(duration),
+                name: name.to_owned(),
+            },
+        ))
     }
 
     /// The selected clip's id, when exactly one is selected.
@@ -4177,10 +4247,22 @@ impl Studio {
                 let shift = snapped - anchor.start;
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
+                let skip: Vec<&str> = origins.iter().map(|origin| origin.clip.as_str()).collect();
+                let groups = self.lane_groups(&skip);
                 let moves: Vec<ClipMove> = origins
                     .iter()
                     .filter_map(|origin| {
-                        let row = (origin.row + rows).clamp(0, count - 1);
+                        let target = (origin.row + rows).clamp(0, count - 1);
+                        // Each sort of clip keeps to its own band of the
+                        // stack: dragged past its edge, it stops there.
+                        let row = self.clip(&origin.clip).map_or(target, |clip| {
+                            zones::toward(
+                                &groups,
+                                target,
+                                origin.row,
+                                zones::Group::of_model(clip.kind),
+                            )
+                        });
                         let track_id = self
                             .row_track(row)
                             .filter(|track| !self.locked(&track.id))

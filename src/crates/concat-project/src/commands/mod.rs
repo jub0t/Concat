@@ -635,6 +635,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         bottom: bool,
     },
+    /// Inserts a fresh lane at `index` in the bottom-first track list
+    /// (clamped to the top), minting a "t" id, and places the inner clip on
+    /// it - one atomic edit, one undo step. How a drop lands in its zone of
+    /// the stack when no existing lane there will take it. The inner
+    /// command must place a clip ([`Command::AddClip`],
+    /// [`Command::AddTextClip`], [`Command::AddShapeClip`] or
+    /// [`Command::AddLayerClip`]); its own track is replaced by the new one.
+    OnNewTrack {
+        /// Where the lane goes: 0 is the bottom, the track count the top.
+        index: usize,
+        /// The clip to place on it.
+        command: Box<Command>,
+    },
     /// Deletes a lane and every clip on it. Errs at the floor of one track.
     RemoveTrack {
         /// The lane to delete.
@@ -783,6 +796,9 @@ pub enum CommandError {
     /// one stored would poison every duration and key that touched it.
     #[error("A number in that edit is not finite.")]
     NotANumber,
+    /// [`Command::OnNewTrack`] wrapped something other than a clip to place.
+    #[error("Only a new clip can be given a new track.")]
+    NotAPlacement,
 }
 
 /// Mints ids. Owned by the editor so restored projects advance it past every
@@ -899,6 +915,7 @@ impl Command {
         }
         match self {
             Command::Batch { commands } => commands.iter().any(Command::has_non_finite),
+            Command::OnNewTrack { command, .. } => command.has_non_finite(),
             Command::AddMedia { item } | Command::FillSlot { item, .. } => {
                 bad(item.duration) || bad(item.frame_rate)
             }
@@ -1097,6 +1114,7 @@ pub fn apply(
             audio::apply(project, mint, command)
         }
         command @ (Command::AddTrack { .. }
+        | Command::OnNewTrack { .. }
         | Command::RemoveTrack { .. }
         | Command::SetTrackFlag { .. }) => tracks::apply(project, mint, command),
         command @ (Command::AddTimeline

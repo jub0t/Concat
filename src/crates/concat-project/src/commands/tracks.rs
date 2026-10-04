@@ -37,6 +37,86 @@ pub(super) fn apply(
             })
         }
 
+        Command::OnNewTrack { index, command } => {
+            let id = mint.next("t");
+            let placed = match *command {
+                Command::AddClip {
+                    media_id,
+                    start,
+                    ripple,
+                    ..
+                } => Command::AddClip {
+                    media_id,
+                    track_id: id.clone(),
+                    start,
+                    ripple,
+                },
+                Command::AddTextClip {
+                    above,
+                    start,
+                    style,
+                    duration,
+                    offset_y,
+                    ..
+                } => Command::AddTextClip {
+                    track_id: Some(id.clone()),
+                    above,
+                    start,
+                    style,
+                    duration,
+                    offset_y,
+                },
+                Command::AddShapeClip {
+                    above,
+                    start,
+                    style,
+                    duration,
+                    name,
+                    ..
+                } => Command::AddShapeClip {
+                    track_id: Some(id.clone()),
+                    above,
+                    start,
+                    style,
+                    duration,
+                    name,
+                },
+                Command::AddLayerClip {
+                    start,
+                    duration,
+                    effect_id,
+                    name,
+                    ..
+                } => Command::AddLayerClip {
+                    track_id: Some(id.clone()),
+                    start,
+                    duration,
+                    effect_id,
+                    name,
+                },
+                _ => return Err(CommandError::NotAPlacement),
+            };
+            // Staged like a batch, so a refused clip leaves no empty lane.
+            let mut staged = project.clone();
+            let timeline = staged.active_mut();
+            let at = index.min(timeline.tracks.len());
+            timeline.tracks.insert(
+                at,
+                Track {
+                    id,
+                    visible: true,
+                    muted: false,
+                    extra: Default::default(),
+                },
+            );
+            let outcome = super::apply(&mut staged, mint, placed)?;
+            *project = staged;
+            Ok(Outcome {
+                created_id: outcome.created_id,
+                applied: true,
+            })
+        }
+
         Command::RemoveTrack { track_id } => {
             let timeline = project.active_mut();
             if timeline.tracks.len() <= 1 {

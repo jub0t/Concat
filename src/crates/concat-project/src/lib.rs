@@ -2094,6 +2094,77 @@ mod tests {
             .expect("lane")
     }
 
+    #[test]
+    fn a_clip_on_a_new_track_gets_its_lane_where_asked_in_one_undo_step() {
+        let (mut editor, media_id, _) = fixture();
+        let before = editor.project().active().tracks.len();
+        let sound = editor
+            .apply(Command::OnNewTrack {
+                index: 0,
+                command: Box::new(Command::AddClip {
+                    media_id: media_id.clone(),
+                    track_id: String::new(),
+                    start: 0.0,
+                    ripple: true,
+                }),
+            })
+            .expect("adds")
+            .created_id
+            .expect("clip id");
+        let timeline = editor.project().active();
+        assert_eq!(timeline.tracks.len(), before + 1);
+        let lane = &timeline.clip(&sound).expect("placed").track_id;
+        assert_eq!(row_of(timeline, lane), 0, "the new lane is the bottom one");
+
+        let look = editor
+            .apply(Command::OnNewTrack {
+                index: usize::MAX,
+                command: Box::new(Command::AddLayerClip {
+                    track_id: None,
+                    start: 0.0,
+                    duration: None,
+                    effect_id: "concat.warm".into(),
+                    name: "Warm".into(),
+                }),
+            })
+            .expect("adds")
+            .created_id
+            .expect("clip id");
+        let timeline = editor.project().active();
+        let lane = &timeline.clip(&look).expect("placed").track_id;
+        assert_eq!(row_of(timeline, lane), timeline.tracks.len() - 1, "clamped to the top");
+
+        assert!(editor.undo());
+        let timeline = editor.project().active();
+        assert_eq!(timeline.tracks.len(), before + 1, "the lane goes with its clip");
+        assert!(timeline.clip(&look).is_none());
+    }
+
+    #[test]
+    fn a_new_track_is_only_for_a_new_clip_and_a_refusal_leaves_no_lane() {
+        let (mut editor, _, clip_id) = fixture();
+        let before = editor.project().active().tracks.len();
+        let refused = editor.apply(Command::OnNewTrack {
+            index: 0,
+            command: Box::new(Command::RemoveClips {
+                clip_ids: vec![clip_id],
+                ripple: false,
+            }),
+        });
+        assert_eq!(refused, Err(crate::commands::CommandError::NotAPlacement));
+        let gone = editor.apply(Command::OnNewTrack {
+            index: 0,
+            command: Box::new(Command::AddClip {
+                media_id: "missing".into(),
+                track_id: String::new(),
+                start: 0.0,
+                ripple: false,
+            }),
+        });
+        assert_eq!(gone, Err(crate::commands::CommandError::MediaGone));
+        assert_eq!(editor.project().active().tracks.len(), before);
+    }
+
     /// The video on the second lane, a clip under it on the first for as
     /// long as it runs when `occupied`. Returns the editor and the video.
     fn video_over_lane(occupied: bool) -> (Editor, String) {
@@ -2104,7 +2175,7 @@ mod tests {
             .created_id
             .expect("id");
         while editor.project().active().tracks.len() < 2 {
-            editor.apply(Command::AddTrack).expect("adds");
+            editor.apply(Command::AddTrack { bottom: false }).expect("adds");
         }
         let (bottom, upper) = {
             let tracks = &editor.project().active().tracks;

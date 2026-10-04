@@ -48,6 +48,7 @@ mod prefs;
 mod presets;
 mod studio;
 mod sysinfo;
+mod zones;
 /// Native Wayland file drops, which winit does not report; see the module.
 #[cfg(target_os = "linux")]
 mod wayland_drop;
