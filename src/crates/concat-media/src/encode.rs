@@ -435,18 +435,18 @@ fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
     answer
 }
 
-/// Whether the encoder takes ten-bit pictures. FFmpeg's MediaCodec,
-/// Media Foundation and AMF encoders are fed eight bits only here;
-/// VideoToolbox makes ten-bit HEVC but not ten-bit H.264, and NVENC and
-/// Quick Sync make ten-bit HEVC and AV1.
+/// Whether the encoder takes ten-bit pictures. FFmpeg's MediaCodec and
+/// Media Foundation encoders are fed eight bits only here; VideoToolbox
+/// and AMF make ten-bit HEVC but not ten-bit H.264, and NVENC and Quick
+/// Sync make ten-bit HEVC and AV1.
 fn takes_ten_bits(encoder_name: &str) -> bool {
     match Family::of(encoder_name) {
         Family::Software => true,
-        Family::VideoToolbox => encoder_name.starts_with("hevc_"),
+        Family::VideoToolbox | Family::Amf => encoder_name.starts_with("hevc_"),
         Family::Nvenc | Family::Qsv => {
             encoder_name.starts_with("hevc_") || encoder_name.starts_with("av1_")
         }
-        Family::MediaCodec | Family::MediaFoundation | Family::Amf => false,
+        Family::MediaCodec | Family::MediaFoundation => false,
     }
 }
 
@@ -672,6 +672,11 @@ fn open_video(
     // read off the context: headers with every keyframe, and a PQ
     // file's mastering display.
     let mut settings = settings;
+    // AMF writes ten-bit pictures under the Main profile unless told, and
+    // a Main stream with ten-bit samples is one D3D11 will not decode.
+    if encoder_name == "hevc_amf" && options.ten_bit {
+        settings.set("profile", "main10");
+    }
     if hdr.is_some() {
         match encoder_name {
             "libx265" => {
@@ -1581,11 +1586,13 @@ mod tests {
             "h264_mediacodec",
             "hevc_mf",
             "h264_nvenc",
-            "hevc_amf",
+            "h264_amf",
+            "av1_amf",
         ] {
             assert!(!takes_ten_bits(eight), "{eight}");
         }
         assert!(takes_ten_bits("hevc_nvenc") && takes_ten_bits("av1_qsv"));
+        assert!(takes_ten_bits("hevc_amf"));
         for gpu in ["h264_nvenc", "hevc_qsv", "av1_amf"] {
             assert!(Family::of(gpu).hardware(), "{gpu}");
             assert_eq!(Family::of(gpu).pixel_format(false), Pixel::NV12, "{gpu}");
@@ -1651,6 +1658,47 @@ mod tests {
         )
         .expect("opens");
         assert_eq!(format, Pixel::NV12);
+    }
+
+    /// On a Radeon, ten-bit HEVC is AMF's, and its file says Main 10 - the
+    /// profile a hardware decoder checks before it takes ten-bit samples.
+    #[test]
+    fn the_amd_hevc_encoder_writes_main_ten() {
+        let path = std::env::temp_dir().join("concat-encode-hevc-amf.mp4");
+        let options = EncodeOptions {
+            codec: VideoCodec::Hevc,
+            crf: 20,
+            ten_bit: true,
+            hardware: true,
+            ..EncodeOptions::default()
+        };
+        let mut encoder =
+            Encoder::create(&path, 1280, 720, FrameRate::THIRTY, &options).expect("creates");
+        if encoder.encoder_name() != "hevc_amf" {
+            eprintln!("{} chosen, not AMF; skipped", encoder.encoder_name());
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let frame = Frame::black(1280, 720);
+        for _ in 0..4 {
+            encoder.write_frame(&frame).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+        drop(encoder);
+
+        let input = ffmpeg::format::input(&path).expect("opens");
+        let stream = input
+            .streams()
+            .best(ffmpeg::media::Type::Video)
+            .expect("video");
+        // SAFETY: the parameters are live for as long as `input` is, and
+        // the profile is a plain field.
+        let profile = unsafe { (*stream.parameters().as_ptr()).profile };
+        drop(input);
+        let (_, _, _, _, _, format, _) = tags_of(&path);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(format, Pixel::YUV420P10LE);
+        assert_eq!(profile, ffmpeg::sys::AV_PROFILE_HEVC_MAIN_10);
     }
 
     /// Every codec the linked FFmpeg has, at eight and ten bits, makes a
