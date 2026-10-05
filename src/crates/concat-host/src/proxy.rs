@@ -253,6 +253,10 @@ pub fn write(
         }
         encoder.finish().map_err(|error| error.to_string())
     })();
+    // Windows will not rename or delete a file something still holds open,
+    // and a finished encoder keeps its output open until it is dropped.
+    drop(encoder);
+    drop(decoder);
     match result {
         Ok(()) => std::fs::rename(&partial, target)
             .map_err(|error| format!("{}: {error}", target.display())),
