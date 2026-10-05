@@ -921,15 +921,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
             // title's text box, and it ends here, with the band it drew -
             // usually an empty one that clears the selection.
             state.flush_commit();
-            let (from_row, to_row) = (state.row_at(from_y), state.row_at(to_y));
+            // A band wholly on the ground over or under the lanes catches
+            // nothing: a press there moves the playhead and clears.
+            let rows = state.band_rows(from_y, to_y);
             let caught: Vec<String> = state
                 .timeline()
                 .clips
                 .iter()
                 .filter(|clip| {
                     let row = state.row_of(&clip.track_id);
-                    row >= from_row
-                        && row <= to_row
+                    rows.is_some_and(|(from_row, to_row)| row >= from_row && row <= to_row)
                         && (clip.start + clip.duration) as f32 >= from
                         && clip.start as f32 <= to
                         && !state.locked(&clip.track_id)

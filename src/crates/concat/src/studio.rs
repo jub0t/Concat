@@ -2233,6 +2233,11 @@ impl Studio {
         row_at(&self.lane_heights(), y)
     }
 
+    /// The rows a band down the stack crosses; see `dock::band_rows`.
+    pub fn band_rows(&self, from_y: f32, to_y: f32) -> Option<(i32, i32)> {
+        crate::dock::band_rows(&self.lane_heights(), from_y, to_y)
+    }
+
     /// Seconds the project runs to, for Fit and for the scroll floor.
     pub fn duration(&self) -> f32 {
         self.timeline().clips.iter().fold(0.0_f64, |longest, clip| {

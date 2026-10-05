@@ -300,6 +300,18 @@ pub fn row_at(heights: &[f32], y: f32) -> i32 {
     (heights.len() as i32 - 1).max(0)
 }
 
+/// The rows a band from `from_y` down to `to_y` crosses, or `None` when it
+/// crosses none: drawn wholly on the ground over the stack or under it, or
+/// over no lanes at all. Not `row_at` at both ends, which clamps a press
+/// above the stack to the top lane and one below it to the bottom lane.
+pub fn band_rows(heights: &[f32], from_y: f32, to_y: f32) -> Option<(i32, i32)> {
+    let depth: f32 = heights.iter().sum();
+    if heights.is_empty() || to_y < 0.0 || from_y >= depth {
+        return None;
+    }
+    Some((row_at(heights, from_y), row_at(heights, to_y)))
+}
+
 /// The row whose top edge is nearest a point down the stack.
 ///
 /// What a *move* wants, and not the same question as `row_at`: dragging a clip
@@ -316,4 +328,22 @@ pub fn nearest_row(heights: &[f32], y: f32) -> i32 {
         top += height;
     }
     best
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A band on the ground over or under the lanes crosses none of them;
+    /// one that reaches into the stack crosses the lanes it reaches.
+    #[test]
+    fn a_band_off_the_stack_crosses_no_lane() {
+        let heights = [40.0, 60.0, 30.0];
+        assert_eq!(band_rows(&heights, -20.0, -5.0), None, "over the stack");
+        assert_eq!(band_rows(&heights, 130.0, 200.0), None, "under the stack");
+        assert_eq!(band_rows(&heights, 20.0, 20.0), Some((0, 0)));
+        assert_eq!(band_rows(&heights, -10.0, 70.0), Some((0, 1)));
+        assert_eq!(band_rows(&heights, 115.0, 300.0), Some((2, 2)));
+        assert_eq!(band_rows(&[], 0.0, 0.0), None, "no lanes");
+    }
 }
