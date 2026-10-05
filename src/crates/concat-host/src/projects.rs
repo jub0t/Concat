@@ -293,9 +293,20 @@ fn write_recents(config: &Path, entries: &[ProjectInfo]) -> Result<(), String> {
         .map_err(|error| format!("could not write the recents list: {error}"))
 }
 
-/// Compares paths case-insensitively, because Windows does.
+/// Compares paths case-insensitively, because Windows does, and on Windows
+/// with either slash, because a path typed or joined with `/` names the same
+/// folder as the one the file dialog hands back with `\`. A trailing
+/// separator names the same folder too.
 fn same_path(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+    fn spelled(path: &str) -> String {
+        let path = if cfg!(windows) {
+            path.replace('/', "\\")
+        } else {
+            path.to_owned()
+        };
+        path.trim_end_matches(['/', '\\']).to_owned()
+    }
+    spelled(left).eq_ignore_ascii_case(&spelled(right))
 }
 
 /// Turns a project name into something a filesystem will accept. Also used
@@ -426,5 +437,16 @@ mod tests {
     fn paths_compare_case_insensitively() {
         assert!(same_path("D:\\Work\\Film", "d:\\work\\film"));
         assert!(!same_path("D:\\Work\\Film", "D:\\Work\\Other"));
+        assert!(same_path("/work/film/", "/work/film"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn either_slash_names_the_same_folder_on_windows() {
+        assert!(same_path(
+            "C:\\Temp\\.tmp1\\Round trip",
+            "C:\\Temp\\.tmp1/Round trip"
+        ));
+        assert!(same_path("C:/Work/Film/", "c:\\work\\film"));
     }
 }
