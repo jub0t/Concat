@@ -908,6 +908,9 @@ pub struct Studio {
     /// The families the machine has, found on a worker after the window is
     /// up - the system's fonts take a moment to read - and empty until then.
     pub system_fonts: Vec<String>,
+    /// A fingerprint of what `font_families` was last published from, so
+    /// a publish that changes none of it leaves the picker's list alone.
+    fonts_published: std::cell::Cell<Option<u64>>,
 
     /// The languages Settings › General offers, in its order; see `i18n`.
     pub languages: Vec<i18n::Language>,
@@ -1994,6 +1997,7 @@ impl Studio {
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
             system_fonts: Vec::new(),
+            fonts_published: std::cell::Cell::new(None),
             languages,
             brush: 0,
             brush_size: 0.06,
@@ -4617,12 +4621,31 @@ impl Studio {
             .collect();
         own.sort_by_cached_key(|family| family.to_lowercase());
         own.dedup();
+        let mut held: std::collections::HashSet<String> = out
+            .iter()
+            .map(|family| family.to_ascii_lowercase())
+            .collect();
         for family in own.into_iter().chain(self.system_fonts.iter().cloned()) {
-            if !out.iter().any(|held| held.eq_ignore_ascii_case(&family)) {
+            if held.insert(family.to_ascii_lowercase()) {
                 out.push(family);
             }
         }
         out
+    }
+
+    /// What [`Studio::font_families`] is made of, hashed: the same number
+    /// for the same list, without building it.
+    fn fonts_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.installed_fonts.hash(&mut hasher);
+        if let Some(session) = &self.session {
+            for font in &session.project().fonts {
+                font.family.hash(&mut hasher);
+            }
+        }
+        self.system_fonts.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// The machine's families have been read; see `system_fonts`.
@@ -7579,13 +7602,17 @@ impl Studio {
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
-        sync(
-            &models.font_families,
-            self.font_families()
-                .into_iter()
-                .map(SharedString::from)
-                .collect(),
-        );
+        let fonts = Some(self.fonts_fingerprint());
+        if self.fonts_published.get() != fonts {
+            self.fonts_published.set(fonts);
+            sync(
+                &models.font_families,
+                self.font_families()
+                    .into_iter()
+                    .map(SharedString::from)
+                    .collect(),
+            );
+        }
         editor.set_inspector_jump_token(self.inspector_jump.0);
         editor.set_library_audition(self.audition_of().unwrap_or("").into());
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
