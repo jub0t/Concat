@@ -7388,6 +7388,24 @@ impl Studio {
         }
     }
 
+    /// The monitor's picture and the scope counted from it, alone: what a
+    /// frame arriving during playback changes.
+    pub fn publish_frame(&self, app: &App, models: &Models) {
+        app.global::<Editor>()
+            .set_preview_frame(self.monitor.image.clone());
+        let scopes = app.global::<Scopes>();
+        scopes.set_kind(self.monitor.scope_kind as i32);
+        match &self.monitor.scope {
+            Some((picture, marks, hdr)) => {
+                scopes.set_picture(picture.clone());
+                sync(&models.scope_marks, marks.clone());
+                scopes.set_hdr(*hdr);
+                scopes.set_ready(true);
+            }
+            None => scopes.set_ready(false),
+        }
+    }
+
     /// The timeline and the readouts that follow it: what runs on every
     /// event of a scrub, a drag, a trim or a knob.
     pub fn publish_lanes(&self, app: &App, models: &Models) {
@@ -7510,18 +7528,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
-        editor.set_preview_frame(self.monitor.image.clone());
-        let scopes = app.global::<Scopes>();
-        scopes.set_kind(self.monitor.scope_kind as i32);
-        match &self.monitor.scope {
-            Some((picture, marks, hdr)) => {
-                scopes.set_picture(picture.clone());
-                sync(&models.scope_marks, marks.clone());
-                scopes.set_hdr(*hdr);
-                scopes.set_ready(true);
-            }
-            None => scopes.set_ready(false),
-        }
+        self.publish_frame(app, models);
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
         let (path, width, erase) = self.stroke_overlay();

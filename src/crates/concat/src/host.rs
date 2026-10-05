@@ -223,6 +223,26 @@ pub fn spawn_in_project<T: Send + 'static>(
     spawn_detached(move || deliver(Some(epoch), work(), then));
 }
 
+/// [`spawn_in_project`] for the monitor's frames. While playback runs a
+/// frame arrives every few dozen milliseconds and changes nothing but the
+/// picture, so only the picture is published then; the transport's own
+/// tick publishes the lanes. Otherwise it is a full publish as usual.
+pub fn spawn_frame<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let epoch = project_epoch();
+    spawn_detached(move || {
+        deliver_then(Some(epoch), work(), then, |studio, app, models| {
+            if studio.playing {
+                studio.publish_frame(app, models);
+            } else {
+                studio.publish(app, models);
+            }
+        });
+    });
+}
+
 /// Hands a worker's result to the event-loop thread: `then` with the state
 /// and the window, and a full publish after it. A result made in a project
 /// epoch that has passed is dropped here.
@@ -230,6 +250,16 @@ fn deliver<T: Send + 'static>(
     epoch: Option<u64>,
     result: T,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    deliver_then(epoch, result, then, Studio::publish);
+}
+
+/// [`deliver`] with the publish after `then` chosen by the caller.
+fn deliver_then<T: Send + 'static>(
+    epoch: Option<u64>,
+    result: T,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+    publish: impl FnOnce(&Studio, &App, &Models) + Send + 'static,
 ) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {
@@ -240,7 +270,7 @@ fn deliver<T: Send + 'static>(
                 let mut studio = shell.studio.borrow_mut();
                 then(&mut studio, &app, &shell.models, result);
             }
-            shell.studio.borrow().publish(&app, &shell.models);
+            publish(&shell.studio.borrow(), &app, &shell.models);
         });
     });
 }
