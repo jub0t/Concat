@@ -21,8 +21,8 @@
 //!   file's `gain_at`.
 //!
 //! - The playback clock is the audio device's own sample counter. The window
-//!   reads [`Playback::position`] and interpolates; there is no second clock
-//!   to drift against.
+//!   reads [`Playback::position_now`], which carries it forward between the
+//!   device's buffers; there is no second clock to drift against.
 //!
 //! - The stream is *supervised*: pulled headphones, a changed default
 //!   device, or a device that was missing at launch all rebuild the stream
@@ -282,7 +282,75 @@ enum Msg {
 struct Shared {
     /// Timeline position in microseconds, written by the mix callback.
     position_micros: AtomicU64,
+    /// When `position_micros` was last written, in microseconds since
+    /// `epoch`.
+    stamp_micros: AtomicU64,
+    epoch: std::time::Instant,
     playing: AtomicBool,
+}
+
+/// The longest the clock runs on past the callback's last word. A callback
+/// comes every buffer, ten milliseconds or so; one that has not come in a
+/// tenth of a second is a stalled device, and the clock waits for it.
+const COAST: std::time::Duration = std::time::Duration::from_millis(100);
+
+impl Shared {
+    fn new() -> Self {
+        Self {
+            position_micros: AtomicU64::new(0),
+            stamp_micros: AtomicU64::new(0),
+            epoch: std::time::Instant::now(),
+            playing: AtomicBool::new(false),
+        }
+    }
+
+    /// Lands the clock at `seconds`, now.
+    fn stamp(&self, seconds: f64) {
+        self.position_micros
+            .store((seconds.max(0.0) * 1_000_000.0) as u64, Ordering::Relaxed);
+        self.stamp_micros
+            .store(self.epoch.elapsed().as_micros() as u64, Ordering::Relaxed);
+    }
+
+    fn position(&self) -> f64 {
+        self.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
+    }
+
+    /// The clock between callbacks: where the last one left it plus the
+    /// time since, while playing, so a reader polling faster than the
+    /// device's buffers sees time move smoothly and not in buffer steps.
+    fn position_now(&self) -> f64 {
+        let position = self.position();
+        if !self.playing.load(Ordering::Relaxed) {
+            return position;
+        }
+        let since = self
+            .epoch
+            .elapsed()
+            .saturating_sub(std::time::Duration::from_micros(
+                self.stamp_micros.load(Ordering::Relaxed),
+            ));
+        position + since.min(COAST).as_secs_f64()
+    }
+}
+
+/// Asks Windows for a millisecond timer while something plays. Its default
+/// tick is 15.6 ms, which turns the window's frame timer into an uneven
+/// 16-or-31 ms beat the picture judders to; elsewhere timers are already
+/// fine-grained.
+fn fine_timer(on: bool) {
+    #[cfg(windows)]
+    // SAFETY: plain calls with a constant period; each begin is paired with
+    // one end by the caller's flag.
+    unsafe {
+        if on {
+            windows_sys::Win32::Media::timeBeginPeriod(1);
+        } else {
+            windows_sys::Win32::Media::timeEndPeriod(1);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = on;
 }
 
 /// One decode waiting for a worker.
@@ -327,6 +395,8 @@ pub struct Playback {
     /// The set most recently sent to the callback, for re-seeding a rebuilt
     /// stream. The supervisor reads it; `resync` writes it.
     last_active: Arc<Mutex<Vec<ActiveClip>>>,
+    /// Whether this holds the fine timer; see [`fine_timer`].
+    fine: AtomicBool,
 }
 
 /// A playback failure the user would otherwise experience as unexplained
@@ -353,10 +423,7 @@ impl Playback {
     /// be spawned, which is the machine's condition and not the caller's.
     pub fn start(events: Arc<dyn PlaybackEvents>) -> Result<Arc<Playback>, String> {
         let (tx, rx) = mpsc::channel::<Msg>();
-        let shared = Arc::new(Shared {
-            position_micros: AtomicU64::new(0),
-            playing: AtomicBool::new(false),
-        });
+        let shared = Arc::new(Shared::new());
         let last_active: Arc<Mutex<Vec<ActiveClip>>> = Arc::new(Mutex::new(Vec::new()));
 
         {
@@ -369,9 +436,9 @@ impl Playback {
                 .map_err(|error| format!("could not spawn the audio thread: {error}"))?;
         }
 
-        // Position events at ~30Hz while playing. The window interpolates
-        // between them, so this cadence bounds correction error, not
-        // smoothness.
+        // Position events at ~30Hz while playing, for listeners that only
+        // want to know roughly where the transport is. The window does not
+        // wait on these: it reads `position_now` on its own frame timer.
         {
             let shared = Arc::clone(&shared);
             let events = Arc::clone(&events);
@@ -381,9 +448,7 @@ impl Playback {
                     loop {
                         std::thread::sleep(std::time::Duration::from_millis(33));
                         if shared.playing.load(Ordering::Relaxed) {
-                            let position =
-                                shared.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0;
-                            events.position(position);
+                            events.position(shared.position());
                         }
                     }
                 })
@@ -405,6 +470,7 @@ impl Playback {
                 available: Condvar::new(),
             }),
             last_active,
+            fine: AtomicBool::new(false),
         });
 
         for index in 0..DECODE_WORKERS {
@@ -420,16 +486,20 @@ impl Playback {
 
     /// Starts playing from `position` seconds.
     pub fn play(&self, position: f64) {
+        if !self.fine.swap(true, Ordering::Relaxed) {
+            fine_timer(true);
+        }
+        self.shared.stamp(position);
         self.shared.playing.store(true, Ordering::Relaxed);
-        self.shared
-            .position_micros
-            .store((position.max(0.0) * 1_000_000.0) as u64, Ordering::Relaxed);
         let _ = self.tx.send(Msg::Play(position.max(0.0)));
     }
 
     /// Stops playing; the position holds.
     pub fn pause(&self) {
         self.shared.playing.store(false, Ordering::Relaxed);
+        if self.fine.swap(false, Ordering::Relaxed) {
+            fine_timer(false);
+        }
         let _ = self.tx.send(Msg::Pause);
     }
 
@@ -439,15 +509,21 @@ impl Playback {
         // The callback owns the clock while playing, but a paused callback
         // returns before storing - so a paused seek must land the shared
         // position itself, or the atomic keeps serving the pre-seek time.
-        self.shared
-            .position_micros
-            .store((clamped * 1_000_000.0) as u64, Ordering::Relaxed);
+        self.shared.stamp(clamped);
         let _ = self.tx.send(Msg::Seek(clamped));
     }
 
     /// The clock: timeline seconds, from the device's own sample counter.
+    /// It moves a buffer at a time; see [`Playback::position_now`].
     pub fn position(&self) -> f64 {
-        self.shared.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0
+        self.shared.position()
+    }
+
+    /// The clock as of now: [`Playback::position`] carried forward by the
+    /// time since the device last reported, for drawing frames between its
+    /// buffers. At most [`COAST`] ahead, so a stalled device stalls it.
+    pub fn position_now(&self) -> f64 {
+        self.shared.position_now()
     }
 
     /// Whether the transport is rolling.
@@ -909,15 +985,11 @@ fn supervise_stream(
                         match message {
                             Msg::SetClips(next) => *locked(&last_active) = next,
                             Msg::Play(at) => {
-                                shared
-                                    .position_micros
-                                    .store((at * 1_000_000.0) as u64, Ordering::Relaxed);
+                                shared.stamp(at);
                                 shared.playing.store(true, Ordering::Relaxed);
                             }
                             Msg::Pause => shared.playing.store(false, Ordering::Relaxed),
-                            Msg::Seek(at) => shared
-                                .position_micros
-                                .store((at * 1_000_000.0) as u64, Ordering::Relaxed),
+                            Msg::Seek(at) => shared.stamp(at),
                         }
                     }
                 }
@@ -985,7 +1057,7 @@ where
     // playback resumes the same clips at the shared clock's position.
     let mut clips: Vec<ActiveClip> = locked(last_active).clone();
     let mut playing = shared.playing.load(Ordering::Relaxed);
-    let mut position = shared.position_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+    let mut position = shared.position();
 
     let failed = Arc::new(AtomicBool::new(false));
     let rx = Arc::clone(rx);
@@ -1022,9 +1094,7 @@ where
                     // silent branch cannot overwrite a fresher play() store
                     // with its own stale idea of the position.
                     if sought {
-                        shared
-                            .position_micros
-                            .store((position * 1_000_000.0) as u64, Ordering::Relaxed);
+                        shared.stamp(position);
                     }
                     data.fill(T::from_sample(0.0));
                     return;
@@ -1072,9 +1142,7 @@ where
                     position += step;
                 }
 
-                shared
-                    .position_micros
-                    .store((position * 1_000_000.0) as u64, Ordering::Relaxed);
+                shared.stamp(position);
             },
             {
                 let events = Arc::clone(events);
@@ -1099,7 +1167,30 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{sweep_plan, wav_data_range};
+    use super::{COAST, Shared, sweep_plan, wav_data_range};
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn the_clock_runs_on_between_buffers_but_not_past_a_stall() {
+        let shared = Shared::new();
+        shared.stamp(5.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert_eq!(shared.position_now(), 5.0, "a paused clock holds");
+
+        shared.playing.store(true, Ordering::Relaxed);
+        shared.stamp(5.0);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let now = shared.position_now();
+        assert!(now > 5.015 && now < 5.0 + COAST.as_secs_f64(), "{now}");
+        assert_eq!(shared.position(), 5.0, "the device's own word is unchanged");
+
+        std::thread::sleep(COAST + std::time::Duration::from_millis(20));
+        let stalled = shared.position_now();
+        assert!(
+            (stalled - (5.0 + COAST.as_secs_f64())).abs() < 1e-3,
+            "{stalled}"
+        );
+    }
 
     /// A minimal RIFF/WAVE: fmt chunk, then a data chunk with `samples`.
     fn wav(data_size: u32, samples: &[u8]) -> Vec<u8> {
