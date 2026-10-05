@@ -6,12 +6,13 @@ name: Build app
 # target:
 #
 #   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
-#   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst
+#   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst, .moon
 #   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
 #                                                          (+ .msix for the Store, apart)
 #
-# Installers and binaries only: the program is not shipped as an archive
-# of a folder to unpack, so what a person downloads is what they run.
+# Installers and binaries, so what a person downloads is what they run. The one
+# exception is the Linux .moon: the staged folder in one tar.gz, for `moon
+# install` on a machine with no package manager. ( assets/moon/README.md )
 #
 # Reusable: release.yml calls it on every tag. It is the one place the
 # build environment is described:
@@ -561,6 +562,20 @@ jobs:
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
+
+      # A .moon bundle: the whole app in one tar.gz ( binary + desktop file + icon ), installable with `moon install`.
+      - name: Package (.moon)
+        if: matrix.platform == 'linux'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="Concat-${VERSION}-linux-${{ matrix.arch }}"
+          bash assets/moon/build-moon-bundle.sh \
+            --stage "stage/$name" \
+            --version "$VERSION" \
+            --output "stage/$name.moon"
+          ls -l "stage/$name.moon"
 
       # Arch Linux package, from the same folder as the .deb and .rpm.
       # Arch ships x86_64 only, so aarch64 comes from Arch Linux ARM.

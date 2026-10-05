@@ -28,6 +28,12 @@ venv/
 Thumbs.db
 desktop.ini
 
+# Linux packaging output: the staged folder build-app.yml makes, and the
+# .moon bundles assets/moon/build-moon-bundle.sh packs from it. Both are
+# build output, and a bundle is the size of the editor.
+/stage
+/Concat-*.moon
+
 # Scratch media at the repo root.
 #
 # Test clips are large and change constantly, so they do not belong in git

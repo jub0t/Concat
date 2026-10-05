@@ -49,8 +49,9 @@ TABLES = {
 
 # The bundles a release publishes, as build-app.yml and mobile.yml name
 # them: platform, architecture, the kind of file, and its name with the
-# version to fill in. Installers and binaries, never an archive of a
-# folder - a person downloads the thing they run.
+# version to fill in. Installers and binaries - what a person downloads is
+# what they run - with one exception: the Linux .moon, which is the staged
+# folder in one file for `moon install` (assets/moon/README.md).
 BUNDLES = [
     ("macos", "arm64", "dmg", "Concat-{v}-macos-arm64.dmg"),
     ("macos", "x86_64", "dmg", "Concat-{v}-macos-x86_64.dmg"),
@@ -58,10 +59,12 @@ BUNDLES = [
     ("linux", "x86_64", "rpm", "Concat-{v}-linux-x86_64.rpm"),
     ("linux", "x86_64", "appimage", "Concat-{v}-x86_64.AppImage"),
     ("linux", "x86_64", "pacman", "Concat-{v}-linux-x86_64.pkg.tar.zst"),
+    ("linux", "x86_64", "moon", "Concat-{v}-linux-x86_64.moon"),
     ("linux", "aarch64", "deb", "Concat-{v}-linux-aarch64.deb"),
     ("linux", "aarch64", "rpm", "Concat-{v}-linux-aarch64.rpm"),
     ("linux", "aarch64", "appimage", "Concat-{v}-aarch64.AppImage"),
     ("linux", "aarch64", "pacman", "Concat-{v}-linux-aarch64.pkg.tar.zst"),
+    ("linux", "aarch64", "moon", "Concat-{v}-linux-aarch64.moon"),
     ("windows", "x86_64", "setup", "Concat-{v}-windows-x86_64-setup.exe"),
     ("windows", "x86_64", "msi", "Concat-{v}-windows-x86_64.msi"),
     ("windows", "aarch64", "setup", "Concat-{v}-windows-aarch64-setup.exe"),
