@@ -2625,17 +2625,27 @@ impl Studio {
         self.playing = true;
         log::debug!("playback: playing from {:.3}s", self.playhead);
         self.host.playback.play(f64::from(self.playhead));
-        // The clock is the audio device's; this follows it at 30 Hz and
-        // asks the monitor for the frame under it each time.
+        // The clock is the audio device's. This looks at it far more often
+        // than any timeline's frame rate and acts only when the frame under
+        // it changes, so each frame is asked for within a few milliseconds of
+        // its time instead of whenever a fixed 30 Hz beat next comes round -
+        // which at 24, 25 or 60 fps is unevenly late, and reads as judder.
+        let mut shown: Option<i64> = None;
         self.transport.start(
             slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(33),
-            || {
+            std::time::Duration::from_millis(8),
+            move || {
                 crate::host::Shell::with(|shell, app| {
                     {
                         let mut studio = shell.studio.borrow_mut();
                         let end = studio.duration();
-                        let position = studio.host.playback.position() as f32;
+                        let position = studio.host.playback.position_now() as f32;
+                        let fps = studio.project().active().video.rate();
+                        let frame = (f64::from(position) * fps + 1e-6).floor() as i64;
+                        if position < end && shown == Some(frame) {
+                            return;
+                        }
+                        shown = Some(frame);
                         studio.playhead = position.min(end);
                         // The view follows: a playhead that runs off the
                         // right edge, or sits off the left, pages the lanes
