@@ -1903,9 +1903,24 @@ impl VideoSettings {
     }
 
     /// This frame with every zero or negative field taken from `fallback`
-    /// instead: a document hand-edited into nonsense still opens at a size
-    /// that is a size.
+    /// instead, and the rate as a pair when it is not one a video has (see
+    /// [`FrameRate::checked`](concat_core::time::FrameRate::checked)): a
+    /// document hand-edited into nonsense still opens at a size that is a
+    /// size, and at a rate the frame arithmetic can count in.
     pub fn or(self, fallback: VideoSettings) -> VideoSettings {
+        let settings = self.or_terms(fallback);
+        if concat_core::time::FrameRate::checked(settings.rate_num, settings.rate_den).is_some() {
+            settings
+        } else {
+            VideoSettings {
+                rate_num: fallback.rate_num,
+                rate_den: fallback.rate_den,
+                ..settings
+            }
+        }
+    }
+
+    fn or_terms(self, fallback: VideoSettings) -> VideoSettings {
         VideoSettings {
             width: if self.width > 0 {
                 self.width
@@ -1933,9 +1948,12 @@ impl VideoSettings {
 
     /// Whether every term is one a frame could actually have. A zero
     /// dimension or rate is never a real setting, only a caller bug, and
-    /// writing one would poison the document until the next open.
+    /// writing one would poison the document until the next open. Neither
+    /// is a rate whose terms overflow the frame arithmetic.
     pub fn is_sane(self) -> bool {
-        self.width > 0 && self.height > 0 && self.rate_num > 0 && self.rate_den > 0
+        self.width > 0
+            && self.height > 0
+            && concat_core::time::FrameRate::checked(self.rate_num, self.rate_den).is_some()
     }
 }
 

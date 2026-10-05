@@ -337,6 +337,21 @@ impl FrameRate {
         Self(fps)
     }
 
+    /// The largest term [`FrameRate::checked`] takes. Every rate a camera or
+    /// a standard uses is a few thousand over a thousand and one at most;
+    /// terms past this only come from a hand-edited document, and frame
+    /// arithmetic on them overflows.
+    pub const MAX_TERM: i64 = 1_000_000;
+
+    /// The rate `num / den`, or `None` for one no video has: a zero or
+    /// negative term, or one past [`FrameRate::MAX_TERM`]. The
+    /// non-panicking path for a rate that comes from a document or a
+    /// request rather than from a constant.
+    pub fn checked(num: i64, den: i64) -> Option<Self> {
+        let term = 1..=Self::MAX_TERM;
+        (term.contains(&num) && term.contains(&den)).then(|| Self(Rational::new(num, den)))
+    }
+
     /// Builds a whole-number frame rate.
     pub fn from_int(fps: u32) -> Self {
         Self::new(Rational::from_int(i64::from(fps)))
@@ -418,6 +433,17 @@ impl TimeRange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_checked_rate_refuses_what_no_video_has() {
+        assert_eq!(FrameRate::checked(30000, 1001), Some(FrameRate::NTSC_30));
+        assert_eq!(FrameRate::checked(25, 1), Some(FrameRate::PAL));
+        assert_eq!(FrameRate::checked(0, 1), None);
+        assert_eq!(FrameRate::checked(30, 0), None);
+        assert_eq!(FrameRate::checked(-30, 1), None);
+        assert_eq!(FrameRate::checked(i64::MAX, 1), None);
+        assert_eq!(FrameRate::checked(30, FrameRate::MAX_TERM + 1), None);
+    }
 
     #[test]
     fn reduces_to_lowest_terms() {

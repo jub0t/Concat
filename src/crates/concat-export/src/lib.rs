@@ -887,7 +887,12 @@ pub fn render_on(
         return Err("there is nothing on the timeline to export".to_owned());
     }
 
-    let rate = FrameRate::new(Rational::new(request.rate_num, request.rate_den));
+    let rate = FrameRate::checked(request.rate_num, request.rate_den).ok_or_else(|| {
+        format!(
+            "{}/{} is not a frame rate a video can have",
+            request.rate_num, request.rate_den
+        )
+    })?;
     let output = PathBuf::from(&request.output);
 
     // Transitions become overlaps, ramps and fade filters before anything
@@ -1902,7 +1907,9 @@ pub fn preview_plan(
     rate_den: i64,
     color_space: ColorSpace,
 ) -> PreviewPlan {
-    let rate = FrameRate::new(Rational::new(rate_num, rate_den));
+    // A preview has no error to give, and a picture at the wrong pace beats
+    // none; the document opens with a sane rate (VideoSettings::or) anyway.
+    let rate = FrameRate::checked(rate_num, rate_den).unwrap_or(FrameRate::THIRTY);
     let mut resolved = clips.to_vec();
     let transitions = resolve_transitions(&mut resolved, rate);
     let visible: Vec<&ExportClip> = resolved
