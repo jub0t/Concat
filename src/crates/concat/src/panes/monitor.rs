@@ -102,6 +102,55 @@ pub struct MonitorPane {
     pub scope: Option<(slint::Image, Vec<ScopeMarkData>, bool)>,
     /// Looks left for a scope's counts on their way back.
     scope_polls: u32,
+    /// When the request out now was sent.
+    asked: Option<std::time::Instant>,
+    /// How the frames of the current playback arrived.
+    cadence: Cadence,
+}
+
+/// How smoothly a playback's frames reached the monitor: one line in the
+/// log when it stops, so a stutter is a number and not an impression.
+#[derive(Default, Debug, PartialEq)]
+struct Cadence {
+    shown: u32,
+    /// Frames showing the same timeline frame as the one before.
+    repeated: u32,
+    /// Timeline frames that passed without ever being shown.
+    skipped: u32,
+    /// The longest a request waited for its frame.
+    worst: std::time::Duration,
+    last: Option<i64>,
+}
+
+impl Cadence {
+    /// Counts a frame of the timeline frame `index` that took `wait`.
+    fn count(&mut self, index: i64, wait: std::time::Duration) {
+        self.shown += 1;
+        self.worst = self.worst.max(wait);
+        match self.last {
+            Some(last) if index == last => self.repeated += 1,
+            Some(last) if index > last + 1 => {
+                self.skipped += u32::try_from(index - last - 1).unwrap_or(u32::MAX);
+            }
+            _ => {}
+        }
+        self.last = Some(index);
+    }
+
+    /// Logs what was counted and starts over.
+    fn report(&mut self, fps: f64) {
+        if self.shown > 0 {
+            log::info!(
+                "playback: {} frames shown at {fps:.3} fps, {} repeated, {} skipped, \
+                 worst wait {} ms",
+                self.shown,
+                self.repeated,
+                self.skipped,
+                self.worst.as_millis(),
+            );
+        }
+        *self = Self::default();
+    }
 }
 
 impl MonitorPane {
@@ -142,6 +191,14 @@ impl MonitorPane {
             MonitorMsg::Request => self.request(studio),
             MonitorMsg::Frame(result, spec) => {
                 self.busy = false;
+                let fps = studio.project().active().video.rate();
+                let wait = self.asked.take().map(|at| at.elapsed()).unwrap_or_default();
+                if spec.moving && result.is_ok() {
+                    self.cadence
+                        .count((spec.time * fps + 1e-6).floor() as i64, wait);
+                } else if !spec.moving {
+                    self.cadence.report(fps);
+                }
                 // A Scopes pane on screen has the frame counted as it is
                 // drawn.
                 let scope = studio
@@ -251,9 +308,13 @@ impl MonitorPane {
             proxy: studio.playing && quality > 0,
             color_space: studio.project().active().video.color_space,
         };
+        if !studio.playing {
+            self.cadence.report(studio.project().active().video.rate());
+        }
         let monitor = studio.host.monitor.clone();
         self.busy = true;
         self.wanted = false;
+        self.asked = Some(std::time::Instant::now());
         spawn_in_project(
             move || {
                 // On the window's device the frame stays a texture; without
@@ -301,6 +362,21 @@ mod tests {
         assert_eq!(MonitorPane::frame_size(2, (0, 0)), (2, 2));
         // A tier past the picker's three is the smallest one.
         assert_eq!(MonitorPane::frame_size(9, (400, 400)), (100, 100));
+    }
+
+    #[test]
+    fn a_cadence_counts_repeats_and_gaps() {
+        let ms = std::time::Duration::from_millis;
+        let mut cadence = Cadence::default();
+        for (index, wait) in [(0, 10), (1, 12), (1, 40), (4, 8)] {
+            cadence.count(index, ms(wait));
+        }
+        assert_eq!(cadence.shown, 4);
+        assert_eq!(cadence.repeated, 1);
+        assert_eq!(cadence.skipped, 2, "frames 2 and 3 never came");
+        assert_eq!(cadence.worst, ms(40));
+        cadence.report(30.0);
+        assert_eq!(cadence, Cadence::default(), "a report starts over");
     }
 
     #[test]
