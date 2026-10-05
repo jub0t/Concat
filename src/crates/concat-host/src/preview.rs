@@ -23,6 +23,10 @@ use concat_export::ExportClip;
 use concat_project::DocumentSettings;
 use concat_project::model::ColorSpace;
 
+/// How far ahead of the playhead playback opens the file a cut leads to;
+/// see [`Monitor::prefetch`].
+const NEXT_CUT: f64 = 1.0;
+
 /// A frame request: the instant and the size, with the clips coming from
 /// the session that owns them.
 #[derive(Clone, Copy, Debug)]
@@ -309,8 +313,41 @@ impl Monitor {
         frames: u32,
     ) {
         let plan = self.plan_for(clips, settings, spec);
-        let moments = concat_export::preview_moments(&plan, spec.time, frames.min(8), spec.proxy);
+        let moments = concat_export::preview_moments(
+            &plan,
+            spec.time,
+            frames.min(concat_media::prefetch::AHEAD),
+            spec.proxy,
+        );
         let fps = (settings.rate_num as f64 / settings.rate_den.max(1) as f64).max(1.0);
+        // The file a cut leads into, read a second early: opening a reader
+        // and seeking it costs more than the quarter second the frames
+        // ahead cover, so a cut would otherwise wait on it. Only files the
+        // frames ahead do not read already, and not pinned - this is to
+        // have the reader open and its first frames cached by the cut.
+        if spec.moving
+            && let Some(far) =
+                concat_export::preview_moments(&plan, spec.time + NEXT_CUT, 1, spec.proxy).pop()
+        {
+            let fresh: Vec<_> = far
+                .frames
+                .into_iter()
+                .filter(|request| {
+                    !request.still
+                        && !moments
+                            .iter()
+                            .any(|near| near.frames.iter().any(|read| read.path == request.path))
+                })
+                .collect();
+            if !fresh.is_empty() {
+                let pool = Arc::clone(&self.pool);
+                crate::scheduler().submit(concat_media::Priority::Filmstrip, move || {
+                    for request in &fresh {
+                        let _ = pool.frame(request);
+                    }
+                });
+            }
+        }
         crate::scheduler().advance(
             concat_media::Cursor {
                 time: spec.time,

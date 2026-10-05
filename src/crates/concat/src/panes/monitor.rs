@@ -330,11 +330,20 @@ impl MonitorPane {
                 };
                 // Decode-ahead for whatever comes next, on a worker of its
                 // own, so the frame goes to the window without waiting for
-                // it and the next frame can start meanwhile.
+                // it and the next frame can start meanwhile. Playing, the
+                // full window ahead: the scheduler adds only the frames it
+                // has not queued yet, so asking for all of them each frame
+                // costs nothing and keeps a slow decode from catching up
+                // with the playhead.
                 {
                     let monitor = monitor.clone();
                     let settings = settings.clone();
-                    spawn_detached(move || monitor.prefetch(clips, &settings, spec, 2));
+                    let ahead = if spec.moving {
+                        concat_media::prefetch::AHEAD
+                    } else {
+                        2
+                    };
+                    spawn_detached(move || monitor.prefetch(clips, &settings, spec, ahead));
                 }
                 frame
             },
