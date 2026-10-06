@@ -226,20 +226,34 @@ pub fn spawn_in_project<T: Send + 'static>(
 /// [`spawn_in_project`] for the monitor's frames. While playback runs a
 /// frame arrives every few dozen milliseconds and changes nothing but the
 /// picture, so only the picture is published then; the transport's own
-/// tick publishes the lanes. Otherwise it is a full publish as usual.
+/// tick publishes the lanes. Otherwise it is a full publish as usual, and
+/// so is a frame that raised a toast - a failed one says so at once, not
+/// when playback stops.
 pub fn spawn_frame<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
 ) {
+    use std::sync::atomic::{AtomicBool, Ordering};
     let epoch = project_epoch();
     spawn_detached(move || {
-        deliver_then(Some(epoch), work(), then, |studio, app, models| {
-            if studio.playing {
-                studio.publish_frame(app, models);
-            } else {
-                studio.publish(app, models);
-            }
-        });
+        let toasted = Arc::new(AtomicBool::new(false));
+        let noted = Arc::clone(&toasted);
+        deliver_then(
+            Some(epoch),
+            work(),
+            move |studio, app, models, result| {
+                let toast = studio.toast.token;
+                then(studio, app, models, result);
+                noted.store(studio.toast.token != toast, Ordering::Relaxed);
+            },
+            move |studio, app, models| {
+                if studio.playing && !toasted.load(Ordering::Relaxed) {
+                    studio.publish_frame(app, models);
+                } else {
+                    studio.publish(app, models);
+                }
+            },
+        );
     });
 }
 
