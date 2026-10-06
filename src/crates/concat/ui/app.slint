@@ -285,9 +285,11 @@ export component App inherits Window {
     /// is installed, so they are handed over as models.
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
+    in property <[string]> caption-languages;
     callback captions-closed();
     callback captions-text-edited(text: string);
     callback captions-model-changed(index: int);
+    callback captions-language-changed(index: int);
     callback captions-placement-changed(index: int);
     callback captions-size-changed(index: int);
     callback captions-begin();
@@ -824,10 +826,12 @@ export component App inherits Window {
         height: root.height;
         data: root.captions;
         models: root.caption-models;
+        languages: root.caption-languages;
 
         closed => { root.captions-closed(); }
         text-edited(text) => { root.captions-text-edited(text); }
         model-changed(index) => { root.captions-model-changed(index); }
+        language-changed(index) => { root.captions-language-changed(index); }
         placement-changed(index) => { root.captions-placement-changed(index); }
         size-changed(index) => { root.captions-size-changed(index); }
         begin => { root.captions-begin(); }

@@ -17,9 +17,10 @@ import { Select } from "../primitives/select.slint";
 // down from the playhead. Asking would only invite the wrong answer - a
 // silent video sent to the transcriber - so the selection decides. Then
 // where the lines sit and how big they are, and one button. While it runs
-// the sheet is the progress report: a transcription knows how far through
-// the sound it is, so it gets a real bar and not a sweep. The language is
-// the transcriber's to work out.
+// the sheet is the progress report: which stage it is at, how long it has
+// been going, how far through the sound the last phrase heard reaches, and
+// that phrase. The language is the transcriber's to work out unless one is
+// picked; an English-only model is only ever told English.
 
 export struct CaptionsSheetData {
     open: bool,
@@ -28,6 +29,10 @@ export struct CaptionsSheetData {
     text: string,
     /// Row in the installed transcriber list.
     model: int,
+    /// Row in the language list: 0 is Auto.
+    language: int,
+    /// The chosen model hears more than English.
+    language-enabled: bool,
     /// 0 Bottom, 1 Centre, 2 Top
     placement: int,
     /// 0 Small, 1 Medium, 2 Large
@@ -35,6 +40,10 @@ export struct CaptionsSheetData {
     running: bool,
     /// 0..1
     progress: float,
+    /// 0 reading the sound, 1 loading the model, 2 listening
+    stage: int,
+    /// The last phrase heard.
+    heard: string,
     /// A transcriber model is installed.
     ready: bool,
     /// Why the last run failed, when it did.
@@ -45,9 +54,12 @@ export component CaptionsDialog inherits Modal {
     in property <CaptionsSheetData> data;
     /// The installed transcriber models, by name.
     in property <[string]> models;
+    /// Auto, then the languages the transcriber can be told, by name.
+    in property <[string]> languages;
 
     callback text-edited(text: string);
     callback model-changed(index: int);
+    callback language-changed(index: int);
     callback placement-changed(index: int);
     callback size-changed(index: int);
     callback begin();
@@ -76,6 +88,16 @@ export component CaptionsDialog inherits Modal {
     }
     init => { root.draft = root.data.text; }
 
+    /// Seconds since the run began, counted here: nothing in Rust needs it.
+    property <int> elapsed;
+    property <bool> running: root.data.running;
+    changed running => { root.elapsed = 0; }
+    Timer {
+        interval: 1s;
+        running: root.data.running;
+        triggered => { root.elapsed += 1; }
+    }
+
     VerticalLayout {
         if !root.data.running && root.from-sound: DialogSection {
             first: true;
@@ -90,6 +112,27 @@ export component CaptionsDialog inherits Modal {
                     enabled: root.models.length > 0;
                     changed(index) => { root.model-changed(index); }
                 }
+            }
+
+            DialogRow {
+                label: I18n.t("captions.language");
+                Select {
+                    // English, for a model that hears nothing else. Re-seeded
+                    // because a pick writes `current` and drops its binding.
+                    property <int> held: root.data.language-enabled ? root.data.language : 2;
+                    changed held => { self.current = self.held; }
+                    options: root.languages;
+                    current: self.held;
+                    enabled: root.data.language-enabled;
+                    changed(index) => { root.language-changed(index); }
+                }
+            }
+
+            if !root.data.language-enabled: Text {
+                text: I18n.t("captions.englishOnlyModel");
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
             }
 
             if !root.data.ready: Text {
@@ -224,14 +267,17 @@ export component CaptionsDialog inherits Modal {
 
                 Text {
                     horizontal-stretch: 1;
-                    text: root.data.progress < 0.02 ? I18n.t("captions.loadingTheModel") : I18n.t("captions.transcribing");
+                    text: root.data.stage == 0 ? I18n.t("captions.decodingAudio")
+                        : root.data.stage == 1 ? I18n.t("captions.loadingTheModel")
+                        : I18n.t("captions.transcribing");
                     color: Theme.fg;
                     font-size: Theme.fs;
                     vertical-alignment: center;
                 }
 
                 Text {
-                    text: "\{Math.round(root.data.progress * 100)}%";
+                    text: "\{Math.floor(root.elapsed / 60)}:\{Math.mod(root.elapsed, 60) < 10 ? "0" : ""}\{Math.mod(root.elapsed, 60)}"
+                        + (root.data.progress > 0 ? "  ·  \{Math.round(root.data.progress * 100)}%" : "");
                     color: Theme.fg-muted;
                     font-family: Theme.font-technical;
                     font-size: Theme.fs;
@@ -239,7 +285,20 @@ export component CaptionsDialog inherits Modal {
                 }
             }
 
-            if root.data.running: Progress { value: root.data.progress; }
+            if root.data.running: Progress {
+                value: root.data.progress;
+                busy: true;
+            }
+
+            if root.data.running && root.data.heard != "": Text {
+                text: "“\{root.data.heard}”";
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                font-italic: true;
+                wrap: word-wrap;
+                overflow: elide;
+                max-height: 2 * 1.4 * Theme.fs-sm;
+            }
 
             if root.data.running: HorizontalLayout {
                 alignment: start;

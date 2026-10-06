@@ -80,7 +80,10 @@ pub fn activity(msg: &Msg) -> Option<Activity> {
             | TimelineMsg::Resized(_),
         )
         | Msg::Export(ExportMsg::Progress { .. })
-        | Msg::Captions(CaptionsMsg::Progress(_))
+        | Msg::Captions(CaptionsMsg::Report(
+            concat_speech::transcribe::Report::Progress(_)
+            | concat_speech::transcribe::Report::Heard { .. },
+        ))
         | Msg::Speech(SpeechMsg::Progress(_))
         | Msg::Settings(SettingsMsg::ModelProgress { .. } | SettingsMsg::InstallProgress { .. }) => {
             return None;

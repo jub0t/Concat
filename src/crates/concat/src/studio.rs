@@ -596,6 +596,7 @@ pub struct Models {
     pub bar: Rc<VecModel<MenuItemData>>,
     /// The sheets' option lists: what is installed, and who can speak.
     pub caption_models: Rc<VecModel<SharedString>>,
+    pub caption_languages: Rc<VecModel<SharedString>>,
     pub speech_models: Rc<VecModel<SharedString>>,
     pub speech_model_details: Rc<VecModel<SharedString>>,
     pub speakers: Rc<VecModel<SharedString>>,
@@ -663,6 +664,7 @@ impl Models {
             menu: Rc::new(VecModel::default()),
             bar: Rc::new(VecModel::default()),
             caption_models: Rc::new(VecModel::default()),
+            caption_languages: Rc::new(VecModel::default()),
             speech_models: Rc::new(VecModel::default()),
             speech_model_details: Rc::new(VecModel::default()),
             speakers: Rc::new(VecModel::default()),
@@ -9234,6 +9236,13 @@ impl Studio {
             transcribers
                 .iter()
                 .map(|model| SharedString::from(model.name.as_str()))
+                .collect(),
+        );
+        sync(
+            &models.caption_languages,
+            crate::panes::captions::language_names()
+                .into_iter()
+                .map(SharedString::from)
                 .collect(),
         );
         app.set_captions(self.captions.data(self));
