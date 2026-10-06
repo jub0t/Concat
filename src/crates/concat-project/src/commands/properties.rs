@@ -96,6 +96,7 @@ pub(super) fn apply(
             // makes this a speed change rather than a trim.
             let next = speed.clamp(MIN_SPEED, MAX_SPEED);
             let source_covered = clip.duration * clip.speed;
+            let old_end = clip.start + clip.duration;
             // Bitwise so no assignment is short-circuited away. A rate set
             // by hand is a constant rate: the curve goes.
             let applied = assign(&mut clip.speed, next)
@@ -104,6 +105,20 @@ pub(super) fn apply(
                     (source_covered / next).max(MIN_CLIP_DURATION),
                 )
                 | assign(&mut clip.speed_curve, None);
+            // Slowed down, the clip grows into what follows it: the rest of
+            // the lane moves along by the growth, as a freeze frame's does,
+            // rather than being covered.
+            let (track_id, start, duration) = (clip.track_id.clone(), clip.start, clip.duration);
+            let grow = start + duration - old_end;
+            if grow > 0.0 && !timeline.is_free(&track_id, start, duration, &[&clip_id]) {
+                for other in timeline.clips_where(|other| {
+                    other.id != clip_id
+                        && other.track_id == track_id
+                        && other.start >= old_end - crate::placement::TOUCH
+                }) {
+                    other.start += grow;
+                }
+            }
             Ok(Outcome {
                 created_id: None,
                 applied,

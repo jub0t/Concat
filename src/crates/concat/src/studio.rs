@@ -4174,23 +4174,45 @@ impl Studio {
                 let shift = snapped - anchor.start;
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
-                let moves: Vec<(String, f32, Option<String>)> = origins
+                let moves: Vec<ClipMove> = origins
                     .iter()
-                    .map(|origin| {
+                    .filter_map(|origin| {
                         let row = (origin.row + rows).clamp(0, count - 1);
-                        let onto = self
+                        let track_id = self
                             .row_track(row)
                             .filter(|track| !self.locked(&track.id))
-                            .map(|track| track.id.clone());
-                        (origin.clip.clone(), (origin.start + shift).max(0.0), onto)
+                            .map(|track| track.id.clone())
+                            .or_else(|| {
+                                self.clip(&origin.clip).map(|clip| clip.track_id.clone())
+                            })?;
+                        Some(ClipMove {
+                            clip_id: origin.clip.clone(),
+                            start: f64::from((origin.start + shift).max(0.0)),
+                            track_id,
+                        })
                     })
                     .collect();
-                for (id, start, track) in moves {
-                    if let Some(clip) = self.echo_clip_mut(&id) {
-                        clip.start = f64::from(start);
-                        if let Some(track) = track {
-                            clip.track_id = track;
-                        }
+                // The drop's own rule, asked of the timeline as it was before
+                // the drag: the echo shows where the clips will land, in the
+                // nearest gap rather than on top of a clip, or back where
+                // they started when they would cover each other.
+                let landed = self.timeline().resolve_moves(&moves).unwrap_or_else(|| {
+                    origins
+                        .iter()
+                        .filter_map(|origin| {
+                            let clip = self.clip(&origin.clip)?;
+                            Some(ClipMove {
+                                clip_id: clip.id.clone(),
+                                start: clip.start,
+                                track_id: clip.track_id.clone(),
+                            })
+                        })
+                        .collect()
+                });
+                for wanted in landed {
+                    if let Some(clip) = self.echo_clip_mut(&wanted.clip_id) {
+                        clip.start = wanted.start;
+                        clip.track_id = wanted.track_id;
                     }
                 }
             }
@@ -4205,12 +4227,28 @@ impl Studio {
                 let (start, duration, source_start) = (*start, *duration, *source_start);
                 let threshold = 8.0 * self.lanes.seconds_per_pixel;
                 let speed = self.clip(&id).map_or(1.0, |clip| clip.speed as f32);
+                // A plain trim stops at the neighbours, as the command will;
+                // a magnetic one moves them, so the lane is all its room.
+                let (floor, ceiling) = if self.prefs.magnetic {
+                    (0.0, f32::INFINITY)
+                } else {
+                    self.timeline()
+                        .room_around(&id)
+                        .map_or((0.0, f32::INFINITY), |(before, after)| {
+                            (before as f32, after as f32)
+                        })
+                };
                 if edge == Edge::Start {
                     // The head cannot pass the tail, and cannot pull material
                     // out of a file that has none before the in-point.
                     let wanted = self.snapped(start + seconds, threshold, &id);
                     let limit = start + duration - MIN_DURATION;
-                    let at = wanted.clamp((start - source_start / speed.max(0.01)).max(0.0), limit);
+                    let at = wanted.clamp(
+                        (start - source_start / speed.max(0.01))
+                            .max(floor)
+                            .min(limit),
+                        limit,
+                    );
                     let delta = at - start;
                     if let Some(clip) = self.echo_clip_mut(&id) {
                         clip.start = f64::from(at);
@@ -4223,7 +4261,7 @@ impl Studio {
                     }
                 } else {
                     let wanted = self.snapped(start + duration + seconds, threshold, &id);
-                    let at = wanted.max(start + MIN_DURATION);
+                    let at = wanted.min(ceiling).max(start + MIN_DURATION);
                     if let Some(clip) = self.echo_clip_mut(&id) {
                         clip.duration = f64::from(at - start);
                     }

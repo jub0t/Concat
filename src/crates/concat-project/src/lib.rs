@@ -25,6 +25,7 @@ pub mod commands;
 pub mod doc;
 pub mod editor;
 pub mod model;
+pub mod placement;
 pub mod speed;
 
 pub use commands::{Command, CommandError, Outcome, why_not_merge};
@@ -299,6 +300,21 @@ mod tests {
             .collect()
     }
 
+    /// Clips placed exactly at these starts, on top of whatever is there:
+    /// the stacks an older document can hold, which no command makes now.
+    fn stacked(editor: &mut Editor, media_id: &str, track_id: &str, starts: &[f64]) -> Vec<String> {
+        let ids = lane(editor, media_id, track_id, starts);
+        for (id, start) in ids.iter().zip(starts) {
+            editor
+                .project_mut()
+                .active_mut()
+                .clip_mut(id)
+                .expect("just added")
+                .start = *start;
+        }
+        ids
+    }
+
     fn start_of(editor: &Editor, clip_id: &str) -> f64 {
         editor
             .project()
@@ -306,6 +322,175 @@ mod tests {
             .clip(clip_id)
             .expect("the clip is still there")
             .start
+    }
+
+    fn move_to(clip_id: &str, start: f64, track_id: &str) -> Command {
+        Command::MoveClips {
+            moves: vec![ClipMove {
+                clip_id: clip_id.to_owned(),
+                start,
+                track_id: track_id.to_owned(),
+            }],
+        }
+    }
+
+    #[test]
+    fn a_move_onto_a_clip_lands_in_the_nearest_gap_beside_it() {
+        let (mut editor, media_id, _first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let later = lane(&mut editor, &media_id, &video, &[20.0]);
+        // Onto [0, 10) at five: just after it is five away, just before
+        // it is before zero, so it lands at ten.
+        editor
+            .apply(move_to(&later[0], 5.0, &video))
+            .expect("moves");
+        assert_eq!(start_of(&editor, &later[0]), 10.0);
+    }
+
+    #[test]
+    fn a_move_into_open_space_lands_where_it_is_dropped() {
+        let (mut editor, media_id, _first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let later = lane(&mut editor, &media_id, &video, &[30.0]);
+        editor
+            .apply(move_to(&later[0], 12.0, &video))
+            .expect("moves");
+        assert_eq!(start_of(&editor, &later[0]), 12.0);
+    }
+
+    #[test]
+    fn a_gap_too_small_for_the_clip_is_passed_over() {
+        let (mut editor, media_id, _first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        // [0, 10) and [15, 25): the five-second gap cannot hold ten.
+        let more = lane(&mut editor, &media_id, &video, &[15.0, 40.0]);
+        editor
+            .apply(move_to(&more[1], 11.0, &video))
+            .expect("moves");
+        assert_eq!(start_of(&editor, &more[1]), 25.0);
+    }
+
+    #[test]
+    fn a_move_onto_another_lane_avoids_what_is_there() {
+        let (mut editor, media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        let above = lane(&mut editor, &media_id, &tracks[1].id, &[0.0]);
+        editor
+            .apply(move_to(&above[0], 3.0, &tracks[0].id))
+            .expect("moves");
+        let clip = editor.project().active().clip(&above[0]).expect("there");
+        assert_eq!(clip.track_id, tracks[0].id);
+        assert_eq!(clip.start, 10.0);
+    }
+
+    #[test]
+    fn a_group_keeps_its_shape_and_moves_as_one() {
+        let (mut editor, media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        let a = lane(&mut editor, &media_id, &tracks[1].id, &[20.0]);
+        let b = lane(&mut editor, &media_id, &tracks[2].id, &[25.0]);
+        // Both down a lane and back by eighteen: `a` would land on [0, 10)
+        // at two, so the pair goes on by eight, keeping five between them.
+        editor
+            .apply(Command::MoveClips {
+                moves: vec![
+                    ClipMove {
+                        clip_id: a[0].clone(),
+                        start: 2.0,
+                        track_id: tracks[0].id.clone(),
+                    },
+                    ClipMove {
+                        clip_id: b[0].clone(),
+                        start: 7.0,
+                        track_id: tracks[1].id.clone(),
+                    },
+                ],
+            })
+            .expect("moves");
+        assert_eq!(start_of(&editor, &a[0]), 10.0);
+        assert_eq!(start_of(&editor, &b[0]), 15.0);
+    }
+
+    #[test]
+    fn a_move_whose_clips_would_cover_each_other_stays_put() {
+        let (mut editor, media_id, _first) = fixture();
+        let tracks = editor.project().active().tracks.clone();
+        let a = lane(&mut editor, &media_id, &tracks[1].id, &[0.0]);
+        let b = lane(&mut editor, &media_id, &tracks[2].id, &[0.0]);
+        let outcome = editor
+            .apply(Command::MoveClips {
+                moves: vec![
+                    ClipMove {
+                        clip_id: a[0].clone(),
+                        start: 40.0,
+                        track_id: tracks[3].id.clone(),
+                    },
+                    ClipMove {
+                        clip_id: b[0].clone(),
+                        start: 40.0,
+                        track_id: tracks[3].id.clone(),
+                    },
+                ],
+            })
+            .expect("answers");
+        assert!(!outcome.applied);
+        let timeline = editor.project().active();
+        assert_eq!(timeline.clip(&a[0]).expect("there").track_id, tracks[1].id);
+        assert_eq!(timeline.clip(&b[0]).expect("there").track_id, tracks[2].id);
+    }
+
+    #[test]
+    fn a_clip_added_onto_another_takes_the_nearest_gap() {
+        let (mut editor, media_id, _first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let added = lane(&mut editor, &media_id, &video, &[4.0]);
+        assert_eq!(start_of(&editor, &added[0]), 10.0);
+    }
+
+    #[test]
+    fn a_plain_trim_stops_at_the_next_clip() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let next = lane(&mut editor, &media_id, &video, &[12.0]);
+        editor
+            .apply(trim(&first, TrimEdge::End, 5.0, false))
+            .expect("trims");
+        let clip = editor.project().active().clip(&first).expect("there");
+        assert_eq!(clip.duration, 12.0, "up to the next clip, not past it");
+        assert_eq!(start_of(&editor, &next[0]), 12.0);
+    }
+
+    #[test]
+    fn a_plain_head_trim_stops_at_the_clip_before() {
+        let (mut editor, media_id, _first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let next = lane(&mut editor, &media_id, &video, &[12.0]);
+        // Twenty seconds of source before the in-point, so the clip before
+        // is what stops the head, not the start of the file.
+        editor
+            .project_mut()
+            .active_mut()
+            .clip_mut(&next[0])
+            .expect("there")
+            .source_start = 20.0;
+        editor
+            .apply(trim(&next[0], TrimEdge::Start, -10.0, false))
+            .expect("trims");
+        assert_eq!(start_of(&editor, &next[0]), 10.0);
+    }
+
+    #[test]
+    fn slowing_a_clip_down_moves_what_follows_it() {
+        let (mut editor, media_id, first) = fixture();
+        let video = editor.project().active().tracks[0].id.clone();
+        let next = lane(&mut editor, &media_id, &video, &[10.0]);
+        editor
+            .apply(Command::SetClipSpeed {
+                clip_id: first,
+                speed: 0.5,
+            })
+            .expect("retimes");
+        assert_eq!(start_of(&editor, &next[0]), 20.0);
     }
 
     // ── ripple delete: https://github.com/jub0t/Concat/issues/106 ──
@@ -381,7 +566,7 @@ mod tests {
         // and a survivor at twenty. Their union is fifteen, so it lands at
         // five; their sum is twenty, which would send it to zero. Away
         // from zero on purpose: the floor there would hide the difference.
-        let more = lane(&mut editor, &media_id, &video, &[5.0, 20.0]);
+        let more = stacked(&mut editor, &media_id, &video, &[5.0, 20.0]);
         editor
             .apply(Command::RemoveClips {
                 clip_ids: vec![first, more[0].clone()],
@@ -399,7 +584,7 @@ mod tests {
         // at fourteen: the survivor moves by the four seconds of span in
         // front of it, to ten, not by the whole ten, which would put it at
         // four - in front of where the doomed clip began.
-        let more = lane(&mut editor, &media_id, &video, &[10.0, 14.0]);
+        let more = stacked(&mut editor, &media_id, &video, &[10.0, 14.0]);
         editor
             .apply(Command::RemoveClips {
                 clip_ids: vec![more[0].clone()],
@@ -414,7 +599,7 @@ mod tests {
     fn ripple_delete_leaves_a_clip_stacked_at_the_same_start_alone() {
         let (mut editor, media_id, first) = fixture();
         let video = editor.project().active().tracks[0].id.clone();
-        let twin = lane(&mut editor, &media_id, &video, &[0.0]);
+        let twin = stacked(&mut editor, &media_id, &video, &[0.0]);
         editor
             .apply(Command::RemoveClips {
                 clip_ids: vec![first],
@@ -653,7 +838,7 @@ mod tests {
         let video = editor.project().active().tracks[0].id.clone();
         // A clip behind the trimmed one, and one stacked before its tail
         // on the same lane: a tail trim is about what is behind the tail.
-        let more = lane(&mut editor, &media_id, &video, &[10.0, 3.0]);
+        let more = stacked(&mut editor, &media_id, &video, &[10.0, 3.0]);
         editor
             .apply(trim(&first, TrimEdge::End, -2.0, true))
             .expect("shortens");
@@ -3112,7 +3297,7 @@ mod tests {
     }
 
     #[test]
-    fn add_at_first_free_takes_the_lowest_empty_lane_or_the_bottom_one() {
+    fn add_at_first_free_takes_the_lowest_empty_lane_or_opens_one() {
         let (mut editor, media_id, _) = fixture();
         // Track one is occupied for [0, 10), so the same span lands on two.
         let second = editor
@@ -3133,8 +3318,8 @@ mod tests {
             editor.project().active().tracks[1].id
         );
 
-        // Fill the remaining lanes, then ask again: rather than refusing,
-        // the clip overlaps on the first track.
+        // Fill the remaining lanes, then ask again: rather than covering a
+        // clip, the new one gets a lane of its own at the top.
         editor
             .apply(Command::AddClipAtFirstFree {
                 media_id: media_id.clone(),
@@ -3155,15 +3340,12 @@ mod tests {
             .expect("adds")
             .created_id
             .expect("id");
+        let timeline = editor.project().active();
+        assert_eq!(timeline.tracks.len(), 5, "a fifth lane was opened");
         assert_eq!(
-            editor
-                .project()
-                .active()
-                .clip(&overflow)
-                .expect("exists")
-                .track_id,
-            editor.project().active().tracks[0].id,
-            "a full timeline falls back to the first track, overlap and all"
+            timeline.clip(&overflow).expect("exists").track_id,
+            timeline.tracks[4].id,
+            "a full timeline opens a lane rather than covering a clip"
         );
 
         // A clear span later in time finds track one free again.

@@ -158,6 +158,14 @@ impl Editor {
         &self.project
     }
 
+    /// The project, writable around the undo stack: for tests that need a
+    /// state no command makes any more, such as the stacked clips an older
+    /// document can hold.
+    #[cfg(test)]
+    pub(crate) fn project_mut(&mut self) -> &mut Project {
+        &mut self.project
+    }
+
     /// Applies one command, recording the state before it for undo.
     ///
     /// A command that fails leaves the project and history untouched, and

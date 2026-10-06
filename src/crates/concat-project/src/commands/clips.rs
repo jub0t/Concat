@@ -29,10 +29,12 @@ pub(super) fn apply(
             if timeline.track(&track_id).is_none() {
                 return Err(CommandError::TrackGone);
             }
+            // Magnetic, the lane makes room; otherwise the clip takes the
+            // nearest gap it fits, never the top of another clip.
             let start = if ripple {
                 ripple_room_for(timeline, &track_id, start, &media)
             } else {
-                start
+                timeline.nearest_free_start(&track_id, start, clip_length(&media), &[])
             };
             let id = mint.next("c");
             timeline
@@ -49,13 +51,10 @@ pub(super) fn apply(
                 .media_by_id(&media_id)
                 .ok_or(CommandError::MediaGone)?
                 .clone();
-            let duration = match media.kind {
-                MediaKind::Image => DEFAULT_IMAGE_DURATION,
-                _ => media.duration.unwrap_or(UNKNOWN_DURATION),
-            };
+            let duration = clip_length(&media);
             let timeline = project.active_mut();
-            let track_id =
-                first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?;
+            let track_id = first_free_track(timeline, start, duration)
+                .unwrap_or_else(|| fresh_track(timeline, mint));
             let id = mint.next("c");
             timeline
                 .clips
@@ -82,25 +81,14 @@ pub(super) fn apply(
             let track_id = match track_id {
                 Some(id) if timeline.track(&id).is_some() => id,
                 Some(_) => return Err(CommandError::TrackGone),
-                None if above => match first_free_track_above(timeline, start, duration) {
-                    Some(id) => id,
-                    None => {
-                        // Every lane above the video is taken: mint one at
-                        // the top for the words to land on.
-                        let id = mint.next("t");
-                        timeline.tracks.push(Track {
-                            id: id.clone(),
-                            visible: true,
-                            muted: false,
-                            extra: Default::default(),
-                        });
-                        id
-                    }
-                },
-                None => {
-                    first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
-                }
+                // Every lane above the video is taken: a new one at the top
+                // for the words to land on.
+                None if above => first_free_track_above(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
+                None => first_free_track(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
             };
+            let start = timeline.nearest_free_start(&track_id, start, duration, &[]);
             let id = mint.next("c");
             let mut clip = Clip::blank(
                 id.clone(),
@@ -135,23 +123,12 @@ pub(super) fn apply(
             let track_id = match track_id {
                 Some(id) if timeline.track(&id).is_some() => id,
                 Some(_) => return Err(CommandError::TrackGone),
-                None if above => match first_free_track_above(timeline, start, duration) {
-                    Some(id) => id,
-                    None => {
-                        let id = mint.next("t");
-                        timeline.tracks.push(Track {
-                            id: id.clone(),
-                            visible: true,
-                            muted: false,
-                            extra: Default::default(),
-                        });
-                        id
-                    }
-                },
-                None => {
-                    first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
-                }
+                None if above => first_free_track_above(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
+                None => first_free_track(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
             };
+            let start = timeline.nearest_free_start(&track_id, start, duration, &[]);
             let id = mint.next("c");
             let name = if name.trim().is_empty() {
                 style.kind.id().to_owned()
@@ -182,10 +159,10 @@ pub(super) fn apply(
             let track_id = match track_id {
                 Some(id) if timeline.track(&id).is_some() => id,
                 Some(_) => return Err(CommandError::TrackGone),
-                None => {
-                    first_free_track(timeline, start, duration).ok_or(CommandError::NoTracks)?
-                }
+                None => first_free_track(timeline, start, duration)
+                    .unwrap_or_else(|| fresh_track(timeline, mint)),
             };
+            let start = timeline.nearest_free_start(&track_id, start, duration, &[]);
             let id = mint.next("c");
             let name = if name.trim().is_empty() {
                 effect_id.clone()
@@ -204,18 +181,17 @@ pub(super) fn apply(
 
         Command::MoveClips { moves } => {
             let timeline = project.active_mut();
-            let track_ids: HashSet<String> = timeline
-                .tracks
-                .iter()
-                .map(|track| track.id.clone())
-                .collect();
+            // Onto another clip is never where a move lands: the group goes
+            // to the nearest gap that holds it, and a move whose own clips
+            // would cover each other stays where it was.
+            let Some(moves) = timeline.resolve_moves(&moves) else {
+                return Ok(Outcome::default());
+            };
             let mut applied = false;
             for wanted in moves {
                 if let Some(clip) = timeline.clip_mut(&wanted.clip_id) {
-                    applied |= assign(&mut clip.start, wanted.start.max(0.0));
-                    if track_ids.contains(&wanted.track_id) {
-                        applied |= assign(&mut clip.track_id, wanted.track_id);
-                    }
+                    applied |= assign(&mut clip.start, wanted.start);
+                    applied |= assign(&mut clip.track_id, wanted.track_id);
                 }
             }
             Ok(Outcome {
@@ -237,12 +213,27 @@ pub(super) fn apply(
             let track_id = clip.track_id.clone();
             let anchor = clip.start;
             let old_end = clip.start + clip.duration;
+            // A plain trim stops at the neighbours; a magnetic one moves
+            // them instead, so it has the lane's whole length.
+            let (floor, ceiling) = if ripple {
+                (0.0, f64::INFINITY)
+            } else {
+                let (before, after) = timeline
+                    .room_around(&clip_id)
+                    .unwrap_or((0.0, f64::INFINITY));
+                (before, after)
+            };
+            let Some(clip) = timeline.clip_mut(&clip_id) else {
+                return Ok(Outcome::default());
+            };
             // What the trim did, and what the lane behind it does about
             // it when it is magnetic: `by` is how far the later clips
             // move, `behind` where "later" begins.
             let (applied, by, behind) = match edge {
                 TrimEdge::End => {
-                    let duration = (clip.duration + delta).max(MIN_CLIP_DURATION);
+                    let duration = (clip.duration + delta)
+                        .min(ceiling - clip.start)
+                        .max(MIN_CLIP_DURATION);
                     let old = clip.duration;
                     let applied = assign(&mut clip.duration, duration);
                     if applied {
@@ -263,7 +254,7 @@ pub(super) fn apply(
                     let start = if ripple {
                         clip.start + shift
                     } else {
-                        (clip.start + shift).max(0.0)
+                        (clip.start + shift).max(floor)
                     };
                     let moved = start - clip.start;
                     let duration = clip.duration - moved;
@@ -702,11 +693,14 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
         MediaKind::Audio => ClipKind::Audio,
         MediaKind::Image => ClipKind::Image,
     };
-    let duration = match media.kind {
-        MediaKind::Image => DEFAULT_IMAGE_DURATION,
-        _ => media.duration.unwrap_or(UNKNOWN_DURATION),
-    };
-    let mut clip = Clip::blank(id, track_id, kind, media.name.clone(), start, duration);
+    let mut clip = Clip::blank(
+        id,
+        track_id,
+        kind,
+        media.name.clone(),
+        start,
+        clip_length(media),
+    );
     clip.media_id = media.id.clone();
     clip
 }
@@ -717,10 +711,7 @@ fn default_clip(id: String, track_id: String, media: &MediaItem, start: f64) -> 
 /// the new clip slots in and nothing is covered (#129). Returns where the
 /// new clip lands. A drop with room to spare changes nothing.
 fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &MediaItem) -> f64 {
-    let duration = match media.kind {
-        MediaKind::Image => DEFAULT_IMAGE_DURATION,
-        _ => media.duration.unwrap_or(UNKNOWN_DURATION),
-    };
+    let duration = clip_length(media);
     // Dropped onto a clip: after it, rather than over it or through it.
     let start = timeline
         .clips
@@ -743,20 +734,36 @@ fn ripple_room_for(timeline: &mut Timeline, track_id: &str, start: f64, media: &
     start
 }
 
-/// The lowest track with nothing occupying `[start, start + duration)`,
-/// falling back to the bottom track.
+/// How long a new clip of `media` is: a still's default hold, or the
+/// file's own length.
+fn clip_length(media: &MediaItem) -> f64 {
+    match media.kind {
+        MediaKind::Image => DEFAULT_IMAGE_DURATION,
+        _ => media.duration.unwrap_or(UNKNOWN_DURATION),
+    }
+}
+
+/// The lowest track with nothing occupying `[start, start + duration)`.
+/// `None` when every lane is taken there: the caller opens a new one
+/// rather than covering a clip.
 fn first_free_track(timeline: &Timeline, start: f64, duration: f64) -> Option<String> {
-    let end = start + duration;
     timeline
         .tracks
         .iter()
-        .find(|track| {
-            !timeline.clips.iter().any(|clip| {
-                clip.track_id == track.id && clip.start < end && start < clip.start + clip.duration
-            })
-        })
-        .or(timeline.tracks.first())
+        .find(|track| timeline.is_free(&track.id, start, duration, &[]))
         .map(|track| track.id.clone())
+}
+
+/// A new, empty lane at the top, for a clip with nowhere else to go.
+fn fresh_track(timeline: &mut Timeline, mint: &mut IdMint) -> String {
+    let id = mint.next("t");
+    timeline.tracks.push(Track {
+        id: id.clone(),
+        visible: true,
+        muted: false,
+        extra: Default::default(),
+    });
+    id
 }
 
 /// First free lane *above* the highest one occupied over `[start, start +
