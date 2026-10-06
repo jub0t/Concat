@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Il player segue l'accorciamento: la testina di riproduzione segue il bordo che accorci",
   "tray.previewAxisOptions": "Opzioni dell'asse di anteprima",
+  "tray.recordVoiceover": "Registra voce fuori campo",
   "tray.redo": "Ripeti ({0})",
   "tray.splitAtPlayhead": "Dividi alla testina ({0})",
   "tray.splitTool": "Strumento taglio (B): clic su una clip per tagliarla lì",
+  "tray.stopRecording": "Interrompi registrazione",
   "tray.textToSpeech": "Sintesi vocale",
   "tray.turnOffPreviewAxis": "Disattiva l'asse di anteprima (S)",
   "tray.turnOnPreviewAxis": "Attiva l'asse di anteprima (S)",
   "tray.undo": "Annulla ({0})",
-  "tray.zoomToFit": "Adatta alla vista"
+  "tray.zoomToFit": "Adatta alla vista",
+  "voiceover.added": "Voce fuori campo aggiunta alla timeline",
+  "voiceover.failed": "Impossibile registrare: {0}"
 }

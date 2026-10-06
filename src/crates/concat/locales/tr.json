@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Oynatıcı kırpmayı izler: oynatma kafası kırptığınız kenarla birlikte hareket eder",
   "tray.previewAxisOptions": "Önizleme ekseni seçenekleri",
+  "tray.recordVoiceover": "Seslendirme kaydet",
   "tray.redo": "Yinele ({0})",
   "tray.splitAtPlayhead": "Playhead konumunda böl ({0})",
   "tray.splitTool": "Kesme aracı (B): bir klibe tıklayınca orada keser",
+  "tray.stopRecording": "Kaydı durdur",
   "tray.textToSpeech": "Metinden konuşmaya",
   "tray.turnOffPreviewAxis": "Önizleme eksenini kapat (S)",
   "tray.turnOnPreviewAxis": "Önizleme eksenini aç (S)",
   "tray.undo": "Geri al ({0})",
-  "tray.zoomToFit": "Sığdır"
+  "tray.zoomToFit": "Sığdır",
+  "voiceover.added": "Seslendirme zaman çizelgesine eklendi",
+  "voiceover.failed": "Kayıt yapılamadı: {0}"
 }

@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "プレーヤーがトリミングに追従：再生ヘッドがトリミング中の端に合わせて動きます",
   "tray.previewAxisOptions": "プレビュー軸のオプション",
+  "tray.recordVoiceover": "ナレーションを録音",
   "tray.redo": "やり直す ({0})",
   "tray.splitAtPlayhead": "再生ヘッドで分割 ({0})",
   "tray.splitTool": "分割ツール (B): クリップをクリックした位置で切る",
+  "tray.stopRecording": "録音を停止",
   "tray.textToSpeech": "テキスト読み上げ",
   "tray.turnOffPreviewAxis": "プレビュー軸をオフにする (S)",
   "tray.turnOnPreviewAxis": "プレビュー軸をオンにする (S)",
   "tray.undo": "取り消す ({0})",
-  "tray.zoomToFit": "全体を表示"
+  "tray.zoomToFit": "全体を表示",
+  "voiceover.added": "ナレーションをタイムラインに追加しました",
+  "voiceover.failed": "録音できませんでした：{0}"
 }

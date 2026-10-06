@@ -5,6 +5,7 @@ import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
+import { LevelMeter } from "../primitives/level-meter.slint";
 import { TimelineTool } from "model.slint";
 
 // The timeline's tool tray.
@@ -214,6 +215,10 @@ export component TimelineTray inherits Rectangle {
     /// freeze. Rust's answers, like the two above.
     in property <bool> picture-selected;
     in property <bool> freezable;
+    /// A voiceover take is running: the record button reads Stop, in red,
+    /// with the take's level beside it.
+    in property <bool> recording;
+    in property <float> record-level;
 
     callback tool-changed(tool: TimelineTool);
     callback snap-changed(snap: bool);
@@ -235,6 +240,7 @@ export component TimelineTray inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
+    callback record-voiceover();
     /// Add a lane: on top of the stack, or with `bottom` under it.
     callback add-track(bottom: bool);
     callback fit();
@@ -412,6 +418,20 @@ export component TimelineTray inherits Rectangle {
             label: I18n.t("tray.textToSpeech");
             icon-size: 16px;
             clicked => { root.speak(); }
+        }
+        // A voiceover: the picture rolls from the playhead and the words go
+        // onto a lane under it. The same button stops the take.
+        TrayButton {
+            glyph: root.recording ? Glyph.stop : Glyph.mic;
+            label: root.recording ? I18n.t("tray.stopRecording") : I18n.t("tray.recordVoiceover");
+            icon-size: 16px;
+            idle: root.recording ? Theme.danger : Theme.fg;
+            clicked => { root.record-voiceover(); }
+        }
+        if root.recording: LevelMeter {
+            width: 56px;
+            horizontal-stretch: 0;
+            value: root.record-level;
         }
 
         Rectangle { horizontal-stretch: 1; }

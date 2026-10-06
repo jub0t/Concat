@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Reprodukcija prati skraćivanje: glava za reprodukciju prati rub koji skraćujete",
   "tray.previewAxisOptions": "Mogućnosti osi pregleda",
+  "tray.recordVoiceover": "Snimi glas",
   "tray.redo": "Ponovi ({0})",
   "tray.splitAtPlayhead": "Podijeli na playheadu ({0})",
   "tray.splitTool": "Alat za rezanje (B): klik na klip reže ga ondje",
+  "tray.stopRecording": "Zaustavi snimanje",
   "tray.textToSpeech": "Tekst u govor",
   "tray.turnOffPreviewAxis": "Isključi os pregleda (S)",
   "tray.turnOnPreviewAxis": "Uključi os pregleda (S)",
   "tray.undo": "Poništi ({0})",
-  "tray.zoomToFit": "Povećaj da stane"
+  "tray.zoomToFit": "Povećaj da stane",
+  "voiceover.added": "Glas dodan na vremensku crtu",
+  "voiceover.failed": "Snimanje nije uspjelo: {0}"
 }

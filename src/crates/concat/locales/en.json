@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Player follows the resize: the playhead rides the edge you trim",
   "tray.previewAxisOptions": "Preview axis options",
+  "tray.recordVoiceover": "Record Voiceover",
   "tray.redo": "Redo ({0})",
   "tray.splitAtPlayhead": "Split at playhead ({0})",
   "tray.splitTool": "Split tool (B): click a clip to cut it there",
+  "tray.stopRecording": "Stop Recording",
   "tray.textToSpeech": "Text to Speech",
   "tray.turnOffPreviewAxis": "Turn off Preview Axis (S)",
   "tray.turnOnPreviewAxis": "Turn on Preview Axis (S)",
   "tray.undo": "Undo ({0})",
-  "tray.zoomToFit": "Zoom to fit"
+  "tray.zoomToFit": "Zoom to fit",
+  "voiceover.added": "Voiceover added to the timeline",
+  "voiceover.failed": "Couldn't record: {0}"
 }

@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "El reproductor sigue el recorte: el cabezal de reproducción acompaña el borde que recortas",
   "tray.previewAxisOptions": "Opciones del eje de previsualización",
+  "tray.recordVoiceover": "Grabar voz en off",
   "tray.redo": "Rehacer ({0})",
   "tray.splitAtPlayhead": "Dividir en el cabezal ({0})",
   "tray.splitTool": "Herramienta de corte (B): clic en un clip para cortarlo ahí",
+  "tray.stopRecording": "Detener grabación",
   "tray.textToSpeech": "Texto a voz",
   "tray.turnOffPreviewAxis": "Desactivar el eje de previsualización (S)",
   "tray.turnOnPreviewAxis": "Activar el eje de previsualización (S)",
   "tray.undo": "Deshacer ({0})",
-  "tray.zoomToFit": "Ajustar a la vista"
+  "tray.zoomToFit": "Ajustar a la vista",
+  "voiceover.added": "Voz en off añadida a la línea de tiempo",
+  "voiceover.failed": "No se pudo grabar: {0}"
 }

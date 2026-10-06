@@ -999,12 +999,16 @@
   "tray.panTool": "Инструмент «Рука» (H)",
   "tray.playerFollowsResizePlayhead": "Плеер следует за подрезкой: курсор движется вместе с краем, который вы подрезаете",
   "tray.previewAxisOptions": "Параметры оси предпросмотра",
+  "tray.recordVoiceover": "Записать закадровый голос",
   "tray.redo": "Повторить ({0})",
   "tray.splitAtPlayhead": "Разрезать по курсору ({0})",
   "tray.splitTool": "Инструмент разрезания (B): щелчок по клипу режет его в этом месте",
+  "tray.stopRecording": "Остановить запись",
   "tray.textToSpeech": "Озвучить текст",
   "tray.turnOffPreviewAxis": "Выключить ось предпросмотра (S)",
   "tray.turnOnPreviewAxis": "Включить ось предпросмотра (S)",
   "tray.undo": "Отменить ({0})",
-  "tray.zoomToFit": "Вместить"
+  "tray.zoomToFit": "Вместить",
+  "voiceover.added": "Закадровый голос добавлен на таймлайн",
+  "voiceover.failed": "Не удалось записать: {0}"
 }

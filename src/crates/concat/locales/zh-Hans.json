@@ -999,12 +999,16 @@
   "tray.panTool": "平移工具 (H)",
   "tray.playerFollowsResizePlayhead": "播放器跟随修剪：播放头随你修剪的边缘移动",
   "tray.previewAxisOptions": "预览坐标轴选项",
+  "tray.recordVoiceover": "录制旁白",
   "tray.redo": "重做 ({0})",
   "tray.splitAtPlayhead": "在播放头处分割（{0}）",
   "tray.splitTool": "分割工具（B）：点击片段即在该处切开",
+  "tray.stopRecording": "停止录制",
   "tray.textToSpeech": "文字转语音",
   "tray.turnOffPreviewAxis": "关闭预览坐标轴 (S)",
   "tray.turnOnPreviewAxis": "打开预览坐标轴 (S)",
   "tray.undo": "撤销 ({0})",
-  "tray.zoomToFit": "缩放至适合"
+  "tray.zoomToFit": "缩放至适合",
+  "voiceover.added": "旁白已添加到时间线",
+  "voiceover.failed": "无法录制：{0}"
 }

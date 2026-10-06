@@ -362,6 +362,8 @@ export component Seat inherits Rectangle {
             title-selected: Editor.title-selected;
             picture-selected: Editor.picture-selected;
             freezable: Editor.freezable;
+            recording: Editor.recording;
+            record-level: Editor.record-level;
             reversible: Editor.reversible;
             playhead: Editor.playhead;
             frame-rate: Editor.frame-rate;
@@ -391,6 +393,7 @@ export component Seat inherits Rectangle {
             delete-selected => { Editor.delete-selected(); }
             captions => { Editor.captions(); }
             speak => { Editor.speak(); }
+            record-voiceover => { Editor.record-voiceover(); }
             add-track(bottom) => { Editor.add-track(bottom); }
             zoom-to-fit(width) => { Editor.zoom-to-fit(width); }
             zoom(factor, anchor) => { Editor.zoom(factor, anchor); }

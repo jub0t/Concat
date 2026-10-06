@@ -290,6 +290,10 @@ struct Shared {
     origin_micros: AtomicI64,
     epoch: std::time::Instant,
     playing: AtomicBool,
+    /// Silent while set: the clock runs on, the speakers say nothing. A
+    /// voiceover takes the picture without the timeline's sound, so the
+    /// speakers do not bleed into the microphone.
+    muted: AtomicBool,
 }
 
 /// The longest the clock runs on past the callback's last word. A callback
@@ -304,6 +308,7 @@ impl Shared {
             origin_micros: AtomicI64::new(0),
             epoch: std::time::Instant::now(),
             playing: AtomicBool::new(false),
+            muted: AtomicBool::new(false),
         }
     }
 
@@ -531,6 +536,12 @@ impl Playback {
     /// Whether the transport is rolling.
     pub fn is_playing(&self) -> bool {
         self.shared.playing.load(Ordering::Relaxed)
+    }
+
+    /// Silences the output, or lets it speak again. The clock is not
+    /// touched: the picture plays on in time either way.
+    pub fn set_muted(&self, muted: bool) {
+        self.shared.muted.store(muted, Ordering::Relaxed);
     }
 
     /// Replaces the audible clip set.
@@ -1102,6 +1113,7 @@ where
                     return;
                 }
 
+                let silent = shared.muted.load(Ordering::Relaxed);
                 for frame in data.chunks_mut(channels) {
                     let mut left = 0.0f32;
                     let mut right = 0.0f32;
@@ -1131,6 +1143,10 @@ where
                                 + pcm.sample(index + 1, 1) * fraction);
                     }
 
+                    if silent {
+                        left = 0.0;
+                        right = 0.0;
+                    }
                     // Hard limit. A mix of boosted clips can exceed full
                     // scale; wrapping would be far worse than flattening.
                     frame[0] = T::from_sample(left.clamp(-1.0, 1.0));

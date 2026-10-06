@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "O player acompanha o corte: a agulha segue a borda que você arrasta",
   "tray.previewAxisOptions": "Opções do eixo de prévia",
+  "tray.recordVoiceover": "Gravar narração",
   "tray.redo": "Refazer ({0})",
   "tray.splitAtPlayhead": "Dividir no cursor ({0})",
   "tray.splitTool": "Ferramenta de corte (B): clique em um clipe para cortá-lo ali",
+  "tray.stopRecording": "Parar gravação",
   "tray.textToSpeech": "Texto para fala",
   "tray.turnOffPreviewAxis": "Desligar o eixo de prévia (S)",
   "tray.turnOnPreviewAxis": "Ligar o eixo de prévia (S)",
   "tray.undo": "Desfazer ({0})",
-  "tray.zoomToFit": "Ajustar à janela"
+  "tray.zoomToFit": "Ajustar à janela",
+  "voiceover.added": "Narração adicionada à linha do tempo",
+  "voiceover.failed": "Não foi possível gravar: {0}"
 }

@@ -33,6 +33,7 @@ pub mod playback;
 pub mod preview;
 pub mod projects;
 pub mod proxy;
+pub mod record;
 pub mod reverse;
 pub mod session;
 pub mod templates;

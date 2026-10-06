@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "Le lecteur suit le rognage : la tête de lecture accompagne le bord que vous rognez",
   "tray.previewAxisOptions": "Options de l'axe d'aperçu",
+  "tray.recordVoiceover": "Enregistrer une voix off",
   "tray.redo": "Rétablir ({0})",
   "tray.splitAtPlayhead": "Couper à la tête de lecture ({0})",
   "tray.splitTool": "Outil de coupe (B) : cliquez sur un clip pour le couper là",
+  "tray.stopRecording": "Arrêter l'enregistrement",
   "tray.textToSpeech": "Synthèse vocale",
   "tray.turnOffPreviewAxis": "Désactiver l'axe d'aperçu (S)",
   "tray.turnOnPreviewAxis": "Activer l'axe d'aperçu (S)",
   "tray.undo": "Annuler ({0})",
-  "tray.zoomToFit": "Ajuster à la vue"
+  "tray.zoomToFit": "Ajuster à la vue",
+  "voiceover.added": "Voix off ajoutée à la timeline",
+  "voiceover.failed": "Enregistrement impossible : {0}"
 }

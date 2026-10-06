@@ -51,6 +51,8 @@ export component TimelinePane inherits Rectangle {
     in property <bool> title-selected;
     in property <bool> picture-selected;
     in property <bool> freezable;
+    in property <bool> recording;
+    in property <float> record-level;
     in property <bool> reversible;
 
     callback tool-changed(tool: TimelineTool);
@@ -76,6 +78,7 @@ export component TimelinePane inherits Rectangle {
     callback delete-selected();
     callback captions();
     callback speak();
+    callback record-voiceover();
     callback add-track(bottom: bool);
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);
@@ -319,6 +322,8 @@ export component TimelinePane inherits Rectangle {
             title-selected: root.title-selected;
             picture-selected: root.picture-selected;
             freezable: root.freezable;
+            recording: root.recording;
+            record-level: root.record-level;
 
             tool-changed(tool) => { root.tool-changed(tool); }
             snap-changed(snap) => { root.snap-changed(snap); }
@@ -348,6 +353,7 @@ export component TimelinePane inherits Rectangle {
             delete-selected => { root.delete-selected(); }
             captions => { root.captions(); }
             speak => { root.speak(); }
+            record-voiceover => { root.record-voiceover(); }
             add-track(bottom) => { root.add-track(bottom); }
             fit => { root.zoom-to-fit(lanes.width); }
             // No anchor from a button: a wheel zooms about the pointer and a

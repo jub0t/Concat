@@ -893,6 +893,8 @@ pub struct Studio {
     pub project_sheet: crate::panes::project::ProjectPane,
     pub captions: crate::panes::captions::CaptionsPane,
     pub speech: crate::panes::speech::SpeechPane,
+    /// The voiceover take, while one runs.
+    pub voiceover: crate::panes::voiceover::VoiceoverPane,
     /// Every speaker the voice engine offers, in its own order.
     /// The looks the Text page offers; see `presets`.
     pub text_presets: Vec<TextPreset>,
@@ -1991,6 +1993,7 @@ impl Studio {
             project_sheet: crate::panes::project::ProjectPane::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::default(),
+            voiceover: crate::panes::voiceover::VoiceoverPane::default(),
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
             system_fonts: Vec::new(),
@@ -7023,6 +7026,10 @@ impl Studio {
         self.captions.progress = 0.0;
         self.speech.running = false;
         self.speech.progress = 0.0;
+        // A take running as the project closes stops, keeping its file;
+        // the next project's speakers are not left silent.
+        self.voiceover = Default::default();
+        self.host.playback.set_muted(false);
         self.echo = None;
         self.dirty = false;
         self.selection.clear();
@@ -7100,6 +7107,11 @@ impl Studio {
                 let mut pane = std::mem::take(&mut self.speech);
                 pane.update(msg, self);
                 self.speech = pane;
+            }
+            crate::panes::Msg::Voiceover(msg) => {
+                let mut pane = std::mem::take(&mut self.voiceover);
+                pane.update(msg, self);
+                self.voiceover = pane;
             }
             crate::panes::Msg::Relink(msg) => {
                 let mut pane = std::mem::take(&mut self.relink);
@@ -9210,6 +9222,7 @@ impl Studio {
             self.speech.sample_detail_rows(self),
         );
         app.set_speech(self.speech.data(self));
+        editor.set_recording(self.voiceover.recording());
 
         let bar = self.menu_bar();
         app.set_app_menu_height(Self::menu_height(&bar));

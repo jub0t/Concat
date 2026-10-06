@@ -999,12 +999,16 @@
   "tray.panTool": "Pan tool (H)",
   "tray.playerFollowsResizePlayhead": "플레이어가 다듬기를 따라감: 재생 헤드가 다듬는 가장자리를 따라 움직입니다",
   "tray.previewAxisOptions": "미리보기 축 옵션",
+  "tray.recordVoiceover": "내레이션 녹음",
   "tray.redo": "다시 실행 ({0})",
   "tray.splitAtPlayhead": "재생 헤드에서 나누기 ({0})",
   "tray.splitTool": "자르기 도구 (B): 클립을 클릭한 곳에서 자릅니다",
+  "tray.stopRecording": "녹음 중지",
   "tray.textToSpeech": "텍스트 음성 변환",
   "tray.turnOffPreviewAxis": "미리보기 축 끄기 (S)",
   "tray.turnOnPreviewAxis": "미리보기 축 켜기 (S)",
   "tray.undo": "실행 취소 ({0})",
-  "tray.zoomToFit": "화면에 맞추기"
+  "tray.zoomToFit": "화면에 맞추기",
+  "voiceover.added": "내레이션을 타임라인에 추가했습니다",
+  "voiceover.failed": "녹음할 수 없습니다: {0}"
 }

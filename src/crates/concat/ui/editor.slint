@@ -356,6 +356,12 @@ export global Editor {
     /// of the clip's own menu - see `clip-context`.
     callback captions();
     callback speak();
+    /// The tray's record button: starts a voiceover take, or stops it.
+    callback record-voiceover();
+    /// A voiceover take is running.
+    in-out property <bool> recording;
+    /// The take's level, `0..1`, for the meter beside the button.
+    in-out property <float> record-level;
     callback add-track(bottom: bool);
     callback zoom-to-fit(width: length);
     callback zoom(factor: float, anchor-seconds: float);

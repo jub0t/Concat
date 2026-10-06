@@ -1484,6 +1484,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_captions(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Open));
     }));
+    editor.on_record_voiceover(on_window!(|state| {
+        state.handle(Msg::Voiceover(
+            crate::panes::voiceover::VoiceoverMsg::Toggle,
+        ));
+    }));
     editor.on_speak(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Open));
     }));
