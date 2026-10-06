@@ -758,7 +758,9 @@ jobs:
             foreach ($word in $fill.Keys) {
               $manifest = $manifest.Replace($word, [Security.SecurityElement]::Escape($fill[$word]))
             }
-            Set-Content -Encoding utf8 -NoNewline "$pack\AppxManifest.xml" $manifest
+            # Through .NET, not Set-Content: on the runner Set-Content refused
+            # -Encoding, which failed the v0.2.6 build. UTF-8 with no BOM.
+            [IO.File]::WriteAllText("$pack\AppxManifest.xml", $manifest, [Text.UTF8Encoding]::new($false))
             New-Item -ItemType Directory -Force store | Out-Null
             & $makeappx.FullName pack /o /d $pack /p "store\$name.msix"
             if ($LASTEXITCODE -ne 0) { throw "makeappx failed with $LASTEXITCODE" }
