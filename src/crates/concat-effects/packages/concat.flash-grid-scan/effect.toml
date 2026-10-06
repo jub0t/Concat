@@ -1,0 +1,45 @@
+format = 2
+
+[effect]
+id = "concat.flash-grid-scan"
+name = "Flash Grid Scan"
+kind = "effect"
+category = "Light"
+order = 75
+intensity = "amount"
+length = 3.0
+description = "The picture builds itself up tile by tile in colour, flashes into black and white, then flashes back to colour."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 0
+max = 100
+default = 20
+step = 1
+unit = "%"
+
+[[param]]
+key = "grid"
+label = "Grid"
+min = 2
+max = 6
+default = 3
+step = 1
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+# Halfway through the tiles arriving.
+[card]
+moment = 0.55

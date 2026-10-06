@@ -1251,11 +1251,14 @@ impl WgpuCompositor {
                 ground = Some(below);
                 continue;
             }
-            // A treatment has no single clip of its own - it runs over
-            // whatever stack sits beneath it - so `clip_time` falls back
-            // to the timeline's own clock, exactly what a package read
-            // before this existed.
-            let treated = self.run_passes(width, height, below, &treatment.effects, seconds, 0.0);
+            let treated = self.run_passes(
+                width,
+                height,
+                below,
+                &treatment.effects,
+                seconds,
+                seconds - treatment.clip_time,
+            );
             ground = Some(if strength >= 1.0 {
                 treated
             } else {

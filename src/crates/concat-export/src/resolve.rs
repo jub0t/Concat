@@ -166,6 +166,11 @@ impl Treatment {
         self.start <= time && time < self.end
     }
 
+    /// Seconds since the layer began, at `time`.
+    pub(crate) fn clip_time_at(&self, time: Rational) -> f32 {
+        (time - self.start).as_f64().max(0.0) as f32
+    }
+
     /// The shader passes at `time`, each keyed knob at its value there. A
     /// layer is never a title, so it never carries a reveal map.
     pub(crate) fn passes_at(&self, time: Rational) -> Vec<ShaderPass> {

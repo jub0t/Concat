@@ -1,0 +1,44 @@
+format = 2
+
+[effect]
+id = "concat.mystery"
+name = "Mystery"
+kind = "effect"
+category = "Light"
+order = 74
+intensity = "amount"
+description = "Glowing question marks drifting down over a darkened picture, a few large ones close up and many small ones far away."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 0
+max = 100
+default = 33
+step = 1
+unit = "%"
+
+[[param]]
+key = "background"
+label = "Background"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+[card]
+moment = 1.4

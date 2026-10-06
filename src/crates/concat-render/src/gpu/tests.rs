@@ -204,6 +204,7 @@ fn a_treatment_treats_the_stack_beneath_its_track_only() {
             track: 1,
             effects: vec![package("concat.invert", INVERT, "", &[], 1.0)],
             strength,
+            clip_time: 0.0,
         }],
         ..plan(8, 8, vec![ground.clone(), blue.clone()])
     };
@@ -500,6 +501,32 @@ fn a_pass_reads_its_layers_clip_relative_time() {
     timed.effects = vec![package("test.cliptime", body, "", &[], 1.0)];
     let mut p = plan(4, 4, vec![timed]);
     p.time = concat_core::time::Rational::approximate(5.0).expect("a rational");
+    let out = gpu.render(&p);
+    assert_eq!(
+        &out.pixels()[..3],
+        &[0, 255, 0],
+        "clip_time should read 3.0"
+    );
+}
+
+/// A layer's effects read how long the layer itself has been running, not
+/// the timeline's clock, so one that plays out starts from its beginning
+/// wherever the layer is put.
+#[test]
+fn a_treatment_reads_its_own_layers_time() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> { if (abs(frame.clip_time - 3.0) < 0.001) { return vec4<f32>(0.0, 1.0, 0.0, 1.0); } return vec4<f32>(1.0, 0.0, 0.0, 1.0); }";
+    let ground = layer(solid(4, 4, [0, 0, 0, 255]));
+    let p = FramePlan {
+        time: concat_core::time::Rational::approximate(5.0).expect("a rational"),
+        treatments: vec![PlannedTreatment {
+            track: 1,
+            effects: vec![package("test.layertime", body, "", &[], 1.0)],
+            strength: 1.0,
+            clip_time: 3.0,
+        }],
+        ..plan(4, 4, vec![ground])
+    };
     let out = gpu.render(&p);
     assert_eq!(
         &out.pixels()[..3],
@@ -1148,7 +1175,9 @@ fn a_scene_linear_pass_mixes_by_intensity_in_light() {
 
 /// No look clips: a highlight four times SDR white comes out of every
 /// built-in look drawn in the display space brighter than white does, as
-/// light that went in brighter should.
+/// light that went in brighter should. One that plays out like a clip is
+/// left out: the probe reads its first frame, which may be all its own -
+/// a build-up from black - with nothing of the picture in it yet.
 #[test]
 fn every_look_carries_a_highlight_past_white() {
     let Some(mut gpu) = gpu() else { return };
@@ -1160,7 +1189,7 @@ fn every_look_carries_a_highlight_past_white() {
             .wgsl
             .as_ref()
             .is_some_and(|wgsl| wgsl.space == concat_effects::Space::Display);
-        if !display {
+        if !display || package.manifest.effect.length.is_some() {
             continue;
         }
         let pass = package.trial_pass().expect("a shader");

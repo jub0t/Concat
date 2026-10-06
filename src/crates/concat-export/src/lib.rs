@@ -1526,6 +1526,7 @@ fn composite_treated(
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            clip_time: treatment.clip_time_at(time),
         })
         .collect();
     compositor.render(&plan)
@@ -1870,6 +1871,7 @@ pub fn preview_sources_of(
             track: treatment.track,
             effects: treatment.passes_at(time),
             strength: treatment.strength_at(time),
+            clip_time: treatment.clip_time_at(time),
         })
         .collect();
     frame_plan

@@ -1,0 +1,50 @@
+format = 2
+
+[effect]
+id = "concat.ember-frame"
+name = "Ember Frame"
+kind = "effect"
+category = "Light"
+order = 73
+intensity = "amount"
+description = "Glowing embers drifting and twinkling around the edges of the frame, with optional rounded corners."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 0
+max = 100
+default = 33
+step = 1
+unit = "%"
+
+[[param]]
+key = "spread"
+label = "Spread"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "radius"
+label = "Radius"
+min = 0
+max = 100
+default = 0
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"

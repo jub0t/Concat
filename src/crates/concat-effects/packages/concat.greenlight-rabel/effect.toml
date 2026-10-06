@@ -1,0 +1,44 @@
+format = 2
+
+[effect]
+id = "concat.greenlight-rabel"
+name = "Greenlight Rabel"
+kind = "effect"
+category = "Retro"
+order = 77
+intensity = "amount"
+description = "A reel of film running past: sprocket holes along the top and bottom, a gentle shake and bulge, a vignette and bursts of green, gold and blue light."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 0
+max = 100
+default = 33
+step = 1
+unit = "%"
+
+[[param]]
+key = "leaks"
+label = "Light leak"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+[card]
+moment = 0.7

@@ -65,9 +65,10 @@ struct Frame {
     /// times itself to this instead of `time`, so it plays the same
     /// whether the clip starts at zero or at the twenty-minute mark; a
     /// looping one can still read `time` for a phase nothing needs to
-    /// reset. Layers with no single clip of their own - a treatment's
-    /// stack, a synthesized ground - carry zero here always, which reads
-    /// as "just started" forever; a look that only loops is unaffected.
+    /// reset. An effect on a layer clip reads the seconds since that layer
+    /// began. A picture with no clip of its own - a synthesized ground -
+    /// carries zero here always, which reads as "just started" forever; a
+    /// look that only loops is unaffected.
     clip_time: f32,
 }
 

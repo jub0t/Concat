@@ -427,6 +427,10 @@ pub struct PlannedTreatment {
     pub effects: Vec<ShaderPass>,
     /// How much of the treated stack to keep over the untreated, `0..=1`.
     pub strength: f32,
+    /// Seconds since the layer began, handed to its effects as
+    /// `frame.clip_time`, so one that plays out runs from the layer's
+    /// start wherever on the timeline it sits.
+    pub clip_time: f32,
 }
 
 /// Everything needed to draw one output frame.
