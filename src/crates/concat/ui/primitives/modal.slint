@@ -304,13 +304,20 @@ export component CopyChip inherits Rectangle {
     }
 }
 
-// A determinate bar. Nothing indeterminate: every job in this app can say how
-// far along it is, and a barber's pole for one that can is a lie.
+// A determinate bar. A job that can say how far along it is says so; `busy`
+// is for the stretch before one can - a transcription has no count until its
+// first thirty seconds of sound are heard - and only sweeps while the value
+// is still zero.
 export component Progress inherits Rectangle {
     in property <float> value;
     /// Finished: the bar turns green rather than staying accent, so a glance
     /// tells you it is over without reading the row above it.
     in property <bool> done;
+    /// Working, with no count yet.
+    in property <bool> busy;
+
+    property <float> sweep: root.busy ? 1.0 : 0.0;
+    animate sweep { duration: 1.2s; easing: ease-in-out; iteration-count: -1; }
 
     height: 4px;
     border-radius: 2px;
@@ -326,6 +333,15 @@ export component Progress inherits Rectangle {
         height: parent.height;
         border-radius: 2px;
         background: root.done ? Theme.green : Theme.accent;
+    }
+
+    if root.busy && root.value <= 0: Rectangle {
+        width: parent.width * 0.3;
+        x: parent.width * 1.3 * root.sweep - self.width;
+        y: 0;
+        height: parent.height;
+        border-radius: 2px;
+        background: Theme.accent;
     }
 }
 

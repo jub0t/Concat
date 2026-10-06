@@ -180,6 +180,32 @@ pub struct Segment {
     pub text: String,
 }
 
+/// Whether whisper can be told to hear `code` ("pl", "en", ...).
+pub fn knows_language(code: &str) -> bool {
+    whisper_rs::get_lang_id(code).is_some()
+}
+
+/// Where a running transcription is, as it goes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Report {
+    /// The clip's sound is being read out of its file.
+    Decoding,
+    /// The model is being read into memory - only when it is not already.
+    Loading,
+    /// Whisper is listening.
+    Listening,
+    /// Whisper's own percentage. It moves once per thirty seconds of sound,
+    /// so a short clip sits at zero until it is done.
+    Progress(i32),
+    /// A phrase was heard.
+    Heard {
+        /// Where it ends, in seconds from the window's start.
+        end: f64,
+        /// What was said.
+        text: String,
+    },
+}
+
 /// What to transcribe.
 #[derive(Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -196,6 +222,10 @@ pub struct TranscribeRequest {
     pub window: f64,
     /// Which model to use, e.g. "base.en".
     pub model_id: String,
+    /// The spoken language as whisper's code ("pl", "en", ...). `None` is
+    /// whisper's to detect. An English-only model is always told English.
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 struct LoadedModel {
@@ -308,8 +338,8 @@ impl Transcriber {
     }
 
     /// Transcribes one clip's audio window into caption segments. Blocks
-    /// for the whole run: run it on its own thread. `progress` is called
-    /// with a 0..100 percentage as whisper works.
+    /// for the whole run: run it on its own thread. `report` hears each
+    /// stage, whisper's percentage and every phrase as it is heard.
     ///
     /// Timestamps come back relative to the window: 0 is `source_start`. The
     /// caller owns the clip, so the map onto the timeline (divide by speed,
@@ -318,7 +348,7 @@ impl Transcriber {
         &self,
         dirs: &AppDirs,
         request: &TranscribeRequest,
-        progress: impl FnMut(i32) + Send + 'static,
+        mut report: impl FnMut(Report) + Send + Clone + 'static,
     ) -> Result<Vec<Segment>, String> {
         let job = self.gate.begin("transcription")?;
         let cancel = job.cancel_handle();
@@ -334,8 +364,19 @@ impl Transcriber {
         if request.window.is_nan() || request.window <= 0.0 {
             return Err("nothing to transcribe: the clip covers no time".to_owned());
         }
+        let language = request
+            .language
+            .as_deref()
+            .map(str::trim)
+            .filter(|code| !code.is_empty() && *code != "auto");
+        if let Some(code) = language
+            && !knows_language(code)
+        {
+            return Err(format!("whisper does not know the language \"{code}\""));
+        }
 
         // The window, as whisper wants it: 16 kHz mono floats.
+        report(Report::Decoding);
         let mut decoder = AudioDecoder::open(
             &request.path,
             &AudioOptions {
@@ -362,6 +403,7 @@ impl Transcriber {
             .lock()
             .map_err(|_| "transcriber state poisoned".to_owned())?;
         if loaded.as_ref().map(|model| model.id.as_str()) != Some(request.model_id.as_str()) {
+            report(Report::Loading);
             // Load before overwriting: a failed load keeps the old model.
             let context =
                 WhisperContext::new_with_params(&model_path, WhisperContextParameters::default())
@@ -381,15 +423,15 @@ impl Transcriber {
             .unwrap_or(4);
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(threads as i32);
-        // The language is whisper's to hear, when it can hear more than
-        // one: a multilingual model detects it from the first window. An
+        // The language asked for, or whisper's to hear when none was: a
+        // multilingual model detects it from the first window. An
         // English-only model asked for "auto" still runs the detection,
         // over a vocabulary it was never trained on, and "hears" Thai at
         // one percent - so it is simply told English.
-        params.set_language(Some(if context.is_multilingual() {
-            "auto"
-        } else {
+        params.set_language(Some(if !context.is_multilingual() {
             "en"
+        } else {
+            language.unwrap_or("auto")
         }));
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -410,7 +452,20 @@ impl Transcriber {
             params.set_abort_callback(Some(abort_when_set));
             params.set_abort_callback_user_data(Arc::as_ptr(&cancel) as *mut std::ffi::c_void);
         }
-        params.set_progress_callback_safe(progress);
+        let mut percent = report.clone();
+        params.set_progress_callback_safe(move |value| percent(Report::Progress(value)));
+        let mut heard = report.clone();
+        params.set_segment_callback_safe_lossy(move |segment: whisper_rs::SegmentCallbackData| {
+            let text = segment.text.trim().to_owned();
+            if !text.is_empty() {
+                heard(Report::Heard {
+                    // Whisper's timestamps are centiseconds.
+                    end: segment.end_timestamp as f64 / 100.0,
+                    text,
+                });
+            }
+        });
+        report(Report::Listening);
 
         state
             .full(params, &samples)
@@ -519,9 +574,10 @@ mod real_audio {
             source_start: 0.0,
             window: 30.0,
             model_id: "tiny.en".to_owned(),
+            language: None,
         };
         let segments = transcriber
-            .transcribe(&dirs, &request, |percent| eprintln!("{percent}%"))
+            .transcribe(&dirs, &request, |report| eprintln!("{report:?}"))
             .expect("transcription");
         for segment in &segments {
             eprintln!("{:.2}-{:.2} {}", segment.start, segment.end, segment.text);
