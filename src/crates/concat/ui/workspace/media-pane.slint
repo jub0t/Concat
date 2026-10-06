@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 import { I18n } from "../i18n.slint";
-import { Theme, Fmt, Glyph, Icon, Payload } from "../primitives/primitives.slint";
+import { Theme, Fmt, Glyph, Icon, Payload, Tip } from "../primitives/primitives.slint";
 import { Pane, PaneScroll } from "pane.slint";
 import { HairlineSplitter } from "splitter.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
@@ -1278,13 +1278,53 @@ export component ShelfGrid inherits Rectangle {
 // TextInput assigns to `text`, and an assignment replaces the binding
 // declared on it - so the box is put back by hand when Rust clears the
 // query, which picking a shelf does.
+//
+// A shelf that reads packages off disk puts its reload in front of the
+// field: a square the field's own height, so the row is one control tall
+// and the button takes no line of its own.
 export component ShelfSearch inherits HorizontalLayout {
     in property <int> shelf;
     in property <string> placeholder;
+    /// Show the reload square, for the shelves custom packages land on.
+    in property <bool> reloads;
+    callback reload();
+
+    // A little over a standard control: the field leads the page, and the
+    // square beside it would be cramped at 28px.
+    property <length> field-height: Theme.h + 6px;
 
     padding-bottom: 8px;
+    spacing: 6px;
+
+    if root.reloads: Rectangle {
+        width: root.field-height;
+        height: root.field-height;
+        border-radius: Theme.r-sm;
+        background: reload-touch.has-hover ? Theme.field-hover : Theme.field;
+        border-width: 1px;
+        border-color: Theme.line;
+
+        Icon {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            glyph: Glyph.reset;
+            size: 14px;
+            tint: reload-touch.has-hover ? Theme.fg : Theme.fg-muted;
+        }
+
+        reload-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.reload(); }
+        }
+
+        Tip {
+            text: I18n.t("mediaPane.reloadCustomEffects");
+            active: reload-touch.has-hover;
+        }
+    }
 
     SearchField {
+        height: root.field-height;
         text: Library.view(root.shelf).query;
         placeholder: root.placeholder;
         edited(text) => { Library.query-changed(root.shelf, text); }
@@ -2322,28 +2362,19 @@ export component MediaPane inherits Rectangle {
                 if root.tab == 4: VerticalLayout {
                     padding: 8px;
 
+                    // A package folder written while the app runs - the
+                    // user's own effect, or one shared with them - is read
+                    // in from the square before the search, without a
+                    // restart. No category pills: the search finds an
+                    // effect, and the room goes to the cards.
                     ShelfSearch {
                         shelf: root.effects-shelf;
                         placeholder: root.audio-shelf
                             ? I18n.t1("common.searchKind", I18n.t("common.audioEffect"))
                             : I18n.t1("common.searchKind", I18n.t("common.effect"));
+                        reloads: true;
+                        reload => { root.reload-packages(); }
                     }
-                    if !root.audio-shelf: CategoryPillBar {
-                        current: Library.view(root.effects-shelf).category;
-                        picked(cat) => {
-                            Library.category-changed(root.effects-shelf, cat);
-                        }
-                    }
-                    if !root.audio-shelf: Rectangle { height: 6px; }
-                    // A package folder written while the app runs - the
-                    // user's own effect, or one shared with them - is read
-                    // in here, without a restart.
-                    ImportButton {
-                        label: I18n.t("mediaPane.reloadCustomEffects");
-                        glyph: Glyph.reset;
-                        clicked => { root.reload-packages(); }
-                    }
-                    Rectangle { height: 8px; }
                     ShelfGrid {
                         entries: root.audio-shelf ? root.catalogue-audio : root.catalogue-effects;
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
@@ -2373,21 +2404,15 @@ export component MediaPane inherits Rectangle {
                     ShelfSearch {
                         shelf: 0;
                         placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.filter"));
+                        reloads: true;
+                        reload => { root.reload-packages(); }
                     }
                     // A table from any grading tool becomes a look here, the
                     // way it does on every desktop editor's Filters page.
-                    HorizontalLayout {
-                        spacing: 8px;
-                        ImportButton {
-                            label: I18n.t("mediaPane.importALut");
-                            glyph: Glyph.import;
-                            clicked => { root.import-lut(); }
-                        }
-                        ImportButton {
-                            label: I18n.t("mediaPane.reloadCustomEffects");
-                            glyph: Glyph.reset;
-                            clicked => { root.reload-packages(); }
-                        }
+                    ImportButton {
+                        label: I18n.t("mediaPane.importALut");
+                        glyph: Glyph.import;
+                        clicked => { root.import-lut(); }
                     }
                     Rectangle { height: 8px; }
                     ShelfGrid {
