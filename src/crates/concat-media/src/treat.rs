@@ -124,6 +124,13 @@ fn build(spec: &str, width: u32, height: u32) -> Result<filter::Graph> {
     // The graph has no file behind it; errors name the layer instead.
     let path = Path::new("layer");
     let mut graph = filter::Graph::new();
+    // One thread: the pictures are a frame at a time and already on a
+    // worker, and FFmpeg 8's filter thread pool deadlocks on Windows.
+    // SAFETY: the graph is freshly allocated and has no filters yet, which
+    // is when FFmpeg reads the field.
+    unsafe {
+        (*graph.as_mut_ptr()).nb_threads = 1;
+    }
     let args = format!(
         "video_size={width}x{height}:pix_fmt={}:time_base=1/1000:pixel_aspect=1/1",
         Into::<ffmpeg::sys::AVPixelFormat>::into(Pixel::RGBA).0

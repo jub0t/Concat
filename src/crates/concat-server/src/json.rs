@@ -434,16 +434,31 @@ mod tests {
     #[test]
     fn two_callers_share_one_api() {
         let (server, scratch) = server(None);
+        // Built as JSON rather than pasted into it: a Windows path's
+        // backslashes are escapes in a JSON string.
         let location = scratch.path().to_string_lossy().into_owned();
+        let shared = scratch.path().join("Shared").to_string_lossy().into_owned();
         let mut first = Client::connect(&server);
         let mut second = Client::connect(&server);
-        let created = first.ask(&format!(
-            r#"{{"jsonrpc":"2.0","id":1,"method":"project.create","params":{{"location":"{location}","name":"Shared"}}}}"#
-        ));
+        let created = first.ask(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "project.create",
+                "params": { "location": location, "name": "Shared" },
+            })
+            .to_string(),
+        );
         assert!(created["result"]["project"].is_object(), "{created}");
-        let seen = second.ask(&format!(
-            r#"{{"jsonrpc":"2.0","id":2,"method":"project.get","params":{{"path":"{location}/Shared"}}}}"#
-        ));
+        let seen = second.ask(
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "project.get",
+                "params": { "path": shared },
+            })
+            .to_string(),
+        );
         assert!(seen["result"]["project"].is_object(), "{seen}");
         assert_eq!(server.connections(), 2);
         server.stop();

@@ -1053,7 +1053,7 @@ mod tests {
             name: name.to_owned(),
             video: None,
         }));
-        format!("{location}/{name}")
+        scratch.path().join(name).to_string_lossy().into_owned()
     }
 
     #[test]

@@ -187,6 +187,28 @@ mod tests {
         );
     }
 
+    /// A hand-edited rate whose terms would overflow the frame arithmetic
+    /// opens at the fallback rather than panicking an export later.
+    #[test]
+    fn a_rate_no_video_has_opens_at_the_fallback_and_is_refused() {
+        use crate::model::VideoSettings;
+        let edited = VideoSettings {
+            rate_num: i64::MAX,
+            rate_den: 7,
+            ..VideoSettings::default()
+        };
+        assert!(!edited.is_sane());
+        let opened = edited.or(VideoSettings::default());
+        assert_eq!((opened.rate_num, opened.rate_den), (30, 1));
+        assert!(opened.is_sane());
+        let ntsc = VideoSettings {
+            rate_num: 30000,
+            rate_den: 1001,
+            ..VideoSettings::default()
+        };
+        assert_eq!(ntsc.or(VideoSettings::default()), ntsc);
+    }
+
     /// A timeline's colour is left out of the document for SDR, kept
     /// through a save and an open for HDR, and read as SDR from a document
     /// naming one this build does not know; a file's likewise.

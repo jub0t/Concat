@@ -107,9 +107,11 @@ inherits = "release"
 lto = "fat"
 # No unwind tables and no landing pads: every call site loses its unwind
 # edge, which frees the optimiser and shrinks the binary. This is a GUI
-# binary with no tests and no catch_unwind, and unwinding through the ObjC
-# frames of the macOS event loop was never well-defined anyway - winit only
-# catches panics to avoid exactly that.
+# binary with no tests, and unwinding through the ObjC frames of the macOS
+# event loop was never well-defined anyway - winit only catches panics to
+# avoid exactly that. The one catch_unwind it links, the server Hub's
+# around each API call, does nothing here: a panicking call ends the window
+# as before, and is only an error response in the CLI's server.
 panic = "abort"
 # Symbols are worth nothing in a release binary that is not being profiled.
 # Build with `--profile release` instead before running Instruments or perf.

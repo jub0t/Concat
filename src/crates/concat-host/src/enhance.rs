@@ -260,6 +260,10 @@ fn footage(
         }
         encoder.finish().map_err(|error| error.to_string())
     })();
+    // Windows will not rename or delete a file something still holds open,
+    // and a finished encoder keeps its output open until it is dropped.
+    drop(encoder);
+    drop(decoder);
     if let Err(error) = encoded {
         let _ = std::fs::remove_file(&partial_video);
         return Err(error);

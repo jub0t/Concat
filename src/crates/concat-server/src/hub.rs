@@ -81,7 +81,27 @@ impl Hub {
                     }
                 };
                 for task in queue {
-                    let response = api.dispatch(task.request);
+                    // A panic in one method is that caller's error, not the
+                    // end of the thread every later caller waits on. The
+                    // documents a method had half-edited stay as they are,
+                    // which is what a crash of the whole window would have
+                    // left on disk anyway. Only where panics unwind: the
+                    // CLI's server and the tests, not the window built
+                    // with `--profile app`, which aborts on any panic.
+                    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        api.dispatch(task.request)
+                    }))
+                    .unwrap_or_else(|panic| {
+                        let what = panic
+                            .downcast_ref::<&str>()
+                            .map(|text| (*text).to_owned())
+                            .or_else(|| panic.downcast_ref::<String>().cloned())
+                            .unwrap_or_else(|| "an unknown panic".to_owned());
+                        Response::Error(ApiError::new(
+                            ErrorCode::Failed,
+                            format!("the method failed inside the server: {what}"),
+                        ))
+                    });
                     (task.respond)(response);
                 }
                 api.finish();
