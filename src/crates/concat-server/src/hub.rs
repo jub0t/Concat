@@ -85,7 +85,9 @@ impl Hub {
                     // end of the thread every later caller waits on. The
                     // documents a method had half-edited stay as they are,
                     // which is what a crash of the whole window would have
-                    // left on disk anyway.
+                    // left on disk anyway. Only where panics unwind: the
+                    // CLI's server and the tests, not the window built
+                    // with `--profile app`, which aborts on any panic.
                     let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         api.dispatch(task.request)
                     }))
