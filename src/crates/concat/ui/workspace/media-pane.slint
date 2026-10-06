@@ -53,6 +53,8 @@ export struct TextPresetData {
     name: string,
     /// The writing its face is made for: "Latin", "Japanese", "Hebrew".
     language: string,
+    /// What the card draws in the look: "Aa", or a word of its own writing.
+    sample: string,
     family: string,
     weight: int,
     italic: bool,
@@ -1168,7 +1170,8 @@ component TextPage inherits Rectangle {
     }
 }
 
-// One preset, as a card: the same "Aa" drawn in every look, on a dark
+// One preset, as a card: its sample - "Aa", or a word of its own writing -
+// drawn in its look, on a dark
 // square so a white title reads as it will on footage, with the plate
 // behind it when the look has one. The same two letters at the same size
 // on every card so the looks compare - a caption preset is small on the
@@ -1219,7 +1222,7 @@ component PresetCard inherits Rectangle {
                     x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
                     width: Math.min(parent.width - 12px, self.preferred-width);
-                    text: "Aa";
+                    text: root.preset.sample;
                     color: root.preset.fill;
                     font-family: root.preset.family;
                     font-weight: root.preset.weight;

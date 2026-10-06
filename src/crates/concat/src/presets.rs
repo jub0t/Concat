@@ -19,6 +19,7 @@
 //! offsetY = 0.3                # optional: a frame-height fraction from centre
 //! language = "Latin"           # optional: the writing it is for; Latin when absent
 //! order = 10                   # optional: where it sorts; absent sorts last, by name
+//! sample = "Aa"                # optional: what its card draws; see TextPreset::sample
 //!
 //! [style]                      # any of a title's fields; the rest default
 //! fontFamily = "Big Red"
@@ -59,6 +60,10 @@ pub struct TextPreset {
     /// "Latin", "Japanese", "Hebrew". What the library filters and sorts
     /// presets by; a preset file that says nothing is Latin.
     pub language: String,
+    /// What its card draws in the look: the file's `sample`, else "Aa" for
+    /// Latin and the first two characters of its words for any other
+    /// writing, so a Japanese card shows Japanese.
+    pub sample: String,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +80,9 @@ struct PresetFile {
     /// Where it sorts among its neighbours; absent sorts last, by name.
     #[serde(default)]
     order: Option<i64>,
+    /// What the card draws; see [`TextPreset::sample`].
+    #[serde(default)]
+    sample: Option<String>,
     #[serde(default)]
     style: PresetStyle,
 }
@@ -217,6 +225,28 @@ fn parse(text: &str, folder: Option<&Path>) -> Option<(i64, TextPreset)> {
         .filter(|name| !name.trim().is_empty())
         .and_then(|name| folder.map(|folder| folder.join(name.trim())));
     let order = file.order.unwrap_or(i64::MAX);
+    let language = file
+        .language
+        .map(|language| language.trim().to_owned())
+        .filter(|language| !language.is_empty())
+        .unwrap_or_else(|| "Latin".to_owned());
+    let style = file.style.over(&file.name);
+    let sample = file
+        .sample
+        .map(|sample| sample.trim().to_owned())
+        .filter(|sample| !sample.is_empty())
+        .unwrap_or_else(|| {
+            if language.eq_ignore_ascii_case("latin") {
+                "Aa".to_owned()
+            } else {
+                style
+                    .content
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .take(2)
+                    .collect()
+            }
+        });
     Some((
         order,
         TextPreset {
@@ -226,14 +256,11 @@ fn parse(text: &str, folder: Option<&Path>) -> Option<(i64, TextPreset)> {
                 file.name.trim().to_owned()
             },
             id,
-            style: file.style.over(&file.name),
+            style,
             offset_y: file.offset_y,
             font,
-            language: file
-                .language
-                .map(|language| language.trim().to_owned())
-                .filter(|language| !language.is_empty())
-                .unwrap_or_else(|| "Latin".to_owned()),
+            language,
+            sample,
         },
     ))
 }
