@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Dreamy",
   "effects.echo.description": "One repeat, fading.",
   "effects.echo.name": "Echo",
+  "effects.emberFrame.description": "Glowing embers drifting and twinkling around the edges of the frame, with optional rounded corners.",
+  "effects.emberFrame.name": "Ember Frame",
   "effects.enhanceVoice.description": "Clears the room out of a recording: rumble, hiss, sibilance and uneven level.",
   "effects.enhanceVoice.name": "Enhance Voice",
   "effects.exposure.description": "Brighter or darker by stops of light, as the lens would make it, highlights kept.",

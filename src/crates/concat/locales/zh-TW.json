@@ -273,6 +273,8 @@
   "effects.dreamy.name": "夢幻",
   "effects.echo.description": "重複一次，逐漸淡出。",
   "effects.echo.name": "回音",
+  "effects.emberFrame.description": "發光的火星在畫面邊緣飄動閃爍，可選圓角。",
+  "effects.emberFrame.name": "火星邊框",
   "effects.enhanceVoice.description": "清除錄音中的房間雜音：低頻隆隆聲、嘶嘶聲、齒音和忽高忽低的電平。",
   "effects.enhanceVoice.name": "增強人聲",
   "effects.exposure.description": "如同鏡頭一般以格調亮或調暗，保留亮部。",

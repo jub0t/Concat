@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Sonhador",
   "effects.echo.description": "Uma repetição que se esvai.",
   "effects.echo.name": "Eco",
+  "effects.emberFrame.description": "Brasas brilhantes que flutuam e cintilam nas bordas do quadro, com cantos arredondados opcionais.",
+  "effects.emberFrame.name": "Moldura de brasas",
   "effects.enhanceVoice.description": "Tira a sala de uma gravação: ronco, chiado, sibilância e nível irregular.",
   "effects.enhanceVoice.name": "Melhorar voz",
   "effects.exposure.description": "Mais claro ou mais escuro em stops de luz, como a lente faria, preservando os realces.",

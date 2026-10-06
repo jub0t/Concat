@@ -273,6 +273,8 @@
   "effects.dreamy.name": "ドリーミー",
   "effects.echo.description": "一回の繰り返しがフェードします。",
   "effects.echo.name": "エコー",
+  "effects.emberFrame.description": "画面の縁で輝く火の粉が漂い、きらめきます。角丸も選べます。",
+  "effects.emberFrame.name": "火の粉フレーム",
   "effects.enhanceVoice.description": "録音から部屋の響きを取り除きます：低いうねり、ヒス、歯擦音、ばらついたレベル。",
   "effects.enhanceVoice.name": "声を強調",
   "effects.exposure.description": "レンズのように、光を段単位で明るく、または暗くします。ハイライトは保たれます。",

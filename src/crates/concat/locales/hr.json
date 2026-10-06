@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Sanjivo",
   "effects.echo.description": "Jedno ponavljanje, uz blijedjenje.",
   "effects.echo.name": "Jeka",
+  "effects.emberFrame.description": "Užarene iskre koje lebde i svjetlucaju uz rubove kadra, uz neobavezno zaobljene kutove.",
+  "effects.emberFrame.name": "Okvir od žara",
   "effects.enhanceVoice.description": "Čisti sobu iz snimke: tutnjavu, šištanje, sibilante i nejednaku razinu.",
   "effects.enhanceVoice.name": "Istakni glas",
   "effects.exposure.description": "Svjetlije ili tamnije za stupnjeve svjetla, kao što bi to učinio objektiv, uz očuvana svjetla.",

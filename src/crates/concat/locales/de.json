@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Verträumt",
   "effects.echo.description": "Eine Wiederholung, ausklingend.",
   "effects.echo.name": "Echo",
+  "effects.emberFrame.description": "Glühende Funken, die am Bildrand treiben und funkeln, wahlweise mit abgerundeten Ecken.",
+  "effects.emberFrame.name": "Glutrahmen",
   "effects.enhanceVoice.description": "Nimmt den Raum aus einer Aufnahme: Rumpeln, Rauschen, Zischlaute und ungleichen Pegel.",
   "effects.enhanceVoice.name": "Stimme verbessern",
   "effects.exposure.description": "Heller oder dunkler um Blendenstufen, wie das Objektiv es täte; die Lichter bleiben erhalten.",

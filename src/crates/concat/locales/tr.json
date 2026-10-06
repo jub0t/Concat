@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Rüya gibi",
   "effects.echo.description": "Sönen tek bir tekrar.",
   "effects.echo.name": "Yankı",
+  "effects.emberFrame.description": "Karenin kenarlarında süzülen ve parıldayan kor parçacıkları; isteğe bağlı yuvarlak köşelerle.",
+  "effects.emberFrame.name": "Kor Çerçeve",
   "effects.enhanceVoice.description": "Kayıttaki odayı temizler: uğultu, hışırtı, ıslıklı sesler ve düzensiz seviye.",
   "effects.enhanceVoice.name": "Sesi iyileştir",
   "effects.exposure.description": "Objektifin yapacağı gibi ışığı durak durak açar ya da kısar; ışıklar korunur.",

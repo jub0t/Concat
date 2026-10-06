@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Rêveur",
   "effects.echo.description": "Une répétition qui s'estompe.",
   "effects.echo.name": "Écho",
+  "effects.emberFrame.description": "Des braises incandescentes qui dérivent et scintillent sur les bords de l'image, avec coins arrondis en option.",
+  "effects.emberFrame.name": "Cadre de braises",
   "effects.enhanceVoice.description": "Retire la pièce d'un enregistrement : grondement, souffle, sifflantes et niveau irrégulier.",
   "effects.enhanceVoice.name": "Améliorer la voix",
   "effects.exposure.description": "Plus clair ou plus sombre, par diaphs de lumière, comme le ferait l'objectif, hautes lumières préservées.",

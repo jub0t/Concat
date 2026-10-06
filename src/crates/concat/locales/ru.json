@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Мечтательный",
   "effects.echo.description": "Один повтор, затухающий.",
   "effects.echo.name": "Эхо",
+  "effects.emberFrame.description": "Светящиеся искры парят и мерцают по краям кадра, по желанию со скруглёнными углами.",
+  "effects.emberFrame.name": "Рамка из искр",
   "effects.enhanceVoice.description": "Убирает комнату из записи: гул, шипение, свистящие и неровный уровень.",
   "effects.enhanceVoice.name": "Улучшить голос",
   "effects.exposure.description": "Светлее или темнее на стопы света, как сделал бы объектив, с сохранением светов.",

@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Onírico",
   "effects.echo.description": "Una repetición que se desvanece.",
   "effects.echo.name": "Eco",
+  "effects.emberFrame.description": "Brasas brillantes que flotan y titilan en los bordes del encuadre, con esquinas redondeadas opcionales.",
+  "effects.emberFrame.name": "Marco de brasas",
   "effects.enhanceVoice.description": "Quita la sala de una grabación: retumbo, siseo, sibilancia y nivel irregular.",
   "effects.enhanceVoice.name": "Mejorar voz",
   "effects.exposure.description": "Más claro o más oscuro por pasos de luz, como lo haría el objetivo, sin perder las luces.",

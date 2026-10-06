@@ -273,6 +273,8 @@
   "effects.dreamy.name": "رؤیایی",
   "effects.echo.description": "یک بار تکرار با محو شدن.",
   "effects.echo.name": "اکو",
+  "effects.emberFrame.description": "اخگرهای درخشانی که در لبه‌های کادر شناورند و چشمک می‌زنند، با گوشه‌های گرد اختیاری.",
+  "effects.emberFrame.name": "قاب اخگر",
   "effects.enhanceVoice.description": "صدای محیط را از ضبط پاک می‌کند: صدای بم مزاحم، هیس، سیبلیانس و سطح ناهموار.",
   "effects.enhanceVoice.name": "بهبود صدا",
   "effects.exposure.description": "روشن‌تر یا تیره‌تر به اندازهٔ Stopهای نور، همان‌گونه که لنز می‌کند، با حفظ هایلایت‌ها.",

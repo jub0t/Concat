@@ -273,6 +273,8 @@
   "effects.dreamy.name": "몽환",
   "effects.echo.description": "한 번 반복하며 사라집니다.",
   "effects.echo.name": "에코",
+  "effects.emberFrame.description": "화면 가장자리에서 빛나는 불씨가 떠다니며 반짝입니다. 둥근 모서리도 선택할 수 있습니다.",
+  "effects.emberFrame.name": "불씨 프레임",
   "effects.enhanceVoice.description": "녹음에서 공간의 울림을 걷어냅니다: 저역 울림, 히스, 치찰음, 고르지 않은 레벨.",
   "effects.enhanceVoice.name": "목소리 향상",
   "effects.exposure.description": "렌즈가 하듯 빛을 스톱 단위로 밝게 또는 어둡게 합니다. 하이라이트는 유지됩니다.",

@@ -273,6 +273,8 @@
   "effects.dreamy.name": "Sognante",
   "effects.echo.description": "Una ripetizione che sfuma.",
   "effects.echo.name": "Eco",
+  "effects.emberFrame.description": "Braci luminose che fluttuano e scintillano lungo i bordi dell'inquadratura, con angoli arrotondati opzionali.",
+  "effects.emberFrame.name": "Cornice di braci",
   "effects.enhanceVoice.description": "Toglie la stanza da una registrazione: rombo, fruscio, sibilanti e livello irregolare.",
   "effects.enhanceVoice.name": "Migliora voce",
   "effects.exposure.description": "Più chiaro o più scuro di stop di luce, come farebbe l'obiettivo, con le luci preservate.",
