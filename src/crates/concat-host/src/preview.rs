@@ -17,6 +17,7 @@
 //! thread that owns the device - because the drawing is not a thing a
 //! worker may do; see `texture_of`.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use concat_export::ExportClip;
@@ -59,6 +60,9 @@ pub struct Monitor {
     /// and scrubbing ask for many instants of one document, and the plan
     /// is the half of a frame that does not depend on the instant.
     plan: Arc<Mutex<Option<PlanEntry>>>,
+    /// The files a coming cut leads into that playback has already sent
+    /// to be opened early, so each is opened once and not once a frame.
+    early: Arc<Mutex<Vec<PathBuf>>>,
     #[cfg(feature = "gpu")]
     gpu: Option<Arc<Mutex<concat_render::WgpuCompositor>>>,
 }
@@ -94,6 +98,7 @@ impl Monitor {
         Self {
             pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
+            early: Arc::new(Mutex::new(Vec::new())),
             #[cfg(feature = "gpu")]
             gpu: None,
         }
@@ -107,6 +112,7 @@ impl Monitor {
         Self {
             pool: Arc::clone(crate::scheduler().pool()),
             plan: Arc::new(Mutex::new(None)),
+            early: Arc::new(Mutex::new(Vec::new())),
             gpu: Some(Arc::new(Mutex::new(
                 concat_render::WgpuCompositor::with_device(device, queue),
             ))),
@@ -325,20 +331,35 @@ impl Monitor {
         // ahead cover, so a cut would otherwise wait on it. Only files the
         // frames ahead do not read already, and not pinned - this is to
         // have the reader open and its first frames cached by the cut.
-        if spec.moving
-            && let Some(far) =
-                concat_export::preview_moments(&plan, spec.time + NEXT_CUT, 1, spec.proxy).pop()
-        {
+        // Once per file: this runs every frame, the pool opens a reader
+        // outside its lock, and a file sent again before its first open
+        // finished would be opened again beside it.
+        let mut early = self
+            .early
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !spec.moving {
+            early.clear();
+        } else {
+            let far = concat_export::preview_moments(&plan, spec.time + NEXT_CUT, 1, spec.proxy)
+                .pop()
+                .map(|far| far.frames)
+                .unwrap_or_default();
+            let near = |path: &PathBuf| {
+                moments
+                    .iter()
+                    .any(|near| near.frames.iter().any(|read| &read.path == path))
+            };
+            // A file stays sent while a cut ahead or the frames ahead
+            // still read it; after that, a later cut into it opens it anew.
+            early.retain(|path| near(path) || far.iter().any(|read| &read.path == path));
             let fresh: Vec<_> = far
-                .frames
                 .into_iter()
                 .filter(|request| {
-                    !request.still
-                        && !moments
-                            .iter()
-                            .any(|near| near.frames.iter().any(|read| read.path == request.path))
+                    !request.still && !near(&request.path) && !early.contains(&request.path)
                 })
                 .collect();
+            early.extend(fresh.iter().map(|request| request.path.clone()));
             if !fresh.is_empty() {
                 let pool = Arc::clone(&self.pool);
                 crate::scheduler().submit(concat_media::Priority::Filmstrip, move || {
@@ -348,6 +369,7 @@ impl Monitor {
                 });
             }
         }
+        drop(early);
         crate::scheduler().advance(
             concat_media::Cursor {
                 time: spec.time,
@@ -367,5 +389,9 @@ impl Monitor {
             .plan
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.early
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 }
