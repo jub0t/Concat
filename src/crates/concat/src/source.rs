@@ -151,6 +151,7 @@ impl Studio {
         }
         source.playing = true;
         self.host.playback.play(source.time);
+        self.meters.wake();
         source.timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(16),

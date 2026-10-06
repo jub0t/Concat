@@ -14,6 +14,11 @@ pub const SEAT_MIN_H: f32 = 140.0;
 pub const SEAT_MIN_GRAB: f32 = 64.0;
 /// The gutter between the halves of a split, and the margin round the lot.
 pub const SEAT_GAP: f32 = 8.0;
+/// The VU meters' column needs only its bars and its scale.
+pub const METERS_MIN_W: f32 = 64.0;
+/// The meters' share of the bottom row in the default layout: a slim
+/// column beside the timeline, at its full height.
+const METERS_SHARE: f32 = 0.045;
 
 pub enum Dock {
     /// One view, filling its box.
@@ -266,7 +271,13 @@ pub fn default_dock() -> Dock {
                 second: Dock::leaf(PaneKind::Inspector),
             }),
         }),
-        second: Dock::leaf(PaneKind::Timeline),
+        // The timeline, and the VU meters in a slim column beside it.
+        second: Box::new(Dock::Split {
+            columns: true,
+            ratio: 1.0 - METERS_SHARE,
+            first: Dock::leaf(PaneKind::Timeline),
+            second: Dock::leaf(PaneKind::Meters),
+        }),
     }
 }
 

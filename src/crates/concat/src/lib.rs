@@ -39,6 +39,7 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
+mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to
 /// the system's file picker. See `platform::pick_files_async`.
@@ -76,7 +77,7 @@ mod wayland_drop {
     }
 }
 
-use dock::{Dock, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
+use dock::{Dock, METERS_MIN_W, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
 use host::{Host, Shell, on_ui};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
@@ -606,16 +607,31 @@ pub fn run() -> Result<(), slint::PlatformError> {
         let Some(path) = state.dock.split_path(held) else {
             return;
         };
+        // A side that is only the meters may be as narrow as its bars;
+        // every other seat keeps the width its controls need.
+        let narrow = |node: &Dock| matches!(node, Dock::Leaf(PaneKind::Meters));
+        let (first_narrow, second_narrow) = match state.dock.at(&path) {
+            Dock::Split { first, second, .. } => (narrow(first), narrow(second)),
+            Dock::Leaf(_) => (false, false),
+        };
         let Dock::Split { columns, ratio, .. } = state.dock.at_mut(&path) else {
             return;
         };
         let wanted = if *columns { SEAT_MIN_W } else { SEAT_MIN_H };
-        let floor = if wanted * 2.0 <= extent {
-            wanted
-        } else {
-            SEAT_MIN_GRAB.min(extent / 2.0)
-        } / extent;
-        *ratio = (from + delta / extent).clamp(floor, 1.0 - floor);
+        let side = |is_narrow: bool| {
+            if is_narrow && *columns {
+                METERS_MIN_W
+            } else if wanted * 2.0 <= extent {
+                wanted
+            } else {
+                SEAT_MIN_GRAB.min(extent / 2.0)
+            }
+        };
+        let (low, high) = (
+            side(first_narrow) / extent,
+            1.0 - side(second_narrow) / extent,
+        );
+        *ratio = (from + delta / extent).clamp(low, high.max(low));
     }));
 
     // ── the bin ──
@@ -1132,6 +1148,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
         .on_query_changed(on_window!(|state, text: SharedString| {
             state.font_query = text.to_string();
         }));
+    app.global::<Meters>().on_clip_cleared({
+        let weak = app.as_weak();
+        move || {
+            if let Some(app) = weak.upgrade() {
+                crate::host::Shell::with(|shell, _| {
+                    shell.studio.borrow_mut().meters.clear_clip(&app);
+                });
+            }
+        }
+    });
     app.global::<SourcePreview>().on_closed(on_window!(|state| {
         state.close_source();
     }));

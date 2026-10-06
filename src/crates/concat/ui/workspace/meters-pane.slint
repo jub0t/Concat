@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The VU meters: how loud the timeline plays, left and right, while it
+// plays. A slim column beside the timeline by default. Each bar is the
+// peak level on a decibel scale - 0 dB at the top, -60 at the foot -
+// with the loudest of the last moment held as a line, and a light at the
+// top that stays red once the mix has clipped, until it is clicked.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { LevelMeter } from "../primitives/level-meter.slint";
+import { Tip } from "../primitives/tooltip.slint";
+import { Pane } from "pane.slint";
+import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
+
+/// The levels, published by Rust (concat's meters.rs) thirty times a second
+/// while anything plays. Each is `0..1` on the meter's decibel scale.
+export global Meters {
+    in property <float> left;
+    in property <float> right;
+    /// The loudest of the last moment, held; negative hides it.
+    in property <float> hold-left: -1;
+    in property <float> hold-right: -1;
+    /// A sample reached full scale since the light was last cleared.
+    in property <bool> clipped;
+    callback clip-cleared();
+}
+
+export component MetersPane inherits Pane {
+    in property <int> pane-seat;
+    in property <bool> pane-removable;
+    callback pane-picked(kind: PaneKind);
+    callback pane-removed();
+
+    /// The scale's floor, in dB: the meters' 0 is this, their 1 is 0 dB.
+    property <float> floor-db: -60;
+    property <[float]> marks: [0, -6, -12, -24, -36, -48];
+
+    VerticalLayout {
+        // The other panes' bar height, and only the switcher in it: the
+        // column is too narrow for a name, and the bars say what it is.
+        Rectangle {
+            height: 52px;
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.line;
+            }
+            HorizontalLayout {
+                alignment: center;
+                VerticalLayout {
+                    alignment: center;
+                    PaneSwitcher {
+                        kind: PaneKind.meters;
+                        seat: root.pane-seat;
+                        removable: root.pane-removable;
+                        picked(kind) => { root.pane-picked(kind); }
+                        removed => { root.pane-removed(); }
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            // The clip light: red once the mix has hit full scale, until
+            // clicked.
+            HorizontalLayout {
+                alignment: center;
+                light := Rectangle {
+                    width: 30px;
+                    height: 8px;
+                    border-radius: 2px;
+                    background: Meters.clipped ? Theme.danger : Theme.field;
+                    border-width: 1px;
+                    border-color: Meters.clipped ? Theme.danger : Theme.line;
+
+                    light-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Meters.clip-cleared(); }
+                    }
+                    Tip {
+                        text: Meters.clipped ? I18n.t("meters.clipped") : I18n.t("meters.clipLight");
+                        active: light-touch.has-hover;
+                    }
+                }
+            }
+
+            // The bars, and the scale beside them.
+            HorizontalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+                spacing: 3px;
+
+                scale := Rectangle {
+                    width: 20px;
+                    for db in root.marks: Text {
+                        x: parent.width - self.width;
+                        y: (1 - (db - root.floor-db) / (0 - root.floor-db)) * parent.height
+                            - self.height / 2;
+                        text: "\{-db}";
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                    }
+                }
+                LevelMeter {
+                    vertical: true;
+                    thickness: 10px;
+                    value: Meters.left;
+                    peak: Meters.hold-left;
+                }
+                LevelMeter {
+                    vertical: true;
+                    thickness: 10px;
+                    value: Meters.right;
+                    peak: Meters.hold-right;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 3px;
+                Rectangle { width: 20px; }
+                Text {
+                    width: 10px;
+                    text: "L";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    width: 10px;
+                    text: "R";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-xs;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+}
