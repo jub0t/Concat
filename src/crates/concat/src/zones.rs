@@ -70,8 +70,14 @@ pub fn valid_row(groups: &[Option<Group>], row: i32, group: Group) -> bool {
         return false;
     }
     let rank = group.rank();
-    groups[..at].iter().flatten().all(|above| above.rank() <= rank)
-        && groups[at + 1..].iter().flatten().all(|below| below.rank() >= rank)
+    groups[..at]
+        .iter()
+        .flatten()
+        .all(|above| above.rank() <= rank)
+        && groups[at + 1..]
+            .iter()
+            .flatten()
+            .all(|below| below.rank() >= rank)
 }
 
 /// The row a moved clip lands on: the first row allowed walking back from

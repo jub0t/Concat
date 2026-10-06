@@ -2132,11 +2132,19 @@ mod tests {
             .expect("clip id");
         let timeline = editor.project().active();
         let lane = &timeline.clip(&look).expect("placed").track_id;
-        assert_eq!(row_of(timeline, lane), timeline.tracks.len() - 1, "clamped to the top");
+        assert_eq!(
+            row_of(timeline, lane),
+            timeline.tracks.len() - 1,
+            "clamped to the top"
+        );
 
         assert!(editor.undo());
         let timeline = editor.project().active();
-        assert_eq!(timeline.tracks.len(), before + 1, "the lane goes with its clip");
+        assert_eq!(
+            timeline.tracks.len(),
+            before + 1,
+            "the lane goes with its clip"
+        );
         assert!(timeline.clip(&look).is_none());
     }
 
@@ -2175,7 +2183,9 @@ mod tests {
             .created_id
             .expect("id");
         while editor.project().active().tracks.len() < 2 {
-            editor.apply(Command::AddTrack { bottom: false }).expect("adds");
+            editor
+                .apply(Command::AddTrack { bottom: false })
+                .expect("adds");
         }
         let (bottom, upper) = {
             let tracks = &editor.project().active().tracks;

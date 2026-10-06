@@ -48,10 +48,10 @@ mod prefs;
 mod presets;
 mod studio;
 mod sysinfo;
-mod zones;
 /// Native Wayland file drops, which winit does not report; see the module.
 #[cfg(target_os = "linux")]
 mod wayland_drop;
+mod zones;
 /// Elsewhere the listener is a name that starts nothing, so platform.rs
 /// reads the same on every desktop.
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
