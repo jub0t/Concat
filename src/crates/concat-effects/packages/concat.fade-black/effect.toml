@@ -1,0 +1,19 @@
+format = 2
+
+[effect]
+id = "concat.fade-black"
+name = "Fade to Black"
+kind = "transition"
+category = "Basic"
+order = 1
+aliases = ["fade-black"]
+description = "The outgoing shot fades down to black, and the next fades up out of it."
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadeblack"
+fallback = "cross-fade"
+
+# Most of the way down, so the card reads as a fade and not a black square.
+[card]
+progress = 0.3

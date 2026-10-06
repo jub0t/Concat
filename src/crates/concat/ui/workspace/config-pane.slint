@@ -585,8 +585,13 @@ export component ConfigPane inherits Rectangle {
                 VerticalLayout {
                     alignment: center;
                     SegmentedControl {
+                        // A click writes `current` and drops any binding on
+                        // it, so the section is handed over again whenever
+                        // it changes: a new clip, a tab with fewer sections.
+                        property <int> held: Math.max(0, Math.min(root.section, root.sections.length - 1));
+                        changed held => { self.current = self.held; }
                         options: root.sections-shown;
-                        current: Math.max(0, Math.min(root.section, root.sections.length - 1));
+                        current: self.held;
                         changed(index) => { root.pick-section(index); }
                     }
                 }

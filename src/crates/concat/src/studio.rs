@@ -158,6 +158,14 @@ fn transition_window(cut: f32, duration: f32, total: f32) -> (f32, f32) {
     (from, (end - from).max(0.0))
 }
 
+/// The cut nearest `at` among `cuts`, each its instant and the incoming
+/// clip's id.
+fn nearest_cut(cuts: Vec<(f64, String)>, at: f64) -> Option<String> {
+    cuts.into_iter()
+        .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))
+        .map(|(_, incoming)| incoming)
+}
+
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
     /// Every sampled frame side by side.
@@ -3649,12 +3657,10 @@ impl Studio {
             return;
         }
         let at = f64::from(self.playhead.max(0.0));
-        let nearest = self.playhead_cut().or_else(|| {
-            self.picture_cuts(None)
-                .into_iter()
-                .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))
-                .map(|(_, incoming)| incoming)
-        });
+        let nearest = self
+            .transition_cut()
+            .ok()
+            .or_else(|| nearest_cut(self.picture_cuts(None), at));
         let Some(clip_id) = nearest else {
             self.notify(&t("studio.noCutAtPlayhead"), true);
             return;
@@ -3814,6 +3820,7 @@ impl Studio {
             .find(|other| {
                 other.id != clip.id
                     && other.track_id == clip.track_id
+                    && other.kind.is_visual() == clip.kind.is_visual()
                     && (other.start + other.duration - clip.start).abs() < frame / 2.0
             })
             .map(|other| other.as_ref())
@@ -3847,14 +3854,50 @@ impl Studio {
         (duration >= frame).then_some(duration)
     }
 
-    /// The cut a transition from the library goes on. Two clips selected
-    /// that meet on one track name the cut between them - the simple way,
-    /// and the one the Transitions page asks for. One clip selected names
-    /// the cut into it, for a transition picked after a click on the lane.
-    /// The incoming clip's id, or what to say instead.
+    /// The clip that starts where `clip` ends, on the same track and of
+    /// the same sort - the incoming side of the cut out of `clip`.
+    fn incoming_of(&self, clip: &Clip) -> Option<&Clip> {
+        let frame = self.frame_seconds();
+        let end = clip.start + clip.duration;
+        self.timeline()
+            .clips
+            .iter()
+            .find(|other| {
+                other.id != clip.id
+                    && other.track_id == clip.track_id
+                    && other.kind.is_visual() == clip.kind.is_visual()
+                    && (other.start - end).abs() < frame / 2.0
+            })
+            .map(|other| other.as_ref())
+    }
+
+    /// The cut a transition from the library goes on, as the incoming
+    /// clip's id, or what to say instead. Two clips selected that meet on
+    /// one track name the cut between them. One clip names a cut of its
+    /// own - into it or out of it, whichever is nearer the playhead - and
+    /// never one on another track. Nothing selected is the cut at the
+    /// playhead.
     fn transition_cut(&self) -> Result<String, String> {
         match self.selection.as_slice() {
-            [one] => Ok(one.clone()),
+            [] => self
+                .playhead_cut()
+                .ok_or_else(|| t("studio.noCutAtPlayhead")),
+            [one] => {
+                let Some(clip) = self.clip(one) else {
+                    return Err(t("studio.selectTwoAdjacentClips"));
+                };
+                let mut cuts = Vec::new();
+                if self.visual_cut(&clip.id) {
+                    cuts.push((clip.start, clip.id.clone()));
+                }
+                if let Some(next) = self.incoming_of(clip)
+                    && self.visual_cut(&next.id)
+                {
+                    cuts.push((next.start, next.id.clone()));
+                }
+                nearest_cut(cuts, f64::from(self.playhead))
+                    .ok_or_else(|| t("studio.clipHasNoNeighbour"))
+            }
             [a, b] => {
                 let (Some(a), Some(b)) = (self.clip(a), self.clip(b)) else {
                     return Err(t("studio.selectTwoAdjacentClips"));
@@ -3863,6 +3906,7 @@ impl Studio {
                 if self
                     .outgoing_of(second)
                     .is_some_and(|outgoing| outgoing.id == first.id)
+                    && self.visual_cut(&second.id)
                 {
                     Ok(second.id.clone())
                 } else {
@@ -3873,21 +3917,14 @@ impl Studio {
         }
     }
 
-    /// Puts the catalogue transition `id` on the cut the selection names;
-    /// see [`Studio::transition_cut`].
+    /// Puts the catalogue transition `id` on the cut the selection names,
+    /// or says why there is none; see [`Studio::transition_cut`].
     pub fn apply_transition(&mut self, id: &str) {
         self.end_audition();
-        // The selection's cut when it names one a picture transition can
-        // ride; else the cut at the playhead.
-        let selected = self
-            .transition_cut()
-            .ok()
-            .filter(|clip_id| self.visual_cut(clip_id));
-        let Some(clip_id) = selected.or_else(|| self.playhead_cut()) else {
-            self.notify(&t("studio.noCutAtPlayhead"), true);
-            return;
-        };
-        self.put_transition(&clip_id, id);
+        match self.transition_cut() {
+            Ok(clip_id) => self.put_transition(&clip_id, id),
+            Err(why) => self.notify(&why, true),
+        }
     }
 
     /// Whether `clip_id` meets a clip before it on its lane, both of them
@@ -4651,7 +4688,35 @@ impl Studio {
         self.gesture = gesture;
     }
 
-    /// The pointer let go: the whole gesture becomes one command.
+    /// The moves the echo holds for the clips being dragged.
+    fn echoed_moves(&self, origins: &[MoveOrigin]) -> Vec<ClipMove> {
+        let Some(echo) = self.echo.as_ref() else {
+            return Vec::new();
+        };
+        origins
+            .iter()
+            .filter_map(|origin| {
+                let after = echo.active().clip(&origin.clip)?;
+                Some(ClipMove {
+                    clip_id: origin.clip.clone(),
+                    start: after.start,
+                    track_id: after.track_id.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Lets go of the lanes' echo, and of any inspector edit held on it:
+    /// left pending, its timer would land on whatever echo came next.
+    fn drop_lane_echo(&mut self) {
+        self.echo = None;
+        self.commit_pending = false;
+        self.commit_targets.clear();
+        self.commit_timer.stop();
+    }
+
+    /// The pointer let go: the whole gesture becomes one command. A press
+    /// that moved nothing is a click, and is no edit.
     pub fn clip_released(&mut self) {
         let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         let Some(echo) = self.echo.as_ref() else {
@@ -4659,19 +4724,14 @@ impl Studio {
         };
         match gesture {
             Gesture::Move { origins, .. } => {
-                let moves: Vec<ClipMove> = origins
-                    .iter()
-                    .filter_map(|origin| {
-                        let after = echo.active().clip(&origin.clip)?;
-                        Some(ClipMove {
-                            clip_id: origin.clip.clone(),
-                            start: after.start,
-                            track_id: after.track_id.clone(),
-                        })
+                let moves = self.echoed_moves(&origins);
+                self.drop_lane_echo();
+                let unmoved = moves.iter().all(|wanted| {
+                    self.clip(&wanted.clip_id).is_some_and(|clip| {
+                        clip.start == wanted.start && clip.track_id == wanted.track_id
                     })
-                    .collect();
-                self.echo = None;
-                if !moves.is_empty() {
+                });
+                if !unmoved {
                     self.apply(Command::MoveClips { moves });
                 }
             }
@@ -4683,7 +4743,7 @@ impl Studio {
                 ..
             } => {
                 let after = echo.active().clip(&clip).cloned();
-                self.echo = None;
+                self.drop_lane_echo();
                 let Some(after) = after else { return };
                 let delta = match edge {
                     Edge::Start => after.start - f64::from(start),
@@ -4729,7 +4789,7 @@ impl Studio {
                 }
             }
             Gesture::None => {
-                self.echo = None;
+                self.drop_lane_echo();
             }
             // Not a lane gesture: hand it back untouched, echo and all.
             other @ (Gesture::StageMove { .. }
@@ -5157,6 +5217,11 @@ impl Studio {
                 });
             },
         );
+    }
+
+    /// Whether an inspector edit is held, waiting to be committed.
+    pub fn commit_pending(&self) -> bool {
+        self.commit_pending
     }
 
     /// Lands the held commit now, if there is one. Called before anything
@@ -10520,8 +10585,8 @@ pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> 
 mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
-        custom_rate, fps_of, grading_rows, home_folder, key_commands, look_window, packed,
-        place_in, shown, transition_window, wheel_partners, write_keyable,
+        custom_rate, fps_of, grading_rows, home_folder, key_commands, look_window, nearest_cut,
+        packed, place_in, shown, transition_window, wheel_partners, write_keyable,
     };
 
     /// A look's preview runs one length of it from the playhead; near the
@@ -10542,6 +10607,16 @@ mod tests {
         assert_eq!(transition_window(5.0, 0.5, 20.0), (4.0, 2.5));
         assert_eq!(transition_window(0.5, 0.5, 20.0), (0.0, 2.0));
         assert_eq!(transition_window(5.0, 0.5, 6.0), (4.0, 2.0));
+    }
+
+    /// A lone clip's transition goes on whichever of its own cuts is
+    /// nearer the playhead, and on none when it has neither.
+    #[test]
+    fn a_lone_clip_takes_its_nearer_cut() {
+        let cuts = || vec![(2.0, "into".to_owned()), (6.0, "out".to_owned())];
+        assert_eq!(nearest_cut(cuts(), 3.0).as_deref(), Some("into"));
+        assert_eq!(nearest_cut(cuts(), 5.5).as_deref(), Some("out"));
+        assert_eq!(nearest_cut(Vec::new(), 3.0), None);
     }
 
     /// A wheel is keyed as one knob: named by itself or by any of its own

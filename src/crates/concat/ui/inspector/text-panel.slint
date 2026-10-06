@@ -204,18 +204,43 @@ export component TextPanel inherits VerticalLayout {
                     selection-background-color: Theme.accent;
                     selection-foreground-color: Theme.on-accent;
 
+                    // Typing drops the `text` binding, so the words are
+                    // handed over again when another title is picked, and
+                    // when this one's change elsewhere - an undo - while
+                    // nobody is typing in the box.
+                    property <string> held-id: root.selected.id;
+                    property <string> held: root.selected.content;
+                    changed held-id => {
+                        self.text = root.selected.content;
+                        self.typed-for = "";
+                    }
+                    changed held => {
+                        if (!self.has-focus) { self.text = self.held; }
+                    }
+                    /// The title the words in the box were typed for, or
+                    /// empty when nothing was typed since it was picked.
+                    property <string> typed-for;
+
                     // Every keystroke goes to the echo so the monitor shows
                     // the words as they are typed; the commit waits for the
                     // way out, so a title being typed is one change and not
                     // forty.
                     edited => {
+                        self.typed-for = root.selected.id;
                         root.set-text(ClipTextField.content, self.text);
                     }
+                    // The way out comes a beat after the press that caused
+                    // it, when a click on another title has already picked
+                    // that one - and the press landed these words on their
+                    // own title on its way. Sent now, they would go on the
+                    // new one, so they go only where they were typed.
                     changed has-focus => {
-                        if (!self.has-focus) {
+                        if (!self.has-focus && self.typed-for != ""
+                            && self.typed-for == root.selected.id) {
                             root.set-text(ClipTextField.content, self.text);
                             root.commit();
                         }
+                        if (!self.has-focus) { self.typed-for = ""; }
                     }
 
                     // Slint binds Home and End to nothing on macOS, so they
@@ -523,10 +548,14 @@ export component TextPanel inherits VerticalLayout {
             label: I18n.t("textPanel.textAlign");
             label-width: root.label-w;
             SegmentedControl {
+                // Handed over again on every change, the click having
+                // dropped the binding; see the section strip in ConfigPane.
+                property <int> held: root.selected.align == TextAlignment.right ? 2
+                    : root.selected.align == TextAlignment.center ? 1 : 0;
+                changed held => { self.current = self.held; }
                 options: [I18n.t("common.left"), I18n.t("textPanel.center"), I18n.t("common.right")];
                 icons: [Glyph.align-left, Glyph.align-center-x, Glyph.align-right];
-                current: root.selected.align == TextAlignment.right ? 2
-                    : root.selected.align == TextAlignment.center ? 1 : 0;
+                current: self.held;
                 changed(index) => { root.set(ClipField.align, index); root.commit(); }
             }
         }

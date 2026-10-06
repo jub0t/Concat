@@ -1258,7 +1258,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // A press on any pane's floor takes focus back from the field that had
     // it; see Editor.blur. The chords that are also menu rows go through the
     // menu's handler, so the key and the row cannot come apart.
-    editor.on_blur(|| Shell::with(|_, app| app.invoke_blur()));
+    // Words typed into the field land here, while the press that took the
+    // focus has not yet picked anything else: the field's own way out comes
+    // a beat later, and would find another selection.
+    editor.on_blur(|| {
+        Shell::with(|shell, app| {
+            let landed = {
+                let mut studio = shell.studio.borrow_mut();
+                let pending = studio.commit_pending();
+                studio.flush_commit();
+                pending
+            };
+            if landed {
+                shell.studio.borrow().publish(&app, &shell.models);
+            }
+            app.invoke_blur();
+        })
+    });
     // A field that is done being typed into - Enter, Escape - releases the
     // focus the same way, rather than clearing it: a cleared focus is a
     // window where no key reaches anything. See Focus in util.slint.
