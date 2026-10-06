@@ -42,9 +42,8 @@ pub struct TitleClip {
     /// The painted block's size in frame pixels, for an outline on a monitor.
     pub block: (u32, u32),
     /// Where that block's centre is, as an offset in frame pixels from the
-    /// clip's own centre: zero for a centred title, half a block to the
-    /// right for a left-aligned one, whose block starts at the clip's
-    /// position. See `concat_text::Align`.
+    /// clip's own centre. Zero whatever the alignment, which only sets the
+    /// lines within the block. See `concat_text::Align`.
     pub offset: (i32, i32),
     /// The pixels, when the title was painted live rather than to disk:
     /// what the monitor is to show under `clip.path`, a name no file has.
@@ -404,8 +403,9 @@ fn key_of(project: &Project, painting: Painting<'_>, width: u32, height: u32) ->
     // Bumped when the painter's output changes for the same input, so stale
     // files are not mistaken for current ones. 3: left- and right-aligned
     // blocks moved to their anchors. 4: the sidecar gained each word's box,
-    // for a per-word reveal effect to read back.
-    bytes.extend_from_slice(&4u32.to_le_bytes());
+    // for a per-word reveal effect to read back. 5: every block centred on
+    // the clip's position again, the alignment only setting its lines.
+    bytes.extend_from_slice(&5u32.to_le_bytes());
     crate::media::fnv1a(&bytes)
 }
 
@@ -642,9 +642,8 @@ mod tests {
         let wide = titles.clips(editor.project(), 1280, 720);
         assert_ne!(wide[0].clip.path, title.clip.path);
 
-        // Aligned left, the block starts at the clip's position and its
-        // centre is reported half a block to the right - and a second
-        // painter, reading the sidecar cold, says the same.
+        // Aligned left, the block stays centred on the clip's position -
+        // and a second painter, reading the sidecar cold, says the same.
         let style = concat_project::model::TextStyle {
             align: concat_project::model::TextAlign::Left,
             ..Default::default()
@@ -659,8 +658,7 @@ mod tests {
             })
             .expect("aligns");
         let left = titles.clips(editor.project(), 640, 360);
-        assert!(left[0].offset.0 > 0);
-        assert!((left[0].offset.0 as u32).abs_diff(left[0].block.0 / 2) <= 1);
+        assert_eq!(left[0].offset, (0, 0));
         let cold = Titles::new(&dirs).clips(editor.project(), 640, 360);
         assert_eq!(cold[0].offset, left[0].offset);
         assert_eq!(cold[0].block, left[0].block);
