@@ -576,8 +576,6 @@ pub struct Models {
     pub visual_curves: Rc<VecModel<CurveGroupData>>,
     /// The picture's chain's colour knobs, a row each.
     pub visual_colours: Rc<VecModel<ColourKnobData>>,
-    /// The Scopes pane's scale.
-    pub scope_marks: Rc<VecModel<ScopeMarkData>>,
     /// A link's wheels and curves, and a curve's points, by the link - -1
     /// the colour panel - and the curve's key: kept like the rest, so a
     /// wheel or a point being dragged is not dropped when it is published
@@ -648,7 +646,6 @@ impl Models {
             adjust_curves: Rc::new(VecModel::default()),
             visual_wheels: Rc::new(VecModel::default()),
             visual_colours: Rc::new(VecModel::default()),
-            scope_marks: Rc::new(VecModel::default()),
             visual_curves: Rc::new(VecModel::default()),
             link_wheels: RefCell::new(HashMap::new()),
             link_curves: RefCell::new(HashMap::new()),
@@ -7449,22 +7446,11 @@ impl Studio {
         }
     }
 
-    /// The monitor's picture and the scope counted from it, alone: what a
-    /// frame arriving during playback changes.
-    pub fn publish_frame(&self, app: &App, models: &Models) {
+    /// The monitor's picture alone: what a frame arriving during playback
+    /// changes.
+    pub fn publish_frame(&self, app: &App) {
         app.global::<Editor>()
             .set_preview_frame(self.monitor.image.clone());
-        let scopes = app.global::<Scopes>();
-        scopes.set_kind(self.monitor.scope_kind as i32);
-        match &self.monitor.scope {
-            Some((picture, marks, hdr)) => {
-                scopes.set_picture(picture.clone());
-                sync(&models.scope_marks, marks.clone());
-                scopes.set_hdr(*hdr);
-                scopes.set_ready(true);
-            }
-            None => scopes.set_ready(false),
-        }
     }
 
     /// The timeline and the readouts that follow it: what runs on every
@@ -7589,7 +7575,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
-        self.publish_frame(app, models);
+        self.publish_frame(app);
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
         let (path, width, erase) = self.stroke_overlay();

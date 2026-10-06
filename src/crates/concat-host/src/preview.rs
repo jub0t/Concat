@@ -81,11 +81,6 @@ struct PlanEntry {
 #[cfg(feature = "gpu")]
 pub use concat_render::wgpu;
 
-/// The scopes the monitor counts as it draws; see
-/// [`Monitor::texture_of_scoped`].
-#[cfg(feature = "gpu")]
-pub use concat_render::scopes;
-
 impl Default for Monitor {
     fn default() -> Self {
         Self::new()
@@ -200,20 +195,6 @@ impl Monitor {
         sources: &concat_export::PreviewSources,
         spec: FrameSpec,
     ) -> Result<wgpu::Texture, String> {
-        self.texture_of_scoped(sources, spec, None)
-    }
-
-    /// [`Monitor::texture_of`], with `scope` counted from the frame's light
-    /// as it is drawn - a packaged transition's frame goes uncounted - for
-    /// [`Monitor::take_scope`] to hand over once its counts are back. The
-    /// same one thread, for the same reason.
-    #[cfg(feature = "gpu")]
-    pub fn texture_of_scoped(
-        &self,
-        sources: &concat_export::PreviewSources,
-        spec: FrameSpec,
-        scope: Option<concat_render::ScopeKind>,
-    ) -> Result<wgpu::Texture, String> {
         let gpu = self
             .gpu
             .as_ref()
@@ -236,18 +217,11 @@ impl Monitor {
             ));
             plan.output = sources.plan().output;
             return gpu
-                .render_texture_scoped(&plan, scope)
+                .render_texture(&plan)
                 .ok_or_else(|| "the GPU device was lost".to_owned());
         }
-        gpu.render_texture_scoped(sources.plan(), scope)
+        gpu.render_texture(sources.plan())
             .ok_or_else(|| "the GPU device was lost".to_owned())
-    }
-
-    /// The last scope [`Monitor::texture_of_scoped`] counted, once its
-    /// counts are back; never waits. From the device's thread.
-    #[cfg(feature = "gpu")]
-    pub fn take_scope(&self) -> Option<concat_render::ScopeData> {
-        self.gpu.as_ref()?.lock().ok()?.take_scope()
     }
 
     /// The plan for this clip list at this size and rate: the kept one

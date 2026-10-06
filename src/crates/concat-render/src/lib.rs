@@ -24,7 +24,6 @@ pub mod metrics;
 pub mod plan;
 #[cfg(test)]
 mod reference;
-pub mod scopes;
 #[cfg(test)]
 mod transitions;
 
@@ -37,6 +36,5 @@ pub use plan::{
 };
 #[cfg(test)]
 pub(crate) use reference::CpuCompositor;
-pub use scopes::{ScopeData, ScopeKind};
 /// The wgpu the compositor is built on, for callers that share its device.
 pub use wgpu;

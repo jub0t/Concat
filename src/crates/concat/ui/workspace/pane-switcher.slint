@@ -39,8 +39,6 @@ export enum PaneKind {
     timeline,
     /// the selected clip's keys: a dopesheet and a curve editor
     keyframes,
-    /// the monitor's picture as waveform, parade, vectorscope, histogram
-    scopes,
 }
 
 export global Panes {
@@ -62,7 +60,6 @@ export global Panes {
             : kind == PaneKind.preview ? I18n.t("common.preview")
             : kind == PaneKind.inspector ? I18n.t("paneSwitcher.inspector")
             : kind == PaneKind.keyframes ? I18n.t("common.keyframes")
-            : kind == PaneKind.scopes ? I18n.t("scopes.scopes")
             : I18n.t("paneSwitcher.timeline");
     }
 
@@ -74,7 +71,6 @@ export global Panes {
             : kind == PaneKind.preview ? "preview"
             : kind == PaneKind.inspector ? "inspector"
             : kind == PaneKind.keyframes ? "keyframes"
-            : kind == PaneKind.scopes ? "scopes"
             : "timeline";
     }
 
@@ -87,7 +83,6 @@ export global Panes {
             : kind == PaneKind.preview ? Glyph.image
             : kind == PaneKind.inspector ? Glyph.settings
             : kind == PaneKind.keyframes ? Glyph.keyframe
-            : kind == PaneKind.scopes ? Glyph.waveform
             : Glyph.rows;
     }
 }
@@ -400,11 +395,6 @@ export component PaneSwitcher inherits Rectangle {
                         chosen => { menu.close(); root.picked(PaneKind.keyframes); }
                     }
                     SwitchRow {
-                        kind: PaneKind.scopes;
-                        current: root.kind == PaneKind.scopes;
-                        chosen => { menu.close(); root.picked(PaneKind.scopes); }
-                    }
-                    SwitchRow {
                         kind: PaneKind.timeline;
                         current: root.kind == PaneKind.timeline;
                         chosen => { menu.close(); root.picked(PaneKind.timeline); }
@@ -506,10 +496,6 @@ export component AddPaneButton inherits Rectangle {
                     SwitchRow {
                         kind: PaneKind.keyframes;
                         chosen => { menu.close(); root.added(PaneKind.keyframes); }
-                    }
-                    SwitchRow {
-                        kind: PaneKind.scopes;
-                        chosen => { menu.close(); root.added(PaneKind.scopes); }
                     }
                     SwitchRow {
                         kind: PaneKind.timeline;
