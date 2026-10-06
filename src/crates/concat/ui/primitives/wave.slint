@@ -14,6 +14,10 @@ export component Wave inherits Rectangle {
     in property <string> commands;
     in property <float> gain: 1;
     in property <brush> tint;
+    /// A line through the middle, at any gain: silence read as a hairline
+    /// for a path drawn with no floor, which a quiet passage turned up grows
+    /// out of with its own shape (see `format::wave_path`).
+    in property <bool> hairline;
 
     property <length> bars-h: root.height * Math.max(0, root.gain);
     property <length> bars-y: (root.height - root.bars-h) / 2;
@@ -21,6 +25,14 @@ export component Wave inherits Rectangle {
     property <length> hot-inset: root.height * (1 - Theme.wave-hot-line) / 2;
 
     clip: true;
+
+    if root.hairline: Rectangle {
+        x: 0;
+        y: (root.height - 1px) / 2;
+        width: root.width;
+        height: 1px;
+        background: root.tint;
+    }
 
     Path {
         x: 0;
