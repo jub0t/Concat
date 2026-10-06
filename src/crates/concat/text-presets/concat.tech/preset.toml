@@ -1,0 +1,13 @@
+id = "concat.tech"
+name = "Tech"
+language = "Latin"
+order = 6
+
+[style]
+content = "Tech"
+fontFamily = "Space Grotesk"
+fontWeight = 500
+fontSize = 0.08
+tracking = 0.02
+shadow = false
+color = "#9be7ff"

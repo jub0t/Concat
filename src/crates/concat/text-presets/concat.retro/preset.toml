@@ -1,0 +1,13 @@
+id = "concat.retro"
+name = "Retro"
+language = "Latin"
+order = 5
+
+[style]
+content = "Retro"
+fontFamily = "Pacifico"
+fontWeight = 400
+fontSize = 0.1
+color = "#ff6fb5"
+strokeWidth = 0.006
+strokeColor = "#3a0b2a"

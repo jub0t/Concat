@@ -1,0 +1,11 @@
+id = "concat.atomic"
+name = "Atomic"
+language = "Latin"
+order = 22
+
+[style]
+content = "Atomic"
+fontFamily = "Atomic Age"
+fontWeight = 400
+fontSize = 0.09
+color = "#7fffd4"

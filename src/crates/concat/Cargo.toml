@@ -64,6 +64,9 @@ slint = { version = "1.18", default-features = false, features = [
     # the engine's compositor, so a monitor frame is a texture Slint shows
     # as it is - see gpu.rs.
     "unstable-wgpu-30",
+    # The base fonts registered for the window from the bytes concat-text
+    # embeds, so a preset card is drawn in its own face; see fonts.rs.
+    "unstable-fontique-011",
 ] }
 # Native file and folder dialogs, which Slint deliberately does not have.
 rfd = "0.17"
@@ -90,6 +93,9 @@ slint = { version = "1.18", default-features = false, features = [
     "compat-1-2",
     "unstable-winit-030",
     "unstable-wgpu-30",
+    # The base fonts registered for the window from the bytes concat-text
+    # embeds, so a preset card is drawn in its own face; see fonts.rs.
+    "unstable-fontique-011",
 ] }
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -101,6 +107,9 @@ slint = { version = "1.18", default-features = false, features = [
     "accessibility",
     "compat-1-2",
     "unstable-wgpu-30",
+    # The base fonts registered for the window from the bytes concat-text
+    # embeds, so a preset card is drawn in its own face; see fonts.rs.
+    "unstable-fontique-011",
 ] }
 
 [dependencies]

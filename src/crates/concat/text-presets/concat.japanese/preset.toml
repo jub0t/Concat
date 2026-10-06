@@ -1,0 +1,10 @@
+id = "concat.japanese"
+name = "Japanese"
+language = "Japanese"
+order = 30
+
+[style]
+content = "こんにちは"
+fontFamily = "Kosugi Maru"
+fontWeight = 400
+fontSize = 0.09

@@ -9084,7 +9084,8 @@ impl Studio {
                     let plate = colour_of(&preset.style.background);
                     TextPresetData {
                         id: preset.id.as_str().into(),
-                        name: i18n::preset_name(&preset.id, &preset.name).into(),
+                        name: preset.name.as_str().into(),
+                        language: preset.language.as_str().into(),
                         family: preset.style.font_family.trim_matches('"').into(),
                         weight: preset.style.font_weight.round() as i32,
                         italic: preset.style.italic,

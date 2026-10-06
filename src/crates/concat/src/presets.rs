@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
 //! Text presets: a title's look, named, that the library's Text page
-//! offers as a card. The built-in ones ship in the binary; a folder of
-//! TOML files beside the app's settings adds more, and a preset shared
-//! between people travels as a folder with its font inside.
+//! offers as a card. Presets are data, never code: the built-in ones are
+//! folders under concat's text-presets/, embedded in the binary in the
+//! same form a user's take, and their names are their authors' own and
+//! are not translated. A folder of TOML files beside the app's settings
+//! adds more, and a preset shared between people travels as a folder with
+//! its font inside.
 //!
 //! A preset file, `text-presets/<anything>.toml` or
 //! `text-presets/<anything>/preset.toml` under the config directory:
@@ -14,6 +17,8 @@
 //! name = "Big Red"
 //! font = "BigRed.ttf"          # optional: a file beside this one
 //! offsetY = 0.3                # optional: a frame-height fraction from centre
+//! language = "Latin"           # optional: the writing it is for; Latin when absent
+//! order = 10                   # optional: where it sorts; absent sorts last, by name
 //!
 //! [style]                      # any of a title's fields; the rest default
 //! fontFamily = "Big Red"
@@ -50,6 +55,10 @@ pub struct TextPreset {
     pub offset_y: Option<f64>,
     /// A font file the preset brings with it, resolved to a path.
     pub font: Option<PathBuf>,
+    /// The writing its face is made for, as the font libraries name it:
+    /// "Latin", "Japanese", "Hebrew". What the library filters and sorts
+    /// presets by; a preset file that says nothing is Latin.
+    pub language: String,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +70,11 @@ struct PresetFile {
     font: Option<String>,
     #[serde(default)]
     offset_y: Option<f64>,
+    #[serde(default)]
+    language: Option<String>,
+    /// Where it sorts among its neighbours; absent sorts last, by name.
+    #[serde(default)]
+    order: Option<i64>,
     #[serde(default)]
     style: PresetStyle,
 }
@@ -140,108 +154,21 @@ pub fn dir(dirs: &AppDirs) -> PathBuf {
     dirs.config.join("text-presets")
 }
 
-/// The presets that ship with the app.
+/// The presets that ship with the app: the files under text-presets/,
+/// embedded at build time (see build.rs), read exactly as a user's are.
+/// In the order their files ask for, then by name.
 pub fn builtin() -> Vec<TextPreset> {
-    let look = |id: &str, name: &str, style: TextStyle, offset_y: Option<f64>| TextPreset {
-        id: id.to_owned(),
-        name: name.to_owned(),
-        style,
-        offset_y,
-        font: None,
-    };
-    let neue = |content: &str, weight: f64, size: f64| TextStyle {
-        content: content.to_owned(),
-        font_family: "Hanken Grotesk".to_owned(),
-        font_weight: weight,
-        font_size: size,
-        ..TextStyle::default()
-    };
-    vec![
-        look("default", "Title", neue("New title", 600.0, 0.09), None),
-        look(
-            "concat.headline",
-            "Headline",
-            TextStyle {
-                stroke_width: 0.008,
-                ..neue("Headline", 700.0, 0.12)
-            },
-            None,
-        ),
-        look(
-            "concat.subtitle",
-            "Subtitle",
-            TextStyle {
-                background: "#000000b3".to_owned(),
-                shadow: false,
-                ..neue("Subtitle", 500.0, 0.045)
-            },
-            Some(0.36),
-        ),
-        look(
-            "concat.lower-third",
-            "Lower third",
-            TextStyle {
-                color: "#10160a".to_owned(),
-                background: "#c6f432".to_owned(),
-                align: TextAlign::Left,
-                shadow: false,
-                ..neue("Name — Title", 600.0, 0.05)
-            },
-            Some(0.32),
-        ),
-        look(
-            "concat.caption",
-            "Caption",
-            TextStyle {
-                color: "#ffe14a".to_owned(),
-                stroke_width: 0.006,
-                ..neue("Caption", 600.0, 0.05)
-            },
-            Some(0.35),
-        ),
-        look(
-            "concat.elegant",
-            "Elegant",
-            TextStyle {
-                italic: true,
-                tracking: 0.01,
-                shadow: false,
-                ..neue("Elegant", 400.0, 0.08)
-            },
-            None,
-        ),
-        look(
-            "concat.neon",
-            "Neon",
-            TextStyle {
-                color: "#c6f432".to_owned(),
-                stroke_color: "#1c3b06".to_owned(),
-                stroke_width: 0.006,
-                ..neue("Neon", 700.0, 0.1)
-            },
-            None,
-        ),
-        look(
-            "concat.outline",
-            "Outline",
-            TextStyle {
-                stroke_width: 0.012,
-                shadow: false,
-                ..neue("Outline", 700.0, 0.11)
-            },
-            None,
-        ),
-        look(
-            "concat.minimal",
-            "Minimal",
-            TextStyle {
-                tracking: 0.03,
-                shadow: false,
-                ..neue("Minimal", 400.0, 0.06)
-            },
-            None,
-        ),
-    ]
+    mod embedded {
+        include!(concat!(env!("OUT_DIR"), "/text_presets.rs"));
+    }
+    let mut presets: Vec<(i64, TextPreset)> = embedded::BUILTIN
+        .iter()
+        .filter_map(|text| parse(text, None))
+        .collect();
+    presets.sort_by(|(a_order, a), (b_order, b)| {
+        a_order.cmp(b_order).then_with(|| a.name.cmp(&b.name))
+    });
+    presets.into_iter().map(|(_, preset)| preset).collect()
 }
 
 /// The presets in the user's folder. A file that does not parse is
@@ -274,7 +201,13 @@ pub fn user(dirs: &AppDirs) -> Vec<TextPreset> {
 
 fn read(path: &Path) -> Option<TextPreset> {
     let text = std::fs::read_to_string(path).ok()?;
-    let file: PresetFile = toml::from_str(&text).ok()?;
+    parse(&text, path.parent()).map(|(_, preset)| preset)
+}
+
+/// One preset file's text, and where it sorts. `folder` is where a font
+/// it names is looked for; a built-in preset has none and brings no font.
+fn parse(text: &str, folder: Option<&Path>) -> Option<(i64, TextPreset)> {
+    let file: PresetFile = toml::from_str(text).ok()?;
     let id = file.id.trim().to_owned();
     if id.is_empty() {
         return None;
@@ -282,18 +215,27 @@ fn read(path: &Path) -> Option<TextPreset> {
     let font = file
         .font
         .filter(|name| !name.trim().is_empty())
-        .map(|name| path.parent().unwrap_or(Path::new(".")).join(name.trim()));
-    Some(TextPreset {
-        name: if file.name.trim().is_empty() {
-            id.clone()
-        } else {
-            file.name.trim().to_owned()
+        .and_then(|name| folder.map(|folder| folder.join(name.trim())));
+    let order = file.order.unwrap_or(i64::MAX);
+    Some((
+        order,
+        TextPreset {
+            name: if file.name.trim().is_empty() {
+                id.clone()
+            } else {
+                file.name.trim().to_owned()
+            },
+            id,
+            style: file.style.over(&file.name),
+            offset_y: file.offset_y,
+            font,
+            language: file
+                .language
+                .map(|language| language.trim().to_owned())
+                .filter(|language| !language.is_empty())
+                .unwrap_or_else(|| "Latin".to_owned()),
         },
-        id,
-        style: file.style.over(&file.name),
-        offset_y: file.offset_y,
-        font,
-    })
+    ))
 }
 
 /// Every preset the page offers: the built-in ones, then the user's. A
@@ -383,6 +325,19 @@ mod tests {
                 preset.id
             );
         }
+    }
+
+    /// A file under text-presets/ that does not parse would be skipped
+    /// without a word, and its card would simply be missing.
+    #[test]
+    fn every_shipped_preset_file_parses() {
+        mod embedded {
+            include!(concat!(env!("OUT_DIR"), "/text_presets.rs"));
+        }
+        for text in embedded::BUILTIN {
+            assert!(parse(text, None).is_some(), "does not parse:\n{text}");
+        }
+        assert_eq!(builtin().len(), embedded::BUILTIN.len());
     }
 
     #[test]

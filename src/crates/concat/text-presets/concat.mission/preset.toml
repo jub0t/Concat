@@ -1,0 +1,11 @@
+id = "concat.mission"
+name = "Mission"
+language = "Latin"
+order = 19
+
+[style]
+content = "MISSION"
+fontFamily = "Black Ops One"
+fontWeight = 400
+fontSize = 0.1
+color = "#c8d6a0"

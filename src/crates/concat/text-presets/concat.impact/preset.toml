@@ -1,0 +1,12 @@
+id = "concat.impact"
+name = "Impact"
+language = "Latin"
+order = 9
+
+[style]
+content = "IMPACT"
+fontFamily = "Anton"
+fontWeight = 400
+fontSize = 0.15
+strokeWidth = 0.01
+strokeColor = "#000000"

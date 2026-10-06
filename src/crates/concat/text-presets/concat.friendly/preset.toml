@@ -1,0 +1,10 @@
+id = "concat.friendly"
+name = "Friendly"
+language = "Latin"
+order = 28
+
+[style]
+content = "Friendly"
+fontFamily = "Hammersmith One"
+fontWeight = 400
+fontSize = 0.08

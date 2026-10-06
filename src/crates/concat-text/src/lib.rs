@@ -239,6 +239,59 @@ const BUNDLED: [&[u8]; 5] = [
     include_bytes!("../fonts/HankenGrotesk-Italic.ttf"),
 ];
 
+/// The base fonts every title can use, whatever the machine has installed:
+/// a working set of sans, serif, display, comic and script faces, at the
+/// weights a title wants. The text presets are built on them. Each is
+/// under the SIL Open Font License, Permanent Marker and Kosugi Maru
+/// under Apache 2.0; the licences are beside the files in fonts/. Pixelify
+/// Sans and Google Sans Code are variable fonts, drawn at their default
+/// (regular) weight: fontdb sets no variation axes. Kosugi Maru carries
+/// Japanese, Secular One and Rubik Scribble Hebrew. The window registers the
+/// same bytes for its preset cards (concat's fonts.rs).
+pub const BASE_FONTS: [&[u8]; 41] = [
+    include_bytes!("../fonts/Inter-Regular.ttf"),
+    include_bytes!("../fonts/Inter-SemiBold.ttf"),
+    include_bytes!("../fonts/Inter-Bold.ttf"),
+    include_bytes!("../fonts/Inter-Black.ttf"),
+    include_bytes!("../fonts/Inter-Italic.ttf"),
+    include_bytes!("../fonts/Montserrat-Regular.ttf"),
+    include_bytes!("../fonts/Montserrat-Bold.ttf"),
+    include_bytes!("../fonts/Montserrat-ExtraBold.ttf"),
+    include_bytes!("../fonts/Montserrat-Black.ttf"),
+    include_bytes!("../fonts/SpaceGrotesk-Regular.ttf"),
+    include_bytes!("../fonts/SpaceGrotesk-Medium.ttf"),
+    include_bytes!("../fonts/SpaceGrotesk-Bold.ttf"),
+    include_bytes!("../fonts/ArchivoBlack-Regular.ttf"),
+    include_bytes!("../fonts/BebasNeue-Regular.ttf"),
+    include_bytes!("../fonts/Anton-Regular.ttf"),
+    include_bytes!("../fonts/DMSerifDisplay-Regular.ttf"),
+    include_bytes!("../fonts/DMSerifDisplay-Italic.ttf"),
+    include_bytes!("../fonts/AbrilFatface-Regular.ttf"),
+    include_bytes!("../fonts/Bangers-Regular.ttf"),
+    include_bytes!("../fonts/PermanentMarker-Regular.ttf"),
+    include_bytes!("../fonts/Pacifico-Regular.ttf"),
+    include_bytes!("../fonts/Lobster-Regular.ttf"),
+    include_bytes!("../fonts/CaveatBrush-Regular.ttf"),
+    include_bytes!("../fonts/Staatliches-Regular.ttf"),
+    include_bytes!("../fonts/BlackOpsOne-Regular.ttf"),
+    include_bytes!("../fonts/GermaniaOne-Regular.ttf"),
+    include_bytes!("../fonts/AtomicAge-Regular.ttf"),
+    include_bytes!("../fonts/HammersmithOne-Regular.ttf"),
+    include_bytes!("../fonts/SecularOne-Regular.ttf"),
+    include_bytes!("../fonts/LondrinaSolid-Regular.ttf"),
+    include_bytes!("../fonts/LondrinaSolid-Black.ttf"),
+    include_bytes!("../fonts/BungeeHairline-Regular.ttf"),
+    include_bytes!("../fonts/RubikScribble-Regular.ttf"),
+    include_bytes!("../fonts/ShadowsIntoLightTwo-Regular.ttf"),
+    include_bytes!("../fonts/PixelifySans-Variable.ttf"),
+    include_bytes!("../fonts/GoogleSansCode-Variable.ttf"),
+    include_bytes!("../fonts/KosugiMaru-Regular.ttf"),
+    include_bytes!("../fonts/Frijole-Regular.ttf"),
+    include_bytes!("../fonts/EmilysCandy-Regular.ttf"),
+    include_bytes!("../fonts/MysteryQuest-Regular.ttf"),
+    include_bytes!("../fonts/ZenTokyoZoo-Regular.ttf"),
+];
+
 /// Faces that used to be bundled and no longer are: a document that names
 /// one is painted in the bundled face, not in whatever the system offers
 /// for a name it does not know.
@@ -249,7 +302,7 @@ impl Fonts {
     pub fn new() -> Fonts {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
-        for face in BUNDLED {
+        for face in BUNDLED.iter().chain(BASE_FONTS.iter()) {
             db.load_font_data(face.to_vec());
         }
         Fonts {

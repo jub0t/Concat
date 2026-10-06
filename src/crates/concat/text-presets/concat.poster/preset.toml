@@ -1,0 +1,11 @@
+id = "concat.poster"
+name = "Poster"
+language = "Latin"
+order = 1
+
+[style]
+content = "POSTER"
+fontFamily = "Bebas Neue"
+fontWeight = 400
+fontSize = 0.18
+tracking = 0.03

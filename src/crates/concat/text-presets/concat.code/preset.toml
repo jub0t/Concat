@@ -1,0 +1,14 @@
+id = "concat.code"
+name = "Code"
+language = "Latin"
+order = 18
+
+[style]
+content = "code()"
+fontFamily = "Google Sans Code"
+fontWeight = 400
+fontSize = 0.05
+color = "#e6edf3"
+background = "#0d1117e6"
+shadow = false
+align = "left"

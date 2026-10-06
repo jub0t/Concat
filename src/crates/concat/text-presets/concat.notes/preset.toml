@@ -1,0 +1,11 @@
+id = "concat.notes"
+name = "Notes"
+language = "Latin"
+order = 29
+
+[style]
+content = "Notes"
+fontFamily = "Shadows Into Light Two"
+fontWeight = 400
+fontSize = 0.09
+shadow = false

@@ -33,6 +33,7 @@ mod ui {
 
 mod chips;
 mod dock;
+mod fonts;
 mod format;
 mod gpu;
 mod grading;
@@ -159,6 +160,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     };
 
+    // The base fonts, so the preset cards can be drawn in them.
+    fonts::register();
     let app = App::new()?;
     app.set_macos(platform::MACOS);
     // A phone wears the phone shell - see ui/phone/ - and its lanes keep

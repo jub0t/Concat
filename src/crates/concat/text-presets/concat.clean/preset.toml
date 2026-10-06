@@ -1,0 +1,11 @@
+id = "concat.clean"
+name = "Clean"
+language = "Latin"
+order = 20
+
+[style]
+content = "Clean"
+fontFamily = "Inter"
+fontWeight = 600
+fontSize = 0.08
+shadow = false

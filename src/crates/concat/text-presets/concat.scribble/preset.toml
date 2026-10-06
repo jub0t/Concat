@@ -1,0 +1,10 @@
+id = "concat.scribble"
+name = "Scribble"
+language = "Latin"
+order = 26
+
+[style]
+content = "Scribble"
+fontFamily = "Rubik Scribble"
+fontWeight = 400
+fontSize = 0.11

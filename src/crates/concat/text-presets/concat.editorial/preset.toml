@@ -1,0 +1,12 @@
+id = "concat.editorial"
+name = "Editorial"
+language = "Latin"
+order = 4
+
+[style]
+content = "Editorial"
+fontFamily = "DM Serif Display"
+fontWeight = 400
+fontSize = 0.1
+italic = true
+shadow = false

@@ -1,0 +1,11 @@
+id = "concat.handwritten"
+name = "Handwritten"
+language = "Latin"
+order = 17
+
+[style]
+content = "Handwritten"
+fontFamily = "Caveat Brush"
+fontWeight = 400
+fontSize = 0.1
+shadow = false

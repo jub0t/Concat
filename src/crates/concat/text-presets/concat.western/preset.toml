@@ -1,0 +1,13 @@
+id = "concat.western"
+name = "Western"
+language = "Latin"
+order = 13
+
+[style]
+content = "WESTERN"
+fontFamily = "Frijole"
+fontWeight = 400
+fontSize = 0.09
+color = "#f2c46d"
+strokeWidth = 0.006
+strokeColor = "#3b1f0a"

@@ -1,0 +1,11 @@
+id = "concat.stencil"
+name = "Stencil"
+language = "Latin"
+order = 15
+
+[style]
+content = "STENCIL"
+fontFamily = "Staatliches"
+fontWeight = 400
+fontSize = 0.12
+tracking = 0.04

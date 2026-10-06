@@ -1,0 +1,13 @@
+id = "concat.diner"
+name = "Diner"
+language = "Latin"
+order = 14
+
+[style]
+content = "Diner"
+fontFamily = "Lobster"
+fontWeight = 400
+fontSize = 0.11
+color = "#ff4d4d"
+strokeWidth = 0.006
+strokeColor = "#ffffff"

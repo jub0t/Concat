@@ -1,0 +1,13 @@
+id = "concat.bold-caption"
+name = "Bold caption"
+language = "Latin"
+order = 2
+offsetY = 0.3
+
+[style]
+content = "Bold caption"
+fontFamily = "Montserrat"
+fontWeight = 900
+fontSize = 0.07
+strokeWidth = 0.012
+strokeColor = "#000000"

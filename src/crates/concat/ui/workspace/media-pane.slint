@@ -51,6 +51,8 @@ export global SourcePreview {
 export struct TextPresetData {
     id: string,
     name: string,
+    /// The writing its face is made for: "Latin", "Japanese", "Hebrew".
+    language: string,
     family: string,
     weight: int,
     italic: bool,

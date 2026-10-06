@@ -1,0 +1,14 @@
+id = "concat.comic"
+name = "Comic"
+language = "Latin"
+order = 3
+
+[style]
+content = "POW!"
+fontFamily = "Bangers"
+fontWeight = 400
+fontSize = 0.14
+color = "#ffe14a"
+strokeWidth = 0.014
+strokeColor = "#111111"
+tracking = 0.02

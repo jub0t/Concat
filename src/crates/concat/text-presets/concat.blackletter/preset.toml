@@ -1,0 +1,10 @@
+id = "concat.blackletter"
+name = "Blackletter"
+language = "Latin"
+order = 23
+
+[style]
+content = "Headline"
+fontFamily = "Germania One"
+fontWeight = 400
+fontSize = 0.11

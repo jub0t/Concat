@@ -1,0 +1,15 @@
+id = "concat.lower-third"
+name = "Lower third"
+language = "Latin"
+order = 12
+offsetY = 0.32
+
+[style]
+content = "Name — Title"
+fontFamily = "Hanken Grotesk"
+fontWeight = 600
+fontSize = 0.05
+color = "#10160a"
+background = "#c6f432"
+align = "left"
+shadow = false

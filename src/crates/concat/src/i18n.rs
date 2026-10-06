@@ -13,11 +13,11 @@
 //! yet reads in English rather than as a key, and adding a language is
 //! adding a file.
 //!
-//! A package's and a text preset's words come from its manifest, in
-//! English, and are looked up by keys made from its id ([`package_text`],
-//! [`shelf_text`], [`preset_name`]): `effects.goldenHour.name`. A package
-//! or preset of the user's own has no keys and reads as its author wrote
-//! it.
+//! A package's words come from its manifest, in English, and are looked
+//! up by keys made from its id ([`package_text`], [`shelf_text`]):
+//! `effects.goldenHour.name`. A package of the user's own has no keys and
+//! reads as its author wrote it. A text preset's name is never looked up:
+//! presets are data, shared between people, and read as written.
 //!
 //! Two places hold locales. The ones the app ships live in `locales/` next
 //! to this crate's `src/` and are compiled in. Anyone can add or correct a
@@ -322,20 +322,6 @@ pub fn shelf_text(kind: &str, text: &str) -> String {
     t_or(&format!("effects.{kind}.{}", key_part(text)), text)
 }
 
-/// A text preset's name: `presets.<name>` for one the app ships, as saved
-/// for the user's own.
-pub fn preset_name(id: &str, name: &str) -> String {
-    let shipped = id == "default" || id.starts_with("concat.");
-    if !shipped {
-        return name.to_owned();
-    }
-    let short = id.strip_prefix("concat.").unwrap_or(id);
-    t_or(
-        &format!("presets.{}", key_part(&short.replace('-', " "))),
-        name,
-    )
-}
-
 /// [`t`], with `{0}`, `{1}`, ... replaced by `args` in order.
 pub fn tf(key: &str, args: &[&dyn Display]) -> String {
     fill(&t(key), args)
@@ -494,13 +480,6 @@ mod tests {
                 );
             }
         }
-        for preset in crate::presets::builtin() {
-            let short = preset.id.strip_prefix("concat.").unwrap_or(&preset.id);
-            check(
-                format!("presets.{}", key_part(&short.replace('-', " "))),
-                &preset.name,
-            );
-        }
         assert!(missing.is_empty(), "\n{}", missing.join("\n"));
     }
 
@@ -531,7 +510,6 @@ mod tests {
         );
         assert_eq!(shelf_text("categories", "No such shelf"), "No such shelf");
         assert_eq!(shelf_text("groups", ""), "");
-        assert_eq!(preset_name("user.mine", "Mine"), "Mine");
         select(ENGLISH, &dirs);
         assert_eq!(
             package_text("concat.exposure", "name", "Exposure"),

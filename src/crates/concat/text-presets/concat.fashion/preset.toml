@@ -1,0 +1,11 @@
+id = "concat.fashion"
+name = "Fashion"
+language = "Latin"
+order = 10
+
+[style]
+content = "Fashion"
+fontFamily = "Abril Fatface"
+fontWeight = 400
+fontSize = 0.11
+shadow = false

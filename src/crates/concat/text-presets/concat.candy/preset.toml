@@ -1,0 +1,13 @@
+id = "concat.candy"
+name = "Candy"
+language = "Latin"
+order = 21
+
+[style]
+content = "Candy"
+fontFamily = "Emilys Candy"
+fontWeight = 400
+fontSize = 0.1
+color = "#ff9ad5"
+strokeWidth = 0.006
+strokeColor = "#5a1440"

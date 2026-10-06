@@ -67,6 +67,42 @@ licence travels with it. The files and the full licence text are in
   1.1. The Regular, Medium, SemiBold, Bold and Italic static instances are
   embedded. See `fonts/LICENSE-HankenGrotesk.txt`.
 
+The base fonts every title can use, embedded by `concat-text` (`BASE_FONTS`)
+and registered with the window for the text presets. Each file's licence is
+beside it in `src/crates/concat-text/fonts/`, as `LICENSE-<Family>.txt`;
+OFL is the SIL Open Font License 1.1.
+
+- **Inter** — Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter). OFL. See `fonts/LICENSE-Inter.txt`.
+- **Montserrat** — Copyright 2024 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat). OFL. See `fonts/LICENSE-Montserrat.txt`.
+- **Space Grotesk** — Copyright Florian Karsten. OFL. See `fonts/LICENSE-SpaceGrotesk.txt`.
+- **Archivo Black** — Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack). OFL. See `fonts/LICENSE-ArchivoBlack.txt`.
+- **Bebas Neue** — Copyright 2010 Dharma Type. OFL. See `fonts/LICENSE-BebasNeue.txt`.
+- **Anton** — Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont). OFL. See `fonts/LICENSE-Anton.txt`.
+- **DM Serif Display** — Copyright 2014-2018 Adobe, with Reserved Font Name 'Source'; Copyright 2019 Colophon Foundry. OFL. See `fonts/LICENSE-DMSerifDisplay.txt`.
+- **Abril Fatface** — Copyright 2011 TypeTogether. OFL. See `fonts/LICENSE-AbrilFatface.txt`.
+- **Bangers** — Copyright 2010 The Bangers Project Authors. OFL. See `fonts/LICENSE-Bangers.txt`.
+- **Permanent Marker** — Copyright Font Diner. Apache License 2.0. See `fonts/LICENSE-PermanentMarker.txt`.
+- **Pacifico** — Copyright 2018 The Pacifico Project Authors. OFL. See `fonts/LICENSE-Pacifico.txt`.
+- **Lobster** — Copyright 2010 The Lobster Project Authors, with Reserved Font Name "Lobster". OFL. See `fonts/LICENSE-Lobster.txt`.
+- **Caveat Brush** — Copyright 2015 Google Inc.. OFL. See `fonts/LICENSE-CaveatBrush.txt`.
+- **Staatliches** — The Staatliches Project Authors. OFL. See `fonts/LICENSE-Staatliches.txt`.
+- **Black Ops One** — The Black Ops One Project Authors. OFL. See `fonts/LICENSE-BlackOpsOne.txt`.
+- **Germania One** — The Germania One Project Authors. OFL. See `fonts/LICENSE-GermaniaOne.txt`.
+- **Atomic Age** — The Atomic Age Project Authors. OFL. See `fonts/LICENSE-AtomicAge.txt`.
+- **Hammersmith One** — The Hammersmith One Project Authors. OFL. See `fonts/LICENSE-HammersmithOne.txt`.
+- **Secular One** — The Secular One Project Authors. OFL. See `fonts/LICENSE-SecularOne.txt`.
+- **Londrina Solid** — The Londrina Solid Project Authors. OFL. See `fonts/LICENSE-LondrinaSolid.txt`.
+- **Bungee Hairline** — The Bungee Project Authors. OFL. See `fonts/LICENSE-BungeeHairline.txt`.
+- **Rubik Scribble** — The Rubik Scribble Project Authors. OFL. See `fonts/LICENSE-RubikScribble.txt`.
+- **Shadows Into Light Two** — The Shadows Into Light Two Project Authors. OFL. See `fonts/LICENSE-ShadowsIntoLightTwo.txt`.
+- **Pixelify Sans** — The Pixelify Sans Project Authors. OFL. See `fonts/LICENSE-PixelifySans.txt`.
+- **Google Sans Code** — The Google Sans Code Project Authors. OFL. See `fonts/LICENSE-GoogleSansCode.txt`.
+- **Kosugi Maru** — Copyright MOTOYA Co., Ltd.. Apache License 2.0. See `fonts/LICENSE-KosugiMaru.txt`.
+- **Frijole** — The Frijole Project Authors. OFL. See `fonts/LICENSE-Frijole.txt`.
+- **Emilys Candy** — The Emilys Candy Project Authors. OFL. See `fonts/LICENSE-EmilysCandy.txt`.
+- **Mystery Quest** — The Mystery Quest Project Authors. OFL. See `fonts/LICENSE-MysteryQuest.txt`.
+- **Zen Tokyo Zoo** — The Zen Tokyo Zoo Project Authors. OFL. See `fonts/LICENSE-ZenTokyoZoo.txt`.
+
 The licence does not permit selling the font on its own; shipping the
 `fonts/` directory as it stands satisfies it.
 

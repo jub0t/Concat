@@ -1,0 +1,11 @@
+id = "concat.hairline"
+name = "Hairline"
+language = "Latin"
+order = 25
+
+[style]
+content = "HAIRLINE"
+fontFamily = "Bungee Hairline"
+fontWeight = 400
+fontSize = 0.09
+shadow = false

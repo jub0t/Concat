@@ -1,0 +1,13 @@
+id = "concat.zoo"
+name = "Zoo"
+language = "Latin"
+order = 24
+
+[style]
+content = "ZOO"
+fontFamily = "Zen Tokyo Zoo"
+fontWeight = 400
+fontSize = 0.12
+color = "#ffd23f"
+strokeWidth = 0.006
+strokeColor = "#1a1a1a"

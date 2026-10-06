@@ -1,0 +1,11 @@
+id = "concat.pixel"
+name = "Pixel"
+language = "Latin"
+order = 11
+
+[style]
+content = "Pixel"
+fontFamily = "Pixelify Sans"
+fontWeight = 400
+fontSize = 0.09
+color = "#7dff6a"

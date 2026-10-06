@@ -1,0 +1,13 @@
+id = "concat.cartoon"
+name = "Cartoon"
+language = "Latin"
+order = 16
+
+[style]
+content = "Cartoon"
+fontFamily = "Londrina Solid"
+fontWeight = 900
+fontSize = 0.12
+color = "#ff8a3d"
+strokeWidth = 0.01
+strokeColor = "#ffffff"

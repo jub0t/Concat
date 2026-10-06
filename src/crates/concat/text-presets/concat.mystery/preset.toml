@@ -1,0 +1,11 @@
+id = "concat.mystery"
+name = "Mystery"
+language = "Latin"
+order = 27
+
+[style]
+content = "Mystery"
+fontFamily = "Mystery Quest"
+fontWeight = 400
+fontSize = 0.1
+color = "#c9b6ff"

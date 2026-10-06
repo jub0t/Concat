@@ -1,0 +1,10 @@
+id = "default"
+name = "Title"
+language = "Latin"
+order = 0
+
+[style]
+content = "New title"
+fontFamily = "Hanken Grotesk"
+fontWeight = 600
+fontSize = 0.09

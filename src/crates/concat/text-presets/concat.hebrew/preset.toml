@@ -1,0 +1,10 @@
+id = "concat.hebrew"
+name = "Hebrew"
+language = "Hebrew"
+order = 31
+
+[style]
+content = "שלום"
+fontFamily = "Secular One"
+fontWeight = 400
+fontSize = 0.1

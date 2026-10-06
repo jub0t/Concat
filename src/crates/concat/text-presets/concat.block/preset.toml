@@ -1,0 +1,13 @@
+id = "concat.block"
+name = "Block"
+language = "Latin"
+order = 7
+
+[style]
+content = "Block"
+fontFamily = "Archivo Black"
+fontWeight = 400
+fontSize = 0.07
+color = "#111111"
+background = "#ffe14a"
+shadow = false
