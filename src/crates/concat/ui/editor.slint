@@ -118,12 +118,17 @@ export global Editor {
     callback library-apply-transition(transition-id: string);
     /// Filters page: lay the look down as a layer at the playhead.
     callback library-apply-filter(filter-id: string, label: string);
-    /// Filters page: show the look over the whole picture without laying
-    /// it down, which is what a single click on a card does. The same id
-    /// again takes it off.
+    /// Filters and Effects pages: play the look over the whole picture
+    /// from the playhead, in a loop, without laying it down, which is what
+    /// a single click on a card does.
     callback library-audition-filter(filter-id: string);
-    /// The look being shown that way, by id, or empty: its card draws
-    /// itself picked while it is.
+    /// Transitions page: the same, around the cut nearest the playhead.
+    callback library-audition-transition(transition-id: string);
+    /// The pointer left the card being shown: the preview stops and the
+    /// monitor and the sound go back to the playhead.
+    callback library-audition-ended();
+    /// The look or transition being shown that way, by id, or empty: its
+    /// card draws itself picked while it is.
     in-out property <string> library-audition;
     callback library-apply-audio(effect-id: string);
     callback library-save-template();

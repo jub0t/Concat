@@ -729,7 +729,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     ));
     editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
-        state.audition_catalogue(id.as_str());
+        state.audition_look(id.as_str());
+    }));
+    editor.on_library_audition_transition(on_window!(|state, id: SharedString| {
+        state.audition_transition(id.as_str());
+    }));
+    editor.on_library_audition_ended(on_window!(|state| {
+        state.end_audition();
     }));
     editor.on_library_apply_effect(on_window!(|state, id: SharedString| {
         state.apply_catalogue(id.as_str(), true);

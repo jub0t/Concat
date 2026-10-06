@@ -449,7 +449,13 @@ mod tests {
     /// made every bar one height - and silence is no bar at all.
     #[test]
     fn a_quiet_passage_keeps_its_shape_with_no_floor() {
-        let level = |bucket: usize| if (bucket / 10) % 2 == 0 { 0.01 } else { 0.005 };
+        let level = |bucket: usize| {
+            if (bucket / 10).is_multiple_of(2) {
+                0.01
+            } else {
+                0.005
+            }
+        };
         let quiet = concat_media::Pyramid::of(concat_media::Peaks {
             min: (0..100).map(|bucket| -level(bucket)).collect(),
             max: (0..100).map(level).collect(),

@@ -247,7 +247,7 @@ pub fn spawn_frame<T: Send + 'static>(
                 noted.store(studio.toast.token != toast, Ordering::Relaxed);
             },
             move |studio, app, models| {
-                if studio.playing && !toasted.load(Ordering::Relaxed) {
+                if studio.moving() && !toasted.load(Ordering::Relaxed) {
                     studio.publish_frame(app);
                 } else {
                     studio.publish(app, models);
