@@ -46,6 +46,7 @@ pub use platform::{FilePicker, install_file_picker};
 mod panes;
 mod prefs;
 mod presets;
+mod source;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -1120,6 +1121,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));
+    app.global::<SourcePreview>().on_closed(on_window!(|state| {
+        state.close_source();
+    }));
+    app.global::<SourcePreview>()
+        .on_seek(on_window!(|state, seconds: f32| {
+            state.source_seek(f64::from(seconds));
+        }));
 
     // ── the stage ──
     editor.on_stage_pressed(on_window!(|state, x: f32, y: f32, additive: bool| {

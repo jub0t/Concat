@@ -26,6 +26,24 @@ export enum MediaKind { video, audio, image }
 /// shelf: what the editor read aloud, which the Media rows leave out.
 export enum MediaFilter { all, video, audio, images, speech, processed }
 
+/// The library file lent to the monitor and the speakers, published by
+/// Rust (see concat's source.rs): its card shows how far it has played,
+/// the monitor names it, and its transport runs through it.
+export global SourcePreview {
+    in property <bool> open;
+    in property <string> name;
+    /// The card's row, or -1.
+    in property <int> row: -1;
+    in property <float> time;
+    in property <float> duration;
+    in property <float> progress;
+    in property <bool> playing;
+    /// The monitor's chip was closed: the timeline has it back.
+    callback closed();
+    /// The monitor's timecode moved through the source.
+    callback seek(seconds: float);
+}
+
 /// One look a title can be given, as the Text page's Presets shelf shows
 /// it: enough of the style to draw the name in it. Published by Rust from
 /// the preset list; the id is what is placed, and ids are stable for ever
@@ -578,6 +596,33 @@ export component MediaCard inherits Rectangle {
                         color: Theme.on-scrim;
                         font-family: Theme.font-technical;
                         font-size: Theme.fs-xs;
+                    }
+                }
+
+                // The card that is playing, or on the monitor: how far it has
+                // got, as a line across it, and a sound's play or pause in
+                // the middle - a second click does the other.
+                if SourcePreview.row == root.item.id: Rectangle {
+                    x: parent.width * Math.clamp(SourcePreview.progress, 0, 1) - 1px;
+                    y: 0;
+                    width: 2px;
+                    height: parent.height;
+                    background: Theme.accent;
+                }
+                if SourcePreview.row == root.item.id && root.item.kind == MediaKind.audio: Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 13px;
+                    background: Theme.scrim;
+
+                    Icon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        glyph: SourcePreview.playing ? Glyph.pause : Glyph.play;
+                        size: 12px;
+                        tint: Theme.on-scrim;
                     }
                 }
 

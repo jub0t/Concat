@@ -6,6 +6,7 @@ import { Theme } from "../theme/theme.slint";
 import { Fmt } from "../util.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
+import { Tip } from "../primitives/tooltip.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Select } from "../primitives/select.slint";
 import { Pane, PaneHeader } from "pane.slint";
@@ -632,6 +633,10 @@ export component PreviewPane inherits Rectangle {
     /// for one.
     in property <bool> has-picture;
     in property <string> clip-name;
+    /// A library file shown instead of the timeline, by name; empty when
+    /// the monitor is the timeline's.
+    in property <string> source-name;
+    callback source-closed();
     /// The decoded frame. Drawn fitted to the stage when there is one.
     in property <image> frame;
     /// Every picture under the playhead, for the selection drawn over the
@@ -959,6 +964,58 @@ export component PreviewPane inherits Rectangle {
                     frame-menu.request-x = self.absolute-position.x - root.absolute-position.x + x;
                     frame-menu.request-y = self.absolute-position.y - root.absolute-position.y + y;
                     root.frame-token += 1;
+                }
+            }
+
+            // A library file on the monitor: its name, and the cross that
+            // gives the monitor back to the timeline. Over the selection's
+            // overlay, which has nothing to show while a source is up.
+            if root.source-name != "": Rectangle {
+                x: stage.x + 8px;
+                y: stage.y + 8px;
+                width: chip-row.preferred-width;
+                height: 24px;
+                border-radius: 12px;
+                background: Theme.scrim;
+
+                chip-row := HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 4px;
+                    spacing: 6px;
+
+                    Text {
+                        text: I18n.t("previewPane.source") + " · " + root.source-name;
+                        color: Theme.on-scrim;
+                        font-size: Theme.fs-sm;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        max-width: stage.width - 60px;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 9px;
+                            background: close-touch.has-hover ? Theme.on-scrim.with-alpha(0.2) : transparent;
+
+                            Icon {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                glyph: Glyph.close;
+                                size: 10px;
+                                tint: Theme.on-scrim;
+                            }
+                            close-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.source-closed(); }
+                            }
+                            Tip {
+                                text: I18n.t("previewPane.backToTimeline");
+                                active: close-touch.has-hover;
+                            }
+                        }
+                    }
                 }
             }
             }

@@ -241,10 +241,11 @@ impl MonitorPane {
             time: f64::from(studio.preview_time()),
             width,
             height,
-            moving: studio.playing,
+            moving: studio.playing || studio.source.as_ref().is_some_and(|source| source.playing),
             // Playback reads the proxies at Half and Quarter; Full plays
             // the files themselves, or Full would be the proxy blurred up.
-            proxy: studio.playing && quality > 0,
+            proxy: (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
+                && quality > 0,
             color_space: studio.project().active().video.color_space,
         };
         if !studio.playing {

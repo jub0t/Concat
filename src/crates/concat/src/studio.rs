@@ -893,6 +893,9 @@ pub struct Studio {
     pub project_sheet: crate::panes::project::ProjectPane,
     pub captions: crate::panes::captions::CaptionsPane,
     pub speech: crate::panes::speech::SpeechPane,
+    /// A file from the library lent the monitor and the speakers; see
+    /// `crate::source`.
+    pub source: Option<crate::source::Source>,
     /// The voiceover take, while one runs.
     pub voiceover: crate::panes::voiceover::VoiceoverPane,
     /// Every speaker the voice engine offers, in its own order.
@@ -1993,6 +1996,7 @@ impl Studio {
             project_sheet: crate::panes::project::ProjectPane::default(),
             captions: crate::panes::captions::CaptionsPane::default(),
             speech: crate::panes::speech::SpeechPane::default(),
+            source: None,
             voiceover: crate::panes::voiceover::VoiceoverPane::default(),
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
@@ -2425,46 +2429,16 @@ impl Studio {
     }
 
     /// The audible clip set, handed to playback whenever the edit changes.
-    fn sync_audio(&mut self) {
+    /// Not while a library file has the speakers: the timeline's sound is
+    /// handed back when it lets them go.
+    pub(crate) fn sync_audio(&mut self) {
+        if self.source.is_some() {
+            return;
+        }
         let Some(session) = self.session.as_ref() else {
             return;
         };
-        let clips = session.flattened_clips();
-        let specs: Vec<ClipSpec> = clips
-            .iter()
-            .filter(|clip| {
-                !clip.muted
-                    && (clip.kind == concat_export::ClipKind::Audio
-                        || (clip.kind == concat_export::ClipKind::Video
-                            && clip.has_audio.unwrap_or(true)))
-            })
-            // Through the exporter's own cut into pieces, so a curve or a
-            // reverse sounds in the window as it will in the file.
-            .flat_map(concat_export::audio_pieces)
-            .map(|piece| ClipSpec {
-                path: piece.path.to_string_lossy().into_owned(),
-                audio_stream: piece.stream.map(|index| index as u32),
-                start: piece.start,
-                duration: piece.duration,
-                source_start: piece.source_start,
-                volume: piece.volume as f32,
-                volume_curve: piece
-                    .volume_curve
-                    .keys()
-                    .iter()
-                    .map(|key| concat_host::playback::GainKey {
-                        at: key.at,
-                        gain: key.value,
-                        ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
-                    })
-                    .collect(),
-                fade_in: piece.fade_in,
-                fade_out: piece.fade_out,
-                speed: piece.speed,
-                preserve_pitch: piece.preserve_pitch,
-                chain: piece.filter_chain,
-            })
-            .collect();
+        let specs = audio_specs(&session.flattened_clips());
         self.host
             .playback
             .set_clips(std::path::PathBuf::from(session.path()), specs);
@@ -2491,6 +2465,10 @@ impl Studio {
         concat_project::DocumentSettings,
     )> {
         let session = self.session.as_ref()?;
+        // A library file on the monitor: its clip alone, flattened once.
+        if let Some(source) = self.source.as_ref() {
+            return Some((std::sync::Arc::clone(&source.clips), session.settings()));
+        }
         // The echo when there is one: a picture being dragged on the stage
         // is drawn where the pointer has it, not where the document last
         // had it. Same flattening the session does for itself, project
@@ -2611,6 +2589,11 @@ impl Studio {
     // ── playback ──
 
     pub fn play_toggle(&mut self) {
+        // The monitor's play button and Space play what it shows.
+        if self.source.is_some() {
+            self.source_toggle();
+            return;
+        }
         if self.playing {
             self.pause();
             return;
@@ -2701,6 +2684,8 @@ impl Studio {
     /// lets it, which is the default, so the ruler can be clicked beyond the
     /// last clip and something placed at the playhead there.
     pub fn seek(&mut self, seconds: f32) {
+        // The timeline was clicked: it has the monitor back.
+        self.close_source();
         self.playhead = seconds.max(0.0);
         if self.prefs.playhead_stops_at_end {
             self.playhead = self.playhead.min(self.duration().max(0.0));
@@ -2716,6 +2701,9 @@ impl Studio {
     /// The instant the monitor shows: the pointer's while it crosses the
     /// lanes with the preview axis on, else the playhead's.
     pub fn preview_time(&self) -> f32 {
+        if let Some(source) = self.source.as_ref() {
+            return source.time as f32;
+        }
         self.hover.unwrap_or(self.playhead)
     }
 
@@ -7026,6 +7014,7 @@ impl Studio {
         self.captions.progress = 0.0;
         self.speech.running = false;
         self.speech.progress = 0.0;
+        self.source = None;
         // A take running as the project closes stops, keeping its file;
         // the next project's speakers are not left silent.
         self.voiceover = Default::default();
@@ -9222,6 +9211,7 @@ impl Studio {
             self.speech.sample_detail_rows(self),
         );
         app.set_speech(self.speech.data(self));
+        self.publish_source(app);
         editor.set_recording(self.voiceover.recording());
 
         let bar = self.menu_bar();
@@ -10094,6 +10084,47 @@ impl Studio {
             index,
         });
     }
+}
+
+/// The clips a flattened edit makes audible, as playback takes them:
+/// through the exporter's own cut into pieces, so a curve or a reverse
+/// sounds in the window as it will in the file.
+pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> {
+    clips
+        .iter()
+        .filter(|clip| {
+            !clip.muted
+                && (clip.kind == concat_export::ClipKind::Audio
+                    || (clip.kind == concat_export::ClipKind::Video
+                        && clip.has_audio.unwrap_or(true)))
+        })
+        // Through the exporter's own cut into pieces, so a curve or a
+        // reverse sounds in the window as it will in the file.
+        .flat_map(concat_export::audio_pieces)
+        .map(|piece| ClipSpec {
+            path: piece.path.to_string_lossy().into_owned(),
+            audio_stream: piece.stream.map(|index| index as u32),
+            start: piece.start,
+            duration: piece.duration,
+            source_start: piece.source_start,
+            volume: piece.volume as f32,
+            volume_curve: piece
+                .volume_curve
+                .keys()
+                .iter()
+                .map(|key| concat_host::playback::GainKey {
+                    at: key.at,
+                    gain: key.value,
+                    ease: [key.ease.x1, key.ease.y1, key.ease.x2, key.ease.y2],
+                })
+                .collect(),
+            fade_in: piece.fade_in,
+            fade_out: piece.fade_out,
+            speed: piece.speed,
+            preserve_pitch: piece.preserve_pitch,
+            chain: piece.filter_chain,
+        })
+        .collect()
 }
 
 #[cfg(test)]

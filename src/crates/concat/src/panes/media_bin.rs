@@ -103,7 +103,12 @@ impl MediaBin {
                 else {
                     return;
                 };
-                self.select(id, additive);
+                self.select(id.clone(), additive);
+                // A plain click shows a picture on the monitor, or plays a
+                // sound, without putting it on the timeline.
+                if !additive {
+                    studio.preview_media(&id, row);
+                }
             }
             MediaMsg::Band {
                 columns,
@@ -185,6 +190,8 @@ impl MediaBin {
                 }
             }
             MediaMsg::AddSelectedAtPlayhead => {
+                // Onto the timeline: the monitor goes back to it.
+                studio.close_source();
                 let ids: Vec<String> = studio
                     .project()
                     .media
