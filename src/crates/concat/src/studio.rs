@@ -616,6 +616,8 @@ pub struct Models {
     pub text_presets: Rc<VecModel<TextPresetData>>,
     /// The families a title can be set in; see `Studio::font_families`.
     pub font_families: Rc<VecModel<SharedString>>,
+    /// Those of them the font picker's search lets through.
+    pub font_matches: Rc<VecModel<SharedString>>,
 }
 
 impl Models {
@@ -673,6 +675,7 @@ impl Models {
             recents: Rc::new(VecModel::default()),
             text_presets: Rc::new(VecModel::default()),
             font_families: Rc::new(VecModel::default()),
+            font_matches: Rc::new(VecModel::default()),
         }
     }
 }
@@ -913,6 +916,11 @@ pub struct Studio {
     /// A fingerprint of what `font_families` was last published from, so
     /// a publish that changes none of it leaves the picker's list alone.
     fonts_published: std::cell::Cell<Option<u64>>,
+    /// What the font picker's search box holds.
+    pub font_query: String,
+    /// The families and the query the search's matches were last
+    /// published from, hashed.
+    font_search_published: std::cell::Cell<Option<u64>>,
 
     /// The languages Settings › General offers, in its order; see `i18n`.
     pub languages: Vec<i18n::Language>,
@@ -2002,6 +2010,8 @@ impl Studio {
             installed_fonts: presets::installed_fonts(&host.dirs),
             system_fonts: Vec::new(),
             fonts_published: std::cell::Cell::new(None),
+            font_query: String::new(),
+            font_search_published: std::cell::Cell::new(None),
             languages,
             brush: 0,
             brush_size: 0.06,
@@ -7628,14 +7638,28 @@ impl Studio {
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
         let fonts = Some(self.fonts_fingerprint());
-        if self.fonts_published.get() != fonts {
+        let searched = Some({
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            (fonts, &self.font_query).hash(&mut hasher);
+            hasher.finish()
+        });
+        if self.fonts_published.get() != fonts || self.font_search_published.get() != searched {
             self.fonts_published.set(fonts);
+            self.font_search_published.set(searched);
+            let families = self.font_families();
+            let query = self.font_query.trim().to_lowercase();
             sync(
-                &models.font_families,
-                self.font_families()
-                    .into_iter()
+                &models.font_matches,
+                families
+                    .iter()
+                    .filter(|family| query.is_empty() || family.to_lowercase().contains(&query))
                     .map(SharedString::from)
                     .collect(),
+            );
+            sync(
+                &models.font_families,
+                families.into_iter().map(SharedString::from).collect(),
             );
         }
         editor.set_inspector_jump_token(self.inspector_jump.0);
@@ -8696,6 +8720,12 @@ impl Studio {
         // what the knob edits.
         let at = place_in(clip, self.playhead);
         let text = clip.text.clone().unwrap_or_default();
+        // Where the family sits in the picker's list; none when nothing on
+        // this machine has it, which the picker shows in red.
+        let family_row = self
+            .font_families()
+            .iter()
+            .position(|family| family.eq_ignore_ascii_case(text.font_family.trim_matches('"')));
         let fill = colour_of(&text.color);
         let stroke = colour_of(&text.stroke_color);
         let plate = colour_of(&text.background);
@@ -8762,11 +8792,9 @@ impl Studio {
             fade_out: clip.fade_out as f32,
             content: text.content.as_str().into(),
             font_family: text.font_family.trim_matches('"').into(),
-            family_row: self
-                .font_families()
-                .iter()
-                .position(|family| family.eq_ignore_ascii_case(text.font_family.trim_matches('"')))
-                .unwrap_or(0) as i32,
+            family_row: family_row.unwrap_or(0) as i32,
+            font_missing: family_row.is_none()
+                && !text.font_family.trim_matches('"').trim().is_empty(),
             font_size: text.font_size as f32,
             font_weight: text.font_weight as f32,
             italic: text.italic,

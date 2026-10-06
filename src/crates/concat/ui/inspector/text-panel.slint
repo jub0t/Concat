@@ -7,6 +7,7 @@ import { Glyph } from "../icons.slint";
 import { IconButton, Row, Section, SectionBody, SectionHeader } from "../primitives/panel.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
+import { FontPicker } from "font-picker.slint";
 import { NumberField } from "../primitives/number-field.slint";
 import { Button } from "../primitives/modal.slint";
 import {
@@ -80,7 +81,6 @@ export component TextPanel inherits VerticalLayout {
     property <float> offset-x;
     property <float> offset-y;
     property <int> weight-index;
-    property <int> family-index;
 
     property <[float]> weights: [400, 500, 600, 700];
     /// The label column of the rows whose label is two words.
@@ -108,9 +108,6 @@ export component TextPanel inherits VerticalLayout {
         root.weight-index = root.selected.font-weight >= 700 ? 3
             : root.selected.font-weight >= 600 ? 2
             : root.selected.font-weight >= 500 ? 1 : 0;
-        // Where the family sits in the list Rust offers; a family nobody
-        // has is painted in the bundled face and shows as that row.
-        root.family-index = root.selected.family-row;
     }
 
     init => { root.seed(); }
@@ -258,11 +255,13 @@ export component TextPanel inherits VerticalLayout {
         Row {
             label: I18n.t("textPanel.font");
             label-width: root.label-w;
-            Select {
-                options: root.families;
-                current <=> root.family-index;
-                changed(index) => {
-                    root.set-text(ClipTextField.font-family, root.families[index]);
+            // Searchable, each family in its own face; red when the title
+            // names one this machine does not have.
+            FontPicker {
+                family: root.selected.font-family;
+                missing: root.selected.font-missing;
+                picked(family) => {
+                    root.set-text(ClipTextField.font-family, family);
                     root.commit();
                 }
             }

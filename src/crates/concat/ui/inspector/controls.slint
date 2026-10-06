@@ -704,6 +704,9 @@ export component SearchField inherits Rectangle {
 
     callback edited(text: string);
 
+    // A caller's `focus()` lands in the field, so a list that opens on a
+    // search can be typed into at once.
+    forward-focus: input;
     height: Theme.h;
     border-radius: Theme.r-sm;
     background: Theme.field;

@@ -286,6 +286,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         app.set_recents(ModelRc::from(models.recents.clone()));
         editor.set_text_presets(ModelRc::from(models.text_presets.clone()));
         editor.set_font_families(ModelRc::from(models.font_families.clone()));
+        app.global::<FontSearch>()
+            .set_matches(ModelRc::from(models.font_matches.clone()));
     }
 
     // Settings > About's block, gathered once: nothing in it changes while
@@ -1124,6 +1126,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_play_toggled(on_window!(|state| {
         state.play_toggle();
     }));
+    app.global::<FontSearch>()
+        .on_query_changed(on_window!(|state, text: SharedString| {
+            state.font_query = text.to_string();
+        }));
     app.global::<SourcePreview>().on_closed(on_window!(|state| {
         state.close_source();
     }));

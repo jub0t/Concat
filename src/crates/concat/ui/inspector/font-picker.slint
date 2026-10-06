@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// The font picker: the title's family on the trigger, and a list of every
+// family the title can be set in, searched as it is typed into, each name
+// drawn in its own face. A family this machine does not have - a preset
+// or a project shared from one that did - turns the trigger red and says
+// so, rather than quietly showing the face it fell back to.
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph, Icon } from "../icons.slint";
+import { SearchField } from "controls.slint";
+import { Tip } from "../primitives/tooltip.slint";
+import { ListView } from "std-widgets.slint";
+
+/// The list the picker shows, searched by Rust: Slint cannot filter a model,
+/// so the query goes out and the families that match come back.
+export global FontSearch {
+    in property <[string]> matches;
+    callback query-changed(text: string);
+}
+
+export component FontPicker inherits Rectangle {
+    /// The family the title names, as written.
+    in property <string> family;
+    /// Nothing on this machine has that family.
+    in property <bool> missing;
+    callback picked(family: string);
+
+    height: Theme.h;
+    horizontal-stretch: 1;
+    border-radius: Theme.r;
+    background: root.missing ? Theme.danger-wash
+        : touch.has-hover ? Theme.field-hover : Theme.field;
+    border-width: 1px;
+    border-color: root.missing ? Theme.danger : Theme.line;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 6px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.missing
+                ? I18n.t("textPanel.fontNotFound") + " · " + root.family
+                : root.family;
+            color: root.missing ? Theme.danger : Theme.fg;
+            // The name in its own face, unless there is no such face.
+            font-family: root.missing ? "" : root.family;
+            font-size: Theme.fs;
+            font-weight: root.missing ? Theme.weight-title : 400;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                glyph: Glyph.chevron-down;
+                size: 12px;
+                tint: root.missing ? Theme.danger : Theme.fg-muted;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            FontSearch.query-changed("");
+            list.show();
+        }
+    }
+
+    Tip {
+        text: root.missing ? I18n.t("textPanel.fontNotFoundTip") : "";
+        active: touch.has-hover;
+    }
+
+    list := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: Math.max(root.width, 220px);
+        height: 300px;
+        close-policy: close-on-click-outside;
+
+        Rectangle {
+            background: Theme.raised;
+            border-width: 1px;
+            border-color: Theme.line-strong;
+            border-radius: Theme.r;
+            clip: true;
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 6px;
+
+                search := SearchField {
+                    placeholder: I18n.t("textPanel.searchFonts");
+                    edited(text) => { FontSearch.query-changed(text); }
+                    init => { self.focus(); }
+                }
+
+                if FontSearch.matches.length == 0: Text {
+                    text: I18n.t("textPanel.noFontsMatch");
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs;
+                    horizontal-alignment: center;
+                    vertical-stretch: 1;
+                }
+
+                // Virtual: a machine can have hundreds of families, and
+                // each row is set in its own face.
+                if FontSearch.matches.length > 0: ListView {
+                    vertical-stretch: 1;
+                    for name in FontSearch.matches: Rectangle {
+                        height: 28px;
+                        border-radius: Theme.r-sm;
+                        background: row.has-hover ? Theme.field-hover : transparent;
+
+                        Text {
+                            x: 8px;
+                            width: parent.width - 16px;
+                            height: parent.height;
+                            text: name;
+                            font-family: name;
+                            font-size: Theme.fs;
+                            color: name == root.family ? Theme.accent : Theme.fg;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        row := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.picked(name);
+                                list.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

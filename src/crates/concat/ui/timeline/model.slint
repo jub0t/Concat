@@ -357,6 +357,9 @@ export struct SelectedClipData {
     /// 0 - the bundled face - for a family nobody has, which is painted in
     /// it.
     family-row: int,
+    /// No face on this machine has the family: a preset or a project from
+    /// one that did. The picker says so in red.
+    font-missing: bool,
     /// share of frame height, not points: the frame can be any resolution
     font-size: float,
     font-weight: float,
