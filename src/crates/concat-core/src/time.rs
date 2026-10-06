@@ -344,12 +344,18 @@ impl FrameRate {
     pub const MAX_TERM: i64 = 1_000_000;
 
     /// The rate `num / den`, or `None` for one no video has: a zero or
-    /// negative term, or one past [`FrameRate::MAX_TERM`]. The
-    /// non-panicking path for a rate that comes from a document or a
-    /// request rather than from a constant.
+    /// negative term, or one past [`FrameRate::MAX_TERM`] in lowest terms -
+    /// `60000000/2002000` is 29.97 and taken. The non-panicking path for a
+    /// rate that comes from a document or a request rather than from a
+    /// constant.
     pub fn checked(num: i64, den: i64) -> Option<Self> {
+        if num <= 0 || den <= 0 {
+            return None;
+        }
+        let rate = Rational::new(num, den);
         let term = 1..=Self::MAX_TERM;
-        (term.contains(&num) && term.contains(&den)).then(|| Self(Rational::new(num, den)))
+        (term.contains(&rate.numerator()) && term.contains(&rate.denominator()))
+            .then_some(Self(rate))
     }
 
     /// Builds a whole-number frame rate.
@@ -443,6 +449,11 @@ mod tests {
         assert_eq!(FrameRate::checked(-30, 1), None);
         assert_eq!(FrameRate::checked(i64::MAX, 1), None);
         assert_eq!(FrameRate::checked(30, FrameRate::MAX_TERM + 1), None);
+        assert_eq!(
+            FrameRate::checked(60_000_000, 2_002_000),
+            Some(FrameRate::NTSC_30),
+            "large terms that reduce are a rate"
+        );
     }
 
     #[test]
