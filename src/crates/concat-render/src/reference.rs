@@ -692,6 +692,7 @@ mod tests {
             track: 1,
             effects: vec![unknown],
             strength: 1.0,
+            clip_time: 0.0,
         }];
         let out = CpuCompositor.render(&frame_plan);
         assert_eq!(out.pixel(7, 7), Some([255, 0, 0, 255]));
