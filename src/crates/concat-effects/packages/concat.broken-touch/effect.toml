@@ -1,0 +1,43 @@
+format = 2
+
+[effect]
+id = "concat.broken-touch"
+name = "Broken Touch"
+kind = "effect"
+category = "Distort"
+order = 55
+intensity = "amount"
+description = "The picture split into columns that jolt up and down one after another, leaving warm ghost copies of themselves behind."
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[[param]]
+key = "speed"
+label = "Speed"
+min = 0
+max = 100
+default = 50
+step = 1
+unit = "%"
+
+[[param]]
+key = "columns"
+label = "Columns"
+min = 2
+max = 24
+default = 8
+step = 1
+
+[wgsl]
+entry = "effect.wgsl"
+space = "display"
+
+[card]
+moment = 0.25
