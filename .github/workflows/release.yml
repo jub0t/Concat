@@ -62,10 +62,14 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # The engine's tests and lints, on the tagged commit: a tag on a red
-  # tree is not a release.
+  # tree is not a release. Named, because a run started by hand is on
+  # main, and without the tag CI would test main instead.
   engine:
     name: CI
+    needs: check
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.check.outputs.tag }}
 
   build:
     needs: [check, engine]
