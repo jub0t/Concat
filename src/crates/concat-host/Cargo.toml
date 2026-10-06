@@ -50,7 +50,7 @@ memmap2 = "0.9"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }
+windows-sys = { version = "0.61", features = ["Win32_Media", "Win32_System_SystemInformation"] }
 
 [lints]
 workspace = true

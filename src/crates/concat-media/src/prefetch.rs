@@ -11,8 +11,8 @@
 //! of it and the frames each needs. The workers decode those into the
 //! pool, nearest first, within a small budget, and hold what they decoded
 //! until the playhead has passed it; a request the playhead has already
-//! passed is dropped unrun, and a cursor that moves supersedes the
-//! instants queued for the last one.
+//! passed is dropped unrun. A cursor that carries on from the last one
+//! adds to what is queued; a cursor that jumps or turns supersedes it.
 //!
 //! The same workers take everything else that decodes for a picture on
 //! screen - filmstrip tiles, the bin's thumbnails and waveforms, a proxy
@@ -34,6 +34,11 @@ use crate::pool::{FrameRequest, ReaderPool};
 /// A quarter of a second at thirty: enough that a decode never lands
 /// after its frame is due, small enough that a seek wastes little.
 pub const AHEAD: u32 = 8;
+
+/// How far a cursor may move on from the last one, in its own direction
+/// and at its own rate, and still be the same playback: its queue is kept
+/// and added to, not thrown away. Further is a seek.
+const CONTINUES: f64 = 1.0;
 
 /// What a job is for, most urgent first. A worker takes the most urgent
 /// job waiting; among jobs of one priority, the first queued.
@@ -96,6 +101,19 @@ impl Cursor {
             Direction::Forward => time < self.time - slack,
             Direction::Backward => time > self.time + slack,
         }
+    }
+
+    /// Whether this cursor carries on from `before`: moving, the same way
+    /// at the same rate, and no more than [`CONTINUES`] on from it.
+    fn continues(self, before: Cursor, slack: f64) -> bool {
+        let moved = match self.direction {
+            Direction::Forward => self.time - before.time,
+            Direction::Backward => before.time - self.time,
+        };
+        self.rate != 0.0
+            && self.rate == before.rate
+            && self.direction == before.direction
+            && (-slack..=CONTINUES).contains(&moved)
     }
 }
 
@@ -163,6 +181,9 @@ struct Shared {
     pinned: Mutex<Vec<(f64, Vec<Arc<Frame>>)>>,
     /// A frame's worth of slack, in seconds, when deciding what is passed.
     slack: Mutex<f64>,
+    /// The output frames queued and not yet decoded, by index, so a
+    /// cursor that carries on asks only for frames nobody has asked for.
+    queued: Mutex<Vec<i64>>,
 }
 
 /// The scheduler: owns the readers, decodes ahead of the transport, and
@@ -205,6 +226,7 @@ impl Prefetcher {
                 generation: AtomicU64::new(0),
                 pinned: Mutex::new(Vec::new()),
                 slack: Mutex::new(1.0 / 30.0),
+                queued: Mutex::new(Vec::new()),
             }),
             lane,
         }
@@ -234,42 +256,77 @@ impl Prefetcher {
     }
 
     /// Moves the cursor and queues `ahead`, nearest first, to be decoded
-    /// into the pool. Instants queued for the last cursor are forgotten;
-    /// frames held for instants now behind this cursor are released; an
+    /// into the pool. A cursor that carries on from the last one - playback
+    /// running on - keeps what was queued for it and adds only the frames
+    /// not already queued or held; any other cursor forgets the queue.
+    /// Frames held for instants now behind this cursor are released; an
     /// instant behind the cursor by the time a worker reaches it is
     /// skipped. `frame_seconds` is how long one output frame lasts, the
     /// slack in "behind".
     pub fn advance(&self, cursor: Cursor, frame_seconds: f64, ahead: Vec<Moment>) {
-        let generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
-        *lock(&self.shared.cursor) = Some(cursor);
-        *lock(&self.shared.slack) = frame_seconds.max(0.0);
-        lock(&self.shared.pinned).retain(|(time, _)| !cursor.passed(*time, frame_seconds));
+        let frame_seconds = frame_seconds.max(0.0);
+        let index = move |time: f64| {
+            if frame_seconds > 0.0 {
+                (time / frame_seconds + 1e-6).floor() as i64
+            } else {
+                (time * 1_000_000.0) as i64
+            }
+        };
+        let before = lock(&self.shared.cursor).replace(cursor);
+        let continues = before.is_some_and(|before| cursor.continues(before, frame_seconds));
+        let generation = if continues {
+            self.shared.generation.load(Ordering::Acquire)
+        } else {
+            self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1
+        };
+        *lock(&self.shared.slack) = frame_seconds;
 
         let mut queue = lock(&self.lane.queue);
         if queue.closed {
             return;
         }
-        queue.lanes[Priority::Playback as usize].clear();
+        let mut queued = lock(&self.shared.queued);
+        // Read under `queued`: a job pins its frames before it leaves
+        // `queued`, so an instant is in one or the other here, never
+        // between them and queued twice.
+        let held: Vec<i64> = {
+            let mut pinned = lock(&self.shared.pinned);
+            pinned.retain(|(time, _)| !cursor.passed(*time, frame_seconds));
+            pinned.iter().map(|(time, _)| index(*time)).collect()
+        };
+        if !continues {
+            queue.lanes[Priority::Playback as usize].clear();
+            queued.clear();
+        }
         for moment in ahead {
+            let at = index(moment.time);
+            if queued.contains(&at) || held.contains(&at) {
+                continue;
+            }
+            queued.push(at);
             let shared = Arc::clone(&self.shared);
             queue.lanes[Priority::Playback as usize].push_back(Box::new(move || {
-                if shared.generation.load(Ordering::Acquire) != generation {
+                let current = || shared.generation.load(Ordering::Acquire) == generation;
+                if !current() {
                     return;
                 }
                 let slack = *lock(&shared.slack);
-                if lock(&shared.cursor).is_some_and(|now| now.passed(moment.time, slack)) {
-                    return;
+                if !lock(&shared.cursor).is_some_and(|now| now.passed(moment.time, slack)) {
+                    let frames: Vec<Arc<Frame>> = moment
+                        .frames
+                        .iter()
+                        .filter_map(|request| shared.pool.frame(request).ok())
+                        .collect();
+                    if current() {
+                        lock(&shared.pinned).push((moment.time, frames));
+                    }
                 }
-                let frames: Vec<Arc<Frame>> = moment
-                    .frames
-                    .iter()
-                    .filter_map(|request| shared.pool.frame(request).ok())
-                    .collect();
-                if shared.generation.load(Ordering::Acquire) == generation {
-                    lock(&shared.pinned).push((moment.time, frames));
+                if current() {
+                    lock(&shared.queued).retain(|queued| *queued != at);
                 }
             }));
         }
+        drop(queued);
         drop(queue);
         self.lane.ready.notify_all();
     }
@@ -573,6 +630,79 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Playback running on keeps what it queued: a cursor a frame on from
+    /// the last adds to the queue rather than replacing it, so the frame
+    /// the last cursor asked for is still decoded, and none twice.
+    #[test]
+    fn a_cursor_that_carries_on_keeps_its_queue() {
+        let path = crate::pool::tests::counting_video("prefetch-carry", 32, 30);
+        let pool = Arc::new(ReaderPool::new(64 * 1024 * 1024, 2));
+        let prefetcher = Prefetcher::new(Arc::clone(&pool), 1);
+        let rate = FrameRate::THIRTY;
+        let fps = rate.fps().as_f64();
+        let moments = |from: i64| -> Vec<Moment> {
+            (from + 1..=from + 4)
+                .map(|index| Moment {
+                    time: index as f64 / fps,
+                    frames: vec![FrameRequest::new(&path, rate.time_of_frame(index), 16, 16)],
+                })
+                .collect()
+        };
+        let cursor = |index: i64| Cursor {
+            time: index as f64 / fps,
+            direction: Direction::Forward,
+            rate: 1.0,
+        };
+        // Hold the one worker so both cursors queue before anything runs.
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        {
+            let gate = Arc::clone(&gate);
+            prefetcher.submit(Priority::Playback, move || {
+                let (open, bell) = &*gate;
+                let mut open = open.lock().unwrap();
+                while !*open {
+                    open = bell.wait(open).unwrap();
+                }
+            });
+        }
+        while prefetcher.pending(Priority::Playback) > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        prefetcher.advance(cursor(0), 1.0 / fps, moments(0));
+        prefetcher.advance(cursor(1), 1.0 / fps, moments(1));
+        assert_eq!(
+            prefetcher.pending(Priority::Playback),
+            5,
+            "1..=4, then only 5"
+        );
+        {
+            let (open, bell) = &*gate;
+            *open.lock().unwrap() = true;
+            bell.notify_all();
+        }
+        prefetcher.drain();
+        let mut held: Vec<i64> = prefetcher
+            .held_instants()
+            .iter()
+            .map(|time| (time * fps).round() as i64)
+            .collect();
+        held.sort_unstable();
+        assert_eq!(held, (1..=5).collect::<Vec<_>>());
+
+        // A jump is a new playback: the queue starts over.
+        prefetcher.advance(cursor(20), 1.0 / fps, moments(20));
+        prefetcher.drain();
+        assert!(
+            prefetcher
+                .held_instants()
+                .iter()
+                .all(|time| *time > 20.0 / fps),
+            "{:?}",
+            prefetcher.held_instants()
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// The cursor's instants are decoded ahead into the pool, held until
     /// passed, and a moved cursor drops what it has passed.
     #[test]
@@ -607,15 +737,18 @@ mod tests {
             .expect("decodes");
         assert_eq!(pool.stats().since(warmed).decoded, 0, "frame 5 was ahead");
 
-        // The cursor at 5: the instants more than a frame behind it are
-        // released, 4..=8 stay, and 6..=13 join them.
+        // The cursor at 5 carries on from 0: the instants more than a frame
+        // behind it are released, 4..=8 stay, and of 6..=13 only 9..=13 -
+        // the ones not held already - are decoded and join them.
         prefetcher.advance(cursor(5), 1.0 / fps, moments(5));
         prefetcher.drain();
-        let held = prefetcher.held_ahead();
-        assert!(
-            (AHEAD as usize + 4..=AHEAD as usize + 6).contains(&held),
-            "held {held}: the passed instants were released"
-        );
+        let mut held: Vec<i64> = prefetcher
+            .held_instants()
+            .iter()
+            .map(|time| (time * fps).round() as i64)
+            .collect();
+        held.sort_unstable();
+        assert_eq!(held, (4..=13).collect::<Vec<_>>(), "each held once");
 
         // A cursor far ahead: nothing held behind it survives, and an
         // instant queued for it that it has already passed is skipped -

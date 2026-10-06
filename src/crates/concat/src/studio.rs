@@ -908,6 +908,9 @@ pub struct Studio {
     /// The families the machine has, found on a worker after the window is
     /// up - the system's fonts take a moment to read - and empty until then.
     pub system_fonts: Vec<String>,
+    /// A fingerprint of what `font_families` was last published from, so
+    /// a publish that changes none of it leaves the picker's list alone.
+    fonts_published: std::cell::Cell<Option<u64>>,
 
     /// The languages Settings › General offers, in its order; see `i18n`.
     pub languages: Vec<i18n::Language>,
@@ -1994,6 +1997,7 @@ impl Studio {
             text_presets,
             installed_fonts: presets::installed_fonts(&host.dirs),
             system_fonts: Vec::new(),
+            fonts_published: std::cell::Cell::new(None),
             languages,
             brush: 0,
             brush_size: 0.06,
@@ -2625,17 +2629,27 @@ impl Studio {
         self.playing = true;
         log::debug!("playback: playing from {:.3}s", self.playhead);
         self.host.playback.play(f64::from(self.playhead));
-        // The clock is the audio device's; this follows it at 30 Hz and
-        // asks the monitor for the frame under it each time.
+        // The clock is the audio device's. This looks at it far more often
+        // than any timeline's frame rate and acts only when the frame under
+        // it changes, so each frame is asked for within a few milliseconds of
+        // its time instead of whenever a fixed 30 Hz beat next comes round -
+        // which at 24, 25 or 60 fps is unevenly late, and reads as judder.
+        let mut shown: Option<i64> = None;
         self.transport.start(
             slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(33),
-            || {
+            std::time::Duration::from_millis(8),
+            move || {
                 crate::host::Shell::with(|shell, app| {
                     {
                         let mut studio = shell.studio.borrow_mut();
                         let end = studio.duration();
-                        let position = studio.host.playback.position() as f32;
+                        let position = studio.host.playback.position_now() as f32;
+                        let fps = studio.project().active().video.rate();
+                        let frame = (f64::from(position) * fps + 1e-6).floor() as i64;
+                        if position < end && shown == Some(frame) {
+                            return;
+                        }
+                        shown = Some(frame);
                         studio.playhead = position.min(end);
                         // The view follows: a playhead that runs off the
                         // right edge, or sits off the left, pages the lanes
@@ -4607,12 +4621,31 @@ impl Studio {
             .collect();
         own.sort_by_cached_key(|family| family.to_lowercase());
         own.dedup();
+        let mut held: std::collections::HashSet<String> = out
+            .iter()
+            .map(|family| family.to_ascii_lowercase())
+            .collect();
         for family in own.into_iter().chain(self.system_fonts.iter().cloned()) {
-            if !out.iter().any(|held| held.eq_ignore_ascii_case(&family)) {
+            if held.insert(family.to_ascii_lowercase()) {
                 out.push(family);
             }
         }
         out
+    }
+
+    /// What [`Studio::font_families`] is made of, hashed: the same number
+    /// for the same list, without building it.
+    fn fonts_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.installed_fonts.hash(&mut hasher);
+        if let Some(session) = &self.session {
+            for font in &session.project().fonts {
+                font.family.hash(&mut hasher);
+            }
+        }
+        self.system_fonts.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// The machine's families have been read; see `system_fonts`.
@@ -7378,6 +7411,24 @@ impl Studio {
         }
     }
 
+    /// The monitor's picture and the scope counted from it, alone: what a
+    /// frame arriving during playback changes.
+    pub fn publish_frame(&self, app: &App, models: &Models) {
+        app.global::<Editor>()
+            .set_preview_frame(self.monitor.image.clone());
+        let scopes = app.global::<Scopes>();
+        scopes.set_kind(self.monitor.scope_kind as i32);
+        match &self.monitor.scope {
+            Some((picture, marks, hdr)) => {
+                scopes.set_picture(picture.clone());
+                sync(&models.scope_marks, marks.clone());
+                scopes.set_hdr(*hdr);
+                scopes.set_ready(true);
+            }
+            None => scopes.set_ready(false),
+        }
+    }
+
     /// The timeline and the readouts that follow it: what runs on every
     /// event of a scrub, a drag, a trim or a knob.
     pub fn publish_lanes(&self, app: &App, models: &Models) {
@@ -7500,18 +7551,7 @@ impl Studio {
         editor.set_preview_duration(self.duration());
         editor.set_playhead_free(!self.prefs.playhead_stops_at_end);
         editor.set_playing(self.playing);
-        editor.set_preview_frame(self.monitor.image.clone());
-        let scopes = app.global::<Scopes>();
-        scopes.set_kind(self.monitor.scope_kind as i32);
-        match &self.monitor.scope {
-            Some((picture, marks, hdr)) => {
-                scopes.set_picture(picture.clone());
-                sync(&models.scope_marks, marks.clone());
-                scopes.set_hdr(*hdr);
-                scopes.set_ready(true);
-            }
-            None => scopes.set_ready(false),
-        }
+        self.publish_frame(app, models);
         sync(&models.stage, self.stage_items());
         sync(&models.guides, self.stage_guides.clone());
         let (path, width, erase) = self.stroke_overlay();
@@ -7562,13 +7602,17 @@ impl Studio {
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
-        sync(
-            &models.font_families,
-            self.font_families()
-                .into_iter()
-                .map(SharedString::from)
-                .collect(),
-        );
+        let fonts = Some(self.fonts_fingerprint());
+        if self.fonts_published.get() != fonts {
+            self.fonts_published.set(fonts);
+            sync(
+                &models.font_families,
+                self.font_families()
+                    .into_iter()
+                    .map(SharedString::from)
+                    .collect(),
+            );
+        }
         editor.set_inspector_jump_token(self.inspector_jump.0);
         editor.set_library_audition(self.audition_of().unwrap_or("").into());
         editor.set_inspector_jump_tab(self.inspector_jump.1.into());
