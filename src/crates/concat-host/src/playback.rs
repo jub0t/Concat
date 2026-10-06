@@ -311,10 +311,8 @@ impl Shared {
     fn stamp(&self, seconds: f64) {
         let position = (seconds.max(0.0) * 1_000_000.0) as u64;
         self.position_micros.store(position, Ordering::Relaxed);
-        self.origin_micros.store(
-            self.now_micros() - position as i64,
-            Ordering::Relaxed,
-        );
+        self.origin_micros
+            .store(self.now_micros() - position as i64, Ordering::Relaxed);
     }
 
     fn now_micros(&self) -> i64 {
