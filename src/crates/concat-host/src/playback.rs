@@ -44,7 +44,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 
 use concat_core::animate::{Ease, Key, Track};
@@ -282,9 +282,12 @@ enum Msg {
 struct Shared {
     /// Timeline position in microseconds, written by the mix callback.
     position_micros: AtomicU64,
-    /// When `position_micros` was last written, in microseconds since
-    /// `epoch`.
-    stamp_micros: AtomicU64,
+    /// When the clock, run on from its last write, read zero: the time of
+    /// that write less the position written, in microseconds since
+    /// `epoch`. One word rather than the write's time beside the
+    /// position, so a reader that catches the old one of these two with
+    /// the new other still reads a clock that ran on smoothly.
+    origin_micros: AtomicI64,
     epoch: std::time::Instant,
     playing: AtomicBool,
 }
@@ -298,7 +301,7 @@ impl Shared {
     fn new() -> Self {
         Self {
             position_micros: AtomicU64::new(0),
-            stamp_micros: AtomicU64::new(0),
+            origin_micros: AtomicI64::new(0),
             epoch: std::time::Instant::now(),
             playing: AtomicBool::new(false),
         }
@@ -306,10 +309,16 @@ impl Shared {
 
     /// Lands the clock at `seconds`, now.
     fn stamp(&self, seconds: f64) {
-        self.position_micros
-            .store((seconds.max(0.0) * 1_000_000.0) as u64, Ordering::Relaxed);
-        self.stamp_micros
-            .store(self.epoch.elapsed().as_micros() as u64, Ordering::Relaxed);
+        let position = (seconds.max(0.0) * 1_000_000.0) as u64;
+        self.position_micros.store(position, Ordering::Relaxed);
+        self.origin_micros.store(
+            self.now_micros() - position as i64,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn now_micros(&self) -> i64 {
+        self.epoch.elapsed().as_micros() as i64
     }
 
     fn position(&self) -> f64 {
@@ -324,13 +333,8 @@ impl Shared {
         if !self.playing.load(Ordering::Relaxed) {
             return position;
         }
-        let since = self
-            .epoch
-            .elapsed()
-            .saturating_sub(std::time::Duration::from_micros(
-                self.stamp_micros.load(Ordering::Relaxed),
-            ));
-        position + since.min(COAST).as_secs_f64()
+        let run_on = self.now_micros() - self.origin_micros.load(Ordering::Relaxed);
+        (run_on as f64 / 1_000_000.0).clamp(position, position + COAST.as_secs_f64())
     }
 }
 
@@ -1189,6 +1193,16 @@ mod tests {
         assert!(
             (stalled - (5.0 + COAST.as_secs_f64())).abs() < 1e-3,
             "{stalled}"
+        );
+
+        // A reader between a callback's two stores - the new position, the
+        // old origin - reads no earlier than the device's word, not back.
+        shared.stamp(5.0);
+        shared.position_micros.store(5_010_000, Ordering::Relaxed);
+        let between = shared.position_now();
+        assert!(
+            (5.01..=5.01 + COAST.as_secs_f64()).contains(&between),
+            "{between}"
         );
     }
 
