@@ -280,17 +280,20 @@ impl Prefetcher {
             self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         *lock(&self.shared.slack) = frame_seconds;
-        let held: Vec<i64> = {
-            let mut pinned = lock(&self.shared.pinned);
-            pinned.retain(|(time, _)| !cursor.passed(*time, frame_seconds));
-            pinned.iter().map(|(time, _)| index(*time)).collect()
-        };
 
         let mut queue = lock(&self.lane.queue);
         if queue.closed {
             return;
         }
         let mut queued = lock(&self.shared.queued);
+        // Read under `queued`: a job pins its frames before it leaves
+        // `queued`, so an instant is in one or the other here, never
+        // between them and queued twice.
+        let held: Vec<i64> = {
+            let mut pinned = lock(&self.shared.pinned);
+            pinned.retain(|(time, _)| !cursor.passed(*time, frame_seconds));
+            pinned.iter().map(|(time, _)| index(*time)).collect()
+        };
         if !continues {
             queue.lanes[Priority::Playback as usize].clear();
             queued.clear();
