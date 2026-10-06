@@ -301,9 +301,13 @@ component Header inherits Rectangle {
                 }
             }
 
+            // A lane of sound only has no picture to hide: its switch goes,
+            // and its place stays, so the switches line up lane under lane.
             VerticalLayout {
                 alignment: center;
-                IconButton {
+                min-width: eye.width;
+                eye := IconButton {
+                    visible: !root.track.sound-only;
                     // Checked when the lane is *off*: the button is lit to say
                     // something is being withheld, which is the state worth
                     // announcing.

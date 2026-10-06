@@ -68,6 +68,9 @@ export struct TrackData {
     /// is false on an empty lane, and `kind` then means nothing.
     typed: bool,
     kind: ClipKind,
+    /// Every clip on the lane is sound: there is no picture to hide, so
+    /// the header leaves the visibility switch's place empty.
+    sound-only: bool,
 }
 
 /// A media item's filmstrip and the window of it one clip shows.

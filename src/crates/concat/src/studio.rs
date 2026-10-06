@@ -97,6 +97,10 @@ const LANE_SMALL: f32 = 35.0;
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
 
+/// How long a still runs when it is placed: the engine's own default, so
+/// the ghost of a dragged still is the clip it makes.
+const STILL_DURATION: f32 = 5.0;
+
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
     /// Every sampled frame side by side.
@@ -1324,6 +1328,25 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
     }
+}
+
+/// The lanes, of `lanes`, that removing `doomed` leaves with nothing on
+/// them: lanes that had clips and lose every one. A lane already empty is
+/// not emptied by the removal. Never every lane: the first stays, since a
+/// project keeps at least one.
+fn lanes_emptied(lanes: &[&str], clips: &[(&str, &str)], doomed: &[String]) -> Vec<String> {
+    let mut emptied: Vec<String> = lanes
+        .iter()
+        .filter(|&&lane| {
+            let mut on_lane = clips.iter().filter(|(_, track)| *track == lane).peekable();
+            on_lane.peek().is_some() && on_lane.all(|(id, _)| doomed.iter().any(|d| d == id))
+        })
+        .map(|lane| (*lane).to_owned())
+        .collect();
+    if !emptied.is_empty() && emptied.len() >= lanes.len() {
+        emptied.remove(0);
+    }
+    emptied
 }
 
 /// A command as the activity trail names it: its kind, and for a batch
@@ -3251,7 +3274,7 @@ impl Studio {
                     // A still has no length of its own; a file with no stated
                     // duration gets the engine's own fallback.
                     duration: if item.kind == model::MediaKind::Image {
-                        LAYER_DURATION
+                        STILL_DURATION
                     } else {
                         item.duration.unwrap_or(5.0) as f32
                     }
@@ -6609,12 +6632,39 @@ impl Studio {
             .cloned()
             .collect();
         if !doomed.is_empty() {
-            self.apply(Command::RemoveClips {
-                clip_ids: doomed,
-                ripple,
-            });
+            self.remove_clips(doomed, ripple);
         }
         self.selection.clear();
+    }
+
+    /// Removes the clips, and with them every lane they leave with nothing
+    /// on it, as one undo step: a lane emptied by a delete is not one the
+    /// user meant to keep. The project keeps at least one lane.
+    fn remove_clips(&mut self, clip_ids: Vec<String>, ripple: bool) {
+        let timeline = self.timeline();
+        let lanes: Vec<&str> = timeline
+            .tracks
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect();
+        let clips: Vec<(&str, &str)> = timeline
+            .clips
+            .iter()
+            .map(|clip| (clip.id.as_str(), clip.track_id.as_str()))
+            .collect();
+        let emptied = lanes_emptied(&lanes, &clips, &clip_ids);
+        let remove = Command::RemoveClips { clip_ids, ripple };
+        if emptied.is_empty() {
+            self.apply(remove);
+            return;
+        }
+        let mut commands = vec![remove];
+        commands.extend(
+            emptied
+                .into_iter()
+                .map(|track_id| Command::RemoveTrack { track_id }),
+        );
+        self.apply(Command::Batch { commands });
     }
 
     pub fn merge_blocked(&self) -> Option<String> {
@@ -7582,10 +7632,17 @@ impl Studio {
                 .rev()
                 .map(|lane| {
                     let height = self.lane_height(lane);
-                    let first = timeline.clips.iter().find(|clip| clip.track_id == lane.id);
+                    let mut on_lane = timeline
+                        .clips
+                        .iter()
+                        .filter(|clip| clip.track_id == lane.id)
+                        .peekable();
+                    let first = on_lane.peek().copied();
                     let row = TrackData {
                         typed: first.is_some(),
                         kind: first.map_or(ClipKind::Video, |clip| kind_of(clip)),
+                        sound_only: first.is_some()
+                            && on_lane.all(|clip| kind_of(clip) == ClipKind::Audio),
                         id: lane.id.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,
@@ -10144,10 +10201,7 @@ impl Studio {
                 if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
                     self.remove_selected(ripple);
                 } else {
-                    self.apply(Command::RemoveClips {
-                        clip_ids: vec![id.to_owned()],
-                        ripple,
-                    });
+                    self.remove_clips(vec![id.to_owned()], ripple);
                 }
                 self.menu_target = None;
             }
@@ -10193,9 +10247,36 @@ impl Studio {
 mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
-        custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
-        wheel_partners, write_keyable,
+        custom_rate, fps_of, grading_rows, home_folder, key_commands, lanes_emptied, packed,
+        place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// A lane the delete takes every clip off goes with them; a lane that
+    /// keeps a clip, or was empty to begin with, stays; and the last lane
+    /// of the project stays whatever happens to it.
+    #[test]
+    fn a_delete_takes_the_lanes_it_empties() {
+        let doomed =
+            |ids: &[&str]| -> Vec<String> { ids.iter().map(|id| (*id).to_owned()).collect() };
+        let lanes = ["t1", "t2", "t3"];
+        let clips = [("a", "t1"), ("b", "t2"), ("c", "t2")];
+        assert_eq!(lanes_emptied(&lanes, &clips, &doomed(&["a"])), ["t1"]);
+        assert!(
+            lanes_emptied(&lanes, &clips, &doomed(&["b"])).is_empty(),
+            "t2 keeps c"
+        );
+        assert_eq!(
+            lanes_emptied(&lanes, &clips, &doomed(&["a", "b", "c"])),
+            ["t1", "t2"]
+        );
+        assert!(lanes_emptied(&lanes, &clips, &doomed(&[])).is_empty());
+        let both = [("a", "t1"), ("b", "t2")];
+        assert_eq!(
+            lanes_emptied(&["t1", "t2"], &both, &doomed(&["a", "b"])),
+            ["t2"]
+        );
+        assert!(lanes_emptied(&["t1"], &[("a", "t1")], &doomed(&["a"])).is_empty());
+    }
 
     /// A wheel is keyed as one knob: named by itself or by any of its own
     /// keys, it keys its puck and master; its master's key takes the puck's
