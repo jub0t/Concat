@@ -264,8 +264,6 @@ component CategoryRow inherits Rectangle {
     /// bin needs no zero beside every row to say so.
     in property <int> count: -1;
     in property <bool> current;
-    /// A row under another row, set in one step further.
-    in property <bool> indent;
 
     callback clicked();
 
@@ -280,7 +278,7 @@ component CategoryRow inherits Rectangle {
     HorizontalLayout {
         // Indented past the group heading's chevron, so the rows read as
         // hanging off it rather than sitting beside it.
-        padding-left: root.indent ? 30px : 18px;
+        padding-left: 18px;
         padding-right: 6px;
         spacing: 4px;
 
@@ -1712,7 +1710,7 @@ export component MediaPane inherits Rectangle {
 
     /// The looks the Text page's Styles shelf offers.
     in property <[TextPresetData]> presets;
-    /// The looks for other writing, on the Languages shelf under Styles.
+    /// The looks for other writing, on the Languages shelf beside Styles.
     in property <[TextPresetData]> language-presets;
     /// The effect catalogue's shelves, as Rust narrows them by the
     /// `Library` view: what the Effects, Filters and Transitions pages show.
@@ -2101,10 +2099,9 @@ export component MediaPane inherits Rectangle {
                             current: root.text-category == 1;
                             clicked => { root.text-category = 1; }
                         }
-                        // Under Styles: the looks for other writing.
+                        // Beside Styles: the looks for other writing.
                         if root.text-open: CategoryRow {
                             height: 24px;
-                            indent: true;
                             label: I18n.t("mediaPane.languages");
                             current: root.text-category == 2;
                             clicked => { root.text-category = 2; }
