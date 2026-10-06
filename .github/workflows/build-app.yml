@@ -170,7 +170,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libfontconfig1-dev libfreetype6-dev libxkbcommon-dev libgl1-mesa-dev \
-            libgtk-3-dev libasound2-dev libclang-dev cmake
+            libgtk-3-dev libasound2-dev libclang-dev cmake libxkbcommon-x11-0
 
       # Ubuntu's packaged FFmpeg is older than the 7 the engine needs.
       - name: FFmpeg development libraries (Linux)
@@ -646,6 +646,13 @@ jobs:
           mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/applications"
           cp "$STAGE/concat" "$appdir/usr/bin/concat"
           cp -a "$STAGE/lib" "$appdir/usr/bin/lib"
+          # The X11 keyboard library the window opens by name at start, and
+          # the xcb extension under it: a machine without them panicked
+          # before showing a window, which is how the AppImage catalog's
+          # test saw it. Beside the binary, the rpath finds them.
+          for lib in libxkbcommon-x11.so.0 libxcb-xkb.so.1; do
+            cp -L "$(ldconfig -p | awk -v lib="$lib" '$1 == lib { print $NF; exit }')" "$appdir/usr/bin/lib/$lib"
+          done
           cp "$STAGE/concat.desktop" "$appdir/concat.desktop"
           cp "$STAGE/concat.desktop" "$appdir/usr/share/applications/concat.desktop"
           cp "$STAGE/concat.png" "$appdir/concat.png"
