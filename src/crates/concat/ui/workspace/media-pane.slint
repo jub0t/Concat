@@ -264,6 +264,8 @@ component CategoryRow inherits Rectangle {
     /// bin needs no zero beside every row to say so.
     in property <int> count: -1;
     in property <bool> current;
+    /// A row under another row, set in one step further.
+    in property <bool> indent;
 
     callback clicked();
 
@@ -278,7 +280,7 @@ component CategoryRow inherits Rectangle {
     HorizontalLayout {
         // Indented past the group heading's chevron, so the rows read as
         // hanging off it rather than sitting beside it.
-        padding-left: 18px;
+        padding-left: root.indent ? 30px : 18px;
         padding-right: 6px;
         spacing: 4px;
 
@@ -1708,8 +1710,10 @@ export component MediaPane inherits Rectangle {
     in property <length> menu-height;
     in property <int> menu-token;
 
-    /// The looks the Text page's Presets shelf offers.
+    /// The looks the Text page's Styles shelf offers.
     in property <[TextPresetData]> presets;
+    /// The looks for other writing, on the Languages shelf under Styles.
+    in property <[TextPresetData]> language-presets;
     /// The effect catalogue's shelves, as Rust narrows them by the
     /// `Library` view: what the Effects, Filters and Transitions pages show.
     in property <[CatalogueEntryData]> catalogue-effects;
@@ -1761,7 +1765,7 @@ export component MediaPane inherits Rectangle {
     property <bool> categories-open: true;
     property <bool> generated-open: true;
     property <bool> text-open: true;
-    /// 0 = Titles, 1 = Presets
+    /// 0 = Titles, 1 = Styles, 2 = Languages
     property <int> text-category;
     property <bool> stickers-open: true;
     property <bool> transitions-open: true;
@@ -2093,9 +2097,17 @@ export component MediaPane inherits Rectangle {
                         }
                         if root.text-open: CategoryRow {
                             height: 24px;
-                            label: I18n.t("mediaPane.presets");
+                            label: I18n.t("mediaPane.styles");
                             current: root.text-category == 1;
                             clicked => { root.text-category = 1; }
+                        }
+                        // Under Styles: the looks for other writing.
+                        if root.text-open: CategoryRow {
+                            height: 24px;
+                            indent: true;
+                            label: I18n.t("mediaPane.languages");
+                            current: root.text-category == 2;
+                            clicked => { root.text-category = 2; }
                         }
                     }
 
@@ -2369,12 +2381,12 @@ export component MediaPane inherits Rectangle {
                 // The looks. Each card is a title in that look, placed at
                 // the playhead on a click or dragged onto a lane; a preset
                 // that brings a font installs it on the way.
-                if root.tab == 1 && root.text-category == 1: HorizontalLayout {
+                if root.tab == 1 && root.text-category >= 1: HorizontalLayout {
                     padding: 8px;
 
                     PresetGrid {
                         horizontal-stretch: 1;
-                        items: root.presets;
+                        items: root.text-category == 2 ? root.language-presets : root.presets;
                         applied(id) => { root.add-text(id); }
                     }
                 }

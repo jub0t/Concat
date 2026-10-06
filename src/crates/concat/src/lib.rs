@@ -285,6 +285,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         editor.set_dividers(ModelRc::from(models.dividers.clone()));
         app.set_recents(ModelRc::from(models.recents.clone()));
         editor.set_text_presets(ModelRc::from(models.text_presets.clone()));
+        editor.set_style_presets(ModelRc::from(models.style_presets.clone()));
+        editor.set_language_presets(ModelRc::from(models.language_presets.clone()));
         editor.set_font_families(ModelRc::from(models.font_families.clone()));
         app.global::<FontSearch>()
             .set_matches(ModelRc::from(models.font_matches.clone()));

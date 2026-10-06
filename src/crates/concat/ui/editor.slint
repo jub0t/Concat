@@ -104,6 +104,10 @@ export global Editor {
     // library catalogue pages
     /// The looks the Text page offers, published once.
     in-out property <[TextPresetData]> text-presets;
+    /// The Latin presets, for the desktop's Styles shelf.
+    in-out property <[TextPresetData]> style-presets;
+    /// The presets for other writing, for its Languages shelf.
+    in-out property <[TextPresetData]> language-presets;
     /// A title placed at the playhead in the look `preset` names;
     /// "default" is the plain title.
     callback library-add-text(preset: string);

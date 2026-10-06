@@ -614,6 +614,10 @@ pub struct Models {
     pub recents: Rc<VecModel<RecentProjectData>>,
     /// The Text page's presets, published once from the loaded list.
     pub text_presets: Rc<VecModel<TextPresetData>>,
+    /// The Latin ones, for the Text page's Styles shelf.
+    pub style_presets: Rc<VecModel<TextPresetData>>,
+    /// The rest, by the writing they are for, for its Languages shelf.
+    pub language_presets: Rc<VecModel<TextPresetData>>,
     /// The families a title can be set in; see `Studio::font_families`.
     pub font_families: Rc<VecModel<SharedString>>,
     /// Those of them the font picker's search lets through.
@@ -674,6 +678,8 @@ impl Models {
             dividers: Rc::new(VecModel::default()),
             recents: Rc::new(VecModel::default()),
             text_presets: Rc::new(VecModel::default()),
+            style_presets: Rc::new(VecModel::default()),
+            language_presets: Rc::new(VecModel::default()),
             font_families: Rc::new(VecModel::default()),
             font_matches: Rc::new(VecModel::default()),
         }
@@ -9104,29 +9110,39 @@ impl Studio {
         );
 
         // The Text page's presets: the look each card draws its name in.
+        // All of them for the phone's one shelf; on the desktop, Styles
+        // has the Latin ones and Languages, under it, the rest.
+        let cards: Vec<TextPresetData> = self
+            .text_presets
+            .iter()
+            .map(|preset| {
+                let plate = colour_of(&preset.style.background);
+                TextPresetData {
+                    id: preset.id.as_str().into(),
+                    name: preset.name.as_str().into(),
+                    language: preset.language.as_str().into(),
+                    family: preset.style.font_family.trim_matches('"').into(),
+                    weight: preset.style.font_weight.round() as i32,
+                    italic: preset.style.italic,
+                    fill: colour_of(&preset.style.color),
+                    plate,
+                    plated: plate.alpha() > 0,
+                    stroke: colour_of(&preset.style.stroke_color),
+                    stroke_width: preset.style.stroke_width as f32,
+                    align: align_of(preset.style.align),
+                }
+            })
+            .collect();
+        let latin = |card: &TextPresetData| card.language.eq_ignore_ascii_case("latin");
         sync(
-            &models.text_presets,
-            self.text_presets
-                .iter()
-                .map(|preset| {
-                    let plate = colour_of(&preset.style.background);
-                    TextPresetData {
-                        id: preset.id.as_str().into(),
-                        name: preset.name.as_str().into(),
-                        language: preset.language.as_str().into(),
-                        family: preset.style.font_family.trim_matches('"').into(),
-                        weight: preset.style.font_weight.round() as i32,
-                        italic: preset.style.italic,
-                        fill: colour_of(&preset.style.color),
-                        plate,
-                        plated: plate.alpha() > 0,
-                        stroke: colour_of(&preset.style.stroke_color),
-                        stroke_width: preset.style.stroke_width as f32,
-                        align: align_of(preset.style.align),
-                    }
-                })
-                .collect(),
+            &models.style_presets,
+            cards.iter().filter(|card| latin(card)).cloned().collect(),
         );
+        sync(
+            &models.language_presets,
+            cards.iter().filter(|card| !latin(card)).cloned().collect(),
+        );
+        sync(&models.text_presets, cards);
 
         // The bin.
         // The Media shelves count the imports; what the editor made is
