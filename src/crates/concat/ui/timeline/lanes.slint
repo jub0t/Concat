@@ -146,6 +146,9 @@ component Clip inherits Rectangle {
     /// to scroll when it reaches their edge.
     callback pointer-at(x: length);
     callback released();
+    /// A press and release that never travelled, on the body rather than
+    /// an edge: a click, at this x in the clip. The playhead goes there.
+    callback clicked(x: length);
     callback context-requested();
     /// The pointer over this clip, at this x in it, and then not. For the
     /// preview axis: a hover belongs to the surface under the pointer, and
@@ -560,6 +563,8 @@ component Clip inherits Rectangle {
                 }
                 self.origin-x = self.absolute-position.x + self.mouse-x;
                 self.origin-y = self.absolute-position.y + self.mouse-y;
+                self.travelled = false;
+                self.on-edge = root.edge-at >= 0;
                 root.pressed(event.modifiers.shift || event.modifiers.control
                     || event.modifiers.meta, root.edge-at);
             } else if (event.kind == PointerEventKind.up
@@ -567,10 +572,20 @@ component Clip inherits Rectangle {
                 // Only a release ends it. Slint delivers `move` here too, so a
                 // plain `else` would end the gesture the moment it began.
                 root.released();
+                if (event.kind == PointerEventKind.up && !self.travelled && !self.on-edge
+                    && root.tool == TimelineTool.select) {
+                    root.clicked(self.mouse-x);
+                }
             }
         }
 
         moved => {
+            // Past a few pixels it is a drag, not a click, and the playhead
+            // stays where it was.
+            if (Math.abs(self.absolute-position.x + self.mouse-x - self.origin-x) > 4px
+                || Math.abs(self.absolute-position.y + self.mouse-y - self.origin-y) > 4px) {
+                self.travelled = true;
+            }
             if (root.tool == TimelineTool.select) {
                 root.pointer-at(self.mouse-x);
                 root.dragged(
@@ -582,6 +597,8 @@ component Clip inherits Rectangle {
 
         property <length> origin-x;
         property <length> origin-y;
+        property <bool> travelled;
+        property <bool> on-edge;
     }
 
     // ── the volume line ───────────────────────────────────────────────────
@@ -1360,6 +1377,15 @@ export component Lanes inherits Rectangle {
                     || event.kind == PointerEventKind.cancel) {
                     if (self.drawing) {
                         self.drawing = false;
+                        // A press that never travelled is a click, not a
+                        // band: the playhead goes where it landed, as on
+                        // the ruler. The empty band still clears the
+                        // selection below.
+                        if (event.kind == PointerEventKind.up
+                            && Math.abs(self.to-x - self.from-x) <= 4px
+                            && Math.abs(self.to-y - self.from-y) <= 4px) {
+                            root.scrubbed(Math.max(0, root.seconds-at(self.from-x)));
+                        }
                         root.band-selected(
                             root.seconds-at(Math.min(self.from-x, self.to-x)),
                             root.seconds-at(Math.max(self.from-x, self.to-x)),
@@ -1368,9 +1394,10 @@ export component Lanes inherits Rectangle {
                             self.additive);
                     } else if (root.finger && root.finger-axis == 0
                         && event.kind == PointerEventKind.up) {
-                        // A tap on an empty lane: the empty band a press
-                        // that never moved would have closed, which is
-                        // what clears the selection.
+                        // A tap on an empty lane: the playhead goes there,
+                        // and the empty band a press that never moved would
+                        // have closed clears the selection.
+                        root.scrubbed(Math.max(0, root.seconds-at(self.from-x)));
                         root.band-selected(
                             root.seconds-at(self.from-x), root.seconds-at(self.from-x),
                             root.stack-y(self.from-y), root.stack-y(self.from-y),
@@ -1438,6 +1465,9 @@ export component Lanes inherits Rectangle {
                 root.clip-dragging = false;
                 root.clip-released();
             }
+            // Click anywhere on the timeline and the playhead goes there,
+            // a clip included: it is selected and the playhead lands on it.
+            clicked(x) => { root.scrubbed(Math.max(0, root.seconds-at(self.x + x))); }
             hovered(x) => { root.hover-at(self.x + x); }
             hover-ended => { root.hover-off(); }
             context-requested => {
@@ -1604,9 +1634,10 @@ export component Lanes inherits Rectangle {
                 background: Theme.line;
             }
 
-            // The ruler is the scrub strip. Dragging in the lanes draws a
-            // band instead — the convention every NLE shares, and the only way
-            // the two gestures can share one surface.
+            // The ruler is the scrub strip: pressed and dragged, the playhead
+            // follows. In the lanes a click sends the playhead too, and a
+            // drag draws a band instead — the two gestures share one surface
+            // by whether the pointer travelled.
             scrub := TouchArea {
                 mouse-cursor: pointer;
 
