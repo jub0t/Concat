@@ -17,14 +17,18 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <!-- One upgrade code for the life of the product, so a newer .msi
-       replaces an older one rather than sitting beside it. -->
+       replaces an older one rather than sitting beside it. A rebuild of
+       the same version replaces it too: without AllowSameVersionUpgrades
+       the two install side by side, and the old concat.exe, equal in
+       version, is the one left in Program Files. -->
   <Package Name="Concat"
            Manufacturer="Concat contributors"
            Version="$(var.Version)"
            UpgradeCode="6C4D5D8E-9B2A-4F3B-8E1C-5A7D2B9F0C11"
            Scope="perMachine"
            Language="1033">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Concat is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Concat is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="concat.ico" SourceFile="$(var.Root)\assets\icons\concat.ico" />
