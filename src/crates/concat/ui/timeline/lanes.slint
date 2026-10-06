@@ -142,8 +142,8 @@ component Clip inherits Rectangle {
     /// lanes down — the lanes differ in height, so which row a drag has
     /// reached is a question only the side holding the heights can answer.
     callback dragged(seconds: float, pixels: length);
-    /// Where the pointer is across the clip while it drags, for the lanes
-    /// to scroll when it reaches their edge.
+    /// Where the pointer is across the clip on the press and while it
+    /// drags, for the lanes to scroll when it reaches their edge.
     callback pointer-at(x: length);
     callback released();
     /// A press and release that never travelled, on the body rather than
@@ -567,6 +567,7 @@ component Clip inherits Rectangle {
                 self.on-edge = root.edge-at >= 0;
                 root.pressed(event.modifiers.shift || event.modifiers.control
                     || event.modifiers.meta, root.edge-at);
+                root.pointer-at(self.mouse-x);
             } else if (event.kind == PointerEventKind.up
                 || event.kind == PointerEventKind.cancel) {
                 // Only a release ends it. Slint delivers `move` here too, so a
@@ -579,19 +580,21 @@ component Clip inherits Rectangle {
             }
         }
 
+        // Within a few pixels of the press it is a click: nothing is
+        // reported, so a wobble neither snaps the clip onto the playhead nor
+        // wakes the edge scroll, and the playhead goes where it landed. Past
+        // that it is a drag, the delta still from the press so the clip does
+        // not jump, and the playhead stays where it was.
         moved => {
-            // Past a few pixels it is a drag, not a click, and the playhead
-            // stays where it was.
-            if (Math.abs(self.absolute-position.x + self.mouse-x - self.origin-x) > 4px
-                || Math.abs(self.absolute-position.y + self.mouse-y - self.origin-y) > 4px) {
-                self.travelled = true;
+            let dx = self.absolute-position.x + self.mouse-x - self.origin-x;
+            let dy = self.absolute-position.y + self.mouse-y - self.origin-y;
+            if (!self.travelled && Math.abs(dx) <= 4px && Math.abs(dy) <= 4px) {
+                return;
             }
+            self.travelled = true;
             if (root.tool == TimelineTool.select) {
                 root.pointer-at(self.mouse-x);
-                root.dragged(
-                    (self.absolute-position.x + self.mouse-x - self.origin-x)
-                        / root.px-per-second,
-                    self.absolute-position.y + self.mouse-y - self.origin-y);
+                root.dragged(dx / root.px-per-second, dy);
             }
         }
 
@@ -1209,13 +1212,16 @@ export component Lanes inherits Rectangle {
     // report to repeat.
     property <bool> scrubbing;
     property <bool> clip-dragging;
+    /// The held clip has left its dead zone. A press alone never scrolls:
+    /// the pointer it is measured by may still be where a scrub left it.
+    property <bool> clip-moved;
     property <length> pointer-x;
     property <float> drag-seconds;
     property <length> drag-pixels;
     /// `scroll-left` when the clip was pressed; see the clip's `dragged`.
     property <float> press-scroll;
     property <length> edge-zone: 40px;
-    property <bool> at-edge: (root.scrubbing || root.clip-dragging)
+    property <bool> at-edge: (root.scrubbing || (root.clip-dragging && root.clip-moved))
         && (root.pointer-x < root.edge-zone || root.pointer-x > root.width - root.edge-zone);
 
     edge-scroll := Timer {
@@ -1445,6 +1451,9 @@ export component Lanes inherits Rectangle {
 
             pressed(additive, edge) => {
                 root.press-scroll = root.scroll-left;
+                root.drag-seconds = 0;
+                root.drag-pixels = 0;
+                root.clip-moved = false;
                 root.clip-dragging = true;
                 root.clip-pressed(entry.id, additive, edge);
             }
@@ -1458,11 +1467,13 @@ export component Lanes inherits Rectangle {
             dragged(seconds, pixels) => {
                 root.drag-seconds = seconds;
                 root.drag-pixels = pixels;
+                root.clip-moved = true;
                 root.clip-dragged(seconds + (root.scroll-left - root.press-scroll), pixels);
             }
             pointer-at(x) => { root.pointer-x = self.x + x; }
             released => {
                 root.clip-dragging = false;
+                root.clip-moved = false;
                 root.clip-released();
             }
             // Click anywhere on the timeline and the playhead goes there,
