@@ -1750,6 +1750,20 @@ pub fn preview_sources(
     preview_sources_of(pool, &preview_timeline(request), request.time, false)
 }
 
+/// The size a still is decoded at for the preview: its fitted size scaled
+/// evenly until it covers the output, never below the fitted size. The pool
+/// cuts a still to exactly this size, and the compositor fits it by the
+/// decoded frame's own shape - floored to the output on each axis apart,
+/// a square logo came back 16:9 and was drawn over the whole frame.
+fn still_cover((plan_width, plan_height): (u32, u32), (width, height): (u32, u32)) -> (u32, u32) {
+    let (width, height) = (width.max(2), height.max(2));
+    let k = (f64::from(plan_width) / f64::from(width))
+        .max(f64::from(plan_height) / f64::from(height))
+        .max(1.0);
+    let even = |side: u32| ((f64::from(side) * k).round() as u32).max(2) & !1;
+    (even(width), even(height))
+}
+
 /// The pool's request for one planned layer: the source frame at the
 /// level that covers the output, so the cached picture is the file's and
 /// no knob invalidates it. `proxy` reads the file's stand-in where it has
@@ -1761,8 +1775,13 @@ fn frame_request(
     still: bool,
     proxy: bool,
 ) -> concat_media::FrameRequest {
+    let (cover_width, cover_height) = if still {
+        still_cover((plan.width, plan.height), (width, height))
+    } else {
+        (plan.width.max(width), plan.height.max(height))
+    };
     concat_media::FrameRequest::new(&layer.media, layer.source_time, width, height)
-        .covering(plan.width.max(width), plan.height.max(height))
+        .covering(cover_width, cover_height)
         .as_still(still)
         .from_proxy(proxy)
         .in_range(plan.built.ranges.get(&layer.clip).copied())
@@ -2033,6 +2052,30 @@ pub fn preview_moments(
 
 #[cfg(test)]
 mod tests {
+    /// A still keeps its own shape on the way to the preview: scaled evenly
+    /// until it covers the output, and never shrunk below its fitted size.
+    #[test]
+    fn a_still_is_decoded_in_its_own_shape() {
+        use super::still_cover;
+        let square = still_cover((1920, 1080), (1080, 1080));
+        assert_eq!(square.0, square.1, "a square stays square: {square:?}");
+        assert!(square.0 >= 1920 && square.1 >= 1080, "and covers the frame");
+
+        let wide = still_cover((1920, 1080), (1920, 960));
+        assert_eq!(wide.0, 2 * wide.1, "2:1 stays 2:1: {wide:?}");
+        assert!(wide.0 >= 1920 && wide.1 >= 1080, "and covers the frame");
+
+        let big = still_cover((1920, 1080), (4000, 2000));
+        assert_eq!(big, (4000, 2000), "never shrunk below the fitted size");
+
+        let unknown = still_cover((1920, 1080), (1920, 1080));
+        assert_eq!(
+            unknown,
+            (1920, 1080),
+            "a full-frame fallback is left as it was"
+        );
+    }
+
     /// A treatment on track 1 runs over what track 0 drew and not over what
     /// track 2 draws on top of it, and its strength blends the result back.
     #[test]
