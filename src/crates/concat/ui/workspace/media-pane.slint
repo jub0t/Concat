@@ -2412,7 +2412,10 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-transitions;
                         glyph: Glyph.transition;
-                        // Transitions apply directly on single-click — no audition overlay.
+                        // A click puts it on the cut the selection names, or
+                        // the one at the playhead; a drag, on the cut it is
+                        // dropped over.
+                        payload-kind: "transition";
                         auditions: false;
                         applied(id, label) => { root.apply-transition(id); }
                     }
@@ -2439,14 +2442,17 @@ export component MediaPane inherits Rectangle {
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
                         // A sound has no picture: its cards are the compact kind.
                         compact: root.audio-shelf;
-                        // Effects apply directly on single-click to the selected clip —
-                        // auditions:false means click = apply, no monitor overlay confusion.
+                        // A picture effect is laid down as a layer over the
+                        // video, at the playhead on a click or where it is
+                        // dropped, as a filter is; a sound effect goes on the
+                        // selected clip's sound. A click adds, no audition.
+                        payload-kind: root.audio-shelf ? "" : "filter";
                         auditions: false;
                         applied(id, label) => {
                             if (root.audio-shelf) {
                                 root.apply-audio(id);
                             } else {
-                                root.apply-effect(id);
+                                root.apply-filter(id, label);
                             }
                         }
                     }
