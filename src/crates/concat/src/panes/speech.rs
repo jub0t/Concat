@@ -30,7 +30,7 @@ use concat_speech::tts::{
 };
 use slint::SharedString;
 
-use crate::format::wave_path;
+use crate::format::{WAVE_FLOOR, wave_path};
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
@@ -514,9 +514,15 @@ impl SpeechPane {
         self.samples(studio)
             .iter()
             .map(|item| match studio.peaks.get(&item.id) {
-                Some(peaks) => {
-                    wave_path(peaks, 0.0, item.duration.unwrap_or(0.0) as f32, 64, 0.75).into()
-                }
+                Some(peaks) => wave_path(
+                    peaks,
+                    0.0,
+                    item.duration.unwrap_or(0.0) as f32,
+                    64,
+                    0.75,
+                    WAVE_FLOOR,
+                )
+                .into(),
                 None => SharedString::new(),
             })
             .collect()

@@ -95,6 +95,77 @@ const LANE_SMALL: f32 = 44.0;
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
 
+/// How long a look or effect from the library runs when it is laid down,
+/// and how long its card's preview loops: the package's own `length` when
+/// it plays out like a clip, else [`LAYER_DURATION`].
+fn effect_length(id: &str) -> f32 {
+    Catalogue::builtin()
+        .get(id)
+        .and_then(|package| package.manifest.effect.length)
+        .map_or(LAYER_DURATION, |length| length as f32)
+}
+
+/// How far either side of a transition its card's preview reaches, in
+/// seconds, so the cut is seen coming and going.
+const TRANSITION_LEAD: f32 = 1.0;
+
+/// What a library card is playing in the monitor.
+#[derive(Clone, Debug, PartialEq)]
+enum Auditioned {
+    /// A look or picture effect, over the whole picture.
+    Look(String),
+    /// A transition, on the cut into `clip`, `duration` long.
+    Transition {
+        id: String,
+        clip: String,
+        duration: f64,
+    },
+}
+
+/// A card's preview: what it shows, the span of the timeline it loops,
+/// and the instant the monitor is at within it.
+#[derive(Clone, Debug, PartialEq)]
+struct Audition {
+    what: Auditioned,
+    from: f32,
+    length: f32,
+    at: f32,
+}
+
+impl Audition {
+    /// The card's id, which the card is drawn picked by.
+    fn card(&self) -> &str {
+        match &self.what {
+            Auditioned::Look(id) | Auditioned::Transition { id, .. } => id,
+        }
+    }
+}
+
+/// The span a look's preview loops: `length` seconds from the playhead,
+/// pulled back so it ends with the content when the playhead is near the
+/// end, and cut to the content when that is shorter. `(from, length)`.
+fn look_window(playhead: f32, length: f32, total: f32) -> (f32, f32) {
+    let from = playhead.min(total - length).max(0.0);
+    (from, length.min(total - from).max(0.0))
+}
+
+/// The span a transition's preview loops: from [`TRANSITION_LEAD`] before
+/// the cut to as long after the transition ends, within `0..total`.
+/// `(from, length)`.
+fn transition_window(cut: f32, duration: f32, total: f32) -> (f32, f32) {
+    let from = (cut - TRANSITION_LEAD).max(0.0);
+    let end = (cut + duration + TRANSITION_LEAD).min(total);
+    (from, (end - from).max(0.0))
+}
+
+/// The cut nearest `at` among `cuts`, each its instant and the incoming
+/// clip's id.
+fn nearest_cut(cuts: Vec<(f64, String)>, at: f64) -> Option<String> {
+    cuts.into_iter()
+        .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))
+        .map(|(_, incoming)| incoming)
+}
+
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
     /// Every sampled frame side by side.
@@ -537,6 +608,11 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// A transition from the library: it lands on a cut, not on a lane, and
+    /// `media` is its catalogue id.
+    pub transition: bool,
+    /// The cut a transition's drop resolved to, as the incoming clip's id.
+    pub cut: Option<String>,
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -822,12 +898,14 @@ pub struct Studio {
     /// Bumped when the library should show its Media page: a file the
     /// editor just made and put in the bin. See `Editor.media-jump-token`.
     pub media_jump: i32,
-    /// A look being shown before it is laid down: the filter's id. It is
-    /// drawn into the frames the monitor asks for as a layer over the whole
-    /// picture, and nowhere else - the timeline does not have it until the
-    /// card is double-clicked or its plus pressed, which lays a filter
-    /// layer at the playhead.
-    audition: Option<String>,
+    /// A card on the Effects, Filters or Transitions page playing in the
+    /// monitor before it is laid down. It is drawn into the frames the
+    /// monitor asks for, and nowhere else - the timeline does not have it
+    /// until the card's plus is pressed or the card dropped.
+    audition: Option<Audition>,
+    /// Loops the audition's span with its sound while it lasts; the
+    /// transport's own timer, and the playhead with it, stay where they are.
+    audition_clock: slint::Timer,
     /// Counts every change to the document. What the flattened clip list
     /// below is keyed on, so a frame of an unchanged document reuses it.
     revision: u64,
@@ -1992,6 +2070,7 @@ impl Studio {
             inspector_jump: (0, "", ""),
             media_jump: 0,
             audition: None,
+            audition_clock: slint::Timer::default(),
             revision: 0,
             flat: None,
             commit_pending: false,
@@ -2561,29 +2640,59 @@ impl Studio {
         // The frame's own additions - a look being shown, a cutout being
         // painted - go on a copy, so the kept list stays the document's.
         let mut own: Option<Vec<concat_export::ExportClip>> = None;
-        // The look being shown before it is laid down goes into this
-        // frame only, as the layer it would be: over every track, the
-        // whole way along, at full strength. The timeline is as it was.
-        if let Some(filter_id) = self.audition.clone() {
-            let effects = vec![AppliedFilter::new(filter_id)];
-            let track = clips
-                .iter()
-                .map(|flat| flat.track)
-                .max()
-                .map_or(0, |top| top + 1);
-            own.get_or_insert_with(|| (*clips).clone())
-                .push(concat_export::ExportClip {
-                    muted: true,
-                    volume: 0.0,
-                    effects,
-                    has_audio: Some(false),
-                    ..concat_export::ExportClip::blank(
-                        concat_export::ClipKind::Layer,
-                        0.0,
-                        f64::from(self.duration()).max(1.0),
-                        track,
-                    )
+        // A card's preview goes into this frame only. A look is the layer
+        // it would be, over every track at full strength, starting where
+        // the loop does so an effect that plays out runs from its start;
+        // a transition rides its cut as if it had been put there. The
+        // timeline is as it was.
+        match self.audition.as_ref().map(|audition| audition.what.clone()) {
+            Some(Auditioned::Look(filter_id)) => {
+                let (from, length) = self
+                    .audition
+                    .as_ref()
+                    .map_or((0.0, 0.0), |audition| (audition.from, audition.length));
+                let effects = vec![AppliedFilter::new(filter_id)];
+                let track = clips
+                    .iter()
+                    .map(|flat| flat.track)
+                    .max()
+                    .map_or(0, |top| top + 1);
+                own.get_or_insert_with(|| (*clips).clone())
+                    .push(concat_export::ExportClip {
+                        muted: true,
+                        volume: 0.0,
+                        effects,
+                        has_audio: Some(false),
+                        ..concat_export::ExportClip::blank(
+                            concat_export::ClipKind::Layer,
+                            f64::from(from),
+                            f64::from(length),
+                            track,
+                        )
+                    });
+            }
+            Some(Auditioned::Transition { id, clip, duration }) => {
+                let incoming = self.clip(&clip).and_then(|clip| {
+                    let media = self.project().media_by_id(&clip.media_id)?;
+                    Some((media.path.clone(), clip.start))
                 });
+                if let Some((path, start)) = incoming {
+                    let pictures = own.get_or_insert_with(|| (*clips).clone());
+                    let picture = |flat: &concat_export::ExportClip| {
+                        matches!(
+                            flat.kind,
+                            concat_export::ClipKind::Video | concat_export::ClipKind::Image
+                        )
+                    };
+                    if let Some(flat) = pictures.iter_mut().find(|flat| {
+                        picture(flat) && flat.path == path && (flat.start - start).abs() < 1e-6
+                    }) {
+                        flat.transition =
+                            Some(concat_export::TransitionSpec { kind: id, duration });
+                    }
+                }
+            }
+            None => {}
         }
         // While the brushes are out, the clip being painted is drawn with
         // its cutout tinted over the whole picture rather than cut, so a
@@ -2608,6 +2717,7 @@ impl Studio {
     // ── playback ──
 
     pub fn play_toggle(&mut self) {
+        self.end_audition();
         // The monitor's play button and Space play what it shows.
         if self.source.is_some() {
             self.source_toggle();
@@ -2704,6 +2814,7 @@ impl Studio {
     /// lets it, which is the default, so the ruler can be clicked beyond the
     /// last clip and something placed at the playhead there.
     pub fn seek(&mut self, seconds: f32) {
+        self.end_audition();
         // The timeline was clicked: it has the monitor back.
         self.close_source();
         self.playhead = seconds.max(0.0);
@@ -2724,13 +2835,17 @@ impl Studio {
         if let Some(source) = self.source.as_ref() {
             return source.time as f32;
         }
-        self.hover.unwrap_or(self.playhead)
+        self.audition
+            .as_ref()
+            .map(|audition| audition.at)
+            .or(self.hover)
+            .unwrap_or(self.playhead)
     }
 
     /// The pointer is over the lanes at `seconds`. Nothing while playing -
     /// the transport owns the monitor then - and nothing with the axis off.
     pub fn hover(&mut self, seconds: f32) {
-        if !self.prefs.preview_axis || self.playing {
+        if !self.prefs.preview_axis || self.moving() {
             return;
         }
         let seconds = seconds.max(0.0);
@@ -3124,8 +3239,9 @@ impl Studio {
     /// whole body, a picture clip's band under its frames; a picture that
     /// is muted, or whose file has no sound, shows the empty band.
     ///
-    /// At unity: the clip's volume scales the drawing in the lane, so a
-    /// volume drag never comes here - see `format::wave_path`.
+    /// At unity and with no floor: the clip's volume scales the drawing in
+    /// the lane, so a volume drag never comes here, and a quiet passage
+    /// turned up keeps its shape - see `format::wave_path`.
     ///
     /// Only the window of the clip that is on screen, and a screen either
     /// side of it, is built: what comes back is the path and where it
@@ -3184,6 +3300,7 @@ impl Studio {
             window,
             columns,
             WAVE_BAR,
+            0.0,
         ));
         let mut waves = self.waves.borrow_mut();
         if waves.len() >= 512 {
@@ -3222,6 +3339,8 @@ impl Studio {
                     }
                     .max(MIN_DURATION),
                     row: 0,
+                    transition: false,
+                    cut: None,
                 })
             }
             // A title: the preset's id rides where a file's media id would,
@@ -3233,6 +3352,8 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                transition: false,
+                cut: None,
             }),
             // A figure from the Stickers page: the shape's name rides
             // where a file's media id would, and the label is what the
@@ -3244,6 +3365,8 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                transition: false,
+                cut: None,
             }),
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
@@ -3252,8 +3375,22 @@ impl Studio {
                 label: label.to_owned(),
                 media: id.to_owned(),
                 start: 0.0,
-                duration: LAYER_DURATION,
+                duration: effect_length(id),
                 row: 0,
+                transition: false,
+                cut: None,
+            }),
+            // A transition from its page: no clip of its own, it lands on a
+            // cut. Drawn - the chip, the ghost over the cut - as a look is.
+            "transition" => Some(DropPlan {
+                kind: ClipKind::Filter,
+                label: label.to_owned(),
+                media: id.to_owned(),
+                start: 0.0,
+                duration: 0.5,
+                row: 0,
+                transition: true,
+                cut: None,
             }),
             _ => None,
         }
@@ -3265,6 +3402,9 @@ impl Studio {
         let lanes = self.timeline().tracks.len() as i32;
         if lanes == 0 {
             return None;
+        }
+        if plan.transition {
+            return self.transition_plan(plan, seconds, row.clamp(0, lanes - 1));
         }
         plan.row = row.clamp(0, lanes - 1);
         if self
@@ -3279,8 +3419,43 @@ impl Studio {
         Some(plan)
     }
 
+    /// A transition dragged over `row` at `seconds`: the cut on that lane
+    /// nearest the pointer, among those whose two clips the pointer is over,
+    /// with the ghost centred on it as long as the transition will run.
+    /// None - the drop refused - off any cut, on a locked lane, or on a cut
+    /// with no room.
+    fn transition_plan(&self, mut plan: DropPlan, seconds: f32, row: i32) -> Option<DropPlan> {
+        let track = self
+            .row_track(row)
+            .filter(|track| !self.locked(&track.id))?;
+        let at = f64::from(seconds.max(0.0));
+        let (cut, incoming) = self
+            .picture_cuts(Some(&track.id))
+            .into_iter()
+            .filter(|(_, incoming)| {
+                self.clip(incoming).is_some_and(|clip| {
+                    let from = self.outgoing_of(clip).map_or(clip.start, |out| out.start);
+                    from <= at && at < clip.start + clip.duration
+                })
+            })
+            .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))?;
+        let duration = self.transition_duration(self.clip(&incoming)?, 0.5)?;
+        plan.row = row;
+        plan.start = (cut - duration / 2.0).max(0.0) as f32;
+        plan.duration = duration as f32;
+        plan.cut = Some(incoming);
+        Some(plan)
+    }
+
     /// Commits a plan that has a lane, and selects what it made.
     pub fn place(&mut self, plan: &DropPlan) {
+        self.end_audition();
+        if plan.transition {
+            if let Some(clip_id) = &plan.cut {
+                self.put_transition(clip_id, &plan.media);
+            }
+            return;
+        }
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
@@ -3323,7 +3498,7 @@ impl Studio {
     /// A card clicked rather than dragged: the playhead names the moment
     /// and the engine finds a lane with room.
     pub fn place_at_playhead(&mut self, payload: &str) {
-        let Some(plan) = self.incoming(payload) else {
+        let Some(plan) = self.incoming(payload).filter(|plan| !plan.transition) else {
             return;
         };
         let start = f64::from(self.playhead.max(0.0));
@@ -3444,31 +3619,145 @@ impl Studio {
         (self.selection.len() == 1).then(|| self.selection[0].clone())
     }
 
-    /// The look being shown over the picture, by id, while one is.
+    /// The card playing in the monitor, by id, while one is.
     pub fn audition_of(&self) -> Option<&str> {
-        self.audition.as_deref()
+        self.audition.as_ref().map(Audition::card)
     }
 
-    /// Shows a look over the whole picture without laying it down: what a
-    /// single click on a Filters card does. The same card clicked again
-    /// takes it off; a double-click or the card's plus lays the layer.
-    pub fn audition_catalogue(&mut self, id: &str) {
+    /// Whether the monitor is running through frames: the transport is
+    /// playing, a card's preview is looping, or a source is playing.
+    pub fn moving(&self) -> bool {
+        self.playing
+            || self.audition.is_some()
+            || self.source.as_ref().is_some_and(|source| source.playing)
+    }
+
+    /// Plays a look or picture effect over the whole picture from the
+    /// playhead, in a loop as long as one run of it, without laying it
+    /// down: what a click on a Filters or Effects card does. A click on it
+    /// again starts it over.
+    pub fn audition_look(&mut self, id: &str) {
         if self.session.is_none() {
             return;
         }
-        let same = self.audition.as_deref() == Some(id);
-        if !same && self.audition.is_none() {
-            self.notify(&t("studio.showingLookOverPicture"), false);
+        let (from, length) = look_window(self.playhead, effect_length(id), self.duration());
+        self.start_audition(Audition {
+            what: Auditioned::Look(id.to_owned()),
+            from,
+            length,
+            at: from,
+        });
+    }
+
+    /// Plays the transition `id` on the cut nearest the playhead, from a
+    /// second before it to a second after, in a loop, without putting it
+    /// there: what a click on a Transitions card does.
+    pub fn audition_transition(&mut self, id: &str) {
+        if self.session.is_none() {
+            return;
         }
-        self.audition = (!same).then(|| id.to_owned());
+        let at = f64::from(self.playhead.max(0.0));
+        let nearest = self
+            .transition_cut()
+            .ok()
+            .or_else(|| nearest_cut(self.picture_cuts(None), at));
+        let Some(clip_id) = nearest else {
+            self.notify(&t("studio.noCutAtPlayhead"), true);
+            return;
+        };
+        let Some(clip) = self.clip(&clip_id) else {
+            return;
+        };
+        let cut = clip.start as f32;
+        let Some(duration) = self.transition_duration(clip, 0.5) else {
+            self.notify(&t("studio.noRoomForTransition"), true);
+            return;
+        };
+        let (from, length) = transition_window(cut, duration as f32, self.duration());
+        self.start_audition(Audition {
+            what: Auditioned::Transition {
+                id: id.to_owned(),
+                clip: clip_id,
+                duration,
+            },
+            from,
+            length,
+            at: from,
+        });
+    }
+
+    /// Starts `audition` looping in the monitor with its sound. The
+    /// transport stops first; the playhead and the lanes stay put.
+    fn start_audition(&mut self, audition: Audition) {
+        if audition.length <= 0.0 {
+            return;
+        }
+        if self.playing {
+            self.pause();
+        }
+        self.close_source();
+        self.end_hover();
+        let from = audition.from;
+        self.audition = Some(audition);
+        self.host.playback.play(f64::from(from));
+        let mut shown: Option<i64> = None;
+        self.audition_clock.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(8),
+            move || {
+                crate::host::Shell::with(|shell, _| {
+                    let mut studio = shell.studio.borrow_mut();
+                    let position = studio.host.playback.position_now() as f32;
+                    let fps = studio.project().active().video.rate();
+                    let Some((from, end)) = studio
+                        .audition
+                        .as_ref()
+                        .map(|audition| (audition.from, audition.from + audition.length))
+                    else {
+                        return;
+                    };
+                    // Round again from the start at the end, and after a
+                    // seek from elsewhere left the engine outside the span.
+                    let at = if position >= end || position < from - 0.25 {
+                        studio.host.playback.seek(f64::from(from));
+                        shown = None;
+                        from
+                    } else {
+                        position
+                    };
+                    let frame = (f64::from(at) * fps + 1e-6).floor() as i64;
+                    if shown == Some(frame) {
+                        return;
+                    }
+                    shown = Some(frame);
+                    if let Some(audition) = studio.audition.as_mut() {
+                        audition.at = at;
+                    }
+                    studio.request_preview();
+                });
+            },
+        );
+        self.request_preview();
+    }
+
+    /// Ends a card's preview: the loop stops, and the sound and the
+    /// picture are the playhead's again.
+    pub fn end_audition(&mut self) {
+        if self.audition.take().is_none() {
+            return;
+        }
+        self.audition_clock.stop();
+        self.host.playback.pause();
+        self.host.playback.seek(f64::from(self.playhead));
+        self.host.monitor.shrink();
         self.request_preview();
     }
 
     /// Lays a filter down as a layer at the playhead - what the Filters
-    /// page's double-click and plus do - and ends the showing, the layer
-    /// now being on the timeline to see.
+    /// and Effects pages' plus does - and ends the preview, the layer now
+    /// being on the timeline to see.
     pub fn place_filter_layer(&mut self, id: &str, label: &str) {
-        self.audition = None;
+        self.end_audition();
         self.place_at_playhead(&format!("filter:{id}:{label}"));
     }
 
@@ -3531,6 +3820,7 @@ impl Studio {
             .find(|other| {
                 other.id != clip.id
                     && other.track_id == clip.track_id
+                    && other.kind.is_visual() == clip.kind.is_visual()
                     && (other.start + other.duration - clip.start).abs() < frame / 2.0
             })
             .map(|other| other.as_ref())
@@ -3564,14 +3854,50 @@ impl Studio {
         (duration >= frame).then_some(duration)
     }
 
-    /// The cut a transition from the library goes on. Two clips selected
-    /// that meet on one track name the cut between them - the simple way,
-    /// and the one the Transitions page asks for. One clip selected names
-    /// the cut into it, for a transition picked after a click on the lane.
-    /// The incoming clip's id, or what to say instead.
+    /// The clip that starts where `clip` ends, on the same track and of
+    /// the same sort - the incoming side of the cut out of `clip`.
+    fn incoming_of(&self, clip: &Clip) -> Option<&Clip> {
+        let frame = self.frame_seconds();
+        let end = clip.start + clip.duration;
+        self.timeline()
+            .clips
+            .iter()
+            .find(|other| {
+                other.id != clip.id
+                    && other.track_id == clip.track_id
+                    && other.kind.is_visual() == clip.kind.is_visual()
+                    && (other.start - end).abs() < frame / 2.0
+            })
+            .map(|other| other.as_ref())
+    }
+
+    /// The cut a transition from the library goes on, as the incoming
+    /// clip's id, or what to say instead. Two clips selected that meet on
+    /// one track name the cut between them. One clip names a cut of its
+    /// own - into it or out of it, whichever is nearer the playhead - and
+    /// never one on another track. Nothing selected is the cut at the
+    /// playhead.
     fn transition_cut(&self) -> Result<String, String> {
         match self.selection.as_slice() {
-            [one] => Ok(one.clone()),
+            [] => self
+                .playhead_cut()
+                .ok_or_else(|| t("studio.noCutAtPlayhead")),
+            [one] => {
+                let Some(clip) = self.clip(one) else {
+                    return Err(t("studio.selectTwoAdjacentClips"));
+                };
+                let mut cuts = Vec::new();
+                if self.visual_cut(&clip.id) {
+                    cuts.push((clip.start, clip.id.clone()));
+                }
+                if let Some(next) = self.incoming_of(clip)
+                    && self.visual_cut(&next.id)
+                {
+                    cuts.push((next.start, next.id.clone()));
+                }
+                nearest_cut(cuts, f64::from(self.playhead))
+                    .ok_or_else(|| t("studio.clipHasNoNeighbour"))
+            }
             [a, b] => {
                 let (Some(a), Some(b)) = (self.clip(a), self.clip(b)) else {
                     return Err(t("studio.selectTwoAdjacentClips"));
@@ -3580,6 +3906,7 @@ impl Studio {
                 if self
                     .outgoing_of(second)
                     .is_some_and(|outgoing| outgoing.id == first.id)
+                    && self.visual_cut(&second.id)
                 {
                     Ok(second.id.clone())
                 } else {
@@ -3590,35 +3917,81 @@ impl Studio {
         }
     }
 
-    /// Puts the catalogue transition `id` on the cut the selection names;
-    /// see [`Studio::transition_cut`].
+    /// Puts the catalogue transition `id` on the cut the selection names,
+    /// or says why there is none; see [`Studio::transition_cut`].
     pub fn apply_transition(&mut self, id: &str) {
-        let clip_id = match self.transition_cut() {
-            Ok(clip_id) => clip_id,
-            Err(why) => {
-                self.notify(&why, true);
-                return;
-            }
-        };
-        let Some(clip) = self.clip(&clip_id) else {
-            return;
-        };
-        // One clip with nothing meeting it has no cut to put a transition
-        // on: the answer is the other clip, not a longer one.
-        let Some(outgoing) = self.outgoing_of(clip) else {
-            self.notify(&t("studio.selectTwoAdjacentClips"), true);
-            return;
-        };
-        if !clip.kind.is_visual() || !outgoing.kind.is_visual() {
-            self.notify(&t("studio.selectVideoImageClip"), true);
-            return;
+        self.end_audition();
+        match self.transition_cut() {
+            Ok(clip_id) => self.put_transition(&clip_id, id),
+            Err(why) => self.notify(&why, true),
         }
+    }
+
+    /// Whether `clip_id` meets a clip before it on its lane, both of them
+    /// pictures: a cut a transition into it can dissolve across.
+    fn visual_cut(&self, clip_id: &str) -> bool {
+        self.clip(clip_id).is_some_and(|clip| {
+            clip.kind.is_visual()
+                && self
+                    .outgoing_of(clip)
+                    .is_some_and(|out| out.kind.is_visual())
+        })
+    }
+
+    /// The cuts a transition can go on, at their instants, as the incoming
+    /// clip's id: every picture clip that meets a picture clip before it on
+    /// its lane. Only on `track_id` when one is named.
+    fn picture_cuts(&self, track_id: Option<&str>) -> Vec<(f64, String)> {
+        self.timeline()
+            .clips
+            .iter()
+            .filter(|clip| track_id.is_none_or(|track| clip.track_id == track))
+            .filter(|clip| self.visual_cut(&clip.id))
+            .map(|clip| (clip.start, clip.id.clone()))
+            .collect()
+    }
+
+    /// The cut nearest the playhead among those of the picture clips under
+    /// it - the cut into one, or out of one into the next.
+    fn playhead_cut(&self) -> Option<String> {
+        let at = f64::from(self.playhead.max(0.0));
+        let frame = self.frame_seconds();
+        let under: Vec<&Clip> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| {
+                clip.kind.is_visual() && clip.start <= at && at < clip.start + clip.duration
+            })
+            .map(|clip| clip.as_ref())
+            .collect();
+        self.picture_cuts(None)
+            .into_iter()
+            .filter(|(cut, incoming)| {
+                under.iter().any(|clip| {
+                    clip.id == *incoming
+                        || (self
+                            .clip(incoming)
+                            .is_some_and(|next| next.track_id == clip.track_id)
+                            && (clip.start + clip.duration - cut).abs() < frame / 2.0)
+                })
+            })
+            .min_by(|a, b| (a.0 - at).abs().total_cmp(&(b.0 - at).abs()))
+            .map(|(_, incoming)| incoming)
+    }
+
+    /// Puts the catalogue transition `id` on the cut into `clip_id`, as
+    /// long as the cut has room for one, and selects the clip.
+    fn put_transition(&mut self, clip_id: &str, id: &str) {
+        let Some(clip) = self.clip(clip_id) else {
+            return;
+        };
         let Some(duration) = self.transition_duration(clip, 0.5) else {
             self.notify(&t("studio.noRoomForTransition"), true);
             return;
         };
         self.apply(Command::UpdateClip {
-            clip_id,
+            clip_id: clip_id.to_owned(),
             patch: ClipPatch {
                 transition_in: Some(Some(Transition {
                     id: id.to_owned(),
@@ -3627,6 +4000,7 @@ impl Studio {
                 ..ClipPatch::default()
             },
         });
+        self.selection = vec![clip_id.to_owned()];
     }
 
     /// The clip whose incoming transition is selected: the one picked on
@@ -4314,7 +4688,35 @@ impl Studio {
         self.gesture = gesture;
     }
 
-    /// The pointer let go: the whole gesture becomes one command.
+    /// The moves the echo holds for the clips being dragged.
+    fn echoed_moves(&self, origins: &[MoveOrigin]) -> Vec<ClipMove> {
+        let Some(echo) = self.echo.as_ref() else {
+            return Vec::new();
+        };
+        origins
+            .iter()
+            .filter_map(|origin| {
+                let after = echo.active().clip(&origin.clip)?;
+                Some(ClipMove {
+                    clip_id: origin.clip.clone(),
+                    start: after.start,
+                    track_id: after.track_id.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Lets go of the lanes' echo, and of any inspector edit held on it:
+    /// left pending, its timer would land on whatever echo came next.
+    fn drop_lane_echo(&mut self) {
+        self.echo = None;
+        self.commit_pending = false;
+        self.commit_targets.clear();
+        self.commit_timer.stop();
+    }
+
+    /// The pointer let go: the whole gesture becomes one command. A press
+    /// that moved nothing is a click, and is no edit.
     pub fn clip_released(&mut self) {
         let gesture = std::mem::replace(&mut self.gesture, Gesture::None);
         let Some(echo) = self.echo.as_ref() else {
@@ -4322,19 +4724,14 @@ impl Studio {
         };
         match gesture {
             Gesture::Move { origins, .. } => {
-                let moves: Vec<ClipMove> = origins
-                    .iter()
-                    .filter_map(|origin| {
-                        let after = echo.active().clip(&origin.clip)?;
-                        Some(ClipMove {
-                            clip_id: origin.clip.clone(),
-                            start: after.start,
-                            track_id: after.track_id.clone(),
-                        })
+                let moves = self.echoed_moves(&origins);
+                self.drop_lane_echo();
+                let unmoved = moves.iter().all(|wanted| {
+                    self.clip(&wanted.clip_id).is_some_and(|clip| {
+                        clip.start == wanted.start && clip.track_id == wanted.track_id
                     })
-                    .collect();
-                self.echo = None;
-                if !moves.is_empty() {
+                });
+                if !unmoved {
                     self.apply(Command::MoveClips { moves });
                 }
             }
@@ -4346,7 +4743,7 @@ impl Studio {
                 ..
             } => {
                 let after = echo.active().clip(&clip).cloned();
-                self.echo = None;
+                self.drop_lane_echo();
                 let Some(after) = after else { return };
                 let delta = match edge {
                     Edge::Start => after.start - f64::from(start),
@@ -4392,7 +4789,7 @@ impl Studio {
                 }
             }
             Gesture::None => {
-                self.echo = None;
+                self.drop_lane_echo();
             }
             // Not a lane gesture: hand it back untouched, echo and all.
             other @ (Gesture::StageMove { .. }
@@ -4820,6 +5217,11 @@ impl Studio {
                 });
             },
         );
+    }
+
+    /// Whether an inspector edit is held, waiting to be committed.
+    pub fn commit_pending(&self) -> bool {
+        self.commit_pending
     }
 
     /// Lands the held commit now, if there is one. Called before anything
@@ -6899,7 +7301,7 @@ impl Studio {
                 ));
                 self.recents = projects::list(&self.host.dirs.config);
                 self.host.monitor.clear();
-                self.audition = None;
+                self.end_audition();
                 self.revision += 1;
                 self.flat = None;
                 self.sync_audio();
@@ -7048,7 +7450,7 @@ impl Studio {
             crate::panes::monitor::MonitorMsg::Closed,
         ));
         self.host.monitor.clear();
-        self.audition = None;
+        self.end_audition();
         self.revision += 1;
         self.flat = None;
         self.host
@@ -7883,6 +8285,7 @@ impl Studio {
     /// A shelf was picked. Typing and then picking a shelf means the shelf,
     /// so the query goes.
     pub fn library_group(&mut self, shelf: i32, index: i32) {
+        self.end_audition();
         if let Some(view) = self.library_at(shelf) {
             view.group = index.max(0);
             view.category.clear();
@@ -7893,6 +8296,7 @@ impl Studio {
 
     /// A category pill was picked.
     pub fn library_category(&mut self, shelf: i32, category: &str) {
+        self.end_audition();
         if let Some(view) = self.library_at(shelf) {
             view.category = category.to_owned();
             view.group = -1;
@@ -10181,9 +10585,39 @@ pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> 
 mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
-        custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
-        wheel_partners, write_keyable,
+        custom_rate, fps_of, grading_rows, home_folder, key_commands, look_window, nearest_cut,
+        packed, place_in, shown, transition_window, wheel_partners, write_keyable,
     };
+
+    /// A look's preview runs one length of it from the playhead; near the
+    /// end it is pulled back to finish with the content, and content
+    /// shorter than it is played whole.
+    #[test]
+    fn a_look_previews_one_run_from_the_playhead() {
+        assert_eq!(look_window(2.0, 3.0, 10.0), (2.0, 3.0));
+        assert_eq!(look_window(9.0, 3.0, 10.0), (7.0, 3.0));
+        assert_eq!(look_window(1.0, 3.0, 2.0), (0.0, 2.0));
+        assert_eq!(look_window(4.0, 3.0, 0.0), (0.0, 0.0));
+    }
+
+    /// A transition's preview reaches a second before the cut and a second
+    /// past the transition's end, inside the content.
+    #[test]
+    fn a_transition_previews_a_second_either_side() {
+        assert_eq!(transition_window(5.0, 0.5, 20.0), (4.0, 2.5));
+        assert_eq!(transition_window(0.5, 0.5, 20.0), (0.0, 2.0));
+        assert_eq!(transition_window(5.0, 0.5, 6.0), (4.0, 2.0));
+    }
+
+    /// A lone clip's transition goes on whichever of its own cuts is
+    /// nearer the playhead, and on none when it has neither.
+    #[test]
+    fn a_lone_clip_takes_its_nearer_cut() {
+        let cuts = || vec![(2.0, "into".to_owned()), (6.0, "out".to_owned())];
+        assert_eq!(nearest_cut(cuts(), 3.0).as_deref(), Some("into"));
+        assert_eq!(nearest_cut(cuts(), 5.5).as_deref(), Some("out"));
+        assert_eq!(nearest_cut(Vec::new(), 3.0), None);
+    }
 
     /// A wheel is keyed as one knob: named by itself or by any of its own
     /// keys, it keys its puck and master; its master's key takes the puck's

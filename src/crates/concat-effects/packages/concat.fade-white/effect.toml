@@ -1,0 +1,19 @@
+format = 2
+
+[effect]
+id = "concat.fade-white"
+name = "Fade to White"
+kind = "transition"
+category = "Basic"
+order = 2
+aliases = ["fade-white"]
+description = "The outgoing shot fades up to white, and the next comes down out of it."
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadewhite"
+fallback = "cross-fade"
+
+# Most of the way up, so the card reads as a fade and not a white square.
+[card]
+progress = 0.3

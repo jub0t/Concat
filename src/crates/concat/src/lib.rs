@@ -729,7 +729,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     ));
     editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
-        state.audition_catalogue(id.as_str());
+        state.audition_look(id.as_str());
+    }));
+    editor.on_library_audition_transition(on_window!(|state, id: SharedString| {
+        state.audition_transition(id.as_str());
+    }));
+    editor.on_library_audition_ended(on_window!(|state| {
+        state.end_audition();
     }));
     editor.on_library_apply_effect(on_window!(|state, id: SharedString| {
         state.apply_catalogue(id.as_str(), true);
@@ -1252,7 +1258,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // A press on any pane's floor takes focus back from the field that had
     // it; see Editor.blur. The chords that are also menu rows go through the
     // menu's handler, so the key and the row cannot come apart.
-    editor.on_blur(|| Shell::with(|_, app| app.invoke_blur()));
+    // Words typed into the field land here, while the press that took the
+    // focus has not yet picked anything else: the field's own way out comes
+    // a beat later, and would find another selection.
+    editor.on_blur(|| {
+        Shell::with(|shell, app| {
+            let landed = {
+                let mut studio = shell.studio.borrow_mut();
+                let pending = studio.commit_pending();
+                studio.flush_commit();
+                pending
+            };
+            if landed {
+                shell.studio.borrow().publish(&app, &shell.models);
+            }
+            app.invoke_blur();
+        })
+    });
     // A field that is done being typed into - Enter, Escape - releases the
     // focus the same way, rather than clearing it: a cleared focus is a
     // window where no key reaches anything. See Focus in util.slint.
@@ -1796,7 +1818,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     .peaks
                     .get(&plan.media)
                     .filter(|_| plan.kind == ClipKind::Audio)
-                    .map(|peaks| format::wave_path(peaks, 0.0, plan.duration, 32, 0.75))
+                    .map(|peaks| {
+                        format::wave_path(peaks, 0.0, plan.duration, 32, 0.75, format::WAVE_FLOOR)
+                    })
                     .unwrap_or_default();
                 let document = chips::drag_chip_svg(
                     chips::chip_glyph(plan.kind),

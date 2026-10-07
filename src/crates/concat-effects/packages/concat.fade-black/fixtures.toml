@@ -1,0 +1,24 @@
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. A quarter of the way the outgoing shot is half down; three
+# quarters, the incoming one is half up; at the middle it is all black.
+
+[[probe]]
+name = "default"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.25
+expect = [0.4, 0.25, 0.15, 1]
+
+[[probe]]
+name = "black at the middle"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.5
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "the incoming shot half up"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.75
+expect = [0.025, 0.075, 0.2, 1]
