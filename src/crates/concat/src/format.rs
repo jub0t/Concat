@@ -83,7 +83,7 @@ pub fn parse_bezier(text: &str, fallback: Bezier) -> Bezier {
 }
 
 /// The ruler's tick spacings, in seconds, finest to coarsest.
-const TICKS: [f32; 16] = [
+const TICKS: [f32; 19] = [
     1.0 / 30.0,
     0.1,
     0.25,
@@ -100,6 +100,9 @@ const TICKS: [f32; 16] = [
     600.0,
     1800.0,
     3600.0,
+    7200.0,
+    14400.0,
+    28800.0,
 ];
 
 pub fn tick_interval(seconds_per_pixel: f32) -> f32 {
@@ -107,7 +110,7 @@ pub fn tick_interval(seconds_per_pixel: f32) -> f32 {
         .iter()
         .copied()
         .find(|interval| interval / seconds_per_pixel >= 90.0)
-        .unwrap_or(3600.0)
+        .unwrap_or(TICKS[TICKS.len() - 1])
 }
 
 // ─── the dialogs ────────────────────────────────────────────────────────────
@@ -340,6 +343,13 @@ pub fn hex_with_alpha(colour: slint::Color) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ruler_ladder_reaches_hours_apart() {
+        assert_eq!(tick_interval(0.05), 5.0);
+        assert_eq!(tick_interval(60.0), 7200.0);
+        assert_eq!(tick_interval(1e6), 28800.0, "the coarsest past the end");
+    }
 
     #[test]
     fn colours_round_trip() {
