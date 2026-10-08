@@ -64,6 +64,13 @@ export struct TrackData {
     /// nothing can be dropped onto it. A lane you can see and hear and still
     /// knock sideways by accident is the one every editor locks.
     locked: bool,
+    /// What the lane's first clip is, for the icon in its header; `typed`
+    /// is false on an empty lane, and `kind` then means nothing.
+    typed: bool,
+    kind: ClipKind,
+    /// Every clip on the lane is sound: there is no picture to hide, so
+    /// the header leaves the visibility switch's place empty.
+    sound-only: bool,
 }
 
 /// A media item's filmstrip and the window of it one clip shows.

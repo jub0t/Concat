@@ -57,31 +57,41 @@ pub(super) fn apply(
             let timeline = project.active_mut();
             let clip = timeline.clip(&clip_id).expect("checked above").clone();
             let mut first_sound = None;
+            // The sounds stack straight under the picture, first track
+            // nearest it. The lanes are drawn last-first, so "under" is one
+            // index lower; `anchor` is the lane the next sound goes beneath.
+            let end = clip.start + clip.duration;
+            let mut anchor = timeline
+                .tracks
+                .iter()
+                .position(|track| track.id == clip.track_id)
+                .unwrap_or(0);
             for (stream, name) in sounds {
-                // A lane free for the whole span, or a fresh one. Each sound
-                // placed takes its lane, so the next looks past it.
-                let track_id = {
-                    let end = clip.start + clip.duration;
-                    let free = timeline.tracks.iter().find(|track| {
-                        !timeline.clips.iter().any(|other| {
-                            other.track_id == track.id
-                                && other.start < end
-                                && clip.start < other.start + other.duration
-                        })
-                    });
-                    match free {
-                        Some(track) => track.id.clone(),
-                        None => {
-                            let id = mint.next("t");
-                            timeline.tracks.push(Track {
-                                id: id.clone(),
-                                visible: true,
-                                muted: false,
-                                extra: Default::default(),
-                            });
-                            id
-                        }
-                    }
+                let below_is_free = anchor > 0 && {
+                    let below = &timeline.tracks[anchor - 1].id;
+                    !timeline.clips.iter().any(|other| {
+                        &other.track_id == below
+                            && other.start < end
+                            && clip.start < other.start + other.duration
+                    })
+                };
+                let track_id = if below_is_free {
+                    anchor -= 1;
+                    timeline.tracks[anchor].id.clone()
+                } else {
+                    // Inserted at the anchor, it lands just beneath it: the
+                    // anchor and everything over it move up one.
+                    let id = mint.next("t");
+                    timeline.tracks.insert(
+                        anchor,
+                        Track {
+                            id: id.clone(),
+                            visible: true,
+                            muted: false,
+                            extra: Default::default(),
+                        },
+                    );
+                    id
                 };
 
                 let mut sound = clip.clone();

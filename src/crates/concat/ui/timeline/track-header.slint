@@ -6,12 +6,13 @@ import { Theme } from "../theme/theme.slint";
 import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { ThinScrollbar } from "../primitives/scrollbar.slint";
-import { TrackData, TrackSize } from "model.slint";
+import { ClipKind, TrackData, TrackSize } from "model.slint";
 
 // The lane switches, in a fixed column beside the lanes.
 //
-// No label on a row: the lanes are untyped, so there is no kind to name, and
-// a lane's place in the stack is the only handle anything needs on it.
+// No label on a row, only an icon: a lane has no type of its own, so the
+// icon says what its first clip is - which, with each sort of clip kept to
+// its own band of the stack, is what the lane carries.
 //
 // Both a visibility and a mute toggle on every row, because a track is not
 // typed — the same lane can be carrying a video clip and an mp3 side by side,
@@ -215,11 +216,22 @@ component MoreMenu inherits Rectangle {
 component Header inherits Rectangle {
     in property <TrackData> track;
     in property <bool> removable;
+    /// Where the row sits from the top, for the banding the lanes share.
+    in property <int> row-index;
 
     callback flag-changed(visible: bool, muted: bool, locked: bool);
     callback sized(size: TrackSize);
     callback removed();
 
+    background: Math.mod(root.row-index, 2) == 0 ? Theme.lane : Theme.lane-alt;
+
+    if root.row-index == 0: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
     Rectangle {
         x: 0;
         y: parent.height - 1px;
@@ -232,13 +244,31 @@ component Header inherits Rectangle {
         HorizontalLayout {
             padding-left: 8px;
             padding-right: 4px;
-            padding-top: 6px;
             spacing: 1px;
+
+            // What the lane carries, read off its first clip. A slot kept
+            // on an empty lane too, so the switches do not slide when the
+            // first clip lands.
+            VerticalLayout {
+                alignment: center;
+                width: 18px;
+                if root.track.typed: Icon {
+                    size: 13px;
+                    tint: Theme.fg-muted;
+                    glyph: root.track.kind == ClipKind.video ? Glyph.film
+                        : root.track.kind == ClipKind.audio ? Glyph.music
+                        : root.track.kind == ClipKind.image ? Glyph.image
+                        : root.track.kind == ClipKind.text ? Glyph.text-mark
+                        : root.track.kind == ClipKind.shape ? Glyph.shapes
+                        : Glyph.filter;
+                }
+            }
             // No `alignment: start` here. A start-aligned row gives every
             // child its preferred width and stops stretching altogether — and
             // the spacer's preferred width is nothing, so the two ends would
-            // collapse together. The switches are start-aligned on the
-            // *cross* axis individually, which is the part actually wanted.
+            // collapse together. The switches are centred on the *cross*
+            // axis individually, so they sit in the middle of a lane of any
+            // height, level with its clips.
             //
             // The lane's own switches - size, lock, visibility, mute - sit
             // against the leading edge, and the menu of its other verbs,
@@ -249,7 +279,7 @@ component Header inherits Rectangle {
             // the gap, not from either end.
 
             VerticalLayout {
-                alignment: start;
+                alignment: center;
                 SizeMenu {
                     current: root.track.size;
                     picked(size) => { root.sized(size); }
@@ -257,7 +287,7 @@ component Header inherits Rectangle {
             }
 
             VerticalLayout {
-                alignment: start;
+                alignment: center;
                 IconButton {
                     glyph: root.track.locked ? Glyph.lock : Glyph.unlock;
                     label: root.track.locked ? I18n.t("trackHeader.unlockLane") : I18n.t("trackHeader.lockLane");
@@ -271,9 +301,13 @@ component Header inherits Rectangle {
                 }
             }
 
+            // A lane of sound only has no picture to hide: its switch goes,
+            // and its place stays, so the switches line up lane under lane.
             VerticalLayout {
-                alignment: start;
-                IconButton {
+                alignment: center;
+                min-width: eye.width;
+                eye := IconButton {
+                    visible: !root.track.sound-only;
                     // Checked when the lane is *off*: the button is lit to say
                     // something is being withheld, which is the state worth
                     // announcing.
@@ -290,7 +324,7 @@ component Header inherits Rectangle {
             }
 
             VerticalLayout {
-                alignment: start;
+                alignment: center;
                 IconButton {
                     glyph: root.track.muted ? Glyph.volume-off : Glyph.volume;
                     label: root.track.muted ? I18n.t("trackHeader.unmuteLane") : I18n.t("trackHeader.muteLane");
@@ -307,7 +341,7 @@ component Header inherits Rectangle {
             Rectangle { horizontal-stretch: 1; }
 
             VerticalLayout {
-                alignment: start;
+                alignment: center;
                 MoreMenu {
                     removable: root.removable;
                     removed => { root.removed(); }
@@ -323,6 +357,10 @@ export component TrackHeaders inherits Rectangle {
     in property <[TrackData]> tracks;
     in property <length> ruler-height: 28px;
     in property <length> track-scroll;
+    /// How far the stack is scrolled, 0..overflow: what the bar shows and
+    /// the wheel moves. Not `track-scroll`, which also carries the room the
+    /// pane keeps over the first lane.
+    in property <length> offset;
     /// How much taller the stack is than the room it has. Handed down rather
     /// than measured here: the pane already works it out to clamp the offset,
     /// and two answers to one question is one answer too many.
@@ -352,7 +390,7 @@ export component TrackHeaders inherits Rectangle {
             // and up is a smaller offset. Clamped here the way the pane
             // clamps the lanes' wheel, so the two never disagree.
             root.scrolled(Math.max(0px, Math.min(root.overflow,
-                root.track-scroll - event.delta-y)));
+                root.offset - event.delta-y)));
             return EventResult.accept;
         }
 
@@ -366,6 +404,7 @@ export component TrackHeaders inherits Rectangle {
             visible: self.y + track.height > root.ruler-height && self.y < root.height;
 
             track: track;
+            row-index: index;
             removable: root.tracks.length > 1;
 
             flag-changed(visible, muted, locked) => {
@@ -386,7 +425,7 @@ export component TrackHeaders inherits Rectangle {
             height: Math.max(0px, root.height - root.ruler-height - 8px);
             viewport: self.height;
             content: self.height + root.overflow;
-            offset: root.track-scroll;
+            offset: root.offset;
             min-thumb: 16px;
             max-thumb: 0.5;
             scrolled(to) => { root.scrolled(to); }

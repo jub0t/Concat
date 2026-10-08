@@ -174,9 +174,16 @@ export component TimelinePane inherits Rectangle {
         ? root.tracks[root.tracks.length - 1].top
             + root.tracks[root.tracks.length - 1].height
         : 0px;
-    property <length> overflow: Math.max(0px,
-        root.stack-h - Math.max(0px, lanes.height - root.ruler-height));
+    /// Room over the first lane and under the last, one picture lane deep
+    /// (LANE_MEDIUM in studio.rs): ground to click on, to seek or to clear
+    /// the selection, kept at both ends however far the stack is scrolled.
+    property <length> edge-room: 64px;
+    property <length> room: Math.max(0px, lanes.height - root.ruler-height);
+    property <length> overflow: Math.max(0px, root.stack-h + 2 * root.edge-room - root.room);
     property <length> at: Math.max(0px, Math.min(root.overflow, root.track-scroll));
+    /// The scroll the grid is drawn at: the room over the stack shows at the
+    /// top, and scrolled to the end, the same room shows under it.
+    property <length> shown-scroll: root.at - root.edge-room;
 
     // The preview axis button's menu. Hosted here and not in the tray,
     // because the surface a ContextMenu opens into is the element it is:
@@ -378,7 +385,8 @@ export component TimelinePane inherits Rectangle {
 
                 tracks: root.tracks;
                 ruler-height: root.ruler-height;
-                track-scroll: root.at;
+                track-scroll: root.shown-scroll;
+                offset: root.at;
                 overflow: root.overflow;
 
                 scrolled(to) => { root.track-scroll = to; }
@@ -417,7 +425,7 @@ export component TimelinePane inherits Rectangle {
                 frame-rate: root.frame-rate;
                 scroll-left: root.scroll-left;
                 seconds-per-pixel: root.seconds-per-pixel;
-                track-scroll: root.at;
+                track-scroll: root.shown-scroll;
                 ruler-height: root.ruler-height;
                 pan-mode: root.pan-mode;
                 preview-axis: root.preview-axis;

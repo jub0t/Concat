@@ -64,6 +64,7 @@ use crate::platform;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
 use crate::ui::*;
+use crate::zones;
 
 /// The monitor's output sizes, matching the picker's rows.
 pub const OUTPUTS: [(i32, i32); 6] = [
@@ -86,14 +87,19 @@ pub const MIN_DURATION: f32 = 1.0 / 60.0;
 /// is what `TrackSize::Auto` picks from - see `lane_height`. Raised from
 /// 80/60/40: with the name strip and the sound band taken off, a video's
 /// frames had under forty pixels and a waveform under thirty, and both
-/// read as crammed.
-const LANE_LARGE: f32 = 108.0;
-const LANE_MEDIUM: f32 = 80.0;
-const LANE_SMALL: f32 = 44.0;
+/// read as crammed. Then taken down a fifth from 108/80/44, so more lanes
+/// fit on screen at once.
+const LANE_LARGE: f32 = 86.0;
+const LANE_MEDIUM: f32 = 64.0;
+const LANE_SMALL: f32 = 35.0;
 
 /// How long a title runs when it is placed: long enough to read, short
 /// enough that trimming it is a nudge rather than a fight.
 const LAYER_DURATION: f32 = 3.0;
+
+/// How long a still runs when it is placed: the engine's own default, so
+/// the ghost of a dragged still is the clip it makes.
+const STILL_DURATION: f32 = 5.0;
 
 /// One media item's filmstrip, as the lanes tile it.
 pub struct Strip {
@@ -537,6 +543,21 @@ pub struct DropPlan {
     pub start: f32,
     pub duration: f32,
     pub row: i32,
+    /// When no lane in the clip's band of the stack will take it: where a
+    /// new lane goes, as an index into the bottom-first tracks. `row` then
+    /// only says where the ghost is drawn - the lane next to the new one.
+    pub new_lane: Option<usize>,
+}
+
+/// `command` as is, or on a lane made for it at `new_lane`.
+fn on_new_track(new_lane: Option<usize>, command: Command) -> Command {
+    match new_lane {
+        Some(index) => Command::OnNewTrack {
+            index,
+            command: Box::new(command),
+        },
+        None => command,
+    }
 }
 
 /// Every model the window is handed, kept for its lifetime rather than
@@ -1326,6 +1347,25 @@ fn write_keyable(clip: &mut Clip, property: model::KeyProperty, value: f64, at: 
         model::KeyProperty::Opacity => clip.opacity = value,
         model::KeyProperty::Volume => clip.volume = value,
     }
+}
+
+/// The lanes, of `lanes`, that removing `doomed` leaves with nothing on
+/// them: lanes that had clips and lose every one. A lane already empty is
+/// not emptied by the removal. Never every lane: the first stays, since a
+/// project keeps at least one.
+fn lanes_emptied(lanes: &[&str], clips: &[(&str, &str)], doomed: &[String]) -> Vec<String> {
+    let mut emptied: Vec<String> = lanes
+        .iter()
+        .filter(|&&lane| {
+            let mut on_lane = clips.iter().filter(|(_, track)| *track == lane).peekable();
+            on_lane.peek().is_some() && on_lane.all(|(id, _)| doomed.iter().any(|d| d == id))
+        })
+        .map(|lane| (*lane).to_owned())
+        .collect();
+    if !emptied.is_empty() && emptied.len() >= lanes.len() {
+        emptied.remove(0);
+    }
+    emptied
 }
 
 /// A command as the activity trail names it: its kind, and for a batch
@@ -2160,6 +2200,25 @@ impl Studio {
             .unwrap_or(0)
     }
 
+    /// What each lane holds, by row from the top, as the stack zones see
+    /// it - leaving out the clips in `skip`, which are on their way
+    /// elsewhere, so a lane they alone fill counts as empty.
+    pub fn lane_groups(&self, skip: &[&str]) -> Vec<Option<zones::Group>> {
+        let timeline = self.timeline();
+        timeline
+            .tracks
+            .iter()
+            .rev()
+            .map(|track| {
+                timeline
+                    .clips
+                    .iter()
+                    .find(|clip| clip.track_id == track.id && !skip.contains(&clip.id.as_str()))
+                    .map(|clip| zones::Group::of_model(clip.kind))
+            })
+            .collect()
+    }
+
     pub fn locked(&self, track_id: &str) -> bool {
         self.lanes
             .lane_view
@@ -2189,8 +2248,10 @@ impl Studio {
                     .iter()
                     .filter(|clip| clip.track_id == lane.id)
                     .map(|clip| match clip.kind {
-                        model::ClipKind::Video | model::ClipKind::Image => LANE_LARGE,
-                        model::ClipKind::Audio => LANE_MEDIUM,
+                        model::ClipKind::Video => LANE_LARGE,
+                        // A still's strip is one frame over and over, which
+                        // reads as well at a sound's height as at a video's.
+                        model::ClipKind::Image | model::ClipKind::Audio => LANE_MEDIUM,
                         // A title is its name strip alone; a layer has no
                         // picture at all; a shape's name says what it is.
                         // None needs a body's height.
@@ -2216,6 +2277,11 @@ impl Studio {
 
     pub fn row_at(&self, y: f32) -> i32 {
         row_at(&self.lane_heights(), y)
+    }
+
+    /// The rows a band down the stack crosses; see `dock::band_rows`.
+    pub fn band_rows(&self, from_y: f32, to_y: f32) -> Option<(i32, i32)> {
+        crate::dock::band_rows(&self.lane_heights(), from_y, to_y)
     }
 
     /// Seconds the project runs to, for Fit and for the scroll floor.
@@ -3216,12 +3282,13 @@ impl Studio {
                     // A still has no length of its own; a file with no stated
                     // duration gets the engine's own fallback.
                     duration: if item.kind == model::MediaKind::Image {
-                        LAYER_DURATION
+                        STILL_DURATION
                     } else {
                         item.duration.unwrap_or(5.0) as f32
                     }
                     .max(MIN_DURATION),
                     row: 0,
+                    new_lane: None,
                 })
             }
             // A title: the preset's id rides where a file's media id would,
@@ -3233,6 +3300,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A figure from the Stickers page: the shape's name rides
             // where a file's media id would, and the label is what the
@@ -3244,6 +3312,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             // A look dragged from the Filters page: a layer over a span.
             // The package id rides in `media`, there being no file.
@@ -3254,6 +3323,7 @@ impl Studio {
                 start: 0.0,
                 duration: LAYER_DURATION,
                 row: 0,
+                new_lane: None,
             }),
             _ => None,
         }
@@ -3266,10 +3336,23 @@ impl Studio {
         if lanes == 0 {
             return None;
         }
-        plan.row = row.clamp(0, lanes - 1);
-        if self
-            .row_track(plan.row)
-            .is_none_or(|track| self.locked(&track.id))
+        // The lane under the pointer when the clip belongs there, else the
+        // nearest one in its band of the stack, else a new lane at the
+        // band's edge.
+        let groups = self.lane_groups(&[]);
+        let group = zones::Group::of_ui(plan.kind);
+        match zones::nearest(&groups, row.clamp(0, lanes - 1), group) {
+            Some(found) => plan.row = found,
+            None => {
+                let index = zones::new_lane_index(&groups, group);
+                plan.new_lane = Some(index);
+                plan.row = (lanes - index as i32).clamp(0, lanes - 1);
+            }
+        }
+        if plan.new_lane.is_none()
+            && self
+                .row_track(plan.row)
+                .is_none_or(|track| self.locked(&track.id))
         {
             return None;
         }
@@ -3284,12 +3367,14 @@ impl Studio {
         let Some(track_id) = self.row_track(plan.row).map(|track| track.id.clone()) else {
             return;
         };
+        let lane = plan.new_lane;
         let created = if plan.kind == ClipKind::Text {
             self.add_title(
                 Some(track_id),
                 f64::from(plan.start),
                 f64::from(plan.duration),
                 &plan.media,
+                lane,
             )
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
@@ -3298,22 +3383,29 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                lane,
             )
         } else if plan.kind == ClipKind::Filter {
-            self.apply(Command::AddLayerClip {
-                track_id: Some(track_id),
-                start: f64::from(plan.start),
-                duration: Some(f64::from(plan.duration)),
-                effect_id: plan.media.clone(),
-                name: plan.label.clone(),
-            })
+            self.apply(on_new_track(
+                lane,
+                Command::AddLayerClip {
+                    track_id: Some(track_id),
+                    start: f64::from(plan.start),
+                    duration: Some(f64::from(plan.duration)),
+                    effect_id: plan.media.clone(),
+                    name: plan.label.clone(),
+                },
+            ))
         } else {
-            self.apply(Command::AddClip {
-                media_id: plan.media.clone(),
-                track_id,
-                start: f64::from(plan.start),
-                ripple: true,
-            })
+            self.apply(on_new_track(
+                lane,
+                Command::AddClip {
+                    media_id: plan.media.clone(),
+                    track_id,
+                    start: f64::from(plan.start),
+                    ripple: true,
+                },
+            ))
         };
         if let Some(id) = created {
             self.selection = vec![id];
@@ -3328,7 +3420,7 @@ impl Studio {
         };
         let start = f64::from(self.playhead.max(0.0));
         let created = if plan.kind == ClipKind::Text {
-            self.add_title(None, start, f64::from(plan.duration), &plan.media)
+            self.add_title(None, start, f64::from(plan.duration), &plan.media, None)
         } else if plan.kind == ClipKind::Shape {
             self.add_shape(
                 None,
@@ -3336,6 +3428,7 @@ impl Studio {
                 f64::from(plan.duration),
                 &plan.media,
                 &plan.label,
+                None,
             )
         } else if plan.kind == ClipKind::Filter {
             self.apply(Command::AddLayerClip {
@@ -3366,6 +3459,7 @@ impl Studio {
         start: f64,
         duration: f64,
         preset: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let (style, offset_y, font) = match self.text_presets.iter().find(|held| held.id == preset)
         {
@@ -3379,14 +3473,17 @@ impl Studio {
         // Over the picture, not under it: the first free lane above every
         // occupied one, minted at the top when there is none. A drop onto a
         // lane names its track and is placed there regardless.
-        let add = Command::AddTextClip {
-            track_id,
-            start,
-            style: Some(style),
-            duration: Some(duration),
-            offset_y,
-            above: true,
-        };
+        let add = on_new_track(
+            new_lane,
+            Command::AddTextClip {
+                track_id,
+                start,
+                style: Some(style),
+                duration: Some(duration),
+                offset_y,
+                above: true,
+            },
+        );
         match font {
             Some((family, path)) => self.apply(Command::Batch {
                 commands: vec![Command::AddFont { family, path }, add],
@@ -3404,16 +3501,20 @@ impl Studio {
         duration: f64,
         shape: &str,
         name: &str,
+        new_lane: Option<usize>,
     ) -> Option<String> {
         let kind = model::ShapeKind::parse(shape).unwrap_or_default();
-        self.apply(Command::AddShapeClip {
-            track_id,
-            above: true,
-            start,
-            style: Some(model::ShapeStyle::of(kind)),
-            duration: Some(duration),
-            name: name.to_owned(),
-        })
+        self.apply(on_new_track(
+            new_lane,
+            Command::AddShapeClip {
+                track_id,
+                above: true,
+                start,
+                style: Some(model::ShapeStyle::of(kind)),
+                duration: Some(duration),
+                name: name.to_owned(),
+            },
+        ))
     }
 
     /// The selected clip's id, when exactly one is selected.
@@ -4182,10 +4283,22 @@ impl Studio {
                 let shift = snapped - anchor.start;
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
+                let skip: Vec<&str> = origins.iter().map(|origin| origin.clip.as_str()).collect();
+                let groups = self.lane_groups(&skip);
                 let moves: Vec<ClipMove> = origins
                     .iter()
                     .filter_map(|origin| {
-                        let row = (origin.row + rows).clamp(0, count - 1);
+                        let target = (origin.row + rows).clamp(0, count - 1);
+                        // Each sort of clip keeps to its own band of the
+                        // stack: dragged past its edge, it stops there.
+                        let row = self.clip(&origin.clip).map_or(target, |clip| {
+                            zones::toward(
+                                &groups,
+                                target,
+                                origin.row,
+                                zones::Group::of_model(clip.kind),
+                            )
+                        });
                         let track_id = self
                             .row_track(row)
                             .filter(|track| !self.locked(&track.id))
@@ -6527,12 +6640,39 @@ impl Studio {
             .cloned()
             .collect();
         if !doomed.is_empty() {
-            self.apply(Command::RemoveClips {
-                clip_ids: doomed,
-                ripple,
-            });
+            self.remove_clips(doomed, ripple);
         }
         self.selection.clear();
+    }
+
+    /// Removes the clips, and with them every lane they leave with nothing
+    /// on it, as one undo step: a lane emptied by a delete is not one the
+    /// user meant to keep. The project keeps at least one lane.
+    fn remove_clips(&mut self, clip_ids: Vec<String>, ripple: bool) {
+        let timeline = self.timeline();
+        let lanes: Vec<&str> = timeline
+            .tracks
+            .iter()
+            .map(|track| track.id.as_str())
+            .collect();
+        let clips: Vec<(&str, &str)> = timeline
+            .clips
+            .iter()
+            .map(|clip| (clip.id.as_str(), clip.track_id.as_str()))
+            .collect();
+        let emptied = lanes_emptied(&lanes, &clips, &clip_ids);
+        let remove = Command::RemoveClips { clip_ids, ripple };
+        if emptied.is_empty() {
+            self.apply(remove);
+            return;
+        }
+        let mut commands = vec![remove];
+        commands.extend(
+            emptied
+                .into_iter()
+                .map(|track_id| Command::RemoveTrack { track_id }),
+        );
+        self.apply(Command::Batch { commands });
     }
 
     pub fn merge_blocked(&self) -> Option<String> {
@@ -7501,7 +7641,17 @@ impl Studio {
                 .rev()
                 .map(|lane| {
                     let height = self.lane_height(lane);
+                    let mut on_lane = timeline
+                        .clips
+                        .iter()
+                        .filter(|clip| clip.track_id == lane.id)
+                        .peekable();
+                    let first = on_lane.peek().copied();
                     let row = TrackData {
+                        typed: first.is_some(),
+                        kind: first.map_or(ClipKind::Video, |clip| kind_of(clip)),
+                        sound_only: first.is_some()
+                            && on_lane.all(|clip| kind_of(clip) == ClipKind::Audio),
                         id: lane.id.as_str().into(),
                         visible: lane.visible,
                         muted: lane.muted,
@@ -10091,10 +10241,7 @@ impl Studio {
                 if self.selection.len() > 1 && self.selection.iter().any(|held| held == id) {
                     self.remove_selected(ripple);
                 } else {
-                    self.apply(Command::RemoveClips {
-                        clip_ids: vec![id.to_owned()],
-                        ripple,
-                    });
+                    self.remove_clips(vec![id.to_owned()], ripple);
                 }
                 self.menu_target = None;
             }
@@ -10181,9 +10328,36 @@ pub(crate) fn audio_specs(clips: &[concat_export::ExportClip]) -> Vec<ClipSpec> 
 mod tests {
     use super::{
         Command, Footprint, Studio, adjust_key_names, chain_colours, chain_rows, custom_frame,
-        custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
-        wheel_partners, write_keyable,
+        custom_rate, fps_of, grading_rows, home_folder, key_commands, lanes_emptied, packed,
+        place_in, shown, wheel_partners, write_keyable,
     };
+
+    /// A lane the delete takes every clip off goes with them; a lane that
+    /// keeps a clip, or was empty to begin with, stays; and the last lane
+    /// of the project stays whatever happens to it.
+    #[test]
+    fn a_delete_takes_the_lanes_it_empties() {
+        let doomed =
+            |ids: &[&str]| -> Vec<String> { ids.iter().map(|id| (*id).to_owned()).collect() };
+        let lanes = ["t1", "t2", "t3"];
+        let clips = [("a", "t1"), ("b", "t2"), ("c", "t2")];
+        assert_eq!(lanes_emptied(&lanes, &clips, &doomed(&["a"])), ["t1"]);
+        assert!(
+            lanes_emptied(&lanes, &clips, &doomed(&["b"])).is_empty(),
+            "t2 keeps c"
+        );
+        assert_eq!(
+            lanes_emptied(&lanes, &clips, &doomed(&["a", "b", "c"])),
+            ["t1", "t2"]
+        );
+        assert!(lanes_emptied(&lanes, &clips, &doomed(&[])).is_empty());
+        let both = [("a", "t1"), ("b", "t2")];
+        assert_eq!(
+            lanes_emptied(&["t1", "t2"], &both, &doomed(&["a", "b"])),
+            ["t2"]
+        );
+        assert!(lanes_emptied(&["t1"], &[("a", "t1")], &doomed(&["a"])).is_empty());
+    }
 
     /// A wheel is keyed as one knob: named by itself or by any of its own
     /// keys, it keys its puck and master; its master's key takes the puck's
