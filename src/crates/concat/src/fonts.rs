@@ -14,19 +14,23 @@
 //! is whatever the machine's own fonts make of it. A desk has one; a phone
 //! from some makers does not, or keeps it where the collection does not
 //! look, and the interface in Chinese came up as rows of boxes (#277). A
-//! subset of Noto Sans CJK - the Simplified and the common Traditional
-//! Chinese characters, the Hangul syllables, the kana and the punctuation
-//! that goes with them - rides along as the fallback for those scripts,
-//! after whatever the machine has.
+//! subset of Noto Sans CJK - the everyday Simplified, Traditional and
+//! Japanese character sets, the Hangul syllables, the kana and the
+//! punctuation that goes with them, and every character the shipped
+//! locales use - rides along as the fallback for those scripts, after
+//! whatever the machine has.
 
 use std::sync::Arc;
 
 use slint::fontique_011::fontique::{self, FallbackKey, FamilyId, Language, Script};
 
 /// Noto Sans CJK SC, cut to the characters the interface falls back on:
-/// GB 2312, the common half of Big5, KS X 1001's Hangul, the kana, and
-/// the CJK punctuation and fullwidth forms. Two megabytes rather than
-/// sixteen.
+/// GB 2312, Big5 level 1, JIS X 0208, KS X 1001's Hangul, the kana, the
+/// CJK punctuation and fullwidth forms, and every character in the
+/// shipped locales, which the test below holds it to. Under three
+/// megabytes rather than sixteen. Japanese and Traditional Chinese read
+/// in the Simplified face's forms where the regions differ; on a machine
+/// with a font of its own for them, that font comes first.
 const CJK_FALLBACK: &[u8] = include_bytes!("../fonts/NotoSansCJKsc-Concat.otf");
 
 /// Registers every base font with the window's text renderer, and the CJK
@@ -37,24 +41,23 @@ pub fn register() {
         let blob = fontique::Blob::new(Arc::new(face));
         collection.register_fonts(blob, None);
     }
-    let families = register_cjk_fallback(&mut collection);
-    log::debug!("fonts: {} CJK fallback family registered", families.len());
+    let registered = register_cjk_fallback(&mut collection);
+    log::debug!("fonts: {} CJK fallback family registered", registered.len());
 }
 
 /// Registers the CJK face with `collection` and appends it to the fallback
-/// list of every script it is for, behind whatever the machine has. The
-/// families it added.
-fn register_cjk_fallback(collection: &mut fontique::Collection) -> Vec<FamilyId> {
+/// list of every script it is for, behind whatever the machine has. What
+/// was added: each family with its faces.
+fn register_cjk_fallback(
+    collection: &mut fontique::Collection,
+) -> Vec<(FamilyId, Vec<fontique::FontInfo>)> {
     let blob = fontique::Blob::new(Arc::new(CJK_FALLBACK));
-    let families: Vec<FamilyId> = collection
-        .register_fonts(blob, None)
-        .into_iter()
-        .map(|(family, _)| family)
-        .collect();
+    let registered = collection.register_fonts(blob, None);
+    let families: Vec<FamilyId> = registered.iter().map(|(family, _)| *family).collect();
     for key in cjk_fallback_keys() {
         collection.append_fallbacks(key, families.iter().copied());
     }
-    families
+    registered
 }
 
 /// The fallback lists the face goes on: Han under every locale fontique
@@ -108,8 +111,9 @@ mod tests {
             shared: false,
             system_fonts: false,
         });
-        let families = register_cjk_fallback(&mut collection);
-        assert_eq!(families.len(), 1);
+        let registered = register_cjk_fallback(&mut collection);
+        assert_eq!(registered.len(), 1);
+        let families: Vec<FamilyId> = registered.iter().map(|(family, _)| *family).collect();
         assert_eq!(
             collection.family_name(families[0]),
             Some("Noto Sans CJK SC")
@@ -126,6 +130,37 @@ mod tests {
         let hangul: Script = "Hang".parse().expect("a script");
         let listed: Vec<FamilyId> = collection.fallback_families(hangul).collect();
         assert_eq!(listed, families);
+    }
+
+    /// The face has a glyph for every character the shipped locales use,
+    /// so no word of the interface is a box on a machine with no CJK font
+    /// of its own. Read off the font's own character map.
+    #[test]
+    fn the_cjk_face_covers_every_locale() {
+        let mut collection = fontique::Collection::new(fontique::CollectionOptions {
+            shared: false,
+            system_fonts: false,
+        });
+        let registered = register_cjk_fallback(&mut collection);
+        let face = &registered[0].1[0];
+        let charmap = face
+            .charmap_index()
+            .charmap(CJK_FALLBACK)
+            .expect("the face has a character map");
+        let locales = [
+            ("ja", include_str!("../locales/ja.json")),
+            ("ko", include_str!("../locales/ko.json")),
+            ("zh-Hans", include_str!("../locales/zh-Hans.json")),
+            ("zh-TW", include_str!("../locales/zh-TW.json")),
+        ];
+        for (code, text) in locales {
+            let missing: Vec<char> = text
+                .chars()
+                .filter(|ch| u32::from(*ch) > 0x2E7F)
+                .filter(|ch| charmap.map(*ch).is_none_or(|glyph| glyph == 0))
+                .collect();
+            assert!(missing.is_empty(), "{code} has no glyph for {missing:?}");
+        }
     }
 
     #[test]

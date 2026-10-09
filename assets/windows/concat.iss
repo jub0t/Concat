@@ -66,7 +66,9 @@ ShowLanguageDialog=auto
 ; Every language the app ships. Inno Setup carries the official
 ; translations; the ones it keeps as unofficial - Chinese, Persian,
 ; Croatian - and Korean, official only since 6.5, are vendored in
-; languages/ from Inno Setup 6.7.1, so the setup offers them whatever the
+; languages/ from the Inno Setup 6.7.1 tree (the Traditional Chinese file
+; there is in the 6.1 format, which the compiler still reads, with the
+; newer messages in English), so the setup offers them whatever the
 ; compiler on the build machine ships (#277).
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
