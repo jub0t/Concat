@@ -35,6 +35,8 @@ pub enum StartMsg {
     DismissError,
     /// Pick where the project folder goes.
     Browse,
+    /// The folder the picker answered with.
+    FolderChosen(String),
     Create,
     /// Open a project that already exists, picked from disk.
     Open,
@@ -139,13 +141,21 @@ impl StartPane {
             }
             StartMsg::CustomFps(fps) => self.custom_rate = custom_rate(f64::from(fps)),
             StartMsg::DismissError => self.error.clear(),
+            // The picker runs with the studio unborrowed and answers as a
+            // message of its own; see `host::after_dialog`.
             StartMsg::Browse => {
-                if let Some(folder) =
-                    platform::pick_folder(&t("start.whereShouldProjectFolder"), &self.location)
-                {
-                    self.location = folder.to_string_lossy().into_owned();
-                }
+                let title = t("start.whereShouldProjectFolder");
+                let current = self.location.clone();
+                crate::host::after_dialog(
+                    move || platform::pick_folder(&title, &current),
+                    |studio, _, _, folder| {
+                        studio.handle(crate::panes::Msg::Start(StartMsg::FolderChosen(
+                            folder.to_string_lossy().into_owned(),
+                        )));
+                    },
+                );
             }
+            StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
             StartMsg::Open => self.open(studio),
             // Both of the grid's verbs report through the toast, as Open

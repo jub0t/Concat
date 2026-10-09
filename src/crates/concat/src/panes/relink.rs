@@ -23,6 +23,8 @@ pub enum RelinkMsg {
     Show(Vec<MissingMedia>),
     /// Pick a folder and look for every missing file inside it.
     RelinkAll,
+    /// The folder the picker answered with: look inside it.
+    RelinkIn(PathBuf),
     Dismiss,
 }
 
@@ -42,21 +44,27 @@ impl RelinkPane {
                 self.open = true;
                 self.items = items;
             }
-            RelinkMsg::RelinkAll => self.relink_all(studio),
+            // The picker runs with the studio unborrowed and answers as a
+            // message of its own; see `host::after_dialog`.
+            RelinkMsg::RelinkAll => {
+                let title = t("relink.selectFolderContainingMedia");
+                crate::host::after_dialog(
+                    move || platform::pick_folder(&title, ""),
+                    |studio, _, _, folder| {
+                        studio.handle(crate::panes::Msg::Relink(RelinkMsg::RelinkIn(folder)));
+                    },
+                );
+            }
+            RelinkMsg::RelinkIn(folder) => self.relink_in(studio, folder),
             RelinkMsg::Dismiss => self.open = false,
         }
     }
 
-    /// Relinks missing media by searching a folder (recursively) for files
-    /// whose basename matches. The user picks one folder; each missing item
-    /// looks for its own filename inside it. Successful relinks go through
-    /// the editor as `UpdateMediaPath`, so undo covers the whole batch.
-    fn relink_all(&mut self, studio: &mut Studio) {
-        let Some(folder) = platform::pick_folder(&t("relink.selectFolderContainingMedia"), "")
-        else {
-            return;
-        };
-
+    /// Relinks missing media by searching `folder` (recursively) for files
+    /// whose basename matches: each missing item looks for its own filename
+    /// inside it. Successful relinks go through the editor as
+    /// `UpdateMediaPath`, so undo covers the whole batch.
+    fn relink_in(&mut self, studio: &mut Studio, folder: PathBuf) {
         // Snapshot the missing list now: as relinks land the list shrinks,
         // and we want a stable target for the toast count.
         let items: Vec<(String, String)> = self
