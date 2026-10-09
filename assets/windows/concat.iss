@@ -63,9 +63,11 @@ PrivilegesRequiredOverridesAllowed=dialog
 ShowLanguageDialog=auto
 
 [Languages]
-; The app's languages that Inno Setup ships an official translation for.
-; Chinese, Persian, Croatian and Korean are not among them, and a setup in
-; those asks which language to use.
+; Every language the app ships. Inno Setup carries the official
+; translations; the ones it keeps as unofficial - Chinese, Persian,
+; Croatian - and Korean, official only since 6.5, are vendored in
+; languages/ from Inno Setup 6.7.1, so the setup offers them whatever the
+; compiler on the build machine ships (#277).
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -75,6 +77,11 @@ Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
+Name: "chinesesimplified"; MessagesFile: "languages\ChineseSimplified.isl"
+Name: "chinesetraditional"; MessagesFile: "languages\ChineseTraditional.isl"
+Name: "korean"; MessagesFile: "languages\Korean.isl"
+Name: "croatian"; MessagesFile: "languages\Croatian.isl"
+Name: "farsi"; MessagesFile: "languages\Farsi.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

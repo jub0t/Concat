@@ -98,6 +98,7 @@ OFL is the SIL Open Font License 1.1.
 - **Pixelify Sans** — The Pixelify Sans Project Authors. OFL. See `fonts/LICENSE-PixelifySans.txt`.
 - **Google Sans Code** — The Google Sans Code Project Authors. OFL. See `fonts/LICENSE-GoogleSansCode.txt`.
 - **Kosugi Maru** — Copyright MOTOYA Co., Ltd.. Apache License 2.0. See `fonts/LICENSE-KosugiMaru.txt`.
+- **Noto Sans CJK SC** (a subset: the Chinese, Korean and kana characters the interface falls back on) — Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. OFL. See `src/crates/concat/fonts/LICENSE-NotoSansCJK.txt`.
 - **Frijole** — The Frijole Project Authors. OFL. See `fonts/LICENSE-Frijole.txt`.
 - **Emilys Candy** — The Emilys Candy Project Authors. OFL. See `fonts/LICENSE-EmilysCandy.txt`.
 - **Mystery Quest** — The Mystery Quest Project Authors. OFL. See `fonts/LICENSE-MysteryQuest.txt`.
