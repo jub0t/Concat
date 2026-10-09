@@ -34,6 +34,11 @@ name: Build app
 # `fail-fast` is off for the same reason.
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: The ref to build, when it is not the one this runs on
+        type: string
+        default: ""
     secrets:
       APPLE_CERTIFICATE_P12:
         description: Base64 of a Developer ID Application .p12
@@ -149,8 +154,20 @@ jobs:
     # hour. A job still running past this is stuck, not slow.
     timeout-minutes: 90
     steps:
+      # The ref release.yml names, which is its tag: without one a run
+      # started by hand builds main and publishes it under the tag's name.
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+        with:
+          ref: ${{ inputs.ref }}
+      # The toolchain src/rust-toolchain.toml pins, installed by name, so the
+      # runner never also fetches a stable it will not use.
+      - name: The pinned toolchain
+        id: toolchain
+        shell: bash
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
 
       - name: Read the version
         id: version

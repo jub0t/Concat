@@ -20,13 +20,25 @@ name: Build for phones
 # src/scripts/mobile-env.sh is the one description of the build
 # environment, here and on a developer's machine.
 #
-# The APK is signed with the repository's key when ANDROID_KEYSTORE (the
-# keystore, base64) and ANDROID_KEYSTORE_PASSWORD are set as secrets, and
-# with a key made for the run when they are not. The .ipa is ad-hoc
-# signed: a tester signs it with their own Apple ID on the way onto a
-# phone (AltStore, Sideloadly, Xcode's Devices window all do this).
+# The APK is built under a key made for the run, and a release (the `sign`
+# input, which release.yml alone passes) signs it over again with the
+# repository's key, ANDROID_KEYSTORE (the keystore, base64) and
+# ANDROID_KEYSTORE_PASSWORD, in a step of its own after the build: the key
+# never sits in the environment of the build and the several hundred build
+# scripts it runs, and a pull request's run never sees it at all. The .ipa
+# is ad-hoc signed: a tester signs it with their own Apple ID on the way
+# onto a phone (AltStore, Sideloadly, Xcode's Devices window all do this).
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: The ref to build, when it is not the one this runs on
+        type: string
+        default: ""
+      sign:
+        description: Sign the APK with the repository's key; a release does, nothing else may
+        type: boolean
+        default: false
     secrets:
       ANDROID_KEYSTORE:
         description: Base64 of the release keystore
@@ -55,19 +67,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      # The ref release.yml names, which is its tag: without one a run
+      # started by hand builds main and publishes it under the tag's name.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - name: Read the version
         id: version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Concat $version for aarch64-linux-android"
-      # The engine pins its toolchain in rust-toolchain.toml, so the phone's
-      # standard library is added to that toolchain from inside src/,
-      # where the pin applies.
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add aarch64-linux-android
-        working-directory: src
+      # The toolchain src/rust-toolchain.toml pins, installed by name, with
+      # the phone's standard library.
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-linux-android
       - uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-apk
@@ -106,28 +125,20 @@ jobs:
           workspaces: src
           key: aarch64-linux-android
 
-      # A release APK has to be signed. With the repository's key it is
-      # signed with that, and installs over the store's build; without one
-      # it is signed with a key made for the run, which installs on a phone
-      # as any sideloaded app does.
-      - name: Signing key
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      # A release APK has to be signed, and cargo-apk signs it as it builds,
+      # so the build runs under a key made for the run. That key installs
+      # on a phone as any sideloaded app does, and there is nothing worth
+      # keeping in the environment the build scripts of several hundred
+      # crates run in.
+      - name: A key for the run
         run: |
           set -euo pipefail
-          keystore=$RUNNER_TEMP/release.keystore
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 --decode > "$keystore"
-            password=$KEYSTORE_PASSWORD
-          else
-            password=concat
-            keytool -genkeypair -v -keystore "$keystore" -storepass "$password" -keypass "$password" \
-              -alias concat -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Concat, O=Concat" >/dev/null 2>&1
-          fi
+          keystore=$RUNNER_TEMP/run.keystore
+          keytool -genkeypair -v -keystore "$keystore" -storepass concat -keypass concat \
+            -alias concat -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Concat, O=Concat" >/dev/null 2>&1
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
-          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
       # The build environment first, then the build under it.
       - name: Build the APK
@@ -136,6 +147,33 @@ jobs:
           set -o pipefail
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
           cargo apk build --release -p concat-android 2>&1 | tee build.log
+
+      # A release's APK is signed over again with the repository's key, so
+      # it installs over the build before it. Only a release asks (`sign`);
+      # the key and its password reach this one step, the password through
+      # the environment and never the command line, and the keystore is
+      # removed once the signature is on. apksigner replaces the run's
+      # signature rather than adding to it. A release with no key set keeps
+      # the run's key and says so in the run's annotations.
+      - name: Sign with the repository's key
+        if: inputs.sign
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::ANDROID_KEYSTORE is not set; the APK keeps the key made for this run"
+            exit 0
+          fi
+          keystore=$RUNNER_TEMP/release.keystore
+          echo "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          sdk=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
+          tools=$(ls -d "$sdk"/build-tools/*/ | sort -V | tail -1)
+          apk=src/target/release/apk/Concat.apk
+          "$tools/apksigner" sign --ks "$keystore" --ks-pass env:KEYSTORE_PASSWORD "$apk"
+          rm -f "$keystore"
+          "$tools/apksigner" verify --print-certs "$apk"
 
       - name: Build log to the summary (failure only)
         if: failure()
@@ -171,18 +209,21 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - name: Read the version
         id: version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Concat $version for aarch64-apple-ios"
-      # The engine pins its toolchain in rust-toolchain.toml, so the phone's
-      # standard library is added to that toolchain from inside src/,
-      # where the pin applies.
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add aarch64-apple-ios
-        working-directory: src
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-apple-ios
 
       - run: brew install cmake
 

@@ -587,12 +587,22 @@ mod tests {
     /// before its screen - comes out changed, where the FFmpeg-drawn cards
     /// of old came out all but untouched for a mask, a key or a mirror. Set
     /// `CONCAT_CARDS_DIR` to keep the cards for a look.
+    ///
+    /// Over a hundred cards is an hour and more on Windows' software
+    /// adapter: the CI job that ran it there was killed at ninety minutes
+    /// every time. So on a software adapter the test runs only where the
+    /// job says the GPU tests must (`CONCAT_REQUIRE_GPU`, which Linux CI
+    /// sets for its lavapipe), and skips otherwise, saying so.
     #[test]
     fn every_card_draws_and_shows_its_package_at_work() {
         let Some(compositor) = WgpuCompositor::new() else {
             eprintln!("no usable GPU adapter; skipping");
             return;
         };
+        if compositor.on_software_adapter() && std::env::var_os("CONCAT_REQUIRE_GPU").is_none() {
+            eprintln!("a software adapter only, and CONCAT_REQUIRE_GPU is not set; skipping");
+            return;
+        }
         let dir = std::env::var_os("CONCAT_CARDS_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| scratch("draw"));

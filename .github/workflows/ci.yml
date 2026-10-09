@@ -35,8 +35,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      # The toolchain src/rust-toolchain.toml pins, installed by name: every
+      # cargo command below runs from src/, where the pin applies, so a
+      # stable installed here would only be fetched and left.
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
@@ -147,8 +154,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
           components: clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
@@ -167,8 +178,11 @@ jobs:
   # which is where a broken platform path was found. Windows runs the
   # tests, because it is a primary desktop and its own failures (files
   # held open, FFmpeg's filter threads) only show there; macOS is checked,
-  # not tested, and is tested where it is developed. No GPU on either
-  # runner: the GPU tests skip rather than fail.
+  # not tested, and is tested where it is developed. Neither runner has a
+  # GPU. Windows has WARP, a software adapter, which the parity suite runs
+  # on and the cards test does not: a hundred cards on WARP ran past the
+  # ninety minutes every time (see cards.rs), so without CONCAT_REQUIRE_GPU
+  # it skips there and runs on Linux's lavapipe above.
   desktop:
     name: ${{ matrix.verb }} on ${{ matrix.os }}
     strategy:
@@ -182,13 +196,22 @@ jobs:
             sherpa: win-x64
             verb: Tests
     runs-on: ${{ matrix.os }}
+    # A compile is minutes and the Windows suite under an hour; a job past
+    # this is stuck, and a stuck job is what kept main red for five days.
+    timeout-minutes: 120
     env:
       FFMPEG_WINDOWS: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
-      - uses: dtolnay/rust-toolchain@stable
+      - name: The pinned toolchain
+        id: toolchain
+        shell: bash
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
       - name: FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
