@@ -550,6 +550,7 @@
   "export.codec": "Кодек",
   "export.colour": "Цвет",
   "export.contents": "Содержимое",
+  "export.couldNotPublish": "Не удалось сохранить в {0}: {1}",
   "export.couldNotShowFile": "Не удалось показать файл: {0}",
   "export.destination": "Назначение",
   "export.exportAgain": "Экспортировать ещё раз",

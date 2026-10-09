@@ -550,6 +550,7 @@
   "export.codec": "Codec",
   "export.colour": "رنگ",
   "export.contents": "محتوا",
+  "export.couldNotPublish": "ذخیره در {0} ممکن نبود: {1}",
   "export.couldNotShowFile": "نمایش فایل ممکن نشد: {0}",
   "export.destination": "مقصد",
   "export.exportAgain": "خروجی گرفتن مجدد",

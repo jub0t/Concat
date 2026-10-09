@@ -550,6 +550,7 @@
   "export.codec": "Kodek",
   "export.colour": "Boja",
   "export.contents": "Sadržaj",
+  "export.couldNotPublish": "Nije moguće spremiti u {0}: {1}",
   "export.couldNotShowFile": "Nije moguće prikazati datoteku: {0}",
   "export.destination": "Odredište",
   "export.exportAgain": "Izvezi ponovno",

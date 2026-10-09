@@ -596,6 +596,74 @@ pub fn install_file_picker(picker: FilePicker) {
     let _ = FILE_PICKER.set(picker);
 }
 
+/// What a phone does with a finished export: moves the file to where the
+/// phone's own gallery and file manager show it, and says where. The
+/// export itself writes into the app's own folder, which on a phone
+/// nothing but the app can open. Installed by the phone's own crate before
+/// the window runs, where the phone can be asked at all; see
+/// [`install_export_publisher`].
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub struct ExportPublisher {
+    /// Where the files go, as the phone names it: "Movies/Concat".
+    pub folder: String,
+    /// Moves the file there and answers with its path under the phone's
+    /// storage, or with why it could not, leaving the file where it was.
+    /// It copies a whole video, so it is called off the window's thread.
+    pub publish: Box<dyn Fn(&std::path::Path) -> Result<String, String> + Send + Sync>,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+static EXPORT_PUBLISHER: std::sync::OnceLock<ExportPublisher> = std::sync::OnceLock::new();
+
+/// Installs where a phone puts a finished export. Once; a second call is
+/// ignored.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn install_export_publisher(publisher: ExportPublisher) {
+    let _ = EXPORT_PUBLISHER.set(publisher);
+}
+
+/// Where a finished export ends up on this device when that is not the
+/// folder the export writes into: a phone's "Movies/Concat". None on a
+/// desktop, and on a phone too old to be asked, where the file stays where
+/// the sheet says.
+pub fn published_folder() -> Option<&'static str> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        EXPORT_PUBLISHER
+            .get()
+            .map(|publisher| publisher.folder.as_str())
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        None
+    }
+}
+
+/// Hands a finished export to the phone on a thread of its own, and calls
+/// `on_done` with where it went or why it did not - on that thread; the
+/// caller hops to the window's. False when there is nothing to hand it to:
+/// the file stays where it was written, and `on_done` is never called.
+pub fn publish_export(
+    path: std::path::PathBuf,
+    on_done: impl FnOnce(Result<String, String>) + Send + 'static,
+) -> bool {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let Some(publisher) = EXPORT_PUBLISHER.get() else {
+            return false;
+        };
+        std::thread::Builder::new()
+            .name("export publish".into())
+            .spawn(move || on_done((publisher.publish)(&path)))
+            .is_ok()
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let _ = (path, on_done);
+        false
+    }
+}
+
 /// Asks for files and calls `on_picked` with them, on whichever thread the
 /// platform answers from - the caller hops to the window's thread itself.
 ///
