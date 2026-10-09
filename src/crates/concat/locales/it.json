@@ -550,6 +550,7 @@
   "export.codec": "Codec",
   "export.colour": "Colore",
   "export.contents": "Contenuto",
+  "export.couldNotPublish": "Impossibile salvare in {0}: {1}",
   "export.couldNotShowFile": "Impossibile mostrare il file: {0}",
   "export.destination": "Destinazione",
   "export.exportAgain": "Esporta di nuovo",

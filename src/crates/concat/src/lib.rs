@@ -42,9 +42,11 @@ mod i18n;
 mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to
-/// the system's file picker. See `platform::pick_files_async`.
+/// the system's file picker, and where a finished export is put so the
+/// phone shows it. See `platform::pick_files_async` and
+/// `platform::publish_export`.
 #[cfg(any(target_os = "android", target_os = "ios"))]
-pub use platform::{FilePicker, install_file_picker};
+pub use platform::{ExportPublisher, FilePicker, install_export_publisher, install_file_picker};
 mod panes;
 mod prefs;
 mod presets;

@@ -67,6 +67,9 @@ pub enum ExportMsg {
     },
     /// The render's worker is done: the file written, or why not.
     Finished(Result<String, String>),
+    /// The phone has moved the file to where it shows it - the path under
+    /// the phone's storage - or could not, and the file is where it was.
+    Published(Result<String, String>),
 }
 
 /// The export sheet's state.
@@ -213,8 +216,25 @@ impl ExportPane {
             ExportMsg::Finished(Ok(written)) => {
                 self.phase = ExportPhase::Done;
                 self.progress = 1.0;
-                self.written = written;
+                self.written = written.clone();
+                // A phone moves the file to where its gallery shows it, and
+                // the sheet says "finished" once it is there.
+                let handed = platform::publish_export(written.into(), |result| {
+                    on_ui(move |studio, _, _| {
+                        studio.handle(Msg::Export(ExportMsg::Published(result)));
+                    });
+                });
+                if !handed {
+                    studio.notify(&t("export.exportFinished"), false);
+                }
+            }
+            ExportMsg::Published(Ok(path)) => {
+                self.written = path;
                 studio.notify(&t("export.exportFinished"), false);
+            }
+            ExportMsg::Published(Err(error)) => {
+                let folder = platform::published_folder().unwrap_or_default();
+                studio.notify(&tf("export.couldNotPublish", &[&folder, &error]), true);
             }
             ExportMsg::Finished(Err(error)) => {
                 if self.phase == ExportPhase::Idle {
@@ -498,7 +518,13 @@ impl ExportPane {
         ExportData {
             open: self.open,
             name: self.name.as_str().into(),
-            path: format!("{}/{}.mp4", self.folder.trim_end_matches('/'), self.name).into(),
+            // Where the file ends up: on a phone, the folder its gallery
+            // shows, not the app's own that the export writes into.
+            path: match platform::published_folder() {
+                Some(folder) => format!("{folder}/{}.mp4", self.name),
+                None => format!("{}/{}.mp4", self.folder.trim_end_matches('/'), self.name),
+            }
+            .into(),
             format: format!("{width} × {height} · {rate:.2} fps").into(),
             duration: {
                 let whole = studio.duration().max(0.0) as i32;

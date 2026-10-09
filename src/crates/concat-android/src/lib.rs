@@ -96,62 +96,42 @@ mod activity {
     }
 }
 
-/// The system's document picker, reached through the Java in java/.
+/// The Java in java/, and the way to it.
 ///
-/// The window is a NativeActivity with no Java of its own, and a picker's
-/// answer comes back only through Java; so the Java is a fragment
-/// compiled by build.rs into a dex the binary carries, loaded here through
-/// an in-memory class loader, and told - by registering a native method on
-/// it - where to bring the answer. The picked files are copied into the
-/// app's own storage by the Java, and their paths are what comes back.
+/// The window is a NativeActivity with no Java of its own, and some of
+/// what a phone does - a picker's answer, the media store - comes only
+/// through Java; so the Java is a fragment compiled by build.rs into a dex
+/// the binary carries, loaded here through an in-memory class loader
+/// once, and reached through [`java::with_class`].
 #[cfg(target_os = "android")]
-mod picker {
+mod java {
     use std::ffi::c_void;
-    use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
 
-    use jni::objects::{Global, JClass, JObject, JObjectArray, JString};
-    use jni::{Env, JavaVM, jni_sig, jni_str, sys};
+    use jni::objects::{Global, JClass, JObject};
+    use jni::{Env, JavaVM, jni_sig, jni_str};
     use slint::android::AndroidApp;
 
     /// The classes build.rs compiled: app.concat.editor.ConcatFiles.
     const DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
     const CLASS_NAME: &str = "app.concat.editor.ConcatFiles";
 
-    type Picked = Box<dyn FnOnce(Vec<PathBuf>) + Send>;
-
-    /// The pick in flight, waiting for Java to answer.
-    static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
     /// The fragment class, loaded once and kept.
     static CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 
-    /// Hands the window's crate a picker that runs on this activity.
-    pub fn install(app: &AndroidApp) {
-        let app = app.clone();
-        concat::install_file_picker(Box::new(move |on_picked| {
-            let previous = PENDING
-                .lock()
-                .map(|mut slot| slot.replace(on_picked))
-                .ok()
-                .flatten();
-            if let Some(previous) = previous {
-                // A pick was already up; the one that asked first is told
-                // it got nothing rather than left waiting for ever.
-                previous(Vec::new());
-            }
-            if let Err(error) = pick(&app) {
-                log::error!("could not show the document picker: {error}");
-                if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
-                    pending(Vec::new());
-                }
-            }
-        }));
-    }
-
-    fn pick(app: &AndroidApp) -> jni::errors::Result<()> {
+    /// Runs `with` on this thread, attached to the activity's JavaVM, with
+    /// the activity and the fragment class - loaded the first time.
+    pub fn with_class<T>(
+        app: &AndroidApp,
+        with: impl FnOnce(
+            &mut Env<'_>,
+            &JObject<'_>,
+            &Global<JClass<'static>>,
+        ) -> jni::errors::Result<T>,
+    ) -> jni::errors::Result<T> {
         // SAFETY: the pointer is the activity's JavaVM, live for the
         // process; `from_raw` also seeds `JavaVM::singleton`, which the
-        // native callback below reaches for.
+        // native callback reaches for.
         let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
         vm.attach_current_thread(|env| {
             // SAFETY: the activity pointer is a live reference the app
@@ -165,13 +145,7 @@ mod picker {
                     CLASS.get().expect("set just above")
                 }
             };
-            env.call_static_method(
-                class,
-                jni_str!("pick"),
-                jni_sig!("(Landroid/app/Activity;)V"),
-                &[(&activity).into()],
-            )?;
-            Ok(())
+            with(env, &activity, class)
         })
     }
 
@@ -212,16 +186,74 @@ mod picker {
             jni::NativeMethod::from_raw_parts(
                 jni_str!("filesPicked"),
                 jni_str!("([Ljava/lang/String;)V"),
-                files_picked as *mut c_void,
+                super::picker::files_picked as *mut c_void,
             )
         };
         // SAFETY: as above.
         unsafe { env.register_native_methods(&class, &[method]) }?;
         env.new_global_ref(class)
     }
+}
+
+/// The system's document picker.
+///
+/// A picker's result comes back only through an activity's or a
+/// fragment's onActivityResult, so the Java fragment is added to the
+/// activity for the length of one pick and told - by the native method
+/// registered on it - where to bring the answer. The picked files are
+/// copied into the app's own storage by the Java, and their paths are
+/// what comes back.
+#[cfg(target_os = "android")]
+mod picker {
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    use jni::objects::{JObjectArray, JString};
+    use jni::{JavaVM, jni_sig, jni_str, sys};
+    use slint::android::AndroidApp;
+
+    type Picked = Box<dyn FnOnce(Vec<PathBuf>) + Send>;
+
+    /// The pick in flight, waiting for Java to answer.
+    static PENDING: Mutex<Option<Picked>> = Mutex::new(None);
+
+    /// Hands the window's crate a picker that runs on this activity.
+    pub fn install(app: &AndroidApp) {
+        let app = app.clone();
+        concat::install_file_picker(Box::new(move |on_picked| {
+            let previous = PENDING
+                .lock()
+                .map(|mut slot| slot.replace(on_picked))
+                .ok()
+                .flatten();
+            if let Some(previous) = previous {
+                // A pick was already up; the one that asked first is told
+                // it got nothing rather than left waiting for ever.
+                previous(Vec::new());
+            }
+            if let Err(error) = pick(&app) {
+                log::error!("could not show the document picker: {error}");
+                if let Some(pending) = PENDING.lock().ok().and_then(|mut slot| slot.take()) {
+                    pending(Vec::new());
+                }
+            }
+        }));
+    }
+
+    fn pick(app: &AndroidApp) -> jni::errors::Result<()> {
+        super::java::with_class(app, |env, activity, class| {
+            env.call_static_method(
+                class,
+                jni_str!("pick"),
+                jni_sig!("(Landroid/app/Activity;)V"),
+                &[activity.into()],
+            )?;
+            Ok(())
+        })
+    }
 
     /// `ConcatFiles.filesPicked`, on whichever thread the Java copied on.
-    unsafe extern "system" fn files_picked(
+    pub(super) unsafe extern "system" fn files_picked(
         _env: *mut sys::JNIEnv,
         _class: sys::jclass,
         paths: sys::jobjectArray,
@@ -251,6 +283,100 @@ mod picker {
     }
 }
 
+/// Where a finished export goes.
+///
+/// The export writes into the app's own folder, which on a phone nothing
+/// but the app can open: not the gallery, not a file manager (#280,
+/// #147). So once a file is written the Java moves it into the phone's
+/// Movies, under Concat, through the media store, and the sheet names
+/// that folder from the start. A phone older than Android 10 has no
+/// media store an app can write through without a permission; there the
+/// file stays where it was written, and the sheet says so.
+#[cfg(target_os = "android")]
+mod publisher {
+    use std::path::Path;
+
+    use jni::objects::{JObjectArray, JString};
+    use jni::refs::Reference;
+    use jni::{jni_sig, jni_str};
+    use slint::android::AndroidApp;
+
+    /// Hands the window's crate the way to the media store, where this
+    /// phone has one to write through.
+    pub fn install(app: &AndroidApp) {
+        let folder = match published_folder(app) {
+            Ok(Some(folder)) => folder,
+            Ok(None) => {
+                log::info!(
+                    "exports stay in the app's folder: this phone's media store takes no files"
+                );
+                return;
+            }
+            Err(error) => {
+                log::warn!("could not ask where exports go: {error}");
+                return;
+            }
+        };
+        let app = app.clone();
+        concat::install_export_publisher(concat::ExportPublisher {
+            folder,
+            publish: Box::new(move |path| publish(&app, path)),
+        });
+    }
+
+    /// `ConcatFiles.publishedFolder`: "Movies/Concat", or nothing.
+    fn published_folder(app: &AndroidApp) -> jni::errors::Result<Option<String>> {
+        super::java::with_class(app, |env, _activity, class| {
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("publishedFolder"),
+                    jni_sig!("()Ljava/lang/String;"),
+                    &[],
+                )?
+                .l()?;
+            if answer.is_null() {
+                return Ok(None);
+            }
+            let answer = env.cast_local::<JString>(answer)?;
+            Ok(Some(answer.mutf8_chars(env)?.to_string()))
+        })
+    }
+
+    /// `ConcatFiles.publishVideo`: the file's path under the phone's
+    /// storage once it is in Movies, or why it could not be moved.
+    fn publish(app: &AndroidApp, path: &Path) -> Result<String, String> {
+        let answer = super::java::with_class(app, |env, activity, class| {
+            let path = env.new_string(path.to_string_lossy())?;
+            let answer = env
+                .call_static_method(
+                    class,
+                    jni_str!("publishVideo"),
+                    jni_sig!("(Landroid/app/Activity;Ljava/lang/String;)[Ljava/lang/String;"),
+                    &[activity.into(), (&path).into()],
+                )?
+                .l()?;
+            let answer = env.cast_local::<JObjectArray<JString>>(answer)?;
+            let mut out = Vec::new();
+            for index in 0..answer.len(env)? {
+                let item = answer.get_element(env, index)?;
+                out.push(if item.is_null() {
+                    None
+                } else {
+                    Some(item.mutf8_chars(env)?.to_string())
+                });
+            }
+            Ok(out)
+        })
+        .map_err(|error| format!("could not reach the phone's media store: {error}"))?;
+        match answer.as_slice() {
+            [Some(path), _] => Ok(path.clone()),
+            [None, Some(why)] => Err(why.clone()),
+            _ => Err("the phone said nothing".to_owned()),
+        }
+    }
+}
+
 /// Called by the activity's native glue; the name is the contract.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -263,8 +389,9 @@ fn android_main(app: slint::android::AndroidApp) {
         log::error!("could not start the Android backend: {error}");
         return;
     }
-    // After the backend, which seeds the JavaVM the picker reaches for.
+    // After the backend, which seeds the JavaVM the Java is reached by.
     picker::install(&app);
+    publisher::install(&app);
     if let Err(error) = concat::run() {
         log::error!("{error}");
     }

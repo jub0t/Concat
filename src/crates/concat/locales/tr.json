@@ -550,6 +550,7 @@
   "export.codec": "Kodek",
   "export.colour": "Renk",
   "export.contents": "İçerik",
+  "export.couldNotPublish": "{0} konumuna kaydedilemedi: {1}",
   "export.couldNotShowFile": "Dosya gösterilemedi: {0}",
   "export.destination": "Hedef",
   "export.exportAgain": "Yeniden dışa aktar",
