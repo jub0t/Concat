@@ -2418,6 +2418,57 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// A still keeps its own shape on the monitor: a portrait photograph
+    /// in a square frame stands in the middle with the stage either side
+    /// of it, not stretched across the frame (#229). Skips without FFmpeg.
+    #[test]
+    fn a_still_keeps_its_shape_on_the_monitor() {
+        use concat_core::frame::Frame;
+
+        let path = std::env::temp_dir().join("concat-preview-still-test.jpg");
+        let mut tall = Frame::black(32, 64);
+        tall.fill([200, 30, 30, 255]);
+        let Ok(bytes) = concat_media::jpeg(&tall, 90) else {
+            return; // no ffmpeg here
+        };
+        std::fs::write(&path, bytes).expect("writes the still");
+
+        let mut still = clip("image", 0, 0.0, 1.0, 0.0);
+        still.path = path.to_string_lossy().into_owned();
+        still.media_width = Some(32);
+        still.media_height = Some(64);
+        let request = PreviewFrameRequest {
+            time: 0.5,
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            clips: vec![still],
+            color_space: concat_project::model::ColorSpace::Sdr,
+        };
+
+        let pool = concat_media::ReaderPool::new(16 * 1024 * 1024, 2);
+        let bytes = preview_frame(&pool, &request).expect("previews a still");
+        assert_eq!(bytes.len(), 64 * 64 * 4);
+        let at = |x: usize, y: usize| {
+            let index = (y * 64 + x) * 4;
+            [bytes[index], bytes[index + 1], bytes[index + 2]]
+        };
+        let centre = at(32, 32);
+        assert!(
+            centre[0] > 120 && centre[1] < 90,
+            "the still is drawn in the middle, got {centre:?}"
+        );
+        for x in [2, 61] {
+            let edge = at(x, 32);
+            assert!(
+                edge[0] < 90,
+                "the stage shows either side of a portrait still, got {edge:?} at x={x}"
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// The folder the file goes in is made by the export: a phone's
     /// Movies folder does not exist until the first export (#280).
     #[test]

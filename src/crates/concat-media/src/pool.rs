@@ -763,9 +763,15 @@ impl ReaderPool {
         let index = facts.index_at(request.time);
         // A still is cut to the size asked for: one decode, kept, and the
         // levels of a photograph are not worth a photograph's worth of
-        // memory each.
+        // memory each. The size asked for, not the cover: the cover is the
+        // frame the picture is placed in, and the decoder's scale is a
+        // stretch, so a photograph cut to the cover came out the frame's
+        // shape and was drawn across the whole of it (#229). The caller
+        // knows the picture's shape from its model and asks for the fitted
+        // size; a video's levels keep the source's shape on their own.
         let (width, height) = match facts.size {
             Some(size) if !facts.still => level_for(size, request.cover),
+            _ if facts.still => even(request.size.0, request.size.1),
             _ => even(request.cover.0, request.cover.1),
         };
         // A proxy is read as it is tagged: it was written from the
