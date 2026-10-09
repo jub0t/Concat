@@ -129,3 +129,9 @@ incremental = false
 
 [profile.test]
 incremental = false
+
+# Slint's Skia renderer, as published, with one change: text is pixel-snapped
+# on a low-density screen (see patches/README.md). The copy is 1.18.1 exactly;
+# bump it with Slint, re-applying the change.
+[patch.crates-io]
+i-slint-renderer-skia = { path = "patches/i-slint-renderer-skia" }
