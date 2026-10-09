@@ -71,14 +71,24 @@ jobs:
     with:
       ref: ${{ needs.check.outputs.tag }}
 
+  # Both builds are told the tag too. Left to themselves they build the
+  # ref the run started on, and a run started by hand starts on main:
+  # 0.2.6 shipped that way, 35 commits past the tag it was named for.
   build:
     needs: [check, engine]
     uses: ./.github/workflows/build-app.yml
+    with:
+      ref: ${{ needs.check.outputs.tag }}
     secrets: inherit
 
+  # `sign` is the one thing that puts the repository's Android key into a
+  # run; a pull request's build of mobile.yml never gets it.
   phones:
     needs: [check, engine]
     uses: ./.github/workflows/mobile.yml
+    with:
+      ref: ${{ needs.check.outputs.tag }}
+      sign: true
     secrets: inherit
 
   publish:

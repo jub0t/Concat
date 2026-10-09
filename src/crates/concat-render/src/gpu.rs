@@ -720,6 +720,14 @@ impl WgpuCompositor {
         self.device.adapter_info()
     }
 
+    /// Whether this compositor draws on a software adapter (WARP, lavapipe)
+    /// rather than a GPU. The pictures are the same; the time is not, by
+    /// one or two orders, which is what a test that draws hundreds of them
+    /// asks before it starts.
+    pub fn on_software_adapter(&self) -> bool {
+        self.device.adapter_info().device_type == wgpu::DeviceType::Cpu
+    }
+
     /// A second compositor on this one's device, with pipelines, pools and
     /// caches of its own: work on another thread - the effect cards -
     /// shares the GPU's time with this one and nothing else, so it never
