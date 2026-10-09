@@ -662,6 +662,7 @@
   "meters.clipLight": "削波指示燈：混音達到滿刻度時變紅。",
   "meters.clipped": "混音削波：有取樣達到滿刻度。點擊清除。",
   "meters.meters": "電平表",
+  "meters.peak": "峰值：最近一刻達到的最大電平，以低於滿刻度的 dB 計。",
   "modal.copied": "已拷貝",
   "monitor.previewFailed": "預覽失敗：{0}",
   "paneSwitcher.addAPanel": "加入面板",

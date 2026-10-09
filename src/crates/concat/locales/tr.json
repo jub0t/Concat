@@ -662,6 +662,7 @@
   "meters.clipLight": "Kırpma ışığı: miks tam ölçeğe ulaştığında kırmızı olur.",
   "meters.clipped": "Miks kırpıldı: bir örnek tam ölçeğe ulaştı. Temizlemek için tıklayın.",
   "meters.meters": "Ölçerler",
+  "meters.peak": "Tepe: son anın ulaştığı en yüksek seviye, tam ölçeğin altında dB olarak.",
   "modal.copied": "Kopyalandı",
   "monitor.previewFailed": "Önizleme başarısız: {0}",
   "paneSwitcher.addAPanel": "Panel ekle",

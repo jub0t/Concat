@@ -14,11 +14,13 @@ pub const SEAT_MIN_H: f32 = 140.0;
 pub const SEAT_MIN_GRAB: f32 = 64.0;
 /// The gutter between the halves of a split, and the margin round the lot.
 pub const SEAT_GAP: f32 = 8.0;
-/// The VU meters' column needs only its bars and its scale.
-pub const METERS_MIN_W: f32 = 64.0;
+/// The VU meters' column needs only its ruler, its two bars and the
+/// padding round them: 26 + 14 + 14 and two gaps of 4, in 6px of padding
+/// a side (see meters-pane.slint).
+pub const METERS_MIN_W: f32 = 76.0;
 /// The meters' share of the bottom row in the default layout: a slim
 /// column beside the timeline, at its full height.
-const METERS_SHARE: f32 = 0.045;
+const METERS_SHARE: f32 = 0.055;
 
 pub enum Dock {
     /// One view, filling its box.
