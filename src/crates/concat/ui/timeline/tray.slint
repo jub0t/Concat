@@ -94,10 +94,12 @@ component MenuItem inherits Rectangle {
     }
 }
 
-// The plus at the head of the tray: a menu whose first row adds a lane,
-// and whose submenu, opened by hovering that row, says where - on top of
-// the stack or under it. A click on the row itself adds on top, as the
-// plus always did.
+// The plus at the head of the tray: a menu that adds a lane on top of the
+// stack or under it, one row each. Flat rather than a row that flies a
+// submenu out beside it: a PopupWindow inside a PopupWindow draws, but the
+// part of it hanging outside its parent never takes the click, so top and
+// bottom could be seen and neither pressed.
+// https://github.com/slint-ui/slint/issues/7322
 component AddMenu inherits Rectangle {
     callback add-track(bottom: bool);
 
@@ -117,7 +119,7 @@ component AddMenu inherits Rectangle {
         x: 0;
         y: root.height + 4px;
         width: 168px;
-        height: root.row-h + 8px;
+        height: 2 * root.row-h + 8px;
         close-policy: close-on-click-outside;
 
         Rectangle {
@@ -130,57 +132,18 @@ component AddMenu inherits Rectangle {
                 padding: 4px;
                 alignment: start;
 
-                add := MenuItem {
-                    text: I18n.t("tray.addTrack");
-                    trailing: Glyph.chevron-right;
+                MenuItem {
+                    text: I18n.t("tray.addTrackTop");
                     clicked => {
-                        sub.close();
                         list.close();
                         root.add-track(false);
                     }
-                    changed hovered => {
-                        if (self.hovered) {
-                            sub.show();
-                        }
-                    }
                 }
-            }
-        }
-
-        // Beside the row it belongs to, overlapping the menu's edge by a
-        // hair so the pointer crosses no gap on its way in.
-        sub := PopupWindow {
-            x: parent.width - 4px;
-            y: 0;
-            width: 156px;
-            height: 2 * root.row-h + 8px;
-            close-policy: close-on-click-outside;
-
-            Rectangle {
-                background: Theme.raised;
-                border-width: 1px;
-                border-color: Theme.line-strong;
-                border-radius: Theme.r;
-
-                VerticalLayout {
-                    padding: 4px;
-                    alignment: start;
-
-                    MenuItem {
-                        text: I18n.t("tray.addTrackTop");
-                        clicked => {
-                            sub.close();
-                            list.close();
-                            root.add-track(false);
-                        }
-                    }
-                    MenuItem {
-                        text: I18n.t("tray.addTrackBottom");
-                        clicked => {
-                            sub.close();
-                            list.close();
-                            root.add-track(true);
-                        }
+                MenuItem {
+                    text: I18n.t("tray.addTrackBottom");
+                    clicked => {
+                        list.close();
+                        root.add-track(true);
                     }
                 }
             }
