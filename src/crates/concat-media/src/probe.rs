@@ -221,9 +221,16 @@ fn rational(value: ffmpeg::Rational) -> Option<Rational> {
 /// base rate is whatever the timestamps' common denominator happens to
 /// be and can be absurd. `avg_frame_rate` is 0/0 for such a stream with
 /// no average either, in which case the base rate is the best guess left.
+///
+/// A rate is usable when it is one a video can have: positive, and with
+/// terms the frame arithmetic can count in ([`FrameRate::checked`]). A
+/// container can say anything - `1/2147483647` is a rate libavformat will
+/// hand out - and a term past the limit overflowed the first frame time
+/// computed on it, where the document's own rates are checked at the door.
 fn pick_rate(average: Option<Rational>, guess: Option<Rational>) -> Option<Rational> {
-    let usable =
-        |rate: &Option<Rational>| rate.filter(|rate| !rate.is_zero() && !rate.is_negative());
+    let usable = |rate: &Option<Rational>| {
+        rate.filter(|rate| FrameRate::checked(rate.numerator(), rate.denominator()).is_some())
+    };
     match (usable(&average), usable(&guess)) {
         (Some(average), Some(base)) => {
             let (a, b) = (average.as_f64(), base.as_f64());
@@ -273,6 +280,21 @@ mod tests {
     fn no_usable_rate_is_none() {
         assert_eq!(pick_rate(Some(Rational::ZERO), Some(Rational::ZERO)), None);
         assert_eq!(pick_rate(None, None), None);
+    }
+
+    /// A rate whose terms the frame arithmetic cannot count in is not a
+    /// rate: the other one is taken, and with neither usable the stream
+    /// has no rate rather than a panic waiting in its first frame time.
+    #[test]
+    fn a_rate_past_the_frame_arithmetic_is_not_usable() {
+        let absurd = Some(Rational::new(1, i64::from(i32::MAX)));
+        let thirty = Some(Rational::from_int(30));
+        assert!(FrameRate::checked(1, i64::from(i32::MAX)).is_none());
+        assert_eq!(pick_rate(absurd, thirty), thirty);
+        assert_eq!(pick_rate(thirty, absurd), thirty);
+        assert_eq!(pick_rate(absurd, absurd), None);
+        let negative = Some(Rational::new(-25, 1));
+        assert_eq!(pick_rate(negative, thirty), thirty);
     }
 
     #[test]

@@ -103,6 +103,13 @@ impl Gpu {
         device.set_device_lost_callback(|reason, message| {
             log::error!("the window's GPU device was lost ({reason:?}): {message}");
         });
+        // An error no scope caught goes to the log too. wgpu's default
+        // handler panics, and on this device that is the window's thread:
+        // a texture past the limit, asked for by anything that draws on it,
+        // took the app down where a bad frame would do.
+        device.on_uncaptured_error(std::sync::Arc::new(|error: wgpu::Error| {
+            log::error!("the window's GPU device reported an error: {error}");
+        }));
         Some(Gpu {
             instance,
             adapter,

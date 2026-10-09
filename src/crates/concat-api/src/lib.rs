@@ -69,10 +69,11 @@ const CAPABILITIES: &[&str] = &["events"];
 /// that writes them to a caller locks its writer inside.
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;
 
-/// The largest frame a preview or an export may ask for, a side: 8K. A
-/// caller with the token is trusted to edit, not to ask the machine for
-/// seventeen gigabytes of pixels (audit 2026-09-23, #4).
-pub const MAX_SIDE: u32 = 8192;
+/// The largest frame a preview or an export may ask for, a side: 8K, the
+/// engine's own ceiling. A caller with the token is trusted to edit, not
+/// to ask the machine for seventeen gigabytes of pixels (audit 2026-09-23,
+/// #4).
+pub const MAX_SIDE: u32 = concat_core::frame::MAX_SIDE;
 /// The highest constant rate factor any codec here takes.
 const MAX_CRF: u8 = 63;
 /// The fastest frame rate an export may ask for.

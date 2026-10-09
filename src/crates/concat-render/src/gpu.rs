@@ -704,11 +704,21 @@ impl WgpuCompositor {
                     .ok()?;
             // The reason, when it dies, in the log: see the window's device.
             let name = adapter.get_info().name;
+            let lost = name.clone();
             device.set_device_lost_callback(move |reason, message| {
                 log::error!(
-                    "the compositor's GPU device on {name} was lost ({reason:?}): {message}"
+                    "the compositor's GPU device on {lost} was lost ({reason:?}): {message}"
                 );
             });
+            // An error no scope caught - a texture past the device's limit,
+            // a buffer the driver refused - is wgpu's to handle, and its
+            // default handler panics the thread it is on: the export's, or
+            // the preview's. Logged instead, the frame it was in comes out
+            // wrong and the thread goes on; the pipelines' own error scopes
+            // (`run_stages`) still catch what they catch.
+            device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
+                log::error!("the compositor's GPU device on {name} reported an error: {error}");
+            }));
             Some(Self::with_device(device, queue))
         })
     }
