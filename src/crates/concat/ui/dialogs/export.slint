@@ -303,6 +303,9 @@ component SummarySection inherits DialogSection {
 
 component DestinationSection inherits DialogSection {
     in property <ExportData> data;
+    /// A phone has no folder picker: the file goes where the path under
+    /// the field says, so there is no Browse to press.
+    in property <bool> phone;
 
     callback name-edited(name: string);
     callback browse();
@@ -316,7 +319,7 @@ component DestinationSection inherits DialogSection {
             edited(text) => { root.name-edited(text); }
         }
 
-        Button {
+        if !root.phone: Button {
             label: I18n.t("export.browse");
             glyph: Glyph.import;
             clicked => { root.browse(); }
@@ -537,6 +540,8 @@ component ExportFooter inherits VerticalLayout {
     /// The button runs the footer's width on a phone, and keeps to a
     /// button's width on a desk, where the width would make it a banner.
     in property <bool> narrow;
+    /// A phone has no file manager to show the file in.
+    in property <bool> phone;
 
     callback begin();
     callback cancel();
@@ -639,7 +644,7 @@ component ExportFooter inherits VerticalLayout {
         spacing: 6px;
         alignment: start;
 
-        Button {
+        if !root.phone: Button {
             label: I18n.t("export.showInFolder");
             glyph: Glyph.import;
             clicked => { root.reveal(); }
@@ -829,6 +834,7 @@ export component ExportDialog inherits Rectangle {
                         SummarySection { first: true; data: root.data; }
                         if !root.running: DestinationSection {
                             data: root.data;
+                            phone: root.phone;
                             name-edited(name) => { root.name-edited(name); }
                             browse => { root.browse(); }
                         }
@@ -875,6 +881,7 @@ export component ExportDialog inherits Rectangle {
                             SummarySection { data: root.data; }
                             DestinationSection {
                                 data: root.data;
+                                phone: root.phone;
                                 name-edited(name) => { root.name-edited(name); }
                                 browse => { root.browse(); }
                             }
@@ -941,6 +948,7 @@ export component ExportDialog inherits Rectangle {
                             }
                             DestinationSection {
                                 data: root.data;
+                                phone: root.phone;
                                 name-edited(name) => { root.name-edited(name); }
                                 browse => { root.browse(); }
                             }
@@ -980,6 +988,7 @@ export component ExportDialog inherits Rectangle {
                 ExportFooter {
                     data: root.data;
                     narrow: root.columns == 1;
+                    phone: root.phone;
                     begin => { root.begin(); }
                     cancel => { root.cancel(); }
                     reveal => { root.reveal(); }

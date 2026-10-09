@@ -951,6 +951,16 @@ pub fn render_on(
         .file_stem()
         .map_or_else(|| "concat".into(), |s| s.to_string_lossy());
     let directory = output.parent().unwrap_or(Path::new("."));
+    // The folder the file goes in is made when it is not there. A phone's
+    // Movies folder under the app's own files does not exist until the
+    // first export, and every phone's first export stopped at "no such
+    // file or directory" before a frame was drawn (#280, #147).
+    if let Err(error) = std::fs::create_dir_all(directory) {
+        return Err(format!(
+            "could not create the folder {}: {error}",
+            directory.display()
+        ));
+    }
     let silent = directory.join(format!(".{stem}.concat-video.mp4"));
     let mixed = directory.join(format!(".{stem}.concat-audio.m4a"));
 
@@ -2406,6 +2416,75 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The folder the file goes in is made by the export: a phone's
+    /// Movies folder does not exist until the first export (#280).
+    #[test]
+    fn an_export_makes_the_folder_it_writes_into() {
+        use concat_core::frame::Frame;
+        use concat_media::{EncodeOptions, Encoder, FrameSink};
+
+        let root = std::env::temp_dir().join(format!(
+            "concat-export-folder-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_nanos())
+        ));
+        let source = std::env::temp_dir().join("concat-export-folder-source.mp4");
+        let Ok(mut encoder) = Encoder::create(
+            &source,
+            64,
+            64,
+            FrameRate::THIRTY,
+            &EncodeOptions::default(),
+        ) else {
+            return; // no ffmpeg here
+        };
+        for _ in 0..6 {
+            encoder.write_frame(&Frame::black(64, 64)).expect("writes");
+        }
+        encoder.finish().expect("finishes");
+
+        let mut footage = clip("video", 0, 0.0, 0.2, 0.0);
+        footage.path = source.to_string_lossy().into_owned();
+        footage.media_width = Some(64);
+        footage.media_height = Some(64);
+        let nested = root.join("Movies").join("Concat");
+        let request = ExportRequest {
+            output: nested.join("out.mp4").to_string_lossy().into_owned(),
+            width: 64,
+            height: 64,
+            rate_num: 30,
+            rate_den: 1,
+            crf: 30,
+            preset: "ultrafast".into(),
+            codec: VideoCodec::H264,
+            ten_bit: false,
+            rate_mode: RateMode::Vbr,
+            bitrate_kbps: 0,
+            color_range: concat_media::ColorRange::Limited,
+            color_space: ColorSpace::Sdr,
+            hdr: false,
+            clips: vec![footage],
+        };
+        assert!(!nested.exists());
+        let cancel = AtomicBool::new(false);
+        let mut progress = |_: i64, _: i64, _: &'static str| {};
+        let reporter = Reporter {
+            progress: &mut progress,
+            cancel: &cancel,
+        };
+        // Whether or not this machine can draw the frames, the folder is
+        // there before the first one is asked for.
+        let result = render_on(&request, None, reporter);
+        assert!(nested.is_dir(), "the export makes its folder: {result:?}");
+        if result.is_ok() {
+            assert!(nested.join("out.mp4").is_file());
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&source);
     }
 
     /// A device that dies under an export is replaced: first by a fresh
