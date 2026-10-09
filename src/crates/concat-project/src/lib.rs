@@ -202,6 +202,26 @@ mod tests {
         let opened = edited.or(VideoSettings::default());
         assert_eq!((opened.rate_num, opened.rate_den), (30, 1));
         assert!(opened.is_sane());
+        // A side past what one texture holds is refused the same way, and
+        // opens at the fallback's size rather than panicking the GPU.
+        let vast = VideoSettings {
+            width: 10_000,
+            height: 1080,
+            ..VideoSettings::default()
+        };
+        assert!(!vast.is_sane());
+        let opened = vast.or(VideoSettings::default());
+        assert_eq!(
+            (opened.width, opened.height),
+            (VideoSettings::default().width, 1080)
+        );
+        assert!(opened.is_sane());
+        let edge = VideoSettings {
+            width: concat_core::frame::MAX_SIDE,
+            height: concat_core::frame::MAX_SIDE,
+            ..VideoSettings::default()
+        };
+        assert!(edge.is_sane());
         let ntsc = VideoSettings {
             rate_num: 30000,
             rate_den: 1001,
@@ -908,6 +928,43 @@ mod tests {
         }
         .tidy();
         assert_eq!(nan.max_height, 0.0);
+    }
+
+    /// A hand-edited clip time has a ceiling as well as a floor: `1e300`
+    /// loaded as written, its frame number saturated, and the export
+    /// panicked computing its time (audit 2026-10-09, finding 9).
+    #[test]
+    fn a_clip_time_past_a_hundred_hours_is_pulled_back() {
+        use crate::model::ranges::MAX_TIME;
+        let (editor, _, clip_id) = fixture();
+        let clip = editor
+            .project()
+            .active()
+            .clips
+            .iter()
+            .find(|clip| clip.id == clip_id)
+            .expect("the clip")
+            .as_ref()
+            .clone();
+        let far = crate::model::Clip {
+            start: 1e300,
+            duration: f64::INFINITY,
+            source_start: 1e300,
+            fade_in: 1e300,
+            fade_out: 1e300,
+            ..clip
+        }
+        .tidy();
+        assert_eq!(far.start, MAX_TIME);
+        assert_eq!(far.duration, 1.0, "not a number falls back to a second");
+        assert_eq!(far.source_start, MAX_TIME);
+        assert_eq!((far.fade_in, far.fade_out), (MAX_TIME, MAX_TIME));
+        let long = crate::model::Clip {
+            duration: 1e300,
+            ..far.clone()
+        }
+        .tidy();
+        assert_eq!(long.duration, MAX_TIME);
     }
 
     #[test]

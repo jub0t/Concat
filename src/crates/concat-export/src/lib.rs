@@ -893,6 +893,19 @@ pub fn render_on(
             request.rate_num, request.rate_den
         )
     })?;
+    // A frame past what one texture can hold would panic the GPU device at
+    // its first allocation, on this thread; the document and the API hold
+    // their callers to the same ceiling, and the command line reaches here
+    // with nothing in between.
+    let side = 1..=concat_core::frame::MAX_SIDE;
+    if !side.contains(&request.width) || !side.contains(&request.height) {
+        return Err(format!(
+            "{}×{} is not a frame size a video can have; the most is {} a side",
+            request.width,
+            request.height,
+            concat_core::frame::MAX_SIDE
+        ));
+    }
     let output = PathBuf::from(&request.output);
 
     // Transitions become overlaps, ramps and fade filters before anything
@@ -963,7 +976,12 @@ pub fn render_on(
     }
     let silent = directory.join(format!(".{stem}.concat-video.mp4"));
     let mixed = directory.join(format!(".{stem}.concat-audio.m4a"));
+    let muxed = directory.join(format!(".{stem}.concat-muxed.mp4"));
 
+    // The output path is touched once, by the rename at the end, whichever
+    // way the file was made. The mux used to write it directly, and a mux
+    // that failed - the disk full, a read error - left a truncated file
+    // where the previous export had been (audit 2026-10-09, finding 4).
     let result = (|| -> Result<(), String> {
         render_picture(
             request,
@@ -976,24 +994,26 @@ pub fn render_on(
             &mut reporter,
         )?;
 
-        if sound.is_empty() {
-            std::fs::rename(&silent, &output)
-                .map_err(|error| format!("could not write {}: {error}", output.display()))?;
-            return Ok(());
-        }
+        let finished = if sound.is_empty() {
+            &silent
+        } else {
+            reporter.cancelled()?;
+            reporter.emit(0, total_frames, "mixing audio");
+            let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
+            audio::mix_to_file(&mix, timeline_end, &mixed).map_err(|error| error.to_string())?;
 
-        reporter.cancelled()?;
-        reporter.emit(0, total_frames, "mixing audio");
-        let mix: Vec<AudioClip> = sound.iter().flat_map(|clip| audio_pieces(clip)).collect();
-        audio::mix_to_file(&mix, timeline_end, &mixed).map_err(|error| error.to_string())?;
-
-        reporter.cancelled()?;
-        reporter.emit(total_frames, total_frames, "muxing");
-        audio::mux(&silent, &mixed, &output).map_err(|error| error.to_string())
+            reporter.cancelled()?;
+            reporter.emit(total_frames, total_frames, "muxing");
+            audio::mux(&silent, &mixed, &muxed).map_err(|error| error.to_string())?;
+            &muxed
+        };
+        std::fs::rename(finished, &output)
+            .map_err(|error| format!("could not write {}: {error}", output.display()))
     })();
 
     let _ = std::fs::remove_file(&silent);
     let _ = std::fs::remove_file(&mixed);
+    let _ = std::fs::remove_file(&muxed);
 
     result.map(|()| output.to_string_lossy().into_owned())
 }
@@ -1330,32 +1350,39 @@ fn render_picture(
                     .get(&layer.clip)
                     .copied()
                     .unwrap_or((request.width, request.height));
-                if let Ok(frame) = sought.frame_at(
-                    &layer.media,
-                    layer.source_time,
-                    decode_width,
-                    decode_height,
-                    stills.contains(&layer.clip),
-                    None,
-                    None,
-                    ranges.get(&layer.clip).copied(),
-                    // Deep where the frame goes to the GPU as it is: a
-                    // cutout cuts eight bits.
-                    !cutouts.contains_key(&layer.clip),
-                ) {
-                    let frame = cutouts
-                        .get(&layer.clip)
-                        .and_then(|job| job.cut(&frame, layer.source_time))
-                        .map_or(frame, std::sync::Arc::new);
-                    layers.push(filled(
-                        layer,
-                        frame,
-                        tracks.get(&layer.clip).copied().unwrap_or(0),
-                        passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
-                        geometry.get(&layer.clip),
-                        shapes_at(&shapes, layer, time, rate),
-                    ));
-                }
+                // A frame that cannot be read ends the export with the
+                // reason, as it does on the paced path below. A time past
+                // the media's end is not that: the pool answers it with the
+                // last frame. This path used to drop a failed frame on the
+                // floor, so a reversed or retimed clip whose file had gone
+                // bad exported as a missing layer and nobody was told.
+                let frame = sought
+                    .frame_at(
+                        &layer.media,
+                        layer.source_time,
+                        decode_width,
+                        decode_height,
+                        stills.contains(&layer.clip),
+                        None,
+                        None,
+                        ranges.get(&layer.clip).copied(),
+                        // Deep where the frame goes to the GPU as it is: a
+                        // cutout cuts eight bits.
+                        !cutouts.contains_key(&layer.clip),
+                    )
+                    .map_err(|error| error.to_string())?;
+                let frame = cutouts
+                    .get(&layer.clip)
+                    .and_then(|job| job.cut(&frame, layer.source_time))
+                    .map_or(frame, std::sync::Arc::new);
+                layers.push(filled(
+                    layer,
+                    frame,
+                    tracks.get(&layer.clip).copied().unwrap_or(0),
+                    passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
+                    geometry.get(&layer.clip),
+                    shapes_at(&shapes, layer, time, rate),
+                ));
                 continue;
             }
             let decoder = match decoders.entry(layer.clip) {

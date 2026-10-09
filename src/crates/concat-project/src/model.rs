@@ -1206,6 +1206,11 @@ pub(crate) mod wire {
 pub mod ranges {
     /// The shortest a clip can be: one frame at sixty.
     pub const MIN_CLIP_DURATION: f64 = 1.0 / 60.0;
+    /// The furthest a clip may start, the longest it may run, and the
+    /// deepest an in-point or a fade may reach, in seconds: a hundred
+    /// hours. No cut is that long; a hand-edited `1e300` was, and its
+    /// frame number overflowed the export's arithmetic.
+    pub const MAX_TIME: f64 = 360_000.0;
     /// The engine's speed range (concat-media `SPEED_RANGE`), verbatim.
     pub const MIN_SPEED: f64 = 0.0625;
     /// The top of the engine's speed range.
@@ -1471,12 +1476,12 @@ impl Clip {
         fn finite(value: f64, fallback: f64) -> f64 {
             if value.is_finite() { value } else { fallback }
         }
-        self.start = finite(self.start, 0.0).max(0.0);
-        self.duration = finite(self.duration, 1.0).max(MIN_CLIP_DURATION);
-        self.source_start = finite(self.source_start, 0.0).max(0.0);
+        self.start = finite(self.start, 0.0).clamp(0.0, MAX_TIME);
+        self.duration = finite(self.duration, 1.0).clamp(MIN_CLIP_DURATION, MAX_TIME);
+        self.source_start = finite(self.source_start, 0.0).clamp(0.0, MAX_TIME);
         self.volume = finite(self.volume, 1.0).max(0.0);
-        self.fade_in = finite(self.fade_in, 0.0).max(0.0);
-        self.fade_out = finite(self.fade_out, 0.0).max(0.0);
+        self.fade_in = finite(self.fade_in, 0.0).clamp(0.0, MAX_TIME);
+        self.fade_out = finite(self.fade_out, 0.0).clamp(0.0, MAX_TIME);
         self.scale = finite(self.scale, 1.0).clamp(MIN_SCALE, MAX_SCALE);
         self.offset_x = finite(self.offset_x, 0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
         self.offset_y = finite(self.offset_y, 0.0).clamp(-MAX_OFFSET, MAX_OFFSET);
@@ -1902,10 +1907,10 @@ impl VideoSettings {
         self.rate_num as f64 / self.rate_den.max(1) as f64
     }
 
-    /// This frame with every zero or negative field taken from `fallback`
-    /// instead, and the rate as a pair when it is not one a video has (see
-    /// [`FrameRate::checked`](concat_core::time::FrameRate::checked)): a
-    /// document hand-edited into nonsense still opens at a size that is a
+    /// This frame with every zero, negative or oversize field taken from
+    /// `fallback` instead, and the rate as a pair when it is not one a video
+    /// has (see [`FrameRate::checked`](concat_core::time::FrameRate::checked)):
+    /// a document hand-edited into nonsense still opens at a size that is a
     /// size, and at a rate the frame arithmetic can count in.
     pub fn or(self, fallback: VideoSettings) -> VideoSettings {
         let settings = self.or_terms(fallback);
@@ -1922,12 +1927,12 @@ impl VideoSettings {
 
     fn or_terms(self, fallback: VideoSettings) -> VideoSettings {
         VideoSettings {
-            width: if self.width > 0 {
+            width: if Self::side_is_sane(self.width) {
                 self.width
             } else {
                 fallback.width
             },
-            height: if self.height > 0 {
+            height: if Self::side_is_sane(self.height) {
                 self.height
             } else {
                 fallback.height
@@ -1949,11 +1954,18 @@ impl VideoSettings {
     /// Whether every term is one a frame could actually have. A zero
     /// dimension or rate is never a real setting, only a caller bug, and
     /// writing one would poison the document until the next open. Neither
-    /// is a rate whose terms overflow the frame arithmetic.
+    /// is a rate whose terms overflow the frame arithmetic, nor a side past
+    /// what a GPU can hold in one texture
+    /// ([`MAX_SIDE`](concat_core::frame::MAX_SIDE)): a 10 000-pixel
+    /// timeline panicked the export and the preview at the first texture.
     pub fn is_sane(self) -> bool {
-        self.width > 0
-            && self.height > 0
+        Self::side_is_sane(self.width)
+            && Self::side_is_sane(self.height)
             && concat_core::time::FrameRate::checked(self.rate_num, self.rate_den).is_some()
+    }
+
+    fn side_is_sane(side: u32) -> bool {
+        (1..=concat_core::frame::MAX_SIDE).contains(&side)
     }
 }
 
