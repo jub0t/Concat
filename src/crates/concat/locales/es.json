@@ -662,6 +662,7 @@
   "meters.clipLight": "Indicador de saturación: se pone rojo cuando la mezcla llega a escala completa.",
   "meters.clipped": "La mezcla saturó: una muestra llegó a escala completa. Haz clic para borrar.",
   "meters.meters": "Medidores",
+  "meters.peak": "Pico: lo más alto que llegó el último momento, en dB por debajo de la escala completa.",
   "modal.copied": "Copiado",
   "monitor.previewFailed": "La vista previa falló: {0}",
   "paneSwitcher.addAPanel": "Añadir un panel",

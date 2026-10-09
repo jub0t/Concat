@@ -662,6 +662,7 @@
   "meters.clipLight": "Clip light: turns red when the mix reaches full scale.",
   "meters.clipped": "The mix clipped: a sample reached full scale. Click to clear.",
   "meters.meters": "Meters",
+  "meters.peak": "Peak: the loudest the last moment reached, in dB below full scale.",
   "modal.copied": "Copied",
   "monitor.previewFailed": "Preview failed: {0}",
   "paneSwitcher.addAPanel": "Add a panel",

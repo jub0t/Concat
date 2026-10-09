@@ -4,11 +4,19 @@
 // The VU meters: how loud the timeline plays, left and right, while it
 // plays. A slim column beside the timeline by default. Each bar is the
 // peak level on a decibel scale - 0 dB at the top, -60 at the foot -
-// with the loudest of the last moment held as a line, and a light at the
-// top that stays red once the mix has clipped, until it is clicked.
+// with the loudest of the last moment held as a line, a clip light over
+// the bars that stays red once the mix has clipped, until it is clicked,
+// and under them the held peak as a number.
+//
+// The column reads as one instrument: the scale is a ruler down the left
+// with a tick every three decibels and a number every six to -24 and
+// every twelve below, where the ear stops caring about the odd decibel;
+// the light sits over the two bars it speaks for and nothing else; the
+// legend under the bars names them and the unit.
 
 import { I18n } from "../i18n.slint";
 import { Theme } from "../theme/theme.slint";
+import { Fmt } from "../util.slint";
 import { LevelMeter } from "../primitives/level-meter.slint";
 import { Tip } from "../primitives/tooltip.slint";
 import { Pane } from "pane.slint";
@@ -35,7 +43,36 @@ export component MetersPane inherits Pane {
 
     /// The scale's floor, in dB: the meters' 0 is this, their 1 is 0 dB.
     property <float> floor-db: -60;
-    property <[float]> marks: [0, -6, -12, -24, -36, -48];
+    /// A tick every three decibels, the whole way down.
+    property <[int]> ticks: [0, -3, -6, -9, -12, -15, -18, -21, -24, -27, -30, -33, -36, -39, -42, -45, -48, -51, -54, -57, -60];
+    /// The ticks that carry a number: every six to -24, every twelve below.
+    property <[int]> labelled: [0, -6, -12, -18, -24, -36, -48, -60];
+
+    /// The ruler's width: the numbers, a gap, and the ticks.
+    property <length> scale-w: 26px;
+    property <length> tick-w: 6px;
+    /// One bar's width, and the gap between the two. The light over them
+    /// and the legend under them are sized to the pair.
+    property <length> bar-w: 14px;
+    property <length> bar-gap: 4px;
+    property <length> pair-w: 2 * root.bar-w + root.bar-gap;
+
+    /// The decibels a meter value stands for.
+    pure function db-of(value: float) -> float {
+        return root.floor-db + value * (0 - root.floor-db);
+    }
+    /// Where `db` sits down a ruler `height` tall.
+    pure function y-of(db: float, height: length) -> length {
+        return (1 - (db - root.floor-db) / (0 - root.floor-db)) * height;
+    }
+    /// The held peak of the two sides, as a whole number of decibels, or a
+    /// dash when neither side holds one.
+    pure function peak-text() -> string {
+        if (Meters.hold-left < 0 && Meters.hold-right < 0) {
+            return "–";
+        }
+        return "\{Math.round(root.db-of(Math.max(Meters.hold-left, Meters.hold-right)))}";
+    }
 
     VerticalLayout {
         // The other panes' bar height, and only the switcher in it: the
@@ -63,17 +100,24 @@ export component MetersPane inherits Pane {
         }
 
         VerticalLayout {
-            padding: 8px;
-            spacing: 6px;
+            padding-left: 6px;
+            padding-right: 6px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 4px;
 
-            // The clip light: red once the mix has hit full scale, until
-            // clicked.
+            // The clip light, over the pair of bars it speaks for: red once
+            // the mix has hit full scale, until clicked. The empty box on
+            // the left is the ruler's width, so the light lines up with the
+            // bars and not with the column.
             HorizontalLayout {
                 alignment: center;
+                spacing: root.bar-gap;
+                Rectangle { width: root.scale-w; }
                 light := Rectangle {
-                    width: 30px;
-                    height: 8px;
-                    border-radius: 2px;
+                    width: root.pair-w;
+                    height: 6px;
+                    border-radius: 3px;
                     background: Meters.clipped ? Theme.danger : Theme.field;
                     border-width: 1px;
                     border-color: Meters.clipped ? Theme.danger : Theme.line;
@@ -89,55 +133,118 @@ export component MetersPane inherits Pane {
                 }
             }
 
-            // The bars, and the scale beside them.
+            // The ruler and the bars. The ruler's foot and head are the
+            // bars' own, so a number sits level with the tick it names.
             HorizontalLayout {
                 vertical-stretch: 1;
                 alignment: center;
-                spacing: 3px;
+                spacing: root.bar-gap;
 
                 scale := Rectangle {
-                    width: 20px;
-                    for db in root.marks: Text {
+                    width: root.scale-w;
+
+                    // A hairline the ticks grow from, on the ruler's inner
+                    // edge against the bars.
+                    Rectangle {
+                        x: parent.width - 1px;
+                        y: 0;
+                        width: 1px;
+                        height: parent.height;
+                        background: Theme.line;
+                    }
+                    for db in root.ticks: Rectangle {
+                        property <bool> major: Math.mod(db, 6) == 0;
                         x: parent.width - self.width;
-                        y: (1 - (db - root.floor-db) / (0 - root.floor-db)) * parent.height
-                            - self.height / 2;
-                        text: "\{-db}";
-                        color: Theme.fg-dim;
+                        y: Fmt.clamp(root.y-of(db, parent.height) / 1px, 0, parent.height / 1px - 1) * 1px;
+                        width: self.major ? root.tick-w : root.tick-w / 2;
+                        height: 1px;
+                        background: self.major ? Theme.fg-dim : Theme.line-strong;
+                    }
+                    for db in root.labelled: Text {
+                        x: parent.width - root.tick-w - 3px - self.width;
+                        // Centred on its tick, and held inside the ruler at
+                        // either end so 0 and -60 are whole.
+                        y: Fmt.clamp(
+                            (root.y-of(db, parent.height) - self.height / 2) / 1px,
+                            0, (parent.height - self.height) / 1px) * 1px;
+                        text: "\{db}";
+                        color: db == 0 ? Theme.fg-muted : Theme.fg-dim;
                         font-family: Theme.font-technical;
                         font-size: Theme.fs-xs;
                     }
                 }
                 LevelMeter {
                     vertical: true;
-                    thickness: 10px;
+                    thickness: root.bar-w;
                     value: Meters.left;
                     peak: Meters.hold-left;
                 }
                 LevelMeter {
                     vertical: true;
-                    thickness: 10px;
+                    thickness: root.bar-w;
                     value: Meters.right;
                     peak: Meters.hold-right;
                 }
             }
 
+            // The legend: the unit under the ruler, a name under each bar.
             HorizontalLayout {
                 alignment: center;
-                spacing: 3px;
-                Rectangle { width: 20px; }
+                spacing: root.bar-gap;
+                Rectangle {
+                    width: root.scale-w;
+                    Text {
+                        x: parent.width - root.tick-w - 3px - self.width;
+                        text: "dB";
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                    }
+                }
                 Text {
-                    width: 10px;
+                    width: root.bar-w;
                     text: "L";
-                    color: Theme.fg-dim;
+                    color: Theme.fg-muted;
                     font-size: Theme.fs-xs;
+                    font-weight: Theme.weight-title;
                     horizontal-alignment: center;
                 }
                 Text {
-                    width: 10px;
+                    width: root.bar-w;
                     text: "R";
-                    color: Theme.fg-dim;
+                    color: Theme.fg-muted;
                     font-size: Theme.fs-xs;
+                    font-weight: Theme.weight-title;
                     horizontal-alignment: center;
+                }
+            }
+
+            // The held peak as a number, under the pair: the loudest the
+            // last moment reached, in whole decibels below full scale.
+            HorizontalLayout {
+                alignment: center;
+                spacing: root.bar-gap;
+                Rectangle { width: root.scale-w; }
+                peak := Rectangle {
+                    width: root.pair-w;
+                    height: 18px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.well;
+                    Text {
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.peak-text();
+                        color: Meters.clipped ? Theme.danger : Theme.fg;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs-xs;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    peak-touch := TouchArea { }
+                    Tip {
+                        text: I18n.t("meters.peak");
+                        active: peak-touch.has-hover;
+                    }
                 }
             }
         }

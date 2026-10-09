@@ -662,6 +662,7 @@
   "meters.clipLight": "Übersteuerungsanzeige: wird rot, wenn der Mix Vollaussteuerung erreicht.",
   "meters.clipped": "Der Mix hat übersteuert: ein Sample hat Vollaussteuerung erreicht. Zum Zurücksetzen klicken.",
   "meters.meters": "Pegel",
+  "meters.peak": "Spitze: der lauteste Wert des letzten Moments, in dB unter Vollaussteuerung.",
   "modal.copied": "Kopiert",
   "monitor.previewFailed": "Vorschau fehlgeschlagen: {0}",
   "paneSwitcher.addAPanel": "Panel hinzufügen",

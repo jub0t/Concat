@@ -662,6 +662,7 @@
   "meters.clipLight": "Témoin de saturation : devient rouge quand le mixage atteint la pleine échelle.",
   "meters.clipped": "Le mixage a saturé : un échantillon a atteint la pleine échelle. Cliquez pour effacer.",
   "meters.meters": "Vumètres",
+  "meters.peak": "Crête : le niveau le plus fort du dernier instant, en dB sous la pleine échelle.",
   "modal.copied": "Copié",
   "monitor.previewFailed": "L'aperçu a échoué : {0}",
   "paneSwitcher.addAPanel": "Ajouter un panneau",

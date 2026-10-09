@@ -662,6 +662,7 @@
   "meters.clipLight": "Luz de clipe: fica vermelha quando a mixagem atinge o fundo de escala.",
   "meters.clipped": "A mixagem clipou: uma amostra atingiu o fundo de escala. Clique para limpar.",
   "meters.meters": "Medidores",
+  "meters.peak": "Pico: o mais alto que o último momento chegou, em dB abaixo da escala cheia.",
   "modal.copied": "Copiado",
   "monitor.previewFailed": "A pré-visualização falhou: {0}",
   "paneSwitcher.addAPanel": "Adicionar um painel",

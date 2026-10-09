@@ -20,6 +20,9 @@ export component LevelMeter inherits Rectangle {
     in property <bool> vertical;
     /// track thickness; defaults to 6px horizontal, 8px vertical
     in property <length> thickness: root.vertical ? 8px : 6px;
+    /// The corners' radius: a soft square rather than a pill, held to half
+    /// the thickness so a thin bar is still a pill.
+    in property <length> corner: 4px;
 
     /// True while the pointer is over the meter. The caller uses this to run
     /// the feed only while someone is looking at it — see the note on the
@@ -41,7 +44,7 @@ export component LevelMeter inherits Rectangle {
         width: root.vertical ? root.thickness : root.width;
         height: root.vertical ? root.height : root.thickness;
         background: Theme.well;
-        border-radius: (root.vertical ? self.width : self.height) / 2;
+        border-radius: Math.min(root.corner, (root.vertical ? self.width : self.height) / 2);
         clip: true;
 
         // reveal window

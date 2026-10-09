@@ -662,6 +662,7 @@
   "meters.clipLight": "クリップランプ : ミックスがフルスケールに達すると赤くなります。",
   "meters.clipped": "ミックスがクリップしました : サンプルがフルスケールに達しました。クリックで解除。",
   "meters.meters": "メーター",
+  "meters.peak": "ピーク：直前の最大レベル。フルスケールからの dB。",
   "modal.copied": "コピーしました",
   "monitor.previewFailed": "プレビューに失敗しました : {0}",
   "paneSwitcher.addAPanel": "パネルを追加",
