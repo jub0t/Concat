@@ -4121,31 +4121,16 @@ impl Studio {
             };
             return;
         }
-        let mut moving = if self.selection.iter().any(|held| held == id) {
+        // What moves is what is selected, and nothing else. A detached
+        // sound is a clip of its own: it goes where it is dragged, and its
+        // picture stays, as any two clips do. It used to travel with its
+        // picture, which made Detach a split in name only (#265); the link
+        // between them is kept for Reattach, not for the drag.
+        let moving = if self.selection.iter().any(|held| held == id) {
             self.selection.clone()
         } else {
             vec![id.to_owned()]
         };
-        // A detached sound travels with its picture and the picture with
-        // its sound: the pair stays in step unless one of them is moved
-        // on its own lane by a lock (#105).
-        let partners: Vec<String> = moving
-            .iter()
-            .filter_map(|clip_id| self.clip(clip_id))
-            .flat_map(|clip| {
-                let mut found: Vec<String> = clip.detached_from.iter().cloned().collect();
-                found.extend(
-                    self.timeline()
-                        .clips
-                        .iter()
-                        .filter(|other| other.detached_from.as_deref() == Some(clip.id.as_str()))
-                        .map(|other| other.id.clone()),
-                );
-                found
-            })
-            .filter(|partner| !moving.contains(partner))
-            .collect();
-        moving.extend(partners);
         let origins = moving
             .iter()
             .filter_map(|clip_id| {
