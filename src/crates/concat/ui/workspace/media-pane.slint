@@ -907,8 +907,9 @@ struct CatalogueItemData {
 component CatalogueCard inherits Rectangle {
     in property <CatalogueItemData> item;
     in property <Glyph> glyph: root.item.glyph;
-    /// A card that shows before it adds: a click is `auditioned`, and only
-    /// a double-click or the plus is `applied`. Otherwise a click applies.
+    /// A card that shows before it adds: a click is `auditioned` - a loop
+    /// in the monitor for as long as the pointer stays on the card - and
+    /// only the plus or a drag adds. Otherwise a click applies.
     in property <bool> auditions;
     /// This card's look is the one being shown; it draws itself picked.
     in property <bool> auditioning;
@@ -920,6 +921,15 @@ component CatalogueCard inherits Rectangle {
 
     callback applied();
     callback auditioned();
+    /// The pointer left the card that was being shown.
+    callback audition-left();
+
+    /// The pointer is on the card, its plus included: the plus is a touch
+    /// area of its own, and the tile need not count the pointer over it.
+    property <bool> inside: card.has-hover || plus.has-hover;
+    changed inside => {
+        if (!root.inside && root.auditioning) { root.audition-left(); }
+    }
 
     /// An entry with no artwork is a compact card: the name sits inside the
     /// tile, there is no mark and no caption, and the tile is half as tall.
@@ -948,14 +958,10 @@ component CatalogueCard inherits Rectangle {
         card := TouchArea {
             enabled: root.item.enabled;
             mouse-cursor: root.item.enabled ? pointer : default;
-            // On a showing card the second click of a double-click lands
-            // here first and takes the showing off; the add that follows
-            // is what the gesture meant, and Rust drops the showing anyway.
+            // On a showing card no click adds, double or not: the plus and
+            // a drag do, so a look tried twice is never laid down by it.
             clicked => {
                 if (root.auditions) { root.auditioned(); } else { root.applied(); }
-            }
-            double-clicked => {
-                if (root.auditions) { root.applied(); }
             }
 
             tile := Rectangle {
@@ -1284,6 +1290,7 @@ export component ShelfGrid inherits Rectangle {
     in property <bool> auditions;
     in property <string> auditioning;
     callback auditioned(id: string);
+    callback audition-left();
 
     property <length> gap: 8px;
     property <length> min-card: 88px;
@@ -1320,6 +1327,7 @@ export component ShelfGrid inherits Rectangle {
         auditioning: root.auditions && root.auditioning == entry.id;
 
         auditioned => { root.auditioned(entry.id); }
+        audition-left => { root.audition-left(); }
         applied => { root.applied(entry.id, entry.name); }
     }
 }
@@ -1735,9 +1743,14 @@ export component MediaPane inherits Rectangle {
     callback apply-transition(transition-id: string);
     /// Filters page: lay the look down as a layer at the playhead.
     callback apply-filter(filter-id: string, label: string);
-    /// Filters page: a single click shows the look over the whole picture
-    /// without laying it down; `audition` is the id being shown, or empty.
+    /// Filters and Effects pages: a single click plays the look over the
+    /// whole picture from the playhead, in a loop, without laying it down;
+    /// `audition` is the id being shown, or empty.
     callback audition-filter(filter-id: string);
+    /// Transitions page: the same, around the cut nearest the playhead.
+    callback audition-transition(transition-id: string);
+    /// The pointer left the card being shown: the preview stops.
+    callback audition-ended();
     in property <string> audition;
     /// Audio page: add a voice or room to the selected clip's sound.
     callback apply-audio(effect-id: string);
@@ -1760,6 +1773,10 @@ export component MediaPane inherits Rectangle {
     callback pane-removed();
 
     property <int> tab;
+    // The card playing goes with the page it was on.
+    changed tab => {
+        if (root.audition != "") { root.audition-ended(); }
+    }
     /// How far left the page strip can be pushed: nothing, while its chips
     /// fit. See `strip`.
     property <length> strip-floor: Math.min(0px, strip.width - strip.content-width);
@@ -2412,8 +2429,15 @@ export component MediaPane inherits Rectangle {
                     ShelfGrid {
                         entries: root.catalogue-transitions;
                         glyph: Glyph.transition;
-                        // Transitions apply directly on single-click — no audition overlay.
-                        auditions: false;
+                        // A click plays it at the cut nearest the playhead;
+                        // the plus puts it on the cut the selection names,
+                        // or the one at the playhead; a drag, on the cut it
+                        // is dropped over.
+                        payload-kind: "transition";
+                        auditions: true;
+                        auditioning: root.audition;
+                        auditioned(id) => { root.audition-transition(id); }
+                        audition-left => { root.audition-ended(); }
                         applied(id, label) => { root.apply-transition(id); }
                     }
                 }
@@ -2439,14 +2463,21 @@ export component MediaPane inherits Rectangle {
                         glyph: root.audio-shelf ? Glyph.waveform : Glyph.sparkle;
                         // A sound has no picture: its cards are the compact kind.
                         compact: root.audio-shelf;
-                        // Effects apply directly on single-click to the selected clip —
-                        // auditions:false means click = apply, no monitor overlay confusion.
-                        auditions: false;
+                        // A picture effect plays on a click and is laid down
+                        // as a layer over the video by the plus, at the
+                        // playhead, or where it is dropped, as a filter is.
+                        // A sound effect goes on the selected clip's sound
+                        // on a click: there is no picture to show it in.
+                        payload-kind: root.audio-shelf ? "" : "filter";
+                        auditions: !root.audio-shelf;
+                        auditioning: root.audition;
+                        auditioned(id) => { root.audition-filter(id); }
+                        audition-left => { root.audition-ended(); }
                         applied(id, label) => {
                             if (root.audio-shelf) {
                                 root.apply-audio(id);
                             } else {
-                                root.apply-effect(id);
+                                root.apply-filter(id, label);
                             }
                         }
                     }
@@ -2457,9 +2488,9 @@ export component MediaPane inherits Rectangle {
 
                     // A filter is a layer over a span of the timeline,
                     // dragged onto the lanes like a piece of media - the
-                    // payload says so. Short of a drag, a click shows the
-                    // look over the monitor, and a double-click or the
-                    // card's plus lays it at the playhead.
+                    // payload says so. Short of a drag, a click plays the
+                    // look in the monitor while the pointer stays on the
+                    // card, and the card's plus lays it at the playhead.
                     ShelfSearch {
                         shelf: 0;
                         placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.filter"));
@@ -2480,6 +2511,7 @@ export component MediaPane inherits Rectangle {
                         auditions: true;
                         auditioning: root.audition;
                         auditioned(id) => { root.audition-filter(id); }
+                        audition-left => { root.audition-ended(); }
                         applied(id, label) => { root.apply-filter(id, label); }
                     }
                 }

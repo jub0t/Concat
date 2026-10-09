@@ -731,7 +731,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     ));
     editor.on_library_audition_filter(on_window!(|state, id: SharedString| {
-        state.audition_catalogue(id.as_str());
+        state.audition_look(id.as_str());
+    }));
+    editor.on_library_audition_transition(on_window!(|state, id: SharedString| {
+        state.audition_transition(id.as_str());
+    }));
+    editor.on_library_audition_ended(on_window!(|state| {
+        state.end_audition();
     }));
     editor.on_library_apply_effect(on_window!(|state, id: SharedString| {
         state.apply_catalogue(id.as_str(), true);
@@ -1798,7 +1804,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     .peaks
                     .get(&plan.media)
                     .filter(|_| plan.kind == ClipKind::Audio)
-                    .map(|peaks| format::wave_path(peaks, 0.0, plan.duration, 32, 0.75))
+                    .map(|peaks| {
+                        format::wave_path(peaks, 0.0, plan.duration, 32, 0.75, format::WAVE_FLOOR)
+                    })
                     .unwrap_or_default();
                 let document = chips::drag_chip_svg(
                     chips::chip_glyph(plan.kind),

@@ -18,7 +18,7 @@ use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
 use concat_project::model::{self, MediaItem, MediaOrigin, Project};
 
-use crate::format::wave_path;
+use crate::format::{WAVE_FLOOR, wave_path};
 use crate::host::{probe_error, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
@@ -335,7 +335,9 @@ impl MediaBin {
                             }
                             _ => {
                                 let path: slint::SharedString =
-                                    wave_path(peaks, 0.0, duration, 64, 0.75).as_str().into();
+                                    wave_path(peaks, 0.0, duration, 64, 0.75, WAVE_FLOOR)
+                                        .as_str()
+                                        .into();
                                 waves.insert(item.id.clone(), (drawn_from, duration, path.clone()));
                                 path
                             }

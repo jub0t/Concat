@@ -87,6 +87,7 @@ impl Studio {
         // The timeline stops: the speakers and the monitor are the
         // source's now.
         self.pause();
+        self.end_audition();
         if let Some(old) = self.source.take() {
             old.timer.stop();
         }

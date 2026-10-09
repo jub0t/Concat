@@ -172,6 +172,12 @@ pub struct Meta {
     /// A sentence for the tooltip.
     #[serde(default)]
     pub description: String,
+    /// Seconds one run of the effect lasts, for one that plays out like a
+    /// clip - a burst, a flash - rather than holding. Its layer is laid
+    /// down this long, and its card's preview loops over this span. None
+    /// for one that holds as long as it is left on.
+    #[serde(default)]
+    pub length: Option<f64>,
 }
 
 fn one() -> u32 {
@@ -530,6 +536,13 @@ impl Manifest {
         if self.effect.name.trim().is_empty() {
             return Err(self.invalid("name is empty"));
         }
+        if let Some(length) = self.effect.length
+            && !(length.is_finite() && length > 0.0)
+        {
+            return Err(self.invalid(format!(
+                "length {length} must be a positive number of seconds"
+            )));
+        }
         if let Some(lut) = &self.lut {
             let plain = !lut.file.contains('/') && !lut.file.contains('\\');
             if !plain || !lut.file.to_ascii_lowercase().ends_with(".cube") {
@@ -834,6 +847,24 @@ mod tests {
         assert_eq!(manifest.params[0].kind, ParamType::Float);
         assert_eq!(manifest.params[0].step, 0.0);
         assert!(manifest.ffmpeg.is_some());
+    }
+
+    #[test]
+    fn an_effect_may_say_how_long_one_run_lasts() {
+        assert_eq!(Manifest::parse(GOOD).expect("parses").effect.length, None);
+        let timed = GOOD.replace("aliases = [\"blur\"]", "aliases = [\"blur\"]\nlength = 1.5");
+        assert_eq!(
+            Manifest::parse(&timed).expect("parses").effect.length,
+            Some(1.5)
+        );
+        rejects(
+            &GOOD.replace("aliases = [\"blur\"]", "length = 0.0"),
+            "positive",
+        );
+        rejects(
+            &GOOD.replace("aliases = [\"blur\"]", "length = -2.0"),
+            "positive",
+        );
     }
 
     fn rejects(source: &str, needle: &str) {
