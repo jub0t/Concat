@@ -569,6 +569,10 @@ export component App inherits Window {
             // editor cuts with. The chord B above splits at the playhead.
             // https://github.com/jub0t/Concat/issues/241
             if (letter == "b") { Editor.shortcut("split-tool"); return accept; }
+            // Q and E are the big editors' trim keys: the selected clip is
+            // cut at the playhead, Q dropping its left, E its right.
+            if (letter == "q") { Editor.shortcut("cut-left"); return accept; }
+            if (letter == "e") { Editor.shortcut("cut-right"); return accept; }
             if (letter == "n") { Editor.shortcut("snap"); return accept; }
             if (letter == "s") { Editor.shortcut("preview-axis"); return accept; }
             if (letter == "m") { Editor.shortcut("mute"); return accept; }

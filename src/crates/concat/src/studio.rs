@@ -6396,6 +6396,48 @@ impl Studio {
         }
     }
 
+    /// Q / E: the selected clip is cut at the playhead - Q drops its left
+    /// up to there, E its right from there on, as one undo step. Like any
+    /// trim, the lane closes behind the edge only on a magnetic timeline,
+    /// and trim follow carries the playhead to a head cut's new start.
+    pub fn cut_to_playhead(&mut self, left: bool) {
+        let Some(clip_id) = self.sole_selection() else {
+            self.notify(&t("studio.selectClipTimelineFirst"), true);
+            return;
+        };
+        let Some(clip) = self.clip(&clip_id).cloned() else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let at = f64::from(self.playhead);
+        // Nothing is cut unless the playhead sits inside the clip, as
+        // split_at requires of its cuts.
+        if !(clip.start + f64::from(MIN_DURATION) < at
+            && at < clip.start + clip.duration - f64::from(MIN_DURATION))
+        {
+            return;
+        }
+        let (edge, delta) = if left {
+            (TrimEdge::Start, at - clip.start)
+        } else {
+            (TrimEdge::End, at - (clip.start + clip.duration))
+        };
+        let follow = left && self.prefs.trim_follow;
+        self.apply(Command::TrimClip {
+            clip_id: clip_id.clone(),
+            edge,
+            delta,
+            ripple: self.prefs.magnetic,
+        });
+        if follow {
+            if let Some(start) = self.clip(&clip_id).map(|clip| clip.start) {
+                self.seek(start as f32);
+            }
+        }
+    }
+
     /// Save Video Frame As: the frame under the playhead, drawn at the
     /// output's full size rather than the monitor's, written as a PNG
     /// where the person says - offered in the project's frames folder -
@@ -10188,6 +10230,10 @@ impl Studio {
                     TimelineTool::Split
                 };
             }
+            // Q / E: the selected clip's edge jumps to the playhead, taking
+            // the clip's left or its right with it.
+            "cut-left" => self.cut_to_playhead(true),
+            "cut-right" => self.cut_to_playhead(false),
             "select-all" => self.select_all(),
             // The phone's way out of the clip tools: nothing selected, the
             // way a press on an empty lane leaves it.
