@@ -337,6 +337,36 @@ pub fn on_ui_in_project(
     on_ui_gated(Some(epoch), body);
 }
 
+/// Asks a native dialog on the event-loop thread with the studio
+/// unborrowed, and hands its answer to `then` with the studio borrowed,
+/// publishing after. For every file and folder dialog.
+///
+/// A dialog blocks, and on macOS it pumps Slint's timers while it is up;
+/// the transport timer and the meters both `borrow_mut` the studio. A
+/// dialog opened inside a handler, where the studio is already borrowed
+/// for the handler's whole run, was a `BorrowMutError` the moment a timer
+/// fired under it - Export › Browse while playing (audit 2026-10-09,
+/// finding 6). Here `ask` runs on its own turn of the loop before anything
+/// is borrowed, and nothing is published for an answer of `None`: a
+/// cancelled dialog changed nothing.
+pub fn after_dialog<T: Send + 'static>(
+    ask: impl FnOnce() -> Option<T> + Send + 'static,
+    then: impl FnOnce(&mut Studio, &App, &Models, T) + Send + 'static,
+) {
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(answer) = ask() else {
+            return;
+        };
+        Shell::with(|shell, app| {
+            {
+                let mut studio = shell.studio.borrow_mut();
+                then(&mut studio, &app, &shell.models, answer);
+            }
+            shell.studio.borrow().publish(&app, &shell.models);
+        });
+    });
+}
+
 fn on_ui_gated(epoch: Option<u64>, body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {

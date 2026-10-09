@@ -1880,6 +1880,8 @@ fn few(names: &[String]) -> String {
 pub enum Confirm {
     /// Deleting a whole track, and every clip on it.
     RemoveTrack { track_id: String },
+    /// Exporting over a file that is already at `path`.
+    ReplaceExport { path: String },
 }
 
 /// Each rewritten link as "Old → New", the new one by its package's name.
@@ -2109,8 +2111,16 @@ impl Studio {
 
     /// The confirmation sheet's answer: go ahead with what it asked about.
     pub fn confirm_accepted(&mut self) {
-        if let Some(Confirm::RemoveTrack { track_id }) = self.confirm.take() {
-            self.apply(Command::RemoveTrack { track_id });
+        match self.confirm.take() {
+            Some(Confirm::RemoveTrack { track_id }) => {
+                self.apply(Command::RemoveTrack { track_id });
+            }
+            Some(Confirm::ReplaceExport { .. }) => {
+                self.handle(crate::panes::Msg::Export(
+                    crate::panes::export::ExportMsg::Overwrite,
+                ));
+            }
+            None => {}
         }
     }
 
@@ -2139,6 +2149,12 @@ impl Studio {
                     action: t("common.delete").into(),
                 }
             }
+            Confirm::ReplaceExport { path } => crate::ui::ConfirmData {
+                open: true,
+                title: t("export.replaceFileTitle").into(),
+                message: tf("export.replaceFileMessage", &[path]).into(),
+                action: t("export.replace").into(),
+            },
         }
     }
 
@@ -5757,33 +5773,39 @@ impl Studio {
         // through a timer, and a blocking dialog opened inside a timer's
         // callback spins the loop back into Slint's timers - "Recursion in
         // timer code", and the app aborts (on macOS; Windows and Linux
-        // were spared only by their dialogs not pumping the loop).
+        // were spared only by their dialogs not pumping the loop). And
+        // with the studio unborrowed, for the timers that borrow it; see
+        // `host::after_dialog`.
         let name = clip.name.clone();
         let title = t("lib.exportAudio");
         let family = t("lib.wavAudio");
-        crate::host::on_ui(move |studio, _, _| {
-            let file = if cfg!(any(target_os = "android", target_os = "ios")) {
-                out_dir.join(&suggested)
-            } else {
-                let Some(chosen) = crate::platform::save_file(
+        let ask_in = out_dir.clone();
+        crate::host::after_dialog(
+            move || {
+                if cfg!(any(target_os = "android", target_os = "ios")) {
+                    return Some(ask_in.join(&suggested));
+                }
+                let chosen = crate::platform::save_file(
                     &title,
-                    &out_dir,
+                    &ask_in,
                     &suggested,
                     (family.as_str(), &["wav"]),
-                ) else {
-                    return;
-                };
-                if chosen
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
-                {
-                    chosen
-                } else {
-                    chosen.with_extension("wav")
-                }
-            };
-            studio.write_clip_audio(&name, pieces, duration, file, out_dir);
-        });
+                )?;
+                Some(
+                    if chosen
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+                    {
+                        chosen
+                    } else {
+                        chosen.with_extension("wav")
+                    },
+                )
+            },
+            move |studio, _, _, file| {
+                studio.write_clip_audio(&name, pieces, duration, file, out_dir);
+            },
+        );
     }
 
     /// Mixes `pieces` - one clip's sound, `duration` seconds of it - into
@@ -6357,69 +6379,73 @@ impl Studio {
         );
         let title = t("lib.saveFrame");
         let family = t("lib.pngImage");
-        crate::host::on_ui(move |studio, _, _| {
-            let file = if cfg!(any(target_os = "android", target_os = "ios")) {
-                out_dir.join(&suggested)
-            } else {
-                let Some(chosen) = crate::platform::save_file(
+        // With the studio unborrowed too; see `host::after_dialog`.
+        crate::host::after_dialog(
+            move || {
+                if cfg!(any(target_os = "android", target_os = "ios")) {
+                    return Some(out_dir.join(&suggested));
+                }
+                let chosen = crate::platform::save_file(
                     &title,
                     &out_dir,
                     &suggested,
                     (family.as_str(), &["png"]),
-                ) else {
-                    return;
-                };
-                if chosen
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
-                {
-                    chosen
-                } else {
-                    chosen.with_extension("png")
-                }
-            };
-            let written = file.to_string_lossy().into_owned();
-            studio.notify(&t("studio.savingFrame"), false);
-            spawn_in_project(
-                move || -> Result<concat_host::media::MediaSummary, String> {
-                    let pixels = monitor.frame(clips, &settings, spec)?;
-                    let image = image::RgbaImage::from_raw(width, height, pixels)
-                        .ok_or_else(|| "the frame came back the wrong size".to_owned())?;
-                    if let Some(parent) = file.parent() {
-                        std::fs::create_dir_all(parent).map_err(|error| {
-                            format!("could not create {}: {error}", parent.display())
-                        })?;
-                    }
-                    image.save(&file).map_err(|error| error.to_string())?;
-                    concat_host::media::probe(&file.to_string_lossy())
-                },
-                move |studio, _, _, result| match result {
-                    Ok(summary) => {
-                        let item = summary.to_new_media();
-                        let path = item.path.clone();
-                        let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
-                            studio
-                                .project()
-                                .media
-                                .iter()
-                                .find(|item| item.path == path)
-                                .map(|item| item.id.clone())
-                        });
-                        studio.media.filter = MediaFilter::All;
-                        studio.media.selected.clear();
-                        if let Some(id) = minted {
-                            studio.media.selected.insert(id);
+                )?;
+                Some(
+                    if chosen
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+                    {
+                        chosen
+                    } else {
+                        chosen.with_extension("png")
+                    },
+                )
+            },
+            move |studio, _, _, file| {
+                let written = file.to_string_lossy().into_owned();
+                studio.notify(&t("studio.savingFrame"), false);
+                spawn_in_project(
+                    move || -> Result<concat_host::media::MediaSummary, String> {
+                        let pixels = monitor.frame(clips, &settings, spec)?;
+                        let image = image::RgbaImage::from_raw(width, height, pixels)
+                            .ok_or_else(|| "the frame came back the wrong size".to_owned())?;
+                        if let Some(parent) = file.parent() {
+                            std::fs::create_dir_all(parent).map_err(|error| {
+                                format!("could not create {}: {error}", parent.display())
+                            })?;
                         }
-                        studio.media_jump += 1;
-                        studio.notify(&tf("studio.frameSaved", &[&written]), false);
-                    }
-                    Err(error) => {
-                        log::warn!("save frame: {error}");
-                        studio.notify(&tf("studio.couldNotSaveFrame", &[&error]), true);
-                    }
-                },
-            );
-        });
+                        image.save(&file).map_err(|error| error.to_string())?;
+                        concat_host::media::probe(&file.to_string_lossy())
+                    },
+                    move |studio, _, _, result| match result {
+                        Ok(summary) => {
+                            let item = summary.to_new_media();
+                            let path = item.path.clone();
+                            let minted = studio.apply(Command::AddMedia { item }).or_else(|| {
+                                studio
+                                    .project()
+                                    .media
+                                    .iter()
+                                    .find(|item| item.path == path)
+                                    .map(|item| item.id.clone())
+                            });
+                            studio.media.filter = MediaFilter::All;
+                            studio.media.selected.clear();
+                            if let Some(id) = minted {
+                                studio.media.selected.insert(id);
+                            }
+                            studio.media_jump += 1;
+                            studio.notify(&tf("studio.frameSaved", &[&written]), false);
+                        }
+                        Err(error) => {
+                            log::warn!("save frame: {error}");
+                            studio.notify(&tf("studio.couldNotSaveFrame", &[&error]), true);
+                        }
+                    },
+                );
+            },
+        );
     }
 
     /// The volume line on clip `id` dragged to `gain`: written the way the
