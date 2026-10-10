@@ -6,6 +6,8 @@
 //! models are chosen, which languages. A missing or unreadable file is the
 //! defaults, never an error.
 
+use std::collections::BTreeMap;
+
 use concat_host::AppDirs;
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +78,12 @@ pub struct Preferences {
     /// unless the Settings sheet was asked for more or less. CONCAT_LOG in
     /// the environment overrides it for one run.
     pub log_level: Option<String>,
+    /// Rebound shortcuts, by action id: the chord each was given, or ""
+    /// for an action a rebind left with none. Absent is the shipped
+    /// chord — the file holds what moved, not the whole table. Written
+    /// by Settings › Shortcuts; resolved in [`crate::keymap`].
+    #[serde(default)]
+    pub keybinds: BTreeMap<String, String>,
 }
 
 impl Preferences {
@@ -262,5 +270,25 @@ mod tests {
         assert_eq!(back.playhead.as_deref(), Some("#ff453a"));
         let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
         assert_eq!(older.playhead, None);
+    }
+
+    /// The shortcuts a person rebound ride along, one chord per action,
+    /// and a file from before the shortcuts page existed loads with the
+    /// table as it ships.
+    #[test]
+    fn rebound_shortcuts_round_trip_and_an_older_file_has_none() {
+        let mut prefs = Preferences {
+            dark: Some(true),
+            ..Preferences::default()
+        };
+        prefs.keybinds.insert("cut-left".into(), "j".into());
+        prefs.keybinds.insert("mute".into(), String::new());
+        let text = serde_json::to_string(&prefs).unwrap();
+        assert!(text.contains("\"keybinds\""), "{text}");
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.keybinds.get("cut-left").map(String::as_str), Some("j"));
+        assert_eq!(back.keybinds.get("mute").map(String::as_str), Some(""));
+        let older: Preferences = serde_json::from_str(r#"{"dark": false}"#).unwrap();
+        assert!(older.keybinds.is_empty());
     }
 }

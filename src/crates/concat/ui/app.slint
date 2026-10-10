@@ -260,6 +260,11 @@ export component App inherits Window {
     callback settings-version-chosen(index: int);
     callback settings-install-version();
     callback settings-install-cancel();
+    /// The Shortcuts page: a row asked to capture the next keys, and the
+    /// two ways out of a change — put one row back, or put them all back.
+    callback settings-shortcut-capture(id: string);
+    callback settings-shortcut-reset(id: string);
+    callback settings-shortcut-reset-all();
     callback model-activated(id: string);
     callback model-download(id: string);
     callback model-cancel(id: string);
@@ -382,41 +387,24 @@ export component App inherits Window {
     // remaps it to ⌘ on macOS and leaves it Ctrl on Windows and Linux, and
     // the menu row beside it is written from the same keys (platform.rs,
     // `keys`), so what a row says is what works on the machine it is on.
-    // Bindings rather than letters compared in `key-pressed`: a binding
-    // matches whatever the case, so Caps Lock does not turn every chord off.
+    //
+    // What still lives in bindings here is the window's own: the menu
+    // bar's F10 and Alt+F/E/V, and opening, closing and quitting. A
+    // binding on this scope is matched before `key-pressed` below runs,
+    // so these hold their keys whatever the keymap says — which is why
+    // Settings › Shortcuts turns those chords away rather than letting a
+    // row claim a key that would not answer to it. Every other shortcut
+    // is one table in Rust now (src/keymap.rs), rebindable there and
+    // reached through `key-pressed`.
     keys := FocusScope {
         width: 100%;
         height: 100%;
         focus-on-tab-navigation: false;
 
-        // Through the menu's own callback rather than a second handler: a
-        // shortcut and the row that advertises it have to do the same thing,
-        // and the cheapest way to be sure of that is for there to be one
-        // thing. Every other row in those menus is a KeyBinding away from
-        // working the same way.
-        KeyBinding {
-            keys: @keys(Control + S);
-            // Nothing on the launch screen has a project to act on, which is
-            // why the strip up there is missing the menus this belongs to.
-            enabled: !root.on-start;
-            activated => { root.app-menu-selected("save"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + Z);
-            enabled: !root.on-start;
-            activated => { root.app-menu-selected("undo"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + Shift + Z);
-            enabled: !root.on-start;
-            activated => { root.app-menu-selected("redo"); }
-        }
-        // Windows and Linux redo on Ctrl+Y as well; on a Mac ⌘Y is not redo.
-        KeyBinding {
-            keys: @keys(Control + Y);
-            enabled: !root.on-start && !root.macos;
-            activated => { root.app-menu-selected("redo"); }
-        }
+        // The editor's chords were bound here, one KeyBinding apiece —
+        // save, undo, redo, split, copy and the rest. They are the
+        // keymap's now: a person moves one in Settings › Shortcuts, and
+        // the key, the menu row's label and the dispatch all follow it.
         KeyBinding {
             keys: @keys(F10);
             enabled: !root.on-start && !root.macos && !root.phone;
@@ -458,129 +446,21 @@ export component App inherits Window {
             enabled: !root.macos;
             activated => { root.app-menu-selected("close-window"); }
         }
-        // The editor's chords, each the shortcut its menu row names.
-        KeyBinding {
-            keys: @keys(Control + B);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("split"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + A);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("select-all"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + C);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("copy"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + V);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("paste"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + D);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("duplicate"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + E);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("export"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + I);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("import"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + ",");
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("settings"); }
-        }
-        // Zoom in on = as well as +: they share a key on most layouts, and
-        // nobody reaches for Shift to zoom.
-        KeyBinding {
-            keys: @keys(Control + "=");
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("zoom-in"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + Plus);
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("zoom-in"); }
-        }
-        KeyBinding {
-            keys: @keys(Control + "-");
-            enabled: !root.on-start;
-            activated => { Editor.shortcut("zoom-out"); }
-        }
-
-        // The rest of the keyboard, laid out the way every editor has
-        // taught its users: the chord key with a letter for an edit, a
-        // bare letter for a tool, the arrows and Home/End for the
-        // playhead. Every one lands here only when nothing else took it -
-        // a field being typed into consumes its own letters and spaces
-        // before a key can walk up to this scope, which is what keeps
-        // typing a title from cutting a clip.
+        // Everything the keymap owns lands here only when nothing else
+        // took it - a field being typed into consumes its own letters and
+        // spaces before a key can walk up to this scope, which is what
+        // keeps typing a title from cutting a clip, and the bindings above
+        // take theirs before this runs. The event crosses raw: the text
+        // and the modifier flags, because the chord, the action it names
+        // and where that dispatches are one table in Rust (keymap.rs),
+        // and the capture field in Settings > Shortcuts listens on this
+        // same callback. False lets the key go on up, so Escape still
+        // closes a popup and Tab still moves focus.
         key-pressed(event) => {
-            if (root.on-start) {
-                return reject;
-            }
-            // A chord is the bindings' above; one they did not take is
-            // nobody's, and must not fall through to the bare letters
-            // below - Ctrl+H is not the hand.
-            if (event.modifiers.control || event.modifiers.meta) {
-                return reject;
-            }
-            if (event.modifiers.alt) {
-                return reject;
-            }
-            if (event.text == Key.Space) { Editor.play-toggled(); return accept; }
-            // Shift closes the gap the deletion leaves - the ripple delete
-            // of every other editor, on the key they all use for it.
-            // https://github.com/jub0t/Concat/issues/106
-            if (event.text == Key.Delete || event.text == Key.Backspace) {
-                if (event.modifiers.shift) {
-                    Editor.shortcut("ripple-delete");
-                } else {
-                    Editor.delete-selected();
-                }
+            if (Editor.key-chord(event.text, event.modifiers.shift, event.modifiers.alt,
+                    event.modifiers.control, event.modifiers.meta, root.on-start)) {
                 return accept;
             }
-            if (event.text == Key.Home) { Editor.shortcut("start"); return accept; }
-            if (event.text == Key.End) { Editor.shortcut("end"); return accept; }
-            // A frame, or ten with shift.
-            if (event.text == Key.LeftArrow) {
-                Editor.step-frames(event.modifiers.shift ? -10 : -1);
-                return accept;
-            }
-            if (event.text == Key.RightArrow) {
-                Editor.step-frames(event.modifiers.shift ? 10 : 1);
-                return accept;
-            }
-            if (event.modifiers.shift) {
-                return reject;
-            }
-            // Lower-cased, so Caps Lock leaves the letters alone.
-            let letter = event.text.to-lowercase();
-            // B is the razor: the split tool, on and off, the key every
-            // editor cuts with. The chord B above splits at the playhead.
-            // https://github.com/jub0t/Concat/issues/241
-            if (letter == "b") { Editor.shortcut("split-tool"); return accept; }
-            // Q and E are the big editors' trim keys: the selected clip is
-            // cut at the playhead, Q dropping its left, E its right.
-            if (letter == "q") { Editor.shortcut("cut-left"); return accept; }
-            if (letter == "e") { Editor.shortcut("cut-right"); return accept; }
-            if (letter == "n") { Editor.shortcut("snap"); return accept; }
-            if (letter == "s") { Editor.shortcut("preview-axis"); return accept; }
-            if (letter == "m") { Editor.shortcut("mute"); return accept; }
-            // H is the hand: the pan tool, on and off, the key every
-            // editor's canvas grabs with. It and J were the flips once;
-            // flipping is the inspector's and the clip menu's now, and J
-            // is free.
-            if (letter == "h") { Editor.shortcut("pan"); return accept; }
             return reject;
         }
 
@@ -746,9 +626,16 @@ export component App inherits Window {
         languages: root.languages;
         system-facts: root.system-facts;
         system-report: root.system-report;
+        on-start: root.on-start;
 
+        // Focus hands itself back to the window's own scope, which is
+        // where the keymap listens and what the bindings above live on.
+        focus-keys => { keys.focus(); }
         closed => { root.settings-closed(); }
         page-changed(index) => { root.settings-page-changed(index); }
+        shortcut-capture(id) => { root.settings-shortcut-capture(id); }
+        shortcut-reset(id) => { root.settings-shortcut-reset(id); }
+        shortcut-reset-all => { root.settings-shortcut-reset-all(); }
         show-log => { root.settings-show-log(); }
         language-changed(index) => { root.settings-language-changed(index); }
         log-level-changed(index) => { root.settings-log-level-changed(index); }

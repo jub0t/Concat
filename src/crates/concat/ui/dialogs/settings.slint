@@ -13,6 +13,7 @@ import { Fmt } from "../util.slint";
 import { Select } from "../primitives/select.slint";
 import { PaneScroll } from "../workspace/pane.slint";
 import { HairlineSplitter } from "../workspace/splitter.slint";
+import { Editor } from "../editor.slint";
 
 // Settings: a fixed-height sheet with a column of pages down the side. The
 // model rows keep two things apart — a downloaded model is a *choice* and so
@@ -46,10 +47,22 @@ export struct SystemFactData {
     value: string,
 }
 
+/// One row of the Shortcuts page: what the action is called, what key
+/// it is on, and whether that key moved from the one it ships on — the
+/// last so the row knows to offer a Reset.
+export struct ShortcutData {
+    id: string,
+    label: string,
+    /// as this platform writes it; empty when a rebind left the action
+    /// with no key at all, which the row draws as an em dash
+    keys: string,
+    custom: bool,
+}
+
 export struct SettingsData {
     open: bool,
     /// 0 General, 1 Appearance, 2 Transcriber, 3 Speech, 4 Remote, 5 About,
-    /// 6 Version
+    /// 6 Version, 7 Shortcuts
     tab: int,
     language: int,
     /// what the log records: 0 errors only, 1 warnings, 2 normal, 3
@@ -91,6 +104,12 @@ export struct SettingsData {
     /// package that can be put in place; and why not, when not
     can-install: bool,
     install-note: string,
+    /// The Shortcuts page's rows, in the order the page draws them.
+    shortcuts: [ShortcutData],
+    /// The row listening for its keys: its action id, or "" when none
+    /// is. A key pressed while this is set binds instead of dispatching,
+    /// and Escape puts it back to "".
+    capturing: string,
 }
 
 // Accuracy, as pips rather than a number: five little bars say "third of five"
@@ -412,6 +431,107 @@ component FactRow inherits HorizontalLayout {
     }
 }
 
+/// One row of the Shortcuts page: the action's name, the keys it is on
+/// written the way this platform writes them, and — only for the ones
+/// that moved — a way back. The row listening for its next key says so
+/// where the chord was, in the accent: the keys are the thing about to
+/// change, so that is where the eye should be. The whole row is the
+/// button, because a row you have to find a button inside is a row you
+/// miss.
+component ShortcutRow inherits Rectangle {
+    in property <string> label;
+    in property <string> keys;
+    /// the chord moved from the one it ships on (or the action was left
+    /// with none): the row draws a reset
+    in property <bool> custom;
+    /// this row is holding the window's next key
+    in property <bool> capturing;
+
+    callback pressed();
+    callback reset();
+
+    height: 30px;
+    border-radius: Theme.r-sm;
+    background: root.capturing ? Theme.accent-soft
+        : touch.has-hover ? Theme.field
+        : Colors.transparent;
+
+    animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 6px;
+        spacing: 8px;
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.label;
+            color: Theme.fg;
+            font-size: Theme.fs;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        // The chord in a chip — a key, not a word, in the face the
+        // fields keep for values. An action a rebind left with no key
+        // reads "—" rather than vanishing: it is still an action, and
+        // its reset is right beside it.
+        Rectangle {
+            height: 21px;
+            border-radius: Theme.r-sm;
+            border-width: root.capturing ? 1px : 0px;
+            border-color: root.capturing ? Theme.accent : Colors.transparent;
+            background: root.capturing ? Colors.transparent
+                : root.keys == "" ? Colors.transparent
+                : Theme.field-active;
+
+            HorizontalLayout {
+                padding-left: 7px;
+                padding-right: 7px;
+
+                Text {
+                    text: root.capturing ? I18n.t("shortcuts.press")
+                        : root.keys == "" ? "—" : root.keys;
+                    color: root.capturing ? Theme.accent : Theme.fg;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+
+        // Not an IconButton: its own FocusScope takes focus on a press,
+        // and focus the window has lost is focus the keymap cannot use
+        // until the sheet closes. A TouchArea under an Icon moves
+        // nothing.
+        if root.custom: Rectangle {
+            width: 24px;
+            height: 20px;
+            border-radius: Theme.r-sm;
+            background: reset-touch.has-hover ? Theme.field : Colors.transparent;
+
+            Icon {
+                glyph: Glyph.reset;
+                size: 13px;
+                tint: reset-touch.has-hover ? Theme.fg : Theme.fg-muted;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            reset-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.reset(); }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.pressed(); }
+    }
+}
+
 export component SettingsDialog inherits Modal {
     in property <SettingsData> data;
     in property <[ModelData]> transcribers;
@@ -464,6 +584,15 @@ export component SettingsDialog inherits Modal {
     callback model-download(id: string);
     callback model-cancel(id: string);
     callback model-remove(id: string);
+    /// The Shortcuts page: a row asked for the next keys it should be
+    /// bound to, one row put back as it ships, and all of them put back.
+    callback shortcut-capture(id: string);
+    callback shortcut-reset(id: string);
+    callback shortcut-reset-all();
+    /// Focus handed back to the window's own scope, where the keymap
+    /// listens: the capture field gives it up when its key has been
+    /// heard, and the window answers with its own `keys.focus()`.
+    callback focus-keys();
 
     /// `Theme.accent-names`, each in the chosen language, in the same order.
     /// A second list rather than a lookup on the first because the string
@@ -482,6 +611,12 @@ export component SettingsDialog inherits Modal {
     /// hairline, since the sheet is the screen's width and a finger is
     /// what drags it.
     in property <bool> phone;
+
+    /// The launch screen is up: no project, so no dispatch. The capture
+    /// field still works there — binding a key is not an edit — but the
+    /// key it hands over says this so the window can refuse to dispatch
+    /// one once capture is over.
+    in property <bool> on-start;
 
     /// The column of pages' width, as the hairline beside it was last left.
     /// In-out because it is dragged; what is drawn is `pages` below, which
@@ -579,6 +714,15 @@ export component SettingsDialog inherits Modal {
                         glyph: Glyph.sun;
                         current: root.data.tab == 1;
                         clicked => { root.page-changed(1); }
+                    }
+                    // Index 7 though it sits second: a tab's number is its
+                    // identity with the page the sheet opens on and the
+                    // code behind it, and every slot below is taken.
+                    PageTab {
+                        label: I18n.t("settings.shortcuts");
+                        glyph: Glyph.keyboard;
+                        current: root.data.tab == 7;
+                        clicked => { root.page-changed(7); }
                     }
                     PageTab {
                         label: I18n.t("common.transcriber");
@@ -1256,7 +1400,77 @@ export component SettingsDialog inherits Modal {
                     }
                 }
             }
+
+            if root.data.tab == 7: VerticalLayout {
+                DialogSection {
+                    first: true;
+                    title: I18n.t("settings.shortcuts");
+                    hint: I18n.t("shortcuts.hint");
+
+                    // Flat rows, one per action, the way the system report
+                    // draws its lines: a page of chords is scanned, not
+                    // browsed, and cards would put a border between every
+                    // key and its neighbour.
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for row in root.data.shortcuts: ShortcutRow {
+                            label: row.label;
+                            keys: row.keys;
+                            custom: row.custom;
+                            capturing: root.data.capturing == row.id;
+
+                            pressed => {
+                                root.shortcut-capture(row.id);
+                                capture-scope.focus();
+                            }
+                            reset => { root.shortcut-reset(row.id); }
+                        }
+                    }
+
+                    // Back to how they all ship, in one press: the escape
+                    // hatch a page of rebinds needs when the keys have gone
+                    // too far to walk back a row at a time.
+                    Button {
+                        label: I18n.t("shortcuts.resetAll");
+                        glyph: Glyph.reset;
+                        ghost: true;
+                        clicked => { root.shortcut-reset-all(); }
+                    }
+                }
+            }
         }
+        }
+    }
+
+    // The Shortcuts page's field: a scope that exists for the dialog's
+    // whole life, so switching pages while it listens cannot destroy it
+    // and leave the window with no focused key handler. A row press
+    // focuses it; the first key it hears is the one that binds — Rust
+    // answers through Editor.key-chord — and the moment that key is
+    // spent, focus goes back to the window's own scope, where the
+    // keymap and the window's fixed bindings live.
+    capture-scope := FocusScope {
+        width: 0px;
+        height: 0px;
+
+        key-pressed(event) => {
+            if (root.data.capturing == "") {
+                // Nothing is listening any more: the capture was put
+                // down some other way. Hand focus back and let the key
+                // go where it would have gone.
+                root.focus-keys();
+                return reject;
+            }
+            let handled = Editor.key-chord(event.text, event.modifiers.shift,
+                event.modifiers.alt, event.modifiers.control,
+                event.modifiers.meta, root.on-start);
+            if (root.data.capturing == "") {
+                // The key was the one — bound, or Escape declining it —
+                // and the row is no longer listening.
+                root.focus-keys();
+            }
+            return handled ? accept : reject;
         }
     }
 }

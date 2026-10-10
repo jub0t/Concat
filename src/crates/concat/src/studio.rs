@@ -59,6 +59,7 @@ use crate::host::{
     strip_window, window_art, window_span, window_start,
 };
 use crate::i18n::{self, t, tf};
+use crate::keymap;
 use crate::panes::settings::installed;
 use crate::platform;
 use crate::prefs::Preferences;
@@ -7663,6 +7664,26 @@ impl Studio {
     // ── publishing ──
 
     pub fn publish(&self, app: &App, models: &Models) {
+        // The tray's three menu labels and the tooltips' bare-letter
+        // hints, spelled from the keymap so a rebind moves the words
+        // with the key. An action left unbound shows an em dash rather
+        // than an empty bracket: there is a key, there just is not one
+        // now.
+        let hint = |id: &str| {
+            let shown = keymap::label(&self.prefs, id);
+            if shown.is_empty() {
+                "—".to_owned()
+            } else {
+                shown
+            }
+        };
+        let editor = app.global::<Editor>();
+        editor.set_keys_undo(hint("undo").into());
+        editor.set_keys_redo(hint("redo").into());
+        editor.set_keys_split(hint("split").into());
+        editor.set_keys_split_tool(hint("split-tool").into());
+        editor.set_keys_pan(hint("pan").into());
+        editor.set_keys_preview_axis(hint("preview-axis").into());
         self.publish_lanes(app, models);
         self.publish_chrome(app, models);
         self.publish_dock(app, models);
@@ -9600,21 +9621,21 @@ impl Studio {
                 "copy",
                 t("common.copy"),
                 Glyph::Copy,
-                &platform::keys(&["Control", "C"]),
+                &keymap::label(&self.prefs, "copy"),
                 true,
             ),
             action(
                 "duplicate",
                 t("studio.duplicate"),
                 Glyph::Plus,
-                &platform::keys(&["Control", "D"]),
+                &keymap::label(&self.prefs, "duplicate"),
                 !locked,
             ),
             action(
                 "paste",
                 t("studio.paste"),
                 Glyph::Plus,
-                &platform::keys(&["Control", "V"]),
+                &keymap::label(&self.prefs, "paste"),
                 !self.clipboard.is_empty(),
             ),
             rule(),
@@ -9622,14 +9643,14 @@ impl Studio {
                 "split",
                 t("studio.splitAtPlayhead"),
                 Glyph::Split,
-                &platform::keys(&["Control", "B"]),
+                &keymap::label(&self.prefs, "split"),
                 straddled && !locked,
             ),
             action(
                 "freeze",
                 "Freeze frame".into(),
                 Glyph::Frame,
-                "F",
+                &keymap::label(&self.prefs, "freeze"),
                 straddled
                     && !locked
                     && (clip.kind == model::ClipKind::Video || clip.kind == model::ClipKind::Image),
@@ -9698,7 +9719,7 @@ impl Studio {
             label: t("common.delete").into(),
             kind: MenuRow::Action,
             glyph: Glyph::Trash,
-            shortcut: platform::delete_key(false).into(),
+            shortcut: keymap::label(&self.prefs, "delete").into(),
             enabled: !locked,
             danger: true,
             checkable: false,
@@ -9882,21 +9903,21 @@ impl Studio {
                     "import",
                     t("studio.importMedia"),
                     Glyph::Import,
-                    &platform::keys(&["Control", "I"]),
+                    &keymap::label(&self.prefs, "import"),
                     true,
                 ),
                 row(
                     "save",
                     t("studio.save"),
                     Glyph::Import,
-                    &platform::keys(&["Control", "S"]),
+                    &keymap::label(&self.prefs, "save"),
                     true,
                 ),
                 row(
                     "export",
                     t("studio.export"),
                     Glyph::Export,
-                    "",
+                    &keymap::label(&self.prefs, "export"),
                     !self.timeline().clips.is_empty(),
                 ),
                 row(
@@ -9919,7 +9940,7 @@ impl Studio {
                     "settings",
                     t("studio.settings"),
                     Glyph::Settings,
-                    &platform::keys(&["Control", ","]),
+                    &keymap::label(&self.prefs, "settings"),
                     true,
                 ),
                 rule(),
@@ -9969,14 +9990,14 @@ impl Studio {
                     "undo",
                     t("studio.undo"),
                     Glyph::Undo,
-                    &platform::keys(&["Control", "Z"]),
+                    &keymap::label(&self.prefs, "undo"),
                     can_undo,
                 ),
                 row(
                     "redo",
                     t("studio.redo"),
                     Glyph::Redo,
-                    &platform::keys(&["Control", "Shift", "Z"]),
+                    &keymap::label(&self.prefs, "redo"),
                     can_redo,
                 ),
                 rule(),
@@ -9984,7 +10005,7 @@ impl Studio {
                     "split",
                     t("studio.splitAtPlayhead"),
                     Glyph::Razor,
-                    &platform::keys(&["Control", "B"]),
+                    &keymap::label(&self.prefs, "split"),
                     straddled,
                 ),
                 MenuItemData {
@@ -9997,7 +10018,7 @@ impl Studio {
                     .into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::Trash,
-                    shortcut: platform::delete_key(false).into(),
+                    shortcut: keymap::label(&self.prefs, "delete").into(),
                     enabled: selected > 0,
                     danger: true,
                     checkable: false,
@@ -10009,7 +10030,7 @@ impl Studio {
                     label: t("common.snapToEdges").into(),
                     kind: MenuRow::Action,
                     glyph: Glyph::None,
-                    shortcut: "N".into(),
+                    shortcut: keymap::label(&self.prefs, "snap").into(),
                     enabled: true,
                     danger: false,
                     checkable: true,
@@ -10028,8 +10049,20 @@ impl Studio {
                 },
             ],
             2 => vec![
-                row("zoom-in", t("common.zoomIn"), Glyph::Plus, "+", true),
-                row("zoom-out", t("common.zoomOut"), Glyph::Minus, "-", true),
+                row(
+                    "zoom-in",
+                    t("common.zoomIn"),
+                    Glyph::Plus,
+                    &keymap::label(&self.prefs, "zoom-in"),
+                    true,
+                ),
+                row(
+                    "zoom-out",
+                    t("common.zoomOut"),
+                    Glyph::Minus,
+                    &keymap::label(&self.prefs, "zoom-out"),
+                    true,
+                ),
                 rule(),
                 check("sort-added", "Sort by: Added", self.media.sort == 0),
                 check("sort-name", "Sort by: Name", self.media.sort == 1),
@@ -10039,10 +10072,16 @@ impl Studio {
                     "start",
                     t("common.goToStart"),
                     Glyph::SkipBack,
-                    "Home",
+                    &keymap::label(&self.prefs, "start"),
                     true,
                 ),
-                row("end", t("common.goToEnd"), Glyph::SkipForward, "End", true),
+                row(
+                    "end",
+                    t("common.goToEnd"),
+                    Glyph::SkipForward,
+                    &keymap::label(&self.prefs, "end"),
+                    true,
+                ),
             ],
             _ => Vec::new(),
         }

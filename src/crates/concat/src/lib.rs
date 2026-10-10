@@ -39,6 +39,7 @@ mod gpu;
 mod grading;
 mod host;
 mod i18n;
+mod keymap;
 mod meters;
 mod platform;
 /// What a phone's own crate installs before the window runs: the way to
@@ -1271,6 +1272,122 @@ pub fn run() -> Result<(), slint::PlatformError> {
             shell.studio.borrow().publish(&app, &shell.models);
         }),
     });
+    // Every key the window did not give to a field or a binding, raw:
+    // the chord, what it resolves to and where that dispatches are one
+    // table now (keymap.rs), and the capture field in Settings ›
+    // Shortcuts listens on this same door — binding instead of
+    // dispatching while a row holds the next key. True means the key
+    // was used and the scope keeps it; false lets it go on up, to a
+    // popup's Escape or to nothing at all.
+    editor.on_key_chord(move |text, shift, alt, control, meta, on_start| {
+        let chord = keymap::chord(text.as_str(), shift, alt, control, meta);
+        let mut handled = false;
+        Shell::with(|shell, app| {
+            // ── the capture field ──
+            if shell.studio.borrow().settings.capturing.is_some() {
+                // Every key while a row listens goes to the row. A
+                // modifier on its own is not a chord: it waits for the
+                // key it is holding out for, which is swallowed here.
+                handled = true;
+                let Some(chord) = chord else {
+                    return;
+                };
+                // Escape declines; the row goes back to its chord.
+                if chord == "escape" {
+                    let mut state = shell.studio.borrow_mut();
+                    state.settings.capturing = None;
+                    state.publish(&app, &shell.models);
+                    return;
+                }
+                // The menu bar's and the window's own chords stay
+                // bindings in app.slint and would fire before this
+                // callback ever ran in the editor; a row that claimed
+                // one would be a row telling a lie.
+                if keymap::reserved(&chord) {
+                    let mut state = shell.studio.borrow_mut();
+                    state.notify(&i18n::t("shortcuts.reserved"), true);
+                    state.publish(&app, &shell.models);
+                    return;
+                }
+                let mut state = shell.studio.borrow_mut();
+                let Some(id) = state.settings.capturing.clone() else {
+                    return;
+                };
+                state.settings.capturing = None;
+                // The chord is one action's: whoever held it loses it,
+                // and the toast says which row is now unbound.
+                let lost = keymap::bind(&mut state.prefs, &id, &chord);
+                state.prefs.save(&state.host.dirs);
+                if let Some(lost) = lost {
+                    state.notify(
+                        &i18n::tf("shortcuts.unboundNow", &[&keymap::name(lost)]),
+                        false,
+                    );
+                }
+                state.publish(&app, &shell.models);
+                return;
+            }
+
+            // ── dispatch ──
+            let Some(chord) = chord else {
+                return;
+            };
+            if on_start {
+                // The launch screen has no project to act on. Capture
+                // is handled above, so its keys work there too.
+                return;
+            }
+            let action = {
+                let state = shell.studio.borrow();
+                keymap::resolve(&state.prefs, &chord)
+            };
+            let Some(action) = action else {
+                return;
+            };
+            handled = true;
+            match action {
+                // The playhead, straight: these were never menu rows and
+                // their handlers are a seek apiece.
+                "play" => {
+                    shell.studio.borrow_mut().play_toggle();
+                    shell.studio.borrow_mut().refresh_art();
+                    shell.studio.borrow().publish(&app, &shell.models);
+                }
+                step @ ("step-back" | "step-back-10" | "step-forward" | "step-forward-10") => {
+                    let frames: f32 = match step {
+                        "step-back" => -1.0,
+                        "step-back-10" => -10.0,
+                        "step-forward" => 1.0,
+                        _ => 10.0,
+                    };
+                    {
+                        let mut state = shell.studio.borrow_mut();
+                        state.pause();
+                        let fps = state.frame_rate().round().max(1.0);
+                        let at = (state.playhead * fps).round() + frames;
+                        state.seek(at / fps);
+                    }
+                    shell.studio.borrow_mut().refresh_art();
+                    shell.studio.borrow().publish_lanes(&app, &shell.models);
+                }
+                // The chords that are also menu rows go through the
+                // menu's own handler, so the key and the row cannot come
+                // apart — the same door on_shortcut keeps open.
+                "save" | "undo" | "redo" | "import" | "export" | "settings" | "zoom-in"
+                | "zoom-out" | "start" | "end" | "snap" | "pan" | "preview-axis" | "delete" => {
+                    app.invoke_app_menu_selected(SharedString::from(action));
+                }
+                // The rest: the editor's own table, the way the phone's
+                // buttons and the tray reach it.
+                _ => {
+                    shell.studio.borrow_mut().shortcut(action);
+                    shell.studio.borrow_mut().refresh_art();
+                    shell.studio.borrow().publish(&app, &shell.models);
+                }
+            }
+        });
+        handled
+    });
 
     // ── the project sheet ──
     editor.on_modify_project(on_window!(|state| {
@@ -1459,6 +1576,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // ── settings ──
     app.on_settings_page_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Settings(SettingsMsg::PageChanged(index)));
+    }));
+    // The Shortcuts page: a row asked for the next keys, and the two
+    // ways back — one row as it ships, or all of them.
+    app.on_settings_shortcut_capture(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::ShortcutCapture(id.to_string())));
+    }));
+    app.on_settings_shortcut_reset(on_window!(|state, id: SharedString| {
+        state.handle(Msg::Settings(SettingsMsg::ShortcutReset(id.to_string())));
+    }));
+    app.on_settings_shortcut_reset_all(on_window!(|state| {
+        state.handle(Msg::Settings(SettingsMsg::ShortcutResetAll));
     }));
     app.on_settings_show_log(on_window!(|state| {
         state.handle(Msg::Settings(SettingsMsg::ShowLog));
