@@ -75,7 +75,7 @@ Concat은 macOS, Windows, Linux, Android용 무료 오픈 소스 비디오 편�
 - 📤 **내보내기.** H.264, HEVC, AV1. 최대 4K 60, 10비트 색상.
 - 🦀 **네이티브 Rust 엔진.** GPU 컴포지터, 프록시, 하드웨어 디코딩. 4K도 부드럽게 스크러빙.
 - 🤖 **스크립트 가능.** JSON-RPC, gRPC, MCP API와 CLI. AI 에이전트가 이것으로 영상을 편집할 수 있습니다.
-- 🖥️ **macOS, Windows, Linux, Android.** 15개 언어. 같은 앱, 같은 프로젝트 파일.
+- 🖥️ **macOS, Windows, Linux, Android.** 16개 언어. 같은 앱, 같은 프로젝트 파일.
 
 ## 다운로드
 

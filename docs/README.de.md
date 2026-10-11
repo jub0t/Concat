@@ -75,7 +75,7 @@ Alles läuft lokal auf einer nativen Rust-Engine mit GPU-Compositor. Installiere
 - 📤 **Export.** H.264, HEVC, AV1. Bis 4K 60, 10-Bit-Farbe.
 - 🦀 **Native Rust-Engine.** GPU-Compositor, Proxys, Hardware-Decoding. 4K scrubbt flüssig.
 - 🤖 **Skriptbar.** JSON-RPC-, gRPC- und MCP-API plus CLI. KI-Agenten können damit Video schneiden.
-- 🖥️ **macOS, Windows, Linux, Android.** 15 Sprachen. Dieselbe App, dieselben Projektdateien.
+- 🖥️ **macOS, Windows, Linux, Android.** 16 Sprachen. Dieselbe App, dieselben Projektdateien.
 
 ## Download
 

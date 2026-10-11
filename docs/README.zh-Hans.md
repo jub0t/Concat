@@ -75,7 +75,7 @@ Concat 是一款免费、开源的视频编辑器，是 macOS、Windows、Linux 
 - 📤 **导出。** H.264、HEVC、AV1。最高 4K 60，10 位色彩。
 - 🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬件解码。4K 拖动也顺滑。
 - 🤖 **可脚本化。** JSON-RPC、gRPC 和 MCP API，外加 CLI。AI 代理可以用它剪视频。
-- 🖥️ **macOS、Windows、Linux、Android。** 15 种语言。同一个应用，同样的项目文件。
+- 🖥️ **macOS、Windows、Linux、Android。** 16 种语言。同一个应用，同样的项目文件。
 
 ## 下载
 

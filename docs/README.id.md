@@ -75,7 +75,7 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - 📤 **Ekspor.** H.264, HEVC, AV1. Hingga 4K 60, warna 10-bit.
 - 🦀 **Mesin Rust native.** Kompositor GPU, proxy, dekode perangkat keras. 4K digeser dengan mulus.
 - 🤖 **Bisa diskrip.** API JSON-RPC, gRPC, dan MCP, plus CLI. Agen AI bisa memotong video dengannya.
-- 🖥️ **macOS, Windows, Linux, Android.** 15 bahasa. Aplikasi yang sama, berkas proyek yang sama.
+- 🖥️ **macOS, Windows, Linux, Android.** 16 bahasa. Aplikasi yang sama, berkas proyek yang sama.
 
 ## Unduh
 
