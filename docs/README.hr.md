@@ -75,7 +75,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - 📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.
 - 🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.
 - 🤖 **Skriptabilan.** JSON-RPC, gRPC i MCP API, plus CLI. AI agenti mogu njime rezati video.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 jezika. Ista aplikacija, iste datoteke projekta.
+- 🖥️ **macOS, Windows, Linux, Android.** 15 jezika. Ista aplikacija, iste datoteke projekta.
 
 ## Preuzimanje
 

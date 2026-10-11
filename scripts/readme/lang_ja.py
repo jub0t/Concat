@@ -25,7 +25,7 @@ highlights=[
 "📤 **書き出し。** H.264、HEVC、AV1。最大 4K 60、10 ビットカラー。",
 "🦀 **ネイティブ Rust エンジン。** GPU コンポジター、プロキシ、ハードウェアデコード。4K もなめらかにスクラブ。",
 "🤖 **スクリプト対応。** JSON-RPC・gRPC・MCP の API と CLI。AI エージェントが動画を編集できます。",
-"🖥️ **macOS、Windows、Linux、Android。** 14 言語。同じアプリ、同じプロジェクトファイル。",
+"🖥️ **macOS、Windows、Linux、Android。** 15 言語。同じアプリ、同じプロジェクトファイル。",
 ],
 download_h="ダウンロード", two_ways="入口は 2 つ:",
 website="ウェブサイト", website_text="があなたのマシンに合ったビルドを渡します。まずはここから。",

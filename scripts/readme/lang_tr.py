@@ -25,7 +25,7 @@ highlights=[
 "📤 **Dışa aktarma.** H.264, HEVC, AV1. 4K 60’a kadar, 10 bit renk.",
 "🦀 **Yerel Rust motoru.** GPU birleştirici, proxy’ler, donanım çözme. 4K akıcı gezinir.",
 "🤖 **Betiklenebilir.** JSON-RPC, gRPC ve MCP API’si, artı bir CLI. Yapay zekâ ajanları onunla video kesebilir.",
-"🖥️ **macOS, Windows, Linux, Android.** 14 dil. Aynı uygulama, aynı proje dosyaları.",
+"🖥️ **macOS, Windows, Linux, Android.** 15 dil. Aynı uygulama, aynı proje dosyaları.",
 ],
 download_h="İndir", two_ways="İki yol var:",
 website="Web sitesi", website_text="makineniz için doğru derlemeyi verir. Buradan başlayın.",

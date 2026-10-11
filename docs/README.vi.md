@@ -75,7 +75,7 @@ Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp 
 - 📤 **Xuất.** H.264, HEVC, AV1. Lên đến 4K 60, màu 10-bit.
 - 🦀 **Engine Rust gốc.** Trình tổng hợp GPU, proxy, giải mã phần cứng. Tua 4K mượt mà.
 - 🤖 **Có thể lập trình.** API JSON-RPC, gRPC và MCP, cùng CLI. Các tác nhân AI có thể cắt video bằng nó.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
+- 🖥️ **macOS, Windows, Linux, Android.** 15 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
 
 ## Tải về
 

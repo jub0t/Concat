@@ -75,7 +75,7 @@ Tutto gira in locale su un motore nativo in Rust con un compositore su GPU. Inst
 - 📤 **Esportazione.** H.264, HEVC, AV1. Fino a 4K 60, colore a 10 bit.
 - 🦀 **Motore nativo in Rust.** Compositore su GPU, proxy, decodifica hardware. Il 4K scorre fluido.
 - 🤖 **Scriptabile.** API JSON-RPC, gRPC e MCP, più una CLI. Gli agenti IA possono montare video con lui.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 lingue. Stessa app, stessi file di progetto.
+- 🖥️ **macOS, Windows, Linux, Android.** 15 lingue. Stessa app, stessi file di progetto.
 
 ## Download
 
