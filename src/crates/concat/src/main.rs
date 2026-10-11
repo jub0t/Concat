@@ -7,6 +7,8 @@
 // Hide the console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod launch;
+
 fn main() -> Result<(), slint::PlatformError> {
     // A desktop's console is its standard error, which a packaged build
     // has wired to nowhere; hence the file underneath it.
@@ -14,5 +16,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // A failure here is the one this binary would otherwise swallow: with
     // no console, the runtime's "Error: ..." on standard error is lost.
     // https://github.com/jub0t/Concat/issues/135
-    concat::run().inspect_err(concat::report_startup_failure)
+    let project = launch::project(std::env::args_os().skip(1))
+        .map_err(slint::PlatformError::Other)
+        .inspect_err(concat::report_startup_failure)?;
+    concat::run_with_project(project).inspect_err(concat::report_startup_failure)
 }
