@@ -4390,7 +4390,12 @@ impl Studio {
                     })
                     .collect();
                 self.echo = None;
-                if !moves.is_empty() {
+                // A press and a release with no drag between them is a
+                // click: nothing moved, and a MoveClips of the clips onto
+                // their own places is still an undo step and still a pass
+                // through the drop's rules, which can put a clip elsewhere.
+                // https://github.com/jub0t/Concat/issues/247
+                if moved_any(&moves, |id| self.clip(id)) {
                     self.apply(Command::MoveClips { moves });
                 }
             }
@@ -7553,13 +7558,21 @@ impl Studio {
     /// that reads it, the table (see `concat_effects::looks`) - and the
     /// catalogue is rebuilt so the Filters page shows them, their cards
     /// drawn by their own shaders.
-    pub fn import_lut(&mut self) {
-        let Some(paths) = crate::platform::pick_files(
-            &t("studio.importLut"),
-            Some((t("studio.lut").as_str(), &["cube"])),
-        ) else {
-            return;
-        };
+    /// Asks for `.cube` files to import as looks. The dialog is asked with
+    /// the studio unborrowed, and the files come back to [`import_luts`];
+    /// see `host::after_dialog`.
+    ///
+    /// [`import_luts`]: Studio::import_luts
+    pub fn import_lut() {
+        let (title, family) = (t("studio.importLut"), t("studio.lut"));
+        crate::host::after_dialog(
+            move || crate::platform::pick_files(&title, Some((family.as_str(), &["cube"]))),
+            |studio, _, _, paths| studio.import_luts(paths),
+        );
+    }
+
+    /// Imports `.cube` files as looks, and says how many arrived.
+    pub fn import_luts(&mut self, paths: Vec<std::path::PathBuf>) {
         let dir = Self::looks_dir(&self.host.dirs);
         let mut imported = 0;
         for path in paths {
@@ -7778,6 +7791,7 @@ impl Studio {
                         wave: wave.0,
                         wave_from: wave.1,
                         wave_span: wave.2,
+                        has_audio: self.clip_has_sound(clip),
                         strip: self.strip_of(clip),
                     }
                 })
@@ -10232,6 +10246,71 @@ impl Studio {
     /// One of the clip menu's verbs on clip `id`. The menu's rows and the
     /// keyboard's chords both land here, so a shortcut and the row that
     /// advertises it cannot disagree.
+    /// Takes a video clip's sound off onto a lane of its own, and selects
+    /// what came off: the lane it lands on may be a new one, out of view,
+    /// and a detach that changed nothing anyone could see read as one that
+    /// did nothing. One that cannot happen says why instead of nothing.
+    /// https://github.com/jub0t/Concat/issues/310
+    fn detach_audio(&mut self, clip: &Clip) {
+        let has_audio = self
+            .project()
+            .media_by_id(&clip.media_id)
+            .is_some_and(|media| media.has_audio);
+        let detached = self
+            .timeline()
+            .clips
+            .iter()
+            .any(|other| other.detached_from.as_deref() == Some(clip.id.as_str()));
+        let detach = Command::DetachAudio {
+            clip_id: clip.id.clone(),
+        };
+        let command = match detach_plan(clip, has_audio, detached) {
+            DetachPlan::NoSound => {
+                self.notify(&t("studio.detachNoSound"), false);
+                return;
+            }
+            DetachPlan::Already => {
+                self.notify(&t("studio.detachAlready"), false);
+                return;
+            }
+            DetachPlan::Detach => detach,
+            // Its sound was taken off once and that clip deleted, which
+            // left the picture silent with nothing to reattach. Unmuted
+            // and taken off again, as one step: the sound comes back as a
+            // clip, which is what was asked for.
+            DetachPlan::Again => Command::Batch {
+                commands: vec![
+                    Command::UpdateClip {
+                        clip_id: clip.id.clone(),
+                        patch: ClipPatch {
+                            muted: Some(false),
+                            ..Default::default()
+                        },
+                    },
+                    detach,
+                ],
+            },
+        };
+        let token = self.toast.token;
+        self.apply(command);
+        let sounds: Vec<String> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|other| other.detached_from.as_deref() == Some(clip.id.as_str()))
+            .map(|other| other.id.clone())
+            .collect();
+        if sounds.is_empty() {
+            // A failure has said so already.
+            if self.toast.token == token {
+                self.notify(&t("studio.detachNoSound"), false);
+            }
+            return;
+        }
+        self.transition_selected = None;
+        self.selection = sounds;
+    }
+
     pub fn clip_action(&mut self, id: &str, action: &str) {
         log::info!("clip menu: {action} on {id}");
         let Some(clip) = self.clip(id).cloned() else {
@@ -10258,11 +10337,7 @@ impl Studio {
                 self.inspector_jump = (self.inspector_jump.0 + 1, "Video", "Enhance");
             }
             "export-audio" => self.export_clip_audio(id),
-            "detach" => {
-                self.apply(Command::DetachAudio {
-                    clip_id: id.to_owned(),
-                });
-            }
+            "detach" => self.detach_audio(&clip),
             "reattach" => {
                 self.apply(Command::ReattachAudio {
                     clip_id: id.to_owned(),
@@ -10329,6 +10404,48 @@ impl Studio {
             index,
         });
     }
+}
+
+/// How a detach goes, or why it cannot; see [`detach_plan`].
+#[derive(Debug, PartialEq, Eq)]
+enum DetachPlan {
+    /// The sound comes off.
+    Detach,
+    /// The picture is still muted by a detach whose sound clip has since
+    /// been deleted: it is unmuted, then its sound comes off.
+    Again,
+    /// Not a video, or its file has no sound.
+    NoSound,
+    /// Its sound is on the timeline already, detached.
+    Already,
+}
+
+/// How a detach of `clip` goes, given whether its file has sound and
+/// whether a sound detached from it is on the timeline. `DetachAudio`
+/// itself changes nothing when it cannot happen, and says nothing; the
+/// last two answers are what the window says instead.
+fn detach_plan(clip: &Clip, has_audio: bool, detached: bool) -> DetachPlan {
+    if clip.kind != model::ClipKind::Video || !has_audio {
+        DetachPlan::NoSound
+    } else if detached {
+        DetachPlan::Already
+    } else if clip.muted == Some(true) {
+        DetachPlan::Again
+    } else {
+        DetachPlan::Detach
+    }
+}
+
+/// Whether a move puts any clip somewhere other than where `before` has
+/// it: another lane, or another start. A drag works in `f32` seconds, so a
+/// start is compared as the drag holds it; one that only went through that
+/// rounding has not moved.
+fn moved_any<'a>(moves: &[ClipMove], before: impl Fn(&str) -> Option<&'a Clip>) -> bool {
+    moves.iter().any(|wanted| {
+        before(&wanted.clip_id).is_some_and(|clip| {
+            clip.track_id != wanted.track_id || clip.start as f32 != wanted.start as f32
+        })
+    })
 }
 
 /// The clips a flattened edit makes audible, as playback takes them:
@@ -10422,6 +10539,54 @@ mod tests {
                 .iter()
                 .all(Option::is_none)
         );
+    }
+
+    /// A detach that cannot happen has a reason to give, and a picture
+    /// left muted by a deleted sound clip detaches again.
+    #[test]
+    fn a_detach_says_why_it_cannot_happen() {
+        use super::{DetachPlan, detach_plan};
+        use concat_project::model::{Clip, ClipKind};
+        let video = Clip::blank("v", "t", ClipKind::Video, "v", 0.0, 2.0);
+        assert_eq!(detach_plan(&video, true, false), DetachPlan::Detach);
+        assert_eq!(detach_plan(&video, false, false), DetachPlan::NoSound);
+        assert_eq!(detach_plan(&video, true, true), DetachPlan::Already);
+        let silenced = Clip {
+            muted: Some(true),
+            ..video.clone()
+        };
+        assert_eq!(detach_plan(&silenced, true, false), DetachPlan::Again);
+        assert_eq!(detach_plan(&silenced, true, true), DetachPlan::Already);
+        let sound = Clip::blank("a", "t", ClipKind::Audio, "a", 0.0, 2.0);
+        assert_eq!(detach_plan(&sound, true, false), DetachPlan::NoSound);
+    }
+
+    /// A click on a clip is a move to where it already is, and is no edit;
+    /// a start that only went through the drag's `f32` is no move either.
+    #[test]
+    fn a_click_moves_nothing() {
+        use concat_project::commands::ClipMove;
+        use concat_project::model::{Clip, ClipKind};
+        let clip = Clip::blank("c", "t", ClipKind::Video, "c", 1.1, 2.0);
+        let before = |id: &str| (id == "c").then_some(&clip);
+        let to = |start: f64, track: &str| {
+            vec![ClipMove {
+                clip_id: "c".into(),
+                start,
+                track_id: track.into(),
+            }]
+        };
+        assert!(!super::moved_any(&to(1.1, "t"), before));
+        assert!(!super::moved_any(&to(f64::from(1.1_f32), "t"), before));
+        assert!(super::moved_any(&to(1.2, "t"), before));
+        assert!(super::moved_any(&to(1.1, "u"), before));
+        // A clip that has gone is not a move.
+        let gone = vec![ClipMove {
+            clip_id: "x".into(),
+            start: 9.0,
+            track_id: "t".into(),
+        }];
+        assert!(!super::moved_any(&gone, before));
     }
 
     /// A wheel is keyed as one knob: named by itself or by any of its own
