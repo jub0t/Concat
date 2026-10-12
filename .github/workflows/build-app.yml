@@ -181,12 +181,11 @@ jobs:
             inno: arm64
             wix: arm64
     runs-on: ${{ matrix.os }}
-    # The slowest target (Intel macOS, fat LTO) builds in under half an
-    # hour, and the checks after the build add a few minutes. The steps
-    # that can hang have timeouts of their own, at most 115 minutes
-    # between them on any one target, so a stuck step is named by its own
-    # timeout; this is for a job stuck anywhere else.
-    timeout-minutes: 150
+    # The slowest target is Intel macOS, whose build alone ran past an hour
+    # in v0.2.7-rc.1. The steps that can hang have timeouts of their own,
+    # at most 155 minutes between them on any one target, so a stuck step
+    # is named by its own timeout; this is for a job stuck anywhere else.
+    timeout-minutes: 190
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -503,7 +502,9 @@ jobs:
       # read, but the step summary is public - so on failure the tail of the
       # build goes there, and a red run explains itself to anyone.
       - name: Build
-        timeout-minutes: 60
+        # An Intel Mac runner is the slow one: its release build ran past
+        # sixty minutes in v0.2.7-rc.1.
+        timeout-minutes: ${{ matrix.platform == 'macos' && matrix.arch == 'x86_64' && 100 || 60 }}
         shell: bash
         working-directory: src
         run: |
@@ -972,18 +973,35 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/ci/smoke-windows.ps1 -Bundle "stage\Concat-$env:VERSION-windows-${{ matrix.arch }}"
+
+      # The same, then `--version` under Intel's emulator posing as an Ivy
+      # Bridge (#313). A step of its own, after the plain smoke test: in
+      # v0.2.7-rc.1 one step did both, sat silent for its fifteen minutes
+      # and said nothing about the bundle, stuck before its first line -
+      # most likely in Windows' tar over SDE's .tar.xz. 7-Zip, which the
+      # runner has, unpacks it here, and each stage says when it starts.
+      - name: Smoke test on an emulated Ivy Bridge (Windows x86_64)
+        if: matrix.platform == 'windows' && matrix.arch == 'x86_64'
+        timeout-minutes: 30
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
-          $sde = ""
-          if ("${{ matrix.arch }}" -eq "x86_64") {
-            & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh sde-win sde.tar.xz
-            if ($LASTEXITCODE -ne 0) { throw "the SDE download failed" }
-            New-Item -ItemType Directory -Force sde | Out-Null
-            tar -xf sde.tar.xz -C sde --strip-components=1
-            if ($LASTEXITCODE -ne 0) { throw "unpacking SDE failed" }
-            $sde = "sde\sde.exe"
-          }
-          scripts/ci/smoke-windows.ps1 -Bundle "stage\Concat-$env:VERSION-windows-${{ matrix.arch }}" -Sde $sde
+          Write-Host "downloading SDE"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh sde-win sde.tar.xz
+          if ($LASTEXITCODE -ne 0) { throw "the SDE download failed" }
+          Write-Host "unpacking SDE"
+          $7z = "$env:ProgramFiles\7-Zip\7z.exe"
+          & $7z x -y sde.tar.xz | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "unpacking sde.tar.xz failed" }
+          & $7z x -y -osde sde.tar | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "unpacking sde.tar failed" }
+          $sde = (Get-ChildItem sde -Recurse -Filter sde.exe | Select-Object -First 1).FullName
+          if (-not $sde) { throw "sde.exe is not in the archive" }
+          Write-Host "SDE at $sde"
+          scripts/ci/smoke-windows.ps1 -Bundle "stage\Concat-$env:VERSION-windows-x86_64" -Sde $sde
 
       # Every x86_64 binary in the folder, disassembled and counted for
       # instructions an Ivy Bridge does not have, against what
