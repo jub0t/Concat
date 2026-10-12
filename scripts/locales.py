@@ -4,7 +4,8 @@
     scripts/locales.py            # bring locales/en.json up to date with the
                                   # source, and drop lines no source asks for
     scripts/locales.py --check    # report what each locale lacks; exit 1 on
-                                  # anything out of step
+                                  # anything out of step, and on a language
+                                  # the app and the READMEs do not both have
     scripts/locales.py --check --same
                                   # also list each line still in English
     scripts/locales.py --check --strict
@@ -28,6 +29,12 @@ so this script writes those lines of en.json itself:
     presets.<name>                        a text preset's name
 
 en.json is the inventory a translator starts from; see TRANSLATING.md.
+
+The app speaks the languages the READMEs are written in, one for one:
+every `locales/<code>.json` is compiled in through `BUILT_IN` in
+src/crates/concat/src/i18n.rs and has a `docs/README.<code>.md` (English's
+is README.md), and every README has its locale. `--check` fails on a
+language one side has and the other does not.
 """
 import json
 import pathlib
@@ -49,6 +56,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CRATE = ROOT / "src" / "crates" / "concat"
 LOCALES = CRATE / "locales"
 PACKAGES = ROOT / "src" / "crates" / "concat-effects" / "packages"
+I18N = CRATE / "src" / "i18n.rs"
+DOCS = ROOT / "docs"
 
 # A Rust or Slint string literal, with its escapes.
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
@@ -57,6 +66,8 @@ RUST_CALL = re.compile(r"(?<![A-Za-z_])(?:i18n::)?tf?\(\s*" + LITERAL)
 TOML_FIELD = re.compile(r'^(name|description|category|label|group)\s*=\s*' + LITERAL, re.M)
 PRESET = re.compile(r'look\(\s*"([^"]+)",\s*' + LITERAL)
 KEY = re.compile(r"^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$")
+# One entry of i18n.rs's BUILT_IN: `("pt-BR", include_str!("../locales/pt-BR.json")),`.
+BUILT_IN_ENTRY = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("\.\./locales/([^"]+)\.json"\)\s*\)')
 
 
 # Lines that read the same in every language and are not a translation
@@ -180,6 +191,32 @@ def inventory() -> tuple[dict[str, str], list[str]]:
     return wanted, problems
 
 
+def parity() -> list[str]:
+    """Where the app's languages and the READMEs' part: a locale file the
+    app does not compile in, a code compiled in with no file, a locale
+    with no README, a README with no locale."""
+    files = {path.stem for path in LOCALES.glob("*.json")}
+    built_in: set[str] = set()
+    for code, file in BUILT_IN_ENTRY.findall(I18N.read_text(encoding="utf-8")):
+        built_in.add(code)
+        if code != file:
+            files.add(f"{code} (BUILT_IN reads {file}.json)")
+    readmes = {path.name.removeprefix("README.").removesuffix(".md")
+               for path in DOCS.glob("README.*.md")}
+    if (ROOT / "README.md").exists():
+        readmes.add("en")
+    out = []
+    out += [f"locales/{code}.json is not in BUILT_IN in src/crates/concat/src/i18n.rs"
+            for code in sorted(files - built_in)]
+    out += [f"BUILT_IN lists {code}, which has no locales/{code}.json"
+            for code in sorted(built_in - files)]
+    out += [f"locales/{code}.json has no docs/README.{code}.md"
+            for code in sorted((files | built_in) - readmes)]
+    out += [f"docs/README.{code}.md has no locales/{code}.json"
+            for code in sorted(readmes - files)]
+    return out
+
+
 def check(wanted: dict[str, str], list_same: bool = False, strict: bool = False) -> int:
     """Reports each locale's missing, stale and untranslated lines. Stale
     fails; a line still in English is counted, listed with `list_same`, and
@@ -223,6 +260,9 @@ def main() -> int:
     for problem in problems:
         print(problem)
     if "--check" in sys.argv:
+        apart = parity()
+        for problem in apart:
+            print(f"languages: {problem}")
         current = read(LOCALES / "en.json")
         listed = {k: v for k, v in current.items() if k != "_"}
         if listed != wanted:
@@ -234,7 +274,11 @@ def main() -> int:
             for key in sorted(k for k in set(wanted) & set(listed) if wanted[k] != listed[k]):
                 print(f"    changed: {key}")
             return 1
-        return 1 if problems else check(wanted, "--same" in sys.argv, "--strict" in sys.argv)
+        failed = 1 if problems else check(wanted, "--same" in sys.argv, "--strict" in sys.argv)
+        if apart:
+            print(f"languages: the app and the READMEs part on {len(apart)}; "
+                  "every locale has a README and every README a locale")
+        return 1 if apart else failed
     write(LOCALES / "en.json", {"_": {"name": "English"}, **wanted})
     print(f"{len(wanted)} strings in {LOCALES / 'en.json'}")
     # A line for a string the interface no longer has is dropped: the
