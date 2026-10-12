@@ -586,7 +586,15 @@ export component ConfigPane inherits Rectangle {
                     alignment: center;
                     SegmentedControl {
                         options: root.sections-shown;
-                        current: Math.max(0, Math.min(root.section, root.sections.length - 1));
+                        // A press on a segment assigns `current` inside the
+                        // control, which ends a plain binding here: the
+                        // highlight then stayed where it was pressed while
+                        // the tab, the selection or a jump moved the section
+                        // under it. So it is set again whenever the section
+                        // shown changes. https://github.com/jub0t/Concat/issues/250
+                        property <int> shown: Math.max(0, Math.min(root.section, root.sections.length - 1));
+                        current: self.shown;
+                        changed shown => { self.current = self.shown; }
                         changed(index) => { root.pick-section(index); }
                     }
                 }
