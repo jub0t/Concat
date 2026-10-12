@@ -67,15 +67,3 @@ version.
 Nothing here limits the permissions the AGPL already grants you, and nothing
 here is a licence to any patent beyond what AGPL-3.0-or-later section 11
 already provides.
-
----
-
-## Commercial licensing
-
-The AGPL's reciprocity is deliberate: if you build on Concat's engine, the
-result stays open for the people who use it.
-
-If that does not fit your situation, Concat's copyright is held centrally (all
-contributions are made under the CLA in [`CLA.md`](CLA.md)), so a separate
-commercial licence can be granted without the AGPL's obligations. Enquiries:
-**jub0trd@gmail.com**.

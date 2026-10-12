@@ -1,12 +1,11 @@
 # Concat Contributor Licence Agreement
 
-**Version 1.0**
+**Version 1.1**
 
 Thank you for contributing to Concat. This agreement sets out the terms under
 which your contribution is accepted. It exists so that Concat's copyright stays
 in one place, which is what makes it possible to enforce the AGPL against
-anyone who violates it, and to keep offering the project under a licence of the
-maintainers' choosing.
+anyone who violates it.
 
 **You keep the copyright in your work.** This is a licence, not an assignment.
 Everything you contribute stays yours, and stays available to you for any
@@ -43,17 +42,14 @@ the patent licences granted to you under this agreement terminate.
 
 ## 4. Right to license the work
 
-You agree that the Project may license your Contribution:
+You agree that the Project may license your Contribution under
+AGPL-3.0-or-later, together with the exceptions in
+[`LICENSE-EXCEPTIONS.md`](LICENSE-EXCEPTIONS.md), as part of Concat.
 
-- under AGPL-3.0-or-later, together with the exceptions in
-  [`LICENSE-EXCEPTIONS.md`](LICENSE-EXCEPTIONS.md); and
-- under other licence terms, including commercial terms, as part of Concat.
-
-This is what allows the Project to offer commercial licences to organisations
-that cannot use the AGPL, and to adjust Concat's licence in future without
-having to locate every past contributor. Any relicensing applies to Concat as
-distributed by the Project; it does not restrict your own use of your work, and
-it does not retract the AGPL-licensed releases that already exist.
+The Project offers Concat under that licence only: not under commercial terms,
+and not under any other licence. Version 1.0 of this agreement also allowed
+other licence terms, including commercial ones; the Project does not use that
+permission, for contributions made under 1.0 or since.
 
 ## 5. Your representations
 
