@@ -26,11 +26,7 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-**🇬🇧 English** · [🇩🇪 Deutsch](docs/README.de.md) · [🇪🇸 Español](docs/README.es.md) · [🇫🇷 Français](docs/README.fr.md) · [🇮🇹 Italiano](docs/README.it.md) · [🇧🇷 Português (Brasil)](docs/README.pt-BR.md) · [🇷🇺 Русский](docs/README.ru.md) · [🇺🇦 Українська](docs/README.uk.md) · [🇹🇷 Türkçe](docs/README.tr.md) · [🇭🇷 Hrvatski](docs/README.hr.md) · [🇮🇩 Bahasa Indonesia](docs/README.id.md) · [🇻🇳 Tiếng Việt](docs/README.vi.md) · [🇯🇵 日本語](docs/README.ja.md) · [🇰🇷 한국어](docs/README.ko.md) · [🇨🇳 简体中文](docs/README.zh-Hans.md) · [🇹🇼 繁體中文](docs/README.zh-TW.md) · [🇸🇦 العربية](docs/README.ar.md) · [🇮🇱 עברית](docs/README.he.md) · [🇮🇷 فارسی](docs/README.fa.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇵🇰 اردو](docs/README.ur.md)
-
-
-
-
+**🇬🇧 English** · [🇩🇪 Deutsch](docs/README.de.md) · [🇪🇸 Español](docs/README.es.md) · [🇫🇷 Français](docs/README.fr.md) · [🇮🇹 Italiano](docs/README.it.md) · [🇳🇱 Nederlands](docs/README.nl.md) · [🇵🇱 Polski](docs/README.pl.md) · [🇧🇷 Português (Brasil)](docs/README.pt-BR.md) · [🇷🇺 Русский](docs/README.ru.md) · [🇺🇦 Українська](docs/README.uk.md) · [🇹🇷 Türkçe](docs/README.tr.md) · [🇭🇷 Hrvatski](docs/README.hr.md) · [🇮🇩 Bahasa Indonesia](docs/README.id.md) · [🇻🇳 Tiếng Việt](docs/README.vi.md) · [🇹🇭 ไทย](docs/README.th.md) · [🇯🇵 日本語](docs/README.ja.md) · [🇰🇷 한국어](docs/README.ko.md) · [🇨🇳 简体中文](docs/README.zh-Hans.md) · [🇹🇼 繁體中文](docs/README.zh-TW.md) · [🇸🇦 العربية](docs/README.ar.md) · [🇮🇱 עברית](docs/README.he.md) · [🇮🇷 فارسی](docs/README.fa.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇵🇰 اردو](docs/README.ur.md) · [🇧🇩 বাংলা](docs/README.bn.md)
 
 ## Paid Sponsors
 
@@ -42,8 +38,8 @@
       <sub>Pay-as-you-go proxies for developers<br />Use code <code>JUB0T</code> for 20% off</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Your logo here</b></a><br />
-      <sub><a href="#sponsoring">Sponsor Concat</a> and your name, logo and link take this slot</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>Your logo here</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Sponsor Concat</a> and your name, logo and link take this slot</sub>
     </td>
   </tr>
 </table>
@@ -77,7 +73,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 - 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
 - 🦀 **Native Rust engine.** GPU compositor, proxies, hardware decode. 4K scrubs smoothly.
 - 🤖 **Scriptable.** JSON-RPC, gRPC and MCP API, plus a CLI. AI agents can cut video with it.
-- 🖥️ **macOS, Windows, Linux, Android.** 16 languages. Same app, same project files.
+- 🖥️ **macOS, Windows, Linux, Android.** 25 languages. Same app, same project files.
 
 ## Download
 
@@ -99,23 +95,6 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 ✅ Supported · 🚧 Work in progress · 🧪 To be tested
 
 **System requirements** and the optional model sizes are on [the website](https://concatenate.pages.dev/guides/system-requirements).
-
-## Get started
-
-Download it, open it, drop footage in, cut. No account, no setup.
-
-**Reporting something:** every run writes a log, and Settings › About has the button that opens it along with the one that copies your system information. Attach both to an [issue](https://github.com/jub0t/Concat/issues) and the report arrives with everything it needs. The last ten runs are kept, so yesterday's is still there; nothing is ever sent anywhere on its own.
-
-### Open a project from the command line
-
-The `concat --project <PROJECT_DIRECTORY>` option opens a project in a new GUI instance. Running `concat` with no arguments keeps the usual startup behaviour.
-
-```sh
-concat --project ./projects/my-cut
-concat --project "C:\Projects\My Cut"
-```
-
-Use an absolute path or a path relative to the current working directory, and quote paths that contain spaces. Pass the project folder, not the JSON file: it must contain `concat.json` or the legacy `wolfcut.json`. This launches a new instance; it does not control an already running GUI. If the project cannot be opened, the new GUI shows its normal project-open error.
 
 ## How to Contribute
 

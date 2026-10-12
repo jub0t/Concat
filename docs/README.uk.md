@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · **🇺🇦 Українська** · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · **🇺🇦 Українська** · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> Перекладено з англійського README 2 жовтня 2026 року. Актуальною підтримується англійська версія.
+> Перекладено з англійського README 11 жовтня 2026 року. Актуальною підтримується англійська версія.
 
 ## Платні спонсори
 
@@ -40,8 +40,8 @@
       <sub>Проксі з оплатою за використання для розробників<br />Код <code>JUB0T</code> дає знижку 20 %</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Ваш логотип тут</b></a><br />
-      <sub><a href="#sponsoring">Підтримайте Concat</a> і ваше ім’я, логотип і посилання займуть це місце</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>Ваш логотип тут</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Підтримайте Concat</a> і ваше ім’я, логотип і посилання займуть це місце</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Concat - безкоштовний відеоредактор з відкрити
 - 📤 **Експорт.** H.264, HEVC, AV1. До 4K 60, 10-бітний колір.
 - 🦀 **Нативний рушій на Rust.** GPU-композитор, проксі, апаратне декодування. 4K перемотується плавно.
 - 🤖 **Скриптований.** API JSON-RPC, gRPC і MCP плюс CLI. ШІ-агенти можуть монтувати в ньому відео.
-- 🖥️ **macOS, Windows, Linux, Android.** 16 мов. Один застосунок, ті самі файли проєктів.
+- 🖥️ **macOS, Windows, Linux, Android.** 25 мов. Один застосунок, ті самі файли проєктів.
 
 ## Завантажити
 
@@ -98,12 +98,6 @@ Concat у **беті**: він працює, але шорсткості ще є
 
 **Системні вимоги** та розміри необов’язкових моделей - на [сайті](https://concatenate.pages.dev/guides/system-requirements).
 
-## Початок роботи
-
-Завантажте, відкрийте, перетягніть матеріал, ріжте. Без облікового запису, без налаштування.
-
-**Щоб повідомити про проблему:** кожен запуск пише журнал, а в Налаштування › Про програму є кнопка, яка його відкриває, поруч із тією, що копіює відомості про систему. Додайте обидва до [issue](https://github.com/jub0t/Concat/issues) - і звіт прийде з усім потрібним. Зберігаються останні десять запусків, тож учорашній ще на місці; нічого нікуди не надсилається саме по собі.
-
 ## Як долучитися
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat у **беті**: він працює, але шорсткості ще є
 
 ## Історія зірок
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat у **беті**: він працює, але шорсткості ще є
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## Спонсорство
+## DMCA
 
-У Concat немає платного доступу й ніколи не буде: ані водяного знака, ані облікового запису, ані платного тарифу. Його місце посідає спонсорство. Якщо Concat замінив вам підписку, мала її частина тримає його на плаву.
-
-**Куди йдуть кошти**
-
-[Дорожня карта](https://concatenate.pages.dev/roadmap) показує, що оплачує спонсорство і скільки коштує кожна частина.
-
-Оберіть рівень на [сайті](https://concatenate.pages.dev/#sponsor).
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-Немає змоги допомогти грошима? Зірка, повідомлення про помилку чи слово тому, хто монтує відео, теж важать дуже багато.
+Якщо ви вважаєте, що щось у цьому репозиторії, у його релізах або в пакеті чи моделі, які він поширює, порушує ваші авторські права, напишіть на [jub0trd@gmail.com](mailto:jub0trd@gmail.com), указавши: опис твору, що вам належить; посилання на місце, де тут з’являється матеріал, що порушує права; ваші контактні дані; заяву про те, що ви сумлінно вважаєте, що таке використання не дозволене ні вами, ні вашим представником, ні законом; і заяву під страхом покарання за неправдиві свідчення про те, що повідомлення точне і що ви є правовласником або уповноважені діяти від його імені, — з вашим власноручним або електронним підписом. Дійсні повідомлення розглядаються невідкладно, а будь-хто, чий матеріал було видалено, може надіслати зустрічне повідомлення на ту саму адресу.

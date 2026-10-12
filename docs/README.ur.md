@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو**
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · **🇵🇰 اردو** · [🇧🇩 বাংলা](README.bn.md)
 
-> 2 اکتوبر 2026 کو انگریزی README سے ترجمہ کیا گیا۔ انگریزی نسخہ ہی تازہ رکھا جاتا ہے۔
+> 11 اکتوبر 2026 کو انگریزی README سے ترجمہ کیا گیا۔ انگریزی نسخہ ہی تازہ رکھا جاتا ہے۔
 
 ## ادا شدہ سپانسرز
 
@@ -40,8 +40,8 @@
       <sub>ڈویلپرز کے لیے استعمال کے مطابق ادائیگی والے پراکسی<br />کوڈ <code>JUB0T</code> سے 20 % رعایت</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>آپ کا لوگو یہاں</b></a><br />
-      <sub><a href="#sponsoring">Concat کو سپانسر کریں</a> اور آپ کا نام، لوگو اور لنک اس جگہ آ جائے گا</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>آپ کا لوگو یہاں</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Concat کو سپانسر کریں</a> اور آپ کا نام، لوگو اور لنک اس جگہ آ جائے گا</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Concat ایک مفت، اوپن سورس ویڈیو ایڈیٹر اور macOS، 
 - 📤 **ایکسپورٹ۔** H.264، HEVC، AV1۔ 4K 60 تک، 10 بٹ رنگ۔
 - 🦀 **نیٹو Rust انجن۔** GPU کمپوزیٹر، پراکسیز، ہارڈویئر ڈی کوڈ۔ 4K آسانی سے اسکرب ہوتا ہے۔
 - 🤖 **اسکرپٹ کے قابل۔** JSON-RPC، gRPC اور MCP API، ساتھ ایک CLI۔ AI ایجنٹس اس سے ویڈیو کاٹ سکتے ہیں۔
-- 🖥️ **macOS، Windows، Linux، Android۔** 16 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
+- 🖥️ **macOS، Windows، Linux، Android۔** 25 زبانیں۔ وہی ایپ، وہی پراجیکٹ فائلیں۔
 
 ## ڈاؤن لوڈ
 
@@ -98,12 +98,6 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 
 **سسٹم کی ضروریات** اور اختیاری ماڈلز کے سائز [ویب سائٹ](https://concatenate.pages.dev/guides/system-requirements) پر ہیں۔
 
-## شروع کریں
-
-ڈاؤن لوڈ کریں، کھولیں، فوٹیج ڈالیں، کاٹیں۔ نہ اکاؤنٹ، نہ سیٹ اپ۔
-
-**کچھ رپورٹ کرنا ہو تو:** ہر رن ایک لاگ لکھتا ہے، اور Settings › About میں اسے کھولنے کا بٹن ہے، اسی کے ساتھ آپ کے سسٹم کی معلومات کاپی کرنے والا بٹن۔ دونوں کو ایک [issue](https://github.com/jub0t/Concat/issues) میں منسلک کریں اور رپورٹ ضروری سب کچھ لے کر پہنچ جاتی ہے۔ پچھلے دس رن محفوظ رہتے ہیں، تو کل والا بھی موجود ہے؛ کچھ بھی خود بخود کہیں نہیں بھیجا جاتا۔
-
 ## حصہ کیسے ڈالیں
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
 
 ## اسٹار کی تاریخ
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat **بیٹا** میں ہے: یہ کام کرتا ہے، اور ابھی ا�
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## سپانسرشپ
+## DMCA
 
-Concat میں کوئی پے وال نہیں ہے اور کبھی نہیں ہوگی: نہ واٹر مارک، نہ اکاؤنٹ، نہ ادا شدہ درجہ۔ اس کی جگہ سپانسرشپ لیتی ہے۔ اگر Concat نے آپ کے لیے کسی سبسکرپشن کی جگہ لے لی ہے، تو اس کا ایک حصہ اسے چلائے رکھتا ہے۔
-
-**پیسہ کہاں جاتا ہے**
-
-[روڈ میپ](https://concatenate.pages.dev/roadmap) بتاتا ہے کہ سپانسرشپ سے کیا بنتا ہے اور ہر حصے کی لاگت کتنی ہے۔
-
-[ویب سائٹ](https://concatenate.pages.dev/#sponsor) پر ایک درجہ چنیں۔
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-ابھی حصہ ڈالنے کی پوزیشن میں نہیں؟ ایک اسٹار، ایک بگ رپورٹ، یا ویڈیو ایڈٹ کرنے والے کسی کو ایک بات بتانا بھی بہت معنی رکھتا ہے۔
+اگر آپ سمجھتے ہیں کہ اس ریپوزٹری، اس کی ریلیزز، یا اس کے تقسیم کردہ کسی پیکیج یا ماڈل میں کوئی چیز آپ کے کاپی رائٹ کی خلاف ورزی کرتی ہے، تو [jub0trd@gmail.com](mailto:jub0trd@gmail.com) پر ای میل کریں اور اس میں یہ شامل کریں: اس تخلیق کی تفصیل جس کے آپ مالک ہیں، اس جگہ کا لنک جہاں خلاف ورزی کرنے والا مواد یہاں موجود ہے، آپ کی رابطے کی تفصیلات، یہ بیان کہ آپ نیک نیتی سے سمجھتے ہیں کہ اس استعمال کی اجازت نہ آپ نے، نہ آپ کے ایجنٹ نے اور نہ قانون نے دی ہے، اور جھوٹی گواہی کی سزا کے تحت یہ بیان کہ نوٹس درست ہے اور آپ مالک ہیں یا مالک کی جانب سے کارروائی کے مجاز ہیں، جس پر آپ کے ہاتھ کے یا الیکٹرانک دستخط ہوں۔ درست نوٹسوں پر فوری کارروائی کی جاتی ہے، اور جس کسی کا مواد ہٹایا جائے وہ اسی پتے پر جوابی نوٹس بھیج سکتا ہے۔
