@@ -106,6 +106,17 @@ Download it, open it, drop footage in, cut. No account, no setup.
 
 **Reporting something:** every run writes a log, and Settings › About has the button that opens it along with the one that copies your system information. Attach both to an [issue](https://github.com/jub0t/Concat/issues) and the report arrives with everything it needs. The last ten runs are kept, so yesterday's is still there; nothing is ever sent anywhere on its own.
 
+### Open a project from the command line
+
+The `concat --project <PROJECT_DIRECTORY>` option opens a project in a new GUI instance. Running `concat` with no arguments keeps the usual startup behaviour.
+
+```sh
+concat --project ./projects/my-cut
+concat --project "C:\Projects\My Cut"
+```
+
+Use an absolute path or a path relative to the current working directory, and quote paths that contain spaces. Pass the project folder, not the JSON file: it must contain `concat.json` or the legacy `wolfcut.json`. This launches a new instance; it does not control an already running GUI. If the project cannot be opened, the new GUI shows its normal project-open error.
+
 ## How to Contribute
 
 > [!IMPORTANT]

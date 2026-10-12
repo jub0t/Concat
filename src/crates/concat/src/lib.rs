@@ -131,6 +131,15 @@ pub fn report_startup_failure(error: &slint::PlatformError) {
 
 /// Builds the window, binds it to the engine, and runs it until it closes.
 pub fn run() -> Result<(), slint::PlatformError> {
+    run_with_project(None)
+}
+
+/// Builds the window and opens a project directory before its first frame.
+///
+/// Relative paths are resolved against the launcher's working directory. An
+/// unreadable project leaves the launch screen open with the usual error notice.
+/// Each invocation creates its own window; this does not control another instance.
+pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
     // runs, and by the time an OS drop can actually happen, it has. Import
@@ -1829,6 +1838,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
             }
         }
     });
+
+    if let Some(path) = project {
+        // Use the same loader as Open project, after all callbacks and models
+        // are installed. Make the path absolute so recents never depend on the
+        // launcher's working directory on a later run. Unlike canonicalize,
+        // this does not introduce Windows verbatim paths into media tooling.
+        let opened = std::path::absolute(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))
+            .and_then(|path| {
+                let path = path
+                    .to_str()
+                    .ok_or_else(|| "project directory is not valid Unicode".to_string())?;
+                concat_host::projects::open(path)
+            })
+            .and_then(|info| shell.studio.borrow_mut().open_project(info));
+        if let Err(error) = opened {
+            log::error!("could not open launch project: {error}");
+            shell.studio.borrow_mut().notify(&error, true);
+        }
+    }
 
     {
         shell.studio.borrow_mut().refresh_art();
