@@ -346,7 +346,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "the LLVM download failed" }
           Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=C:\llvm"
           if (-not (Test-Path C:\llvm\bin\libclang.dll)) { throw "LLVM did not install to C:\llvm" }
-          Remove-Item llvm.exe
+          # The installer is not needed once LLVM is in place. On Windows on
+          # ARM it can still hold its own file open after it returns, which
+          # turned the deletion into the step's failure in v0.2.7-rc.1; a
+          # left-over installer in the workspace harms nothing.
+          Remove-Item llvm.exe -ErrorAction SilentlyContinue
           if ("${{ matrix.arch }}" -eq "aarch64") {
             "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
