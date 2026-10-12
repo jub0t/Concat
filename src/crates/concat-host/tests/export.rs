@@ -1547,16 +1547,26 @@ fn every_edit_still_exports() {
     exported.expect_length(end);
     exported.expect_sound(end);
 
-    // A layer over everything, and a title.
-    studio.apply(Command::AddLayerClip {
-        track_id: None,
-        start: 2.0,
-        duration: Some(3.0),
-        effect_id: "concat.glow".to_owned(),
-        name: "Glow".to_owned(),
-    });
-    let exported = studio.export("layer");
-    exported.expect_length(end);
+    // A layer over everything, and a title. The glow is a wide Gaussian,
+    // and on Windows' software adapter (WARP) its first frame ran past
+    // twelve minutes; there, as for the effect cards, it is left out unless
+    // CONCAT_REQUIRE_GPU is set. Linux's lavapipe and every real GPU still
+    // export it. The layer sits inside the cut, so nothing after it depends
+    // on it.
+    let software = export::WgpuCompositor::new().is_some_and(|gpu| gpu.on_software_adapter());
+    if software && std::env::var_os("CONCAT_REQUIRE_GPU").is_none() {
+        eprintln!("a software adapter only, and CONCAT_REQUIRE_GPU is not set; no glow layer");
+    } else {
+        studio.apply(Command::AddLayerClip {
+            track_id: None,
+            start: 2.0,
+            duration: Some(3.0),
+            effect_id: "concat.glow".to_owned(),
+            name: "Glow".to_owned(),
+        });
+        let exported = studio.export("layer");
+        exported.expect_length(end);
+    }
     studio.apply(Command::AddTextClip {
         above: false,
         track_id: None,

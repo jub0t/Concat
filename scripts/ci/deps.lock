@@ -52,14 +52,6 @@ appimage-runtime-aarch64     https://github.com/AppImage/type2-runtime/releases/
 llvm-win64                   https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-win64.exe            e751be8019b7500b100456c915b4b3c339d8d88b81b3aad49796d39f700e7ef3
 llvm-woa64                   https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.0/LLVM-21.1.0-woa64.exe            3f181aecc83d0eb40fb966ce18b97a3602871dbff83fc91745e7e0fd6661a7f7
 
-# Microsoft's DirectX Shader Compiler, whose dxcompiler.dll the Windows
-# bundles ship beside concat.exe (x64 or arm64 from bin\<arch>\) so wgpu
-# compiles shaders for Direct3D 12 through DXC rather than the old FXC,
-# and which CI's Windows tests put on the path. A bump changes the version
-# in THIRD_PARTY_NOTICES.md too, and the dxcompiler.dll row in
-# scripts/ci/isa-allow.txt, whose limits were measured on this build.
-dxc                          https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip     ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
-
 # Intel's Software Development Emulator, which the smoke tests run the
 # x86_64 bundles under posing as an Ivy Bridge (AVX, no AVX2): the CPU the
 # bundles promise to start on. See scripts/ci/smoke-*.

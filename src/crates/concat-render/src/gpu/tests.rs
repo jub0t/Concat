@@ -32,6 +32,21 @@ fn gpu() -> Option<WgpuCompositor> {
     compositor
 }
 
+/// [`gpu`], for the suites that draw every package or a wide blur: skipped
+/// on a software adapter unless `CONCAT_REQUIRE_GPU` is set, as the effect
+/// cards are (concat-host's cards.rs). On Windows' WARP each of them ran
+/// past five minutes, every compile going through FXC and every pixel
+/// through the CPU, and never finished. Linux's lavapipe runs them under
+/// `CONCAT_REQUIRE_GPU`, and a real GPU always does.
+fn heavy_gpu() -> Option<WgpuCompositor> {
+    let gpu = gpu()?;
+    if gpu.on_software_adapter() && std::env::var_os("CONCAT_REQUIRE_GPU").is_none() {
+        eprintln!("a software adapter only, and CONCAT_REQUIRE_GPU is not set; skipping");
+        return None;
+    }
+    Some(gpu)
+}
+
 fn solid(width: u32, height: u32, rgba: [u8; 4]) -> Frame {
     let mut frame = Frame::transparent(width, height);
     frame.fill(rgba);
@@ -464,7 +479,7 @@ fn a_transition_combines_its_two_inputs_by_progress() {
 /// and draw catches a binding or layout mistake.
 #[test]
 fn every_shader_package_renders_at_its_defaults() {
-    let Some(mut gpu) = gpu() else { return };
+    let Some(mut gpu) = heavy_gpu() else { return };
     let source = solid(4, 4, [200, 120, 60, 255]);
     let catalogue = concat_effects::Catalogue::builtin();
     for package in catalogue.packages() {
@@ -1018,7 +1033,7 @@ fn near(got: [f32; 4], want: [f32; 4], tolerance: f32) -> bool {
 /// through its shader comes out as the probe pins, in floats.
 #[test]
 fn every_package_probe_holds() {
-    let Some(mut gpu) = gpu() else { return };
+    let Some(mut gpu) = heavy_gpu() else { return };
     let mut failures = Vec::new();
     let mut probed = 0;
     for package in concat_effects::Catalogue::builtin().packages() {
@@ -1412,7 +1427,7 @@ fn measured(
 #[test]
 fn the_gaussian_blur_is_a_direct_gaussian() {
     const PEAK: f64 = 6.0;
-    let Some(mut gpu) = gpu() else { return };
+    let Some(mut gpu) = heavy_gpu() else { return };
     let blur = concat_effects::Catalogue::builtin()
         .get("concat.gaussian-blur")
         .expect("a built-in");
@@ -1838,26 +1853,4 @@ fn the_largest_frame_is_what_the_device_holds() {
         gpu.max_side(),
         concat_core::frame::MAX_SIDE.min(gpu.device.limits().max_texture_dimension_2d)
     );
-}
-
-/// Direct3D 12's compiler: what `WGPU_DX12_COMPILER` names, whatever is
-/// beside the program; then the DXC beside the program, by its full path;
-/// then wgpu's own choice, when there is none there or no folder at all.
-#[test]
-fn direct3d_compiles_through_the_dxc_beside_the_program() {
-    let dir = std::path::Path::new("C:/Program Files/Concat");
-    let there = |dll: &std::path::Path| dll == dir.join("dxcompiler.dll");
-    let missing = |_: &std::path::Path| false;
-    assert_eq!(
-        dxc_beside(Some(dir), there),
-        Some(dir.join("dxcompiler.dll"))
-    );
-    assert_eq!(dxc_beside(Some(dir), missing), None);
-    assert_eq!(dxc_beside(None, there), None);
-    // Left on Auto, which loads the DLL beside the program first and falls
-    // back to FXC when it will not load; and elsewhere than Windows
-    // nothing is looked for.
-    if !cfg!(windows) || std::env::var_os("WGPU_DX12_COMPILER").is_none() {
-        assert!(matches!(dx12_compiler(), wgpu::Dx12Compiler::Auto));
-    }
 }

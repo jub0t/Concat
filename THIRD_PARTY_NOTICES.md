@@ -186,29 +186,6 @@ Studio and its list of distributable code (for Visual Studio 2022,
 https://learn.microsoft.com/visualstudio/releases/2022/redistribution),
 which permit shipping them alongside an application that uses them.
 
-## DirectX Shader Compiler (Windows)
-
-The Windows bundles and installers carry `dxcompiler.dll`, Microsoft's
-DirectX Shader Compiler (DXC), version 1.9.2609 (the `dxc_2026_09_29.zip`
-release, https://github.com/microsoft/DirectXShaderCompiler/releases/tag/v1.9.2609),
-the x64 or arm64 build to match the bundle, beside `concat.exe` and
-unmodified, Microsoft's signature included. wgpu compiles the app's
-shaders for Direct3D 12 with it. It is Microsoft's, not Concat's, and is
-not covered by Concat's licence. It comes with three licence files, which
-the bundles carry in `licenses\DirectXShaderCompiler\` exactly as the
-release archive has them:
-
-- `LICENSE-MS.txt`: the Microsoft Software License Terms for the
-  Microsoft DirectX Shader Compiler, which govern the binary and under
-  which Microsoft lets an application distribute it, on the conditions
-  they set out.
-- `LICENSE-LLVM.txt`: the LLVM Release License, the University of
-  Illinois/NCSA Open Source License (Copyright (c) 2003-2015 University of
-  Illinois at Urbana-Champaign), for the LLVM and Clang code DXC is built
-  from.
-- `LICENCE-MIT.txt`: the MIT License, Copyright (c) Microsoft
-  Corporation.
-
 ## The cutout models
 
 Remove background runs three models, none of which ship inside the app

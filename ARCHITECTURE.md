@@ -163,10 +163,6 @@ flowchart LR
   (`metrics.rs`). Every device, the compositor's own and the window's,
   carries an uncaptured-error handler that logs, so a driver error no scope
   caught is a wrong frame and a line in the log, never a dead thread.
-  On Direct3D 12 both compile their shaders through Microsoft's DXC, the
-  `dxcompiler.dll` the Windows bundle carries beside the program, rather
-  than FXC, which takes minutes over the blur and the glow
-  (`dx12_compiler` in `gpu.rs`).
 
 ### 2.1 Colour
 
