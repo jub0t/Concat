@@ -1271,6 +1271,17 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         // is selected, which is what the menu was showing anyway.
         let target = state.menu_target.clone().or_else(|| state.sole_selection());
         if let Some(id) = target {
+            // The captions sheet is a pane of its own, so its row goes
+            // through the window's messages rather than the clip's verbs:
+            // the clip is selected, and the sheet takes the selection as
+            // the clip to transcribe.
+            if action.as_str() == "captions" {
+                state.flush_commit();
+                state.transition_selected = None;
+                state.selection = vec![id];
+                state.handle(Msg::Captions(CaptionsMsg::Open));
+                return;
+            }
             state.clip_action(&id, action.as_str());
         }
     }));

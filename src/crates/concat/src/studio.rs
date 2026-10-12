@@ -9653,6 +9653,18 @@ impl Studio {
                 "",
                 self.clip_has_sound(clip),
             ));
+            // What is said in it, as titles on the timeline: the captions
+            // sheet, opened on this clip. Here so the transcriber is found
+            // where the sound is, not only on the tray (#302). The captions
+            // land on a text lane above, not on this clip's track, so a
+            // locked track does not grey it.
+            rows.push(action(
+                "captions",
+                t("captions.generateCaptions"),
+                Glyph::TextMark,
+                "",
+                self.clip_has_sound(clip),
+            ));
             rows.push(rule());
         }
         let audible = clip.kind != model::ClipKind::Image;
