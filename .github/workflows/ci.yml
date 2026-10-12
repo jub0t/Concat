@@ -213,38 +213,6 @@ jobs:
             src/nextest-*.log
           if-no-files-found: ignore
 
-  # The engine crates that carry no native library build for the web. This
-  # job is what keeps that true: a std::thread or a blocking wait that
-  # creeps into concat-core or concat-project fails here, not when someone
-  # next tries the target. See src/README.md for the list.
-  web:
-    name: Engine on wasm32
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-      - name: The pinned toolchain
-        id: toolchain
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          components: clippy
-          targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src
-          key: wasm32
-          cache-on-failure: true
-      - run: >
-          cargo clippy
-          -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text
-          --features concat-render/gpu --target wasm32-unknown-unknown
-          -- -D warnings
-        working-directory: src
-
   # The window and the engine built where they ship. Linux is the job
   # above; macOS and Windows used to be compiled only by a release tag,
   # which is where a broken platform path was found. Windows runs the

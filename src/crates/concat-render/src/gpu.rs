@@ -702,10 +702,8 @@ impl WgpuCompositor {
     /// adapter where there is not, which draws the same pictures, slower -
     /// the one road left since the CPU compositor went.
     ///
-    /// Native only: it blocks on the adapter and device requests, and on the
-    /// web there is no thread to block. A web caller awaits those requests
-    /// itself and hands the result to [`WgpuCompositor::with_device`].
-    #[cfg(not(target_arch = "wasm32"))]
+    /// It blocks on the adapter and device requests. A caller that already
+    /// holds a device hands it to [`WgpuCompositor::with_device`] instead.
     pub fn new() -> Option<Self> {
         Self::own_api_first(false)
     }
@@ -714,7 +712,6 @@ impl WgpuCompositor {
     /// Windows, lavapipe on Linux - or `None` where it has none, as a Mac
     /// has not. For going on with an export whose GPU has died under it
     /// (#223): slower, and nothing left to lose.
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn software() -> Option<Self> {
         Self::own_api_first(true)
     }
@@ -722,7 +719,6 @@ impl WgpuCompositor {
     /// [`WgpuCompositor::new`]'s order of asking: the platform's own API,
     /// then every API wgpu was built with. `software_only` leaves the
     /// hardware adapters out.
-    #[cfg(not(target_arch = "wasm32"))]
     fn own_api_first(software_only: bool) -> Option<Self> {
         let own = if cfg!(target_vendor = "apple") {
             wgpu::Backends::METAL
@@ -739,7 +735,6 @@ impl WgpuCompositor {
     /// A compositor on the best adapter among `backends`, hardware before
     /// software - or software alone - or `None` when none of them opens a
     /// device.
-    #[cfg(not(target_arch = "wasm32"))]
     fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
