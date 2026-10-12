@@ -1750,3 +1750,92 @@ fn the_software_compositor_draws_on_a_software_adapter_or_not_at_all() {
         assert_eq!(gpu.adapter_info().device_type, wgpu::DeviceType::Cpu);
     }
 }
+
+/// No wait on the device is without an end: an export whose card stopped
+/// answering sat in one for good (#297). Each goes through `wait`, which
+/// gives up after `DEVICE_WAIT`.
+#[test]
+fn no_wait_on_the_device_is_unbounded() {
+    let source = include_str!("../gpu.rs");
+    assert!(
+        !source.contains(concat!("wait_", "indefinitely")),
+        "every poll is bounded by DEVICE_WAIT"
+    );
+    assert!(DEVICE_WAIT >= std::time::Duration::from_secs(10));
+    assert!(DEVICE_WAIT <= std::time::Duration::from_secs(60));
+}
+
+/// A frame the device refuses part of - here a layer wider than any
+/// texture it can make - is a failed frame, not a wrong one handed on:
+/// the compositor says it is lost, and the export draws the frame again
+/// on another device or stops with the reason.
+#[test]
+fn a_frame_the_device_refuses_is_a_failed_frame() {
+    let Some(mut gpu) = gpu() else { return };
+    let past = gpu.device.limits().max_texture_dimension_2d + 16;
+    let plan = plan(16, 16, vec![layer(solid(past, 2, [255, 0, 0, 255]))]);
+    let frame = gpu.render(&plan);
+    assert!(gpu.lost(), "the refused frame is reported");
+    assert_eq!(frame.pixel(8, 8), Some([0, 0, 0, 255]));
+}
+
+/// The device is asked for no more than its adapter has: an OpenGL ES
+/// phone's limits are under WebGPU's defaults, and asking for those opened
+/// nothing there (#312). A desktop adapter still gets WebGPU's defaults
+/// and its own texture size.
+#[test]
+fn the_device_asks_for_what_the_adapter_has() {
+    let phone = wgpu::Limits {
+        max_texture_dimension_2d: 4096,
+        ..wgpu::Limits::downlevel_webgl2_defaults()
+    };
+    let asked = limits_for(&phone);
+    assert!(asked.check_limits(&phone), "the phone opens a device");
+    assert_eq!(asked.max_texture_dimension_2d, 4096);
+
+    let desktop = wgpu::Limits {
+        max_texture_dimension_2d: 16384,
+        ..wgpu::Limits::default()
+    };
+    let asked = limits_for(&desktop);
+    assert!(asked.check_limits(&desktop));
+    assert!(wgpu::Limits::default().check_limits(&asked));
+    assert_eq!(asked.max_texture_dimension_2d, 16384);
+}
+
+/// On a device that cannot draw in half floats the eight-bit fallback
+/// draws the same picture, to within its rounding: an opaque gradient
+/// with a translucent layer blended over it.
+#[test]
+fn the_eight_bit_working_format_draws_the_same_picture() {
+    let Some(mut gpu) = gpu() else { return };
+    let mut fallback =
+        WgpuCompositor::drawing_in(gpu.device.clone(), gpu.queue.clone(), WORK_FALLBACK);
+    let mut top = layer(solid(16, 16, [20, 200, 90, 140]));
+    top.transform = Transform {
+        offset_x: 0.25,
+        ..Transform::default()
+    };
+    let plan = plan(32, 32, vec![layer(gradient(32, 32)), top]);
+    let expected = gpu.render(&plan);
+    let actual = fallback.render(&plan);
+    assert!(!fallback.lost());
+    for (want, got) in expected.pixels().iter().zip(actual.pixels()) {
+        assert!(
+            (i32::from(*want) - i32::from(*got)).abs() <= 2,
+            "half floats {want} vs eight bits {got}"
+        );
+    }
+    assert_eq!(fallback.probe(&[], [0.5; 4], 4, 0.0), None);
+}
+
+/// A frame bigger than the device's textures is refused up front, at the
+/// document's ceiling or the device's, whichever is lower.
+#[test]
+fn the_largest_frame_is_what_the_device_holds() {
+    let Some(gpu) = gpu() else { return };
+    assert_eq!(
+        gpu.max_side(),
+        concat_core::frame::MAX_SIDE.min(gpu.device.limits().max_texture_dimension_2d)
+    );
+}

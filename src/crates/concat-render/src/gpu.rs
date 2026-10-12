@@ -14,6 +14,8 @@
 //!   SDR timeline, rolled off by BT.2390 for an HDR one on an SDR screen.
 //!   An HDR clip is conformed to SDR as it uploads for an SDR timeline, and
 //!   keeps its light above white for an HDR one (`FramePlan::output`).
+//!   An OpenGL ES device that cannot draw into half floats draws in eight
+//!   bits with the sRGB curve instead (`WORK_FALLBACK`).
 //! - Layer quads are sampled bilinearly with clamp-to-edge, as the tests'
 //!   CPU oracle (`crate::reference`) does.
 //!
@@ -167,8 +169,26 @@ fn fs_darken(in: VsOut) -> @location(0) vec4<f32> {
 /// as they arrive (see `upload`).
 const WORK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-/// What a texture in the pool costs a pixel.
+/// What a texture in the pool costs a pixel, in [`WORK`].
 const WORK_BYTES: u64 = 8;
+
+/// The working format on a device that cannot draw and blend into
+/// [`WORK`]: an OpenGL ES phone without half-float colour buffers. Eight
+/// bits stored with the sRGB curve and read back into linear light, so a
+/// blend is still done in light and the shadows do not band as linear
+/// eight bits would. What it loses is what half floats add: light above
+/// one and colours outside Rec. 709 are clipped where they are drawn.
+const WORK_FALLBACK: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// The longest the compositor waits on its device for one frame, or for
+/// anything else it waits on, before it takes the device for hung. A frame
+/// that has not finished in this long is not going to: an 8 GB card that
+/// has run out of memory under the window, the decoder and the encoder
+/// sat in an unbounded wait and the export never moved again (#297). The
+/// compositor is dead from then on, and the export goes on with a fresh
+/// device or ends with an error. Thirty seconds is far past the slowest
+/// frame a software adapter draws at 8K.
+pub const DEVICE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A picture copied texel for texel into a target of the same size, through
 /// the colour conversion at each end of the working space: an uploaded
@@ -517,6 +537,39 @@ struct Presentable {
 /// drawn, and one so a late frame never waits on either.
 const PRESENT_RING: usize = 3;
 
+/// The limits the compositor asks its device for, given the adapter's:
+/// WebGPU's defaults wherever the adapter meets them, the adapter's own
+/// wherever it does not, and the adapter's texture sizes whatever they
+/// are. `Limits::default()` asked every adapter for WebGPU's defaults,
+/// which an OpenGL ES phone's GPU does not meet, so no device opened there
+/// and the preview said there was nothing to draw with (#312). What the
+/// adapter reports it can always open; a frame bigger than its textures
+/// is held back by [`WgpuCompositor::max_side`].
+fn limits_for(adapter: &wgpu::Limits) -> wgpu::Limits {
+    wgpu::Limits::default()
+        .or_worse_values_from(adapter)
+        .using_resolution(adapter.clone())
+}
+
+/// The working format on `adapter`: [`WORK`] where it can be drawn into,
+/// blended and filtered, as on every desktop GPU and most phones;
+/// [`WORK_FALLBACK`] on an OpenGL ES device without half-float colour
+/// buffers.
+fn work_format(adapter: &wgpu::Adapter) -> wgpu::TextureFormat {
+    let features = adapter.get_texture_format_features(WORK);
+    let needed =
+        wgpu::TextureFormatFeatureFlags::BLENDABLE | wgpu::TextureFormatFeatureFlags::FILTERABLE;
+    if features
+        .allowed_usages
+        .contains(wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING)
+        && features.flags.contains(needed)
+    {
+        WORK
+    } else {
+        WORK_FALLBACK
+    }
+}
+
 /// A compositor that draws on the GPU. See the module docs.
 pub struct WgpuCompositor {
     device: wgpu::Device,
@@ -624,6 +677,12 @@ pub struct WgpuCompositor {
     /// then answers every composite from the CPU reference instead: slower,
     /// always correct, and never a panic in the middle of an export.
     dead: bool,
+    /// The format everything is drawn in: [`WORK`], or [`WORK_FALLBACK`] on
+    /// a device that cannot draw into it.
+    work: wgpu::TextureFormat,
+    /// How many errors the device has reported that no scope caught, as its
+    /// handler counts them; see [`Compositor::render`].
+    uncaught: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WgpuCompositor {
@@ -693,17 +752,50 @@ impl WgpuCompositor {
         };
         choices.iter().copied().find_map(|software| {
             let adapter =
-                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     force_fallback_adapter: software,
                     ..Default::default()
-                }))
-                .ok()?;
+                })) {
+                    Ok(adapter) => adapter,
+                    Err(error) => {
+                        log::info!(
+                            "compositor: no {} adapter on {backends:?}: {error}",
+                            if software { "software" } else { "hardware" }
+                        );
+                        return None;
+                    }
+                };
+            let info = adapter.get_info();
             let (device, queue) =
-                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
-                    .ok()?;
+                match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                    label: Some("concat compositor"),
+                    required_limits: limits_for(&adapter.limits()),
+                    ..Default::default()
+                })) {
+                    Ok(opened) => opened,
+                    // Said, since the person sees only that nothing could draw:
+                    // which adapter refused, on which API, and why (#312).
+                    Err(error) => {
+                        log::warn!(
+                            "compositor: {} ({:?}, {:?}) would not open a device: {error}",
+                            info.name,
+                            info.device_type,
+                            info.backend
+                        );
+                        return None;
+                    }
+                };
+            let work = work_format(&adapter);
+            if work != WORK {
+                log::warn!(
+                    "compositor: {} cannot draw into {WORK:?}; drawing in {work:?}, which clips \
+                     light above white and colours outside Rec. 709",
+                    info.name
+                );
+            }
             // The reason, when it dies, in the log: see the window's device.
-            let name = adapter.get_info().name;
+            let name = info.name;
             let lost = name.clone();
             device.set_device_lost_callback(move |reason, message| {
                 log::error!(
@@ -713,13 +805,20 @@ impl WgpuCompositor {
             // An error no scope caught - a texture past the device's limit,
             // a buffer the driver refused - is wgpu's to handle, and its
             // default handler panics the thread it is on: the export's, or
-            // the preview's. Logged instead, the frame it was in comes out
-            // wrong and the thread goes on; the pipelines' own error scopes
-            // (`run_stages`) still catch what they catch.
+            // the preview's. Logged instead, the thread goes on; the
+            // pipelines' own error scopes (`run_stages`) still catch what
+            // they catch. Counted as well, so a composite drawn under one is
+            // known to be wrong and is not handed to an encoder as a good
+            // frame (see `Compositor::render`).
+            let uncaught = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let counted = std::sync::Arc::clone(&uncaught);
             device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 log::error!("the compositor's GPU device on {name} reported an error: {error}");
             }));
-            Some(Self::with_device(device, queue))
+            let mut compositor = Self::drawing_in(device, queue, work);
+            compositor.uncaught = uncaught;
+            Some(compositor)
         })
     }
 
@@ -743,12 +842,28 @@ impl WgpuCompositor {
     /// shares the GPU's time with this one and nothing else, so it never
     /// waits on this one's lock or evicts what this one keeps.
     pub fn sibling(&self) -> Self {
-        Self::with_device(self.device.clone(), self.queue.clone())
+        let mut sibling = Self::drawing_in(self.device.clone(), self.queue.clone(), self.work);
+        sibling.uncaught = std::sync::Arc::clone(&self.uncaught);
+        sibling
+    }
+
+    /// The widest or tallest frame this compositor can draw: the document's
+    /// ceiling, or the device's own texture limit where that is lower - an
+    /// OpenGL ES phone's can be 4096. A frame past it is refused before any
+    /// texture is made, rather than met with a validation error mid-export.
+    pub fn max_side(&self) -> u32 {
+        concat_core::frame::MAX_SIDE.min(self.device.limits().max_texture_dimension_2d)
     }
 
     /// Builds a compositor on a device the caller owns - the window's, so a
     /// texture this draws is one the window can show.
     pub fn with_device(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        Self::drawing_in(device, queue, WORK)
+    }
+
+    /// [`WgpuCompositor::with_device`], drawing in `work`: [`WORK`], or
+    /// [`WORK_FALLBACK`] where the device cannot draw into that.
+    fn drawing_in(device: wgpu::Device, queue: wgpu::Queue, work: wgpu::TextureFormat) -> Self {
         // Read before the device moves into the compositor below.
         let budget = pool_budget_for(device.adapter_info().device_type);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -932,7 +1047,7 @@ impl WgpuCompositor {
                         entry_point: Some("fs_main"),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: WORK,
+                            format: work,
                             blend: Some(wgpu::BlendState { color, alpha }),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
@@ -969,7 +1084,7 @@ impl WgpuCompositor {
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: WORK,
+                        format: work,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent {
                                 src_factor: wgpu::BlendFactor::One,
@@ -1026,7 +1141,7 @@ impl WgpuCompositor {
                 cache: None,
             })
         };
-        let upload_pipeline = copy_into(WORK, "fs_upload");
+        let upload_pipeline = copy_into(work, "fs_upload");
         let resolve_pipeline = copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve");
         let tone_mapped_pipeline =
             copy_into(wgpu::TextureFormat::Rgba8Unorm, "fs_resolve_tone_mapped");
@@ -1077,7 +1192,7 @@ impl WgpuCompositor {
                     entry_point: Some(entry),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: WORK,
+                        format: work,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -1119,7 +1234,7 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: WORK,
+                format: work,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             })
@@ -1177,6 +1292,8 @@ impl WgpuCompositor {
                 std::sync::Arc::new(white)
             },
             dead: false,
+            work,
+            uncaught: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -1189,11 +1306,25 @@ impl WgpuCompositor {
     /// Waits until the device has done everything asked of it so far: how
     /// a timing knows that a texture [`WgpuCompositor::render_texture`]
     /// handed back is drawn, without reading it back. False when the
-    /// device did not answer.
+    /// device did not answer, or not within [`DEVICE_WAIT`].
     pub fn finish(&self) -> bool {
+        self.wait().is_ok()
+    }
+
+    /// Waits for everything submitted so far, for at most [`DEVICE_WAIT`]:
+    /// every wait the compositor makes, so none of them can hang an export.
+    fn wait(&self) -> Result<(), wgpu::PollError> {
         self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .is_ok()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(DEVICE_WAIT),
+            })
+            .map(drop)
+    }
+
+    /// What a pooled texture costs a pixel, in the working format.
+    fn work_bytes(&self) -> u64 {
+        u64::from(self.work.block_copy_size(None).unwrap_or(8))
     }
 
     /// The next presentable texture for this output size.
@@ -1617,7 +1748,9 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
-        if self.dead {
+        // The probe writes and reads half floats: on the eight-bit fallback
+        // it has nothing to say, and the caller treats it as untested.
+        if self.dead || self.work != WORK {
             return None;
         }
         let side = side.max(1);
@@ -1640,7 +1773,7 @@ impl WgpuCompositor {
         side: u32,
         seconds: f32,
     ) -> Option<[f32; 4]> {
-        if self.dead {
+        if self.dead || self.work != WORK {
             return None;
         }
         let side = side.max(1);
@@ -1747,9 +1880,16 @@ impl WgpuCompositor {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = mapped_tx.send(result);
         });
-        let waited = self.device.poll(wgpu::PollType::wait_indefinitely());
+        let waited = self.wait();
         self.retire();
-        if waited.is_err() || !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
+        if let Err(error) = waited {
+            // A device that does not answer a one-pixel read is not one to
+            // draw the next frame on.
+            log::error!("GPU probe: the device did not finish the pass: {error}");
+            self.dead = true;
+            return None;
+        }
+        if !matches!(mapped_rx.try_recv(), Ok(Ok(()))) {
             return None;
         }
         let data = slice.get_mapped_range().ok()?;
@@ -1883,7 +2023,7 @@ impl WgpuCompositor {
                 .get_mut(&key)
                 .expect("found above")
                 .swap_remove(slot);
-            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
+            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * self.work_bytes();
             self.pool_textures -= 1;
         }
     }
@@ -1910,7 +2050,7 @@ impl WgpuCompositor {
         for key in doomed {
             if let Some(pool) = self.pool.remove(&key) {
                 self.pool_bytes -=
-                    pool.len() as u64 * u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
+                    pool.len() as u64 * u64::from(key.0) * u64::from(key.1) * self.work_bytes();
                 self.pool_textures -= pool.len();
             }
             self.used.remove(&key);
@@ -1949,7 +2089,7 @@ impl WgpuCompositor {
                 .get_mut(&key)
                 .expect("found above")
                 .swap_remove(slot);
-            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * WORK_BYTES;
+            self.pool_bytes -= u64::from(key.0) * u64::from(key.1) * self.work_bytes();
             self.pool_textures -= 1;
         }
     }
@@ -2270,7 +2410,7 @@ impl WgpuCompositor {
     /// Claims a pooled texture of this size, blank, for a pass to draw into.
     fn claim(&mut self, width: u32, height: u32) -> usize {
         let key = (width, height);
-        let bytes = u64::from(width) * u64::from(height) * WORK_BYTES;
+        let bytes = u64::from(width) * u64::from(height) * self.work_bytes();
         let used = *self.used.entry(key).or_insert(0);
         let pool = self.pool.entry(key).or_default();
         // The texture to draw into, from the ones not claimed yet this
@@ -2297,7 +2437,7 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: WORK,
+                format: self.work,
                 // A render attachment too: a shader pass draws one pooled
                 // texture into another of the same size. A copy source and
                 // destination for the ground a Lighten or Darken reads.
@@ -2394,7 +2534,7 @@ impl WgpuCompositor {
                         entry_point: Some(entry),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: WORK,
+                            format: self.work,
                             // A pass replaces: mixing by intensity is the
                             // shader's own last line.
                             blend: None,
@@ -2524,7 +2664,7 @@ impl WgpuCompositor {
                     entry_point: Some("fs_main"),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: WORK,
+                        format: self.work,
                         // The transition owns the mix; the pipeline does none.
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
@@ -2732,7 +2872,7 @@ impl WgpuCompositor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: WORK,
+                format: self.work,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC,
@@ -3200,8 +3340,11 @@ impl WgpuCompositor {
         });
         // Each way the readback fails is said: these are the lines behind
         // "the GPU device was lost", and there were none (#223).
-        if let Err(error) = self.device.poll(wgpu::PollType::wait_indefinitely()) {
-            log::error!("GPU readback: the device did not finish the frame: {error}");
+        if let Err(error) = self.wait() {
+            log::error!(
+                "GPU readback: the device did not finish the frame within {DEVICE_WAIT:?}: \
+                 {error}"
+            );
             return None;
         }
         match mapped_rx.try_recv() {
@@ -3259,11 +3402,42 @@ impl Compositor for WgpuCompositor {
         if self.dead {
             return Frame::black(plan.width, plan.height);
         }
+        // Whatever the device says went wrong with this frame is caught
+        // here: memory it ran out of - an 8 GB card shared with the
+        // window, the decoder and the encoder (#297) - or a call it
+        // refused. Uncaught, it was logged and the frame went to the
+        // encoder wrong (audit 2026-10-11, finding 8). A frame drawn under
+        // one is a failed frame, as a failed readback is: the compositor is
+        // dead, and the export draws it again on a fresh device. The
+        // passes' own scopes inside still catch what they catch first, and
+        // what a scope misses still reaches the handler, which counts it.
+        let uncaught = self.uncaught.load(std::sync::atomic::Ordering::Relaxed);
+        let memory = self.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let (draws, vertices) = self.prepare(plan);
         self.write_vertices(&vertices);
-        match self.render_and_read(plan.width, plan.height, &draws) {
-            Some(frame) => frame,
-            None => {
+        let frame = self.render_and_read(plan.width, plan.height, &draws);
+        let refused = pollster::block_on(validation.pop());
+        let exhausted = pollster::block_on(memory.pop());
+        let errors = [exhausted, refused].into_iter().flatten();
+        let mut failed = frame.is_none();
+        for error in errors {
+            log::error!(
+                "GPU composite at {:.3}s failed: {error}",
+                plan.time.as_f64()
+            );
+            failed = true;
+        }
+        if self.uncaught.load(std::sync::atomic::Ordering::Relaxed) != uncaught {
+            log::error!(
+                "GPU composite at {:.3}s was drawn while the device reported an error",
+                plan.time.as_f64()
+            );
+            failed = true;
+        }
+        match frame {
+            Some(frame) if !failed => frame,
+            _ => {
                 self.dead = true;
                 Frame::black(plan.width, plan.height)
             }
