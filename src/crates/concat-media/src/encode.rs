@@ -141,13 +141,15 @@ impl VideoCodec {
         }
     }
 
-    /// The encoders for it the linked FFmpeg carries, best first.
+    /// The encoders for it the linked FFmpeg carries, best first, less any
+    /// the environment has switched off (see [`switched_on`]).
     fn linked(self, hardware: bool, ten_bit: bool) -> impl Iterator<Item = &'static str> {
         ffi::init();
         self.encoders(hardware)
             .iter()
             .copied()
             .filter(move |name| !ten_bit || takes_ten_bits(name))
+            .filter(|name| switched_on(name, |key| std::env::var_os(key)))
             .filter(|name| encoder::find_by_name(name).is_some())
     }
 
@@ -159,9 +161,13 @@ impl VideoCodec {
     /// Whether an export in it would open here: an encoder for it is
     /// linked and, where that is the platform's hardware, the chip takes
     /// it. Linked is not enough on a phone: its FFmpeg carries MediaCodec's
-    /// encoder for every codec, and few phones have an AV1 one. A hardware
-    /// encoder is opened once, at 720p, the first time it is asked about,
-    /// and the answer kept for the process.
+    /// encoder for every codec, and few phones have an AV1 one.
+    ///
+    /// The export sheet asks this on its first publish, before the window
+    /// shows, so it opens as little as it can: a linked software encoder
+    /// answers on its own, and nothing is opened at all on a desktop. See
+    /// [`encodable_among`] for the rest. A hardware encoder that is asked
+    /// is opened once, at 720p, and the answer kept for the process.
     pub fn encodable(self) -> bool {
         static KNOWN: [OnceLock<bool>; 3] = [const { OnceLock::new() }; 3];
         let slot = VideoCodec::ALL
@@ -169,8 +175,7 @@ impl VideoCodec {
             .position(|codec| *codec == self)
             .expect("every codec is in ALL");
         *KNOWN[slot].get_or_init(|| {
-            self.linked(true, false)
-                .any(|name| !Family::of(name).hardware() || opens(self, name))
+            encodable_among(self.linked(true, false), |name| opens_here(self, name))
         })
     }
 
@@ -186,10 +191,15 @@ impl VideoCodec {
     /// or opens here. A desktop FFmpeg links NVENC, Quick Sync and AMF
     /// whatever GPU is in the box, so linked alone would say hardware on a
     /// machine that encodes on the CPU.
+    ///
+    /// The export sheet asks this on every publish, on the UI thread, so a
+    /// vendor's encoder is never opened for it: only an export opens one,
+    /// and what that export found is the answer from then on. Until then
+    /// the sheet says nothing about hardware. See [`leads_with_hardware`].
     pub fn hardware_encoded(self, hardware: bool, ten_bit: bool) -> bool {
-        self.linked(hardware, ten_bit)
-            .find(|name| !Family::of(name).hardware() || opens_here(self, name))
-            .is_some_and(|name| Family::of(name).hardware())
+        leads_with_hardware(self.linked(hardware, ten_bit), probed, |name| {
+            opens_here(self, name)
+        })
     }
 
     /// Bytes per second relative to H.264 at the same quality, for a size
@@ -379,6 +389,94 @@ impl Family {
     fn hardware(self) -> bool {
         self != Family::Software
     }
+
+    /// Whether opening one loads a GPU vendor's driver into the process:
+    /// NVENC's libcuda, Quick Sync's oneVPL runtime, AMF's runtime. A
+    /// broken driver takes the process down from there rather than
+    /// returning an error - libcuda's context creation segfaults on some
+    /// Linux laptops with two GPUs (#309) - and no in-process probe can
+    /// catch that, so these are opened only by an export that has reached
+    /// them in its list, never to answer a question about the machine.
+    /// VideoToolbox, MediaCodec and Media Foundation are the operating
+    /// system's own and answer with an error.
+    fn vendor_driver(self) -> bool {
+        matches!(self, Family::Nvenc | Family::Qsv | Family::Amf)
+    }
+}
+
+/// Whether the environment leaves `encoder_name` on, given `var` to read
+/// it. `CONCAT_HARDWARE_ENCODE=0` switches every hardware encoder off on a
+/// desktop, for a machine whose driver crashes when one is opened; a
+/// phone has nothing else, so it is not switched off there. NVENC is also
+/// off when `CUDA_VISIBLE_DEVICES` hides every CUDA device - set but
+/// empty, or leading with `-1` - since it then cannot open, and on the
+/// laptops where libcuda crashes that is the usual way to say so.
+fn switched_on(encoder_name: &str, var: impl Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    let family = Family::of(encoder_name);
+    if !family.hardware() || cfg!(any(target_os = "android", target_os = "ios")) {
+        return true;
+    }
+    if var("CONCAT_HARDWARE_ENCODE").is_some_and(|value| value.to_string_lossy().trim() == "0") {
+        return false;
+    }
+    if family == Family::Nvenc
+        && let Some(devices) = var("CUDA_VISIBLE_DEVICES")
+    {
+        let devices = devices.to_string_lossy();
+        let first = devices.split(',').next().unwrap_or("").trim();
+        if first.is_empty() || first == "-1" {
+            return false;
+        }
+    }
+    true
+}
+
+/// [`VideoCodec::encodable`] over `names`, the linked encoders best first,
+/// with `opens` to ask one. A software encoder anywhere in the list means
+/// yes without opening anything: the export falls through to it if the
+/// hardware ahead does not open. Without one - a phone, or a desktop
+/// FFmpeg built without them - a system encoder is opened to find out,
+/// and a vendor's is taken as linked, so the question never loads a
+/// driver (see [`Family::vendor_driver`]); an export it does not open for
+/// says so when it is tried.
+fn encodable_among(
+    names: impl Iterator<Item = &'static str>,
+    mut opens: impl FnMut(&'static str) -> bool,
+) -> bool {
+    let names: Vec<&'static str> = names.collect();
+    if names.iter().any(|name| !Family::of(name).hardware()) {
+        return true;
+    }
+    names
+        .into_iter()
+        .any(|name| Family::of(name).vendor_driver() || opens(name))
+}
+
+/// [`VideoCodec::hardware_encoded`] over `names`, the linked encoders best
+/// first: walking them as an export would, whether the one it stops at is
+/// hardware. A system encoder is asked with `opens`; a vendor's is never
+/// opened, and counts as open only if `known` says an export opened it
+/// (see [`Family::vendor_driver`]).
+fn leads_with_hardware(
+    names: impl Iterator<Item = &'static str>,
+    known: impl Fn(&str) -> Option<bool>,
+    mut opens: impl FnMut(&'static str) -> bool,
+) -> bool {
+    for name in names {
+        let family = Family::of(name);
+        if !family.hardware() {
+            return false;
+        }
+        let opened = if family.vendor_driver() {
+            known(name).unwrap_or(false)
+        } else {
+            opens(name)
+        };
+        if opened {
+            return true;
+        }
+    }
+    false
 }
 
 /// Whether `encoder_name` opens for an eight-bit 720p30 file of `codec`:
@@ -414,24 +512,37 @@ fn opens(codec: VideoCodec, encoder_name: &'static str) -> bool {
     result.is_ok()
 }
 
-/// [`opens`], asked once per encoder and remembered for the process: the
-/// answer is the machine's, and each question opens an encoder.
-fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-    static KNOWN: OnceLock<Mutex<HashMap<&'static str, bool>>> = OnceLock::new();
-    let known = KNOWN.get_or_init(Default::default);
-    if let Some(answer) = known
+/// Whether each hardware encoder opens here, as a probe found or an export
+/// that opened it showed: the answer is the machine's, and each question
+/// opens an encoder.
+fn opened_before() -> &'static std::sync::Mutex<std::collections::HashMap<&'static str, bool>> {
+    static KNOWN: OnceLock<std::sync::Mutex<std::collections::HashMap<&'static str, bool>>> =
+        OnceLock::new();
+    KNOWN.get_or_init(Default::default)
+}
+
+/// Whether `encoder_name` opens here, or `None` if nothing has found out.
+fn probed(encoder_name: &str) -> Option<bool> {
+    opened_before()
         .lock()
         .ok()
         .and_then(|map| map.get(encoder_name).copied())
-    {
+}
+
+/// Remembers whether `encoder_name` opened.
+fn remember(encoder_name: &'static str, opened: bool) {
+    if let Ok(mut map) = opened_before().lock() {
+        map.insert(encoder_name, opened);
+    }
+}
+
+/// [`opens`], asked once per encoder and remembered for the process.
+fn opens_here(codec: VideoCodec, encoder_name: &'static str) -> bool {
+    if let Some(answer) = probed(encoder_name) {
         return answer;
     }
     let answer = opens(codec, encoder_name);
-    if let Ok(mut map) = known.lock() {
-        map.insert(encoder_name, answer);
-    }
+    remember(encoder_name, answer);
     answer
 }
 
@@ -1044,6 +1155,12 @@ impl Encoder {
                 global_header,
             ) {
                 Ok((encoder, pixel_format)) => {
+                    // Opening proves the chip, for the export sheet's label.
+                    // A refusal is not remembered: it may be this export's
+                    // size or depth, not the machine.
+                    if Family::of(name).hardware() {
+                        remember(name, true);
+                    }
                     opened = Some((name, codec, encoder, pixel_format));
                     break;
                 }
@@ -1622,6 +1739,101 @@ mod tests {
                 assert_eq!(codec.encodable(), codec.available(), "{codec:?}");
             }
         }
+    }
+
+    /// The export sheet's first question opens nothing while a software
+    /// encoder is linked, wherever it sits in the list: on Linux the HEVC
+    /// list with hardware leads with NVENC, and opening that to answer
+    /// crashed in libcuda before the window showed (#309).
+    #[test]
+    fn a_linked_software_encoder_answers_without_opening_hardware() {
+        let mut asked = Vec::new();
+        let names = ["hevc_nvenc", "hevc_qsv", "hevc_amf", "libx265"].into_iter();
+        assert!(encodable_among(names, |name| {
+            asked.push(name);
+            false
+        }));
+        assert!(asked.is_empty(), "opened {asked:?}");
+
+        // A phone has only its system's encoders, and they are asked.
+        let mut asked = Vec::new();
+        assert!(!encodable_among(["av1_mediacodec"].into_iter(), |name| {
+            asked.push(name);
+            false
+        }));
+        assert_eq!(asked, ["av1_mediacodec"]);
+
+        // A vendor's is taken as linked, never opened, even with nothing
+        // behind it.
+        assert!(encodable_among(["hevc_nvenc"].into_iter(), |name| panic!(
+            "opened {name}"
+        )));
+    }
+
+    /// The label opens no vendor's encoder: an NVENC an export has not
+    /// opened is not counted, one it has is, and the walk stops at
+    /// software as the export would.
+    #[test]
+    fn the_hardware_label_opens_no_vendor_driver() {
+        let names = || ["hevc_nvenc", "hevc_qsv", "libx265"].into_iter();
+        let never = |name: &'static str| -> bool { panic!("opened {name}") };
+        assert!(!leads_with_hardware(names(), |_| None, never));
+        assert!(leads_with_hardware(
+            names(),
+            |name| (name == "hevc_qsv").then_some(true),
+            never
+        ));
+        assert!(!leads_with_hardware(
+            ["libx265", "hevc_nvenc"].into_iter(),
+            |_| Some(true),
+            never
+        ));
+        // A system encoder is still asked.
+        assert!(leads_with_hardware(
+            ["hevc_videotoolbox", "libx265"].into_iter(),
+            |_| None,
+            |name| name == "hevc_videotoolbox"
+        ));
+    }
+
+    /// `CONCAT_HARDWARE_ENCODE=0` leaves a desktop the CPU's encoders, and
+    /// a `CUDA_VISIBLE_DEVICES` that hides every device takes NVENC alone
+    /// out.
+    #[test]
+    fn the_environment_switches_hardware_encoders_off() {
+        fn env<'a>(
+            pairs: &'a [(&'a str, &'a str)],
+        ) -> impl Fn(&str) -> Option<std::ffi::OsString> + 'a {
+            move |key| {
+                pairs
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| std::ffi::OsString::from(value))
+            }
+        }
+        let desktop = !cfg!(any(target_os = "android", target_os = "ios"));
+        assert!(switched_on("hevc_nvenc", env(&[])));
+        assert!(switched_on(
+            "libx265",
+            env(&[("CONCAT_HARDWARE_ENCODE", "0")])
+        ));
+        assert_eq!(
+            switched_on("hevc_qsv", env(&[("CONCAT_HARDWARE_ENCODE", "0")])),
+            !desktop
+        );
+        assert!(switched_on(
+            "hevc_qsv",
+            env(&[("CONCAT_HARDWARE_ENCODE", "1")])
+        ));
+        for hidden in ["", "-1", " -1,0"] {
+            let vars = [("CUDA_VISIBLE_DEVICES", hidden)];
+            assert_eq!(switched_on("av1_nvenc", env(&vars)), !desktop, "{hidden:?}");
+            assert!(switched_on("av1_qsv", env(&vars)), "{hidden:?}");
+        }
+        assert!(switched_on(
+            "av1_nvenc",
+            env(&[("CUDA_VISIBLE_DEVICES", "0")])
+        ));
     }
 
     /// On a Mac, the fallback H.264 encoder for an FFmpeg without x264
