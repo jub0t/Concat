@@ -4,9 +4,12 @@
 //! The captions sheet: the tray's Captions tool, as a form and then as a
 //! progress report.
 //!
-//! What it captions is decided when it opens, not asked: the selected
-//! clip's sound when one clip with sound is selected, and a script
-//! otherwise. Either lands as one batch of title clips, one undo step.
+//! One switch says what it captions: "Use voice from timeline", on, takes
+//! the words from a clip with sound, chosen in the sheet from the clips on
+//! the timeline that have any; off, from a script typed in it. It opens on
+//! when a clip with sound is selected, or when a clip's menu opened it on
+//! that clip, and off otherwise. Either lands as one batch of title clips,
+//! one undo step.
 //! The transcriber runs on a worker and reports as
 //! [`CaptionsMsg::Progress`], ending as [`CaptionsMsg::Finished`].
 
@@ -35,9 +38,16 @@ pub const CHARS_PER_SECOND: f32 = 14.0;
 /// Everything that can happen to the captions sheet.
 #[derive(Clone, Debug)]
 pub enum CaptionsMsg {
-    /// The tray's Captions tool.
+    /// The tray's Captions tool: the selected clip's voice when it has
+    /// sound, the script otherwise.
     Open,
+    /// A clip's menu: the sheet on that clip's voice.
+    OpenOnClip(String),
     Close,
+    /// The "Use voice from timeline" switch.
+    VoiceToggled(bool),
+    /// Row in the list of clips with sound.
+    SourceChanged(i32),
     TextEdited(String),
     ModelChanged(i32),
     PlacementChanged(i32),
@@ -65,8 +75,12 @@ struct Subject {
 #[derive(Default)]
 pub struct CaptionsPane {
     pub open: bool,
-    /// The clip being transcribed: the one selected when the sheet opened,
-    /// when it had sound. None, and the sheet is a script instead.
+    /// "Use voice from timeline": the words come from [`Self::clip`]'s sound
+    /// when on, from [`Self::text`] when off.
+    pub from_voice: bool,
+    /// The clip whose voice is transcribed: one with sound, chosen from the
+    /// timeline's. Kept while the switch is off, so turning it back on
+    /// returns to the same clip.
     pub clip: Option<String>,
     /// The script's words.
     pub text: String,
@@ -90,23 +104,33 @@ impl CaptionsPane {
     pub fn update(&mut self, msg: CaptionsMsg, studio: &mut Studio) {
         match msg {
             CaptionsMsg::Open => {
-                let installed = installed(&studio.settings.transcribers);
-                let model = installed.iter().position(|model| model.active).unwrap_or(0);
-                let clip = studio
-                    .sole_selection()
-                    .and_then(|id| studio.clip(&id))
-                    .filter(|clip| studio.clip_has_sound(clip))
-                    .map(|clip| clip.id.clone());
-                *self = CaptionsPane {
-                    open: true,
-                    clip,
-                    model,
-                    placement: 0,
-                    size: 1,
-                    ..CaptionsPane::default()
-                };
+                let selected = studio.sole_selection();
+                self.open_on(studio, selected, false);
             }
+            CaptionsMsg::OpenOnClip(id) => self.open_on(studio, Some(id), true),
             CaptionsMsg::Close => self.open = false,
+            CaptionsMsg::VoiceToggled(on) => {
+                self.from_voice = on;
+                self.message.clear();
+                let sources = sources(studio);
+                if on
+                    && !self
+                        .clip
+                        .as_ref()
+                        .is_some_and(|id| sources.iter().any(|s| &s.id == id))
+                {
+                    self.clip = sources.first().map(|source| source.id.clone());
+                }
+            }
+            CaptionsMsg::SourceChanged(index) => {
+                if let Some(source) = usize::try_from(index)
+                    .ok()
+                    .and_then(|index| sources(studio).into_iter().nth(index))
+                {
+                    self.clip = Some(source.id);
+                    self.message.clear();
+                }
+            }
             CaptionsMsg::TextEdited(text) => self.text = text,
             CaptionsMsg::ModelChanged(index) => self.model = index.max(0) as usize,
             CaptionsMsg::PlacementChanged(index) => {
@@ -114,7 +138,7 @@ impl CaptionsPane {
             }
             CaptionsMsg::SizeChanged(index) => self.size = (index.max(0) as usize).min(2),
             CaptionsMsg::Begin => {
-                if self.clip.is_some() {
+                if self.from_voice {
                     self.run_sound(studio);
                 } else {
                     self.run_script(studio);
@@ -168,6 +192,32 @@ impl CaptionsPane {
                 }
             }
         }
+    }
+
+    /// The sheet opened afresh. `clip` is the clip it was opened on, if
+    /// any: the switch starts on when that clip has sound, or when a clip's
+    /// menu asked for its voice (`voice`), in which case a clip without
+    /// sound falls to the first clip that has some.
+    fn open_on(&mut self, studio: &Studio, clip: Option<String>, voice: bool) {
+        let installed = installed(&studio.settings.transcribers);
+        let model = installed.iter().position(|model| model.active).unwrap_or(0);
+        let sources = sources(studio);
+        let sounding = clip.filter(|id| sources.iter().any(|source| &source.id == id));
+        let from_voice = voice || sounding.is_some();
+        let clip = sounding.or_else(|| {
+            from_voice
+                .then(|| sources.first().map(|source| source.id.clone()))
+                .flatten()
+        });
+        *self = CaptionsPane {
+            open: true,
+            from_voice,
+            clip,
+            model,
+            placement: 0,
+            size: 1,
+            ..CaptionsPane::default()
+        };
     }
 
     /// A caption's look, by the sheet's rows: where it sits and its size.
@@ -252,9 +302,25 @@ impl CaptionsPane {
 
     /// The sheet as Slint shows it.
     pub fn data(&self, studio: &Studio) -> CaptionsSheetData {
+        let sources = if self.open {
+            sources(studio)
+        } else {
+            Vec::new()
+        };
+        let source = self
+            .clip
+            .as_ref()
+            .and_then(|id| sources.iter().position(|source| &source.id == id))
+            .map_or(-1, |index| index as i32);
+        let labels: Vec<slint::SharedString> = sources
+            .into_iter()
+            .map(|source| source.label.into())
+            .collect();
         CaptionsSheetData {
             open: self.open,
-            from_sound: self.clip.is_some(),
+            from_voice: self.from_voice,
+            sources: std::rc::Rc::new(slint::VecModel::from(labels)).into(),
+            source,
             text: self.text.as_str().into(),
             model: self.model as i32,
             placement: self.placement as i32,
@@ -264,6 +330,51 @@ impl CaptionsPane {
             ready: !installed(&studio.settings.transcribers).is_empty(),
             message: self.message.as_str().into(),
         }
+    }
+}
+
+/// A clip on the timeline whose voice can be captioned, as the sheet's
+/// list shows it.
+struct Source {
+    id: String,
+    label: String,
+}
+
+/// The clips on the current timeline that have sound, in the order they
+/// play: an audio clip, or a video whose file has an audio stream.
+fn sources(studio: &Studio) -> Vec<Source> {
+    let project = studio.project();
+    let mut clips: Vec<_> = studio
+        .timeline()
+        .clips
+        .iter()
+        .filter(|clip| studio.clip_has_sound(clip))
+        .map(|clip| {
+            let name = project
+                .media_by_id(&clip.media_id)
+                .map_or(clip.name.as_str(), |media| media.name.as_str());
+            (clip.start, clip.id.clone(), name.to_owned())
+        })
+        .collect();
+    clips.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    clips
+        .into_iter()
+        .map(|(start, id, name)| Source {
+            id,
+            label: source_label(&name, start),
+        })
+        .collect()
+}
+
+/// A clip as the list names it: its file and where it starts on the
+/// timeline, so two clips of one file are told apart.
+fn source_label(name: &str, start: f64) -> String {
+    let seconds = start.max(0.0).floor() as u64;
+    let (hours, minutes, seconds) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if hours > 0 {
+        format!("{name} · {hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{name} · {minutes}:{seconds:02}")
     }
 }
 
@@ -397,7 +508,17 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::script_captions;
+    use super::{script_captions, source_label};
+
+    /// A clip in the voice list is its file and where it starts, in
+    /// minutes and seconds, with hours once there are any.
+    #[test]
+    fn a_voice_is_named_by_its_file_and_where_it_starts() {
+        assert_eq!(source_label("Interview.mp4", 0.0), "Interview.mp4 · 0:00");
+        assert_eq!(source_label("Interview.mp4", 72.9), "Interview.mp4 · 1:12");
+        assert_eq!(source_label("Talk.wav", 3_725.0), "Talk.wav · 1:02:05");
+        assert_eq!(source_label("Talk.wav", -1.0), "Talk.wav · 0:00");
+    }
 
     /// A script becomes one caption per sentence, a hand line break is
     /// kept, a long sentence wraps at its words, and each line is held for

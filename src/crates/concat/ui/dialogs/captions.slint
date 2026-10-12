@@ -7,24 +7,31 @@ import { Glyph, Icon } from "../icons.slint";
 import { Button, CopyChip, DialogRow, DialogSection, Modal, Progress } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
+import { Switch } from "../inspector/controls.slint";
 
 // Captions: what the tray's Captions tool opens.
 //
-// Two sheets in one, and which is decided before it opens rather than
-// asked. With a clip that has sound selected, the words are that clip's:
-// through the transcriber, cut to the words' own timing. Otherwise they
-// are a script typed here, one title per sentence at reading pace, laid
-// down from the playhead. Asking would only invite the wrong answer - a
-// silent video sent to the transcriber - so the selection decides. Then
-// where the lines sit and how big they are, and one button. While it runs
+// Two sheets in one, and a switch between them: "Use voice from timeline".
+// On, the words are a clip's: one picked from the timeline's clips that
+// have sound, through the transcriber, cut to the words' own timing. Off,
+// they are a script typed here, one title per sentence at reading pace,
+// laid down from the playhead. The list holds only clips with sound, so a
+// silent video cannot be sent to the transcriber. The switch starts on
+// when the sheet is opened on a clip with sound - from the clip's menu, or
+// with one selected - and off otherwise. Then where the lines sit and how
+// big they are, and one button. While it runs
 // the sheet is the progress report: a transcription knows how far through
 // the sound it is, so it gets a real bar and not a sweep. The language is
 // the transcriber's to work out.
 
 export struct CaptionsSheetData {
     open: bool,
-    /// The selected clip has sound, and the sheet transcribes it.
-    from-sound: bool,
+    /// "Use voice from timeline": the words come from a clip's sound.
+    from-voice: bool,
+    /// The timeline's clips with sound, by file and start.
+    sources: [string],
+    /// Row in `sources` of the clip to transcribe; -1 for none.
+    source: int,
     text: string,
     /// Row in the installed transcriber list.
     model: int,
@@ -46,6 +53,8 @@ export component CaptionsDialog inherits Modal {
     /// The installed transcriber models, by name.
     in property <[string]> models;
 
+    callback voice-toggled(on: bool);
+    callback source-changed(index: int);
     callback text-edited(text: string);
     callback model-changed(index: int);
     callback placement-changed(index: int);
@@ -53,7 +62,7 @@ export component CaptionsDialog inherits Modal {
     callback begin();
     callback cancel();
 
-    property <bool> from-sound: root.data.from-sound;
+    property <bool> from-voice: root.data.from-voice;
 
     open: root.data.open;
     title: I18n.t("captions.captions");
@@ -77,9 +86,46 @@ export component CaptionsDialog inherits Modal {
     init => { root.draft = root.data.text; }
 
     VerticalLayout {
-        if !root.data.running && root.from-sound: DialogSection {
+        // The switch, above both halves. A row of its own rather than a
+        // DialogRow, whose label column is too narrow for the words.
+        if !root.data.running: HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            padding-top: 14px;
+            spacing: 10px;
+
+            Text {
+                horizontal-stretch: 1;
+                text: I18n.t("captions.useVoiceFromTimeline");
+                color: Theme.fg;
+                font-size: Theme.fs;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+
+            VerticalLayout {
+                alignment: center;
+                Switch {
+                    checked: root.from-voice;
+                    toggled(on) => { root.voice-toggled(on); }
+                }
+            }
+        }
+
+        if !root.data.running && root.from-voice: DialogSection {
             first: true;
             title: I18n.t("common.transcriber");
+
+            DialogRow {
+                label: I18n.t("common.audio");
+                Select {
+                    options: root.data.sources;
+                    current: root.data.source;
+                    placeholder: I18n.t("captions.noVoiceOnTimeline");
+                    enabled: root.data.sources.length > 0;
+                    changed(index) => { root.source-changed(index); }
+                }
+            }
 
             DialogRow {
                 label: I18n.t("common.model");
@@ -100,7 +146,7 @@ export component CaptionsDialog inherits Modal {
             }
         }
 
-        if !root.data.running && !root.from-sound: DialogSection {
+        if !root.data.running && !root.from-voice: DialogSection {
             first: true;
             title: I18n.t("common.script");
 
@@ -173,7 +219,7 @@ export component CaptionsDialog inherits Modal {
             }
 
             Text {
-                text: root.from-sound
+                text: root.from-voice
                     ? I18n.t("captions.oneTitlePerPhrase")
                     : I18n.t("captions.oneTitlePerSentence");
                 color: Theme.fg-dim;
@@ -256,8 +302,8 @@ export component CaptionsDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.text-mark;
-                label: root.from-sound ? I18n.t("captions.generateCaptions") : I18n.t("captions.addCaptions");
-                enabled: root.from-sound ? root.data.ready : root.draft != "";
+                label: root.from-voice ? I18n.t("captions.generateCaptions") : I18n.t("captions.addCaptions");
+                enabled: root.from-voice ? root.data.ready && root.data.source >= 0 : root.draft != "";
                 clicked => { root.begin(); }
             }
         }

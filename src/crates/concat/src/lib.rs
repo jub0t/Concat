@@ -1273,13 +1273,13 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         if let Some(id) = target {
             // The captions sheet is a pane of its own, so its row goes
             // through the window's messages rather than the clip's verbs:
-            // the clip is selected, and the sheet takes the selection as
-            // the clip to transcribe.
+            // the sheet opens on this clip's voice, "Use voice from
+            // timeline" on, and the clip is selected so it shows which.
             if action.as_str() == "captions" {
                 state.flush_commit();
                 state.transition_selected = None;
-                state.selection = vec![id];
-                state.handle(Msg::Captions(CaptionsMsg::Open));
+                state.selection = vec![id.clone()];
+                state.handle(Msg::Captions(CaptionsMsg::OpenOnClip(id)));
                 return;
             }
             state.clip_action(&id, action.as_str());
@@ -1579,6 +1579,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
 
     app.on_captions_closed(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Close));
+    }));
+    app.on_captions_voice_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::VoiceToggled(on)));
+    }));
+    app.on_captions_source_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::SourceChanged(index)));
     }));
     app.on_captions_text_edited(on_window!(|state, text: SharedString| {
         state.handle(Msg::Captions(CaptionsMsg::TextEdited(text.to_string())));
