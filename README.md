@@ -152,16 +152,6 @@ Use an absolute path or a path relative to the current working directory, and qu
  </picture>
 </a>
 
-## Sponsoring
+## DMCA
 
-Concat has no paywall and never will: no watermark, no account, no paid tier. Sponsoring is what stands in for one. If Concat has taken the place of a subscription for you, a fraction of that keeps it going.
-
-**Where it goes**
-
-The [roadmap](https://concatenate.pages.dev/roadmap) lays out what sponsorship pays for, and what each piece costs.
-
-Pick a tier on [the website](https://concatenate.pages.dev/#sponsor).
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-Not in a position to chip in? A star, a bug report, or a word to someone who edits video counts for a lot too.
+If you believe something in this repository, its releases, or a package or model it distributes infringes your copyright, email [jub0trd@gmail.com](mailto:jub0trd@gmail.com) with a description of the work you own, a link to where the infringing material appears here, your contact details, a statement that you believe in good faith the use is not authorised by you, your agent, or the law, and a statement, under penalty of perjury, that the notice is accurate and that you are the owner or authorised to act for the owner, signed with your physical or electronic signature; valid notices are acted on promptly, and anyone whose material is removed may send a counter-notice to the same address.
