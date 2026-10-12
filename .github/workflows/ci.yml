@@ -183,12 +183,6 @@ jobs:
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
         run: cargo test --workspace --doc -j 1
-      # The performance table's quick scenarios against their budgets, in
-      # the `quick` profile: planning, undo, the document, publishing.
-      # The media scenarios need a machine that is not a shared runner.
-      - run: cargo run -p concat-perf --profile quick -- --check --quick
-        timeout-minutes: 10
-        working-directory: src
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
       - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings

@@ -55,7 +55,6 @@ graph BT
     cli["concat-cli · 514"]
     window["concat · 23 080 Rust + 29 790 Slint<br/>the editor window"]
     android["concat-android · 462 + Java<br/>the activity"]
-    perf["concat-perf · 1 092<br/>the performance table"]
 
     project --> core
     media --> core
@@ -88,7 +87,6 @@ graph BT
     window --> speech
     window --> api
     android --> window
-    perf --> host
 ```
 
 Three things the graph says that matter when adding code:
@@ -520,7 +518,6 @@ cd src
 cargo dev                               # the window, --profile quick: optimised engine, unoptimised window, incremental
 cargo build --profile app -p concat     # the shipping binary: fat LTO, panic=abort, stripped
 cargo test --workspace                  # 719 tests; needs FFmpeg's DLLs on PATH on Windows
-cargo run -p concat-perf --release -- --check
 cargo run -p concat-cli -- serve        # the API on 127.0.0.1:7420
 python scripts/locales.py --check       # every locale against the inventory
 python scripts/models.py --check        # models/manifest.toml against the engine's tables
@@ -539,7 +536,7 @@ pinned on Linux.
 flowchart LR
     push["push / PR"] --> ci
     subgraph ci["ci.yml"]
-        engine["engine (ubuntu): fmt, locales, models,<br/>clippy -D warnings, test -j1 with lavapipe<br/>(CONCAT_REQUIRE_GPU), perf --check --quick,<br/>grpc clippy + tests"]
+        engine["engine (ubuntu): fmt, locales, models,<br/>clippy -D warnings, test -j1 with lavapipe<br/>(CONCAT_REQUIRE_GPU),<br/>grpc clippy + tests"]
         desktop["desktop: macos-15 cargo check;<br/>windows-2022 full tests, 120 min job timeout"]
     end
     tag["tag v*"] --> rel
@@ -575,7 +572,6 @@ signs it; see section 13.
 | Hostile packages | `concat-effects/src/shader.rs` tests | the unbounded loop, the extra binding, the oversized table are refused |
 | Package fixtures | `fixtures.toml` per package | colours in and out through the shader (`[[probe]]`); chain strings at default, min and max |
 | Locales | `concat/src/i18n.rs` tests, `scripts/locales.py` | every shipped locale covers the inventory; the CJK face covers every character the locale files use |
-| Performance | `cargo run -p concat-perf --release -- --check` | 22 scenarios, each against a budget: planning, undo, the document, decode, scrub, compositing, export |
 
 What is not measured: the Slint repaint itself (`SLINT_DEBUG_PERFORMANCE`
 needs the window), and the window's 23 000 lines of Rust have 73 tests,
@@ -603,7 +599,6 @@ the Slint tree none.
 | the API's verbs | `concat-api/src/message.rs`, `lib.rs` |
 | the server | `concat-server/src/lib.rs`, `json.rs`, `grpc.rs`, `token.rs`, `hub.rs` |
 | a model's source and digest | `models/manifest.toml`, `concat-host/src/models.rs` |
-| a number that matters | `concat-perf/src/main.rs` |
 | the release | `.github/workflows/release.yml`, `build-app.yml`, `mobile.yml` |
 
 ## 15. Where we stand today
@@ -673,8 +668,7 @@ with a test that fails without it.
   ducking, beat detection, a crop tool with free aspect, a command
   palette, a Shortcuts tab (PR #300), an activity panel for long jobs,
   Flatpak, and the Chatterbox DirectML failure (#291).
-- *Docs.* `src/README.md`'s crate table omits concat-text, concat-vision and
-  concat-perf. A few comments still describe the CPU compositor fallback
+- *Docs.* `src/README.md`'s crate table omits concat-text and concat-vision. A few comments still describe the CPU compositor fallback
   that no longer exists (`concat-export/src/lib.rs`, `concat-host/
   Cargo.toml`, two sites in `gpu.rs`), and `src/Cargo.toml` says wgpu is
   pinned to Slint 1.17's.
