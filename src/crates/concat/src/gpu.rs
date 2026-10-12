@@ -55,8 +55,12 @@ impl Gpu {
         } else {
             wgpu::Backends::VULKAN
         };
+        // The compositor's backend options, so the window's device compiles
+        // shaders as an export's does: through the DXC the bundle ships, on
+        // Windows (see `dx12_compiler`).
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
+            backend_options: concat_render::gpu::backend_options(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

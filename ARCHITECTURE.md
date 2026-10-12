@@ -163,6 +163,10 @@ flowchart LR
   (`metrics.rs`). Every device, the compositor's own and the window's,
   carries an uncaptured-error handler that logs, so a driver error no scope
   caught is a wrong frame and a line in the log, never a dead thread.
+  On Direct3D 12 both compile their shaders through Microsoft's DXC, the
+  `dxcompiler.dll` the Windows bundle carries beside the program, rather
+  than FXC, which takes minutes over the blur and the glow
+  (`dx12_compiler` in `gpu.rs`).
 
 ### 2.1 Colour
 
@@ -546,11 +550,10 @@ flowchart LR
     subgraph rel["release.yml"]
         check["check: tag = workspace version"]
         gate["ci.yml on the tag"]
-        build["build-app.yml ref: tag<br/>mac arm + x64 (dmg, notarised), linux x64 + arm<br/>(deb, rpm, AppImage, Arch), win x64 + arm (msi, msix, zip)"]
+        build["build-app.yml ref: tag<br/>mac arm + x64 (dmg, notarised), linux x64 + arm<br/>(deb, rpm, AppImage, Arch), win x64 + arm (setup exe, msi)"]
         phones["mobile.yml ref: tag, sign: true<br/>APK signed in its own step; iOS ipa ad-hoc"]
         publish["GitHub release: assets, checksums,<br/>manifest.json for self-update,<br/>notes from the commits"]
-        store["MS Store, when not a pre-release"]
-        check --> gate --> build --> publish --> store
+        check --> gate --> build --> publish
         gate --> phones --> publish
     end
     nix["nix.yml: nix build + ldd check"]

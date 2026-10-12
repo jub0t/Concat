@@ -1839,3 +1839,25 @@ fn the_largest_frame_is_what_the_device_holds() {
         concat_core::frame::MAX_SIDE.min(gpu.device.limits().max_texture_dimension_2d)
     );
 }
+
+/// Direct3D 12's compiler: what `WGPU_DX12_COMPILER` names, whatever is
+/// beside the program; then the DXC beside the program, by its full path;
+/// then wgpu's own choice, when there is none there or no folder at all.
+#[test]
+fn direct3d_compiles_through_the_dxc_beside_the_program() {
+    let dir = std::path::Path::new("C:/Program Files/Concat");
+    let there = |dll: &std::path::Path| dll == dir.join("dxcompiler.dll");
+    let missing = |_: &std::path::Path| false;
+    assert_eq!(
+        dxc_beside(Some(dir), there),
+        Some(dir.join("dxcompiler.dll"))
+    );
+    assert_eq!(dxc_beside(Some(dir), missing), None);
+    assert_eq!(dxc_beside(None, there), None);
+    // Left on Auto, which loads the DLL beside the program first and falls
+    // back to FXC when it will not load; and elsewhere than Windows
+    // nothing is looked for.
+    if !cfg!(windows) || std::env::var_os("WGPU_DX12_COMPILER").is_none() {
+        assert!(matches!(dx12_compiler(), wgpu::Dx12Compiler::Auto));
+    }
+}

@@ -537,6 +537,84 @@ struct Presentable {
 /// drawn, and one so a late frame never waits on either.
 const PRESENT_RING: usize = 3;
 
+/// Microsoft's DirectX shader compiler, which the Windows bundle ships
+/// beside the program.
+const DXC: &str = "dxcompiler.dll";
+
+/// What wgpu is told about its backends: which shader compiler Direct3D 12
+/// uses ([`dx12_compiler`]), and wgpu's defaults for everything else. Every
+/// instance the app makes is made with these - the window's and the
+/// compositor's - so the two compile their shaders the same way.
+pub fn backend_options() -> wgpu::BackendOptions {
+    wgpu::BackendOptions {
+        dx12: wgpu::Dx12BackendOptions {
+            shader_compiler: dx12_compiler(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+/// The compiler Direct3D 12 turns the WGSL shaders into its own code with.
+///
+/// Left to itself wgpu takes DXC when the loader finds a `dxcompiler.dll`
+/// and FXC when it does not, and until the bundle carried one, every
+/// Windows machine got FXC: Direct3D 11's compiler, old and unmaintained,
+/// which takes minutes over the blur's and the glow's Gaussian loops. On
+/// CI's software adapter that ran three GPU tests past their five minutes
+/// and held an export at its first glow frame; on a person's machine it
+/// looks like an export stuck with a core busy and the GPU idle (#297).
+///
+/// So the bundle carries DXC beside the program, and wgpu is left on
+/// `Auto`, which loads `dxcompiler.dll` by name: Windows looks in the
+/// program's own folder first, so that is the copy it gets. Not named by
+/// its full path: wgpu falls back to FXC only when `Auto` cannot load the
+/// DLL, while a path that will not load loses Direct3D 12 altogether. A
+/// build from the tree, or the tests, which run out of `target`, find a
+/// DXC on the path instead (CI's Windows tests put one there), or FXC as
+/// before. `WGPU_DX12_COMPILER` (`dxc`, `fxc` or `auto`) overrides it, for
+/// setting one against the other on a machine that misbehaves.
+///
+/// Worked out once, and said once in the log, naming the DLL the program
+/// will load when there is one beside it. Elsewhere than Windows it is
+/// wgpu's default and nothing is looked for: no other backend reads it.
+pub fn dx12_compiler() -> wgpu::Dx12Compiler {
+    static CHOSEN: std::sync::OnceLock<wgpu::Dx12Compiler> = std::sync::OnceLock::new();
+    CHOSEN
+        .get_or_init(|| {
+            if !cfg!(windows) {
+                return wgpu::Dx12Compiler::Auto;
+            }
+            if let Some(compiler) = wgpu::Dx12Compiler::from_env() {
+                log::info!("Direct3D 12 shaders: {compiler:?}, as WGPU_DX12_COMPILER says");
+                return compiler;
+            }
+            let exe = std::env::current_exe().ok();
+            let dir = exe.as_deref().and_then(std::path::Path::parent);
+            match dxc_beside(dir, |dll| dll.is_file()) {
+                Some(dll) => log::info!(
+                    "Direct3D 12 shaders: DXC, {}, or FXC if it will not load",
+                    dll.display()
+                ),
+                None => log::info!(
+                    "Direct3D 12 shaders: no {DXC} beside the program; DXC if the loader \
+                     finds one, else FXC, which is slow over the blur and the glow"
+                ),
+            }
+            wgpu::Dx12Compiler::Auto
+        })
+        .clone()
+}
+
+/// The `dxcompiler.dll` in the program's folder, when there is one: what
+/// [`dx12_compiler`] says the loader will find first.
+fn dxc_beside(
+    dir: Option<&std::path::Path>,
+    is_file: impl Fn(&std::path::Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    dir.map(|dir| dir.join(DXC)).filter(|dll| is_file(dll))
+}
+
 /// The limits the compositor asks its device for, given the adapter's:
 /// WebGPU's defaults wherever the adapter meets them, the adapter's own
 /// wherever it does not, and the adapter's texture sizes whatever they
@@ -738,6 +816,7 @@ impl WgpuCompositor {
     fn on_backends(backends: wgpu::Backends, software_only: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
+            backend_options: backend_options(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let choices: &[bool] = if software_only {

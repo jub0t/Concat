@@ -8,7 +8,6 @@ name: Build app
 #   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
 #   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst
 #   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
-#                                                          (+ .msix for the Store, apart)
 #
 # Installers and binaries only: the program is not shipped as an archive
 # of a folder to unpack, so what a person downloads is what they run.
@@ -76,11 +75,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # The prebuilt dependencies - BtbN's FFmpeg 8.1 (GPL, shared, one per
-  # arch), ONNX Runtime, sherpa-onnx, nfpm, appimagetool, LLVM for Windows
-  # and Intel's emulator - are each pinned to one file and its digest in
-  # scripts/ci/deps.lock, and fetched through scripts/ci/fetch.sh, which
-  # refuses a file whose digest has changed. The versions below are the
-  # ones those files carry, for the names inside them; a bump changes both.
+  # arch), ONNX Runtime, sherpa-onnx, nfpm, appimagetool, LLVM and
+  # Microsoft's shader compiler for Windows, and Intel's emulator - are
+  # each pinned to one file and its digest in scripts/ci/deps.lock, and
+  # fetched through scripts/ci/fetch.sh, which refuses a file whose digest
+  # has changed. The versions below are the ones those files carry, for
+  # the names inside them; a bump changes both.
   #
   # ONNX Runtime, for the Linux and Windows bundles: the version the ort
   # crate is built against (see ort-sys's dist table), as Microsoft's own
@@ -168,6 +168,7 @@ jobs:
             ort: win-x64
             llvm: win64
             vc: x64
+            dxc: x64
             inno: x64compatible
             wix: x64
           - platform: windows
@@ -179,15 +180,17 @@ jobs:
             ort: win-arm64
             llvm: woa64
             vc: arm64
+            dxc: arm64
             inno: arm64
             wix: arm64
     runs-on: ${{ matrix.os }}
     # The slowest target (Intel macOS, fat LTO) builds in under half an
     # hour, and the checks after the build add a few minutes. The steps
-    # that can hang have timeouts of their own, at most 115 minutes
-    # between them on any one target, so a stuck step is named by its own
-    # timeout; this is for a job stuck anywhere else.
-    timeout-minutes: 150
+    # that can hang have timeouts of their own, at most 130 minutes
+    # between them on any one target (Windows x86_64, whose emulated smoke
+    # test is the long one), so a stuck step is named by its own timeout;
+    # this is for a job stuck anywhere else.
+    timeout-minutes: 165
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -409,6 +412,26 @@ jobs:
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\lib" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # Microsoft's DirectX shader compiler, for the bundle: wgpu compiles
+      # the shaders for Direct3D 12 through the dxcompiler.dll beside
+      # concat.exe, and without one through FXC, which takes minutes over
+      # the blur and the glow (see `dx12_compiler` in concat-render's
+      # gpu.rs). One archive for every architecture, under bin\<arch>\.
+      # dxcompiler.dll alone is shipped, not the dxil.dll beside it: DXC
+      # has signed its own output since 1.8.2502, and wgpu 30 loads nothing
+      # else. It links its C runtime statically and imports only Windows'
+      # own DLLs.
+      - name: DirectX shader compiler (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh dxc dxc.zip
+          if ($LASTEXITCODE -ne 0) { throw "the DXC download failed" }
+          Expand-Archive dxc.zip -DestinationPath dxc
+          if (-not (Test-Path "dxc\bin\${{ matrix.dxc }}\dxcompiler.dll")) { throw "dxc\bin\${{ matrix.dxc }}\dxcompiler.dll is not there" }
+          "DXC_DIR=$PWD\dxc" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # ── sherpa-onnx ────────────────────────────────────────────────────
       # The prebuilt library the sys crate would otherwise fetch for
@@ -865,10 +888,12 @@ jobs:
       # ── Package: Windows ───────────────────────────────────────────────
       # The folder the installers are made from: the program, FFmpeg's
       # DLLs, sherpa-onnx's, ONNX Runtime's (one runtime for both; see its
-      # step above) and the Visual C++ runtime the program and its DLLs
-      # import. The C++ runtime is copied in from Visual Studio's
-      # redistributable folder, as Microsoft allows: a clean Windows does
-      # not have it, and a machine that does may have an older one.
+      # step above), Microsoft's shader compiler with its licences, and the
+      # Visual C++ runtime the program and its DLLs import. Both installers
+      # take the whole folder, so whatever is staged here is installed.
+      # The C++ runtime is copied in from Visual Studio's redistributable
+      # folder, as Microsoft allows: a clean Windows does not have it, and
+      # a machine that does may have an older one.
       - name: Stage (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -884,7 +909,14 @@ jobs:
           # The sherpa-onnx runtime, set aside by the download step above.
           Copy-Item "$env:SHERPA_DLL_DIR\*.dll" $dir
           Copy-Item "$env:ORT_DIR\lib\*.dll" $dir
+          Copy-Item "$env:DXC_DIR\bin\${{ matrix.dxc }}\dxcompiler.dll" $dir
           Copy-Item LICENSE, THIRD_PARTY_NOTICES.md $dir
+          # DXC's three licences, as its archive carries them: Microsoft's
+          # terms for the binary, and the LLVM and MIT notices for the code
+          # it is built from. See THIRD_PARTY_NOTICES.md.
+          $licences = "$dir\licenses\DirectXShaderCompiler"
+          New-Item -ItemType Directory -Force $licences | Out-Null
+          Copy-Item "$env:DXC_DIR\LICENSE-MS.txt", "$env:DXC_DIR\LICENSE-LLVM.txt", "$env:DXC_DIR\LICENCE-MIT.txt" $licences
           # The Visual C++ runtime DLLs anything in the folder imports, from
           # the newest redistributable folder Visual Studio carries.
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
@@ -908,12 +940,13 @@ jobs:
 
       # Authenticode, with the repository's certificate when it has one:
       # every program and DLL in the folder that does not already carry a
-      # valid signature (Microsoft's ONNX Runtime does, and keeps it), here,
-      # and the installers in the step after the checks. Unsigned files
-      # are what Smart App Control refuses to load ("Bad Image", 0xc0e90002,
-      # #306, #311), and an unsigned DLL is refused even beside a signed
-      # program. SmartScreen and the UAC prompt name the publisher instead
-      # of warning about an unknown one. A fork's build is unsigned.
+      # valid signature (Microsoft's ONNX Runtime and shader compiler do,
+      # and keep theirs), here, and the installers in the step after the
+      # checks. Unsigned files are what Smart App Control refuses to load
+      # ("Bad Image", 0xc0e90002, #306, #311), and an unsigned DLL is
+      # refused even beside a signed program. SmartScreen and the UAC
+      # prompt name the publisher instead of warning about an unknown one.
+      # A fork's build is unsigned.
       #
       # The certificate is imported into the user's store and signtool is
       # told its thumbprint, so the password never reaches a command line:
@@ -960,12 +993,15 @@ jobs:
 
       # The staged folder, launched before any installer is made of it:
       # every DLL it imports is in it or is Windows' own; `--version` and
-      # `--smoke` exit 0 with only Windows on the path; and on x86_64,
-      # `--version` again under Intel's emulator posing as an Ivy Bridge
-      # (#313). See scripts/ci/smoke-windows.ps1.
+      # `--smoke` exit 0 with only Windows on the path; and on x86_64, both
+      # again under Intel's emulator posing as an Ivy Bridge (#313) - the
+      # emulated `--smoke` slowly, since it draws on WARP and compiles its
+      # shaders through dxcompiler.dll, which is what shows the shipped DXC
+      # runs on that CPU. The script allows those two 10 and 20 minutes.
+      # See scripts/ci/smoke-windows.ps1.
       - name: Smoke test (Windows)
         if: matrix.platform == 'windows'
-        timeout-minutes: 15
+        timeout-minutes: 40
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -1001,12 +1037,6 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          # The identity Partner Center reserved for the app. Unset, no
-          # .msix is made: a fork has no Store listing to make one for.
-          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
-          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
-          MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
-          MSSTORE_DISPLAY_NAME: ${{ vars.MSSTORE_DISPLAY_NAME || 'Concat' }}
         run: |
           $ErrorActionPreference = "Stop"
           $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
@@ -1040,40 +1070,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
           Sign "stage\$name.msi"
-          # And the .msix, for the Microsoft Store, from the same folder with
-          # the manifest and logos beside it. See assets/windows/AppxManifest.xml.
-          # Into store/, not stage/: the Store signs it and takes it, and an
-          # unsigned package in the release is one nobody can install.
-          if ($env:MSSTORE_IDENTITY_NAME -and $env:MSSTORE_PUBLISHER) {
-            $makeappx = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" |
-              Sort-Object FullName -Descending | Select-Object -First 1
-            if (-not $makeappx) { throw "makeappx.exe is not in the Windows SDK" }
-            $pack = "$env:RUNNER_TEMP\msix"
-            Copy-Item -Recurse "stage\$name" $pack
-            Copy-Item -Recurse assets\windows\store "$pack\Assets"
-            # The Store's four-part version, whose last part must be 0.
-            $fill = [ordered]@{
-              "{IdentityName}" = $env:MSSTORE_IDENTITY_NAME
-              "{Publisher}" = $env:MSSTORE_PUBLISHER
-              "{PublisherDisplayName}" = $env:MSSTORE_PUBLISHER_DISPLAY_NAME
-              "{DisplayName}" = $env:MSSTORE_DISPLAY_NAME
-              "{Version}" = "$env:VERSION.0"
-              "{Arch}" = "${{ matrix.wix }}"
-            }
-            $manifest = Get-Content -Raw assets\windows\AppxManifest.xml
-            foreach ($word in $fill.Keys) {
-              $manifest = $manifest.Replace($word, [Security.SecurityElement]::Escape($fill[$word]))
-            }
-            # Through .NET, not Set-Content: on the runner Set-Content refused
-            # -Encoding, which failed the v0.2.6 build. UTF-8 with no BOM.
-            [IO.File]::WriteAllText("$pack\AppxManifest.xml", $manifest, [Text.UTF8Encoding]::new($false))
-            New-Item -ItemType Directory -Force store | Out-Null
-            & $makeappx.FullName pack /o /d $pack /p "store\$name.msix"
-            if ($LASTEXITCODE -ne 0) { throw "makeappx failed with $LASTEXITCODE" }
-            Remove-Item -Recurse -Force $pack
-          } else {
-            Write-Host "No Store identity in the repository's variables: no .msix."
-          }
           # The folder itself is not published: the two installers are.
           Remove-Item -Recurse -Force "stage\$name"
 
@@ -1088,13 +1084,4 @@ jobs:
         with:
           name: Concat-${{ matrix.platform }}-${{ matrix.arch }}
           path: stage/*
-          if-no-files-found: error
-
-      # The Store's package, apart from the release's bundles: release.yml
-      # bundles the two architectures and submits them.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: matrix.platform == 'windows' && hashFiles('store/*.msix') != ''
-        with:
-          name: Store-windows-${{ matrix.arch }}
-          path: store/*.msix
           if-no-files-found: error

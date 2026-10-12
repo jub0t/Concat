@@ -16,9 +16,13 @@
 #    the program and every DLL it loads at start load and initialise.
 # 3. `concat.exe --smoke` exits 0 the same way: the start-up runs through
 #    the first frame of the window, then the program leaves.
-# 4. With -Sde, `--version` again under Intel's emulator posing as an Ivy
-#    Bridge (AVX, nothing newer), which stops the program at the first
-#    instruction that chip does not have. x86_64 only.
+# 4. With -Sde, `--version` and `--smoke` again under Intel's emulator
+#    posing as an Ivy Bridge (AVX, nothing newer), which stops the program
+#    at the first instruction that chip does not have. x86_64 only.
+#    `--version` covers what every start loads; `--smoke` goes on to build
+#    the monitor's compositor, whose shaders Direct3D 12 compiles through
+#    the dxcompiler.dll in the bundle: the run that shows Microsoft's
+#    compiler starts on that CPU, where isa-scan.sh can only count.
 #
 # concat.exe is a GUI program: it has no console, so it is judged by its
 # exit code and not by what it prints. Windows' error dialogs are turned
@@ -156,6 +160,12 @@ if ($Sde) {
   # The emulator's own folder too: it loads its pieces from beside itself.
   $path = (Split-Path $sdeExe) + ";" + $bare
   Expect-Ok "concat.exe --version under SDE -ivb" $sdeExe @("-ivb", "--", $exe, "--version") $path 600
+
+  # Slow: the runner has no GPU, so the window and the compositor draw on
+  # WARP, Windows' software rasteriser, and both it and the shader
+  # compiler run under the emulator's instrumentation.
+  Say "concat.exe --smoke on an emulated Ivy Bridge"
+  Expect-Ok "concat.exe --smoke under SDE -ivb" $sdeExe @("-ivb", "--", $exe, "--smoke") $path 1200
 }
 
 Say "ok"

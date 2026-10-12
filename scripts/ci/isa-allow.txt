@@ -38,6 +38,15 @@ libonnxruntime.so*             any
 sherpa-onnx-c-api.dll          any
 sherpa-onnx-cxx-api.dll        any
 
+# Microsoft's DirectX Shader Compiler (DXC) 1.9.2609, shipped beside the
+# binary. It holds a few hundred AVX2, FMA and BMI instructions - 217, 397
+# and 4 - which are the statically linked MSVC runtime's and C++ library's
+# run-time-dispatched paths (maths functions and the like, as in
+# sherpa-onnx's DLLs above); a library compiled for Haswell as a whole
+# holds thousands. Limits a margin above those counts rather than `any`,
+# so a later build that is compiled for Haswell fails the scan.
+dxcompiler.dll                 260   450   10     0          0
+
 # The MSVC runtime, shipped beside the binary: memcpy and friends pick
 # their AVX2 paths at run time.
 vcruntime140*.dll              any

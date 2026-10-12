@@ -313,6 +313,26 @@ jobs:
           "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
           "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
           $lib | Out-File -FilePath $env:GITHUB_PATH -Append
+      # Microsoft's DirectX shader compiler, the dxcompiler.dll the bundle
+      # ships beside concat.exe (concat-render's `dx12_compiler` says why).
+      # The test binaries run out of target\, with none beside them, so its
+      # folder goes on the path, where wgpu's own choice finds it: the GPU
+      # tests compile their shaders through DXC, as the app does, and not
+      # through FXC, which ran three of them past nextest's five minutes on
+      # WARP and held every_edit_still_exports at its first glow. Not forced
+      # with WGPU_DX12_COMPILER: a DXC that would not load would then take
+      # Direct3D 12 away, and the GPU tests would skip rather than fail.
+      - name: DirectX shader compiler (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh dxc dxc.zip
+          if ($LASTEXITCODE -ne 0) { throw "the DXC download failed" }
+          Expand-Archive dxc.zip -DestinationPath dxc
+          $bin = "$PWD\dxc\bin\x64"
+          if (-not (Test-Path "$bin\dxcompiler.dll")) { throw "$bin\dxcompiler.dll is not there" }
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append
       # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
       # static on macOS, the import libraries alone on Windows, whose DLLs
       # go on the path for the test binaries - all but sherpa's own
