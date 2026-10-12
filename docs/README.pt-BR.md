@@ -98,6 +98,8 @@ O Concat está em **beta**: funciona, e ainda tem arestas. [Conte](https://githu
 
 Os **requisitos do sistema** e os tamanhos dos modelos opcionais estão no [site](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Como contribuir
 
 > [!IMPORTANT]

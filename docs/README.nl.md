@@ -98,6 +98,8 @@ Concat is in **bèta**: het werkt, maar er zitten nog ruwe randjes aan. [Laat he
 
 **Systeemvereisten** en de groottes van de optionele modellen staan op [de website](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Bijdragen
 
 > [!IMPORTANT]

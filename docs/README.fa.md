@@ -98,6 +98,8 @@ Concat در مرحلهٔ **بتا** است: کار می‌کند و هنوز ل�
 
 **نیازمندی‌های سیستم** و اندازهٔ مدل‌های اختیاری در [وب‌سایت](https://concatenate.pages.dev/guides/system-requirements) آمده است.
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## چطور مشارکت کنیم
 
 > [!IMPORTANT]

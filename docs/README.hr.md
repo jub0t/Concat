@@ -98,6 +98,8 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 
 **Zahtjevi sustava** i veličine neobaveznih modela nalaze se na [web-stranici](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Kako doprinijeti
 
 > [!IMPORTANT]

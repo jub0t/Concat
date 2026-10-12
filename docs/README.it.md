@@ -98,6 +98,8 @@ Concat è in **beta**: funziona, e ha ancora qualche spigolo. [Segnalalo](https:
 
 I **requisiti di sistema** e le dimensioni dei modelli opzionali sono sul [sito web](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Come contribuire
 
 > [!IMPORTANT]

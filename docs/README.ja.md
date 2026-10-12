@@ -98,6 +98,8 @@ Concat は **ベータ版** です。動きますが、まだ粗い部分があ�
 
 **システム要件** と任意モデルのサイズは [ウェブサイト](https://concatenate.pages.dev/guides/system-requirements) にあります。
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## 貢献するには
 
 > [!IMPORTANT]

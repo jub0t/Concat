@@ -98,6 +98,8 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 
 **متطلبات النظام** وأحجام النماذج الاختيارية على [الموقع](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## كيف تساهم
 
 > [!IMPORTANT]

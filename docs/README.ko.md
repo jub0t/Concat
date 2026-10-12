@@ -98,6 +98,8 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 
 **시스템 요구 사항**과 선택 모델의 크기는 [웹사이트](https://concatenate.pages.dev/guides/system-requirements)에 있습니다.
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## 기여하는 법
 
 > [!IMPORTANT]

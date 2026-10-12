@@ -98,6 +98,8 @@ Concat masih **beta**: ia bekerja, dan masih ada sisi kasarnya. [Beri tahu](http
 
 **Kebutuhan sistem** dan ukuran model opsional ada di [situs web](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Cara berkontribusi
 
 > [!IMPORTANT]

@@ -98,6 +98,8 @@ Concat 處於 **測試版**：能用，但還有毛邊。遇到了請 [告訴我
 
 **系統需求** 與可選模型的大小見 [官網](https://concatenate.pages.dev/guides/system-requirements)。
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## 如何貢獻
 
 > [!IMPORTANT]

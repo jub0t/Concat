@@ -98,6 +98,8 @@ Concat у **беті**: він працює, але шорсткості ще є
 
 **Системні вимоги** та розміри необов’язкових моделей - на [сайті](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Як долучитися
 
 > [!IMPORTANT]

@@ -98,6 +98,8 @@ Concat **बीटा** में है: यह काम करता है, 
 
 **सिस्टम आवश्यकताएँ** और वैकल्पिक मॉडलों के आकार [वेबसाइट](https://concatenate.pages.dev/guides/system-requirements) पर हैं।
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## योगदान कैसे करें
 
 > [!IMPORTANT]

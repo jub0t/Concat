@@ -98,6 +98,8 @@ Concat נמצא ב**בטא**: הוא עובד, ועדיין יש לו קצוות
 
 **דרישות המערכת** וגודלי המודלים האופציונליים נמצאים [באתר](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## איך לתרום
 
 > [!IMPORTANT]

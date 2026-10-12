@@ -98,6 +98,8 @@ Concat в **бете**: он работает, но шероховатости �
 
 **Системные требования** и размеры необязательных моделей - на [сайте](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Как помочь
 
 > [!IMPORTANT]

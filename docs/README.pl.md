@@ -98,6 +98,8 @@ Concat jest w fazie **beta**: działa, ale wciąż ma swoje niedoróbki. [Daj zn
 
 **Wymagania systemowe** i rozmiary opcjonalnych modeli znajdziesz na [stronie](https://concatenate.pages.dev/guides/system-requirements).
 
+**[Code signing policy](../CODE_SIGNING.md)**
+
 ## Jak pomóc
 
 > [!IMPORTANT]
