@@ -33,7 +33,7 @@ clap = { version = "4", features = ["derive", "env"] }
 # the engine's compositor draw on one device and a preview frame never leaves
 # the GPU.
 wgpu = "30"
-pollster = "0.4"
+pollster = "1.0"
 
 # ONNX Runtime, for the cutout models. The binaries come prebuilt for every
 # target the app ships on, with the platform's own accelerator behind them:

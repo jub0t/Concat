@@ -47,7 +47,7 @@ path = "src/main.rs"
 # Where the desktop really is: Windows' known folder, which OneDrive may
 # have moved, and the XDG user dirs, which name it in the desktop's own
 # language. New projects default to a folder on it.
-dirs = "6"
+dirs = "7"
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-default",
@@ -71,7 +71,7 @@ slint = { version = "1.18", default-features = false, features = [
 # Native file and folder dialogs, which Slint deliberately does not have.
 rfd = "0.17"
 # Reveal an exported file in the platform's file manager.
-opener = { version = "0.8", features = ["reveal"] }
+opener = { version = "0.9", features = ["reveal"] }
 
 # Native Wayland file drops; see wayland_drop.rs. winit 0.30 reports a
 # dropped file on X11 and not on Wayland, so the window listens for one
