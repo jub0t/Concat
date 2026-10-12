@@ -23,19 +23,25 @@ on:
       - .github/workflows/nix.yml
   workflow_dispatch:
 
+# Only a pull request's run is superseded by the next push to it; a run on
+# main is the record of whether main builds.
 concurrency:
   group: nix-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
     name: nix build
     runs-on: ubuntu-latest
+    # A cold build of the whole workspace and its native dependencies.
+    timeout-minutes: 120
+    # Read only: the job builds what is checked in and writes nothing back
+    # (the lock is refreshed by hand; see the top of this file).
     permissions:
-      contents: write
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: DeterminateSystems/nix-installer-action@v22
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       # Refreshes nothing: a lock that would change here is a lock the
       # commit should have carried.

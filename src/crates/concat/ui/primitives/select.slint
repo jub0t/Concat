@@ -52,15 +52,16 @@ export component Select inherits Rectangle {
     property <bool> ring;
     property <length> row-h: 26px;
     /// What the rows need, and what the list is given: the rows, capped
-    /// at nine or so. Past the cap the list scrolls - see `at`.
+    /// at nine or so. Past the cap the list scrolls, under a wheel or a
+    /// finger - see `flick`.
     property <length> content-h: root.options.length * root.row-h + 8px;
     property <length> list-h: Math.min(240px, root.content-h);
-    /// How far down the rows are parked. Held raw and clamped on read, so
-    /// a list that reopens shorter, or a wheel past the end, cannot leave
-    /// the rows parked beyond it.
+    /// How far down the rows are parked: the list's Flickable's own
+    /// viewport, which is zero or less. Clamped on read, so a list that
+    /// reopens shorter cannot leave the rows parked beyond its end.
     property <length> overflow: Math.max(0px, root.content-h - root.list-h);
-    property <length> scroll;
-    property <length> at: Math.max(0px, Math.min(root.overflow, root.scroll));
+    property <length> content-y;
+    property <length> at: Math.max(0px, Math.min(root.overflow, -root.content-y));
 
     pure function row-top(index: int) -> length {
         return 4px + index * root.row-h;
@@ -69,9 +70,9 @@ export component Select inherits Rectangle {
     /// it is above, from below when it is below, not at all when it shows.
     function reveal-row(index: int) {
         if (root.row-top(index) - 4px < root.at) {
-            root.scroll = root.row-top(index) - 4px;
+            root.content-y = -(root.row-top(index) - 4px);
         } else if (root.row-top(index) + root.row-h + 4px > root.at + root.list-h) {
-            root.scroll = root.row-top(index) + root.row-h + 4px - root.list-h;
+            root.content-y = -(root.row-top(index) + root.row-h + 4px - root.list-h);
         }
     }
     // Read from the popup rather than tracked here: a click outside closes it
@@ -137,7 +138,7 @@ export component Select inherits Rectangle {
         root.active = Math.max(root.current, 0);
         // Opened on the current row: a list of twelve languages that
         // opened at the top hid whichever was chosen past the ninth.
-        root.scroll = 0px;
+        root.content-y = 0px;
         root.reveal-row(root.active);
         list.show();
     }
@@ -314,16 +315,20 @@ export component Select inherits Rectangle {
                 }
             }
 
-            // Ancestor of the rows, so a wheel their own touch areas do
-            // not handle reaches it; the rows are parked `at` up.
-            wheel := TouchArea {
-                scroll-event(event) => {
-                    root.scroll = root.at - event.delta-y;
-                    return EventResult.accept;
-                }
+            // A Flickable, so the list scrolls under a finger as well as a
+            // wheel: a list past its nine rows, the languages among them,
+            // moved only by its scrollbar on a phone, since a finger has no
+            // wheel and each row took the press as a tap. The rows are only
+            // ever tapped, never dragged, so nothing loses a gesture to it:
+            // a tap reaches the row, a drag past the threshold scrolls.
+            flick := Flickable {
+                content-y <=> root.content-y;
+                content-width: self.width;
+                content-height: root.content-h;
+                interactive: root.overflow > 0px;
 
                 VerticalLayout {
-                    y: -root.at;
+                    width: flick.width;
                     height: root.content-h;
                     padding: 4px;
                     alignment: start;
@@ -400,7 +405,7 @@ export component Select inherits Rectangle {
                 viewport: root.list-h;
                 content: root.content-h;
                 offset: root.at;
-                scrolled(to) => { root.scroll = to; }
+                scrolled(to) => { root.content-y = -to; }
             }
         }
     }

@@ -367,6 +367,38 @@ pub fn after_dialog<T: Send + 'static>(
     });
 }
 
+/// [`after_dialog`] for files, on every platform. The desktop's dialog is
+/// asked on a turn of its own with the studio unborrowed. A phone's picker
+/// is another screen, which answers later from whichever thread it likes,
+/// so it is asked the same way and answered through [`on_ui`]. `then` is
+/// not called for a picker dismissed with nothing chosen. `filter` names a
+/// family and its extensions, for the desktop's dialog; a phone's offers
+/// every kind of media on its own.
+pub fn pick_files_then(
+    title: String,
+    filter: Option<(String, &'static [&'static str])>,
+    then: impl FnOnce(&mut Studio, &App, &Models, Vec<std::path::PathBuf>) + Send + 'static,
+) {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        let _ = slint::invoke_from_event_loop(move || {
+            let filter = filter.as_ref().map(|(name, list)| (name.as_str(), *list));
+            crate::platform::pick_files_async(&title, filter, move |paths| {
+                if !paths.is_empty() {
+                    on_ui(move |studio, app, models| then(studio, app, models, paths));
+                }
+            });
+        });
+    } else {
+        after_dialog(
+            move || {
+                let filter = filter.as_ref().map(|(name, list)| (name.as_str(), *list));
+                crate::platform::pick_files(&title, filter)
+            },
+            then,
+        );
+    }
+}
+
 fn on_ui_gated(epoch: Option<u64>, body: impl FnOnce(&mut Studio, &App, &Models) + Send + 'static) {
     let _ = slint::invoke_from_event_loop(move || {
         Shell::with(|shell, app| {

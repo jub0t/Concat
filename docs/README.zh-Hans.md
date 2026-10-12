@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · **🇨🇳 简体中文** · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · **🇨🇳 简体中文** · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> 译自 2026 年 10 月 2 日的英文 README。以英文版为准，它才是持续更新的版本。
+> 译自 2026 年 10 月 11 日的英文 README。以英文版为准，它才是持续更新的版本。
 
 ## 付费赞助商
 
@@ -40,8 +40,8 @@
       <sub>面向开发者的按量付费代理<br />使用代码 <code>JUB0T</code> 享 20 % 折扣</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>您的 Logo 放这里</b></a><br />
-      <sub><a href="#sponsoring">赞助 Concat</a> 您的名字、Logo 和链接就会出现在这个位置</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>您的 Logo 放这里</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">赞助 Concat</a> 您的名字、Logo 和链接就会出现在这个位置</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Concat 是一款免费、开源的视频编辑器，是 macOS、Windows、Linux 
 - 📤 **导出。** H.264、HEVC、AV1。最高 4K 60，10 位色彩。
 - 🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬件解码。4K 拖动也顺滑。
 - 🤖 **可脚本化。** JSON-RPC、gRPC 和 MCP API，外加 CLI。AI 代理可以用它剪视频。
-- 🖥️ **macOS、Windows、Linux、Android。** 14 种语言。同一个应用，同样的项目文件。
+- 🖥️ **macOS、Windows、Linux、Android。** 25 种语言。同一个应用，同样的项目文件。
 
 ## 下载
 
@@ -98,12 +98,6 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
 
 **系统要求** 和可选模型的大小见 [官网](https://concatenate.pages.dev/guides/system-requirements)。
 
-## 开始使用
-
-下载、打开、拖入素材、开剪。无需账号，无需设置。
-
-**反馈问题：** 每次运行都会写日志，设置 › 关于 里有打开日志的按钮，旁边是复制系统信息的按钮。把两者附到一个 [issue](https://github.com/jub0t/Concat/issues) 里，报告就带齐了所需的一切。保留最近十次运行，所以昨天的还在；任何内容都不会自动发送到任何地方。
-
 ## 如何贡献
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
 
 ## Star 历史
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat 处于 **测试版**：能用，但还有毛边。遇到了请 [告诉我
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## 赞助
+## DMCA
 
-Concat 没有付费墙，以后也不会有：无水印、无账号、无付费档。赞助就是替代它的方式。如果 Concat 替您省下了一份订阅，拿出其中一小部分就能让它继续走下去。
-
-**钱用在哪**
-
-[路线图](https://concatenate.pages.dev/roadmap) 列出了赞助用于哪些事，以及每一项的花费。
-
-在 [官网](https://concatenate.pages.dev/#sponsor) 选一个档位。
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-暂时不方便出力？一个 Star、一份 bug 报告，或者向剪视频的朋友提一句，同样意义重大。
+如果您认为本仓库、其发布版本，或其分发的某个软件包或模型中的内容侵犯了您的版权，请发送邮件至 [jub0trd@gmail.com](mailto:jub0trd@gmail.com)，并附上：对您拥有的作品的描述；侵权内容在此处出现位置的链接；您的联系方式；一份声明，表明您善意地相信该使用未获得您、您的代理人或法律的授权；以及一份在承担伪证罪责任的前提下作出的声明，表明通知内容准确无误，且您是权利人或经授权代表权利人行事，并附有您的手写签名或电子签名。有效的通知会得到及时处理；任何内容被移除的人，都可以向同一地址发送反通知。

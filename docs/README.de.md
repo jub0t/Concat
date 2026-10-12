@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · **🇩🇪 Deutsch** · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · **🇩🇪 Deutsch** · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> Übersetzt aus der englischen README vom 2. Oktober 2026. Die englische Fassung ist die, die aktuell gehalten wird.
+> Übersetzt aus der englischen README vom 11. Oktober 2026. Die englische Fassung ist die, die aktuell gehalten wird.
 
 ## Zahlende Sponsoren
 
@@ -40,8 +40,8 @@
       <sub>Pay-as-you-go-Proxys für Entwickler<br />Mit dem Code <code>JUB0T</code> 20 % Rabatt</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Dein Logo hier</b></a><br />
-      <sub><a href="#sponsoring">Sponsere Concat</a> und dein Name, dein Logo und dein Link stehen an dieser Stelle</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>Dein Logo hier</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Sponsere Concat</a> und dein Name, dein Logo und dein Link stehen an dieser Stelle</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Alles läuft lokal auf einer nativen Rust-Engine mit GPU-Compositor. Installiere
 - 📤 **Export.** H.264, HEVC, AV1. Bis 4K 60, 10-Bit-Farbe.
 - 🦀 **Native Rust-Engine.** GPU-Compositor, Proxys, Hardware-Decoding. 4K scrubbt flüssig.
 - 🤖 **Skriptbar.** JSON-RPC-, gRPC- und MCP-API plus CLI. KI-Agenten können damit Video schneiden.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 Sprachen. Dieselbe App, dieselben Projektdateien.
+- 🖥️ **macOS, Windows, Linux, Android.** 25 Sprachen. Dieselbe App, dieselben Projektdateien.
 
 ## Download
 
@@ -98,12 +98,6 @@ Concat ist in der **Beta**: Es funktioniert, hat aber noch Kanten. [Sag Bescheid
 
 **Systemanforderungen** und die Größen der optionalen Modelle stehen auf [der Website](https://concatenate.pages.dev/guides/system-requirements).
 
-## Loslegen
-
-Herunterladen, öffnen, Material hineinziehen, schneiden. Kein Konto, keine Einrichtung.
-
-**Etwas melden:** Jeder Lauf schreibt ein Protokoll, und unter Einstellungen › Über gibt es den Knopf, der es öffnet, neben dem, der deine Systeminformationen kopiert. Häng beides an ein [Issue](https://github.com/jub0t/Concat/issues), und der Bericht kommt mit allem an, was er braucht. Die letzten zehn Läufe werden aufbewahrt, der von gestern ist also noch da; nichts wird je von selbst irgendwohin geschickt.
-
 ## Mitmachen
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Herunterladen, öffnen, Material hineinziehen, schneiden. Kein Konto, keine Einr
 
 ## Sternverlauf
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Herunterladen, öffnen, Material hineinziehen, schneiden. Kein Konto, keine Einr
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## Sponsoring
+## DMCA
 
-Concat hat keine Bezahlschranke und wird nie eine haben: kein Wasserzeichen, kein Konto, keine Bezahlstufe. Sponsoring ist das, was an deren Stelle tritt. Wenn Concat für dich ein Abo ersetzt hat, hält ein Bruchteil davon es am Laufen.
-
-**Wofür es verwendet wird**
-
-Die [Roadmap](https://concatenate.pages.dev/roadmap) zeigt, was Sponsoring bezahlt und was jedes Stück kostet.
-
-Wähle eine Stufe auf [der Website](https://concatenate.pages.dev/#sponsor).
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-Gerade nicht in der Lage, etwas beizusteuern? Ein Stern, ein Fehlerbericht oder ein Wort an jemanden, der Video schneidet, zählt auch eine Menge.
+Wenn du glaubst, dass etwas in diesem Repository, in seinen Releases oder in einem Paket oder Modell, das es verbreitet, dein Urheberrecht verletzt, schreib eine E-Mail an [jub0trd@gmail.com](mailto:jub0trd@gmail.com) mit einer Beschreibung des Werks, das dir gehört, einem Link zu der Stelle, an der das verletzende Material hier erscheint, deinen Kontaktdaten, einer Erklärung, dass du in gutem Glauben annimmst, dass die Nutzung weder von dir noch von deinem Vertreter noch vom Gesetz erlaubt ist, und einer Erklärung unter Strafandrohung für Meineid, dass die Mitteilung zutrifft und dass du der Rechteinhaber oder befugt bist, für ihn zu handeln, versehen mit deiner handschriftlichen oder elektronischen Unterschrift. Gültige Mitteilungen werden umgehend bearbeitet, und wessen Material entfernt wird, kann eine Gegendarstellung (Counter-Notice) an dieselbe Adresse schicken.

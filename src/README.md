@@ -67,20 +67,6 @@ dependency pinned: `nix build` (then `./result/bin/concat`), `nix run`, or
 `nix develop` for a shell with the toolchain and libraries in it. Linux
 x86_64 and aarch64.
 
-The crates that carry no native library - `concat-core`, `concat-project`,
-`concat-effects`, `concat-render` (the wgpu compositor included, on WebGPU)
-and `concat-text` - also build for the web, and CI keeps them building:
-
-```sh
-cargo check -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text \
-    --features concat-render/gpu --target wasm32-unknown-unknown
-```
-
-The rest is native by nature: `concat-media` links FFmpeg, `concat-host`
-talks to the audio device and the file system, `concat-speech` compiles in
-whisper.cpp and sherpa-onnx, and `concat` is a window. `concat-export` goes
-with them for now because its render loop reads through `concat-media`.
-
 ### Phones
 
 The whole engine and the window build for Android (arm64) and iOS

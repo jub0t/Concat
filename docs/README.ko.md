@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · **🇰🇷 한국어** · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · **🇰🇷 한국어** · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> 2026년 10월 2일 기준 영어 README를 번역한 것입니다. 최신 내용은 영어판이 유지합니다.
+> 2026년 10월 11일 기준 영어 README를 번역한 것입니다. 최신 내용은 영어판이 유지합니다.
 
 ## 유료 스폰서
 
@@ -40,8 +40,8 @@
       <sub>개발자를 위한 종량제 프록시<br />코드 <code>JUB0T</code>로 20 % 할인</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>여기에 당신의 로고를</b></a><br />
-      <sub><a href="#sponsoring">Concat을 후원하면</a> 당신의 이름, 로고, 링크가 이 자리에 실립니다</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>여기에 당신의 로고를</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Concat을 후원하면</a> 당신의 이름, 로고, 링크가 이 자리에 실립니다</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Concat은 macOS, Windows, Linux, Android용 무료 오픈 소스 비디오 편�
 - 📤 **내보내기.** H.264, HEVC, AV1. 최대 4K 60, 10비트 색상.
 - 🦀 **네이티브 Rust 엔진.** GPU 컴포지터, 프록시, 하드웨어 디코딩. 4K도 부드럽게 스크러빙.
 - 🤖 **스크립트 가능.** JSON-RPC, gRPC, MCP API와 CLI. AI 에이전트가 이것으로 영상을 편집할 수 있습니다.
-- 🖥️ **macOS, Windows, Linux, Android.** 14개 언어. 같은 앱, 같은 프로젝트 파일.
+- 🖥️ **macOS, Windows, Linux, Android.** 25개 언어. 같은 앱, 같은 프로젝트 파일.
 
 ## 다운로드
 
@@ -98,12 +98,6 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 
 **시스템 요구 사항**과 선택 모델의 크기는 [웹사이트](https://concatenate.pages.dev/guides/system-requirements)에 있습니다.
 
-## 시작하기
-
-내려받고, 열고, 영상을 끌어다 놓고, 자르세요. 계정도 설정도 필요 없습니다.
-
-**문제를 알리려면:** 실행할 때마다 로그가 기록되며, 설정 › 정보에는 로그를 여는 버튼과 시스템 정보를 복사하는 버튼이 있습니다. 둘 다 [issue](https://github.com/jub0t/Concat/issues)에 첨부하면 필요한 모든 것이 담긴 보고가 됩니다. 최근 열 번의 실행이 보관되므로 어제 것도 남아 있습니다. 아무것도 저절로 어디론가 전송되지 않습니다.
-
 ## 기여하는 법
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
 
 ## 스타 추이
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat은 **베타**입니다: 동작하지만 아직 거친 부분이 있습니
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## 후원
+## DMCA
 
-Concat에는 유료 장벽이 없고 앞으로도 없을 것입니다: 워터마크 없음, 계정 없음, 유료 등급 없음. 그 자리를 대신하는 것이 후원입니다. Concat이 당신의 구독을 대신하게 되었다면, 그 일부가 Concat을 계속 굴러가게 합니다.
-
-**쓰임새**
-
-[로드맵](https://concatenate.pages.dev/roadmap)에 후원금이 무엇에 쓰이고 각 항목에 얼마가 드는지 나와 있습니다.
-
-[웹사이트](https://concatenate.pages.dev/#sponsor)에서 등급을 고르세요.
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-지금은 후원이 어렵더라도 스타 하나, 버그 보고 하나, 영상을 편집하는 누군가에게 건네는 한마디도 큰 힘이 됩니다.
+이 저장소나 그 릴리스, 또는 이 저장소가 배포하는 패키지나 모델에 있는 무언가가 귀하의 저작권을 침해한다고 생각되면 [jub0trd@gmail.com](mailto:jub0trd@gmail.com)로 다음 내용을 담아 이메일을 보내 주세요: 귀하가 소유한 저작물에 대한 설명, 침해 자료가 이곳에 나타나는 위치의 링크, 귀하의 연락처, 해당 사용이 귀하나 귀하의 대리인 또는 법률에 의해 허락되지 않았다고 선의로 믿는다는 진술, 그리고 위증 시 처벌을 감수하고 통지 내용이 정확하며 귀하가 권리자이거나 권리자를 대리할 권한이 있다는 진술(귀하의 자필 서명 또는 전자 서명 포함). 유효한 통지는 신속하게 처리되며, 자료가 삭제된 사람은 누구나 같은 주소로 반론 통지(counter-notice)를 보낼 수 있습니다.

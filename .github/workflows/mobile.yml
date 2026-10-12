@@ -22,8 +22,9 @@ name: Build for phones
 #
 # The APK is built under a key made for the run, and a release (the `sign`
 # input, which release.yml alone passes) signs it over again with the
-# repository's key, ANDROID_KEYSTORE (the keystore, base64) and
-# ANDROID_KEYSTORE_PASSWORD, in a step of its own after the build: the key
+# repository's key, ANDROID_KEYSTORE (the keystore, base64),
+# ANDROID_KEYSTORE_PASSWORD, and optionally ANDROID_KEY_ALIAS and
+# ANDROID_KEY_PASSWORD, in a step of its own after the build: the key
 # never sits in the environment of the build and the several hundred build
 # scripts it runs, and a pull request's run never sees it at all. The .ipa
 # is ad-hoc signed: a tester signs it with their own Apple ID on the way
@@ -45,15 +46,22 @@ on:
         required: false
       ANDROID_KEYSTORE_PASSWORD:
         required: false
+      ANDROID_KEY_ALIAS:
+        description: The key's alias in the keystore; the keystore's first alias when unset
+        required: false
+      ANDROID_KEY_PASSWORD:
+        description: The key's own password; the keystore's when unset
+        required: false
   pull_request:
   workflow_dispatch:
 
 # Keyed by the calling workflow too, so a call from a release never shares
-# a group with a pull request's run. A tag's release is never cancelled;
-# everything else is superseded by the next push.
+# a group with a pull request's run. Only a pull request's run is
+# superseded by the next push to it; a release's, or one started by hand,
+# runs to the end.
 concurrency:
   group: mobile-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -69,7 +77,7 @@ jobs:
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: Read the version
@@ -83,11 +91,11 @@ jobs:
       - name: The pinned toolchain
         id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-linux-android
-      - uses: taiki-e/cache-cargo-install-action@v2
+      - uses: taiki-e/cache-cargo-install-action@7447f04c51f2ba27ca35e7f1e28fab848c5b3ba7 # v2.3.1
         with:
           tool: cargo-apk
 
@@ -103,7 +111,7 @@ jobs:
       # build after it.
       - name: FFmpeg for Android (cached)
         id: ffmpeg
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: src/vendor/ffmpeg/aarch64-linux-android
           key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
@@ -112,7 +120,7 @@ jobs:
         run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
       - name: FFmpeg for Android (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: src/vendor/ffmpeg/aarch64-linux-android
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
@@ -120,7 +128,7 @@ jobs:
       - name: sherpa-onnx for Android
         run: src/scripts/sherpa-mobile.sh aarch64-linux-android
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: aarch64-linux-android
@@ -155,11 +163,20 @@ jobs:
       # removed once the signature is on. apksigner replaces the run's
       # signature rather than adding to it. A release with no key set keeps
       # the run's key and says so in the run's annotations.
+      #
+      # apksigner is told everything it would otherwise stop and ask for:
+      # which key (ANDROID_KEY_ALIAS, or the keystore's first alias, which
+      # keytool lists), and the key's password (ANDROID_KEY_PASSWORD, or
+      # the keystore's, which is what a key made with the keystore has).
+      # A prompt on a runner is a step that waits for its timeout.
       - name: Sign with the repository's key
         if: inputs.sign
+        timeout-minutes: 10
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -z "$KEYSTORE_B64" ]; then
@@ -168,10 +185,22 @@ jobs:
           fi
           keystore=$RUNNER_TEMP/release.keystore
           echo "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          alias=$KEY_ALIAS
+          if [ -z "$alias" ]; then
+            alias=$(keytool -list -keystore "$keystore" -storepass:env KEYSTORE_PASSWORD 2>/dev/null \
+              | awk -F, '/PrivateKeyEntry/ { print $1; exit }')
+            if [ -z "$alias" ]; then
+              rm -f "$keystore"
+              echo "::error::the keystore holds no private key, or its password is wrong; set ANDROID_KEY_ALIAS"
+              exit 1
+            fi
+            echo "ANDROID_KEY_ALIAS is not set; signing with the keystore's first key, $alias"
+          fi
           sdk=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
-          tools=$(ls -d "$sdk"/build-tools/*/ | sort -V | tail -1)
+          tools=$(find "$sdk/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
           apk=src/target/release/apk/Concat.apk
-          "$tools/apksigner" sign --ks "$keystore" --ks-pass env:KEYSTORE_PASSWORD "$apk"
+          "$tools/apksigner" sign --ks "$keystore" --ks-pass env:KEYSTORE_PASSWORD \
+            --ks-key-alias "$alias" --key-pass env:KEY_PASSWORD "$apk" < /dev/null
           rm -f "$keystore"
           "$tools/apksigner" verify --print-certs "$apk"
 
@@ -197,7 +226,7 @@ jobs:
           cp src/target/release/apk/Concat.apk "stage/Concat-$VERSION-android-arm64.apk"
           ls -l stage
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Concat-android-arm64
           path: stage/*
@@ -208,7 +237,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: Read the version
@@ -220,7 +249,7 @@ jobs:
       - name: The pinned toolchain
         id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-apple-ios
@@ -232,7 +261,7 @@ jobs:
       # build after it.
       - name: FFmpeg for iOS (cached)
         id: ffmpeg
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ffmpeg-aarch64-apple-ios-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
@@ -241,7 +270,7 @@ jobs:
         run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios
       - name: FFmpeg for iOS (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: src/vendor/ffmpeg/aarch64-apple-ios
           key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
@@ -249,7 +278,7 @@ jobs:
       - name: sherpa-onnx for iOS
         run: src/scripts/sherpa-mobile.sh aarch64-apple-ios
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: aarch64-apple-ios
@@ -294,7 +323,7 @@ jobs:
           (cd payload && ditto -c -k --keepParent Payload "../stage/Concat-$VERSION-ios-arm64.ipa")
           ls -l stage
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Concat-ios-arm64
           path: stage/*

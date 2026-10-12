@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · **🇸🇦 العربية** · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · **🇸🇦 العربية** · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> مترجم من ملف README الإنجليزي بتاريخ 2 أكتوبر 2026. النسخة الإنجليزية هي التي تُحدَّث باستمرار.
+> مترجم من ملف README الإنجليزي بتاريخ 11 أكتوبر 2026. النسخة الإنجليزية هي التي تُحدَّث باستمرار.
 
 ## الرعاة المدفوعون
 
@@ -40,8 +40,8 @@
       <sub>بروكسيات بالدفع حسب الاستخدام للمطوّرين<br />استخدم الرمز <code>JUB0T</code> لخصم 20 %</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>شعارك هنا</b></a><br />
-      <sub><a href="#sponsoring">ارعَ Concat</a> وسيحتل اسمك وشعارك ورابطك هذا المكان</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>شعارك هنا</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">ارعَ Concat</a> وسيحتل اسمك وشعارك ورابطك هذا المكان</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Concat محرر فيديو مجاني ومفتوح المصدر وبديل لـ 
 - 📤 **تصدير.** H.264 وHEVC وAV1. حتى 4K بمعدل 60، ألوان 10 بت.
 - 🦀 **محرك Rust أصلي.** مركّب على بطاقة الرسوميات، ملفات وسيطة، فك ترميز عتادي. تمرير 4K سلس.
 - 🤖 **قابل للبرمجة.** واجهة JSON-RPC وgRPC وMCP، إضافة إلى سطر أوامر. وكلاء الذكاء الاصطناعي يمكنهم قص الفيديو به.
-- 🖥️ **macOS وWindows وLinux وAndroid.** 14 لغة. التطبيق نفسه، ملفات المشروع نفسها.
+- 🖥️ **macOS وWindows وLinux وAndroid.** 25 لغة. التطبيق نفسه، ملفات المشروع نفسها.
 
 ## التنزيل
 
@@ -98,12 +98,6 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 
 **متطلبات النظام** وأحجام النماذج الاختيارية على [الموقع](https://concatenate.pages.dev/guides/system-requirements).
 
-## البدء
-
-نزّله، افتحه، أسقط لقطاتك، وقصّ. لا حساب، لا إعداد.
-
-**للإبلاغ عن شيء:** كل تشغيل يكتب سجلًا، وفي الإعدادات › حول زرٌّ يفتحه إلى جانب زرّ ينسخ معلومات نظامك. أرفق كليهما في [مشكلة](https://github.com/jub0t/Concat/issues) فيصل التقرير بكل ما يحتاجه. تُحفظ آخر عشر تشغيلات، فتشغيل الأمس ما زال موجودًا؛ ولا يُرسل شيء إلى أي مكان من تلقاء نفسه.
-
 ## كيف تساهم
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
 
 ## تاريخ النجوم
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat في مرحلة **بيتا**: يعمل، وما زالت فيه حواف.
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## الرعاية
+## DMCA
 
-ليس لـ Concat جدار دفع ولن يكون له أبدًا: لا علامة مائية، لا حساب، لا فئة مدفوعة. الرعاية هي ما يحلّ محل ذلك. إن كان Concat قد حلّ محل اشتراك لديك، فجزء يسير منه يبقيه مستمرًا.
-
-**أين تذهب**
-
-تعرض [خارطة الطريق](https://concatenate.pages.dev/roadmap) ما تموّله الرعاية وكلفة كل جزء.
-
-اختر فئة على [الموقع](https://concatenate.pages.dev/#sponsor).
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-لست في وضع يسمح بالمساهمة؟ نجمة، أو بلاغ عن خلل، أو كلمة لشخص يحرر الفيديو، كلها تعني الكثير أيضًا.
+إذا كنت تعتقد أن شيئًا في هذا المستودع أو في إصداراته أو في حزمة أو نموذج يوزّعه يتعدّى على حقوق النشر الخاصة بك، فراسل [jub0trd@gmail.com](mailto:jub0trd@gmail.com) متضمّنًا: وصفًا للعمل الذي تملكه، ورابطًا إلى الموضع الذي تظهر فيه المادة المخالفة هنا، وبيانات الاتصال بك، وإقرارًا بأنك تعتقد بحسن نية أن هذا الاستخدام غير مصرّح به منك أو من وكيلك أو بموجب القانون، وإقرارًا، تحت طائلة عقوبة شهادة الزور، بأن الإشعار دقيق وبأنك المالك أو مفوَّض بالتصرف نيابةً عنه، مذيّلًا بتوقيعك الخطي أو الإلكتروني. يُتعامل مع الإشعارات الصحيحة على وجه السرعة، ويحق لأي شخص أُزيلت مادته أن يرسل إشعارًا مضادًا إلى العنوان نفسه.

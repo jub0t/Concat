@@ -78,22 +78,116 @@ pub struct Titles {
     loaded_files: Mutex<HashSet<String>>,
     /// What is known to be on disk, by key.
     memo: Mutex<HashMap<u64, Art>>,
-    /// Titles painted live, by key: the newest few, so a width dragged
-    /// back and forth over the same values paints each once.
+    /// Titles painted live, by key: every title on the timeline, and the
+    /// most recently asked for of the rest, so a width dragged back and
+    /// forth over the same values paints each once.
     live: Mutex<LivePaintings>,
 }
 
-/// The live paintings held, and the order they came in.
-type LivePaintings = (
-    HashMap<u64, (Art, Arc<Frame>)>,
-    std::collections::VecDeque<u64>,
-);
-
-/// The live paintings kept, in bytes of pixels; see `Titles::live`. Each
-/// is a picture the frame's size - 8 MB at 1080p, 33 MB at 4K - so a count
-/// cost four times as much on a 4K timeline as on an HD one. 128 MB keeps
-/// sixteen HD paintings or four 4K ones, and always the newest.
+/// The live paintings kept, in bytes of pixels, beyond the ones the
+/// timeline is showing; see [`LivePaintings`]. Each is a picture the
+/// frame's size - 8 MB at 1080p, 33 MB at 4K - so a count cost four times
+/// as much on a 4K timeline as on an HD one. 128 MB keeps sixteen HD
+/// paintings or four 4K ones.
 const LIVE_BYTES: usize = 128 * 1024 * 1024;
+
+/// The most the paintings of the titles on the timeline may hold between
+/// them, in bytes of pixels: 64 HD titles, or 256 at the monitor's half
+/// size. Past it the first painted are kept and the rest painted again
+/// each time; see [`LivePaintings::keep`].
+const LIVE_CEILING: usize = 512 * 1024 * 1024;
+
+/// One live painting, and the pass that last asked for it.
+struct LivePainting {
+    art: Art,
+    frame: Arc<Frame>,
+    used: u64,
+}
+
+/// The titles painted live, by key, least recently used out first.
+///
+/// Every live ask paints every title on the timeline in turn, the same
+/// order each time. Kept first in, first out - and a hit not counting as a
+/// use - past 64 half-size portrait titles each one asked for was the one
+/// thrown out the step before, so every title was painted again on every
+/// change, and the editor lagged (#261). Now what the pass in hand has
+/// asked for is never thrown out for the byte budget: the floor is every
+/// title on the timeline, up to [`LIVE_CEILING`].
+struct LivePaintings {
+    kept: HashMap<u64, LivePainting>,
+    /// Which pass over the timeline this is; see [`LivePaintings::begin`].
+    pass: u64,
+    /// Bytes of pixels held.
+    bytes: usize,
+    /// What the paintings past passes asked for may hold.
+    budget: usize,
+    /// What all of them may hold.
+    ceiling: usize,
+}
+
+impl LivePaintings {
+    fn new(budget: usize, ceiling: usize) -> Self {
+        LivePaintings {
+            kept: HashMap::new(),
+            pass: 0,
+            bytes: 0,
+            budget,
+            ceiling,
+        }
+    }
+
+    /// Starts a pass over the timeline: what it asks for is held whatever
+    /// the budget.
+    fn begin(&mut self) {
+        self.pass += 1;
+    }
+
+    /// The painting under `key`, now the most recently used.
+    fn get(&mut self, key: u64) -> Option<(Art, Arc<Frame>)> {
+        let pass = self.pass;
+        self.kept.get_mut(&key).map(|painting| {
+            painting.used = pass;
+            (painting.art.clone(), Arc::clone(&painting.frame))
+        })
+    }
+
+    /// Keeps a painting under `key`. Over the budget, the least recently
+    /// used go first, never one this pass has asked for. Over the ceiling
+    /// with nothing else left, the one just painted is not kept: the ones
+    /// painted before it stay for the next pass, rather than each pushing
+    /// out the one it will want next. The newest is always kept alone.
+    fn keep(&mut self, key: u64, art: Art, frame: Arc<Frame>) {
+        let size = frame.pixels().len();
+        let painting = LivePainting {
+            art,
+            frame,
+            used: self.pass,
+        };
+        if let Some(old) = self.kept.insert(key, painting) {
+            self.bytes -= old.frame.pixels().len();
+        }
+        self.bytes += size;
+        while self.bytes > self.budget {
+            let oldest = self
+                .kept
+                .iter()
+                .filter(|(_, painting)| painting.used < self.pass)
+                .min_by_key(|(_, painting)| painting.used)
+                .map(|(key, _)| *key);
+            let Some(oldest) = oldest else { break };
+            self.drop_key(oldest);
+        }
+        if self.bytes > self.ceiling && self.kept.len() > 1 {
+            self.drop_key(key);
+        }
+    }
+
+    fn drop_key(&mut self, key: u64) {
+        if let Some(gone) = self.kept.remove(&key) {
+            self.bytes -= gone.frame.pixels().len();
+        }
+    }
+}
 
 impl Titles {
     /// A painter that caches under the app's data directory.
@@ -105,7 +199,7 @@ impl Titles {
             fonts: Mutex::new(None),
             loaded_files: Mutex::new(HashSet::new()),
             memo: Mutex::new(HashMap::new()),
-            live: Mutex::new((HashMap::new(), std::collections::VecDeque::new())),
+            live: Mutex::new(LivePaintings::new(LIVE_BYTES, LIVE_CEILING)),
         }
     }
 
@@ -127,6 +221,9 @@ impl Titles {
     }
 
     fn clips_with(&self, project: &Project, width: u32, height: u32, live: bool) -> Vec<TitleClip> {
+        if live {
+            self.live.lock().unwrap_or_else(|e| e.into_inner()).begin();
+        }
         let timeline = project.active();
         let mut out = Vec::new();
         for clip in &timeline.clips {
@@ -231,14 +328,8 @@ impl Titles {
     ) -> Result<(PathBuf, Art, Arc<Frame>), String> {
         let key = key_of(project, painting, width, height);
         let path = PathBuf::from(format!("memory://titles/{key:016x}"));
-        if let Some((art, frame)) = self
-            .live
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .0
-            .get(&key)
-        {
-            return Ok((path, art.clone(), Arc::clone(frame)));
+        if let Some((art, frame)) = self.live.lock().unwrap_or_else(|e| e.into_inner()).get(key) {
+            return Ok((path, art, frame));
         }
         let rendered = match painting {
             Painting::Title(style) => {
@@ -262,22 +353,11 @@ impl Titles {
             Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
                 .ok_or_else(|| "the painter returned a frame of the wrong size".to_owned())?,
         );
-        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-        let (kept, order) = &mut *live;
-        if kept
-            .insert(key, (art.clone(), Arc::clone(&frame)))
-            .is_none()
-        {
-            order.push_back(key);
-        }
-        let held = |kept: &HashMap<u64, (Art, Arc<Frame>)>| -> usize {
-            kept.values().map(|(_, frame)| frame.pixels().len()).sum()
-        };
-        while order.len() > 1 && held(kept) > LIVE_BYTES {
-            if let Some(oldest) = order.pop_front() {
-                kept.remove(&oldest);
-            }
-        }
+        self.live.lock().unwrap_or_else(|e| e.into_inner()).keep(
+            key,
+            art.clone(),
+            Arc::clone(&frame),
+        );
         Ok((path, art, frame))
     }
 
@@ -671,6 +751,84 @@ mod tests {
             left[0].clip.reveal_map.as_ref().map(|r| &*r.gray)
         );
         let _ = std::fs::remove_dir_all(dirs.data.parent().unwrap());
+    }
+
+    /// More titles than the byte budget holds are all kept while the
+    /// timeline shows them: a second live pass paints none of them again.
+    /// Kept first in, first out, each was thrown out just before it was
+    /// wanted, and every pass painted them all (#261).
+    #[test]
+    fn a_timeline_of_titles_past_the_budget_is_painted_once() {
+        let dirs = scratch("live_many");
+        let mut editor = Editor::new();
+        // Four megabytes a painting at 1024 square: 40 is more than the
+        // 128 MB budget holds.
+        let count = LIVE_BYTES / (1024 * 1024 * 4) + 8;
+        for index in 0..count {
+            editor
+                .apply(Command::AddShapeClip {
+                    above: false,
+                    track_id: None,
+                    start: index as f64,
+                    style: Some(concat_project::model::ShapeStyle {
+                        size: 0.1 + index as f64 * 0.001,
+                        ..Default::default()
+                    }),
+                    duration: Some(1.0),
+                    name: format!("Shape {index}"),
+                })
+                .expect("a shape is added");
+        }
+        let titles = Titles::new(&dirs);
+        let first = titles.clips_live(editor.project(), 1024, 1024);
+        assert_eq!(first.len(), count);
+        let second = titles.clips_live(editor.project(), 1024, 1024);
+        let repainted = first
+            .iter()
+            .zip(&second)
+            .filter(|(before, after)| {
+                !Arc::ptr_eq(
+                    before.frame.as_ref().expect("live"),
+                    after.frame.as_ref().expect("live"),
+                )
+            })
+            .count();
+        assert_eq!(repainted, 0, "of {count}");
+    }
+
+    /// A painting asked for again is the most recently used, and outlives
+    /// one asked for less recently; past the ceiling the first painted
+    /// stay and the newest is not kept.
+    #[test]
+    fn live_paintings_go_least_recently_used_first() {
+        let art = || Art {
+            block: (1, 1),
+            offset: (0, 0),
+            reveal: Arc::new(RevealMap::from_rects(1, 1, &[])),
+        };
+        let frame = || Arc::new(Frame::transparent(4, 4));
+        let size = frame().pixels().len();
+        let mut live = LivePaintings::new(2 * size, 3 * size);
+
+        live.begin();
+        live.keep(1, art(), frame());
+        live.keep(2, art(), frame());
+        live.begin();
+        assert!(live.get(1).is_some(), "1 is used again");
+        live.begin();
+        live.keep(3, art(), frame());
+        assert!(live.get(1).is_some(), "the recently used stays");
+        assert!(live.get(2).is_none(), "the least recently used goes");
+
+        // One pass asking for more than the budget keeps them all, to the
+        // ceiling; past it, the newest is the one not kept.
+        live.begin();
+        for key in 10..14 {
+            live.keep(key, art(), frame());
+        }
+        assert!(live.get(10).is_some() && live.get(11).is_some() && live.get(12).is_some());
+        assert!(live.get(13).is_none());
+        assert!(live.bytes <= 3 * size);
     }
 
     /// A shape clip rejoins the flattened list as a still at its clip's

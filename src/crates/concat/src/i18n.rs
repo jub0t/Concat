@@ -55,19 +55,30 @@ pub const ENGLISH: &str = "en";
 /// The locales the app ships, as `(code, file)`. `en.json` is the
 /// inventory - every key, with its English - which is what a translator
 /// starts a new file from, and what every language falls back to.
-const BUILT_IN: [(&str, &str); 14] = [
+pub(crate) const BUILT_IN: [(&str, &str); 25] = [
     ("en", include_str!("../locales/en.json")),
+    ("ar", include_str!("../locales/ar.json")),
+    ("bn", include_str!("../locales/bn.json")),
     ("de", include_str!("../locales/de.json")),
     ("es", include_str!("../locales/es.json")),
     ("fa", include_str!("../locales/fa.json")),
     ("fr", include_str!("../locales/fr.json")),
+    ("he", include_str!("../locales/he.json")),
+    ("hi", include_str!("../locales/hi.json")),
     ("hr", include_str!("../locales/hr.json")),
+    ("id", include_str!("../locales/id.json")),
     ("it", include_str!("../locales/it.json")),
     ("ja", include_str!("../locales/ja.json")),
     ("ko", include_str!("../locales/ko.json")),
+    ("nl", include_str!("../locales/nl.json")),
+    ("pl", include_str!("../locales/pl.json")),
     ("pt-BR", include_str!("../locales/pt-BR.json")),
     ("ru", include_str!("../locales/ru.json")),
+    ("th", include_str!("../locales/th.json")),
     ("tr", include_str!("../locales/tr.json")),
+    ("uk", include_str!("../locales/uk.json")),
+    ("ur", include_str!("../locales/ur.json")),
+    ("vi", include_str!("../locales/vi.json")),
     ("zh-Hans", include_str!("../locales/zh-Hans.json")),
     ("zh-TW", include_str!("../locales/zh-TW.json")),
 ];
@@ -402,6 +413,38 @@ mod tests {
                 assert!(missing.is_empty(), "{code}.json lacks {missing:?}");
             }
         }
+    }
+
+    /// Every file in `locales/` is compiled in, and nothing else is: a
+    /// language dropped into the folder and never listed here would be
+    /// one the README promises and Settings does not offer. English
+    /// first, as the inventory, then the rest by code.
+    #[test]
+    fn every_locale_file_ships_and_each_once() {
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+        let mut files: Vec<String> = std::fs::read_dir(&folder)
+            .expect("the locales folder")
+            .flatten()
+            .filter_map(|entry| {
+                entry
+                    .file_name()
+                    .to_str()?
+                    .strip_suffix(".json")
+                    .map(str::to_owned)
+            })
+            .collect();
+        files.sort();
+        let mut shipped: Vec<String> = BUILT_IN.iter().map(|(code, _)| code.to_string()).collect();
+        assert_eq!(shipped[0], ENGLISH);
+        let rest = shipped[1..].to_vec();
+        let mut sorted = rest.clone();
+        sorted.sort();
+        assert_eq!(
+            rest, sorted,
+            "BUILT_IN lists the locales by code after English"
+        );
+        shipped.sort();
+        assert_eq!(shipped, files);
     }
 
     #[test]

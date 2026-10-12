@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · **🇭🇷 Hrvatski** · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · **🇭🇷 Hrvatski** · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> Prevedeno s engleskog README-a 2. listopada 2026. Engleska je verzija ona koja se održava ažurnom.
+> Prevedeno s engleskog README-a 11. listopada 2026. Engleska je verzija ona koja se održava ažurnom.
 
 ## Plaćeni sponzori
 
@@ -40,8 +40,8 @@
       <sub>Proxyji s plaćanjem po potrošnji za razvojne programere<br />Kod <code>JUB0T</code> daje 20 % popusta</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Vaš logo ovdje</b></a><br />
-      <sub><a href="#sponsoring">Sponzorirajte Concat</a> i vaše ime, logo i poveznica zauzimaju ovo mjesto</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>Vaš logo ovdje</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Sponzorirajte Concat</a> i vaše ime, logo i poveznica zauzimaju ovo mjesto</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - 📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.
 - 🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.
 - 🤖 **Skriptabilan.** JSON-RPC, gRPC i MCP API, plus CLI. AI agenti mogu njime rezati video.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 jezika. Ista aplikacija, iste datoteke projekta.
+- 🖥️ **macOS, Windows, Linux, Android.** 25 jezika. Ista aplikacija, iste datoteke projekta.
 
 ## Preuzimanje
 
@@ -98,12 +98,6 @@ Concat je u **beti**: radi, a još ima rubova. [Javite](https://github.com/jub0t
 
 **Zahtjevi sustava** i veličine neobaveznih modela nalaze se na [web-stranici](https://concatenate.pages.dev/guides/system-requirements).
 
-## Prvi koraci
-
-Preuzmite, otvorite, ubacite snimke, režite. Bez računa, bez postavljanja.
-
-**Ako nešto prijavljujete:** svako pokretanje zapisuje dnevnik, a u Postavke › O programu nalazi se gumb koji ga otvara, uz onaj koji kopira podatke o vašem sustavu. Priložite oboje uz [issue](https://github.com/jub0t/Concat/issues) i prijava stiže sa svime što joj treba. Čuva se zadnjih deset pokretanja, pa je i jučerašnje još tu; ništa se nikada ne šalje nikamo samo od sebe.
-
 ## Kako doprinijeti
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Preuzmite, otvorite, ubacite snimke, režite. Bez računa, bez postavljanja.
 
 ## Povijest zvjezdica
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Preuzmite, otvorite, ubacite snimke, režite. Bez računa, bez postavljanja.
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## Sponzoriranje
+## DMCA
 
-Concat nema naplatu i nikada je neće imati: bez vodenog žiga, bez računa, bez plaćene razine. Sponzoriranje stoji umjesto toga. Ako je Concat za vas zamijenio pretplatu, djelić nje održava ga na životu.
-
-**Kamo odlazi**
-
-[Plan razvoja](https://concatenate.pages.dev/roadmap) prikazuje što sponzorstvo plaća i koliko koja stavka stoji.
-
-Odaberite razinu na [web-stranici](https://concatenate.pages.dev/#sponsor).
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-Niste u mogućnosti pridonijeti? Zvjezdica, prijava greške ili riječ nekome tko montira video također puno znače.
+Ako smatrate da nešto u ovom repozitoriju, njegovim izdanjima ili paketu ili modelu koji distribuira krši vaša autorska prava, pošaljite e-poruku na [jub0trd@gmail.com](mailto:jub0trd@gmail.com) s opisom djela čiji ste vlasnik, poveznicom na mjesto na kojem se ovdje pojavljuje sporni materijal, svojim podacima za kontakt, izjavom da u dobroj vjeri smatrate da tu upotrebu nisu odobrili ni vi, ni vaš zastupnik, ni zakon, te izjavom, pod prijetnjom kaznene odgovornosti za lažni iskaz, da je obavijest točna i da ste vlasnik ili ste ovlašteni djelovati u ime vlasnika, potpisanom vašim vlastoručnim ili elektroničkim potpisom. Valjane obavijesti obrađuju se bez odgode, a svatko čiji je materijal uklonjen može poslati protuobavijest na istu adresu.

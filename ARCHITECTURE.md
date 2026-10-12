@@ -40,7 +40,7 @@ manifests, not a wish.
 
 ```mermaid
 graph BT
-    core["concat-core · 2 897<br/>Rational time, arenas, Frame, Timeline,<br/>animation, speed curves, ShaderPass<br/>std only; builds for wasm"]
+    core["concat-core · 2 897<br/>Rational time, arenas, Frame, Timeline,<br/>animation, speed curves, ShaderPass<br/>std only"]
     project["concat-project · 10 285<br/>the document: model, commands,<br/>placement rule, undo, concat.json"]
     media["concat-media · 9 897<br/>FFmpeg: probe, decode, encode, audio mix,<br/>reader pool, prefetch, hardware decode"]
     render["concat-render · 7 450<br/>FramePlan; the wgpu compositor;<br/>SSIM; the CPU oracle (tests only)"]
@@ -103,10 +103,6 @@ Three things the graph says that matter when adding code:
 - **The window depends on `concat-api`**, not to drive itself through it
   (it has its own `Session`), but for the Remote page, which embeds a
   server, and for the register of open project folders the two share.
-
-The crates that carry no native library, `concat-core`, `concat-project`,
-`concat-effects`, `concat-render` and `concat-text`, build for
-`wasm32-unknown-unknown`, and CI keeps them building.
 
 ## 2. From the document to a pixel
 
@@ -544,7 +540,6 @@ flowchart LR
     push["push / PR"] --> ci
     subgraph ci["ci.yml"]
         engine["engine (ubuntu): fmt, locales, models,<br/>clippy -D warnings, test -j1 with lavapipe<br/>(CONCAT_REQUIRE_GPU), perf --check --quick,<br/>grpc clippy + tests"]
-        web["web: clippy for core, project, effects,<br/>render, text on wasm32"]
         desktop["desktop: macos-15 cargo check;<br/>windows-2022 full tests, 120 min job timeout"]
     end
     tag["tag v*"] --> rel
@@ -553,7 +548,7 @@ flowchart LR
         gate["ci.yml on the tag"]
         build["build-app.yml ref: tag<br/>mac arm + x64 (dmg, notarised), linux x64 + arm<br/>(deb, rpm, AppImage, Arch), win x64 + arm (msi, msix, zip)"]
         phones["mobile.yml ref: tag, sign: true<br/>APK signed in its own step; iOS ipa ad-hoc"]
-        publish["GitHub release: assets, checksums,<br/>manifest.json for self-update,<br/>notes from CHANGELOG's section"]
+        publish["GitHub release: assets, checksums,<br/>manifest.json for self-update,<br/>notes from the commits"]
         store["MS Store, when not a pre-release"]
         check --> gate --> build --> publish --> store
         gate --> phones --> publish
@@ -679,8 +674,7 @@ with a test that fails without it.
   ducking, beat detection, a crop tool with free aspect, a command
   palette, a Shortcuts tab (PR #300), an activity panel for long jobs,
   Flatpak, and the Chatterbox DirectML failure (#291).
-- *Docs.* `CHANGELOG.md` has no section for the 71 commits since 0.2.6.
-  `src/README.md`'s crate table omits concat-text, concat-vision and
+- *Docs.* `src/README.md`'s crate table omits concat-text, concat-vision and
   concat-perf. A few comments still describe the CPU compositor fallback
   that no longer exists (`concat-export/src/lib.rs`, `concat-host/
   Cargo.toml`, two sites in `gpu.rs`), and `src/Cargo.toml` says wgpu is

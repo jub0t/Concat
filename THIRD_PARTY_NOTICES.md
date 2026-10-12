@@ -99,10 +99,24 @@ OFL is the SIL Open Font License 1.1.
 - **Google Sans Code** — The Google Sans Code Project Authors. OFL. See `fonts/LICENSE-GoogleSansCode.txt`.
 - **Kosugi Maru** — Copyright MOTOYA Co., Ltd.. Apache License 2.0. See `fonts/LICENSE-KosugiMaru.txt`.
 - **Noto Sans CJK SC** (a subset: the Chinese, Korean and kana characters the interface falls back on) — Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. OFL. See `src/crates/concat/fonts/LICENSE-NotoSansCJK.txt`.
+- **Noto Sans Arabic UI** 2.011 (a subset: the Arabic block and the characters the Arabic, Persian and Urdu interface uses) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansArabicUI.txt`.
+- **Noto Sans Hebrew** 3.001 (a subset: the Hebrew block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansHebrew.txt`.
+- **Noto Sans Devanagari** 2.007 (a subset: the Devanagari block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansDevanagari.txt`.
+- **Noto Sans Bengali** 3.011 (a subset: the Bengali block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/bengali). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansBengali.txt`.
+- **Noto Sans Thai** 2.002 (a subset: the Thai block) — Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai). OFL. See `src/crates/concat/fonts/LICENSE-NotoSansThai.txt`.
 - **Frijole** — The Frijole Project Authors. OFL. See `fonts/LICENSE-Frijole.txt`.
 - **Emilys Candy** — The Emilys Candy Project Authors. OFL. See `fonts/LICENSE-EmilysCandy.txt`.
 - **Mystery Quest** — The Mystery Quest Project Authors. OFL. See `fonts/LICENSE-MysteryQuest.txt`.
 - **Zen Tokyo Zoo** — The Zen Tokyo Zoo Project Authors. OFL. See `fonts/LICENSE-ZenTokyoZoo.txt`.
+
+The Noto faces in `src/crates/concat/fonts/` are the window's fallback for
+the scripts its own face does not draw, compiled into the binary
+(`src/crates/concat/src/fonts.rs`). Each is the Regular face from the
+notofonts project's own release, cut down with fonttools' `pyftsubset`;
+the release, the SHA-256 of the archive it came in and the command that
+cut it are recorded beside each face in `fonts.rs`. A subset is a Modified
+Version under the OFL, and keeps the family name the release gave it, as
+the OFL allows for Noto, which reserves no font name.
 
 The licence does not permit selling the font on its own; shipping the
 `fonts/` directory as it stands satisfies it.
@@ -147,11 +161,30 @@ anyone passing the sound off as a person's should know is not there.
 
 The cutout models run on Microsoft's ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT), through the `ort` crate
-(https://github.com/pykeio/ort, MIT or Apache-2.0). On macOS, Windows and
-the phones it is linked into the app from pyke's builds of it; the Linux
-bundles ship Microsoft's own shared build of the same version beside the
-binary, in `lib/`, and its licence is in the release it was taken from
-(https://github.com/microsoft/onnxruntime/releases).
+(https://github.com/pykeio/ort, MIT or Apache-2.0). On Apple silicon and
+the phones it is linked into the app from pyke's builds of it; an Intel
+Mac's bundle carries Microsoft's last shared build for that machine in
+`Contents/Frameworks`. The Linux and Windows bundles ship Microsoft's own
+shared build of ONNX Runtime 1.28.0 beside the binary - `lib/libonnxruntime.so.1.28.0` on Linux,
+`onnxruntime.dll` beside `concat.exe` on Windows, one runtime that the
+`ort` crate and sherpa-onnx share - unmodified, as Microsoft publishes it
+at https://github.com/microsoft/onnxruntime/releases/tag/v1.28.0. Its
+licence (MIT, Copyright (c) Microsoft Corporation) and third-party
+notices are in that release's archive.
+
+## Microsoft Visual C++ runtime (Windows)
+
+The Windows bundles and installers carry the Microsoft Visual C++ runtime
+DLLs the program and its DLLs import - `vcruntime140.dll`,
+`vcruntime140_1.dll`, `msvcp140.dll` and their kin, whichever the build
+finds imported - copied unmodified from the redistributable folder of the
+Visual Studio that built the release (`VC\Redist\MSVC\<version>\<arch>\
+Microsoft.VC14x.CRT`). They are Microsoft's, not Concat's, and are not
+covered by Concat's licence: they are redistributed under the terms
+Microsoft sets for them, the Microsoft Software License Terms for Visual
+Studio and its list of distributable code (for Visual Studio 2022,
+https://learn.microsoft.com/visualstudio/releases/2022/redistribution),
+which permit shipping them alongside an application that uses them.
 
 ## The cutout models
 
@@ -182,9 +215,9 @@ mirror of the sources named above, described below. They are all run by
 ONNX Runtime
 (https://github.com/microsoft/onnxruntime, MIT) through the `ort` crate
 (https://github.com/pykeio/ort, MIT OR Apache-2.0), with the platform's
-own accelerator behind it: CoreML on macOS and iOS, DirectML on Windows,
-NNAPI on Android. The runtime is linked statically from the builds pyke
-publishes for each target.
+own accelerator behind it where the runtime has one: CoreML on macOS and
+iOS, NNAPI on Android. How each platform carries the runtime is under
+"ONNX Runtime" above.
 
 ## The model mirror
 

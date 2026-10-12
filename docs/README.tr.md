@@ -16,7 +16,7 @@
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -26,9 +26,9 @@
   <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
 </p>
 
-[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · **🇹🇷 Türkçe** · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md)
+[🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · **🇹🇷 Türkçe** · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · [🇮🇳 हिन्दी](README.hi.md) · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
 
-> İngilizce README’den 2 Ekim 2026’da çevrildi. Güncel tutulan sürüm İngilizce olandır.
+> İngilizce README’den 11 Ekim 2026’da çevrildi. Güncel tutulan sürüm İngilizce olandır.
 
 ## Ücretli Sponsorlar
 
@@ -40,8 +40,8 @@
       <sub>Geliştiriciler için kullandıkça öde proxy’ler<br /><code>JUB0T</code> koduyla %20 indirim</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>Logonuz burada</b></a><br />
-      <sub><a href="#sponsoring">Concat’e sponsor olun</a> ve adınız, logonuz ve bağlantınız bu yeri alsın</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>Logonuz burada</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">Concat’e sponsor olun</a> ve adınız, logonuz ve bağlantınız bu yeri alsın</sub>
     </td>
   </tr>
 </table>
@@ -75,7 +75,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 - 📤 **Dışa aktarma.** H.264, HEVC, AV1. 4K 60’a kadar, 10 bit renk.
 - 🦀 **Yerel Rust motoru.** GPU birleştirici, proxy’ler, donanım çözme. 4K akıcı gezinir.
 - 🤖 **Betiklenebilir.** JSON-RPC, gRPC ve MCP API’si, artı bir CLI. Yapay zekâ ajanları onunla video kesebilir.
-- 🖥️ **macOS, Windows, Linux, Android.** 14 dil. Aynı uygulama, aynı proje dosyaları.
+- 🖥️ **macOS, Windows, Linux, Android.** 25 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir
 
@@ -98,12 +98,6 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 
 **Sistem gereksinimleri** ve isteğe bağlı model boyutları [web sitesinde](https://concatenate.pages.dev/guides/system-requirements).
 
-## Başlarken
-
-İndirin, açın, görüntüleri bırakın, kesin. Hesap yok, kurulum yok.
-
-**Bir şey bildirmek için:** her çalıştırma bir günlük yazar ve Ayarlar › Hakkında’da onu açan düğme, sistem bilgilerinizi kopyalayan düğmenin yanındadır. İkisini de bir [issue](https://github.com/jub0t/Concat/issues)’a ekleyin; rapor ihtiyacı olan her şeyle gelir. Son on çalıştırma saklanır, yani dünkü hâlâ orada; hiçbir şey kendiliğinden hiçbir yere gönderilmez.
-
 ## Nasıl katkıda bulunulur
 
 > [!IMPORTANT]
@@ -121,6 +115,16 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
 
 ## Yıldız geçmişi
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -129,17 +133,6 @@ Concat **beta** aşamasında: çalışıyor, ama hâlâ pürüzleri var. Bir tan
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## Sponsorluk
+## DMCA
 
-Concat’in ödeme duvarı yok ve asla olmayacak: filigran yok, hesap yok, ücretli katman yok. Sponsorluk onun yerini tutar. Concat sizin için bir aboneliğin yerine geçtiyse, onun küçük bir kısmı Concat’i ayakta tutar.
-
-**Nereye gidiyor**
-
-[Yol haritası](https://concatenate.pages.dev/roadmap) sponsorluğun neyi karşıladığını ve her parçanın ne kadara mal olduğunu anlatır.
-
-[Web sitesinde](https://concatenate.pages.dev/#sponsor) bir katman seçin.
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-Katkıda bulunacak durumda değil misiniz? Bir yıldız, bir hata bildirimi ya da video düzenleyen birine bir söz de çok şey ifade eder.
+Bu depodaki, sürümlerindeki ya da dağıttığı bir paket veya modeldeki bir şeyin telif hakkınızı ihlal ettiğini düşünüyorsanız [jub0trd@gmail.com](mailto:jub0trd@gmail.com) adresine şunları içeren bir e-posta gönderin: sahibi olduğunuz eserin açıklaması, ihlal eden içeriğin burada göründüğü yerin bağlantısı, iletişim bilgileriniz, kullanıma sizin, temsilcinizin ya da yasanın izin vermediğine iyi niyetle inandığınızı belirten bir beyan ve yalan beyanın cezai sorumluluğunu üstlenerek bildirimin doğru olduğunu ve hak sahibi ya da onun adına hareket etmeye yetkili olduğunuzu belirten, fiziksel veya elektronik imzanızı taşıyan bir beyan. Geçerli bildirimler hızla işleme alınır ve içeriği kaldırılan herkes aynı adrese karşı bildirim gönderebilir.

@@ -1,0 +1,40 @@
+# cargo-nextest's settings for this workspace. CI runs the tests through
+# nextest rather than `cargo test` for three things `cargo test` does not
+# give it: every test in a process of its own, so a process-wide setting
+# one test changes (the hardware decode preference, say) never reaches
+# another; a timeout per test, so a test that hangs is killed and named
+# rather than holding the whole step until the runner gives up on it; and
+# a JUnit report the job keeps when it fails.
+#
+# Locally `cargo nextest run` uses the default profile, which is nextest's
+# own defaults; `--profile ci` is what CI runs.
+
+[profile.ci]
+# Every test runs, whatever fails first: a red run should list everything
+# that is red, not the first thing.
+fail-fast = false
+# A test is reported as slow after a minute and killed after five, which
+# is far past what any test takes on Linux (the longest, the export
+# scenarios, finish in under one). Killed, it is reported as a timeout
+# under its own name.
+slow-timeout = { period = "60s", terminate-after = 5 }
+# Failures again at the end, after the rest of the output has scrolled
+# past them.
+final-status-level = "fail"
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+# Written to target/nextest/ci/junit.xml, which the CI job uploads when it
+# fails. The output of a failed test is kept in the report; a passing
+# one's is not.
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true
+
+# The scripted editing session exports some thirty times, and on Windows'
+# software adapter each export is slower than on Linux's lavapipe: it is
+# given longer before it counts as stuck. CI also runs it on its own with
+# its output shown, so a hang names the edit it stopped at; see ci.yml.
+[[profile.ci.overrides]]
+filter = "test(=every_edit_still_exports)"
+slow-timeout = { period = "60s", terminate-after = 12 }

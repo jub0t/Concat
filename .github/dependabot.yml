@@ -1,0 +1,36 @@
+# Dependabot keeps two kinds of pin current, weekly, as pull requests that
+# CI tests like any other:
+#
+# - The actions every workflow uses, each pinned to a commit with its tag
+#   in a comment. Dependabot moves the commit and the comment together.
+# - The Rust dependencies in src/Cargo.lock, grouped into one pull request
+#   a week (security updates still come on their own, as they are found),
+#   so a week's bumps are reviewed and tested once rather than twenty
+#   times.
+#
+# Not covered: the prebuilt libraries in scripts/ci/deps.lock (FFmpeg,
+# ONNX Runtime, sherpa-onnx, the packagers, LLVM, Intel's emulator), which
+# are bumped by hand as that file says, and the toolchain in
+# src/rust-toolchain.toml.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: cargo
+    directory: /src
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
+    commit-message:
+      prefix: build

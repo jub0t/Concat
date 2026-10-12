@@ -1,7 +1,7 @@
-# Pinned so a checkout in two years builds the same way it does today.
+# Pinned so a checkout in two years builds the same way it does today, to
+# the patch release: "1.93" alone is whichever 1.93.x is newest on the day,
+# so two runs a week apart could build with different compilers. CI reads
+# the channel from here (the workflows' "The pinned toolchain" steps).
 [toolchain]
-channel = "1.93"
+channel = "1.93.1"
 components = ["rustfmt", "clippy"]
-# The engine crates that carry no native library build for the web too, and
-# CI checks that they keep doing so; see README.md.
-targets = ["wasm32-unknown-unknown"]

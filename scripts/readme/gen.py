@@ -4,8 +4,8 @@
 
 Renders docs/README.<code>.md for every lang_<code>.py beside this file,
 and writes the language line under the English README's download button.
-The frame - the header, the badges, the sponsor table, the charts, the
-payment table - lives here once; each lang_*.py holds one language's
+The frame - the header, the badges, the sponsor table, the star charts,
+the DMCA notice - lives here once; each lang_*.py holds one language's
 words for it. When the English README changes, change the frame and the
 words here, then render again, rather than editing twenty files by hand.
 The English README stays the one kept current; every translation says so
@@ -20,7 +20,9 @@ for f in sorted(glob.glob(os.path.join(HERE, "lang_*.py"))):
     m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
     LANGS[m.CODE] = m.L
 
-ORDER = ["de","es","fr","it","pt-BR","ru","uk","tr","hr","id","vi","ja","ko","zh-Hans","zh-TW","ar","he","fa","hi","ur"]
+# The order of the language line, after English. It lists the same languages
+# the app ships (src/crates/concat/locales), one README for each.
+ORDER = ["de","es","fr","it","nl","pl","pt-BR","ru","uk","tr","hr","id","vi","th","ja","ko","zh-Hans","zh-TW","ar","he","fa","hi","ur","bn"]
 
 def language_line(current):
     parts = []
@@ -54,7 +56,7 @@ HEAD = """<div align="center">
 <p align="center">
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.6-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="{license}"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
   <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
@@ -76,8 +78,8 @@ HEAD = """<div align="center">
       <sub>{proxyon}<br />{proxyon_code}</sub>
     </td>
     <td align="center" width="50%">
-      <a href="#sponsoring"><b>{logo_here}</b></a><br />
-      <sub><a href="#sponsoring">{sponsor_link}</a> {slot}</sub>
+      <a href="https://concatenate.pages.dev/#sponsor"><b>{logo_here}</b></a><br />
+      <sub><a href="https://concatenate.pages.dev/#sponsor">{sponsor_link}</a> {slot}</sub>
     </td>
   </tr>
 </table>
@@ -120,12 +122,6 @@ HEAD = """<div align="center">
 
 {sysreq}
 
-## {start_h}
-
-{start1}
-
-**{reporting}** {reporting_text}
-
 ## {contribute_h}
 
 > [!IMPORTANT]
@@ -143,6 +139,16 @@ HEAD = """<div align="center">
 
 ## {stars_h}
 
+<p align="center">
+ <a href="https://www.star-history.com/jub0t/concat">
+  <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
+  </picture>
+ </a>
+</p>
+
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
@@ -151,20 +157,9 @@ HEAD = """<div align="center">
  </picture>
 </a>
 
-<a id="sponsoring"></a>
-## {sponsoring_h}
+## DMCA
 
-{sponsoring1}
-
-**{where_h}**
-
-{where_text}
-
-{payment_text}
-
-<a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat on the website" /></a>
-
-{closing}
+{dmca_text}
 """
 
 def render(code):
@@ -175,6 +170,7 @@ def render(code):
 
 if __name__ == "__main__":
     os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
+    assert set(ORDER) == set(LANGS), f"ORDER and lang_*.py disagree: {sorted(set(ORDER) ^ set(LANGS))}"
     for code in LANGS:
         out = os.path.join(ROOT, "docs", f"README.{code}.md")
         text = render(code)
@@ -188,7 +184,8 @@ if __name__ == "__main__":
     marker = '  <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>\n</p>\n'
     assert s.count(marker) == 1
     rest = s.split(marker, 1)[1]
-    rest = re.sub(r"^\n(\*\*🇬🇧 English\*\*.*?)\n", "\n", rest, count=1, flags=re.S) if rest.startswith("\n**🇬🇧 English**") else rest
-    s = s.split(marker, 1)[0] + marker + "\n" + line + "\n" + rest
+    if rest.startswith("\n**🇬🇧 English**"):
+        rest = rest.split("\n", 2)[2]  # drop the old line
+    s = s.split(marker, 1)[0] + marker + "\n" + line + "\n\n" + rest.lstrip("\n")
     open(p, "w").write(s)
     print("updated README.md")

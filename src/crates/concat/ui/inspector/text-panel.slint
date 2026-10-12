@@ -204,16 +204,46 @@ export component TextPanel inherits VerticalLayout {
                     selection-background-color: Theme.accent;
                     selection-foreground-color: Theme.on-accent;
 
+                    // The title the words being typed belong to. Typing
+                    // breaks the `text` binding above, so a field left
+                    // alone kept the last title's words when another was
+                    // selected; and the way out comes after the press that
+                    // selected the other, so the blur wrote those words onto
+                    // it. The field is reseeded with each title's words, and
+                    // the blur writes only to the title it was typed for.
+                    // https://github.com/jub0t/Concat/issues/139
+                    property <string> clip-id: root.selected.id;
+                    property <string> typed-for;
+                    changed clip-id => {
+                        self.text = root.selected.content;
+                    }
+                    // An undo, or the words changed from elsewhere, while the
+                    // field is not being typed in.
+                    property <string> words: root.selected.content;
+                    changed words => {
+                        if (!self.has-focus) {
+                            self.text = self.words;
+                        }
+                    }
+
                     // Every keystroke goes to the echo so the monitor shows
                     // the words as they are typed; the commit waits for the
                     // way out, so a title being typed is one change and not
-                    // forty.
+                    // forty. The keystrokes reach the title they were typed
+                    // for, since the selection cannot change under a key.
                     edited => {
+                        self.typed-for = root.selected.id;
                         root.set-text(ClipTextField.content, self.text);
                     }
                     changed has-focus => {
                         if (!self.has-focus) {
-                            root.set-text(ClipTextField.content, self.text);
+                            // The words are on the echo already, for the
+                            // title they were typed for; written again only
+                            // while that title is still the one selected.
+                            if (self.typed-for == root.selected.id) {
+                                root.set-text(ClipTextField.content, self.text);
+                            }
+                            self.typed-for = "";
                             root.commit();
                         }
                     }

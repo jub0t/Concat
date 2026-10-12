@@ -30,6 +30,17 @@ name: Build app
 #   set on the repository, and ad-hoc signed when they are not, so a build
 #   from a fork still opens (with Gatekeeper's warning).
 #
+# - Every bundle is launched before it is uploaded: `concat --version` and
+#   `concat --smoke` from the staged folder, on a machine with nothing else
+#   on the path (scripts/ci/smoke-*). On x86_64 the bundle is also started
+#   under Intel's emulator posing as an Ivy Bridge, and its binaries are
+#   scanned for instructions newer than AVX (scripts/ci/isa-scan.sh): the
+#   x86_64 baseline is AVX, and twice now a release died at launch on
+#   older CPUs (#193, #313). A target whose bundle does not start fails,
+#   and release.yml publishes nothing.
+# - Every prebuilt dependency downloaded here is pinned to one file and its
+#   digest in scripts/ci/deps.lock, and every action to a commit.
+#
 # The six targets are a matrix so one fails without taking the rest down;
 # `fail-fast` is off for the same reason.
 on:
@@ -55,22 +66,37 @@ on:
       APPLE_APP_PASSWORD:
         description: An app-specific password for notarytool
         required: false
+      WINDOWS_CERTIFICATE_PFX:
+        description: Base64 of an Authenticode code-signing .pfx
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        description: The .pfx's password
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
-  # BtbN's autobuilds: GPL (x264 in), shared, FFmpeg 8.1, one per arch.
-  FFMPEG_RELEASE: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest
-  FFMPEG_VERSION: 8.1
-  # ONNX Runtime, for the Linux bundles: the version the ort crate is built
-  # against (see ort-sys's dist table), as Microsoft's own shared build.
+  # The prebuilt dependencies - BtbN's FFmpeg 8.1 (GPL, shared, one per
+  # arch), ONNX Runtime, sherpa-onnx, nfpm, appimagetool, LLVM for Windows
+  # and Intel's emulator - are each pinned to one file and its digest in
+  # scripts/ci/deps.lock, and fetched through scripts/ci/fetch.sh, which
+  # refuses a file whose digest has changed. The versions below are the
+  # ones those files carry, for the names inside them; a bump changes both.
+  #
+  # ONNX Runtime, for the Linux and Windows bundles: the version the ort
+  # crate is built against (see ort-sys's dist table), as Microsoft's own
+  # shared build.
   ORT_VERSION: 1.28.0
   # And for Intel Macs, which neither ort nor Microsoft build for any more:
-  # the last release Microsoft made for them. The ort crate asks for the
-  # runtime's API 17 and up, which this carries.
+  # the last release Microsoft made for them.
+  #
+  # NOTE: ort 2.0.0-rc.13 with its default features asks the runtime for
+  # API 27 (its `api-27` feature), and 1.23.2 serves API 23 and below, so
+  # on an Intel Mac the first ONNX session (a cutout, Chatterbox) should
+  # fail to get the API. That predates the pinning here, and wants a look
+  # on an Intel Mac: either an older `api-*` feature for ort, or no
+  # cutouts there.
   ORT_INTEL_MAC_VERSION: 1.23.2
-  # The Linux packagers: nfpm for the .deb and .rpm, appimagetool for the
-  # AppImage; and WiX for the Windows .msi.
-  NFPM_VERSION: 2.47.0
+  # WiX for the Windows .msi, as a dotnet tool, pinned by version.
   WIX_VERSION: 6.0.2
   # Oldest macOS the bundles run on. Apple silicon Macs all run newer than
   # this; it is the Intel floor.
@@ -139,6 +165,9 @@ jobs:
             target: x86_64-pc-windows-msvc
             ffmpeg: win64
             sherpa: win-x64
+            ort: win-x64
+            llvm: win64
+            vc: x64
             inno: x64compatible
             wix: x64
           - platform: windows
@@ -147,16 +176,22 @@ jobs:
             target: aarch64-pc-windows-msvc
             ffmpeg: winarm64
             sherpa: win-arm64
+            ort: win-arm64
+            llvm: woa64
+            vc: arm64
             inno: arm64
             wix: arm64
     runs-on: ${{ matrix.os }}
-    # The slowest target (Intel macOS, fat LTO) finishes in under half an
-    # hour. A job still running past this is stuck, not slow.
-    timeout-minutes: 90
+    # The slowest target (Intel macOS, fat LTO) builds in under half an
+    # hour, and the checks after the build add a few minutes. The steps
+    # that can hang have timeouts of their own, at most 115 minutes
+    # between them on any one target, so a stuck step is named by its own
+    # timeout; this is for a job stuck anywhere else.
+    timeout-minutes: 150
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       # The toolchain src/rust-toolchain.toml pins, installed by name, so the
@@ -165,7 +200,7 @@ jobs:
         id: toolchain
         shell: bash
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
 
@@ -194,8 +229,7 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
-          url="$FFMPEG_RELEASE/ffmpeg-n$FFMPEG_VERSION-latest-${{ matrix.ffmpeg }}-gpl-shared-$FFMPEG_VERSION.tar.xz"
-          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$url"
+          scripts/ci/fetch.sh "ffmpeg-${{ matrix.ffmpeg }}" ffmpeg.tar.xz
           mkdir -p ffmpeg-dev
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           {
@@ -223,8 +257,7 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-linux-${{ matrix.ort }}-$ORT_VERSION"
-          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$stem.tgz"
+          scripts/ci/fetch.sh "onnxruntime-linux-${{ matrix.ort }}" onnxruntime.tgz
           tar -xzf onnxruntime.tgz
           test -f "$stem/lib/libonnxruntime.so.$ORT_VERSION"
           # The tarball carries the soname and the full version; the linker
@@ -267,8 +300,7 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-osx-x86_64-$ORT_INTEL_MAC_VERSION"
-          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_INTEL_MAC_VERSION/$stem.tgz"
+          scripts/ci/fetch.sh onnxruntime-osx-x86_64 onnxruntime.tgz
           tar -xzf onnxruntime.tgz
           test -f "$stem/lib/libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib"
           ln -sf "libonnxruntime.$ORT_INTEL_MAC_VERSION.dylib" "$stem/lib/libonnxruntime.dylib"
@@ -279,10 +311,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # ── Windows ────────────────────────────────────────────────────────
-      # LLVM: libclang for bindgen on both architectures, and the C/C++
-      # compiler on arm64. Chocolatey's LLVM is x64; the arm64 runner takes
-      # LLVM's own Windows-on-Arm installer. The BtbN zip unpacks to one
-      # top-level folder.
+      # LLVM: libclang for bindgen on both architectures, the C/C++
+      # compiler on arm64, and llvm-objdump for the instruction-set scan.
+      # LLVM's own installer for the architecture, at the version deps.lock
+      # pins, into a folder of its own rather than over the LLVM the runner
+      # image may already carry. The BtbN zip unpacks to one top-level
+      # folder.
       #
       # On arm64 the whole C side is compiled by clang-cl rather than cl:
       # ggml refuses MSVC for ARM outright (its NEON kernels need clang),
@@ -299,30 +333,82 @@ jobs:
       # crate into those flags - spelt with a dash, because the build
       # step runs under Git's bash, whose MSYS layer rewrites a value
       # that starts with a slash into a Windows path.
-      - name: FFmpeg development libraries (Windows)
+      #
+      # fetch.sh runs under Git's bash, named by its full path: a bare
+      # `bash` from PowerShell can be WSL's.
+      - name: FFmpeg development libraries and LLVM (Windows)
         if: matrix.platform == 'windows'
+        timeout-minutes: 15
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $bash = "$env:ProgramFiles\Git\bin\bash.exe"
+          & $bash scripts/ci/fetch.sh "llvm-${{ matrix.llvm }}" llvm.exe
+          if ($LASTEXITCODE -ne 0) { throw "the LLVM download failed" }
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=C:\llvm"
+          if (-not (Test-Path C:\llvm\bin\libclang.dll)) { throw "LLVM did not install to C:\llvm" }
+          Remove-Item llvm.exe
           if ("${{ matrix.arch }}" -eq "aarch64") {
-            $llvm = "21.1.0"
-            curl.exe -fsSL --retry 5 --retry-all-errors -o llvm.exe "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm/LLVM-$llvm-woa64.exe"
-            Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S"
             "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CXXFLAGS=-EHsc" | Out-File -FilePath $env:GITHUB_ENV -Append
             "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
-          } else {
-            choco install llvm -y --no-progress
           }
-          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
-          $url = "$env:FFMPEG_RELEASE/ffmpeg-n$env:FFMPEG_VERSION-latest-${{ matrix.ffmpeg }}-gpl-shared-$env:FFMPEG_VERSION.zip"
-          curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip "$url"
+          "C:\llvm\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "LIBCLANG_PATH=C:\llvm\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          & $bash scripts/ci/fetch.sh "ffmpeg-${{ matrix.ffmpeg }}" ffmpeg-win.zip
+          if ($LASTEXITCODE -ne 0) { throw "the FFmpeg download failed" }
           Expand-Archive ffmpeg-win.zip -DestinationPath ffdl
           $dir = (Get-ChildItem ffdl -Directory | Select-Object -First 1).FullName
           "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # ONNX Runtime on Windows: Microsoft's shared build, linked
+      # dynamically, and onnxruntime.dll shipped beside concat.exe.
+      #
+      # Left to itself ort-sys links pyke's static build into concat.exe,
+      # and that build is compiled for Haswell from end to end: BMI2
+      # shifts in ordinary code, run at start-up, so 0.2.5 and 0.2.6 died
+      # with STATUS_ILLEGAL_INSTRUCTION on every CPU before 2013 (#313).
+      # Microsoft's build keeps its general code to the baseline and picks
+      # AVX2 kernels at run time. pyke's is also the DirectML build, which
+      # imports DirectML.dll when the program loads - and the one Windows
+      # keeps in System32 is too old on many machines, so the program would
+      # not start at all ("DMLCreateDevice1 not found", #303).
+      #
+      # Why the CPU build and not Microsoft's DirectML one: two runtimes
+      # cannot share a process under one name, and sherpa-onnx's DLL loads
+      # onnxruntime.dll too. sherpa-onnx 1.13.7 is built against ONNX
+      # Runtime 1.27.1 and asks for its API 27 as it loads; ort 2.0.0-rc.13
+      # asks for API 27 as well (its default `api-27` feature). Microsoft
+      # stopped publishing the DirectML build at 1.24.4, which serves API
+      # 24 and below, so it can serve neither. 1.28.0 serves both. The cost
+      # is that the cutouts and Chatterbox run on the CPU on Windows: the
+      # DirectML provider ort asks for is not in this runtime, and ort
+      # carries on without it (it logs the failed registration and falls
+      # back; error_on_failure is not set). Getting the GPU back means a
+      # DirectML (or WebGPU) runtime at API 27 or later that is built for
+      # the baseline - pyke's is neither the one nor shareable with
+      # sherpa-onnx - and no DirectML.dll is shipped until then, since
+      # nothing in the bundle imports it.
+      #
+      # The DLL's folder goes on the path too, so anything the build runs
+      # that links it (a build script's helper, say) finds it.
+      - name: ONNX Runtime (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh "onnxruntime-${{ matrix.ort }}" onnxruntime.zip
+          if ($LASTEXITCODE -ne 0) { throw "the ONNX Runtime download failed" }
+          Expand-Archive onnxruntime.zip -DestinationPath .
+          $dir = "$PWD\onnxruntime-${{ matrix.ort }}-$env:ORT_VERSION"
+          if (-not (Test-Path "$dir\lib\onnxruntime.lib")) { throw "$dir\lib\onnxruntime.lib is not there" }
+          if (-not (Test-Path "$dir\lib\onnxruntime.dll")) { throw "$dir\lib\onnxruntime.dll is not there" }
+          "ORT_LIB_LOCATION=$dir\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ORT_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$dir\lib" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # ── sherpa-onnx ────────────────────────────────────────────────────
       # The prebuilt library the sys crate would otherwise fetch for
@@ -332,17 +418,22 @@ jobs:
       # cache then replays the build script's answer without the files
       # it points at, and the crate fails to link the moment anything
       # makes it recompile. Outside target/, the files are there on every
-      # run. The version is the one the lockfile resolved, so a bump
-      # cannot desynchronise.
+      # run. The version is the one the lockfile resolved, and deps.lock
+      # must pin that version's file: a bump to one without the other
+      # stops here, saying so.
       - name: sherpa-onnx static libraries (macOS and Linux)
         if: matrix.platform != 'windows'
         shell: bash
         run: |
           set -euo pipefail
           version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          name="sherpa-onnx-${{ matrix.sherpa }}-static-lib"
+          case "$(scripts/ci/fetch.sh --url "$name")" in
+            */v"$version"/*) ;;
+            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+          esac
           stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-static-lib"
-          echo "Downloading $stem"
-          curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
           mkdir -p sherpa
           tar -xjf sherpa.tar.bz2 -C sherpa
           test -d "sherpa/$stem/lib"
@@ -358,6 +449,10 @@ jobs:
       # DLLs are kept apart and the packaging step ships them beside the
       # binary.
       #
+      # sherpa-onnx's own onnxruntime.dll and its import library are left
+      # out: the bundle carries one ONNX Runtime, the one above, which
+      # serves sherpa-onnx and ort alike (see that step).
+      #
       # The archive is .tar.bz2, and Windows' own tar has no bzip2 of its
       # own: it pipes through an external decoder, and on the x64 image
       # that pipe can hang without a word. Python's tarfile unpacks it
@@ -369,29 +464,34 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $version = (Select-String -Path src\Cargo.lock -Pattern 'name = "sherpa-onnx-sys"' -Context 0,1).Context.PostContext[0] -replace '.*"(.*)".*', '$1'
+          $name = "sherpa-onnx-${{ matrix.sherpa }}-shared-MT-Release-lib"
           $stem = "sherpa-onnx-v$version-${{ matrix.sherpa }}-shared-MT-Release-lib"
+          $bash = "$env:ProgramFiles\Git\bin\bash.exe"
+          $url = & $bash scripts/ci/fetch.sh --url $name
+          if ($url -notmatch "/v$([regex]::Escape($version))/") { throw "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" }
           Write-Host "Downloading $stem"
-          curl.exe -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          & $bash scripts/ci/fetch.sh $name sherpa.tar.bz2
+          if ($LASTEXITCODE -ne 0) { throw "the sherpa-onnx download failed" }
           Write-Host "Unpacking"
           python -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall(**({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
           if (-not (Test-Path "$stem\lib")) { throw "$stem\lib is not there after unpacking" }
           New-Item -ItemType Directory -Force sherpa-libs, sherpa-dlls | Out-Null
-          Copy-Item "$stem\lib\*.lib" sherpa-libs\
-          Copy-Item "$stem\lib\*.dll" sherpa-dlls\
+          Copy-Item "$stem\lib\sherpa-onnx-*.lib" sherpa-libs\
+          Copy-Item "$stem\lib\sherpa-onnx-*.dll" sherpa-dlls\
           "SHERPA_ONNX_LIB_DIR=$PWD\sherpa-libs" | Out-File -FilePath $env:GITHUB_ENV -Append
           "SHERPA_DLL_DIR=$PWD\sherpa-dlls" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # ── Build ──────────────────────────────────────────────────────────
       # The cache comes after the environment is set, not before: its key
       # is made from the compiler and linker variables in force (RUSTFLAGS,
-      # CC, CXX, CMAKE_*, and GGML_* added to the default set), so a change
-      # to any of them is a new key rather than a stale target/ served
-      # under the old one.
-      - uses: Swatinem/rust-cache@v2
+      # CC, CXX, CMAKE_*, and GGML_* and ORT_* added to the default set),
+      # so a change to any of them is a new key rather than a stale
+      # target/ served under the old one.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: ${{ matrix.target }}
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST GGML
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST GGML ORT
 
       # The shipping profile: fat LTO, panic=abort, stripped. See the
       # workspace Cargo.toml for what each knob costs.
@@ -400,6 +500,7 @@ jobs:
       # read, but the step summary is public - so on failure the tail of the
       # build goes there, and a red run explains itself to anyone.
       - name: Build
+        timeout-minutes: 60
         shell: bash
         working-directory: src
         run: |
@@ -544,6 +645,14 @@ jobs:
           fi
           mkdir -p stage && mv "$dmg" stage/
 
+      # The bundle that went into the .dmg, launched: its signature holds,
+      # nothing in it loads from Homebrew, and `--version` and `--smoke`
+      # exit 0. See scripts/ci/smoke-macos.sh.
+      - name: Smoke test (macOS)
+        if: matrix.platform == 'macos'
+        timeout-minutes: 10
+        run: scripts/ci/smoke-macos.sh Concat.app
+
       # ── Package: Linux ─────────────────────────────────────────────────
       # The binary, the FFmpeg runtime libraries it loads from lib/ beside
       # it (the rpath above), a desktop entry and an icon, in one folder.
@@ -586,6 +695,42 @@ jobs:
             echo "the binary does not resolve every library from its own folder" >&2
             exit 1
           fi
+
+      # The staged folder, launched on this machine with nothing but the
+      # system and the folder to load from: `--version`, then `--smoke`
+      # under Xvfb with every file it opens traced, so a start-up that so
+      # much as reaches for CUDA or NVENC fails. On x86_64, `--version`
+      # again under Intel's emulator posing as an Ivy Bridge. See
+      # scripts/ci/smoke-linux.sh.
+      - name: Smoke test (Linux)
+        if: matrix.platform == 'linux'
+        timeout-minutes: 15
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y xvfb xauth strace libgl1-mesa-dri mesa-vulkan-drivers
+          args=()
+          if [ "${{ matrix.arch }}" = x86_64 ]; then
+            scripts/ci/fetch.sh sde-lin sde.tar.xz
+            mkdir -p sde
+            tar -xJf sde.tar.xz -C sde --strip-components=1
+            args+=(--sde "$PWD/sde/sde64")
+          fi
+          scripts/ci/smoke-linux.sh "${args[@]}" "stage/Concat-${VERSION}-linux-${{ matrix.arch }}"
+
+      # Every x86_64 binary in the folder, disassembled and counted for
+      # instructions an Ivy Bridge does not have, against what
+      # scripts/ci/isa-allow.txt allows each one. See scripts/ci/isa-scan.sh.
+      - name: Instruction-set scan (Linux x86_64)
+        if: matrix.platform == 'linux' && matrix.arch == 'x86_64'
+        timeout-minutes: 15
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y llvm
+          scripts/ci/isa-scan.sh "stage/Concat-${VERSION}-linux-${{ matrix.arch }}"
 
       # Arch Linux package, from the same folder as the .deb and .rpm.
       # Arch ships x86_64 only, so aarch64 comes from Arch Linux ARM.
@@ -653,8 +798,7 @@ jobs:
           chmod +x "$STAGE/pkg/concat"
           sed 's|^Exec=concat|Exec=/opt/concat/concat %U|' "$STAGE/concat.desktop" > "$STAGE/pkg/concat.desktop"
 
-          curl -fsSL --retry 5 --retry-all-errors -o nfpm.tar.gz \
-            "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_$( [ "${{ matrix.arch }}" = x86_64 ] && echo x86_64 || echo arm64 ).tar.gz"
+          scripts/ci/fetch.sh "nfpm-$( [ "${{ matrix.arch }}" = x86_64 ] && echo x86_64 || echo arm64 )" nfpm.tar.gz
           mkdir -p nfpm && tar -xzf nfpm.tar.gz -C nfpm
           # From inside the folder: nfpm names files relative to where it
           # runs, and expands no variables in their paths.
@@ -684,31 +828,179 @@ jobs:
           cp "$STAGE/concat.png" "$appdir/usr/share/icons/hicolor/256x256/apps/concat.png"
           ln -s concat.png "$appdir/.DirIcon"
           ln -s usr/bin/concat "$appdir/AppRun"
-          curl -fsSL --retry 5 --retry-all-errors -o appimagetool \
-            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
+          # The tool and the runtime it puts at the head of the AppImage,
+          # both a named release: left to itself the tool downloads the
+          # runtime's `continuous` build as it runs.
+          scripts/ci/fetch.sh "appimagetool-$ARCH" appimagetool
+          scripts/ci/fetch.sh "appimage-runtime-$ARCH" appimage-runtime
           chmod +x appimagetool
           # Extract-and-run: the runner has no FUSE to mount the tool with.
           # No "linux" in its name: every AppImage is for Linux, and the
           # AppImage catalog's check warns about names that say so.
           appimage="stage/Concat-${VERSION}-${{ matrix.arch }}.AppImage"
-          ./appimagetool --appimage-extract-and-run "$appdir" "$appimage"
+          ./appimagetool --appimage-extract-and-run --runtime-file appimage-runtime "$appdir" "$appimage"
           chmod +x "$appimage"
 
           rm -r "$STAGE" "$appdir"
           ls -l stage
 
+      # The .deb and the AppImage in two clean distributions, the oldest
+      # and a Debian: apt installs the .deb with exactly the dependencies it
+      # declares, and both start (`--version`, and `--smoke` under Xvfb).
+      # A library the package forgot to depend on fails here rather than
+      # on somebody's machine. See scripts/ci/smoke-linux.sh.
+      - name: Smoke test in clean distributions (Linux)
+        if: matrix.platform == 'linux'
+        timeout-minutes: 25
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for image in ubuntu:22.04 debian:12; do
+            scripts/ci/smoke-linux.sh --container "$image" \
+              "stage/Concat-${VERSION}-linux-${{ matrix.arch }}.deb" \
+              "stage/Concat-${VERSION}-${{ matrix.arch }}.AppImage"
+          done
+
       # ── Package: Windows ───────────────────────────────────────────────
-      # Authenticode-signed with the repository's certificate when it has
-      # one - the program, then each installer - so SmartScreen and the
-      # UAC prompt name the publisher instead of warning about an unknown
-      # one; unsigned otherwise, which is what a fork's build gets.
+      # The folder the installers are made from: the program, FFmpeg's
+      # DLLs, sherpa-onnx's, ONNX Runtime's (one runtime for both; see its
+      # step above) and the Visual C++ runtime the program and its DLLs
+      # import. The C++ runtime is copied in from Visual Studio's
+      # redistributable folder, as Microsoft allows: a clean Windows does
+      # not have it, and a machine that does may have an older one.
       - name: Stage (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
+          $dir = "stage\$name"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item "src\target\${{ matrix.target }}\app\concat.exe" $dir
+          Copy-Item "$env:FFMPEG_DIR\bin\*.dll" $dir
+          # The sherpa-onnx runtime, set aside by the download step above.
+          Copy-Item "$env:SHERPA_DLL_DIR\*.dll" $dir
+          Copy-Item "$env:ORT_DIR\lib\*.dll" $dir
+          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md $dir
+          # The Visual C++ runtime DLLs anything in the folder imports, from
+          # the newest redistributable folder Visual Studio carries.
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\${{ matrix.vc }}\Microsoft.VC14*.CRT" -Directory |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crt) { throw "no Visual C++ redistributable folder for ${{ matrix.vc }} under $vs" }
+          $dumpbin = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -find "VC\Tools\MSVC\**\bin\Host*\*\dumpbin.exe" | Select-Object -First 1
+          # Twice over: msvcp140.dll, once copied, imports vcruntime140.dll.
+          foreach ($pass in 1, 2) {
+            foreach ($pe in Get-ChildItem $dir -File -Include *.exe, *.dll -Recurse) {
+              foreach ($line in & $dumpbin /nologo /dependents $pe.FullName) {
+                $dll = $line.Trim()
+                if ($dll -match "\.dll$" -and (Test-Path "$($crt.FullName)\$dll") -and -not (Test-Path "$dir\$dll")) {
+                  Write-Host "$($pe.Name) imports $dll; copying it from $($crt.FullName)"
+                  Copy-Item "$($crt.FullName)\$dll" $dir
+                }
+              }
+            }
+          }
+          Get-ChildItem $dir | Format-Table Name, Length
+
+      # Authenticode, with the repository's certificate when it has one:
+      # every program and DLL in the folder that does not already carry a
+      # valid signature (Microsoft's ONNX Runtime does, and keeps it), here,
+      # and the installers in the step after the checks. Unsigned files
+      # are what Smart App Control refuses to load ("Bad Image", 0xc0e90002,
+      # #306, #311), and an unsigned DLL is refused even beside a signed
+      # program. SmartScreen and the UAC prompt name the publisher instead
+      # of warning about an unknown one. A fork's build is unsigned.
+      #
+      # The certificate is imported into the user's store and signtool is
+      # told its thumbprint, so the password never reaches a command line:
+      # it goes from the environment to the import as a SecureString. The
+      # store is emptied of it again in the last step, whatever happens.
+      - name: Sign (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
           CERT_PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:CERT_PFX) {
+            Write-Host "No signing certificate: the build is unsigned."
+            exit 0
+          }
+          $pfx = "$env:RUNNER_TEMP\cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
+          $password = ConvertTo-SecureString $env:CERT_PASSWORD -AsPlainText -Force
+          $flags = [Security.Cryptography.X509Certificates.X509KeyStorageFlags]"UserKeySet, PersistKeySet"
+          $cert = [Security.Cryptography.X509Certificates.X509Certificate2]::new($pfx, $password, $flags)
+          Remove-Item -Force $pfx
+          if (-not $cert.HasPrivateKey) { throw "the certificate came in without its private key" }
+          $store = [Security.Cryptography.X509Certificates.X509Store]::new("My", "CurrentUser")
+          $store.Open("ReadWrite")
+          $store.Add($cert)
+          $store.Close()
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe is not in the Windows SDK" }
+          "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SIGNING_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $dir = "stage\Concat-$env:VERSION-windows-${{ matrix.arch }}"
+          $unsigned = Get-ChildItem $dir -Recurse -File -Include *.exe, *.dll |
+            Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne "Valid" }
+          foreach ($file in $unsigned) {
+            & $signtool.FullName sign /sha1 $cert.Thumbprint /s My /fd SHA256 `
+              /tr http://timestamp.digicert.com /td SHA256 /d Concat $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $($file.Name)" }
+          }
+          Write-Host "Signed $(@($unsigned).Count) files."
+
+      # The staged folder, launched before any installer is made of it:
+      # every DLL it imports is in it or is Windows' own; `--version` and
+      # `--smoke` exit 0 with only Windows on the path; and on x86_64,
+      # `--version` again under Intel's emulator posing as an Ivy Bridge
+      # (#313). See scripts/ci/smoke-windows.ps1.
+      - name: Smoke test (Windows)
+        if: matrix.platform == 'windows'
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $sde = ""
+          if ("${{ matrix.arch }}" -eq "x86_64") {
+            & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh sde-win sde.tar.xz
+            if ($LASTEXITCODE -ne 0) { throw "the SDE download failed" }
+            New-Item -ItemType Directory -Force sde | Out-Null
+            tar -xf sde.tar.xz -C sde --strip-components=1
+            if ($LASTEXITCODE -ne 0) { throw "unpacking SDE failed" }
+            $sde = "sde\sde.exe"
+          }
+          scripts/ci/smoke-windows.ps1 -Bundle "stage\Concat-$env:VERSION-windows-${{ matrix.arch }}" -Sde $sde
+
+      # Every x86_64 binary in the folder, disassembled and counted for
+      # instructions an Ivy Bridge does not have, against what
+      # scripts/ci/isa-allow.txt allows each one. See scripts/ci/isa-scan.sh.
+      - name: Instruction-set scan (Windows x86_64)
+        if: matrix.platform == 'windows' && matrix.arch == 'x86_64'
+        timeout-minutes: 15
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # llvm-objdump from the LLVM installed above, on the path.
+        run: scripts/ci/isa-scan.sh "stage/Concat-${VERSION}-windows-${{ matrix.arch }}"
+
+      # The installers, from the checked folder: Inno Setup's .exe and
+      # WiX's .msi, each signed when the folder was.
+      - name: Installers (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
           # The identity Partner Center reserved for the app. Unset, no
           # .msix is made: a fork has no Store listing to make one for.
           MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
@@ -718,29 +1010,12 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $name = "Concat-$env:VERSION-windows-${{ matrix.arch }}"
-          $pfx = $null
-          if ($env:CERT_PFX) {
-            $pfx = "$env:RUNNER_TEMP\cert.pfx"
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:CERT_PFX))
-            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
-              Sort-Object FullName -Descending | Select-Object -First 1
-            if (-not $signtool) { throw "signtool.exe is not in the Windows SDK" }
-          } else {
-            Write-Host "No signing certificate: the build is unsigned."
-          }
           function Sign($file) {
-            if (-not $pfx) { return }
-            & $signtool.FullName sign /f $pfx /p $env:CERT_PASSWORD /fd SHA256 `
+            if (-not $env:SIGNING_THUMBPRINT) { return }
+            & $env:SIGNTOOL sign /sha1 $env:SIGNING_THUMBPRINT /s My /fd SHA256 `
               /tr http://timestamp.digicert.com /td SHA256 /d Concat $file
             if ($LASTEXITCODE -ne 0) { throw "signtool failed on $file" }
           }
-          New-Item -ItemType Directory -Force "stage\$name" | Out-Null
-          Copy-Item "src\target\${{ matrix.target }}\app\concat.exe" "stage\$name\"
-          Sign "stage\$name\concat.exe"
-          Copy-Item "$env:FFMPEG_DIR\bin\*.dll" "stage\$name\"
-          # The sherpa-onnx runtime, set aside by the download step above.
-          Copy-Item "$env:SHERPA_DLL_DIR\*.dll" "stage\$name\"
-          Copy-Item LICENSE, THIRD_PARTY_NOTICES.md "stage\$name\"
           # The installer, from that folder: Inno Setup, which the x64
           # image carries and the ARM image is given. See
           # assets/windows/concat.iss.
@@ -765,7 +1040,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "WiX failed with $LASTEXITCODE" }
           if (-not (Test-Path "stage\$name.msi")) { throw "stage\$name.msi is not there" }
           Sign "stage\$name.msi"
-          if ($pfx) { Remove-Item -Force $pfx }
           # And the .msix, for the Microsoft Store, from the same folder with
           # the manifest and logos beside it. See assets/windows/AppxManifest.xml.
           # Into store/, not stage/: the Store signs it and takes it, and an
@@ -803,7 +1077,14 @@ jobs:
           # The folder itself is not published: the two installers are.
           Remove-Item -Recurse -Force "stage\$name"
 
-      - uses: actions/upload-artifact@v7
+      # The signing certificate out of the user's store again, whether the
+      # steps above passed or not.
+      - name: Forget the certificate (Windows)
+        if: always() && matrix.platform == 'windows' && env.SIGNING_THUMBPRINT != ''
+        shell: pwsh
+        run: Remove-Item -Force -DeleteKey "Cert:\CurrentUser\My\$env:SIGNING_THUMBPRINT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Concat-${{ matrix.platform }}-${{ matrix.arch }}
           path: stage/*
@@ -811,7 +1092,7 @@ jobs:
 
       # The Store's package, apart from the release's bundles: release.yml
       # bundles the two architectures and submits them.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.platform == 'windows' && hashFiles('store/*.msix') != ''
         with:
           name: Store-windows-${{ matrix.arch }}

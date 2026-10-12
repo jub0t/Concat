@@ -80,7 +80,7 @@ mod wayland_drop {
 }
 
 use dock::{Dock, METERS_MIN_W, SEAT_MIN_GRAB, SEAT_MIN_H, SEAT_MIN_W};
-use host::{Host, Shell, on_ui};
+use host::{Host, Shell};
 use panes::Msg;
 use panes::captions::CaptionsMsg;
 use panes::export::ExportMsg;
@@ -131,6 +131,34 @@ pub fn report_startup_failure(error: &slint::PlatformError) {
 
 /// Builds the window, binds it to the engine, and runs it until it closes.
 pub fn run() -> Result<(), slint::PlatformError> {
+    run_with_project(None)
+}
+
+/// Builds the window and opens a project directory before its first frame.
+///
+/// Relative paths are resolved against the launcher's working directory. An
+/// unreadable project leaves the launch screen open with the usual error notice.
+/// Each invocation creates its own window; this does not control another instance.
+pub fn run_with_project(project: Option<std::path::PathBuf>) -> Result<(), slint::PlatformError> {
+    start(project, false)
+}
+
+/// Starts the way [`run`] does, as far as the window's first publish, and
+/// exits the process with status 0 there instead of entering the event
+/// loop, so nothing is shown and nobody has to close anything.
+///
+/// For CI: a smoke run goes through everything a launch on a fresh machine
+/// does - the GPU, the engine's services, the window's component, the
+/// studio and its packages, every model handed to the window - and fails
+/// the way a launch would, with the reason in the log and an `Err` here.
+/// No project is opened, so the recents list is not touched; the
+/// preferences are read, and a log file written, as on any launch.
+pub fn smoke() -> Result<(), slint::PlatformError> {
+    start(None, true)
+}
+
+/// [`run_with_project`], or [`smoke`] when `smoke` is set.
+fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
     // runs, and by the time an OS drop can actually happen, it has. Import
@@ -671,26 +699,24 @@ pub fn run() -> Result<(), slint::PlatformError> {
         state.handle(Msg::Media(MediaMsg::RemoveSelected));
     }));
     // Not through the handler macro: nothing here changes the state, and
-    // the import is asynchronous - a phone's picker is another screen, and
-    // the files come back later, on whatever thread, to be imported on the
-    // window's. A desktop's dialog answers before this returns.
+    // the dialog is asked on a turn of its own with the studio unborrowed;
+    // a phone's picker is another screen, and its files come back later.
+    // See `host::pick_files_then`.
     editor.on_import_media(|| {
         Shell::with(|shell, _| {
             if shell.studio.borrow().session.is_none() {
                 return;
             }
-            platform::pick_files_async(
-                &i18n::t("lib.importMedia"),
+            host::pick_files_then(
+                i18n::t("lib.importMedia"),
                 Some((
-                    i18n::t("common.media").as_str(),
+                    i18n::t("common.media"),
                     &[
                         "mp4", "mov", "mkv", "webm", "avi", "m4v", "mp3", "wav", "aac", "m4a",
                         "flac", "ogg", "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
                     ],
                 )),
-                |paths| {
-                    on_ui(move |studio, _, _| studio.handle(Msg::Media(MediaMsg::Import(paths))))
-                },
+                |studio, _, _, paths| studio.handle(Msg::Media(MediaMsg::Import(paths))),
             );
         });
     });
@@ -704,10 +730,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
             if shell.studio.borrow().session.is_none() {
                 return;
             }
-            platform::pick_files_async(
-                &i18n::t("lib.importFont"),
-                Some((i18n::t("lib.fonts").as_str(), &["ttf", "otf", "ttc"])),
-                |paths| on_ui(move |studio, _, _| studio.import_fonts(paths)),
+            host::pick_files_then(
+                i18n::t("lib.importFont"),
+                Some((i18n::t("lib.fonts"), &["ttf", "otf", "ttc"])),
+                |studio, _, _, paths| studio.import_fonts(paths),
             );
         });
     });
@@ -745,9 +771,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     editor.on_library_save_template(on_window!(|state| {
         state.save_template();
     }));
-    editor.on_library_import_lut(on_window!(|state| {
-        state.import_lut();
-    }));
+    // Nothing borrowed: the dialog is asked on a turn of its own, and the
+    // files it answers with are imported there; see `host::after_dialog`.
+    editor.on_library_import_lut(Studio::import_lut);
     editor.on_library_reload_packages(on_window!(|state| {
         state.reload_packages(true);
     }));
@@ -1245,6 +1271,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
         // is selected, which is what the menu was showing anyway.
         let target = state.menu_target.clone().or_else(|| state.sole_selection());
         if let Some(id) = target {
+            // The captions sheet is a pane of its own, so its row goes
+            // through the window's messages rather than the clip's verbs:
+            // the clip is selected, and the sheet takes the selection as
+            // the clip to transcribe.
+            if action.as_str() == "captions" {
+                state.flush_commit();
+                state.transition_selected = None;
+                state.selection = vec![id];
+                state.handle(Msg::Captions(CaptionsMsg::Open));
+                return;
+            }
             state.clip_action(&id, action.as_str());
         }
     }));
@@ -1623,17 +1660,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         // cannot drift into disagreeing about what a project
                         // folder is.
                         "open" => state.handle(Msg::Start(StartMsg::Open)),
-                        "import" => {
-                            platform::pick_files_async(
-                                &i18n::t("lib.importMedia"),
-                                None,
-                                |paths| {
-                                    on_ui(move |studio, _, _| {
-                                        studio.handle(Msg::Media(MediaMsg::Import(paths)))
-                                    })
-                                },
-                            );
-                        }
+                        // Asked with the studio unborrowed - it is
+                        // borrowed for this whole match - and on a turn of
+                        // its own; see `host::after_dialog`.
+                        "import" => host::pick_files_then(
+                            i18n::t("lib.importMedia"),
+                            None,
+                            |studio, _, _, paths| {
+                                studio.handle(Msg::Media(MediaMsg::Import(paths)))
+                            },
+                        ),
                         "export" => state.handle(Msg::Export(ExportMsg::Open)),
                         "template" => state.save_template(),
                         "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
@@ -1830,9 +1866,39 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
 
+    if let Some(path) = project {
+        // Use the same loader as Open project, after all callbacks and models
+        // are installed. Make the path absolute so recents never depend on the
+        // launcher's working directory on a later run. Unlike canonicalize,
+        // this does not introduce Windows verbatim paths into media tooling.
+        let opened = std::path::absolute(&path)
+            .map_err(|error| format!("{}: {error}", path.display()))
+            .and_then(|path| {
+                let path = path
+                    .to_str()
+                    .ok_or_else(|| "project directory is not valid Unicode".to_string())?;
+                concat_host::projects::open(path)
+            })
+            .and_then(|info| shell.studio.borrow_mut().open_project(info));
+        if let Err(error) = opened {
+            log::error!("could not open launch project: {error}");
+            shell.studio.borrow_mut().notify(&error, true);
+        }
+    }
+
     {
         shell.studio.borrow_mut().refresh_art();
         shell.studio.borrow().publish(&app, &shell.models);
+    }
+
+    // As far as a smoke run goes: everything the first frame needs exists
+    // and has been handed to the window. The exit is the one the event
+    // loop's end takes below, for the same reason - the engine's threads
+    // are not waited on.
+    if smoke {
+        log::info!("smoke: ok");
+        log::logger().flush();
+        std::process::exit(0);
     }
 
     // Decoders nobody has asked a frame of for ten seconds are closed,

@@ -5,6 +5,8 @@
 //! and rate, the verb that opens one that already exists, and the project
 //! grid's own two verbs.
 
+use std::path::{Path, PathBuf};
+
 use concat_host::projects;
 
 use crate::i18n::{t, tf};
@@ -40,6 +42,8 @@ pub enum StartMsg {
     Create,
     /// Open a project that already exists, picked from disk.
     Open,
+    /// The folder the Open picker answered with.
+    OpenChosen(PathBuf),
     OpenRecent(String),
     ForgetRecent(String),
 }
@@ -71,7 +75,7 @@ impl Default for StartPane {
     fn default() -> Self {
         Self {
             composing: false,
-            name: "Untitled project".into(),
+            name: UNTITLED.into(),
             location: default_location(),
             aspect: 0,
             // 1080p, not the first of the three. The size everything else
@@ -86,20 +90,66 @@ impl Default for StartPane {
     }
 }
 
-/// Where a new project goes unless told otherwise: a Concat folder on the
-/// desktop. The desktop the system names, not `~/Desktop`: on Windows
-/// OneDrive often moves it, and on Linux it is called what the desktop's
-/// language calls it. A phone has no desk: its projects live at the top of
-/// the folder the file manager shows for the app.
+/// Where a new project goes unless told otherwise; see [`location_on`].
+/// On an iPhone the folder is made here, so that the Files app shows it
+/// from the first launch and not only from the first project.
 fn default_location() -> String {
-    if cfg!(target_os = "android") {
-        return home_folder("Concat");
-    }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if let Some(desktop) = dirs::desktop_dir() {
-        return desktop.join("Concat").to_string_lossy().into_owned();
+    let desktop = dirs::desktop_dir();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let desktop = None;
+    let location = location_on(std::env::consts::OS, desktop, home_folder);
+    if cfg!(target_os = "ios")
+        && !location.is_empty()
+        && let Err(error) = std::fs::create_dir_all(&location)
+    {
+        log::warn!("could not make {location}: {error}");
     }
-    home_folder("Desktop/Concat")
+    location
+}
+
+/// Where a new project goes on `os`: a Concat folder on the desktop. The
+/// desktop the system names, not `~/Desktop`: on Windows OneDrive often
+/// moves it, and on Linux it is called what the desktop's language calls
+/// it. A phone has no desk. An Android phone's projects live at the top of
+/// the folder the file manager shows for the app. An iPhone's live in the
+/// app's Documents, the one folder of its sandbox the Files app can show:
+/// `~/Desktop` there is a folder the app is not allowed to make, and every
+/// new project failed with EPERM. https://github.com/jub0t/Concat/issues/299
+fn location_on(os: &str, desktop: Option<PathBuf>, home: impl Fn(&str) -> String) -> String {
+    match os {
+        "android" => home("Concat"),
+        "ios" => home("Documents/Concat"),
+        _ => desktop
+            .map(|desktop| desktop.join("Concat").to_string_lossy().into_owned())
+            .unwrap_or_else(|| home("Desktop/Concat")),
+    }
+}
+
+/// What an unnamed project is called.
+const UNTITLED: &str = "Untitled project";
+
+/// Whether `name` is one this sheet made up rather than one somebody
+/// typed: "Untitled project", or that with a number after it.
+fn is_untitled(name: &str) -> bool {
+    let name = name.trim();
+    name.is_empty()
+        || name == UNTITLED
+        || name
+            .strip_prefix(UNTITLED)
+            .and_then(|rest| rest.strip_prefix(' '))
+            .is_some_and(|number| number.parse::<u32>().is_ok_and(|n| n >= 2))
+}
+
+/// The first of "Untitled project", "Untitled project 2", ... whose folder
+/// is not `taken`. A second new project in the same place used to be
+/// refused as "already exists" until it was renamed by hand.
+/// https://github.com/jub0t/Concat/issues/151
+fn first_free_untitled(taken: impl Fn(&str) -> bool) -> String {
+    std::iter::once(UNTITLED.to_owned())
+        .chain((2..).map(|n| format!("{UNTITLED} {n}")))
+        .find(|name| !taken(&projects::folder_name(name)))
+        .expect("the numbers do not run out")
 }
 
 impl StartPane {
@@ -107,7 +157,14 @@ impl StartPane {
     /// this runs the studio's copy of the pane is a blank it must not read.
     pub fn update(&mut self, msg: StartMsg, studio: &mut Studio) {
         match msg {
-            StartMsg::Compose => self.composing = true,
+            StartMsg::Compose => {
+                self.composing = true;
+                // A name somebody typed is kept for next time; one this
+                // sheet made up moves on past the folders already there.
+                if is_untitled(&self.name) {
+                    self.name = self.free_untitled();
+                }
+            }
             StartMsg::Dismiss => {
                 self.composing = false;
                 // The notice belongs to the attempt it reported on, not to
@@ -157,7 +214,8 @@ impl StartPane {
             }
             StartMsg::FolderChosen(folder) => self.location = folder,
             StartMsg::Create => self.create(studio),
-            StartMsg::Open => self.open(studio),
+            StartMsg::Open => self.open(),
+            StartMsg::OpenChosen(folder) => Self::open_chosen(&folder, studio),
             // Both of the grid's verbs report through the toast, as Open
             // does: the sheet is down while a card is pressed, and a notice
             // inside it would go unseen.
@@ -182,7 +240,7 @@ impl StartPane {
     fn create(&mut self, studio: &mut Studio) {
         let name = self.name.trim().to_owned();
         let name = if name.is_empty() {
-            "Untitled project".to_owned()
+            self.free_untitled()
         } else {
             name
         };
@@ -216,18 +274,42 @@ impl StartPane {
     /// through the toast rather than through the sheet's notice: the sheet
     /// is down when this is pressed, and half the presses of this never see
     /// the launch screen at all.
-    fn open(&mut self, studio: &mut Studio) {
-        let Some(folder) = platform::pick_folder(&t("start.openAProject"), &self.location) else {
-            return;
-        };
+    ///
+    /// The picker runs with the studio unborrowed, as Browse's does, and
+    /// the folder comes back as [`StartMsg::OpenChosen`]; see
+    /// `host::after_dialog`.
+    fn open(&self) {
+        let title = t("start.openAProject");
+        let current = self.location.clone();
+        crate::host::after_dialog(
+            move || platform::pick_folder(&title, &current),
+            |studio, _, _, folder| {
+                studio.handle(crate::panes::Msg::Start(StartMsg::OpenChosen(folder)));
+            },
+        );
+    }
+
+    /// The folder Open was answered with: checked, then opened.
+    fn open_chosen(folder: &Path, studio: &mut Studio) {
         let path = folder.to_string_lossy().into_owned();
-        if !projects::is_project(&folder) {
+        if !projects::is_project(folder) {
             studio.notify(&tf("start.notConcatProjectFolder", &[&path]), true);
             return;
         }
         if let Err(error) = projects::open(&path).and_then(|info| studio.open_project(info)) {
             studio.notify(&error, true);
         }
+    }
+
+    /// The first untitled name with no folder of that name where the sheet
+    /// says the project goes. Any folder counts, not only a project: a new
+    /// project is not made inside something that is already there.
+    fn free_untitled(&self) -> String {
+        let location = self.location.trim();
+        if location.is_empty() {
+            return UNTITLED.to_owned();
+        }
+        first_free_untitled(|folder| Path::new(location).join(folder).exists())
     }
 
     /// Whether the frame is typed rather than picked.
@@ -280,5 +362,83 @@ impl StartPane {
             busy: self.busy,
             error: self.error.as_str().into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An iPhone's projects go in its Documents, whatever a desktop would
+    /// have said; a desktop's go on the desktop the system names.
+    #[test]
+    fn each_platform_has_a_place_for_new_projects() {
+        let home = |name: &str| format!("/home/{name}");
+        let desktop = || Some(PathBuf::from("/desk"));
+        assert_eq!(
+            location_on("ios", desktop(), home),
+            "/home/Documents/Concat"
+        );
+        assert_eq!(location_on("ios", None, home), "/home/Documents/Concat");
+        assert_eq!(location_on("android", None, home), "/home/Concat");
+        assert_eq!(
+            PathBuf::from(location_on("macos", desktop(), home)),
+            Path::new("/desk").join("Concat")
+        );
+        assert_eq!(location_on("linux", None, home), "/home/Desktop/Concat");
+    }
+
+    /// The next untitled name skips every folder already there, and starts
+    /// over at the plain name once that is free again.
+    #[test]
+    fn a_second_untitled_project_gets_a_name_of_its_own() {
+        assert_eq!(first_free_untitled(|_| false), "Untitled project");
+        let taken = ["Untitled project", "Untitled project 2"];
+        assert_eq!(
+            first_free_untitled(|folder| taken.contains(&folder)),
+            "Untitled project 3"
+        );
+        let taken = ["Untitled project 2"];
+        assert_eq!(
+            first_free_untitled(|folder| taken.contains(&folder)),
+            "Untitled project"
+        );
+    }
+
+    /// Only a name the sheet made up is replaced; a typed one is kept.
+    #[test]
+    fn only_a_made_up_name_moves_on() {
+        for name in [
+            "",
+            "  ",
+            "Untitled project",
+            "Untitled project 2",
+            "Untitled project 41",
+        ] {
+            assert!(is_untitled(name), "{name:?}");
+        }
+        for name in [
+            "My film",
+            "Untitled project 1",
+            "Untitled project two",
+            "Untitled projects",
+            "Untitled project 2 final",
+        ] {
+            assert!(!is_untitled(name), "{name:?}");
+        }
+    }
+
+    /// Composing again after a project was made in the same place offers
+    /// the next free name, not the one that would be refused.
+    #[test]
+    fn compose_offers_a_name_that_is_free_in_the_location() {
+        let root = std::env::temp_dir().join(format!("concat-untitled-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("Untitled project")).unwrap();
+        let pane = StartPane {
+            location: root.to_string_lossy().into_owned(),
+            ..StartPane::default()
+        };
+        assert_eq!(pane.free_untitled(), "Untitled project 2");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
