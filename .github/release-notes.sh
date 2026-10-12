@@ -6,13 +6,8 @@
 # Writes markdown to stdout: what changed, then how to download each bundle
 # and the checksum file.
 #
-# What changed is the release's section of CHANGELOG.md - the lines under
-# `## <version>` (the heading may carry a date after it), up to the next
-# `## ` - written by hand when the release is cut, so the notes say what a
-# person will notice, grouped by where they will notice it, rather than
-# listing the commits. A release with no section - a nightly, or an alpha
-# cut in a hurry - gets the subjects of the commits between the two refs
-# instead, filtered as follows.
+# What changed is the subjects of the commits between the two refs,
+# filtered as follows.
 #
 # What a release note is for is what somebody running the app can notice, so
 # three kinds of subject are dropped on the way past. Housekeeping, by its
@@ -34,67 +29,44 @@ until="$2"
 version="$3"
 title="Concat $version"
 
-here=$(cd "$(dirname "$0")" && pwd)
-changelog="$here/../CHANGELOG.md"
+# A conventional-commit type, with its optional (scope) and breaking `!`.
+type='^[a-z]+(\([^)]*\))?!?: '
 
-# The section for this version, with the blank lines either end trimmed.
-section=""
-if [ -f "$changelog" ]; then
-  section=$(awk -v v="$version" '
-    /^## / { if (found) exit; found = ($2 == v); next }
-    found { lines[n++] = $0 }
-    END {
-      s = 0; while (s < n && lines[s] ~ /^[[:space:]]*$/) s++
-      e = n; while (e > s && lines[e - 1] ~ /^[[:space:]]*$/) e--
-      for (i = s; i < e; i++) print lines[i]
-    }' "$changelog")
-fi
-
-# The fallback: the commits, filtered and dressed.
-changes=""
-if [ -z "$section" ]; then
-  # A conventional-commit type, with its optional (scope) and breaking `!`.
-  type='^[a-z]+(\([^)]*\))?!?: '
-
-  # Each line opens with one mark for what it touches, from the commit's
-  # scope where it has one and its type where it has not - a fix reads as a
-  # fix at a glance, and the text rows stand apart from the timeline's. A
-  # subject with neither carries no mark rather than a wrong one.
-  marks='text=📝 speech=🗣️ enhance=🗣️ keyframes=🎞️ effects=✨ render=✨ colour=✨ color=✨ timeline=✂️ media=📁 export=📤 settings=⚙️ i18n=🌍 locales=🌍 api=🤖 server=🤖 android=📱 ios=📱 models=📦 inspector=🖥️ window=🖥️ workspace=🖥️ ui=🖥️ start=🖥️ feat=✨ fix=🐛 perf=⚡'
-  changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
-    | grep -Ev '^(Update [^ ]+\.[a-z]+|Version [0-9]|Lock the flake|Format the workspace|Changelog for|Merge )' \
-    | grep -Ev 'in the (export|pool) tests$' \
-    | grep -Eiv '^(test|chore|ci|build|refactor|style|docs)(\([^)]*\))?!?: ' \
-    | grep -Eiv "${type}.*(clippy|lint|rustfmt|(unused|duplicate|missing) [A-Za-z]* ?import|non-existent|does not compile|before test module|green again)" \
-    | grep -Eiv '^(updates?|wip|fixes?|cleanup)\.?$' \
-    | awk -v marks="$marks" '
-        BEGIN {
-          n = split(marks, pairs, " ")
-          for (i = 1; i <= n; i++) { split(pairs[i], kv, "="); mark[kv[1]] = kv[2] }
+# Each line opens with one mark for what it touches, from the commit's
+# scope where it has one and its type where it has not - a fix reads as a
+# fix at a glance, and the text rows stand apart from the timeline's. A
+# subject with neither carries no mark rather than a wrong one.
+marks='text=📝 speech=🗣️ enhance=🗣️ keyframes=🎞️ effects=✨ render=✨ colour=✨ color=✨ timeline=✂️ media=📁 export=📤 settings=⚙️ i18n=🌍 locales=🌍 api=🤖 server=🤖 android=📱 ios=📱 models=📦 inspector=🖥️ window=🖥️ workspace=🖥️ ui=🖥️ start=🖥️ feat=✨ fix=🐛 perf=⚡'
+changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
+  | grep -Ev '^((Create|Update) [^ ]+\.[a-z]+|Version [0-9]|Lock the flake|Format the workspace|Changelog for|Merge )' \
+  | grep -Ev 'in the (export|pool) tests$' \
+  | grep -Eiv '^(test|chore|ci|build|refactor|style|docs)(\([^)]*\))?!?: ' \
+  | grep -Eiv "${type}.*(clippy|lint|rustfmt|(unused|duplicate|missing) [A-Za-z]* ?import|non-existent|does not compile|before test module|green again)" \
+  | grep -Eiv '^(updates?|wip|fixes?|cleanup)\.?$' \
+  | awk -v marks="$marks" '
+      BEGIN {
+        n = split(marks, pairs, " ")
+        for (i = 1; i <= n; i++) { split(pairs[i], kv, "="); mark[kv[1]] = kv[2] }
+      }
+      {
+        prefix = ""
+        if (match($0, /^[a-z]+(\([^)]*\))?!?: /)) {
+          head = substr($0, 1, RLENGTH)
+          $0 = substr($0, RLENGTH + 1)
+          kind = head; sub(/[(!:].*/, "", kind)
+          scope = ""
+          if (match(head, /\([^)]*\)/)) scope = substr(head, RSTART + 1, RLENGTH - 2)
+          if (scope in mark) prefix = mark[scope] " "
+          else if (kind in mark) prefix = mark[kind] " "
         }
-        {
-          prefix = ""
-          if (match($0, /^[a-z]+(\([^)]*\))?!?: /)) {
-            head = substr($0, 1, RLENGTH)
-            $0 = substr($0, RLENGTH + 1)
-            kind = head; sub(/[(!:].*/, "", kind)
-            scope = ""
-            if (match(head, /\([^)]*\)/)) scope = substr(head, RSTART + 1, RLENGTH - 2)
-            if (scope in mark) prefix = mark[scope] " "
-            else if (kind in mark) prefix = mark[kind] " "
-          }
-          print prefix toupper(substr($0, 1, 1)) substr($0, 2)
-        }' \
-    | awk '!seen[$0]++' \
-    | sed 's/^/- /')
-fi
+        print prefix toupper(substr($0, 1, 1)) substr($0, 2)
+      }' \
+  | awk '!seen[$0]++' \
+  | sed 's/^/- /')
 
 echo "## $title"
 echo
-if [ -n "$section" ]; then
-  echo "$section"
-  echo
-elif [ -n "$changes" ]; then
+if [ -n "$changes" ]; then
   echo "### What changed"
   echo
   echo "$changes"

@@ -553,7 +553,7 @@ flowchart LR
         gate["ci.yml on the tag"]
         build["build-app.yml ref: tag<br/>mac arm + x64 (dmg, notarised), linux x64 + arm<br/>(deb, rpm, AppImage, Arch), win x64 + arm (msi, msix, zip)"]
         phones["mobile.yml ref: tag, sign: true<br/>APK signed in its own step; iOS ipa ad-hoc"]
-        publish["GitHub release: assets, checksums,<br/>manifest.json for self-update,<br/>notes from CHANGELOG's section"]
+        publish["GitHub release: assets, checksums,<br/>manifest.json for self-update,<br/>notes from the commits"]
         store["MS Store, when not a pre-release"]
         check --> gate --> build --> publish --> store
         gate --> phones --> publish
@@ -679,8 +679,7 @@ with a test that fails without it.
   ducking, beat detection, a crop tool with free aspect, a command
   palette, a Shortcuts tab (PR #300), an activity panel for long jobs,
   Flatpak, and the Chatterbox DirectML failure (#291).
-- *Docs.* `CHANGELOG.md` has no section for the 71 commits since 0.2.6.
-  `src/README.md`'s crate table omits concat-text, concat-vision and
+- *Docs.* `src/README.md`'s crate table omits concat-text, concat-vision and
   concat-perf. A few comments still describe the CPU compositor fallback
   that no longer exists (`concat-export/src/lib.rs`, `concat-host/
   Cargo.toml`, two sites in `gpu.rs`), and `src/Cargo.toml` says wgpu is
