@@ -26,6 +26,16 @@ ort = { workspace = true, optional = true }
 [target.'cfg(target_vendor = "apple")'.dependencies]
 ort = { workspace = true, optional = true, features = ["coreml"] }
 
+# DirectML on Windows asks for the provider; whether it is there is the
+# runtime's to say. The bundles and CI link Microsoft's CPU build of ONNX
+# Runtime dynamically instead of the static DirectML one ort-sys would
+# download - that one is compiled for Haswell and kept the app from
+# starting on older CPUs (#313), and it imports a DirectML.dll many
+# machines only have an old copy of (#303). See build-app.yml's ONNX
+# Runtime (Windows) step. With the CPU build the provider fails to
+# register and ort carries on with the CPU one. The feature stays because
+# a build with no ORT_LIB_LOCATION (a developer's) downloads by feature,
+# and pyke publishes no Windows build without one.
 [target.'cfg(target_os = "windows")'.dependencies]
 ort = { workspace = true, optional = true, features = ["directml"] }
 

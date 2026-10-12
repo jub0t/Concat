@@ -2,6 +2,12 @@ name: CI
 
 # The engine's tests and lints on every push and pull request. The bundles
 # are built by release.yml, on a tag; see that file.
+#
+# Every action is pinned to a commit, with the tag it was in a comment
+# beside it: a tag can be moved to other code after a run has trusted it,
+# a commit cannot. Dependabot proposes the bumps (.github/dependabot.yml).
+# The prebuilt libraries the jobs download are pinned the same way, by
+# digest, in scripts/ci/deps.lock.
 on:
   push:
     branches: [main]
@@ -18,21 +24,27 @@ on:
         default: ""
 
 # Keyed on what is tested, so a release testing its tag and a push to
-# main never cancel each other.
+# main never cancel each other. Only a pull request's run is cancelled by
+# the next push to it: a run on main is the record of whether main is
+# green, and cancelling it leaves a gap where the answer should be.
 concurrency:
   group: ci-${{ inputs.ref || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   engine:
     name: Engine tests and lints
     runs-on: ubuntu-latest
+    # The steps that can run long have timeouts of their own, 110 minutes
+    # between them, so a stuck step is named by its own timeout; this is
+    # for a job stuck anywhere else. A warm run takes about twenty minutes.
+    timeout-minutes: 130
     env:
-      FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-shared-8.1.tar.xz
       # See build-app.yml: the version the ort crate is built against.
+      # scripts/ci/deps.lock pins the file.
       ORT_VERSION: 1.28.0
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       # The toolchain src/rust-toolchain.toml pins, installed by name: every
@@ -41,13 +53,22 @@ jobs:
       - name: The pinned toolchain
         id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      # cargo-nextest runs the tests: each in a process of its own, with a
+      # timeout per test and a JUnit report. See src/.config/nextest.toml.
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-nextest@0.9.148
+      # Saved even when the job fails: a cache saved only by a green run
+      # is never saved while the job is red, and every red run then
+      # compiles from nothing.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
+          cache-on-failure: true
 
       # Slint's Skia renderer links fontconfig and freetype; cpal links
       # ALSA; bindgen needs libclang; whisper.cpp is built by cmake; the
@@ -67,7 +88,7 @@ jobs:
       - name: FFmpeg development libraries
         run: |
           set -euo pipefail
-          curl -fsSL --retry 5 --retry-all-errors -o ffmpeg.tar.xz "$FFMPEG_LINUX"
+          scripts/ci/fetch.sh ffmpeg-linux64 ffmpeg.tar.xz
           mkdir -p ffmpeg-dev
           tar -xf ffmpeg.tar.xz -C ffmpeg-dev --strip-components=1
           echo "FFMPEG_DIR=$PWD/ffmpeg-dev" >> "$GITHUB_ENV"
@@ -80,9 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           stem="onnxruntime-linux-x64-$ORT_VERSION"
-          curl -fsSL --retry 5 --retry-all-errors -o onnxruntime.tgz \
-            "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/$stem.tgz"
+          scripts/ci/fetch.sh onnxruntime-linux-x64 onnxruntime.tgz
           tar -xzf onnxruntime.tgz
+          test -f "$stem/lib/libonnxruntime.so.$ORT_VERSION"
           ln -sf "libonnxruntime.so.$ORT_VERSION" "$stem/lib/libonnxruntime.so"
           {
             echo "ORT_LIB_LOCATION=$PWD/$stem/lib"
@@ -94,14 +115,19 @@ jobs:
       # below fetch theirs. Left to its own build script, sherpa-onnx-sys
       # unpacks it into target/sherpa-onnx-prebuilt, which rust-cache does
       # not keep while the build script's run is kept: a cache hit then
-      # links against a folder that is not there.
+      # links against a folder that is not there. The version is the
+      # lockfile's, and deps.lock must pin that version's file.
       - name: sherpa-onnx libraries
         run: |
           set -euo pipefail
           version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+          name=sherpa-onnx-linux-x64-static-lib
+          case "$(scripts/ci/fetch.sh --url "$name")" in
+            */v"$version"/*) ;;
+            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+          esac
           stem="sherpa-onnx-v$version-linux-x64-static-lib"
-          curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 \
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
           mkdir -p sherpa
           tar -xjf sherpa.tar.bz2 -C sherpa
           test -d "sherpa/$stem/lib"
@@ -123,25 +149,69 @@ jobs:
       # before tests: they finish in a fraction of the time and catch the
       # most.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+        timeout-minutes: 25
         working-directory: src
+
+      # The tests are compiled in a step of their own, so a slow compile
+      # and a slow test are told apart by which step ran out of time. One
+      # job at a time and no debug info, to stay inside the runner's
+      # memory; the run below finds everything already built.
+      - name: Build the tests
+        timeout-minutes: 25
+        working-directory: src
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+        run: cargo nextest run --workspace --no-run --build-jobs 1
       # CONCAT_REQUIRE_GPU: the GPU tests fail rather than skip when no
-      # adapter is usable, so the parity suite is known to have run.
-      - run: cargo test --workspace -j 1
+      # adapter is usable, so the parity suite is known to have run. The
+      # report and the log are kept when it fails (the last step).
+      - name: Run the tests
+        timeout-minutes: 20
         working-directory: src
         env:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CONCAT_REQUIRE_GPU: "1"
+        run: |
+          status=0
+          cargo nextest run --workspace --build-jobs 1 --profile ci 2>&1 | tee nextest-workspace.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
+          exit "$status"
+      # nextest does not run the examples in the documentation; cargo does.
+      - name: Run the documentation's examples
+        timeout-minutes: 10
+        working-directory: src
+        env:
+          CARGO_PROFILE_DEV_DEBUG: "0"
+        run: cargo test --workspace --doc -j 1
       # The performance table's quick scenarios against their budgets, in
       # the `quick` profile: planning, undo, the document, publishing.
       # The media scenarios need a machine that is not a shared runner.
       - run: cargo run -p concat-perf --profile quick -- --check --quick
+        timeout-minutes: 10
         working-directory: src
       # The gRPC transport is a feature nothing else in the workspace turns
       # on, so it is linted and tested here on its own. See concat-server.
       - run: cargo clippy -p concat-server -p concat-cli --features grpc --all-targets -- -D warnings
+        timeout-minutes: 10
         working-directory: src
-      - run: cargo test -p concat-server --features grpc
+      - name: Run the gRPC tests
+        timeout-minutes: 10
         working-directory: src
+        run: |
+          status=0
+          cargo nextest run -p concat-server --features grpc --profile ci 2>&1 | tee nextest-grpc.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-grpc.xml 2>/dev/null || true
+          exit "$status"
+
+      - name: Keep the test report (failure only)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-report-linux
+          path: |
+            src/target/nextest/ci/*.xml
+            src/nextest-*.log
+          if-no-files-found: ignore
 
   # The engine crates that carry no native library build for the web. This
   # job is what keeps that true: a std::thread or a blocking wait that
@@ -150,22 +220,24 @@ jobs:
   web:
     name: Engine on wasm32
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: The pinned toolchain
         id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           components: clippy
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: wasm32
+          cache-on-failure: true
       - run: >
           cargo clippy
           -p concat-core -p concat-project -p concat-effects -p concat-render -p concat-text
@@ -196,80 +268,172 @@ jobs:
             sherpa: win-x64
             verb: Tests
     runs-on: ${{ matrix.os }}
-    # A compile is minutes and the Windows suite under an hour; a job past
-    # this is stuck, and a stuck job is what kept main red for five days.
-    timeout-minutes: 120
+    # Windows' steps that can run long have timeouts of their own, 115
+    # minutes between them, so whichever is stuck is named by its own
+    # timeout. A stuck job kept main red for a week once: the tests' one
+    # step held the compile and every test, ran into its ninety minutes
+    # every time, and said nothing about which test it was waiting on.
+    timeout-minutes: 135
     env:
-      FFMPEG_WINDOWS: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip
+      # No debug info in the test binaries, as on Linux: smaller, faster
+      # to link, and nothing reads it here.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      ORT_VERSION: 1.28.0
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
       - name: The pinned toolchain
         id: toolchain
         shell: bash
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        if: runner.os == 'Windows'
+        with:
+          tool: cargo-nextest@0.9.148
       - name: FFmpeg (macOS)
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
           brew install ffmpeg cmake
           echo "FFMPEG_DIR=$(brew --prefix ffmpeg)" >> "$GITHUB_ENV"
-      - name: FFmpeg and LLVM (Windows)
+      # LLVM's own installer, at the version deps.lock pins, into a folder
+      # of its own: the runner image carries an LLVM of its own, at
+      # whatever version the image was made with, which this neither
+      # upgrades nor depends on.
+      - name: LLVM (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh llvm-win64 llvm.exe
+          if ($LASTEXITCODE -ne 0) { throw "the LLVM download failed" }
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList "/S", "/D=C:\llvm"
+          if (-not (Test-Path C:\llvm\bin\libclang.dll)) { throw "LLVM did not install to C:\llvm" }
+          Remove-Item llvm.exe
+          "C:\llvm\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "LIBCLANG_PATH=C:\llvm\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: FFmpeg (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          choco install llvm -y --no-progress
-          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
-          curl.exe -fsSL --retry 5 --retry-all-errors -o ffmpeg-win.zip "$env:FFMPEG_WINDOWS"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh ffmpeg-win64 ffmpeg-win.zip
+          if ($LASTEXITCODE -ne 0) { throw "the FFmpeg download failed" }
           Expand-Archive ffmpeg-win.zip -DestinationPath ffdl
           $dir = (Get-ChildItem ffdl -Directory | Select-Object -First 1).FullName
           "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$dir\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      # ONNX Runtime the way the Windows bundle links it (build-app.yml says
+      # why): Microsoft's shared build, through ORT_LIB_LOCATION, so the
+      # tests run against the runtime the app ships rather than the static
+      # one ort-sys would download. On the path for the test binaries.
+      - name: ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "$env:ProgramFiles\Git\bin\bash.exe" scripts/ci/fetch.sh onnxruntime-win-x64 onnxruntime.zip
+          if ($LASTEXITCODE -ne 0) { throw "the ONNX Runtime download failed" }
+          Expand-Archive onnxruntime.zip -DestinationPath .
+          $lib = "$PWD\onnxruntime-win-x64-$env:ORT_VERSION\lib"
+          if (-not (Test-Path "$lib\onnxruntime.lib")) { throw "$lib\onnxruntime.lib is not there" }
+          "ORT_LIB_LOCATION=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ORT_PREFER_DYNAMIC_LINK=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $lib | Out-File -FilePath $env:GITHUB_PATH -Append
       # The prebuilt sherpa-onnx library, as build-app.yml fetches it:
-      # static on macOS, the import libraries alone on Windows.
+      # static on macOS, the import libraries alone on Windows, whose DLLs
+      # go on the path for the test binaries - all but sherpa's own
+      # onnxruntime.dll, so the one the tests load is the one above.
       - name: sherpa-onnx libraries
         shell: bash
         run: |
           set -euo pipefail
           version=$(grep -A1 'name = "sherpa-onnx-sys"' src/Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
           if [ "$RUNNER_OS" = "Windows" ]; then
-            stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-shared-MT-Release-lib"
+            kind=shared-MT-Release-lib
           else
-            stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-static-lib"
+            kind=static-lib
           fi
-          echo "Downloading $stem"
-          curl -fsSL --retry 5 --retry-all-errors -o sherpa.tar.bz2 "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$version/$stem.tar.bz2"
+          name="sherpa-onnx-${{ matrix.sherpa }}-$kind"
+          stem="sherpa-onnx-v$version-${{ matrix.sherpa }}-$kind"
+          case "$(scripts/ci/fetch.sh --url "$name")" in
+            */v"$version"/*) ;;
+            *) echo "scripts/ci/deps.lock pins $name for another version than Cargo.lock's $version" >&2; exit 1 ;;
+          esac
+          scripts/ci/fetch.sh "$name" sherpa.tar.bz2
           mkdir -p sherpa
           python3 -c "import tarfile; t = tarfile.open('sherpa.tar.bz2'); t.extractall('sherpa', **({'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}))"
           test -d "sherpa/$stem/lib"
           if [ "$RUNNER_OS" = "Windows" ]; then
             mkdir -p sherpa-libs sherpa-dlls
-            cp "sherpa/$stem/lib/"*.lib sherpa-libs/
-            # The DLLs too: the test binaries load them as they start.
-            cp "sherpa/$stem/lib/"*.dll sherpa-dlls/
+            cp "sherpa/$stem/lib/"sherpa-onnx-*.lib sherpa-libs/
+            cp "sherpa/$stem/lib/"sherpa-onnx-*.dll sherpa-dlls/
             echo "SHERPA_ONNX_LIB_DIR=$(pwd -W)\\sherpa-libs" >> "$GITHUB_ENV"
             echo "$(pwd -W)\\sherpa-dlls" >> "$GITHUB_PATH"
           else
             echo "SHERPA_ONNX_LIB_DIR=$PWD/sherpa/$stem/lib" >> "$GITHUB_ENV"
           fi
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
           key: check-${{ matrix.os }}
+          cache-on-failure: true
       - run: cargo check --workspace --all-targets
         if: runner.os != 'Windows'
+        timeout-minutes: 45
         working-directory: src
-      # One job at a time and no debug info, as on Linux. The timeout is
-      # for a hang: concat-media's tests once hung here for good.
-      - run: cargo test --workspace -j 1
+
+      # Windows: compile, then run, then the one scenario that has hung
+      # here on its own. Each step has its own timeout, so a red run says
+      # whether the compile was slow, a test failed, or a test hung, and a
+      # test that hangs is killed by nextest after its slow-timeout and
+      # reported by name (src/.config/nextest.toml). Two compile jobs: the
+      # runner has the memory for two, and one took most of an hour.
+      - name: Build the tests (Windows)
+        id: build-tests
         if: runner.os == 'Windows'
-        timeout-minutes: 90
+        timeout-minutes: 60
         working-directory: src
-        env:
-          CARGO_PROFILE_DEV_DEBUG: "0"
+        shell: bash
+        run: cargo nextest run --workspace --no-run --build-jobs 2
+      - name: Run the tests (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 30
+        working-directory: src
+        shell: bash
+        run: |
+          status=0
+          cargo nextest run --workspace --build-jobs 2 --profile ci \
+            -E 'not test(=every_edit_still_exports)' 2>&1 | tee nextest-workspace.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-workspace.xml 2>/dev/null || true
+          exit "$status"
+      # every_edit_still_exports passes on Linux in under a minute and has
+      # hung on Windows. Alone, with its output shown as it comes: each
+      # export names itself before it starts and once it is written, so
+      # the last line before a hang is the edit, and the half of it, that
+      # never finished. Runs whether or not the rest passed.
+      - name: The editing session alone (Windows)
+        if: ${{ !cancelled() && runner.os == 'Windows' && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 15
+        working-directory: src
+        shell: bash
+        run: |
+          status=0
+          cargo nextest run -p concat-host --test export --build-jobs 2 --profile ci --no-capture \
+            -E 'test(=every_edit_still_exports)' 2>&1 | tee nextest-every-edit.log || status=$?
+          mv target/nextest/ci/junit.xml target/nextest/ci/junit-every-edit.xml 2>/dev/null || true
+          exit "$status"
+      - name: Keep the test report (failure only)
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-report-windows
+          path: |
+            src/target/nextest/ci/*.xml
+            src/nextest-*.log
+          if-no-files-found: ignore

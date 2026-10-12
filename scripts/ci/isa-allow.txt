@@ -1,0 +1,63 @@
+# What scripts/ci/isa-scan.sh lets each shipped x86_64 file hold beyond
+# the AVX baseline the bundles promise. One row per file name pattern (a
+# shell glob, first match wins); then either `any`, for a library that
+# picks its kernels by asking the CPU at run time and so carries code an
+# older CPU never reaches, or five limits - avx2, fma, bmi, mulx/rorx,
+# avx512; see scripts/ci/isa-scan.sh for what each counts - each a count
+# (fail past it), `~` and a count (warn past it), or `-` (no limit). A file
+# with no row may hold none at all.
+#
+# pattern                      avx2  fma   bmi    mulx/rorx  avx512
+
+# FFmpeg: every codec, filter and scaler picks its SIMD by av_get_cpu_flags.
+avcodec-*.dll                  any
+avdevice-*.dll                 any
+avfilter-*.dll                 any
+avformat-*.dll                 any
+avutil-*.dll                   any
+postproc-*.dll                 any
+swresample-*.dll               any
+swscale-*.dll                  any
+libavcodec.so*                 any
+libavdevice.so*                any
+libavfilter.so*                any
+libavformat.so*                any
+libavutil.so*                  any
+libpostproc.so*                any
+libswresample.so*              any
+libswscale.so*                 any
+
+# Microsoft's ONNX Runtime: MLAS chooses its kernels by CPUID. Its general
+# code is built for the baseline (1.28.0 holds no BMI instructions at all).
+onnxruntime.dll                any
+onnxruntime_providers_shared.dll any
+libonnxruntime.so*             any
+
+# sherpa-onnx's Windows DLLs: built with the static MSVC runtime, whose
+# maths functions carry FMA3 twins chosen at run time.
+sherpa-onnx-c-api.dll          any
+sherpa-onnx-cxx-api.dll        any
+
+# The MSVC runtime, shipped beside the binary: memcpy and friends pick
+# their AVX2 paths at run time.
+vcruntime140*.dll              any
+msvcp140*.dll                  any
+concrt140.dll                  any
+
+# Concat itself. It holds dispatched code of its own - memchr, aho-corasick
+# and ring choose AVX2 or BMI2 paths at run time (ring's hand-written
+# cryptography is where mulx and rorx come from), and Skia carries its
+# Haswell and Skylake-X stages beside the baseline ones - so the vector
+# classes are not limited. The compiler-made BMI column is the one that
+# tells: pyke's static ONNX Runtime, linked into concat.exe in 0.2.5 and
+# 0.2.6 (#313), brought some 2,700 of them. On Linux the binary also links
+# sherpa-onnx statically, with an ONNX Runtime of its own inside.
+#
+# PROVISIONAL: these BMI limits are estimates, not measurements, so for
+# now they warn rather than fail; the emulated Ivy Bridge in the smoke
+# tests is what fails a build that would crash. The first run on CI
+# prints each binary's counts. Once it has, set the limit a margin above
+# the count shown, without the `~`, so the next library compiled for
+# Haswell fails the build.
+concat.exe                     -     -     ~1000  -          -
+concat                         -     -     ~1000  -          -

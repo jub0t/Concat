@@ -14,10 +14,18 @@ name: Release
 # (.deb, .rpm, .AppImage, Arch) and the Windows installers carry the
 # FFmpeg runtime libraries beside the binary; the Android .apk is signed
 # with the repository's key, and the iOS .ipa is signed by the tester on
-# the way onto the phone. Nothing is built until CI has passed on the tag.
+# the way onto the phone. Nothing is built until CI has passed on the tag,
+# and nothing is published until every bundle has been launched where it
+# was built: build-app.yml starts each one (`--version`, `--smoke`, and on
+# x86_64 under an emulated Ivy Bridge) before it uploads it, and a bundle
+# that does not start fails its job, which `publish` needs.
+#
+# The release is created as a draft. A person looks it over - the notes,
+# the files - and publishes it from the Releases page; nothing reaches
+# the updater or the downloads page before then.
 #
 # A release that is not a pre-release also goes to the Microsoft Store,
-# once it is published here, when the repository is set up for it; see
+# once its draft is made here, when the repository is set up for it; see
 # the store job.
 on:
   push:
@@ -36,16 +44,33 @@ jobs:
   check:
     name: Tag matches the version
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      # The tag a person typed is checked before anything uses it: as the
+      # ref to check out, in a script, or in a file name.
+      - name: The tag is a version tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$TAG' is not a version tag (v1.2.3, or v1.2.3-alpha.1)"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.tag || github.ref }}
+      # The tag comes in through the environment, never pasted into the
+      # script: a value in ${{ }} is spliced into the shell's text before
+      # bash reads it, so a tag typed into the form by hand could have run
+      # as a command.
       - id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          tag="${{ inputs.tag || github.ref_name }}"
+          tag="$TAG"
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           # The tag is the version, or the version with a pre-release
           # suffix: v0.2.1 and v0.2.1-alpha.22 both belong to 0.2.1.
@@ -95,11 +120,12 @@ jobs:
     name: Publish release
     needs: [check, build, phones]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
       # The bundles only: the Store's packages are the store job's.
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: bundles
           pattern: Concat-*
@@ -107,7 +133,7 @@ jobs:
 
       # The tree the release is cut from: the notes are read out of its
       # history, and the manifest out of its model table.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.check.outputs.tag }}
           fetch-depth: 0
@@ -118,11 +144,14 @@ jobs:
       # fetched from. An updater or a package script reads this instead of
       # guessing at asset names. See scripts/models.py.
       - name: Write the manifest
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
           set -euo pipefail
           python3 source/scripts/models.py release-manifest \
-            --version "${{ needs.check.outputs.version }}" \
-            --tag "${{ needs.check.outputs.tag }}" \
+            --version "$VERSION" \
+            --tag "$TAG" \
             --bundles bundles \
             --out bundles/manifest.json
           cat bundles/manifest.json
@@ -134,22 +163,25 @@ jobs:
           ls -l
           sha256sum -- * > SHA256SUMS
 
-      # The notes are the tag's section of CHANGELOG.md, or the commits
-      # since the previous tag where it has none; see the script.
+      # The notes are the commits since the previous tag; see the script.
       - name: Write the notes
         id: notes
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
         run: |
           set -euo pipefail
           cd source
-          tag="${{ needs.check.outputs.tag }}"
+          tag="$TAG"
           previous=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
           .github/release-notes.sh "$previous" "$tag" "${tag#v}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
-      - uses: softprops/action-gh-release@v3
+      # A draft: a person publishes it. See the top of this file.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.check.outputs.tag }}
           name: Concat ${{ needs.check.outputs.tag }}
+          draft: true
           prerelease: ${{ contains(needs.check.outputs.tag, '-') }}
           body_path: ${{ runner.temp }}/notes.md
           fail_on_unmatched_files: true
@@ -178,8 +210,9 @@ jobs:
     needs: [check, publish]
     if: ${{ !contains(needs.check.outputs.tag, '-') && vars.MSSTORE_PRODUCT_ID != '' }}
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: store
           pattern: Store-windows-*
@@ -199,7 +232,7 @@ jobs:
           & $makeappx.FullName bundle /o /bv "$env:VERSION.0" /d store /p "Concat-$env:VERSION-windows.msixbundle"
           if ($LASTEXITCODE -ne 0) { throw "makeappx failed with $LASTEXITCODE" }
 
-      - uses: microsoft/setup-msstore-cli@v1
+      - uses: microsoft/setup-msstore-cli@3b2ec9136230357ce9abc02b9d056626fb248d3f # v1
 
       - name: Submit
         shell: pwsh

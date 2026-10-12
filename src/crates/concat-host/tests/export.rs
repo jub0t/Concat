@@ -563,6 +563,12 @@ impl Studio {
     fn export_at(&mut self, label: &str, rate: Option<(i64, i64)>) -> Exported {
         self.count += 1;
         let label = format!("{:02} {label}", self.count).replace('/', "-");
+        // Each export names itself before it starts and again once the
+        // file is written, so a run that hangs (every_edit_still_exports
+        // on Windows CI, at the time of writing) says which edit and which
+        // half: the render, or the reopen and read-back after it. Shown
+        // with --nocapture, or under a failure.
+        eprintln!("{label}: exporting");
         let settings = self.session.settings();
         let spec = ExportSpec {
             output: self
@@ -593,6 +599,7 @@ impl Studio {
         let cancel = AtomicBool::new(false);
         let written = export::run(&request, &cancel, |_| {})
             .unwrap_or_else(|error| panic!("{label}: the export failed: {error}"));
+        eprintln!("{label}: written, reading it back");
 
         self.session.save(None).expect("saves the project");
         let reopened = Session::open(self.session.path(), self.session.settings())
@@ -1781,18 +1788,56 @@ fn the_edges_export_too() {
 
 /// Hardware decode preferred, the way the app always sets it: the
 /// export decodes its sources on the platform's device where there is one
-/// and reads the same picture and sound back. The preference is the
-/// process's, so the other scenarios running alongside share it for the
-/// moment, and must not mind.
+/// and reads the same picture and sound back.
+///
+/// A platform can name a device the machine cannot open: Windows' CI
+/// runner has WARP, a software Direct3D adapter with no video decoder, so
+/// D3D11VA falls back to the CPU there, as it should, and the reader never
+/// reports the device. The device is tried first on its own, by name and
+/// without touching the preference; where it does not decode, the test
+/// skips and says so, unless the job says the GPU tests must run
+/// (`CONCAT_REQUIRE_GPU`, as cards.rs reads it), in which case it fails.
+///
+/// The preference is the process's. Under nextest every test is a process
+/// of its own and nothing else sees it; under `cargo test` the scenarios
+/// running alongside share it while this one runs, and the guard puts back
+/// whatever it was before, so none of them is left with it after.
 #[test]
 fn an_export_decodes_on_the_hardware_when_preferred() {
-    struct Preferred;
-    impl Drop for Preferred {
-        fn drop(&mut self) {
-            concat_media::set_hardware_decode(false);
+    let scratch = Scratch::new("hardware");
+    // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
+    // stream the preference leaves on the CPU, which decodes it faster
+    // (concat_media::hardware::hardware_wins).
+    let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
+
+    if let Some(device) = HwDevice::platform_default() {
+        let probe = DecodeOptions {
+            hardware: concat_media::HwPolicy::Device(device),
+            ..DecodeOptions::default()
+        };
+        let mut reader = Decoder::open(&sources.peek, &probe).expect("opens");
+        reader.next_frame().expect("decodes").expect("a frame");
+        if reader.hardware() != Some(device) {
+            let why = format!(
+                "{} is this platform's device, but it does not decode HEVC on this machine \
+                 (a software adapter, or no video decoder)",
+                device.label()
+            );
+            if std::env::var_os("CONCAT_REQUIRE_GPU").is_some() {
+                panic!("{why}, and CONCAT_REQUIRE_GPU is set");
+            }
+            eprintln!("{why}, and CONCAT_REQUIRE_GPU is not set; skipping");
+            return;
         }
     }
-    let _preferred = Preferred;
+
+    struct Restore(Option<HwDevice>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            concat_media::hardware::set_hardware_device(self.0);
+        }
+    }
+    let _restore = Restore(concat_media::hardware::hardware_device());
     concat_media::set_hardware_decode(true);
     assert_eq!(
         concat_media::hardware_decode(),
@@ -1800,11 +1845,6 @@ fn an_export_decodes_on_the_hardware_when_preferred() {
         "on where the platform has a device, off where it has none"
     );
 
-    let scratch = Scratch::new("hardware");
-    // HEVC, not the H.264 the other scenarios use: 8-bit H.264 is the one
-    // stream the preference leaves on the CPU, which decodes it faster
-    // (concat_media::hardware::hardware_wins).
-    let sources = Sources::make_in(scratch.path(), VideoCodec::Hevc);
     // A reader opened the way the engine opens them follows the preference
     // onto the device, on a machine that has one.
     let mut reader = Decoder::open(&sources.peek, &DecodeOptions::default()).expect("opens");
