@@ -44,6 +44,7 @@ use ort::session::Session;
 use ort::value::Tensor;
 
 use crate::DownloadProgress;
+use crate::tts::ReadError;
 
 /// The bundle id, as the settings panel and a request name it.
 pub const BUNDLE_ID: &str = "chatterbox-turbo-q8";
@@ -406,7 +407,7 @@ impl Engine {
         reference: &[f32],
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(f32),
-    ) -> Result<Vec<f32>, String> {
+    ) -> Result<Vec<f32>, ReadError> {
         let started = std::time::Instant::now();
         log::info!(
             "chatterbox: reading {} characters in the voice of a {:.1}s recording",
@@ -420,7 +421,7 @@ impl Engine {
         let text = punc_norm(text);
         let chunks = chunks(&text);
         if chunks.is_empty() {
-            return Err("nothing to say: the text is empty".to_owned());
+            return Err("nothing to say: the text is empty".into());
         }
         log::info!("chatterbox: {} chunk(s) to read", chunks.len());
         let expected: usize = chunks.iter().map(|chunk| expected_tokens(chunk)).sum();
@@ -474,14 +475,15 @@ impl Engine {
 
     /// The speech encoder over the recording, brought to the loudness the
     /// model was trained at.
-    fn hear(&self, reference: &[f32]) -> Result<Voice, String> {
+    fn hear(&self, reference: &[f32]) -> Result<Voice, ReadError> {
         let seconds = reference.len() as f32 / SAMPLE_RATE as f32;
         if seconds < MIN_REFERENCE_SECONDS {
             return Err(format!(
                 "the recording is {seconds:.1}s of sound and Chatterbox needs at least \
                  {MIN_REFERENCE_SECONDS:.0}s of clear speech to take a voice from - pick a longer \
                  sample, or start it earlier"
-            ));
+            )
+            .into());
         }
         let (reference, gain_db) = norm_loudness(reference);
         log::info!("chatterbox: the recording brought to {TARGET_LUFS} LUFS ({gain_db:+.1} dB)");
@@ -492,7 +494,7 @@ impl Engine {
         let audio = tensor_f32(vec![1, reference.len()], reference)?;
         let outputs = encoder
             .run(vec![feed("audio_values", audio)])
-            .map_err(|error| format!("chatterbox speech encoder: {error}"))?;
+            .map_err(|error| ReadError::Runtime(format!("chatterbox speech encoder: {error}")))?;
         let voice = Voice {
             features: take_f32(&outputs, "audio_features")?,
             prompt: take_i64(&outputs, "audio_tokens")?,
@@ -517,7 +519,7 @@ impl Engine {
         voice: &Voice,
         cancel: &AtomicBool,
         progress: &mut dyn FnMut(usize),
-    ) -> Result<Vec<i64>, String> {
+    ) -> Result<Vec<i64>, ReadError> {
         // With the post-processor's two `<|endoftext|>` on the end: they are
         // what the embedding graph turns into the start of speech, and a
         // text without them is read wrong from its last word on - see the
@@ -548,16 +550,17 @@ impl Engine {
         // text's own terminators becoming the start of speech inside the
         // embedding graph, so nothing is appended here; every later step
         // reads the one token just written, with the cache.
-        let embed_ids =
-            |embed: &mut Session, ids: &[i64]| -> Result<(Vec<usize>, Vec<f32>), String> {
-                let outputs = embed
-                    .run(vec![feed(
-                        "input_ids",
-                        tensor_i64(vec![1, ids.len()], ids.to_vec())?,
-                    )])
-                    .map_err(|error| format!("chatterbox embedding: {error}"))?;
-                take_f32(&outputs, "inputs_embeds")
-            };
+        let embed_ids = |embed: &mut Session,
+                         ids: &[i64]|
+         -> Result<(Vec<usize>, Vec<f32>), ReadError> {
+            let outputs = embed
+                .run(vec![feed(
+                    "input_ids",
+                    tensor_i64(vec![1, ids.len()], ids.to_vec())?,
+                )])
+                .map_err(|error| ReadError::Runtime(format!("chatterbox embedding: {error}")))?;
+            Ok(take_f32(&outputs, "inputs_embeds")?)
+        };
         let (_, text_embeds) = embed_ids(&mut embed, &text_ids)?;
         let width = voice.features.0[2];
         let mut embeds = voice.features.1.clone();
@@ -577,7 +580,7 @@ impl Engine {
         let limit = MAX_NEW_TOKENS.min(expected_tokens(chunk) * RUNAWAY + 64);
         for step in 0..limit {
             if cancel.load(Ordering::Relaxed) {
-                return Err("speech generation cancelled".to_owned());
+                return Err("speech generation cancelled".into());
             }
             let total_len = prompt_len + step;
             let mut inputs: Vec<Fed> = Vec::with_capacity(3 + LAYERS * 2);
@@ -605,9 +608,9 @@ impl Engine {
                     inputs.push(feed(format!("past_key_values.{layer}.{kind}"), value));
                 }
             }
-            let mut outputs = model
-                .run(inputs)
-                .map_err(|error| format!("chatterbox language model: {error}"))?;
+            let mut outputs = model.run(inputs).map_err(|error| {
+                ReadError::Runtime(format!("chatterbox language model: {error}"))
+            })?;
             let (logits_shape, logits) = take_f32(&outputs, "logits")?;
             let vocab = logits_shape[2];
             let last = &logits[(logits_shape[1] - 1) * vocab..];
@@ -653,7 +656,7 @@ impl Engine {
 
     /// The decoder over the recording's tokens, the written ones, and a
     /// beat of silence: sound.
-    fn decode(&self, voice: &Voice, tokens: &[i64]) -> Result<Vec<f32>, String> {
+    fn decode(&self, voice: &Voice, tokens: &[i64]) -> Result<Vec<f32>, ReadError> {
         let all = with_prompt(&voice.prompt, tokens);
         let mut decoder = self
             .decoder
@@ -671,7 +674,7 @@ impl Engine {
                     tensor_f32(voice.spectrum.0.clone(), voice.spectrum.1.clone())?,
                 ),
             ])
-            .map_err(|error| format!("chatterbox decoder: {error}"))?;
+            .map_err(|error| ReadError::Runtime(format!("chatterbox decoder: {error}")))?;
         let (_, wave) = take_f32(&outputs, "waveform")?;
         Ok(wave)
     }
