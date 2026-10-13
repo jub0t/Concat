@@ -27,6 +27,16 @@
 # REGEX (an extended regular expression) by the end of the wait, and stops
 # waiting once it appears.
 #
+# One crash is not counted, and only on a device that runs the APK through
+# its ARM translation: a SIGSEGV whose crash dump puts the app's library at
+# cpuinfo_arm_linux_init. ONNX Runtime's static initialisers detect the
+# CPU as the library loads, and under the translation /proc/cpuinfo
+# describes the x86_64 host, not an ARM core, which the detection does not
+# survive. It happens before any of the app's code runs, so such a device
+# cannot test the APK at all: the script says so as a warning, in the job
+# summary, and exits 0 without claiming a pass. Any other crash, or this
+# one on a device running the APK natively, fails as before.
+#
 # Whatever the outcome it leaves in DIR (smoke-android by default): the
 # whole logcat from before the launch to the end, the app's lines alone,
 # a screenshot of the screen at the end, the window focus, and the
@@ -221,6 +231,33 @@ fatal_lines() {
   ' "$logcat_file"
 }
 
+# Ends the script without a verdict when the fatal lines in `found` are the
+# translation's crash in ONNX Runtime's CPU detection (see the top of this
+# file), and returns otherwise. The crash dump reaches the crash buffer a
+# few seconds after the signal, so it is waited for.
+untestable_here() {
+  [ -n "$runnable" ] && [ "$runnable" != "$primary" ] || return 0
+  [ -n "$found" ] || return 0
+  ! grep -v -q -E 'Fatal signal 11 ' <<< "$found" || return 0
+  local frame="#00 pc [0-9a-f]+ +/data/app/[^ ]*$package-[^ ]*/lib/[^ ]+[.]so [(]cpuinfo_arm_linux_init[+]"
+  local hit=""
+  for _ in $(seq 1 10); do
+    hit=$(adb logcat -d -b crash -v threadtime 2>/dev/null | grep -E -m 1 -- "$frame" || true)
+    [ -n "$hit" ] && break
+    sleep 2
+  done
+  [ -n "$hit" ] || return 0
+  collect
+  printf '%s\n' "$hit"
+  local why="NOT TESTED on API $sdk: the APK runs here through ARM translation ($runnable on $primary), where ONNX Runtime's CPU detection crashes as the library loads, before any of the app's code. Start it on a real $runnable device."
+  note "$why"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### Android smoke, API %s: not tested\n\n%s\n' "$sdk" "$why" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  say "not tested"
+  exit 0
+}
+
 say "watch for ${wait_secs}s"
 seen_ready=""
 deadline=$((SECONDS + wait_secs))
@@ -230,6 +267,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   found=$(fatal_lines)
   if [ -n "$found" ]; then
     printf '%s\n' "$found"
+    untestable_here
     fail "the app failed on start: $(head -n 1 <<< "$found")"
   fi
   if [ -z "$running" ]; then
@@ -238,6 +276,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     sleep 3
     found=$(fatal_lines)
     [ -z "$found" ] || printf '%s\n' "$found"
+    untestable_here
     fail "the app's process is gone ${gone}s after the launch${found:+: $(head -n 1 <<< "$found")}"
   fi
   if [ -n "$ready" ] && grep -E -q -- "$ready" "$logcat_file"; then

@@ -39,7 +39,11 @@ name: Build for phones
 # translation Google's x86_64 images carry from API 30 on: GitHub's arm64
 # Macs cannot run the emulator at all (no nested virtualisation, so HVF
 # fails with HV_UNSUPPORTED), and an x86_64 APK would be a different build
-# from the one that ships. The iPhone is tested the same way through the
+# from the one that ships. Under that translation ONNX Runtime's CPU
+# detection crashes as the library loads, before any of the app's code
+# runs; the smoke reports that one crash as "not tested" with a warning
+# rather than failing (see smoke-android.sh), and a release's APK is then
+# started on a real phone by hand. The iPhone is tested the same way through the
 # iOS Simulator, which needs a build of its own for aarch64-apple-ios-sim,
 # made beside the device build and never shipped
 # (scripts/ci/smoke-ios.sh). release.yml waits on every job here, so a
