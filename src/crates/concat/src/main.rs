@@ -12,6 +12,11 @@ mod launch;
 use launch::Launch;
 
 fn main() -> Result<(), slint::PlatformError> {
+    // First of all, so that even `--version` says where it crashed if it
+    // does: v0.2.7-rc.4's Windows on ARM build died there with nothing
+    // but an exit code (#326). It writes to standard error until the log
+    // opens, and to both after.
+    concat_host::crash::catch();
     let launch = launch::parse(std::env::args_os().skip(1));
     // Before the log, the GPU and the window: all this proves is that the
     // executable and the libraries it links were loaded, and it should

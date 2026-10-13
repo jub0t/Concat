@@ -20,12 +20,14 @@
 
 pub mod brush;
 pub mod cards;
+pub mod crash;
 pub mod cutout;
 pub mod dirs;
 pub mod enhance;
 pub mod export;
 pub mod jobs;
 pub mod logs;
+pub mod machine;
 pub mod media;
 pub mod memory;
 pub mod models;

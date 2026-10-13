@@ -62,6 +62,27 @@ $meanings = @{
   [int]0xC0E90002 = "a code integrity block (Smart App Control) on an unsigned or untrusted file"
 }
 
+# What Windows wrote down about a program that crashed since $since: the
+# Application Error event (1000) names the faulting module, its version
+# and the offset into it, which is the one thing an exit code cannot say.
+# It covers a crash before main as well as after, where the app's own
+# handler (concat-host's crash.rs) is not installed yet. Windows writes the
+# event a moment after the process is gone, so it is waited for briefly.
+function Show-Crash($file, $since) {
+  $exe = [IO.Path]::GetFileName($file)
+  for ($try = 0; $try -lt 10; $try++) {
+    $event = Get-WinEvent -FilterHashtable @{ LogName = "Application"; Id = 1000; StartTime = $since } -ErrorAction SilentlyContinue |
+      Where-Object { $_.Message -match [regex]::Escape($exe) } | Select-Object -First 1
+    if ($event) {
+      Say "what Windows recorded about the crash"
+      $event.Message -split "`n" | ForEach-Object { Write-Host "  $($_.TrimEnd())" }
+      return
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  Write-Host "  (Windows recorded no Application Error event for $exe)"
+}
+
 # Starts a program with the given PATH and waits for it, up to a limit;
 # fails unless it exits 0. Its output is shown when there is any.
 function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
@@ -75,6 +96,7 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   # in the folder it was started from.
   $info.WorkingDirectory = [IO.Path]::GetTempPath()
   $info.Environment["PATH"] = $path
+  $started = Get-Date
   $process = [System.Diagnostics.Process]::Start($info)
   $stdout = $process.StandardOutput.ReadToEndAsync()
   $stderr = $process.StandardError.ReadToEndAsync()
@@ -87,6 +109,7 @@ function Expect-Ok($what, $file, [string[]]$arguments, $path, $seconds) {
   if ($out) { $out -split "`n" | Select-Object -Last 60 | ForEach-Object { Write-Host "  $_" } }
   $code = $process.ExitCode
   if ($code -ne 0) {
+    Show-Crash $file $started
     $meaning = $meanings[[int]$code]
     Fail ("${what}: exited with 0x{0:X8}{1}" -f $code, $(if ($meaning) { " - $meaning" } else { "" }))
   }

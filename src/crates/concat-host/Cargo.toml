@@ -50,7 +50,20 @@ memmap2 = "0.9"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Media", "Win32_System_SystemInformation"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Media",
+  "Win32_System_SystemInformation",
+  # crash.rs: the unhandled-exception filter and what it reads and writes.
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_System_IO",
+  "Win32_System_Kernel",
+  "Win32_System_LibraryLoader",
+  # machine.rs: the Windows version and the CPU's name.
+  "Win32_System_Registry",
+] }
 
 [lints]
 workspace = true

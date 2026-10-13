@@ -123,6 +123,9 @@ enum Command {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // A crash names the module it happened in on standard error, as the
+    // window's does; see concat-host's crash.rs.
+    concat_host::crash::catch();
     match Cli::parse().command {
         Command::Probe { path } => probe(&path),
         Command::Render {

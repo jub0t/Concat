@@ -75,6 +75,7 @@ pub fn open(dirs: &AppDirs, extra: Option<Box<dyn log::Log>>) -> Result<PathBuf,
         Ok((path, file)) => match file.try_clone() {
             Ok(file) => {
                 let _ = CURRENT.set(path.clone());
+                crate::crash::write_to(&file);
                 Some(Sink {
                     file,
                     written: 0,
@@ -108,12 +109,10 @@ fn install(sink: Option<Sink>, extra: Option<Box<dyn log::Log>>) -> Result<(), S
     log::set_boxed_logger(Box::new(logger))
         .map(|()| log::set_max_level(level))
         .map_err(|_| "a logger was already installed".to_owned())?;
-    log::info!(
-        "Concat {} · {} {} · {level}",
-        env!("CARGO_PKG_VERSION"),
-        std::env::consts::OS,
-        std::env::consts::ARCH,
-    );
+    // What every report is asked first, answered before it is asked.
+    log::info!("{} · log level {level}", crate::machine::build());
+    log::info!("system: {}", crate::machine::system());
+    log::info!("cpu: {}", crate::machine::cpu());
     Ok(())
 }
 

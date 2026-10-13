@@ -103,6 +103,7 @@ use ui::*;
 /// warnings, a panic, the lines below - is written down in
 /// `<app data>/logs/` as well as said out loud. See `concat_host::logs`.
 pub fn open_logging(extra: Option<Box<dyn log::Log>>) {
+    concat_host::crash::catch();
     concat_host::logs::catch_panics();
     let opened = match concat_host::AppDirs::locate() {
         Ok(dirs) => concat_host::logs::open(&dirs, extra).map(|_| ()),
