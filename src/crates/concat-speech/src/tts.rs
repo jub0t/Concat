@@ -48,7 +48,7 @@ use sherpa_onnx::{
     OfflineTtsModelConfig, OfflineTtsPocketModelConfig,
 };
 
-use crate::DownloadProgress;
+use crate::{DownloadProgress, JobStage};
 
 /// Which network a bundle is, and so which voices it reads with and how
 /// the engine is configured for it.
@@ -704,14 +704,23 @@ impl Speech {
             .map_err(|error| format!("could not remove {}: {error}", dir.display()))
     }
 
+    /// The model still loaded from the last read, which the next read
+    /// with it does not load again. None while a read holds it.
+    pub fn loaded_model(&self) -> Option<String> {
+        let engine = self.engine.try_lock().ok()?;
+        engine.as_ref().map(|cached| cached.model_id.clone())
+    }
+
     /// Synthesizes one narration clip into `<project>/audio/`. Blocks for
-    /// the whole synthesis: run it on its own thread. `progress` is called
-    /// with a 0..1 fraction as sentences complete.
+    /// the whole synthesis: run it on its own thread. `progress` is told
+    /// each stage as it begins, and in the reading itself how far it is:
+    /// Chatterbox's as it writes, Kokoro's and Pocket's as each sentence
+    /// is done.
     pub fn speak(
         &self,
         dirs: &AppDirs,
         request: &SpeakRequest,
-        progress: impl FnMut(f32) + Send + 'static,
+        mut progress: impl FnMut(JobStage) + Send + 'static,
     ) -> Result<SpeakResult, String> {
         let job = self.gate.begin("speech generation")?;
         let cancel = job.cancel_handle();
@@ -792,6 +801,7 @@ impl Speech {
             .is_none_or(|cached| cached.model_id != request.model_id);
         if stale {
             // Load before overwriting: a failed load keeps the old engine.
+            progress(JobStage::Loading);
             let loading = std::time::Instant::now();
             let load = |accelerated: bool| -> Result<Engine, String> {
                 log::info!(
@@ -873,15 +883,22 @@ impl Speech {
         #[cfg(feature = "chatterbox")]
         let tts = match tts {
             Engine::Chatterbox(chatterbox) => {
+                progress(JobStage::Reading);
                 let samples = reference_samples(&recordings, request)?;
-                let mut progress = progress;
+                progress(JobStage::Working {
+                    done: 0.0,
+                    next: CHATTERBOX_STEP,
+                });
                 let (spoken, on_cpu) = read_or_on_cpu(
                     chatterbox.as_ref(),
                     accelerated,
                     &request.model_id,
                     |chatterbox| {
-                        chatterbox.speak(text, &samples, &cancel, &mut |fraction| {
-                            progress(fraction);
+                        chatterbox.speak(text, &samples, &cancel, &mut |done| {
+                            progress(JobStage::Working {
+                                done,
+                                next: (done + CHATTERBOX_STEP).min(1.0),
+                            });
                         })
                     },
                     || crate::chatterbox::Engine::load(&dir, false),
@@ -931,6 +948,7 @@ impl Speech {
                 ..Default::default()
             },
             _ => {
+                progress(JobStage::Reading);
                 let samples = reference_samples(&recordings, request)?;
                 GenerationConfig {
                     speed,
@@ -951,9 +969,17 @@ impl Speech {
             }
         };
 
+        // Sherpa reports as each sentence is done, and the next is about
+        // as long as the average one so far: before the first report, one
+        // of the sentences the text appears to have.
+        let first = 1.0 / sentences(text) as f32;
+        progress(JobStage::Working {
+            done: 0.0,
+            next: first,
+        });
         let progress_cancel = Arc::clone(&cancel);
-        let mut progress = progress;
         let mut last_fraction = -1.0f32;
+        let mut reports = 0u32;
         let audio = tts
             .generate_with_config(
                 text,
@@ -964,9 +990,14 @@ impl Speech {
                     }
                     // The engine reports once per sentence; only meaningful
                     // movement is worth a redraw.
+                    reports += 1;
                     if fraction - last_fraction >= 0.01 {
                         last_fraction = fraction;
-                        progress(fraction);
+                        let step = fraction / reports as f32;
+                        progress(JobStage::Working {
+                            done: fraction,
+                            next: (fraction + step).min(1.0),
+                        });
                     }
                     true
                 }),
@@ -1026,6 +1057,21 @@ fn recordings_dir(dirs: &AppDirs) -> Result<PathBuf, String> {
         );
     }
     model_dir(dirs, POCKET_ID)
+}
+
+/// How far ahead of Chatterbox's last report its next is taken to be: it
+/// reports every few tokens, so a short way.
+const CHATTERBOX_STEP: f32 = 0.02;
+
+/// How many sentences `text` appears to have, at least one: the stretches
+/// with words in them between full stops, question and exclamation marks
+/// (and their CJK forms) and line breaks. An estimate, for a bar, of how
+/// sherpa will split it.
+fn sentences(text: &str) -> usize {
+    text.split(['.', '!', '?', '。', '！', '？', '\n'])
+        .filter(|sentence| sentence.chars().any(char::is_alphanumeric))
+        .count()
+        .max(1)
 }
 
 /// The recording a request reads the voice from, as mono samples at
@@ -1213,6 +1259,18 @@ fn load_kokoro(dir: &Path, accelerated: bool) -> Result<OfflineTts, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sentences a bar expects are the stretches with words in them:
+    /// trailing marks, ellipses and blank lines add none, and a text with
+    /// no mark at all is one.
+    #[test]
+    fn sentences_are_the_stretches_with_words() {
+        assert_eq!(sentences("Hello there. How are you? Fine!"), 3);
+        assert_eq!(sentences("Wait... what?!\n\nOkay."), 3);
+        assert_eq!(sentences("no marks at all"), 1);
+        assert_eq!(sentences("。！"), 1);
+        assert_eq!(sentences("你好。再见！"), 2);
+    }
 
     /// A read the accelerator's runtime fails is read again once on the
     /// CPU, and the CPU engine comes back to be kept: DirectML refused

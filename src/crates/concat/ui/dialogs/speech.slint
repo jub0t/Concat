@@ -56,8 +56,17 @@ export struct SpeechSheetData {
     /// Seconds into that sample the speaking starts.
     reference-start: float,
     running: bool,
-    /// 0..1, as sentences complete.
+    /// 0..1: where the read surely is.
     progress: float,
+    /// Where the step under way leaves the bar, 0..1.
+    ceiling: float,
+    /// Seconds that step should take.
+    step: float,
+    /// Seconds of the run still to go, once the work has been timed;
+    /// negative before.
+    left: float,
+    /// What the run is doing, in words.
+    stage: string,
     /// A voice model is installed.
     ready: bool,
     /// "About 0:12 in Heart", or what stops it being read.
@@ -589,37 +598,57 @@ export component SpeechDialog inherits Modal {
                 }
             }
 
-            if root.running: HorizontalLayout {
+            if root.running: VerticalLayout {
                 spacing: 8px;
 
-                Text {
-                    horizontal-stretch: 1;
-                    text: I18n.t("speech.generatingVoice");
-                    color: Theme.fg;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
+                row := HorizontalLayout {
+                    spacing: 8px;
+                    // The time left, once the work has been timed: counted down
+                    // from the last report, and gone in the last second.
+                    property <int> left: Math.ceil(Math.max(0, root.data.left - bar.since / 1s));
+
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.stage;
+                        color: Theme.fg;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+
+                    if root.data.left >= 0 && row.left > 0: Text {
+                        text: I18n.t2("common.aboutLeft", "\{Math.floor(row.left / 60)}",
+                            (Math.mod(row.left, 60) < 10 ? "0" : "") + "\{Math.mod(row.left, 60)}");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: "\{Math.floor(bar.shown * 100)}%";
+                        color: Theme.fg-muted;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: "\{Math.floor(root.elapsed / 60)}:"
+                            + (Math.mod(root.elapsed, 60) < 10 ? "0" : "")
+                            + "\{Math.mod(root.elapsed, 60)}";
+                        color: Theme.fg-dim;
+                        font-family: Theme.font-technical;
+                        font-size: Theme.fs;
+                        vertical-alignment: center;
+                    }
                 }
 
-                Text {
-                    text: "\{Math.round(root.data.progress * 100)}%";
-                    color: Theme.fg-muted;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    text: "\{Math.floor(root.elapsed / 60)}:"
-                        + (Math.mod(root.elapsed, 60) < 10 ? "0" : "")
-                        + "\{Math.mod(root.elapsed, 60)}";
-                    color: Theme.fg-dim;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs;
-                    vertical-alignment: center;
+                bar := Progress {
+                    value: root.data.progress;
+                    ceiling: root.data.ceiling;
+                    step: root.data.step * 1s;
+                    live: true;
                 }
             }
-
-            if root.running: Progress { value: root.data.progress; }
 
             if root.running: HorizontalLayout {
                 alignment: start;

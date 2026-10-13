@@ -7247,9 +7247,9 @@ impl Studio {
         self.art_stamp = None;
         self.proxied.clear();
         self.captions.running = false;
-        self.captions.progress = 0.0;
+        self.captions.pace = Default::default();
         self.speech.running = false;
-        self.speech.progress = 0.0;
+        self.speech.pace = Default::default();
         self.source = None;
         // A take running as the project closes stops, keeping its file;
         // the next project's speakers are not left silent.

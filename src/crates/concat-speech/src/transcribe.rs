@@ -28,7 +28,7 @@ use concat_media::{AudioDecoder, AudioOptions, SampleFormat};
 use serde::{Deserialize, Serialize};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::DownloadProgress;
+use crate::{DownloadProgress, JobStage};
 
 /// One downloadable Whisper model. Sizes are approximate, for progress bars
 /// when the server declines to send a Content-Length.
@@ -307,9 +307,17 @@ impl Transcriber {
             .map_err(|error| format!("could not remove {}: {error}", file.display()))
     }
 
+    /// The model still loaded from the last run, which the next run on it
+    /// does not load again. None while a run holds it.
+    pub fn loaded_model(&self) -> Option<String> {
+        let loaded = self.model.try_lock().ok()?;
+        loaded.as_ref().map(|model| model.id.clone())
+    }
+
     /// Transcribes one clip's audio window into caption segments. Blocks
-    /// for the whole run: run it on its own thread. `progress` is called
-    /// with a 0..100 percentage as whisper works.
+    /// for the whole run: run it on its own thread. `progress` is told each
+    /// stage as it begins, and in whisper's work each window it starts:
+    /// whisper reads thirty seconds at a time, so `next` is a window on.
     ///
     /// Timestamps come back relative to the window: 0 is `source_start`. The
     /// caller owns the clip, so the map onto the timeline (divide by speed,
@@ -318,7 +326,7 @@ impl Transcriber {
         &self,
         dirs: &AppDirs,
         request: &TranscribeRequest,
-        progress: impl FnMut(i32) + Send + 'static,
+        mut progress: impl FnMut(JobStage) + Send + 'static,
     ) -> Result<Vec<Segment>, String> {
         let job = self.gate.begin("transcription")?;
         let cancel = job.cancel_handle();
@@ -336,6 +344,7 @@ impl Transcriber {
         }
 
         // The window, as whisper wants it: 16 kHz mono floats.
+        progress(JobStage::Reading);
         let mut decoder = AudioDecoder::open(
             &request.path,
             &AudioOptions {
@@ -363,6 +372,7 @@ impl Transcriber {
             .map_err(|_| "transcriber state poisoned".to_owned())?;
         if loaded.as_ref().map(|model| model.id.as_str()) != Some(request.model_id.as_str()) {
             // Load before overwriting: a failed load keeps the old model.
+            progress(JobStage::Loading);
             let context =
                 WhisperContext::new_with_params(&model_path, WhisperContextParameters::default())
                     .map_err(|error| format!("could not load the model: {error}"))?;
@@ -410,7 +420,20 @@ impl Transcriber {
             params.set_abort_callback(Some(abort_when_set));
             params.set_abort_callback_user_data(Arc::as_ptr(&cancel) as *mut std::ffi::c_void);
         }
-        params.set_progress_callback_safe(progress);
+        // Whisper calls back as it starts each window, with how far into
+        // the sound it is; the window it starts reads thirty seconds more.
+        let window = (30.0 / request.window).min(1.0) as f32;
+        progress(JobStage::Working {
+            done: 0.0,
+            next: window,
+        });
+        params.set_progress_callback_safe(move |percent: i32| {
+            let done = (percent as f32 / 100.0).clamp(0.0, 1.0);
+            progress(JobStage::Working {
+                done,
+                next: (done + window).min(1.0),
+            });
+        });
 
         state
             .full(params, &samples)
@@ -521,7 +544,7 @@ mod real_audio {
             model_id: "tiny.en".to_owned(),
         };
         let segments = transcriber
-            .transcribe(&dirs, &request, |percent| eprintln!("{percent}%"))
+            .transcribe(&dirs, &request, |stage| eprintln!("{stage:?}"))
             .expect("transcription");
         for segment in &segments {
             eprintln!("{:.2}-{:.2} {}", segment.start, segment.end, segment.text);

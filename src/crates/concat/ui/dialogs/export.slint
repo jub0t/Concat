@@ -610,7 +610,7 @@ component ExportFooter inherits VerticalLayout {
         }
     }
 
-    if root.running: Progress { value: root.data.progress; }
+    if root.running: Progress { value: root.data.progress; live: true; }
 
     if root.running: HorizontalLayout {
         alignment: start;

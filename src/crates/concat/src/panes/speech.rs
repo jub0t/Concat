@@ -25,6 +25,7 @@ use std::sync::Arc;
 use concat_host::media::{self, MediaSummary};
 use concat_project::Command;
 use concat_project::model::{ClipKind, MediaItem, MediaOrigin};
+use concat_speech::JobStage;
 use concat_speech::tts::{
     CHATTERBOX_CLONE, Family, POCKET_CLONE, Reference, VoiceInfo, family_of, is_clone,
 };
@@ -35,6 +36,7 @@ use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
 use crate::panes::captions::CHARS_PER_SECOND;
+use crate::panes::pace::{Pace, Stage, Timings};
 use crate::panes::settings::installed;
 use crate::studio::Studio;
 use crate::ui::SpeechSheetData;
@@ -53,6 +55,16 @@ const SPEEDS: (f32, f32) = (0.5, 2.0);
 const STEPS: [i32; 3] = [3, 5, 8];
 /// The breath between sentences the sheet opens on: sherpa's own.
 const DEFAULT_PAUSES: f32 = 0.2;
+
+/// Seconds a model takes to read one second of speech, before a read with
+/// it has been timed: about what each took on a recent CPU.
+fn reading_pace(family: Family) -> f32 {
+    match family {
+        Family::Kokoro => 0.35,
+        Family::Pocket => 0.3,
+        Family::Chatterbox => 1.6,
+    }
+}
 
 /// Everything that can happen to the speech sheet.
 #[derive(Clone, Debug)]
@@ -79,7 +91,7 @@ pub enum SpeechMsg {
     Begin,
     Cancel,
     /// The synthesiser's worker reporting where it is, `0..=1`.
-    Progress(f32),
+    Progress(JobStage),
     /// The synthesiser's worker is done: the file it wrote, probed, or
     /// why not.
     Finished(Box<Result<MediaSummary, String>>),
@@ -116,7 +128,13 @@ pub struct SpeechPane {
     /// a recording is not always where the speaking is.
     pub reference_start: f64,
     pub running: bool,
-    pub progress: f32,
+    /// How far the running read looks.
+    pub pace: Pace,
+    /// The model and the length of the running read: what its timing is
+    /// kept by.
+    reading: Option<(String, f32)>,
+    /// How long each model took this session, for the next read's bar.
+    timings: Timings,
     pub message: String,
     /// Where the running read will land on the timeline, in seconds.
     landing: f64,
@@ -157,6 +175,7 @@ impl SpeechPane {
                     sample: 0,
                     reference_start: 0.0,
                     speakers: std::mem::take(&mut self.speakers),
+                    timings: std::mem::take(&mut self.timings),
                     ..SpeechPane::default()
                 };
                 // The voice chosen last time, if the model reads with it;
@@ -215,9 +234,12 @@ impl SpeechPane {
                 self.running = false;
                 self.open = false;
             }
-            SpeechMsg::Progress(fraction) => self.progress = fraction.clamp(0.0, 1.0),
+            SpeechMsg::Progress(stage) => self.pace.report(stage),
             SpeechMsg::Finished(result) => {
                 self.running = false;
+                if let (Ok(_), Some((model, chars))) = (result.as_ref(), self.reading.take()) {
+                    self.timings.keep(&model, self.pace.learned(chars));
+                }
                 match *result {
                     Ok(summary) => {
                         // Marked as read aloud: the bin shelves it under
@@ -258,9 +280,9 @@ impl SpeechPane {
             self.message = t("speech.nothingToReadYet");
             return;
         }
-        let Some(model) = installed(&studio.settings.voices)
+        let Some((model, megabytes)) = installed(&studio.settings.voices)
             .get(self.model)
-            .map(|model| model.id.clone())
+            .map(|model| (model.id.clone(), model.megabytes))
         else {
             self.message = t("speech.downloadVoiceModelFirst");
             return;
@@ -320,6 +342,28 @@ impl SpeechPane {
             .and_then(|id| studio.clip(id))
             .map(|clip| clip.start)
             .unwrap_or(f64::from(studio.playhead));
+        // The read as the bar lays it out: the model loaded unless it
+        // still is, the recording the voice comes from read in (Kokoro
+        // has none), and the reading at the pace the last read with this
+        // model measured, or the model's usual pace.
+        let chars = text.chars().count() as f32;
+        let learned = self.timings.get(&model);
+        let loaded = studio.host.speech.loaded_model().as_deref() == Some(model.as_str());
+        let load = if loaded {
+            0.0
+        } else {
+            learned.load.unwrap_or(0.5 + megabytes / 150.0)
+        };
+        let per_char = learned
+            .per_unit
+            .unwrap_or(reading_pace(self.family) / CHARS_PER_SECOND / self.rate());
+        let mut plan = vec![(Stage::Loading, load)];
+        if self.family != Family::Kokoro {
+            plan.push((Stage::Reading, 0.3));
+        }
+        plan.push((Stage::Working, chars * per_char));
+        self.pace = Pace::new(plan);
+        self.reading = Some((model.clone(), chars));
         let request = concat_speech::tts::SpeakRequest {
             model_id: model,
             voice,
@@ -334,14 +378,13 @@ impl SpeechPane {
         let dirs = studio.host.dirs.clone();
         let speech = Arc::clone(&studio.host.speech);
         self.running = true;
-        self.progress = 0.0;
         self.message.clear();
         let epoch = crate::host::project_epoch();
         spawn_in_project(
             move || {
-                let spoken = speech.speak(&dirs, &request, move |fraction| {
+                let spoken = speech.speak(&dirs, &request, move |stage| {
                     on_ui_in_project(epoch, move |studio, _, _| {
-                        studio.handle(Msg::Speech(SpeechMsg::Progress(fraction)));
+                        studio.handle(Msg::Speech(SpeechMsg::Progress(stage)));
                     });
                 })?;
                 let summary = media::probe(&spoken.path)?;
@@ -560,7 +603,16 @@ impl SpeechPane {
             reference_length: length as f32,
             reference_start: self.reference_offset(length) as f32,
             running: self.running,
-            progress: self.progress,
+            progress: self.pace.floor,
+            ceiling: self.pace.ceiling,
+            step: self.pace.step,
+            left: self.pace.left,
+            stage: match self.pace.stage() {
+                Some(Stage::Reading) => t("speech.readingTheSample"),
+                Some(Stage::Working) => t("speech.generatingVoice"),
+                _ => t("speech.loadingTheModel"),
+            }
+            .into(),
             ready: !installed(&studio.settings.voices).is_empty(),
             estimate: self.estimate(studio).into(),
             message: self.message.as_str().into(),

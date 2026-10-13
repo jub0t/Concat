@@ -17,11 +17,13 @@ use std::sync::Arc;
 
 use concat_project::Command;
 use concat_project::model::TextStyle;
+use concat_speech::JobStage;
 use concat_speech::transcribe::Segment;
 
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
 use crate::panes::Msg;
+use crate::panes::pace::{Pace, Stage, Timings};
 use crate::panes::settings::installed;
 use crate::studio::Studio;
 use crate::ui::CaptionsSheetData;
@@ -55,21 +57,30 @@ pub enum CaptionsMsg {
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
-    /// The transcriber's worker reporting where it is, in percent.
-    Progress(i32),
+    /// The transcriber's worker reporting the stage it is in.
+    Progress(JobStage),
     /// The transcriber's worker is done: what was said, or why not.
     Finished(Result<Vec<Segment>, String>),
 }
 
 /// The clip a transcription is running over, as the finished segments
 /// need it: where it starts on the timeline and how fast it plays.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Subject {
     start: f64,
     speed: f64,
     /// The look chosen when the run began.
     look: (f64, f64),
+    /// The transcriber model, and the thirty-second windows whisper reads
+    /// the sound in: what the run's timing is kept by.
+    model: String,
+    windows: f32,
 }
+
+/// Seconds whisper takes over one thirty-second window, per megabyte of
+/// model, before a run on the model has been timed: about a second for
+/// base and ten for medium on eight cores of a recent CPU.
+const WINDOW_SECONDS_PER_MB: f32 = 1.0 / 160.0;
 
 /// The captions sheet's state.
 #[derive(Default)]
@@ -91,11 +102,14 @@ pub struct CaptionsPane {
     /// 0 small, 1 medium, 2 large.
     pub size: usize,
     pub running: bool,
-    pub progress: f32,
+    /// How far the running transcription looks.
+    pub pace: Pace,
     /// Why the last run failed, when it did.
     pub message: String,
     /// The clip under the running transcription.
     subject: Option<Subject>,
+    /// How long each model took this session, for the next run's bar.
+    timings: Timings,
 }
 
 impl CaptionsPane {
@@ -149,12 +163,14 @@ impl CaptionsPane {
                 self.running = false;
                 self.open = false;
             }
-            CaptionsMsg::Progress(percent) => {
-                self.progress = (percent as f32 / 100.0).clamp(0.0, 1.0);
-            }
+            CaptionsMsg::Progress(stage) => self.pace.report(stage),
             CaptionsMsg::Finished(result) => {
                 self.running = false;
                 let subject = self.subject.take();
+                if let (Ok(_), Some(subject)) = (&result, &subject) {
+                    self.timings
+                        .keep(&subject.model, self.pace.learned(subject.windows));
+                }
                 match result {
                     Ok(segments) => {
                         let Some(subject) = subject else {
@@ -216,6 +232,7 @@ impl CaptionsPane {
             model,
             placement: 0,
             size: 1,
+            timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
     }
@@ -263,9 +280,9 @@ impl CaptionsPane {
             self.message = t("captions.clipHasNoFile");
             return;
         };
-        let Some(model) = installed(&studio.settings.transcribers)
+        let Some((model, megabytes)) = installed(&studio.settings.transcribers)
             .get(self.model)
-            .map(|model| model.id.clone())
+            .map(|model| (model.id.clone(), model.megabytes))
         else {
             self.message = t("captions.downloadTranscriberModelFirst");
             return;
@@ -275,24 +292,45 @@ impl CaptionsPane {
             audio_stream: clip.audio_stream,
             source_start: clip.source_start,
             window: clip.duration * clip.speed,
-            model_id: model,
+            model_id: model.clone(),
         };
         let dirs = studio.host.dirs.clone();
         let transcriber = Arc::clone(&studio.host.transcriber);
+        // The run as the bar lays it out: the sound read in at a few
+        // hundred times its length, the model loaded unless it still is,
+        // and whisper a window at a time - at the pace the last run on
+        // this model measured, or the estimate by its size.
+        let windows = (request.window / 30.0).ceil().max(1.0) as f32;
+        let learned = self.timings.get(&model);
+        let loaded = studio.host.transcriber.loaded_model().as_deref() == Some(model.as_str());
+        let load = if loaded {
+            0.0
+        } else {
+            learned.load.unwrap_or(0.5 + megabytes / 400.0)
+        };
+        let per_window = learned
+            .per_unit
+            .unwrap_or(0.3 + megabytes * WINDOW_SECONDS_PER_MB);
+        self.pace = Pace::new(vec![
+            (Stage::Reading, 0.2 + request.window as f32 / 400.0),
+            (Stage::Loading, load),
+            (Stage::Working, windows * per_window),
+        ]);
         self.subject = Some(Subject {
             start: clip.start,
             speed: clip.speed,
             look: self.look(),
+            model,
+            windows,
         });
         self.running = true;
-        self.progress = 0.0;
         self.message.clear();
         let epoch = crate::host::project_epoch();
         spawn_in_project(
             move || {
-                transcriber.transcribe(&dirs, &request, move |percent| {
+                transcriber.transcribe(&dirs, &request, move |stage| {
                     on_ui_in_project(epoch, move |studio, _, _| {
-                        studio.handle(Msg::Captions(CaptionsMsg::Progress(percent)));
+                        studio.handle(Msg::Captions(CaptionsMsg::Progress(stage)));
                     });
                 })
             },
@@ -326,7 +364,16 @@ impl CaptionsPane {
             placement: self.placement as i32,
             size: self.size as i32,
             running: self.running,
-            progress: self.progress,
+            progress: self.pace.floor,
+            ceiling: self.pace.ceiling,
+            step: self.pace.step,
+            left: self.pace.left,
+            stage: match self.pace.stage() {
+                Some(Stage::Loading) => t("captions.loadingTheModel"),
+                Some(Stage::Working) => t("captions.transcribing"),
+                _ => t("captions.readingTheSound"),
+            }
+            .into(),
             ready: !installed(&studio.settings.transcribers).is_empty(),
             message: self.message.as_str().into(),
         }

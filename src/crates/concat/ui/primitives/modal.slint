@@ -306,14 +306,52 @@ export component CopyChip inherits Rectangle {
 
 // A determinate bar. Nothing indeterminate: every job in this app can say how
 // far along it is, and a barber's pole for one that can is a lie.
+//
+// What a job says can be coarse - a transcription reports once per thirty
+// seconds of sound, a read once per sentence - so a job that knows where
+// the step under way ends gives it as `ceiling`, and the time the step
+// should take as `step`. The fill moves from `value` toward `ceiling` over
+// that time, steadily for nine tenths of the way and then ever slower, so
+// it never reaches the ceiling before the job reports it has. A report
+// ahead of the fill slides it forward rather than jumping. While `live`, a
+// sheen runs along the fill to say the job is still at work, which a fill
+// waiting on a report would not; the sheen never moves the fill.
 export component Progress inherits Rectangle {
     in property <float> value;
+    /// Where the step under way leaves the bar; `value` when the job does
+    /// not say.
+    in property <float> ceiling: root.value;
+    /// How long that step should take.
+    in property <duration> step;
     /// Finished: the bar turns green rather than staying accent, so a glance
     /// tells you it is over without reading the row above it.
     in property <bool> done;
+    /// The job is running: the sheen runs along the fill.
+    in property <bool> live;
+    /// Where the fill is, 0..1: what a percentage beside the bar reads.
+    out property <float> shown: Math.clamp(
+        root.ceiling > root.value && root.step > 0ms
+            ? root.value + (root.ceiling - root.value) * root.creep((animation-tick() - root.mark) / root.step)
+            : root.value,
+        0, 1);
+    /// The time since the last report, for a countdown beside the bar.
+    out property <duration> since: animation-tick() - root.mark;
 
-    height: 4px;
-    border-radius: 2px;
+    /// When the job last reported.
+    property <duration> mark;
+    init => { root.mark = animation-tick(); }
+    changed value => { root.mark = animation-tick(); }
+    changed ceiling => { root.mark = animation-tick(); }
+
+    /// How far toward the ceiling the fill is `u` steps in: in a straight
+    /// line to nine tenths at one step, then half the rest by two, and so
+    /// on, never the whole.
+    pure function creep(u: float) -> float {
+        return u <= 1 ? 0.9 * Math.max(u, 0) : 0.9 + 0.1 * (u - 1) / u;
+    }
+
+    height: 8px;
+    border-radius: self.height / 2;
     background: Theme.well;
     border-width: 1px;
     border-color: Theme.line;
@@ -322,10 +360,21 @@ export component Progress inherits Rectangle {
     Rectangle {
         x: 0;
         y: 0;
-        width: parent.width * Math.clamp(root.value, 0, 1);
+        // Never thinner than it is tall once it has begun, so its end is
+        // round from the first step.
+        width: root.shown > 0 ? Math.max(parent.height, parent.width * root.shown) : 0px;
+        animate width { duration: 280ms; easing: ease-out; }
         height: parent.height;
-        border-radius: 2px;
+        border-radius: self.height / 2;
         background: root.done ? Theme.green : Theme.accent;
+        clip: true;
+
+        if root.live && !root.done: Rectangle {
+            property <float> phase: Math.mod(animation-tick() / 1ms, 1800) / 1800;
+            width: Math.max(48px, root.width / 4);
+            x: (parent.width + self.width) * self.phase - self.width;
+            background: @linear-gradient(90deg, #ffffff00 0%, #ffffff59 50%, #ffffff00 100%);
+        }
     }
 }
 
