@@ -135,6 +135,23 @@ impl Monitor {
         Some(gpu.sibling())
     }
 
+    /// [`Monitor::sibling`] for work on a thread of its own - the export,
+    /// the effect cards - where the window's queue can take it, and None
+    /// on Vulkan, where the work then opens a device of its own. Skia
+    /// submits the window's frames to the raw Vulkan queue without wgpu's
+    /// lock, and a Vulkan queue must not be submitted to from two threads
+    /// at once: an export from the window on Linux lost the device part
+    /// way through, and the window's with it (#324). Direct3D 12 and Metal
+    /// queues take submissions from any thread, so there the work stays on
+    /// the window's device, which is what kept the export alive on Windows
+    /// laptops with NVIDIA chips (#202).
+    #[cfg(feature = "gpu")]
+    pub fn off_thread(&self) -> Option<concat_render::WgpuCompositor> {
+        let gpu = self.gpu.as_ref()?;
+        let gpu = gpu.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        (gpu.adapter_info().backend != wgpu::Backend::Vulkan).then(|| gpu.sibling())
+    }
+
     /// Whether frames can be composited on the GPU.
     pub fn has_gpu(&self) -> bool {
         #[cfg(feature = "gpu")]

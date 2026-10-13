@@ -7407,7 +7407,9 @@ impl Studio {
             return;
         }
         self.cards_busy = true;
-        let compositor = self.host.monitor.sibling();
+        // On a thread of its own, so not on the window's device on Vulkan
+        // (#324).
+        let compositor = self.host.monitor.off_thread();
         let spawned = std::thread::Builder::new()
             .name("concat cards".to_owned())
             .spawn(move || {

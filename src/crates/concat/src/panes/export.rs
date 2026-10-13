@@ -511,9 +511,11 @@ impl ExportPane {
         // monitor's compositor - not on a second device opened through the
         // drivers for the export alone, which on Windows laptops with NVIDIA
         // chips took the whole app down at the first frame with nothing in
-        // the log (issue #202). None without a GPU here, and the render then
-        // opens what it can.
-        let compositor = studio.host.monitor.sibling();
+        // the log (issue #202). Not on Vulkan, whose queue the window
+        // submits to from its own thread (#324); see `Monitor::off_thread`.
+        // None there or without a GPU, and the render then opens what it
+        // can.
+        let compositor = studio.host.monitor.off_thread();
         spawn(
             move || {
                 let job = job;
