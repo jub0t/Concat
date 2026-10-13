@@ -1927,6 +1927,14 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     let result = app.run();
     drop(reader_sweep);
     log::info!("close: event loop exited (ok={})", result.is_ok());
+    // The loop failing is the window never having run at all - on a phone
+    // whose Vulkan driver wgpu will not take, it is the whole launch, and
+    // the person sees the app vanish. Its reason goes in the log before
+    // anything else can end the process, and the exit says it failed.
+    if let Err(error) = &result {
+        log::error!("close: the window could not run: {error}");
+        leave(1);
+    }
     leave(0);
 }
 
