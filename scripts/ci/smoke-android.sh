@@ -35,7 +35,10 @@
 # survive. It happens before any of the app's code runs, so such a device
 # cannot test the APK at all: the script says so as a warning, in the job
 # summary, and exits 0 without claiming a pass. Any other crash, or this
-# one on a device running the APK natively, fails as before.
+# one on a device running the APK natively, fails as before. The
+# translation before Android 12 leaves the app's frames out of the crash
+# dump, and there the crash is recognised by its address and its timing
+# instead (see untestable_here).
 #
 # Whatever the outcome it leaves in DIR (smoke-android by default): the
 # whole logcat from before the launch to the end, the app's lines alone,
@@ -240,16 +243,31 @@ untestable_here() {
   [ -n "$found" ] || return 0
   ! grep -v -q -E 'Fatal signal 11 ' <<< "$found" || return 0
   local frame="#00 pc [0-9a-f]+ +/data/app/[^ ]*$package-[^ ]*/lib/[^ ]+[.]so [(]cpuinfo_arm_linux_init[+]"
-  local hit=""
+  # The translation before Android 12 writes no frames of the app's own
+  # into the crash dump, only the translator's code, which sits in
+  # anonymous memory. There the crash is known by everything else it has:
+  # every fatal line the same SIGSEGV at address 0x8, the top frame in the
+  # translator, and not one line from the app, whose first comes at the
+  # start of android_main, after the library has loaded.
+  local blind="#00 pc [0-9a-f]+ +<anonymous:[0-9a-f]+>"
+  local hit="" crashes=""
   for _ in $(seq 1 10); do
-    hit=$(adb logcat -d -b crash -v threadtime 2>/dev/null | grep -E -m 1 -- "$frame" || true)
+    crashes=$(adb logcat -d -b crash -v threadtime 2>/dev/null || true)
+    hit=$(grep -E -m 1 -- "$frame" <<< "$crashes" || true)
     [ -n "$hit" ] && break
     sleep 2
   done
-  [ -n "$hit" ] || return 0
+  local seen="its crash dump puts the fault in ONNX Runtime's CPU detection"
+  if [ -z "$hit" ]; then
+    ! grep -v -q -E 'Fatal signal 11 .*fault addr 0x8 ' <<< "$found" || return 0
+    ! grep -E -q ' concat +:' "$logcat_file" || return 0
+    hit=$(grep -E -m 1 -- "$blind" <<< "$crashes" || true)
+    [ -n "$hit" ] || return 0
+    seen="its crash dump names no frame of the app's (this translation writes none), and the crash matches the one the newer translation names: a SIGSEGV at 0x8 as the library loads, before the app's first line"
+  fi
   collect
   printf '%s\n' "$hit"
-  local why="NOT TESTED on API $sdk: the APK runs here through ARM translation ($runnable on $primary), where ONNX Runtime's CPU detection crashes as the library loads, before any of the app's code. Start it on a real $runnable device."
+  local why="NOT TESTED on API $sdk: the APK runs here through ARM translation ($runnable on $primary), where ONNX Runtime's CPU detection crashes as the library loads, before any of the app's code; $seen. Start it on a real $runnable device."
   note "$why"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Android smoke, API %s: not tested\n\n%s\n' "$sdk" "$why" >> "$GITHUB_STEP_SUMMARY"
