@@ -14,9 +14,11 @@
 # shape: formatting, lock files, "Update foo.rs". Anything typed as work on
 # the tree rather than on the product - a conventional-commit `test:`,
 # `chore:`, `ci:`, `build:`, `refactor:`, `style:` or `docs:` says so
-# itself. And a fix that only got the build green again: a lint appeased, an
-# import removed, a file moved to please a compiler is not a fix anybody
-# asked for.
+# itself, and so does a fix scoped to the pipeline, `fix(release):` or
+# `fix(ci):` - a smoke script that can run is not something a person who
+# downloads the app can notice. And a fix that only got the build green
+# again: a lint appeased, an import removed, a file moved to please a
+# compiler is not a fix anybody asked for.
 #
 # A subject that survives is printed as a sentence. A `feat(studio):` in
 # front of one is scaffolding for the log and reads as noise in a release,
@@ -30,7 +32,7 @@ version="$3"
 title="Concat $version"
 
 # A conventional-commit type, with its optional (scope) and breaking `!`.
-type='^[a-z]+(\([^)]*\))?!?: '
+type='^[a-z0-9]+(\([^)]*\))?!?: '
 
 # Each line opens with one mark for what it touches, from the commit's
 # scope where it has one and its type where it has not - a fix reads as a
@@ -41,6 +43,7 @@ changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
   | grep -Ev '^((Create|Update) [^ ]+\.[a-z]+|Version [0-9]|Lock the flake|Format the workspace|Changelog for|Merge )' \
   | grep -Ev 'in the (export|pool) tests$' \
   | grep -Eiv '^(test|chore|ci|build|refactor|style|docs)(\([^)]*\))?!?: ' \
+  | grep -Eiv '^[a-z0-9]+\((release|ci)\)!?: ' \
   | grep -Eiv "${type}.*(clippy|lint|rustfmt|(unused|duplicate|missing) [A-Za-z]* ?import|non-existent|does not compile|before test module|green again)" \
   | grep -Eiv '^(updates?|wip|fixes?|cleanup)\.?$' \
   | awk -v marks="$marks" '
@@ -50,7 +53,7 @@ changes=$(git log "$since..$until" --no-merges --format='%s' 2>/dev/null \
       }
       {
         prefix = ""
-        if (match($0, /^[a-z]+(\([^)]*\))?!?: /)) {
+        if (match($0, /^[a-z0-9]+(\([^)]*\))?!?: /)) {
           head = substr($0, 1, RLENGTH)
           $0 = substr($0, RLENGTH + 1)
           kind = head; sub(/[(!:].*/, "", kind)

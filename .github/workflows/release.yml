@@ -159,6 +159,10 @@ jobs:
           sha256sum -- * > SHA256SUMS
 
       # The notes are the commits since the previous tag; see the script.
+      # For a release, the previous tag is the previous release: its own
+      # candidates (v0.2.7-rc.2 before v0.2.7) are ancestors too, and from
+      # the last of them the notes would be the handful of fixes it took to
+      # get the candidate through, not what changed since 0.2.6.
       - name: Write the notes
         id: notes
         env:
@@ -167,7 +171,11 @@ jobs:
           set -euo pipefail
           cd source
           tag="$TAG"
-          previous=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+          case "$tag" in
+            *-*) candidates=() ;;
+            *) candidates=(--exclude 'v*-*') ;;
+          esac
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "${candidates[@]}" "$tag^" 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
           .github/release-notes.sh "$previous" "$tag" "${tag#v}" > "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"
 
