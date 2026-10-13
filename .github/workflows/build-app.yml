@@ -302,6 +302,23 @@ jobs:
             echo "ORT_DIR=$PWD/$stem"
           } >> "$GITHUB_ENV"
 
+      # Thin LTO and sixteen codegen units for the Intel Mac, in place of the
+      # app profile's fat LTO and one unit. The Intel runner is the slowest
+      # target and the one every release waits on: in v0.2.7-rc.4 its
+      # build was 70 minutes, 57 of them after the last dependency compiled -
+      # fat LTO re-optimising the whole program on one thread, which no cache
+      # can skip. Thin LTO does that work in parallel, for a binary a few
+      # per cent slower on the platform with the fewest users. Every other
+      # target keeps the profile as Cargo.toml writes it. Set before the
+      # cache step, so these are part of its key (CARGO is in env-vars).
+      - name: Thin LTO (Intel macOS)
+        if: matrix.platform == 'macos' && matrix.arch == 'x86_64'
+        run: |
+          {
+            echo "CARGO_PROFILE_APP_LTO=thin"
+            echo "CARGO_PROFILE_APP_CODEGEN_UNITS=16"
+          } >> "$GITHUB_ENV"
+
       # ── Windows ────────────────────────────────────────────────────────
       # LLVM: libclang for bindgen on both architectures, the C/C++
       # compiler on arm64, and llvm-objdump for the instruction-set scan.

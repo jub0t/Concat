@@ -104,6 +104,8 @@ codegen-units = 256
 inherits = "release"
 # Fat LTO: re-optimise the whole dependency graph - slint, skia, winit and
 # the UI crate - as one unit, so calls across crate boundaries inline.
+# The Intel Mac release build overrides this with thin LTO, for time; see
+# "Thin LTO (Intel macOS)" in .github/workflows/build-app.yml.
 lto = "fat"
 # No unwind tables and no landing pads: every call site loses its unwind
 # edge, which frees the optimiser and shrinks the binary. This is a GUI
