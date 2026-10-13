@@ -1903,8 +1903,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // are not waited on.
     if smoke {
         log::info!("smoke: ok");
-        log::logger().flush();
-        std::process::exit(0);
+        leave(0);
     }
 
     // Decoders nobody has asked a frame of for ten seconds are closed,
@@ -1928,5 +1927,33 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     let result = app.run();
     drop(reader_sweep);
     log::info!("close: event loop exited (ok={})", result.is_ok());
-    std::process::exit(0);
+    leave(0);
+}
+
+/// Ends the process with `code`, the log flushed first, and the threads
+/// still running - the GPU's, the engine's, the audio output's - not
+/// waited on.
+///
+/// On Linux it is `_exit`, not `exit`: `exit` runs the C libraries' exit
+/// handlers under those threads, and they are not written for it - most
+/// likely Mesa's llvmpipe, tearing its LLVM down while its rasteriser
+/// threads are still drawing. On an arm64 machine with no GPU,
+/// v0.2.7-rc.2's `concat --smoke` logged "smoke: ok" and then died of a
+/// segmentation fault on its way out; a person closing the window there
+/// would have had the same crash. Nothing those handlers do is anything
+/// a closing app needs: the log is flushed here, and the files a project
+/// writes are written before the window closes.
+fn leave(code: i32) -> ! {
+    log::logger().flush();
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().flush();
+        // SAFETY: `_exit` ends the process there and then; nothing of
+        // this one's is touched after it.
+        unsafe { libc::_exit(code) }
+    }
+    #[cfg(not(target_os = "linux"))]
+    std::process::exit(code);
 }
