@@ -7,7 +7,7 @@ name: Build app
 #
 #   macOS    arm64 (Apple silicon)   x86_64 (Intel)     -> Concat-*.dmg
 #   Linux    x86_64                  aarch64            -> Concat-*.deb, .rpm, .AppImage, .pkg.tar.zst
-#   Windows  x86_64                  aarch64            -> Concat-*-setup.exe, .msi
+#   Windows  x86_64                  (aarch64, #326)    -> Concat-*-setup.exe, .msi
 #
 # Installers and binaries only: the program is not shipped as an archive
 # of a folder to unpack, so what a person downloads is what they run.
@@ -169,17 +169,11 @@ jobs:
             vc: x64
             inno: x64compatible
             wix: x64
-          - platform: windows
-            arch: aarch64
-            os: windows-11-arm
-            target: aarch64-pc-windows-msvc
-            ffmpeg: winarm64
-            sherpa: win-arm64
-            ort: win-arm64
-            llvm: woa64
-            vc: arm64
-            inno: arm64
-            wix: arm64
+          # No Windows on ARM until its program starts: v0.2.7-rc.4's
+          # concat.exe died with an access violation on `--version` (#326).
+          # Its row was platform windows, arch aarch64, os windows-11-arm,
+          # target aarch64-pc-windows-msvc, ffmpeg winarm64, sherpa and ort
+          # win-arm64, llvm woa64, vc and inno and wix arm64.
     runs-on: ${{ matrix.os }}
     # The slowest target is Intel macOS, whose build alone ran past an hour
     # in v0.2.7-rc.1. The steps that can hang have timeouts of their own,
