@@ -29,6 +29,23 @@ name: Build for phones
 # scripts it runs, and a pull request's run never sees it at all. The .ipa
 # is ad-hoc signed: a tester signs it with their own Apple ID on the way
 # onto a phone (AltStore, Sideloadly, Xcode's Devices window all do this).
+#
+# No phone build passes unless it starts on a phone. The APK the Android
+# job uploads, the very file a release ships, is installed on an emulator
+# of Android 11 (API 30, where #312's preview failed) and of Android 15
+# (API 35, the SDK the app targets) and started there
+# (scripts/ci/smoke-android.sh). The APK is arm64 only, and the emulators
+# are x86_64 ones on Linux with KVM, which run arm64 code through the ARM
+# translation Google's x86_64 images carry from API 30 on: GitHub's arm64
+# Macs cannot run the emulator at all (no nested virtualisation, so HVF
+# fails with HV_UNSUPPORTED), and an x86_64 APK would be a different build
+# from the one that ships. The iPhone is tested the same way through the
+# iOS Simulator, which needs a build of its own for aarch64-apple-ios-sim,
+# made beside the device build and never shipped
+# (scripts/ci/smoke-ios.sh). release.yml waits on every job here, so a
+# release with a phone that does not start is never published; what the
+# smokes leave behind (logs, screenshots) is uploaded under smoke-*, a
+# name the release does not pick up.
 on:
   workflow_call:
     inputs:
@@ -232,6 +249,70 @@ jobs:
           path: stage/*
           if-no-files-found: error
 
+  # The APK the job above uploaded, installed and started on an emulator;
+  # see the top of this file for why an x86_64 one. A release's run tests
+  # the APK signed with the repository's key, which is the one it ships.
+  android-smoke:
+    name: Android smoke (API ${{ matrix.api }})
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 35]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          sparse-checkout: scripts/ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        timeout-minutes: 10
+        with:
+          name: Concat-android-arm64
+          path: apk
+
+      # The emulator needs KVM, which the runner has but only root may
+      # open until a udev rule says otherwise.
+      - name: KVM for the emulator
+        timeout-minutes: 2
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # A Google APIs image, which has the ARM translation (the ATD images
+      # leave it out), on a phone-sized screen with SwiftShader standing in
+      # for the GPU. The emulator keeps its sound device, as a phone does:
+      # the engine opens an audio stream as it starts. The SDK pieces the
+      # action downloads are checked by sdkmanager against Google's own
+      # repository digests, not through scripts/ci/deps.lock.
+      - name: Start the APK on an emulator
+        timeout-minutes: 30
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 4
+          ram-size: 4096M
+          disk-size: 6G
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: scripts/ci/smoke-android.sh --out smoke-android --wait 60 apk/Concat-*.apk
+
+      # The log, the screenshot and the rest, pass or fail.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        timeout-minutes: 10
+        with:
+          name: smoke-android-api${{ matrix.api }}
+          path: smoke-android/
+          if-no-files-found: warn
+
   ios:
     name: iOS arm64
     runs-on: macos-15
@@ -328,3 +409,119 @@ jobs:
           name: Concat-ios-arm64
           path: stage/*
           if-no-files-found: error
+
+  # The iPhone build again, for the iOS Simulator on this Mac, bundled the
+  # way the device build is and started there; it is never shipped. The
+  # same FFmpeg and sherpa-onnx, for the simulator: ffmpeg-mobile.sh and
+  # ios-app.sh take aarch64-apple-ios-sim, and the xcframework
+  # sherpa-mobile.sh fetches for iOS carries a simulator slice beside the
+  # device one. mobile-env.sh does not know the simulator yet, so the
+  # build's environment is written out in the build step below.
+  ios-simulator:
+    name: iOS simulator smoke
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - name: The pinned toolchain
+        id: toolchain
+        timeout-minutes: 1
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master (v1), 2026-10-09
+        timeout-minutes: 10
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-apple-ios-sim
+
+      - run: brew install cmake
+        timeout-minutes: 10
+
+      - name: FFmpeg for the iOS Simulator (cached)
+        id: ffmpeg
+        timeout-minutes: 10
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-apple-ios-sim
+          key: ffmpeg-aarch64-apple-ios-sim-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+      - name: FFmpeg for the iOS Simulator
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        timeout-minutes: 45
+        run: src/scripts/ffmpeg-mobile.sh aarch64-apple-ios-sim
+      - name: FFmpeg for the iOS Simulator (save)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-apple-ios-sim
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
+
+      # The device's fetch, which brings the whole xcframework; the binary
+      # links against the simulator's slice of it, under the name the
+      # linker looks for, as mobile-env.sh does with the device's slice.
+      - name: sherpa-onnx for the iOS Simulator
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          src/scripts/sherpa-mobile.sh aarch64-apple-ios
+          framework=$(find src/vendor/sherpa-onnx/ios -maxdepth 2 -name '*.xcframework' | head -1)
+          binary=$PWD/$framework/ios-arm64_x86_64-simulator/SherpaOnnxC.framework/SherpaOnnxC
+          [ -f "$binary" ] || { echo "::error::no simulator slice in $framework"; exit 1; }
+          mkdir -p src/vendor/sherpa-onnx/ios/lib-sim
+          ln -sf "$binary" src/vendor/sherpa-onnx/ios/lib-sim/libsherpa-onnx-c-api.dylib
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        timeout-minutes: 10
+        with:
+          workspaces: src
+          key: aarch64-apple-ios-sim
+
+      # What `scripts/mobile-env.sh aarch64-apple-ios` exports, for the
+      # simulator: its FFmpeg, its slice of sherpa-onnx, and the same
+      # oldest iOS. whisper.cpp's CMake build is told the simulator's SDK
+      # outright (whisper-rs-sys hands it every CMAKE_ variable): left to
+      # itself, CMake's iOS platform takes the device's.
+      - name: Build
+        working-directory: src
+        timeout-minutes: 75
+        run: |
+          set -o pipefail
+          export FFMPEG_DIR="$PWD/vendor/ffmpeg/aarch64-apple-ios-sim"
+          export SHERPA_ONNX_LIB_DIR="$PWD/vendor/sherpa-onnx/ios/lib-sim"
+          export IPHONEOS_DEPLOYMENT_TARGET=15.0
+          export CMAKE_OSX_SYSROOT=iphonesimulator
+          cargo build --release -p concat --target aarch64-apple-ios-sim 2>&1 | tee build.log
+
+      - name: Build log to the summary (failure only)
+        if: failure()
+        timeout-minutes: 1
+        run: |
+          if [ -f src/build.log ]; then
+            {
+              echo "### Build failed: iOS Simulator"
+              echo '```'
+              tail -n 150 src/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Bundle
+        timeout-minutes: 5
+        run: src/scripts/ios-app.sh aarch64-apple-ios-sim release
+
+      # A fresh iPhone simulator: `--smoke` through the first publish, then
+      # a launch as from the home screen, watched for a minute.
+      - name: Start the app on a simulator
+        timeout-minutes: 25
+        run: scripts/ci/smoke-ios.sh --out smoke-ios --wait 60 src/target/aarch64-apple-ios-sim/release/Concat.app
+
+      # The app's output, the system log, the screenshot and any crash
+      # report, pass or fail.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        timeout-minutes: 10
+        with:
+          name: smoke-ios-simulator
+          path: smoke-ios/
+          if-no-files-found: warn
