@@ -160,6 +160,29 @@ pub fn smoke() -> Result<(), slint::PlatformError> {
 
 /// [`run_with_project`], or [`smoke`] when `smoke` is set.
 fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
+    // The interface scale is read by Slint's window backend when the window
+    // is made, so it has to be in the environment before the backend is
+    // asked to make one - earlier than the studio, which is where the
+    // preferences are normally read. A remembered scale overrides the
+    // display's own; nothing remembered leaves an inherited
+    // SLINT_SCALE_FACTOR alone, so a value set by hand still wins.
+    // https://github.com/jub0t/Concat/issues/320
+    if std::env::var_os("SLINT_SCALE_FACTOR").is_none()
+        && let Ok(dirs) = concat_host::AppDirs::locate()
+        && let Some(percent) = prefs::Preferences::load(&dirs).ui_scale
+        && prefs::UI_SCALES.contains(&percent)
+    {
+        // SAFETY: the process is single-threaded here - the backend, the
+        // engine's threads and the window all come after this function - so
+        // nothing reads the environment concurrently.
+        unsafe {
+            std::env::set_var(
+                "SLINT_SCALE_FACTOR",
+                prefs::Preferences::scale_factor(percent).to_string(),
+            );
+        }
+    }
+
     // The shell doesn't exist yet - it needs the window the backend is about
     // to help create - but `Shell::with` is a no-op until `Shell::install`
     // runs, and by the time an OS drop can actually happen, it has. Import
@@ -244,6 +267,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         theme.set_playhead_custom(colour);
         theme.set_playhead_is_custom(true);
     }
+    // The interface scale: the row on Settings > Appearance reads the index
+    // off the Theme global, and the window was already made at the scale the
+    // environment asked for above, so this only lines the two up.
+    // https://github.com/jub0t/Concat/issues/320
+    app.global::<Theme>()
+        .set_ui_scale(studio.prefs.scale_index() as i32);
 
     let shell = Rc::new(Shell {
         app: app.as_weak(),
@@ -1436,6 +1465,65 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 let mut studio = shell.studio.borrow_mut();
                 studio.prefs.playhead = None;
                 studio.prefs.save(&studio.host.dirs);
+            });
+        }
+    });
+    // The interface scale is the one appearance choice a property cannot
+    // express: the backend takes it as a multiplier, from SLINT_SCALE_FACTOR
+    // when the window is made and from a scale-factor event at any time
+    // after. So the choice is written to the environment for the next window
+    // to open at, and the window that is up is rescaled in place - the
+    // factor handed to it, then the same physical extent laid out again in
+    // logical pixels, so the interface grows within the window rather than
+    // being clipped by it. Nothing is rebuilt; the window keeps its size on
+    // screen. "System" hands back the scale the platform itself reports,
+    // which winit knows whatever SLINT_SCALE_FACTOR last told Slint. The row
+    // reads its value off the Theme global, so that is set here too.
+    // https://github.com/jub0t/Concat/issues/320
+    app.on_settings_scale_changed({
+        move |index| {
+            log::info!("settings: ui scale {index}");
+            Shell::with(|shell, app| {
+                let percent = prefs::Preferences::scale_at(usize::try_from(index).unwrap_or(0));
+                {
+                    let mut studio = shell.studio.borrow_mut();
+                    studio.prefs.ui_scale = percent;
+                    studio.prefs.save(&studio.host.dirs);
+                }
+                app.global::<Theme>().set_ui_scale(index);
+                let window = app.window();
+                // SAFETY: the window's own thread owns the environment here.
+                unsafe {
+                    match percent {
+                        Some(percent) => std::env::set_var(
+                            "SLINT_SCALE_FACTOR",
+                            prefs::Preferences::scale_factor(percent).to_string(),
+                        ),
+                        None => std::env::remove_var("SLINT_SCALE_FACTOR"),
+                    }
+                }
+                // The platform's own scale, for "System". On a phone the
+                // window is not winit's and there is no such thing to ask,
+                // so 1 is the answer, which is what the shell uses anyway.
+                #[cfg(not(target_os = "android"))]
+                let system = {
+                    use slint::winit_030::WinitWindowAccessor;
+                    window
+                        .with_winit_window(|winit| winit.scale_factor())
+                        .unwrap_or(1.0)
+                };
+                #[cfg(target_os = "android")]
+                let system = 1.0;
+                let factor = percent.map_or(system as f32, |percent| {
+                    prefs::Preferences::scale_factor(percent) as f32
+                });
+                let physical = window.size();
+                window.dispatch_event(slint::platform::WindowEvent::ScaleFactorChanged {
+                    scale_factor: factor,
+                });
+                window.dispatch_event(slint::platform::WindowEvent::Resized {
+                    size: physical.to_logical(factor),
+                });
             });
         }
     });

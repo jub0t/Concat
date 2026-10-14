@@ -445,6 +445,9 @@ export component SettingsDialog inherits Modal {
     callback playhead-changed(colour: color);
     /// The palette's own playhead colour, back in place of a picked one.
     callback playhead-reset();
+    /// The interface scale, as an index into the scales the row lists: 0
+    /// follows the display's own.
+    callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback download-source-changed(index: int);
@@ -899,6 +902,35 @@ export component SettingsDialog inherits Modal {
                             font-size: Theme.fs-sm;
                             vertical-alignment: center;
                         }
+                    }
+                }
+
+                // The interface scale: how much larger than the display's own
+                // scale the window is drawn. Most of Concat was built on a
+                // small laptop and reads small on a large screen, which is
+                // what this row is for.
+                //
+                // The desk's alone. It rides on the window backend's
+                // SLINT_SCALE_FACTOR, which winit reads and the phone's
+                // backend does not: on Android the scale comes from the
+                // display density and a config change would take the choice
+                // back, so offering the row there would be a control that
+                // does not hold. Phones set their size the system's way
+                // anyway. The backend takes it as a multiplier rather than as
+                // a property, so Rust hands the window a scale-factor event
+                // to apply it (lib.rs, `on_settings_scale_changed`).
+                // https://github.com/jub0t/Concat/issues/320
+                if !root.phone: DialogSection {
+                    title: I18n.t("settings.scale");
+                    hint: I18n.t("settings.scaleHint");
+
+                    Select {
+                        options: [
+                            I18n.t("settings.scaleSystem"),
+                            "100%", "125%", "150%", "175%", "200%",
+                        ];
+                        current: Theme.ui-scale;
+                        changed(index) => { root.scale-changed(index); }
                     }
                 }
             }
