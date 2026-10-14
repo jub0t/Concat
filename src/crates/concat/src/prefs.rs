@@ -11,6 +11,12 @@ use serde::{Deserialize, Serialize};
 
 const FILE: &str = "settings.json";
 
+/// The interface scales Settings > Appearance offers, smallest first, as
+/// percents of the display's own scale. Nothing on the list - and no value
+/// at all - leaves the window at the scale the platform hands it.
+/// https://github.com/jub0t/Concat/issues/320
+pub const UI_SCALES: [u32; 5] = [100, 125, 150, 175, 200];
+
 /// Remembered preferences.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -25,6 +31,14 @@ pub struct Preferences {
     /// The playhead's colour as "#rrggbb", when one was picked by hand in
     /// Settings > Appearance. `None` is the palette's own, which is lime.
     pub playhead: Option<String>,
+    /// The interface scale, as a percent from [`UI_SCALES`]: the window and
+    /// everything in it are drawn this much larger than the display's own
+    /// scale says. `None` - or a value the list no longer has - follows the
+    /// display. Settings > Appearance picks it, and it is remembered here
+    /// for the window a launch makes; the window that is open is rescaled in
+    /// place the moment the choice is made.
+    /// https://github.com/jub0t/Concat/issues/320
+    pub ui_scale: Option<u32>,
     /// The chosen transcriber model id, e.g. "base.en".
     pub transcriber_model: Option<String>,
     /// The chosen speech model id.
@@ -108,6 +122,30 @@ impl Preferences {
             .as_deref()
             .map(str::trim)
             .filter(|text| text.starts_with('#'))
+    }
+
+    /// The scale index the Settings row shows: 0 follows the display, then
+    /// one per [`UI_SCALES`]. A remembered percent the list no longer has
+    /// reads as 0, the way a name the accent list no longer has falls back
+    /// to the default rather than to whatever sits at its old position.
+    pub fn scale_index(&self) -> usize {
+        self.ui_scale
+            .and_then(|percent| UI_SCALES.iter().position(|&scale| scale == percent))
+            .map_or(0, |row| row + 1)
+    }
+
+    /// The percent a remembered row names: `None` at 0, which is the
+    /// display's own, and `None` for a row past the list.
+    pub fn scale_at(index: usize) -> Option<u32> {
+        index
+            .checked_sub(1)
+            .and_then(|row| UI_SCALES.get(row).copied())
+    }
+
+    /// The multiplier the window backend takes for a percent: the percent
+    /// over a hundred, which is what `SLINT_SCALE_FACTOR` parses.
+    pub fn scale_factor(percent: u32) -> f64 {
+        f64::from(percent) / 100.0
     }
 }
 
@@ -262,5 +300,59 @@ mod tests {
         assert_eq!(back.playhead.as_deref(), Some("#ff453a"));
         let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
         assert_eq!(older.playhead, None);
+    }
+
+    /// The scale reaches its row by the percent the file holds, and a
+    /// percent nobody offers falls back to the display's own - row 0 - as
+    /// an unknown accent falls back to the default.
+    #[test]
+    fn a_remembered_scale_finds_its_row() {
+        let at = |percent: Option<u32>| {
+            Preferences {
+                ui_scale: percent,
+                ..Preferences::default()
+            }
+            .scale_index()
+        };
+        assert_eq!(at(None), 0);
+        assert_eq!(at(Some(100)), 1);
+        assert_eq!(at(Some(200)), 5);
+        assert_eq!(at(Some(133)), 0);
+    }
+
+    /// The row finds the percent back, row 0 is the display's own, and a
+    /// row past the list is none of the app's.
+    #[test]
+    fn a_row_finds_its_scale() {
+        assert_eq!(Preferences::scale_at(0), None);
+        assert_eq!(Preferences::scale_at(1), Some(100));
+        assert_eq!(Preferences::scale_at(5), Some(200));
+        assert_eq!(Preferences::scale_at(6), None);
+    }
+
+    /// A scale reads as the multiplier the backend's `SLINT_SCALE_FACTOR`
+    /// wants: the percent over a hundred.
+    #[test]
+    fn a_scale_reads_as_a_multiplier() {
+        assert_eq!(Preferences::scale_factor(100), 1.0);
+        assert_eq!(Preferences::scale_factor(150), 1.5);
+        assert_eq!(Preferences::scale_factor(200), 2.0);
+    }
+
+    /// A scale is written as its percent and read back, and a file from
+    /// before the scale existed follows the display.
+    #[test]
+    fn a_scale_round_trips_and_an_older_file_follows_the_display() {
+        let prefs = Preferences {
+            ui_scale: Some(150),
+            ..Preferences::default()
+        };
+        let text = serde_json::to_string(&prefs).unwrap();
+        assert!(text.contains("\"uiScale\":150"), "{text}");
+        let back: Preferences = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.scale_index(), 3);
+        let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
+        assert_eq!(older.ui_scale, None);
+        assert_eq!(older.scale_index(), 0);
     }
 }

@@ -80,6 +80,15 @@ export global Theme {
     /// Settings > Appearance sets both (lib.rs, `on_settings_playhead_changed`)
     /// and clears this one to put the palette's back.
     in-out property <bool> playhead-is-custom: false;
+    /// Which interface scale the window is drawn at: an index into the
+    /// scales Settings > Appearance lists, 0 being the display's own. Read
+    /// off the Theme global the way the theme and the accent are - it is a
+    /// fact about the window, not editor state - though it is not a colour:
+    /// the backend takes a multiplier, which Rust gives the open window as a
+    /// scale-factor event and puts in `SLINT_SCALE_FACTOR` for the next
+    /// launch (lib.rs, `on_settings_scale_changed`).
+    /// https://github.com/jub0t/Concat/issues/320
+    in-out property <int> ui-scale: 0;
 
     // ── type ─────────────────────────────────────────────────────────────
     //

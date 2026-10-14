@@ -247,6 +247,7 @@ export component App inherits Window {
     callback settings-accent-custom-changed(colour: color);
     callback settings-playhead-changed(colour: color);
     callback settings-playhead-reset();
+    callback settings-scale-changed(index: int);
     callback settings-playhead-stops-changed(on: bool);
     callback settings-magnetic-changed(on: bool);
     callback settings-download-source-changed(index: int);
@@ -755,6 +756,7 @@ export component App inherits Window {
         accent-custom-changed(colour) => { root.settings-accent-custom-changed(colour); }
         playhead-changed(colour) => { root.settings-playhead-changed(colour); }
         playhead-reset => { root.settings-playhead-reset(); }
+        scale-changed(index) => { root.settings-scale-changed(index); }
         playhead-stops-changed(on) => { root.settings-playhead-stops-changed(on); }
         magnetic-changed(on) => { root.settings-magnetic-changed(on); }
         download-source-changed(index) => { root.settings-download-source-changed(index); }
