@@ -1,0 +1,213 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { CurvePointData } from "grading.slint";
+
+// The Speed tab's curve: speed as it changes over the clip, drawn as a line
+// through a handful of points and shaped by dragging them. The clip runs
+// across, speed up on a scale of doublings - half and double sit the same
+// distance either side of 1x - over the engine's whole range, 1/16x to 16x.
+// The graph draws what Rust publishes and hands every change straight back,
+// so the line moves with the pointer, as the colour curves do.
+
+/// The selected clip's curve and the verbs that shape it. Its own global,
+/// as the keyframe cluster's is, so the Speed panel reads it wherever the
+/// panel is placed - under Video, under a sound clip's Audio, on a phone's
+/// sheet - without a property threaded to each.
+export global SpeedRamp {
+    /// The clip plays on a curve rather than at one rate.
+    in property <bool> curved;
+    /// The curve's points: `x` across the clip, `y` the speed on the
+    /// graph's scale (0 is 1/16x, 0.5 is 1x, 1 is 16x).
+    in property <[CurvePointData]> points;
+    /// The curve as a path in a unit box, y downwards.
+    in property <string> path;
+    /// The presets' names, in the order Rust lists them.
+    in property <[string]> presets;
+    /// The preset the points still are, as an index into `presets`; -1
+    /// once they have been shaped by hand.
+    in property <int> preset: -1;
+    /// The curve bends smoothly through its points rather than meeting
+    /// them in straight lines.
+    in property <bool> smooth: true;
+    /// The playhead in the clip, `0..1`, or -1 when it is outside it.
+    in property <float> at: -1;
+    /// The curve's fastest speed where it goes faster than 1x, and its
+    /// slowest where it goes slower; -1 where it does not.
+    in property <float> fastest: -1;
+    in property <float> slowest: -1;
+
+    /// Constant rate (false) or a curve (true). A curve starts flat at the
+    /// clip's rate; a constant rate keeps the curve's mean, so the clip's
+    /// length does not jump either way.
+    callback curve(on: bool);
+    /// A point moved, or put down when `index` is -1, on the graph's scale.
+    callback point(index: int, x: float, y: float);
+    /// A point taken off. The two ends stay.
+    callback remove(index: int);
+    /// The curve replaced by a preset's points.
+    callback preset-chosen(index: int);
+    /// Smooth bends (true) or straight lines (false) between the points.
+    callback smoothness(smooth: bool);
+    /// The fast stretches (or the slow ones) brought to `speed` at their
+    /// extreme, the rest of them following in proportion.
+    callback extreme(faster: bool, speed: float);
+}
+
+/// One point of the curve: a ring that drags in time and speed. The two
+/// ends only drag in speed - the curve always spans the whole clip - and do
+/// not come off.
+component SpeedHandle inherits TouchArea {
+    in property <float> px;
+    in property <float> py;
+    in property <length> plot-w;
+    in property <length> plot-h;
+    /// An end of the curve: fixed in time, and not removable.
+    in property <bool> end;
+
+    callback dragged(x: float, y: float);
+    callback removed();
+
+    property <float> drag-x: root.px;
+    property <float> drag-y: root.py;
+    property <bool> dragging;
+    property <bool> off;
+
+    x: (self.dragging ? self.drag-x : root.px) * root.plot-w - 8px;
+    y: (1 - (self.dragging ? self.drag-y : root.py)) * root.plot-h - 8px;
+    width: 16px;
+    height: 16px;
+    mouse-cursor: root.end ? MouseCursor.ns-resize : MouseCursor.move;
+
+    Rectangle {
+        x: 3px;
+        y: 3px;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: root.dragging ? Theme.accent : Theme.panel;
+        border-width: 2px;
+        border-color: Theme.accent;
+        opacity: root.off ? 0.35 : 1;
+    }
+
+    moved => {
+        if (self.pressed) {
+            self.dragging = true;
+            let x = root.end ? root.px : root.px + (self.mouse-x - self.pressed-x) / root.plot-w;
+            let y = root.py - (self.mouse-y - self.pressed-y) / root.plot-h;
+            // Well outside the graph, a point between the ends is on its
+            // way off.
+            self.off = !root.end && (x < -0.08 || x > 1.08 || y < -0.08 || y > 1.08);
+            self.drag-x = Math.max(0, Math.min(1, x));
+            self.drag-y = Math.max(0, Math.min(1, y));
+            root.dragged(self.drag-x, self.drag-y);
+        }
+    }
+    pointer-event(event) => {
+        if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+            if (self.off && event.kind == PointerEventKind.up) {
+                root.removed();
+            }
+            self.dragging = false;
+            self.off = false;
+        }
+    }
+    double-clicked => {
+        if (!root.end) {
+            root.removed();
+        }
+    }
+}
+
+/// The graph: the curve over the clip with its points live - click the
+/// graph to put one down, drag it, double-click it or drag it off to take
+/// it away - the 1x line marked, and the playhead drawn where it crosses
+/// the clip.
+export component SpeedGraph inherits VerticalLayout {
+    in property <bool> enabled: true;
+
+    /// A point moved, or put down when `index` is -1.
+    callback point(index: int, x: float, y: float);
+    callback remove(index: int);
+
+    spacing: 4px;
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    graph := Rectangle {
+        height: self.width * 0.6;
+        background: Theme.well;
+        border-width: 1px;
+        border-color: Theme.line;
+        border-radius: Theme.r-xs;
+
+        // A line a doubling: 1/4x, 1x and 4x labelled, 1x the strongest,
+        // since it is the speed a ramp leaves and comes back to.
+        for step in 7: Rectangle {
+            y: (1 - (step + 1) / 8) * parent.height;
+            width: parent.width;
+            height: 1px;
+            background: step == 3 ? Theme.line-strong : Theme.line;
+            opacity: step == 3 ? 1 : 0.5;
+        }
+        for label[i] in ["4x", "1x", "1/4x"]: Text {
+            x: 4px;
+            y: (1 - (5 - 2 * i) / 8) * parent.height - self.height - 1px;
+            text: label;
+            color: Theme.fg-dim;
+            font-size: Theme.fs-sm;
+        }
+
+        // Clicking the graph away from every point puts one down there.
+        TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: crosshair;
+            clicked => {
+                root.point(-1,
+                    Math.max(0, Math.min(1, self.mouse-x / graph.width)),
+                    Math.max(0, Math.min(1, 1 - self.mouse-y / graph.height)));
+            }
+        }
+
+        if SpeedRamp.at >= 0: Rectangle {
+            x: SpeedRamp.at * parent.width;
+            width: 1px;
+            height: parent.height;
+            background: Theme.playhead;
+        }
+
+        Path {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 1;
+            viewbox-height: 1;
+            fit: fill;
+            commands: SpeedRamp.path;
+            fill: Colors.transparent;
+            stroke: Theme.accent;
+            stroke-width: 2px;
+        }
+
+        for point in SpeedRamp.points: SpeedHandle {
+            px: point.x;
+            py: point.y;
+            plot-w: graph.width;
+            plot-h: graph.height;
+            end: point.index == 0 || point.index == SpeedRamp.points.length - 1;
+            enabled: root.enabled;
+            dragged(x, y) => { root.point(point.index, x, y); }
+            removed => { root.remove(point.index); }
+        }
+    }
+
+    Text {
+        text: I18n.t("speedRamp.howTo");
+        color: Theme.fg-dim;
+        font-size: Theme.fs-sm;
+        wrap: word-wrap;
+    }
+}

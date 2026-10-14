@@ -14,6 +14,7 @@ import {
 import { Button } from "../primitives/modal.slint";
 import { SegmentedControl } from "../primitives/segmented-control.slint";
 import { Select } from "../primitives/select.slint";
+import { SpeedGraph, SpeedRamp } from "speed-ramp.slint";
 import {
     Check,
     ColourField,
@@ -2314,9 +2315,9 @@ export component AudioPanel inherits VerticalLayout {
     }
 }
 
-/// Speed: the rate, and only the rate. Speed that changes over the clip is
-/// the keyframes' job; whether the sound's pitch follows the rate is the
-/// Audio tab's.
+/// Speed: one rate for the whole clip, or a curve - speed that changes over
+/// the clip, shaped on a graph or picked from a preset (see
+/// speed-ramp.slint). Whether the sound's pitch follows is the Audio tab's.
 export component SpeedPanel inherits VerticalLayout {
     in property <SelectedClipData> selected;
     /// The panel's first section, with no hairline above it; false where
@@ -2327,16 +2328,35 @@ export component SpeedPanel inherits VerticalLayout {
     callback commit();
 
     property <float> speed;
-    function seed() { root.speed = root.selected.speed; }
+    function seed() {
+        root.speed = root.selected.speed;
+        root.fastest = SpeedRamp.fastest;
+        root.slowest = SpeedRamp.slowest;
+    }
     init => { root.seed(); }
     changed selected => { root.seed(); }
+
+    // Rust's word on the mode and the preset.
+    property <bool> curved: SpeedRamp.curved;
+    property <int> preset: SpeedRamp.preset;
+    // The two sliders' values, seeded from Rust's like the rate's: a
+    // slider writes its own value as it is dragged, which would end a
+    // binding.
+    property <float> fastest;
+    property <float> slowest;
+    property <float> fastest-truth: SpeedRamp.fastest;
+    property <float> slowest-truth: SpeedRamp.slowest;
+    changed fastest-truth => { root.fastest = root.fastest-truth; }
+    changed slowest-truth => { root.slowest = root.slowest-truth; }
 
     Section {
         first: root.first;
         speed := SectionHeader {
             title: I18n.t("common.speed");
             collapsible: true;
-            summary: InspectorFmt.format(ParamFormat.rate, root.speed);
+            summary: root.curved
+                ? I18n.t("speedRamp.curve")
+                : InspectorFmt.format(ParamFormat.rate, root.speed);
             HelpButton {
                 text: I18n.t("clipInspector.rateReTimesClip");
             }
@@ -2347,7 +2367,99 @@ export component SpeedPanel inherits VerticalLayout {
                 progress: root.selected.reverse-progress;
             }
 
-            Param {
+            HorizontalLayout {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+
+                SegmentedControl {
+                    // A press assigns `current` inside the control, which
+                    // ends a plain binding: so it is set again from Rust's
+                    // word whenever the selection or an undo changes it.
+                    property <bool> truth: root.curved;
+                    changed truth => { self.current = self.truth ? 1 : 0; }
+
+                    options: [I18n.t("speedRamp.constant"), I18n.t("speedRamp.curve")];
+                    current: root.curved ? 1 : 0;
+                    changed(index) => {
+                        SpeedRamp.curve(index == 1);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.shape");
+                Select {
+                    // As the mode's: a pick ends the binding, Rust restores it.
+                    property <int> truth: root.preset;
+                    changed truth => { self.current = self.truth; }
+
+                    options: SpeedRamp.presets;
+                    current: root.preset;
+                    placeholder: I18n.t("speedRamp.custom");
+                    changed(index) => {
+                        SpeedRamp.preset-chosen(index);
+                        root.commit();
+                    }
+                }
+            }
+
+            if root.curved: SpeedGraph {
+                padding-left: Theme.pad;
+                padding-right: Theme.pad;
+                point(index, x, y) => {
+                    SpeedRamp.point(index, x, y);
+                    root.commit();
+                }
+                remove(index) => {
+                    SpeedRamp.remove(index);
+                    root.commit();
+                }
+            }
+
+            if root.curved: Row {
+                label: I18n.t("speedRamp.bends");
+                SegmentedControl {
+                    // As the mode's: set again from Rust's word.
+                    property <bool> truth: SpeedRamp.smooth;
+                    changed truth => { self.current = self.truth ? 0 : 1; }
+
+                    options: [I18n.t("speedRamp.smooth"), I18n.t("speedRamp.straight")];
+                    current: SpeedRamp.smooth ? 0 : 1;
+                    changed(index) => {
+                        SpeedRamp.smoothness(index == 0);
+                        root.commit();
+                    }
+                }
+            }
+
+            // The two extremes, for a ramp that is right in shape and too
+            // much or too little in strength: the fastest stretch brought
+            // down to 4x brings the rest of it along.
+            if root.curved && root.fastest > 0: Param {
+                label: I18n.t("speedRamp.fastest");
+                value <=> root.fastest;
+                minimum: 1.1;
+                maximum: 16;
+                step: 0.05;
+                default-value: 2;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(true, v); root.commit(); }
+            }
+            if root.curved && root.slowest > 0: Param {
+                label: I18n.t("speedRamp.slowest");
+                value <=> root.slowest;
+                minimum: 0.0625;
+                maximum: 0.9;
+                step: 0.01;
+                default-value: 0.5;
+                fmt: ParamFormat.rate;
+                unit: "x";
+                changed(v) => { SpeedRamp.extreme(false, v); root.commit(); }
+            }
+
+            if !root.curved: Param {
                 label: I18n.t("common.rate");
                 value <=> root.speed;
                 // The engine's full range. The track is linear, so the

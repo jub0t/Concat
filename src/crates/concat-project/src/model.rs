@@ -1284,6 +1284,12 @@ pub struct SpeedPoint {
     pub at: f64,
     /// Source seconds per timeline second there.
     pub speed: f64,
+    /// How fast the speed is changing there, speed per unit of `at`, for a
+    /// curve with smooth bends: present on every point of such a curve and
+    /// absent on every point of one joined by straight lines. See
+    /// `concat_core::SpeedCurve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slope: Option<f64>,
 }
 
 /// A clip's Enhance, once it has a copy: see [`Clip::enhanced`].
@@ -2012,6 +2018,7 @@ impl Clip {
                 .map(|point| SpeedPoint {
                     at: point.at,
                     speed: finite(point.speed, 1.0).clamp(MIN_SPEED, MAX_SPEED),
+                    slope: point.slope.filter(|slope| slope.is_finite()),
                 })
                 .collect();
             (!points.is_empty()).then_some(points)

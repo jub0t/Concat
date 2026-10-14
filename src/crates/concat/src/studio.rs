@@ -70,6 +70,7 @@ use crate::panes::settings::installed;
 use crate::platform;
 use crate::prefs::Preferences;
 use crate::presets::{self, TextPreset};
+use crate::speed_ramp;
 use crate::ui::*;
 
 /// The monitor's output sizes, matching the picker's rows.
@@ -651,6 +652,10 @@ pub struct Models {
     pub link_wheels: RefCell<HashMap<i32, Rc<VecModel<WheelData>>>>,
     pub link_curves: RefCell<HashMap<i32, Rc<VecModel<CurveData>>>>,
     pub curve_points: RefCell<HashMap<(i32, String), Rc<VecModel<CurvePointData>>>>,
+    /// The Speed tab's curve: its points and the presets' names, kept like
+    /// the colour curves' so a point being dragged is not dropped.
+    pub speed_points: Rc<VecModel<CurvePointData>>,
+    pub speed_presets: Rc<VecModel<SharedString>>,
     /// The keyframe cluster's rows and the libraries' views: synced like
     /// the rest, since a model handed over fresh is unequal to the last by
     /// identity and re-evaluates every binding on it.
@@ -734,6 +739,8 @@ impl Models {
             link_wheels: RefCell::new(HashMap::new()),
             link_curves: RefCell::new(HashMap::new()),
             curve_points: RefCell::new(HashMap::new()),
+            speed_points: Rc::new(VecModel::default()),
+            speed_presets: Rc::new(VecModel::default()),
             key_rows: Rc::new(VecModel::default()),
             key_editor_rows: Rc::new(VecModel::default()),
             key_marks: Rc::new(VecModel::default()),
@@ -1508,7 +1515,7 @@ fn command_name(command: &Command) -> String {
 /// stabilization, a speed, the
 /// keys, and one patch for everything else that differs. Empty when
 /// nothing does.
-fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
+fn clip_commands(id: &str, before: &Clip, after: &Clip, magnetic: bool) -> Vec<Command> {
     let mut commands = Vec::new();
     if after.scale != before.scale
         || after.offset_x != before.offset_x
@@ -1539,9 +1546,26 @@ fn clip_commands(id: &str, before: &Clip, after: &Clip) -> Vec<Command> {
             stabilize: after.stabilize,
         });
     }
-    if after.speed != before.speed {
+    if after.speed_curve != before.speed_curve {
+        // A curve, changed or new, is one command; a curve taken away is
+        // the constant rate the echo left, which SetClipSpeed sets and
+        // which ends the curve.
+        commands.push(match &after.speed_curve {
+            Some(_) => Command::SetClipSpeedCurve {
+                clip_id: id.to_owned(),
+                ripple: magnetic,
+                curve: after.speed_curve.clone(),
+            },
+            None => Command::SetClipSpeed {
+                clip_id: id.to_owned(),
+                ripple: magnetic,
+                speed: after.speed,
+            },
+        });
+    } else if after.speed != before.speed {
         commands.push(Command::SetClipSpeed {
             clip_id: id.to_owned(),
+            ripple: magnetic,
             speed: after.speed,
         });
     }
@@ -2104,12 +2128,14 @@ fn copy_commands(source: &Clip, placed: &Clip, track_id: &str, start: f64) -> Ve
     if (source.speed - 1.0).abs() > 1e-9 {
         commands.push(Command::SetClipSpeed {
             clip_id: created.clone(),
+            ripple: false,
             speed: source.speed,
         });
     }
     if source.speed_curve.is_some() {
         commands.push(Command::SetClipSpeedCurve {
             clip_id: created.clone(),
+            ripple: false,
             curve: source.speed_curve.clone(),
         });
     }
@@ -4432,6 +4458,92 @@ impl Studio {
         });
     }
 
+    /// The Speed tab's Constant | Curve, on the echo. A curve starts flat
+    /// at the clip's rate and a constant rate is the curve's mean, so the
+    /// clip keeps its length either way until something is shaped.
+    pub fn speed_curve_set(&mut self, on: bool) {
+        self.edit_speed_curve(|points, speed| match (on, points.is_some()) {
+            (true, false) => *points = Some(speed_ramp::flat(speed)),
+            (false, true) => *points = None,
+            _ => {}
+        });
+    }
+
+    /// One point of the Speed tab's curve, on the echo: moved, or put down
+    /// when `point` is negative. `y` is the graph's height for the speed.
+    pub fn speed_curve_point(&mut self, point: i32, x: f32, y: f32) {
+        self.edit_speed_curve(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::set_point(points, point, x.into(), y.into());
+            }
+        });
+    }
+
+    /// One point of the Speed tab's curve taken off, on the echo.
+    pub fn speed_curve_remove(&mut self, point: i32) {
+        self.edit_speed_curve(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::remove_point(points, point);
+            }
+        });
+    }
+
+    /// The Speed tab's curve made smooth or straight, on the echo.
+    pub fn speed_curve_smooth(&mut self, smooth: bool) {
+        self.edit_speed_curve(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::set_smooth(points, smooth);
+            }
+        });
+    }
+
+    /// The Speed tab's curve brought to `speed` at its fastest (or its
+    /// slowest), on the echo: one of the tab's two sliders.
+    pub fn speed_curve_extreme(&mut self, faster: bool, speed: f32) {
+        self.edit_speed_curve(|points, _| {
+            if let Some(points) = points.as_mut() {
+                speed_ramp::set_extreme(points, faster, speed.into());
+            }
+        });
+    }
+
+    /// The Speed tab's curve replaced by preset `index`'s, on the echo.
+    pub fn speed_curve_preset(&mut self, index: i32) {
+        self.edit_speed_curve(|points, _| {
+            if let Some(preset) = speed_ramp::preset_points(index) {
+                *points = Some(preset);
+            }
+        });
+    }
+
+    /// The selected clip's curve on the echo, handed to `edit` with the
+    /// clip's rate; the rate and the length then follow the curve the way
+    /// SetClipSpeedCurve will make them, so the timeline shows the clip
+    /// growing and shrinking under the pointer. Nothing for a clip that has
+    /// no speed - a still, a title.
+    fn edit_speed_curve(&mut self, edit: impl FnOnce(&mut Option<Vec<model::SpeedPoint>>, f64)) {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        self.commit_targets = vec![id.clone()];
+        self.begin_echo();
+        let Some(clip) = self.echo_clip_mut(&id) else {
+            return;
+        };
+        if !matches!(clip.kind, model::ClipKind::Video | model::ClipKind::Audio) {
+            return;
+        }
+        let covered = clip.duration * clip.speed;
+        let mut points = clip.speed_curve.clone();
+        edit(&mut points, clip.speed);
+        if let Some(curve) = points.as_deref() {
+            let mean = concat_project::speed::mean_of(curve).clamp(0.0625, 16.0);
+            clip.speed = mean;
+            clip.duration = (covered / mean).max(f64::from(MIN_DURATION));
+        }
+        clip.speed_curve = points;
+    }
+
     /// One point of one of the colour panel's curves, on the echo: moved,
     /// or put down when `point` is negative.
     pub fn adjust_curve_point(&mut self, key: &str, point: i32, x: f32, y: f32) {
@@ -5169,10 +5281,13 @@ impl Studio {
                     write_keyable(clip, model::KeyProperty::Volume, value.max(0.0), at)
                 }
                 ClipField::Speed => {
+                    // A rate set by hand is a constant rate: the curve goes,
+                    // as SetClipSpeed takes it.
                     let speed = value.clamp(0.0625, 16.0);
                     clip.duration =
                         (clip.duration * clip.speed / speed).max(f64::from(MIN_DURATION));
                     clip.speed = speed;
+                    clip.speed_curve = None;
                 }
                 ClipField::PreservePitch => clip.preserve_pitch = value != 0.0,
                 ClipField::FlipH => clip.flip_h = value != 0.0,
@@ -5526,7 +5641,7 @@ impl Studio {
             ) else {
                 continue;
             };
-            commands.extend(clip_commands(id, before, after));
+            commands.extend(clip_commands(id, before, after, self.prefs.magnetic));
         }
         if commands.is_empty() {
             return;
@@ -9007,6 +9122,7 @@ impl Studio {
                 .and_then(|id| self.clip(&id))
                 .map_or(0.0, |clip| place_in(clip, self.playhead) as f32),
         );
+        self.publish_speed_ramp(app, models);
         let rows = self.key_rows();
         keys.set_available(!rows.is_empty());
         sync(&models.key_rows, rows);
@@ -9318,6 +9434,44 @@ impl Studio {
     /// Outside is not clamped to an end: a key put on from outside the clip
     /// would land on its first or last frame, which is never what the person
     /// pressing the diamond meant.
+    /// The Speed tab's curve for the selected clip: its points on the
+    /// graph's scale, the line through them, whether it bends, which preset
+    /// it still is, where the playhead crosses it, and its two extremes.
+    fn publish_speed_ramp(&self, app: &App, models: &Models) {
+        let ramp = app.global::<SpeedRamp>();
+        if models.speed_presets.row_count() == 0 {
+            sync(
+                &models.speed_presets,
+                speed_ramp::preset_names()
+                    .into_iter()
+                    .map(SharedString::from)
+                    .collect(),
+            );
+        }
+        let clip = self.sole_selection().and_then(|id| self.clip(&id));
+        let curve = clip.and_then(|clip| clip.speed_curve.as_deref());
+        let points = curve.unwrap_or_default();
+        sync(
+            &models.speed_points,
+            points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| CurvePointData {
+                    index: index as i32,
+                    x: point.at as f32,
+                    y: speed_ramp::height_of(point.speed) as f32,
+                })
+                .collect(),
+        );
+        ramp.set_curved(curve.is_some());
+        ramp.set_smooth(curve.is_none_or(concat_project::speed::is_smooth));
+        ramp.set_path(speed_ramp::path(points).into());
+        ramp.set_preset(curve.map_or(-1, speed_ramp::preset_index));
+        ramp.set_at(self.key_point().map_or(-1.0, |(_, at)| at as f32));
+        ramp.set_fastest(speed_ramp::extreme(points, true).map_or(-1.0, |speed| speed as f32));
+        ramp.set_slowest(speed_ramp::extreme(points, false).map_or(-1.0, |speed| speed as f32));
+    }
+
     pub fn key_point(&self) -> Option<(&Clip, f64)> {
         let clip = self.sole_selection().and_then(|id| self.clip(&id))?;
         if clip.duration <= 0.0 {
@@ -12133,6 +12287,7 @@ mod tests {
                 &mut editor,
                 Command::SetClipSpeed {
                     clip_id: whole.clone(),
+                    ripple: false,
                     speed,
                 },
             );
@@ -12546,7 +12701,7 @@ mod tests {
             let before = document.active().clip(id).expect("clip");
             let mut after = before.clone();
             crate::batch_volume::set_level(&mut after, before, 0.5, 0.0);
-            commands.extend(super::clip_commands(id, before, &after));
+            commands.extend(super::clip_commands(id, before, &after, false));
         }
         editor.apply(Command::Batch { commands }).expect("applies");
         let clip = |editor: &concat_project::Editor, id: &str| {

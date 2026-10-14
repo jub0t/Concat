@@ -62,6 +62,7 @@ mod panes;
 mod prefs;
 mod presets;
 mod source;
+mod speed_ramp;
 mod studio;
 mod sysinfo;
 /// Native Wayland file drops, which winit does not report; see the module.
@@ -380,6 +381,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
             .set_rows(ModelRc::from(models.key_rows.clone()));
         app.global::<KeyEditor>()
             .set_rows(ModelRc::from(models.key_editor_rows.clone()));
+        let ramp = app.global::<SpeedRamp>();
+        ramp.set_points(ModelRc::from(models.speed_points.clone()));
+        ramp.set_presets(ModelRc::from(models.speed_presets.clone()));
         editor.set_key_marks(ModelRc::from(models.key_marks.clone()));
         app.global::<Library>()
             .set_views(ModelRc::from(models.library_views.clone()));
@@ -1190,6 +1194,30 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         }));
         backdrop.on_frame(on_lanes!(|state, fill: bool| {
             state.frame_selected(fill);
+        }));
+    }
+    // The Speed tab's curve. Its own global, like the keyframe cluster's,
+    // since the Speed panel sits in three places; each verb edits the echo
+    // and the panel commits.
+    {
+        let ramp = app.global::<SpeedRamp>();
+        ramp.on_curve(on_lanes!(|state, on: bool| {
+            state.speed_curve_set(on);
+        }));
+        ramp.on_point(on_lanes!(|state, index: i32, x: f32, y: f32| {
+            state.speed_curve_point(index, x, y);
+        }));
+        ramp.on_remove(on_lanes!(|state, index: i32| {
+            state.speed_curve_remove(index);
+        }));
+        ramp.on_preset_chosen(on_lanes!(|state, index: i32| {
+            state.speed_curve_preset(index);
+        }));
+        ramp.on_smoothness(on_lanes!(|state, smooth: bool| {
+            state.speed_curve_smooth(smooth);
+        }));
+        ramp.on_extreme(on_lanes!(|state, faster: bool, speed: f32| {
+            state.speed_curve_extreme(faster, speed);
         }));
     }
     // The Keyframes panel's verbs; its rows go out with every publish.
