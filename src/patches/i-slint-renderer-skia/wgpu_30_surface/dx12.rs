@@ -19,6 +19,7 @@ unsafe fn wrap_dx12_texture(
     dxgi_format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT,
     color_type: skia_safe::ColorType,
     color_space: skia_safe::ColorSpace,
+    surface_props: Option<&skia_safe::SurfaceProps>,
 ) -> Option<skia_safe::Surface> {
     let texture_info = skia_safe::gpu::d3d::TextureResourceInfo {
         resource,
@@ -38,8 +39,55 @@ unsafe fn wrap_dx12_texture(
         skia_safe::gpu::SurfaceOrigin::TopLeft,
         color_type,
         color_space,
-        None,
+        surface_props,
     )
+}
+
+// Concat: the window's text is drawn with ClearType, as every other program
+// on a Windows desk is, when the desk has it on (jub0t/concat#278). Greyscale
+// coverage on a 1x screen reads soft and grey beside the system's own text;
+// LCD coverage triples the horizontal resolution a stem is drawn at.
+//
+// The settings are the ones the Control Panel's "Adjust ClearType text"
+// writes, read per frame so turning ClearType off takes effect at once.
+// SystemParametersInfoW is declared here rather than through the `windows`
+// crate so the copy's dependency features stay as published.
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn SystemParametersInfoW(
+        action: u32,
+        param: u32,
+        pv_param: *mut core::ffi::c_void,
+        win_ini: u32,
+    ) -> i32;
+}
+
+/// The surface properties for the window's swapchain: the subpixel order of
+/// the screen when ClearType is on, so Skia draws LCD text, and `None`, its
+/// greyscale default, when font smoothing is off or not ClearType.
+pub fn system_text_props() -> Option<skia_safe::SurfaceProps> {
+    const SPI_GETFONTSMOOTHING: u32 = 0x004A;
+    const SPI_GETFONTSMOOTHINGTYPE: u32 = 0x200A;
+    const SPI_GETFONTSMOOTHINGORIENTATION: u32 = 0x2012;
+    const FE_FONTSMOOTHINGCLEARTYPE: u32 = 0x0002;
+    const FE_FONTSMOOTHINGORIENTATIONBGR: u32 = 0x0000;
+
+    let get = |action: u32| -> Option<u32> {
+        let mut value: u32 = 0;
+        // SAFETY: each of these actions writes one UINT (or BOOL) to pv_param.
+        let ok = unsafe { SystemParametersInfoW(action, 0, (&raw mut value).cast(), 0) };
+        (ok != 0).then_some(value)
+    };
+
+    let smoothing = get(SPI_GETFONTSMOOTHING)? != 0;
+    if !smoothing || get(SPI_GETFONTSMOOTHINGTYPE)? != FE_FONTSMOOTHINGCLEARTYPE {
+        return None;
+    }
+    let geometry = match get(SPI_GETFONTSMOOTHINGORIENTATION) {
+        Some(FE_FONTSMOOTHINGORIENTATIONBGR) => skia_safe::PixelGeometry::BGRH,
+        _ => skia_safe::PixelGeometry::RGBH,
+    };
+    Some(skia_safe::SurfaceProps::new(Default::default(), geometry))
 }
 
 /// # Safety
@@ -48,6 +96,7 @@ unsafe fn wrap_dx12_texture(
 pub unsafe fn make_dx12_surface(
     gr_context: &mut skia_safe::gpu::DirectContext,
     texture: &wgpu::Texture,
+    surface_props: Option<&skia_safe::SurfaceProps>,
 ) -> Option<skia_safe::Surface> {
     // SAFETY: texture is borrowed for the duration of this call; the D3D12 resource is
     // ref-counted (COM) and cloned into Skia's internal BackendRenderTarget via wrap_dx12_texture.
@@ -77,6 +126,7 @@ pub unsafe fn make_dx12_surface(
             dxgi_format,
             color_type,
             super::attachment_color_space(texture),
+            surface_props,
         )
     }
 }

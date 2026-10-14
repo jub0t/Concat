@@ -996,7 +996,10 @@ impl<'a> LayerRenderer<'a> for SkiaItemRenderer<'a> {
             skia_safe::ColorType::RGBA8888,
             skia_safe::AlphaType::Premul,
         );
-        self.canvas.new_surface(&image_info, None)
+        // Concat: a layer starts transparent and is composited later, so its
+        // text is greyscale; with no props it would inherit the window's
+        // subpixel order and fringe where the layer is drawn.
+        self.canvas.new_surface(&image_info, Some(&skia_safe::SurfaceProps::default()))
     }
 
     fn render_into_layer(
@@ -1106,9 +1109,21 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         // smear is a fraction of a hairline and the spacing is worth more.
         // Hinting is left to Skia's default, which snaps stems on its own
         // once positions are whole.
+        //
+        // LCD coverage where what is drawn into names a subpixel order - the
+        // Windows window with ClearType on (wgpu_30_surface/dx12.rs), outside
+        // any translucent layer - and greyscale everywhere else. Asked for
+        // only there: on a surface with no order Skia makes greyscale out of
+        // LCD rendering, which on macOS turns on CoreText's font smoothing
+        // and draws every word heavier than it does today.
         let dense = self.scale_factor.get() >= 1.5;
         font.set_subpixel(dense);
-        font.set_edging(skia_safe::font::Edging::AntiAlias);
+        let lcd = self.canvas.top_props().pixel_geometry() != skia_safe::PixelGeometry::Unknown;
+        font.set_edging(if lcd {
+            skia_safe::font::Edging::SubpixelAntiAlias
+        } else {
+            skia_safe::font::Edging::AntiAlias
+        });
 
         let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
             .into_iter()
