@@ -7,6 +7,7 @@ import { Glyph, Icon } from "../icons.slint";
 import { IconButton } from "../primitives/panel.slint";
 import { LevelMeter } from "../primitives/level-meter.slint";
 import { TimelineTool } from "model.slint";
+import { Editor } from "../editor.slint";
 
 // The timeline's tool tray.
 //
@@ -235,14 +236,14 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.undo;
-            label: I18n.t1("tray.undo", @keys(Control + Z).to-string());
+            label: I18n.t1("tray.undo", Editor.keys-undo);
             icon-size: 16px;
             enabled: root.can-undo;
             clicked => { root.undo(); }
         }
         TrayButton {
             glyph: Glyph.redo;
-            label: I18n.t1("tray.redo", @keys(Control + Shift + Z).to-string());
+            label: I18n.t1("tray.redo", Editor.keys-redo);
             icon-size: 16px;
             enabled: root.can-redo;
             clicked => { root.redo(); }
@@ -255,16 +256,16 @@ export component TimelineTray inherits Rectangle {
         // already where you were looking.
         TrayButton {
             glyph: Glyph.split;
-            label: I18n.t1("tray.splitAtPlayhead", @keys(Control + B).to-string());
+            label: I18n.t1("tray.splitAtPlayhead", Editor.keys-split);
             icon-size: 16px;
             clicked => { root.split(); }
         }
         // And the razor, a tool rather than a verb: on, a click on a clip
-        // cuts it where the pointer is. B turns it on and off.
+        // cuts it where the pointer is. Its key turns it on and off.
         // https://github.com/jub0t/Concat/issues/241
         TrayButton {
             glyph: Glyph.razor;
-            label: I18n.t("tray.splitTool");
+            label: I18n.t1("tray.splitTool", Editor.keys-split-tool);
             icon-size: 16px;
             checked: root.tool == TimelineTool.split;
             clicked => {
@@ -333,7 +334,7 @@ export component TimelineTray inherits Rectangle {
 
         TrayButton {
             glyph: Glyph.hand;
-            label: I18n.t("tray.panTool");
+            label: I18n.t1("tray.panTool", Editor.keys-pan);
             icon-size: 16px;
             checked: root.pan-mode;
             clicked => { root.pan-changed(!root.pan-mode); }
@@ -414,8 +415,8 @@ export component TimelineTray inherits Rectangle {
             TrayButton {
                 glyph: Glyph.axis;
                 label: root.preview-axis
-                    ? I18n.t("tray.turnOffPreviewAxis")
-                    : I18n.t("tray.turnOnPreviewAxis");
+                    ? I18n.t1("tray.turnOffPreviewAxis", Editor.keys-preview-axis)
+                    : I18n.t1("tray.turnOnPreviewAxis", Editor.keys-preview-axis);
                 icon-size: 16px;
                 checked: root.preview-axis;
                 clicked => { root.preview-axis-changed(!root.preview-axis); }

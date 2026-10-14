@@ -13,20 +13,22 @@
 //! on disk after anything that could have changed it.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use concat_host::models::SourcePreference;
 use concat_host::updates::{self, Fixed, Installed, Release, Standing, Version};
-use slint::SharedString;
+use slint::{ModelRc, SharedString, VecModel};
 
 use crate::host::{on_ui, spawn};
 use crate::i18n::{self, t, tf};
+use crate::keymap;
 use crate::panes::Msg;
 use crate::platform;
 use crate::prefs;
 use crate::studio::Studio;
-use crate::ui::{ModelData, SettingsData};
+use crate::ui::{ModelData, SettingsData, ShortcutData};
 
 /// Everything that can happen to the settings sheet.
 #[derive(Clone, Debug)]
@@ -37,6 +39,15 @@ pub enum SettingsMsg {
     Open,
     Close,
     PageChanged(i32),
+    /// The Shortcuts page: a row asked to hold the next key it should
+    /// be bound to. The sheet closing puts the listening down too — see
+    /// `Close` — so no key anywhere binds something the page stopped
+    /// caring about.
+    ShortcutCapture(String),
+    /// One row put back as it ships, taking its chord off whoever holds
+    /// it now, and every row put back at once.
+    ShortcutReset(String),
+    ShortcutResetAll,
     /// Show this run's log in the file manager.
     ShowLog,
     LanguageChanged(i32),
@@ -156,6 +167,11 @@ pub fn installed(models: &[ModelState]) -> Vec<&ModelState> {
 pub struct SettingsPane {
     pub open: bool,
     pub tab: i32,
+    /// The Shortcuts page's row listening for its next key: the action
+    /// that key will bind to. None when none is — and when the sheet
+    /// closes under a listening row, so a key pressed in the editor
+    /// afterwards dispatches rather than binding.
+    pub capturing: Option<String>,
     pub language: usize,
     /// The switch that keeps the playhead inside the content.
     pub playhead_stops: bool,
@@ -219,7 +235,13 @@ impl SettingsPane {
                 self.refresh(studio);
                 self.open = true;
             }
-            SettingsMsg::Close => self.open = false,
+            SettingsMsg::Close => {
+                // A row left listening when the sheet goes would take
+                // the next key anywhere in the window; it is put down
+                // with the sheet.
+                self.capturing = None;
+                self.open = false;
+            }
             SettingsMsg::PageChanged(index) => {
                 self.tab = index;
                 // The Version page looks for the releases the first time it
@@ -228,6 +250,22 @@ impl SettingsPane {
                 if index == VERSION_PAGE && !self.checked {
                     self.check_updates();
                 }
+            }
+            SettingsMsg::ShortcutCapture(id) => self.capturing = Some(id),
+            SettingsMsg::ShortcutReset(id) => {
+                self.capturing = None;
+                let lost = keymap::reset(&mut studio.prefs, &id);
+                studio.prefs.save(&studio.host.dirs);
+                // The shipped chord came back off whoever was holding
+                // it, and that row now has no key until it is reset.
+                if let Some(lost) = lost {
+                    studio.notify(&tf("shortcuts.unboundNow", &[&keymap::name(lost)]), false);
+                }
+            }
+            SettingsMsg::ShortcutResetAll => {
+                self.capturing = None;
+                keymap::reset_all(&mut studio.prefs);
+                studio.prefs.save(&studio.host.dirs);
             }
             SettingsMsg::ShowLog => {
                 // The file this run is writing, when there is one, so the
@@ -751,6 +789,24 @@ impl SettingsPane {
         SettingsData {
             open: self.open,
             tab: self.tab,
+            // The keymap's rows as the page draws them: the chord each
+            // action is on now, and whether that moved from the one it
+            // ships on — which is the row's cue to offer its reset.
+            shortcuts: ModelRc::from(Rc::new(VecModel::from(
+                keymap::ACTIONS
+                    .iter()
+                    .map(|action| ShortcutData {
+                        id: action.id.into(),
+                        label: keymap::name(action.id).into(),
+                        keys: keymap::bound(&studio.prefs, action.id)
+                            .map(keymap::display)
+                            .unwrap_or_default()
+                            .into(),
+                        custom: studio.prefs.keybinds.contains_key(action.id),
+                    })
+                    .collect::<Vec<_>>(),
+            ))),
+            capturing: self.capturing.clone().unwrap_or_default().into(),
             language: self.language as i32,
             log_level: LOG_LEVELS
                 .iter()

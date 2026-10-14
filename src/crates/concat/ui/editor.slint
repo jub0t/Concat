@@ -437,4 +437,23 @@ export global Editor {
     /// callback with a verb rather than one per key, so the window's key
     /// table and the state's answer to it stay in one place each.
     callback shortcut(action: string);
+
+    /// A key the window's own scope did not give to a field, handed over
+    /// raw: the text it would type and the modifiers held. Rust builds
+    /// the chord, resolves it against the keymap — which Settings ›
+    /// Shortcuts rebinds — dispatches it, and answers whether the key
+    /// was used. It is also the way a capture in that page receives its
+    /// key: the callback binds instead of dispatches while a row is
+    /// listening.
+    callback key-chord(text: string, shift: bool, alt: bool, control: bool, meta: bool, on-start: bool) -> bool;
+
+    /// The tray's three menu labels' shortcuts and the tooltips' own key
+    /// hints, as this platform writes them — kept by Rust from the same
+    /// keymap the window dispatches on, so a rebind moves the hint too.
+    in-out property <string> keys-undo;
+    in-out property <string> keys-redo;
+    in-out property <string> keys-split;
+    in-out property <string> keys-split-tool;
+    in-out property <string> keys-pan;
+    in-out property <string> keys-preview-axis;
 }
