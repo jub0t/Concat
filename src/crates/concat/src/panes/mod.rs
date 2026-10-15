@@ -24,6 +24,7 @@ pub mod relink;
 pub mod settings;
 pub mod speech;
 pub mod start;
+pub mod templates;
 pub mod timeline;
 pub mod voiceover;
 
@@ -44,6 +45,8 @@ pub enum Msg {
     Project(project::ProjectMsg),
     /// To the launch screen's form.
     Start(start::StartMsg),
+    /// To the template gallery and its sheet.
+    Templates(templates::TemplatesMsg),
     /// To the media bin.
     Media(media_bin::MediaMsg),
     /// To the monitor.

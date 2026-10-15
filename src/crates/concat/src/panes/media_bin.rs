@@ -357,6 +357,7 @@ impl MediaBin {
                     thumbnail: self.thumbs.get(&item.id).cloned().unwrap_or_default(),
                     wave,
                     selected: self.selected.contains(&item.id),
+                    slot: item.placeholder,
                 }
             })
             .collect()

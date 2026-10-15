@@ -91,6 +91,7 @@ use panes::relink::RelinkMsg;
 use panes::settings::SettingsMsg;
 use panes::speech::SpeechMsg;
 use panes::start::StartMsg;
+use panes::templates::TemplatesMsg;
 use panes::timeline::TimelineMsg;
 use studio::{ASPECTS, Models, OUTPUTS, RATES, SIZES, Studio};
 use ui::*;
@@ -345,6 +346,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_seats(ModelRc::from(models.seats.clone()));
         editor.set_dividers(ModelRc::from(models.dividers.clone()));
         app.set_recents(ModelRc::from(models.recents.clone()));
+        app.global::<Templates>()
+            .set_cards(ModelRc::from(models.templates.clone()));
         editor.set_text_presets(ModelRc::from(models.text_presets.clone()));
         editor.set_style_presets(ModelRc::from(models.style_presets.clone()));
         editor.set_language_presets(ModelRc::from(models.language_presets.clone()));
@@ -1383,6 +1386,38 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_relink_dismiss(on_window!(|state| {
         state.handle(Msg::Relink(RelinkMsg::Dismiss));
+    }));
+
+    // ── templates: the gallery and the sheet that fills one ──
+    let templates = app.global::<Templates>();
+    templates.on_picked(on_window!(|state, path: SharedString| {
+        state.handle(Msg::Templates(TemplatesMsg::Open(path.to_string())));
+    }));
+    templates.on_deleted(on_window!(
+        |state, path: SharedString, name: SharedString| {
+            state.handle(Msg::Templates(TemplatesMsg::AskDelete {
+                path: path.to_string(),
+                name: name.to_string(),
+            }));
+        }
+    ));
+    templates.on_dismiss(on_window!(|state| {
+        state.handle(Msg::Templates(TemplatesMsg::Dismiss));
+    }));
+    templates.on_name_edited(on_window!(|state, name: SharedString| {
+        state.handle(Msg::Templates(TemplatesMsg::NameEdited(name.to_string())));
+    }));
+    templates.on_pick_slot(on_window!(|state, index: i32| {
+        state.handle(Msg::Templates(TemplatesMsg::PickSlot(index)));
+    }));
+    templates.on_clear_slot(on_window!(|state, index: i32| {
+        state.handle(Msg::Templates(TemplatesMsg::ClearSlot(index)));
+    }));
+    templates.on_pick_all(on_window!(|state| {
+        state.handle(Msg::Templates(TemplatesMsg::PickAll));
+    }));
+    templates.on_create(on_window!(|state| {
+        state.handle(Msg::Templates(TemplatesMsg::Create));
     }));
 
     // ── the dialogs ──

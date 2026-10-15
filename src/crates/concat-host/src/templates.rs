@@ -26,6 +26,8 @@ use serde_json::Value;
 
 use crate::{media, projects};
 
+pub mod builtin;
+
 const MANIFEST: &str = "template.json";
 const ASSETS: &str = "assets";
 const POSTER: &str = "poster.jpg";
@@ -36,6 +38,13 @@ const POSTER: &str = "poster.jpg";
 pub struct TemplateInfo {
     /// The bundle folder.
     pub path: String,
+    /// The bundle folder's own name: a built-in's stable id, by which the
+    /// interface finds its name in the user's language.
+    pub id: String,
+    /// One of the app's own: listed first, and never deleted.
+    pub builtin: bool,
+    /// Seconds from the first clip's start to the last clip's end.
+    pub seconds: f64,
     /// The template's name.
     pub name: String,
     /// Output width in pixels.
@@ -161,19 +170,29 @@ fn bundle_file(assets: &Path, id: &str, source: &str) -> Result<String, String> 
     Ok(format!("{ASSETS}/{name}"))
 }
 
-/// Every template in the library, in name order.
+/// Every template: the app's own first, in their order, then the user's,
+/// in name order.
 ///
 /// A folder that does not parse is skipped rather than sinking the whole
 /// gallery - the same grace the recents list extends to vanished projects.
 pub fn list(config: &Path) -> Vec<TemplateInfo> {
+    let mut templates: Vec<TemplateInfo> = builtin::install(config)
+        .iter()
+        .filter_map(|folder| read_info(folder).ok())
+        .map(|info| TemplateInfo {
+            builtin: true,
+            ..info
+        })
+        .collect();
     let Ok(entries) = std::fs::read_dir(templates_dir(config)) else {
-        return Vec::new();
+        return templates;
     };
-    let mut templates: Vec<TemplateInfo> = entries
+    let mut own: Vec<TemplateInfo> = entries
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| read_info(&entry.path()).ok())
         .collect();
-    templates.sort_by(|left, right| left.name.cmp(&right.name));
+    own.sort_by(|left, right| left.name.cmp(&right.name));
+    templates.extend(own);
     templates
 }
 
@@ -206,6 +225,12 @@ fn read_info(root: &Path) -> Result<TemplateInfo, String> {
 
     Ok(TemplateInfo {
         path: root.to_string_lossy().into_owned(),
+        id: root
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        builtin: false,
+        seconds: seconds_of(&document),
         name: document
             .get("name")
             .and_then(Value::as_str)
@@ -218,6 +243,20 @@ fn read_info(root: &Path) -> Result<TemplateInfo, String> {
         slots: slots_of(&document),
         has_poster: root.join(POSTER).exists(),
     })
+}
+
+/// How long the active timeline runs: the latest clip end.
+fn seconds_of(document: &Value) -> f64 {
+    concat_project::from_document(document)
+        .map(|project| {
+            project
+                .active()
+                .clips
+                .iter()
+                .map(|clip| clip.start + clip.duration)
+                .fold(0.0, f64::max)
+        })
+        .unwrap_or(0.0)
 }
 
 /// The placeholder media of a document, ordered by when each first appears
@@ -532,7 +571,11 @@ mod tests {
             "and the file really is in the bundle"
         );
 
-        assert_eq!(list(&config).len(), 1, "the library sees it");
+        assert_eq!(
+            list(&config).iter().filter(|info| !info.builtin).count(),
+            1,
+            "the library sees it"
+        );
 
         // And it instantiates: the asset lands in the project, absolute.
         let location = scratch.join("projects");

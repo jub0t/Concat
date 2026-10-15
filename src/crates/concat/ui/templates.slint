@@ -1,0 +1,508 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
+
+// Templates: a ready-made edit with slots in it, and the sheet that fills
+// them.
+//
+// The gallery is the same card in two places - the launch screen, under
+// the projects, and the library's Templates page - so a template looks the
+// same wherever it is picked. Picking one puts up the sheet: one row per
+// slot, in the order the slots play, each filled with a file of the
+// user's own, then a new project made from the lot. What a fill means is
+// the engine's (`Command::FillSlot`); this only collects the files.
+
+import { I18n } from "i18n.slint";
+import { Theme, Fmt, Glyph, Icon, Tip } from "primitives/primitives.slint";
+import { Button, DialogSection, Field, Modal } from "primitives/modal.slint";
+
+/// One template on a gallery card.
+export struct TemplateCardData {
+    /// The bundle folder: what the sheet is opened with.
+    path: string,
+    name: string,
+    /// "9:16 · 6 slots · 15s", formatted where the numbers are.
+    detail: string,
+    /// A frame of the edit, or empty for the schematic.
+    poster: image,
+    /// The output's width over its height.
+    ratio: float,
+    slots: int,
+    /// One of the app's own, which cannot be deleted.
+    builtin: bool,
+}
+
+/// One slot on the fill sheet.
+export struct TemplateSlotData {
+    /// "1", "2", ... in the order the slots play.
+    label: string,
+    /// What the slot is: its length, and its name where the creator gave
+    /// it one.
+    detail: string,
+    /// The chosen file's name, or empty while the slot is open.
+    file: string,
+    /// The chosen picture, for a still; empty otherwise.
+    picture: image,
+    filled: bool,
+    /// The chosen file is a still rather than footage.
+    still: bool,
+    /// Probing the chosen file.
+    busy: bool,
+}
+
+/// The fill sheet.
+export struct TemplateFillData {
+    open: bool,
+    title: string,
+    detail: string,
+    ratio: float,
+    poster: image,
+    /// The new project's name, as typed.
+    name: string,
+    slots: [TemplateSlotData],
+    filled: int,
+    total: int,
+    /// The project is being made.
+    busy: bool,
+    error: string,
+}
+
+// The gallery and the sheet, for whoever shows them: the launch screen,
+// the library's Templates page and the window's sheet layer all read this
+// one global, so nothing is threaded down to them. Rust binds it once.
+export global Templates {
+    in-out property <[TemplateCardData]> cards;
+    in-out property <TemplateFillData> fill;
+
+    /// A card was picked: put up its sheet.
+    callback picked(path: string);
+    /// A card's cross: ask, then delete the template.
+    callback deleted(path: string, name: string);
+
+    callback dismiss();
+    callback name-edited(name: string);
+    callback pick-slot(index: int);
+    callback clear-slot(index: int);
+    callback pick-all();
+    callback create();
+}
+
+// The edit's shape, drawn small: the frame at the template's own ratio,
+// fitted into the well, with the slot count in it. What a card shows when
+// it has no poster - the app's own templates have none, because there is
+// nobody's footage in them to take a frame of.
+component Schematic inherits Rectangle {
+    in property <float> ratio: 16 / 9;
+    in property <int> slots;
+    in property <length> room: 64px;
+
+    property <length> w: root.ratio >= 1 ? root.room * 1.4 : root.room * root.ratio;
+    property <length> h: root.ratio >= 1 ? root.room * 1.4 / root.ratio : root.room;
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: root.w;
+        height: root.h;
+        border-radius: Theme.r;
+        border-width: 1.5px;
+        border-color: Theme.accent;
+        background: Theme.accent.with-alpha(0.12);
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            HorizontalLayout {
+                alignment: center;
+                Icon {
+                    glyph: Glyph.slot;
+                    size: 16px;
+                    tint: Theme.accent;
+                }
+            }
+
+            Text {
+                text: root.slots;
+                color: Theme.fg;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
+
+// One template: its poster or its shape, its name, what it asks for - and,
+// for one of the user's own, the cross that deletes it.
+export component TemplateCard inherits Rectangle {
+    in property <TemplateCardData> template;
+    in property <bool> enabled: true;
+    /// No pointer to hover with, so the cross stays out.
+    in property <bool> touchy;
+    /// The launch screen's surfaces rather than a pane's.
+    in property <bool> launch;
+
+    callback picked();
+    callback deleted();
+
+    property <bool> lit: touch.has-hover && root.enabled;
+    property <bool> deletable: !root.template.builtin && (root.touchy || touch.has-hover);
+    property <brush> ground: root.launch
+        ? (root.lit ? Theme.launch-raised : Theme.launch-panel)
+        : (root.lit ? Theme.raised : Theme.panel);
+
+    border-radius: Theme.r-lg;
+    background: root.ground;
+    border-width: 1px;
+    border-color: root.lit ? Theme.line-strong : Theme.line;
+    clip: true;
+    opacity: root.enabled ? 1.0 : 0.5;
+
+    animate background, border-color { duration: 120ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { root.picked(); }
+
+        well := Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.width * 9 / 16;
+            background: root.launch ? Theme.launch-well : Theme.field;
+            clip: true;
+
+            if root.template.poster.width > 0: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.template.poster;
+                image-fit: cover;
+            }
+
+            if root.template.poster.width == 0: Schematic {
+                width: parent.width;
+                height: parent.height;
+                ratio: root.template.ratio;
+                slots: root.template.slots;
+                room: parent.height * 0.62;
+            }
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            if root.deletable: Rectangle {
+                x: parent.width - self.width - 6px;
+                y: 6px;
+                width: 24px;
+                height: 24px;
+                border-radius: self.width / 2;
+                background: remove.has-hover ? Theme.danger : Theme.overlay;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.trash;
+                    size: 11px;
+                    tint: remove.has-hover ? Theme.on-scrim : Theme.fg-muted;
+                }
+
+                remove := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.deleted(); }
+                }
+
+                Tip {
+                    text: I18n.t("templates.delete");
+                    active: remove.has-hover;
+                }
+            }
+        }
+
+        VerticalLayout {
+            x: 10px;
+            y: well.height + 8px;
+            width: parent.width - 20px;
+            height: self.preferred-height;
+            spacing: 2px;
+
+            Text {
+                text: root.template.name;
+                color: Theme.fg;
+                font-size: root.launch ? Theme.fs-xl : Theme.fs;
+                font-weight: Theme.weight-title;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.template.detail;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+// Every template, as a grid of cards: the same arithmetic as the projects
+// grid on the launch screen, since Slint has no auto-fill grid either.
+export component TemplateGrid inherits Rectangle {
+    in property <[TemplateCardData]> templates;
+    in property <bool> enabled: true;
+    in property <bool> touchy;
+    in property <bool> launch;
+    in property <length> min-card: 210px;
+    in property <length> gap: 14px;
+
+    callback picked(path: string);
+    callback deleted(path: string, name: string);
+
+    property <int> cols: Math.max(1,
+        Math.floor((root.width + root.gap) / (root.min-card + root.gap)));
+    property <length> card-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <length> card-h: root.card-w * 9 / 16 + (root.launch ? 60px : 48px);
+    property <int> rows: Math.ceil(root.templates.length / root.cols);
+
+    height: Math.max(0px, root.rows * (root.card-h + root.gap) - root.gap);
+
+    for template[index] in root.templates: TemplateCard {
+        x: Math.mod(index, root.cols) * (root.card-w + root.gap);
+        y: Math.floor(index / root.cols) * (root.card-h + root.gap);
+        width: root.card-w;
+        height: root.card-h;
+        template: template;
+        enabled: root.enabled;
+        touchy: root.touchy;
+        launch: root.launch;
+        picked => { root.picked(template.path); }
+        deleted => { root.deleted(template.path, template.name); }
+    }
+}
+
+// One slot on the sheet: its number, what it wants, and the file in it.
+// The whole row picks a file; the cross empties it again.
+component SlotRow inherits Rectangle {
+    in property <TemplateSlotData> slot;
+    in property <bool> enabled: true;
+
+    callback pick();
+    callback clear();
+
+    height: 52px;
+    border-radius: Theme.r;
+    background: touch.has-hover && root.enabled ? Theme.field-hover : Theme.field;
+    border-width: 1px;
+    border-color: root.slot.filled ? Theme.accent.with-alpha(0.5) : Colors.transparent;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.pick(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 10px;
+
+        // The slot's number, in the accent once it is filled.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                background: root.slot.filled ? Theme.accent : Theme.raised;
+
+                Text {
+                    text: root.slot.label;
+                    color: root.slot.filled ? Theme.on-accent : Theme.fg-muted;
+                    font-family: Theme.font-technical;
+                    font-size: Theme.fs-sm;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 52px;
+                height: 36px;
+                border-radius: Theme.r-sm;
+                background: root.slot.still ? Theme.kind-image-well : Theme.kind-video-well;
+                clip: true;
+
+                if root.slot.picture.width > 0: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.slot.picture;
+                    image-fit: cover;
+                }
+
+                if root.slot.picture.width == 0: Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: !root.slot.filled ? Glyph.plus
+                        : root.slot.still ? Glyph.image : Glyph.film;
+                    size: 14px;
+                    tint: !root.slot.filled ? Theme.fg-dim
+                        : root.slot.still ? Theme.kind-image : Theme.kind-video;
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            spacing: 2px;
+
+            Text {
+                text: root.slot.busy ? I18n.t("templates.reading")
+                    : root.slot.filled ? root.slot.file
+                    : I18n.t("templates.choosePhotoOrVideo");
+                color: root.slot.filled ? Theme.fg : Theme.fg-muted;
+                font-size: Theme.fs;
+                overflow: elide;
+            }
+
+            Text {
+                text: root.slot.detail;
+                color: Theme.fg-dim;
+                font-family: Theme.font-technical;
+                font-size: Theme.fs-sm;
+                overflow: elide;
+            }
+        }
+
+        if root.slot.filled: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: Theme.r-sm;
+                background: empty.has-hover ? Theme.raised : Colors.transparent;
+
+                Icon {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    glyph: Glyph.close;
+                    size: 11px;
+                    tint: empty.has-hover ? Theme.fg : Theme.fg-muted;
+                }
+
+                empty := TouchArea {
+                    enabled: root.enabled;
+                    mouse-cursor: pointer;
+                    clicked => { root.clear(); }
+                }
+            }
+        }
+    }
+}
+
+// The sheet a picked template opens: its slots to fill, a name for what it
+// makes, and the button that makes it.
+export component TemplateFillDialog inherits Modal {
+    in property <TemplateFillData> data;
+
+    callback name-edited(name: string);
+    callback pick-slot(index: int);
+    callback clear-slot(index: int);
+    callback pick-all();
+    callback create();
+
+    open: root.data.open;
+    title: root.data.title;
+    glyph: Glyph.slot;
+    note: root.data.detail;
+    dismissable: !root.data.busy;
+    surface-width: 560px;
+
+    VerticalLayout {
+        DialogSection {
+            first: true;
+            title: I18n.t2("templates.slotsFilled", root.data.filled, root.data.total);
+
+            Text {
+                text: I18n.t("templates.pickFilesHint");
+                color: Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+
+            Flickable {
+                height: Math.min(slot-list.preferred-height, 300px);
+                content-height: slot-list.preferred-height;
+                interactive: slot-list.preferred-height > 300px;
+
+                slot-list := VerticalLayout {
+                    spacing: 4px;
+
+                    for slot[index] in root.data.slots: SlotRow {
+                        slot: slot;
+                        enabled: !root.data.busy;
+                        pick => { root.pick-slot(index); }
+                        clear => { root.clear-slot(index); }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                Button {
+                    label: I18n.t("templates.fillAllAtOnce");
+                    glyph: Glyph.import;
+                    enabled: !root.data.busy;
+                    clicked => { root.pick-all(); }
+                }
+            }
+        }
+
+        DialogSection {
+            title: I18n.t("templates.newProject");
+
+            Field {
+                value: root.data.name;
+                placeholder: I18n.t("common.untitledProject");
+                edited(text) => { root.name-edited(text); }
+            }
+
+            if root.data.error != "": Text {
+                text: root.data.error;
+                color: Theme.danger;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            padding: 14px;
+            padding-top: 4px;
+            alignment: end;
+            spacing: 8px;
+
+            Button {
+                label: I18n.t("common.cancel");
+                enabled: !root.data.busy;
+                clicked => { root.closed(); }
+            }
+
+            Button {
+                primary: true;
+                label: root.data.busy ? I18n.t("templates.making")
+                    : I18n.t("templates.createVideo");
+                enabled: !root.data.busy && root.data.total > 0
+                    && root.data.filled == root.data.total;
+                clicked => { root.create(); }
+            }
+        }
+    }
+}

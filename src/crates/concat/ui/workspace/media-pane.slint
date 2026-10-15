@@ -4,6 +4,7 @@
 import { I18n } from "../i18n.slint";
 import { Theme, Fmt, Glyph, Icon, Payload, Tip } from "../primitives/primitives.slint";
 import { Pane, PaneScroll } from "pane.slint";
+import { TemplateGrid, Templates } from "../templates.slint";
 import { HairlineSplitter } from "splitter.slint";
 import { PaneKind, PaneSwitcher } from "pane-switcher.slint";
 import { TextAlignment } from "../timeline/model.slint";
@@ -87,6 +88,9 @@ export struct MediaItemData {
     /// a file should look like itself wherever it is drawn.
     wave: string,
     selected: bool,
+    /// A template slot: the file stands in for whatever a template made
+    /// from this project will be filled with.
+    slot: bool,
 }
 
 // ── the page strip ───────────────────────────────────────────────────────────
@@ -627,6 +631,41 @@ export component MediaCard inherits Rectangle {
                         glyph: SourcePreview.playing ? Glyph.pause : Glyph.play;
                         size: 12px;
                         tint: Theme.on-scrim;
+                    }
+                }
+
+                // A template slot says so on the card, top left, where the
+                // remove cross is not: marking one is done off the card's
+                // menu, and a mark nobody can see is a mark nobody trusts.
+                if root.item.slot: Rectangle {
+                    x: 4px;
+                    y: 4px;
+                    width: slot-row.preferred-width + 8px;
+                    height: 16px;
+                    border-radius: Theme.r-xs;
+                    background: Theme.accent;
+
+                    slot-row := HorizontalLayout {
+                        x: 4px;
+                        spacing: 3px;
+                        alignment: center;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                glyph: Glyph.slot;
+                                size: 9px;
+                                tint: Theme.on-accent;
+                            }
+                        }
+
+                        Text {
+                            text: I18n.t("mediaPane.slotBadge");
+                            color: Theme.on-accent;
+                            font-size: Theme.fs-xs;
+                            font-weight: Theme.weight-title;
+                            vertical-alignment: center;
+                        }
                     }
                 }
 
@@ -2484,21 +2523,35 @@ export component MediaPane inherits Rectangle {
                     }
                 }
 
-                // Templates: the save affordance, then the gallery of saved
-                // templates, which shows its empty state until one is saved.
-                if root.tab == 6: HorizontalLayout {
+                // Templates: the save affordance, then the gallery - the
+                // app's own and the user's - whose cards open the sheet
+                // that fills one into a new project.
+                if root.tab == 6: VerticalLayout {
                     padding: 8px;
+                    spacing: 8px;
 
-                    ImportButton {
-                        label: I18n.t("mediaPane.saveProjectTemplate");
-                        glyph: Glyph.slot;
-                        clicked => { root.save-template(); }
+                    HorizontalLayout {
+                        ImportButton {
+                            label: I18n.t("mediaPane.saveProjectTemplate");
+                            glyph: Glyph.slot;
+                            clicked => { root.save-template(); }
+                        }
                     }
-                }
 
-                if root.tab == 6: Empty {
-                    glyph: Glyph.slot;
-                    text: I18n.t("mediaPane.noTemplatesYetMark");
+                    Text {
+                        text: I18n.t("mediaPane.templatesHint");
+                        color: Theme.fg-dim;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+
+                    TemplateGrid {
+                        templates: Templates.cards;
+                        min-card: 132px;
+                        gap: 8px;
+                        picked(path) => { Templates.picked(path); }
+                        deleted(path, name) => { Templates.deleted(path, name); }
+                    }
                 }
             }
         }
