@@ -103,7 +103,7 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 You need Rust 1.93 or newer (see `rust-version` in `src/Cargo.toml`), the FFmpeg 7+ development libraries, cmake and a C++ compiler.
 
 - **macOS:** `brew install ffmpeg`
-- **Windows:** download a [BtbN](https://www.gyan.dev/ffmpeg/builds/) `shared` build, unpack it and point `FFMPEG_DIR` at it
+- **Windows:** from [FFmpeg's Windows downloads](https://ffmpeg.org/download.html#build-windows), take BtbN's `win64-gpl-shared` build (the one CI uses), unpack it and point `FFMPEG_DIR` at it
 - **Linux:** use your distro's FFmpeg if it is version 7 or newer, otherwise use a BtbN `shared` build with `FFMPEG_DIR` like on Windows
 
 Then:
