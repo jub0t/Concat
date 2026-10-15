@@ -1997,3 +1997,287 @@ fn a_reversed_span_plays_its_seconds_backwards() {
     heard.expect_tone(1.5);
     heard.expect_quiet(2.5);
 }
+
+/// The selection after deleting pauses is a new source, not a longer
+/// window on the old recording. Rendering the replacement must never bring
+/// the deleted seconds back, and its sound must make the same cuts.
+#[test]
+fn consolidation_after_pause_removal_preserves_picture_sound_and_undo() {
+    use concat_host::consolidate::Consolidation;
+
+    let scratch = Scratch::new("consolidation");
+    let sources = Sources::make(scratch.path());
+    let mut studio = Studio::new(scratch.path(), "Merged", video(WIDTH, HEIGHT, 30, 1));
+    let media_id = studio.import(&sources.peek);
+    studio.apply(Command::AddClipAtFirstFree {
+        media_id,
+        start: 0.0,
+    });
+    for time in [1.0, 2.0, 3.0, 5.0] {
+        studio.apply(Command::SplitClips {
+            clip_ids: studio.clip_ids(),
+            time,
+        });
+    }
+    let removed = studio
+        .project()
+        .active()
+        .clips
+        .iter()
+        .filter(|clip| clip.source_start == 1.0 || clip.source_start == 3.0)
+        .map(|clip| clip.id.clone())
+        .collect();
+    studio.apply(Command::RemoveClips {
+        clip_ids: removed,
+        ripple: true,
+    });
+    let ids = studio.clip_ids();
+    assert_eq!(ids.len(), 3);
+    for id in &ids {
+        studio.apply(Command::UpdateClip {
+            clip_id: id.clone(),
+            patch: ClipPatch {
+                volume: Some(0.6),
+                ..Default::default()
+            },
+        });
+    }
+    let before = studio.project().clone();
+    let plan = Consolidation::new(studio.project(), &ids).expect("valid selection");
+    let folder = Path::new(studio.session.path()).join("media");
+    std::fs::create_dir_all(&folder).unwrap();
+    let output = folder.join("merged.mp4");
+    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    export::run(&request, &AtomicBool::new(false), |_| {}).expect("renders merged media");
+    let exported = Exported::read("merged media", &output, (30, 1));
+    exported.expect_length(3.0);
+    exported.expect_sound(3.0);
+    for (at, second) in [(0.5, 0), (1.5, 2), (2.5, 5)] {
+        exported.expect_second(at, second);
+    }
+    exported.expect_quiet(0.5);
+    exported.expect_quiet(1.5);
+    exported.expect_tone(2.5);
+
+    let item = media::probe(output.to_str().unwrap())
+        .unwrap()
+        .to_new_media();
+    let command = plan
+        .replacement(studio.project(), item)
+        .expect("inputs unchanged");
+    studio.apply(command);
+    assert_eq!(studio.clip_ids().len(), 1);
+    let merged = &studio.project().active().clips[0];
+    assert_eq!(
+        (merged.volume, merged.speed, merged.source_start),
+        (1.0, 1.0, 0.0)
+    );
+    // The usual export also saves/reopens the project, exercising persistence.
+    let final_export = studio.export("one merged clip");
+    final_export.expect_length(3.0);
+    final_export.expect_sound(3.0);
+    final_export.expect_second(1.5, 2);
+    final_export.expect_second(2.5, 5);
+    final_export.expect_tone(2.5);
+    studio.session.undo();
+    assert_eq!(studio.project(), &before);
+    studio.session.redo();
+    assert_eq!(studio.clip_ids().len(), 1);
+
+    let cancelled = AtomicBool::new(true);
+    let cancelled_path = folder.join("cancelled.mp4");
+    let request = plan.request(&before, Path::new(studio.session.path()), &cancelled_path);
+    assert!(export::run(&request, &cancelled, |_| {}).is_err());
+    assert!(
+        !cancelled_path.exists(),
+        "a cancelled render is never a completed source"
+    );
+}
+
+#[test]
+fn consolidation_of_silent_fractional_frames_covers_the_original_span() {
+    use concat_host::consolidate::Consolidation;
+
+    let scratch = Scratch::new("consolidation-fractional");
+    let source = scratch.path().join("silent.mp4");
+    picture(&source, FrameRate::THIRTY, 3, VideoCodec::H264);
+    let mut studio = Studio::new(scratch.path(), "Fractional", video(WIDTH, HEIGHT, 30, 1));
+    let media_id = studio.import(&source);
+    let id = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id,
+            start: 0.0,
+        })
+        .unwrap();
+    studio.apply(Command::TrimClip {
+        clip_id: id,
+        edge: TrimEdge::End,
+        delta: -1.92,
+        ripple: false,
+    });
+    studio.apply(Command::SplitClips {
+        clip_ids: studio.clip_ids(),
+        time: 0.54,
+    });
+    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let output = scratch.path().join("merged.mp4");
+    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
+    let exported = Exported::read("fractional source", &output, (30, 1));
+    exported.expect_length(1.1); // 33 frames cover the original 1.08 seconds.
+    exported.expect_no_sound();
+    let item = media::probe(output.to_str().unwrap())
+        .unwrap()
+        .to_new_media();
+    studio.apply(plan.replacement(studio.project(), item).unwrap());
+    assert!((studio.project().active().clips[0].duration - 1.08).abs() < 1e-9);
+}
+
+#[test]
+fn consolidation_preserves_the_timeline_clock_of_animated_effects() {
+    use concat_host::consolidate::Consolidation;
+
+    let scratch = Scratch::new("consolidation-clock");
+    let source = scratch.path().join("bright.mp4");
+    let mut encoder = Encoder::create(
+        &source,
+        WIDTH,
+        HEIGHT,
+        FrameRate::THIRTY,
+        &EncodeOptions {
+            preset: "ultrafast".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut frame = Frame::black(WIDTH, HEIGHT);
+    frame.fill([220, 220, 220, 255]);
+    for _ in 0..60 {
+        encoder.write_frame(&frame).unwrap();
+    }
+    encoder.finish().unwrap();
+    let mut studio = Studio::new(scratch.path(), "Clock", video(WIDTH, HEIGHT, 30, 1));
+    let media_id = studio.import(&source);
+    let id = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id,
+            start: 5.0,
+        })
+        .unwrap();
+    studio.apply(Command::UpdateClip {
+        clip_id: id,
+        patch: ClipPatch {
+            video_effects: Some(vec![AppliedFilter {
+                id: "concat.bloom-pulse".into(),
+                params: [("amount".into(), 100.0), ("speed".into(), 2.0)]
+                    .into_iter()
+                    .collect(),
+                enabled: true,
+                keys: Default::default(),
+            }]),
+            ..Default::default()
+        },
+    });
+    studio.apply(Command::SplitClips {
+        clip_ids: studio.clip_ids(),
+        time: 6.0,
+    });
+    let baseline = studio.export("before consolidation");
+    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let output = scratch.path().join("merged.mp4");
+    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    assert_eq!(request.effect_time_offset, 5.0);
+    export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
+    let baked = Exported::read("baked effect", &output, (30, 1));
+    for at in [0.2, 0.5, 0.8, 1.2, 1.5] {
+        let expected = baseline.colour_at(5.0 + at);
+        let got = baked.colour_at(at);
+        assert!(
+            got.iter()
+                .zip(expected)
+                .all(|(got, expected)| got.abs_diff(expected) <= 3),
+            "effect phase changed at {at}s: expected {expected:?}, got {got:?}"
+        );
+    }
+}
+
+#[test]
+fn consolidation_keeps_the_global_frame_grid_at_fractional_starts() {
+    use concat_host::consolidate::Consolidation;
+
+    let scratch = Scratch::new("consolidation-frame-grid");
+    let source = scratch.path().join("source.mp4");
+    picture(&source, FrameRate::THIRTY, 3, VideoCodec::H264);
+    let mut studio = Studio::new(scratch.path(), "Grid", video(WIDTH, HEIGHT, 30, 1));
+    let media_id = studio.import(&source);
+    let id = studio
+        .apply(Command::AddClipAtFirstFree {
+            media_id,
+            start: 5.01,
+        })
+        .unwrap();
+    studio.apply(Command::TrimClip {
+        clip_id: id,
+        edge: TrimEdge::End,
+        delta: -0.98,
+        ripple: false,
+    });
+    studio.apply(Command::SplitClips {
+        clip_ids: studio.clip_ids(),
+        time: 5.05,
+    });
+    // JSON parsing can normalize a raw subframe float by one ULP. Compare
+    // actual persisted renders here, not the generic helper's exact f64
+    // equality assertion; the boundary being tested is the video frame grid.
+    let draw = |studio: &mut Studio, label: &str| {
+        studio.session.save(None).unwrap();
+        let reopened = Session::open(studio.session.path(), studio.session.settings()).unwrap();
+        let output = studio.exports.join(format!("{label}.mp4"));
+        let request = export::request(
+            &reopened,
+            &ExportSpec {
+                output: output.to_string_lossy().into_owned(),
+                crf: 16,
+                preset: "fast".into(),
+                ..Default::default()
+            },
+            Vec::new(),
+        );
+        export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
+        Exported::read(label, &output, (30, 1))
+    };
+    let baseline = draw(&mut studio, "original-frame-grid");
+    let plan = Consolidation::new(studio.project(), &studio.clip_ids()).unwrap();
+    let output = scratch.path().join("merged.mp4");
+    let request = plan.request(studio.project(), Path::new(studio.session.path()), &output);
+    export::run(&request, &AtomicBool::new(false), |_| {}).unwrap();
+    let baked = Exported::read("rebased grid", &output, (30, 1));
+    let item = media::probe(output.to_str().unwrap())
+        .unwrap()
+        .to_new_media();
+    studio.apply(plan.replacement(studio.project(), item).unwrap());
+    let final_export = draw(&mut studio, "adopted-frame-grid");
+    assert_eq!(final_export.frames.len(), baseline.frames.len());
+    for frame in [0, 1, 2, 3, 4, 30, 60] {
+        let expected = baseline.frames[150 + frame]
+            .pixel(WIDTH / 2, HEIGHT / 2)
+            .unwrap();
+        let got = baked.frames[frame].pixel(WIDTH / 2, HEIGHT / 2).unwrap();
+        let adopted = final_export.frames[150 + frame]
+            .pixel(WIDTH / 2, HEIGHT / 2)
+            .unwrap();
+        assert!(
+            adopted
+                .iter()
+                .zip(expected)
+                .all(|(got, expected)| got.abs_diff(expected) <= 3),
+            "adopted frame {frame}: expected {expected:?}, got {adopted:?}"
+        );
+        assert!(
+            got.iter()
+                .zip(expected)
+                .all(|(got, expected)| got.abs_diff(expected) <= 3),
+            "frame {frame}: expected {expected:?}, got {got:?}"
+        );
+    }
+}

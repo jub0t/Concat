@@ -20,7 +20,7 @@ use crate::model::{
 
 mod audio;
 mod clips;
-pub use clips::why_not_merge;
+pub use clips::{consolidation_clips, why_not_merge};
 mod media;
 mod properties;
 mod timelines;
@@ -560,6 +560,15 @@ pub enum Command {
         /// The pieces to rejoin, any order.
         clip_ids: Vec<String>,
     },
+    /// Replaces selected video clips with their host-rendered media, as one
+    /// undoable edit. Keeps the earliest clip's id, track and timeline span;
+    /// resets baked properties. The host must render only these clips first.
+    ConsolidateClips {
+        /// Two or more video clips on one track, in any order.
+        clip_ids: Vec<String>,
+        /// The completed, probed render stored in the project media folder.
+        item: NewMedia,
+    },
     /// Deletes clips from the active timeline. Unknown ids are ignored.
     RemoveClips {
         /// The clips to delete.
@@ -899,9 +908,9 @@ impl Command {
         }
         match self {
             Command::Batch { commands } => commands.iter().any(Command::has_non_finite),
-            Command::AddMedia { item } | Command::FillSlot { item, .. } => {
-                bad(item.duration) || bad(item.frame_rate)
-            }
+            Command::AddMedia { item }
+            | Command::FillSlot { item, .. }
+            | Command::ConsolidateClips { item, .. } => bad(item.duration) || bad(item.frame_rate),
             Command::AddClip { start, .. } | Command::AddClipAtFirstFree { start, .. } => {
                 bad([*start])
             }
@@ -1080,6 +1089,7 @@ pub fn apply(
         | Command::ReplaceClipMedia { .. }
         | Command::SetClipEnhanced { .. }
         | Command::MergeClips { .. }
+        | Command::ConsolidateClips { .. }
         | Command::RemoveClips { .. }) => clips::apply(project, mint, command),
         command @ (Command::UpdateClip { .. }
         | Command::SetClipSpeed { .. }

@@ -78,6 +78,7 @@ pub fn request(session: &Session, spec: &ExportSpec, titles: Vec<ExportClip>) ->
         color_range: spec.color_range,
         color_space: session.video().color_space,
         hdr: spec.hdr,
+        effect_time_offset: 0.0,
         clips,
     }
 }

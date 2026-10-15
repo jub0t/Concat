@@ -47,6 +47,7 @@ export component TimelinePane inherits Rectangle {
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <string> merge-blocked-because;
+    in property <string> merge-label;
     in property <bool> sound-selected;
     in property <bool> title-selected;
     in property <bool> picture-selected;
@@ -318,6 +319,7 @@ export component TimelinePane inherits Rectangle {
             can-undo: root.can-undo;
             can-redo: root.can-redo;
             merge-blocked-because: root.merge-blocked-because;
+            merge-label: root.merge-label;
             sound-selected: root.sound-selected;
             title-selected: root.title-selected;
             picture-selected: root.picture-selected;

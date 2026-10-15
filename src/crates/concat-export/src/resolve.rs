@@ -223,7 +223,7 @@ pub(crate) fn build_timeline(
         // Quantise to the frame grid on the way in. The UI works in f64
         // seconds; the engine works in exact rationals, and this is the seam
         // where a value stops being approximate.
-        let start = quantise(clip.start, rate);
+        let start = quantise_at(clip.start, rate, request.effect_time_offset);
         let duration = quantise(clip.duration, rate);
         if duration.is_zero() {
             continue;
@@ -445,4 +445,10 @@ pub(crate) fn fitted_size(
 
 pub(crate) fn quantise(seconds: f64, rate: FrameRate) -> Rational {
     rate.time_of_frame((seconds * rate.fps().as_f64()).round().max(0.0) as i64)
+}
+
+/// Rebase a frame-grid timestamp without rounding a raw subtraction. Audio
+/// keeps the raw local placement; video retains its original global grid.
+pub(crate) fn quantise_at(seconds: f64, rate: FrameRate, origin: f64) -> Rational {
+    quantise(seconds + origin, rate) - quantise(origin, rate)
 }
