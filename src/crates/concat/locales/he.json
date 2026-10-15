@@ -952,6 +952,8 @@
   "sysinfo.processor": "מעבד",
   "sysinfo.renderer": "מרנדר",
   "sysinfo.toolchain": "שרשרת כלים",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "רקע",
   "textPanel.backgroundColor": "צבע רקע",
   "textPanel.backgroundOpacity": "אטימות רקע",

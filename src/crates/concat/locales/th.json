@@ -952,6 +952,8 @@
   "sysinfo.processor": "โปรเซสเซอร์",
   "sysinfo.renderer": "ตัวเรนเดอร์",
   "sysinfo.toolchain": "ทูลเชน",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "พื้นหลัง",
   "textPanel.backgroundColor": "สีพื้นหลัง",
   "textPanel.backgroundOpacity": "ความทึบพื้นหลัง",

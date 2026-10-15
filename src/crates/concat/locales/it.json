@@ -952,6 +952,8 @@
   "sysinfo.processor": "Processore",
   "sysinfo.renderer": "Renderer",
   "sysinfo.toolchain": "Toolchain",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Sfondo",
   "textPanel.backgroundColor": "Colore dello sfondo",
   "textPanel.backgroundOpacity": "Opacità dello sfondo",

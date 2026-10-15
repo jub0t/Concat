@@ -952,6 +952,8 @@
   "sysinfo.processor": "Процессор",
   "sysinfo.renderer": "Рендерер",
   "sysinfo.toolchain": "Инструментарий",
+  "textPanel.applyToAll": "Применить ко всем",
+  "textPanel.applyToAllHint": "Применить стиль и положение ко всем текстовым клипам этой дорожки.",
   "textPanel.background": "Фон",
   "textPanel.backgroundColor": "Цвет фона",
   "textPanel.backgroundOpacity": "Непрозрачность фона",

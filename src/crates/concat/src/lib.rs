@@ -752,6 +752,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     });
     // Font files, the way media files come in: the system's picker, and
     // the answer later, on the window's thread.
+    editor.on_text_style_apply_all(on_window!(|state| {
+        state.apply_title_style_to_track();
+    }));
     editor.on_text_style_default(on_window!(|state| {
         state.use_title_style_for_new();
     }));
