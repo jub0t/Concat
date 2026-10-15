@@ -952,6 +952,8 @@
   "sysinfo.processor": "المعالج",
   "sysinfo.renderer": "أداة التصيير",
   "sysinfo.toolchain": "سلسلة الأدوات",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "الخلفية",
   "textPanel.backgroundColor": "لون الخلفية",
   "textPanel.backgroundOpacity": "عتامة الخلفية",

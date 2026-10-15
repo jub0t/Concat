@@ -952,6 +952,8 @@
   "sysinfo.processor": "প্রসেসর",
   "sysinfo.renderer": "রেন্ডারার",
   "sysinfo.toolchain": "টুলচেইন",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "ব্যাকগ্রাউন্ড",
   "textPanel.backgroundColor": "ব্যাকগ্রাউন্ডের রঙ",
   "textPanel.backgroundOpacity": "ব্যাকগ্রাউন্ডের অস্বচ্ছতা",

@@ -952,6 +952,8 @@
   "sysinfo.processor": "پروسیسر",
   "sysinfo.renderer": "رینڈرر",
   "sysinfo.toolchain": "ٹول چین",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "پس منظر",
   "textPanel.backgroundColor": "پس منظر کا رنگ",
   "textPanel.backgroundOpacity": "پس منظر کا دھندلاپن",

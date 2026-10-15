@@ -46,6 +46,8 @@ export component TextPanel inherits VerticalLayout {
     callback import-font();
     /// Keep this title's look for new titles and captions.
     callback set-default();
+    /// Copy this title's look to all other titles on its lane.
+    callback apply-all();
 
     /// Several titles selected together: every knob writes to all of them
     /// and the words, each title's own, are not offered.
@@ -161,6 +163,24 @@ export component TextPanel inherits VerticalLayout {
         padding-bottom: 6px;
         Text {
             text: I18n.t1("textPanel.editingTitles", "\{root.selected.batch}");
+            color: Theme.fg-muted;
+            font-size: Theme.fs;
+            wrap: word-wrap;
+        }
+    }
+
+    if !root.batch: SectionBody {
+        padding-left: Theme.pad;
+        padding-right: Theme.pad;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        Button {
+            label: I18n.t("textPanel.applyToAll");
+            ghost: true;
+            clicked => { root.apply-all(); }
+        }
+        Text {
+            text: I18n.t("textPanel.applyToAllHint");
             color: Theme.fg-muted;
             font-size: Theme.fs;
             wrap: word-wrap;

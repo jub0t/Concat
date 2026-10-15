@@ -952,6 +952,8 @@
   "sysinfo.processor": "프로세서",
   "sysinfo.renderer": "렌더러",
   "sysinfo.toolchain": "툴체인",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "배경",
   "textPanel.backgroundColor": "배경 색상",
   "textPanel.backgroundOpacity": "배경 불투명도",

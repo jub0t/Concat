@@ -952,6 +952,8 @@
   "sysinfo.processor": "Bộ xử lý",
   "sysinfo.renderer": "Bộ kết xuất",
   "sysinfo.toolchain": "Bộ công cụ biên dịch",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Nền",
   "textPanel.backgroundColor": "Màu nền",
   "textPanel.backgroundOpacity": "Độ mờ nền",

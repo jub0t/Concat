@@ -1342,6 +1342,47 @@ fn command_name(command: &Command) -> String {
         .collect()
 }
 
+/// The selected title's look on the other titles of its lane. Words and
+/// timing stay each title's own. Position is the value shown in the inspector;
+/// old position keys are removed so they cannot override the copied placement.
+fn title_style_commands(timeline: &Timeline, source_id: &str, playhead: f32) -> Vec<Command> {
+    let Some(source) = timeline
+        .clip(source_id)
+        .filter(|clip| clip.kind == model::ClipKind::Text)
+    else {
+        return Vec::new();
+    };
+    let Some(style) = &source.text else {
+        return Vec::new();
+    };
+    let at = place_in(source, playhead);
+    let mut commands = Vec::new();
+    for clip in &timeline.clips {
+        if clip.id == source.id
+            || clip.track_id != source.track_id
+            || clip.kind != model::ClipKind::Text
+        {
+            continue;
+        }
+        let mut after = clip.as_ref().clone();
+        let content = clip.text.clone().unwrap_or_default().content;
+        after.text = Some(TextStyle {
+            content,
+            ..style.clone()
+        });
+        after.offset_x = shown(source, model::KeyProperty::OffsetX, at);
+        after.offset_y = shown(source, model::KeyProperty::OffsetY, at);
+        after.keys.retain(|key| {
+            !matches!(
+                key.property,
+                model::KeyProperty::OffsetX | model::KeyProperty::OffsetY
+            )
+        });
+        commands.extend(clip_commands(&clip.id, clip, &after));
+    }
+    commands
+}
+
 /// The commands that turn `before` into `after`, clip `id` as the echo
 /// left it against the document's: a transform, a cutout, a speed, the
 /// keys, and one patch for everything else that differs. Empty when
@@ -4950,6 +4991,29 @@ impl Studio {
         self.prefs.title_style = Some(style);
         self.prefs.save(&self.host.dirs);
         self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
+    }
+
+    /// Applies one title's current look to the other titles on its unlocked
+    /// lane, as one undoable edit. Land the last inspector gesture first so
+    /// a click straight after changing a control uses the latest look.
+    pub fn apply_title_style_to_track(&mut self) {
+        self.flush_commit();
+        // The content field writes the echo before requesting a commit on
+        // blur. A button click need not move focus, so land that edit too.
+        self.commit_now();
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(clip) = self.clip(&id) else {
+            return;
+        };
+        if self.locked(&clip.track_id) {
+            return;
+        }
+        let commands = title_style_commands(self.timeline(), &id, self.playhead);
+        if !commands.is_empty() {
+            self.apply(Command::Batch { commands });
+        }
     }
 
     /// The inspector's gesture is over: what differs between the echo and
@@ -10534,6 +10598,150 @@ mod tests {
         custom_rate, fps_of, grading_rows, home_folder, key_commands, packed, place_in, shown,
         wheel_partners, write_keyable,
     };
+
+    /// Applying a caption's look changes only its lane's other titles,
+    /// preserves their words and timing, and undoes as one edit.
+    #[test]
+    fn a_title_style_applies_to_its_lane_and_undoes_together() {
+        use concat_project::Editor;
+        use concat_project::model::{TextAlign, TextStyle};
+        let mut editor = Editor::new();
+        let style = TextStyle {
+            content: "First caption".into(),
+            font_family: "Hanken Grotesk".into(),
+            font_size: 0.05,
+            font_weight: 600.0,
+            italic: true,
+            color: "#ffcc00".into(),
+            align: TextAlign::Left,
+            opacity: 0.8,
+            stroke_width: 0.003,
+            stroke_color: "#112233aa".into(),
+            shadow: false,
+            background: "#000000aa".into(),
+            background_radius: 0.01,
+            background_padding_x: 0.02,
+            background_padding_y: 0.01,
+            line_height: 1.4,
+            tracking: 0.002,
+            max_width: 0.8,
+            max_height: 0.2,
+        };
+        let mut add = |track: &str, start, style| {
+            editor
+                .apply(Command::AddTextClip {
+                    track_id: Some(track.into()),
+                    above: false,
+                    start,
+                    style: Some(style),
+                    duration: Some(2.0),
+                    offset_y: Some(0.3),
+                })
+                .unwrap()
+                .created_id
+                .unwrap()
+        };
+        let source = add("T2", 0.0, style.clone());
+        let target = add(
+            "T2",
+            3.0,
+            TextStyle {
+                content: "Second caption".into(),
+                ..TextStyle::default()
+            },
+        );
+        let third = add(
+            "T2",
+            6.0,
+            TextStyle {
+                content: "Third caption".into(),
+                ..TextStyle::default()
+            },
+        );
+        let other = add(
+            "T1",
+            6.0,
+            TextStyle {
+                content: "Separate heading".into(),
+                ..TextStyle::default()
+            },
+        );
+        editor
+            .apply(Command::SetClipTransform {
+                clip_id: source.clone(),
+                scale: None,
+                offset_x: Some(0.1),
+                offset_y: Some(-0.25),
+                rotation: None,
+                stretch_x: None,
+                stretch_y: None,
+            })
+            .unwrap();
+        // Position keys on the recipient must not override the copied
+        // placement; unrelated animation stays the recipient's own.
+        for (property, value) in [
+            (super::model::KeyProperty::OffsetY, 0.4),
+            (super::model::KeyProperty::Opacity, 0.6),
+        ] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: target.clone(),
+                    property,
+                    at: 0.0,
+                    value,
+                    ease: super::model::KeyEase::LINEAR,
+                })
+                .unwrap();
+        }
+        for (at, value) in [(0.0, 0.1), (1.0, 0.3)] {
+            editor
+                .apply(Command::SetClipKey {
+                    clip_id: source.clone(),
+                    property: super::model::KeyProperty::OffsetX,
+                    at,
+                    value,
+                    ease: super::model::KeyEase::LINEAR,
+                })
+                .unwrap();
+        }
+        let before = editor.project().clone();
+        let commands = super::title_style_commands(before.active(), &source, 1.0);
+        assert!(!commands.is_empty());
+        editor.apply(Command::Batch { commands }).unwrap();
+        let after = editor.project().clone();
+        let caption = after.active().clip(&target).unwrap();
+        assert_eq!(
+            caption.text,
+            Some(TextStyle {
+                content: "Second caption".into(),
+                ..style.clone()
+            })
+        );
+        assert_eq!(
+            after.active().clip(&third).unwrap().text,
+            Some(TextStyle {
+                content: "Third caption".into(),
+                ..style
+            })
+        );
+        assert_eq!((caption.start, caption.duration), (3.0, 2.0));
+        assert!((caption.offset_x - 0.2).abs() < 1e-9);
+        assert_eq!(caption.offset_y, -0.25);
+        assert!(!caption.is_keyed(super::model::KeyProperty::OffsetY));
+        assert_eq!(
+            caption.value_at(super::model::KeyProperty::Opacity, 0.0),
+            0.6
+        );
+
+        assert_eq!(after.active().clip(&source), before.active().clip(&source));
+        assert_eq!(after.active().clip(&other), before.active().clip(&other));
+        assert!(super::title_style_commands(after.active(), &source, 1.0).is_empty());
+        assert!(editor.undo());
+        assert_eq!(editor.project(), &before);
+        assert!(editor.redo());
+        assert_eq!(editor.project(), &after);
+        assert!(super::title_style_commands(after.active(), "missing", 0.0).is_empty());
+    }
 
     /// A pasted group keeps its shape from `base` on, its rows shifted
     /// and held inside the lanes it lands in, a locked row passed over

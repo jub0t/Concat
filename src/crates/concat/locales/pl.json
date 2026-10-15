@@ -952,6 +952,8 @@
   "sysinfo.processor": "Procesor",
   "sysinfo.renderer": "Moduł renderujący",
   "sysinfo.toolchain": "Narzędzia kompilacji",
+  "textPanel.applyToAll": "Apply to all",
+  "textPanel.applyToAllHint": "Apply this style and position to every title on this track.",
   "textPanel.background": "Tło",
   "textPanel.backgroundColor": "Kolor tła",
   "textPanel.backgroundOpacity": "Krycie tła",
