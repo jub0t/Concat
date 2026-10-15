@@ -38,11 +38,14 @@ use concat_host::{
     templates,
 };
 use concat_media::{Pyramid, jpeg};
+use concat_project::Command;
 use concat_project::commands::{ClipMove, ClipPatch, TrackFlag, TrimEdge};
 use concat_project::model::{
     self, AppliedFilter, Clip, Project, TextAlign, TextStyle, Timeline, Track, Transition,
 };
-use concat_project::{Command, why_not_merge};
+
+mod consolidate;
+use consolidate::MergeJob;
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use crate::dock::{
@@ -948,6 +951,8 @@ pub struct Studio {
     enhance_jobs: HashMap<String, (bool, f32)>,
     /// Reverse writing a clip's backwards copy, by clip: how far along.
     reverse_jobs: HashMap<String, f32>,
+    /// A selection being rendered into one clip, with its own cancel flag.
+    merge_job: Option<MergeJob>,
     /// The smart stroke being read, by the same name, while one is.
     region_job: Option<String>,
     /// The last smart stroke as the stage drew it, kept on screen from the
@@ -2204,6 +2209,7 @@ impl Studio {
             cutout_jobs: HashMap::new(),
             enhance_jobs: HashMap::new(),
             reverse_jobs: HashMap::new(),
+            merge_job: None,
             region_job: None,
             pending_stroke: None,
             host,
@@ -6760,27 +6766,6 @@ impl Studio {
         self.selection.clear();
     }
 
-    pub fn merge_blocked(&self) -> Option<String> {
-        if self.selection.len() != 2 {
-            return Some(t("studio.selectTwoClipsMerge"));
-        }
-        why_not_merge(self.timeline(), &self.selection)
-    }
-
-    pub fn merge(&mut self) {
-        if self.merge_blocked().is_some() {
-            return;
-        }
-        let ids = self.selection.clone();
-        let kept = ids[0].clone();
-        self.apply(Command::MergeClips { clip_ids: ids });
-        self.selection = if self.clip(&kept).is_some() {
-            vec![kept]
-        } else {
-            Vec::new()
-        };
-    }
-
     /// A freeze frame at the playhead on a picture clip.
     ///
     /// Video extracts a JPEG still into the project cache; images reuse their
@@ -7313,6 +7298,7 @@ impl Studio {
         self.host.reversers.cancel();
         self.enhance_jobs.clear();
         self.reverse_jobs.clear();
+        self.cancel_merge();
         self.cutout_jobs.clear();
         self.region_job = None;
         if let Some(session) = self.session.as_mut() {
@@ -8026,6 +8012,7 @@ impl Studio {
         editor.set_picture_selected(picture_selected);
         editor.set_freezable(freezable);
         editor.set_reversible(reversible);
+        editor.set_merge_label(self.merge_label().into());
         editor.set_merge_blocked_because(match self.merge_blocked() {
             Some(reason) => reason.into(),
             None => SharedString::new(),
@@ -9688,6 +9675,13 @@ impl Studio {
                 straddled && !locked,
             ),
             action(
+                "merge",
+                self.merge_label(),
+                Glyph::Merge,
+                "",
+                self.merge_blocked().is_none(),
+            ),
+            action(
                 "freeze",
                 "Freeze frame".into(),
                 Glyph::Frame,
@@ -10430,6 +10424,7 @@ impl Studio {
                 self.split_at(at, true);
             }
             "freeze" => self.freeze_at_playhead(),
+            "merge" => self.merge(),
             // The menu opens the clip's Enhance in the inspector, where its
             // switch starts it and later turns it off and on again.
             "enhance" => {

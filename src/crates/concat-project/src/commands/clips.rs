@@ -609,6 +609,42 @@ pub(super) fn apply(
             })
         }
 
+        Command::ConsolidateClips { clip_ids, item } => {
+            let clips = consolidation_clips(project.active(), &clip_ids)?;
+            let first = &clips[0];
+            let end = clips
+                .iter()
+                .map(|clip| clip.start + clip.duration)
+                .fold(0.0, f64::max);
+            let duration = end - first.start;
+            if item.kind != MediaKind::Video
+                || item.path.is_empty()
+                || item.duration.is_none_or(|length| length + 1e-6 < duration)
+            {
+                return Err(CommandError::CannotMerge {
+                    reason: "The merged video does not cover the selected clips.".into(),
+                });
+            }
+            let path = item.path.clone();
+            super::media::apply(project, mint, Command::AddMedia { item })?;
+            let media = project
+                .media
+                .iter()
+                .find(|media| media.path == path)
+                .expect("imported above");
+            let mut merged =
+                default_clip(first.id.clone(), first.track_id.clone(), media, first.start);
+            merged.duration = duration;
+            let timeline = project.active_mut();
+            let selected: HashSet<_> = clip_ids.iter().collect();
+            timeline.clips.retain(|clip| !selected.contains(&clip.id));
+            timeline.clips.push(Arc::new(merged));
+            Ok(Outcome {
+                created_id: Some(first.id.clone()),
+                applied: true,
+            })
+        }
+
         Command::RemoveClips { clip_ids, ripple } => {
             let timeline = project.active_mut();
             let doomed: HashSet<&str> = clip_ids.iter().map(String::as_str).collect();
@@ -850,4 +886,119 @@ pub fn why_not_merge(timeline: &Timeline, clip_ids: &[String]) -> Option<String>
         }
     }
     None
+}
+
+/// Validates a selection for rendering into one clip, in timeline order.
+/// Gaps remain in the render. Unselected clips in its span are refused so
+/// the replacement cannot cover them. Source order and file need not match.
+pub fn consolidation_clips(
+    timeline: &Timeline,
+    clip_ids: &[String],
+) -> Result<Vec<Clip>, CommandError> {
+    let refuse = |reason: &str| CommandError::CannotMerge {
+        reason: reason.into(),
+    };
+    let selected: HashSet<_> = clip_ids.iter().collect();
+    if selected.len() < 2 || selected.len() != clip_ids.len() {
+        return Err(refuse("Select two or more distinct video clips to merge."));
+    }
+    let mut clips: Vec<Clip> = clip_ids
+        .iter()
+        .map(|id| {
+            timeline
+                .clip(id)
+                .cloned()
+                .ok_or_else(|| refuse("A selected clip no longer exists."))
+        })
+        .collect::<Result<_, _>>()?;
+    clips.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let first = &clips[0];
+    if clips
+        .iter()
+        .any(|clip| clip.kind != ClipKind::Video || clip.track_id != first.track_id)
+    {
+        return Err(refuse("Select video clips on the same track to merge."));
+    }
+    if timeline.track(&first.track_id).is_none() {
+        return Err(CommandError::TrackGone);
+    }
+    if clips
+        .windows(2)
+        .any(|pair| pair[1].start < pair[0].start + pair[0].duration - 1e-6)
+    {
+        return Err(refuse("Overlapping clips cannot be merged."));
+    }
+    if timeline.clips.iter().any(|clip| {
+        clip.detached_from
+            .as_ref()
+            .is_some_and(|id| selected.contains(id))
+    }) {
+        return Err(refuse(
+            "Reattach detached audio before merging its video clips.",
+        ));
+    }
+    let end = clips
+        .iter()
+        .map(|clip| clip.start + clip.duration)
+        .fold(0.0, f64::max);
+    if timeline.clips.iter().any(|clip| {
+        clip.track_id == first.track_id
+            && !selected.contains(&clip.id)
+            && clip.start < end - 1e-6
+            && clip.start + clip.duration > first.start + 1e-6
+    }) {
+        return Err(refuse("Select every clip inside the span to merge."));
+    }
+    // Rounding several subframe spans is not always equivalent to rounding
+    // their union. Refuse a span that one ordinary clip could truncate, or
+    // whose pieces overlap after quantisation, instead of losing a frame.
+    let fps = timeline.video.rate();
+    let frame = |seconds: f64| (seconds * fps).round();
+    let rendered_end = clips
+        .iter()
+        .map(|clip| frame(clip.start) + frame(clip.duration))
+        .fold(0.0, f64::max);
+    if rendered_end != frame(first.start) + frame(end - first.start)
+        || clips
+            .windows(2)
+            .any(|pair| frame(pair[1].start) < frame(pair[0].start) + frame(pair[0].duration))
+    {
+        return Err(refuse(
+            "Align clip boundaries to the timeline frame grid before merging.",
+        ));
+    }
+    // MP4 bakes against black and cannot carry the selection's alpha.
+    // Refuse a bake that would cover an existing lower-track composite.
+    let lane = timeline
+        .tracks
+        .iter()
+        .position(|track| track.id == first.track_id)
+        .expect("checked above");
+    if timeline.clips.iter().any(|clip| {
+        clip.kind != ClipKind::Audio
+            && clip.start < end
+            && clip.start + clip.duration > first.start
+            && timeline
+                .tracks
+                .iter()
+                .take(lane)
+                .any(|track| track.id == clip.track_id && track.visible)
+    }) {
+        return Err(refuse(
+            "Clips above other visible content cannot be merged into an opaque video.",
+        ));
+    }
+    // An edge transition needs footage outside the selected span. Internal
+    // transitions are rendered normally; never silently bake only half one.
+    if first.transition_in.is_some()
+        || timeline.clips.iter().any(|clip| {
+            clip.track_id == first.track_id
+                && !selected.contains(&clip.id)
+                && (clip.start - end).abs() < 1e-6
+                && clip.transition_in.is_some()
+        })
+    {
+        return Err(refuse("Include both sides of a transition in the merge."));
+    }
+    Ok(clips)
 }

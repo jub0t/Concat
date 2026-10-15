@@ -169,6 +169,7 @@ export component TimelineTray inherits Rectangle {
     in property <bool> can-redo;
     /// Empty when the selection can be merged; otherwise why it cannot.
     in property <string> merge-blocked-because;
+    in property <string> merge-label;
     /// What the selection offers the sound and word tools. Each is one
     /// clip's worth of truth, decided by Rust; see the Editor global.
     in property <bool> sound-selected;
@@ -279,7 +280,7 @@ export component TimelineTray inherits Rectangle {
             // so `label` — the accessible name, and where a tooltip will read
             // from — is the honest place to park it. A permanent caption in
             // the tray would answer a question nobody had asked yet.
-            label: root.merge-blocked-because == "" ? "Merge selected"
+            label: root.merge-blocked-because == "" ? root.merge-label
                 : root.merge-blocked-because;
             enabled: root.merge-blocked-because == "";
             icon-size: 16px;

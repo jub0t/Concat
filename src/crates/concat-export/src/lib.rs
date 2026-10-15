@@ -24,7 +24,9 @@ pub mod chains;
 pub mod flatten;
 mod resolve;
 
-use resolve::{BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise};
+use resolve::{
+    BuiltTimeline, TransitionSpan, Treatment, animation_of, build_timeline, quantise, quantise_at,
+};
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -365,6 +367,11 @@ pub struct ExportRequest {
     /// say.
     #[serde(default)]
     pub hdr: bool,
+    /// Original timeline origin when rendering a selection moved to zero.
+    /// Preserves the global video frame grid and shader clock; audio, clip
+    /// clocks and keyframe fractions keep their local timing.
+    #[serde(default)]
+    pub effect_time_offset: f64,
     /// The flattened clip list to render.
     pub clips: Vec<ExportClip>,
 }
@@ -533,6 +540,14 @@ pub(crate) fn transitions_at(shapes: &[TransitionShape], frame: i64) -> Vec<Tran
 /// path, so a project saved before packaged transitions existed renders
 /// exactly as it always did.
 fn resolve_transitions(clips: &mut Vec<ExportClip>, rate: FrameRate) -> Vec<TransitionSpan> {
+    resolve_transitions_at(clips, rate, 0.0)
+}
+
+fn resolve_transitions_at(
+    clips: &mut Vec<ExportClip>,
+    rate: FrameRate,
+    origin: f64,
+) -> Vec<TransitionSpan> {
     for clip in clips.iter_mut() {
         clip.track *= 2;
     }
@@ -691,7 +706,7 @@ fn resolve_transitions(clips: &mut Vec<ExportClip>, rate: FrameRate) -> Vec<Tran
                 // The dissolve a GPU-less path shows; the shader's own blend
                 // overrides it where a GPU runs the transition.
                 b.video_fade_in = d;
-                let start = quantise(b.start, rate);
+                let start = quantise_at(b.start, rate, origin);
                 let end = start + quantise(d, rate);
                 spans.push(TransitionSpan {
                     start,
@@ -883,6 +898,11 @@ pub fn render_on(
     compositor: Option<WgpuCompositor>,
     mut reporter: Reporter<'_>,
 ) -> Result<String, String> {
+    if !request.effect_time_offset.is_finite()
+        || request.effect_time_offset.abs() > concat_project::model::ranges::MAX_TIME
+    {
+        return Err("the effect timeline offset is not a valid time".into());
+    }
     if request.clips.is_empty() {
         return Err("there is nothing on the timeline to export".to_owned());
     }
@@ -912,7 +932,7 @@ pub fn render_on(
     // else reads the clip list, so the picture and sound paths below never
     // know transitions exist.
     let mut resolved = request.clips.clone();
-    let transitions = resolve_transitions(&mut resolved, rate);
+    let transitions = resolve_transitions_at(&mut resolved, rate, request.effect_time_offset);
 
     // Stills composite exactly like footage; they only differ in how they are
     // decoded, which is handled where the decoder is opened.
@@ -1305,6 +1325,7 @@ fn render_picture(
     destination: &Path,
     reporter: &mut Reporter<'_>,
 ) -> Result<(), String> {
+    let effect_offset = quantise(request.effect_time_offset, rate);
     let mut compositor = match compositor {
         Some(lent) => lent,
         None => best_compositor()?,
@@ -1517,7 +1538,10 @@ fn render_picture(
         // that died under it is black, and is drawn again on the device
         // that takes over. The copy is cheap - the pictures are shared.
         let mut composed = composite_treated(
-            &mut compositor,
+            &mut EffectClock {
+                inner: &mut compositor,
+                offset: effect_offset,
+            },
             frame_plan.clone(),
             &treatments,
             &transitions,
@@ -1533,7 +1557,10 @@ fn render_picture(
             );
             compositor = recovered(losses, hdr)?;
             composed = composite_treated(
-                &mut compositor,
+                &mut EffectClock {
+                    inner: &mut compositor,
+                    offset: effect_offset,
+                },
                 frame_plan.clone(),
                 &treatments,
                 &transitions,
@@ -1590,6 +1617,46 @@ fn passes_at(
         .clip(clip)
         .map_or(0.0, |engine_clip| engine_clip.fraction_at(time));
     Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned())
+}
+
+/// Only the shader clock moves. Planning, source decoding, animated effect
+/// parameters and transition progress use the selection's local timeline.
+struct EffectClock<'a> {
+    inner: &'a mut dyn Compositor,
+    offset: Rational,
+}
+
+impl Compositor for EffectClock<'_> {
+    fn render(&mut self, plan: &FramePlan) -> Frame {
+        if self.offset == Rational::ZERO {
+            return self.inner.render(plan);
+        }
+        let mut shifted = plan.clone();
+        shifted.time += self.offset;
+        for layer in &mut shifted.layers {
+            layer.clip_start += self.offset;
+        }
+        self.inner.render(&shifted)
+    }
+
+    fn combine(
+        &mut self,
+        width: u32,
+        height: u32,
+        time: f32,
+        from: &Frame,
+        to: &Frame,
+        pass: &concat_core::shader::TransitionPass,
+    ) -> Option<Frame> {
+        self.inner.combine(
+            width,
+            height,
+            time + self.offset.as_f64() as f32,
+            from,
+            to,
+            pass,
+        )
+    }
 }
 
 /// Draws `plan` with every treatment live at its instant applied to the
@@ -2038,6 +2105,7 @@ pub fn preview_plan(
         color_range: concat_media::ColorRange::Limited,
         color_space,
         hdr: false,
+        effect_time_offset: 0.0,
         clips: Vec::new(),
     };
     PreviewPlan {
@@ -2612,6 +2680,7 @@ mod tests {
             color_range: concat_media::ColorRange::Limited,
             color_space: ColorSpace::Sdr,
             hdr: false,
+            effect_time_offset: 0.0,
             clips: vec![footage],
         };
         assert!(!nested.exists());
@@ -2692,6 +2761,7 @@ mod tests {
             color_range: concat_media::ColorRange::Limited,
             color_space: ColorSpace::Sdr,
             hdr: false,
+            effect_time_offset: 0.0,
             clips: vec![footage],
         };
         let cancel = AtomicBool::new(false);

@@ -28,7 +28,7 @@ pub mod model;
 pub mod placement;
 pub mod speed;
 
-pub use commands::{Command, CommandError, Outcome, why_not_merge};
+pub use commands::{Command, CommandError, Outcome, consolidation_clips, why_not_merge};
 pub use doc::{DOCUMENT_VERSION, DocumentSettings, document_version, from_document, to_document};
 pub use editor::{Editor, RetiredFields};
 pub use model::Project;
@@ -972,6 +972,245 @@ mod tests {
         let editor = Editor::new();
         assert_eq!(editor.project().timelines.len(), 1);
         assert_eq!(editor.project().active().tracks.len(), 4);
+    }
+
+    #[test]
+    fn consolidation_replaces_many_edited_pieces_and_undo_restores_everything() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let mut ids = vec![first.clone()];
+        ids.extend(lane(&mut editor, &media_id, &track, &[10.0, 20.0]));
+        for (n, id) in ids.iter().enumerate() {
+            let clip = editor.project_mut().active_mut().clip_mut(id).unwrap();
+            clip.source_start = n as f64 * 15.0;
+            clip.scale = 1.5;
+            clip.volume = 0.6;
+            clip.speed = 1.2;
+        }
+        let before = editor.project().clone();
+        let Command::AddMedia { mut item } = media("/project/media/merged.mp4", 30.0, true) else {
+            unreachable!()
+        };
+        item.name = "Merged clips".into();
+        let command: Command = serde_json::from_value(json!({
+            "op": "consolidateClips", "clipIds": ids.iter().rev().collect::<Vec<_>>(), "item": item
+        }))
+        .expect("the consolidation command is available to API callers too");
+        let outcome = editor.apply(command).expect("consolidates");
+        assert_eq!(outcome.created_id.as_deref(), Some(first.as_str()));
+        let timeline = editor.project().active();
+        assert_eq!(timeline.clips.len(), 1);
+        let merged = timeline.clip(&first).unwrap();
+        assert_eq!(
+            (merged.start, merged.duration, merged.source_start),
+            (0.0, 30.0, 0.0)
+        );
+        assert_eq!((merged.scale, merged.volume, merged.speed), (1.0, 1.0, 1.0));
+        assert_eq!(
+            editor.project().media.len(),
+            2,
+            "original media stays in the bin"
+        );
+        let after = editor.project().clone();
+        editor.undo();
+        assert_eq!(editor.project(), &before);
+        editor.redo();
+        assert_eq!(editor.project(), &after);
+        let document = editor.to_document(&settings());
+        assert_eq!(Editor::from_document(&document).unwrap().project(), &after);
+    }
+
+    #[test]
+    fn consolidation_refuses_invalid_selections_without_changing_the_edit() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &track, &[10.0, 20.0]);
+        let Command::AddMedia { item } = media("/merged.mp4", 30.0, true) else {
+            unreachable!()
+        };
+        for ids in [
+            vec![first.clone()],
+            vec![first.clone(), first.clone()],
+            vec![first.clone(), "gone".into()],
+            vec![first.clone(), rest[1].clone()], // Would cover an unselected clip.
+        ] {
+            let before = editor.project().clone();
+            assert!(
+                editor
+                    .apply(Command::ConsolidateClips {
+                        clip_ids: ids,
+                        item: item.clone()
+                    })
+                    .is_err()
+            );
+            assert_eq!(editor.project(), &before);
+        }
+        let other = editor.project().active().tracks[1].id.clone();
+        editor
+            .project_mut()
+            .active_mut()
+            .clip_mut(&rest[0])
+            .unwrap()
+            .track_id = other;
+        assert!(
+            crate::consolidation_clips(
+                editor.project().active(),
+                &[first.clone(), rest[0].clone()]
+            )
+            .is_err()
+        );
+        editor
+            .project_mut()
+            .active_mut()
+            .clip_mut(&rest[0])
+            .unwrap()
+            .track_id = track;
+        editor
+            .project_mut()
+            .active_mut()
+            .clip_mut(&rest[0])
+            .unwrap()
+            .kind = ClipKind::Audio;
+        assert!(
+            crate::consolidation_clips(editor.project().active(), &[first, rest[0].clone()])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn consolidation_accepts_different_sources_and_preserves_its_span_and_neighbours() {
+        let (mut editor, _, first) = fixture();
+        let second_media = editor
+            .apply(media("/b.mp4", 10.0, false))
+            .unwrap()
+            .created_id
+            .unwrap();
+        let track = editor.project().active().tracks[0].id.clone();
+        let others = lane(&mut editor, &second_media, &track, &[12.0, 30.0]);
+        let neighbour = editor.project().active().clip(&others[1]).unwrap().clone();
+        let Command::AddMedia { item } = media("/merged.mp4", 22.0, true) else {
+            unreachable!()
+        };
+        editor
+            .apply(Command::ConsolidateClips {
+                clip_ids: vec![others[0].clone(), first.clone()],
+                item,
+            })
+            .unwrap();
+        let timeline = editor.project().active();
+        assert_eq!(
+            timeline.clip(&first).unwrap().duration,
+            22.0,
+            "timeline gaps remain gaps"
+        );
+        assert_eq!(timeline.clip(&others[1]).unwrap(), &neighbour);
+        assert_eq!(editor.project().media.len(), 3);
+    }
+
+    #[test]
+    fn consolidation_refuses_a_short_or_non_video_render_atomically() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
+        let Command::AddMedia { mut item } = media("/bad.mp4", 1.0, true) else {
+            unreachable!()
+        };
+        let before = editor.project().clone();
+        assert!(
+            editor
+                .apply(Command::ConsolidateClips {
+                    clip_ids: vec![first.clone(), second.clone()],
+                    item: item.clone()
+                })
+                .is_err()
+        );
+        item.duration = Some(20.0);
+        item.kind = MediaKind::Audio;
+        assert!(
+            editor
+                .apply(Command::ConsolidateClips {
+                    clip_ids: vec![first, second],
+                    item
+                })
+                .is_err()
+        );
+        assert_eq!(editor.project(), &before);
+    }
+
+    #[test]
+    fn consolidation_refuses_layered_content_and_detached_audio() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
+        let ids = vec![first.clone(), second];
+        let original = editor.project().clone();
+        let upper = editor.project().active().tracks[1].id.clone();
+        for id in &ids {
+            editor
+                .project_mut()
+                .active_mut()
+                .clip_mut(id)
+                .unwrap()
+                .track_id = upper.clone();
+        }
+        lane(&mut editor, &media_id, &track, &[0.0]);
+        assert!(
+            crate::consolidation_clips(editor.project().active(), &ids).is_err(),
+            "opaque output must not cover lower content"
+        );
+        *editor.project_mut() = original;
+        editor
+            .apply(Command::DetachAudio { clip_id: first })
+            .unwrap();
+        assert!(
+            crate::consolidation_clips(editor.project().active(), &ids).is_err(),
+            "do not leave detached audio linked to a removed source"
+        );
+    }
+
+    #[test]
+    fn consolidation_requires_both_sides_of_edge_transitions() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let rest = lane(&mut editor, &media_id, &track, &[10.0, 20.0]);
+        editor
+            .project_mut()
+            .active_mut()
+            .clip_mut(&rest[0])
+            .unwrap()
+            .transition_in = Some(crate::model::Transition {
+            id: "cross-fade".into(),
+            duration: 0.4,
+        });
+        assert!(
+            crate::consolidation_clips(
+                editor.project().active(),
+                &[first.clone(), rest[0].clone()]
+            )
+            .is_ok(),
+            "internal transitions are baked"
+        );
+        assert!(
+            crate::consolidation_clips(editor.project().active(), &rest).is_err(),
+            "incoming boundary transition needs its predecessor"
+        );
+        assert!(
+            crate::consolidation_clips(editor.project().active(), &[first, rest[1].clone()])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn consolidation_refuses_subframe_spans_that_would_lose_a_rendered_frame() {
+        let (mut editor, media_id, first) = fixture();
+        let track = editor.project().active().tracks[0].id.clone();
+        let second = lane(&mut editor, &media_id, &track, &[10.0])[0].clone();
+        for (id, start) in [(&first, 5.01), (&second, 5.05)] {
+            let clip = editor.project_mut().active_mut().clip_mut(id).unwrap();
+            clip.start = start;
+            clip.duration = 0.04;
+        }
+        assert!(crate::consolidation_clips(editor.project().active(), &[first, second]).is_err());
     }
 
     #[test]

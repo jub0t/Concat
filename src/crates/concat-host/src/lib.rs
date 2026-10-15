@@ -20,6 +20,7 @@
 
 pub mod brush;
 pub mod cards;
+pub mod consolidate;
 pub mod crash;
 pub mod cutout;
 pub mod dirs;
