@@ -32,6 +32,9 @@ import { DockDivider, DockSide, SeatBox } from "dock.slint";
 import { Editor } from "editor.slint";
 import { PaneKind, Panes } from "workspace/pane-switcher.slint";
 import { ChipOption, NewProjectDialog, RecentProjectData, StartData, StartScreen } from "start.slint";
+import {
+    TemplateCardData, TemplateFillData, TemplateFillDialog, TemplateSlotData, Templates,
+} from "templates.slint";
 import { TitleBar } from "title-bar.slint";
 import { PhoneEditor } from "phone/editor.slint";
 import {
@@ -63,6 +66,7 @@ export {
     TimelineTool, TrackData, TrackSize, MenuItemData, MenuRow, ExportData, ExportPhase, ModelData, SettingsData,
     ChipOption, RecentProjectData, StartData, SystemFactData, ToastData, ProjectSheetData,
     CaptionsSheetData, SpeechSheetData,
+    TemplateCardData, TemplateFillData, TemplateSlotData, Templates,
 }
 
 export component App inherits Window {
@@ -117,7 +121,7 @@ export component App inherits Window {
     }
     property <bool> sheet-open: root.export.open || root.settings.open
         || root.project-sheet.open || root.captions.open || root.speech.open
-        || root.start.composing;
+        || root.start.composing || Templates.fill.open;
     changed sheet-open => {
         if (!root.sheet-open) {
             keys.focus();
@@ -796,6 +800,23 @@ export component App inherits Window {
         custom-fps-edited(fps) => { root.project-custom-fps-edited(fps); }
         color-space-changed(index) => { root.project-color-space-changed(index); }
         apply => { root.project-apply(); }
+    }
+
+    // A template's slots, and the project they make: over the launch
+    // screen and the editor alike, since a card on either opens it.
+    TemplateFillDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        data: Templates.fill;
+
+        closed => { Templates.dismiss(); }
+        name-edited(name) => { Templates.name-edited(name); }
+        pick-slot(index) => { Templates.pick-slot(index); }
+        clear-slot(index) => { Templates.clear-slot(index); }
+        pick-all => { Templates.pick-all(); }
+        create => { Templates.create(); }
     }
 
     RelinkDialog {

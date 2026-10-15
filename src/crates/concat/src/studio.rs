@@ -612,6 +612,8 @@ pub struct Models {
     pub seats: Rc<VecModel<SeatBox>>,
     pub dividers: Rc<VecModel<DockDivider>>,
     pub recents: Rc<VecModel<RecentProjectData>>,
+    /// The template gallery's cards, on the launch screen and the library.
+    pub templates: Rc<VecModel<TemplateCardData>>,
     /// The Text page's presets, published once from the loaded list.
     pub text_presets: Rc<VecModel<TextPresetData>>,
     /// The Latin ones, for the Text page's Styles shelf.
@@ -677,6 +679,7 @@ impl Models {
             seats: Rc::new(VecModel::default()),
             dividers: Rc::new(VecModel::default()),
             recents: Rc::new(VecModel::default()),
+            templates: Rc::new(VecModel::default()),
             text_presets: Rc::new(VecModel::default()),
             style_presets: Rc::new(VecModel::default()),
             language_presets: Rc::new(VecModel::default()),
@@ -776,6 +779,8 @@ pub struct Studio {
     pub export: crate::panes::export::ExportPane,
     pub settings: crate::panes::settings::SettingsPane,
     pub relink: crate::panes::relink::RelinkPane,
+    /// The template gallery, and the sheet that fills one.
+    pub templates: crate::panes::templates::TemplatesPane,
     /// What the confirmation sheet is asking about, while it is up.
     pub confirm: Option<Confirm>,
     /// The clip whose incoming transition is selected, while no clip is:
@@ -1882,6 +1887,8 @@ pub enum Confirm {
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.
     ReplaceExport { path: String },
+    /// Deleting one of the user's templates, bundle and all.
+    DeleteTemplate { path: String, name: String },
 }
 
 /// One clip on the clipboard: the clip as it was when copied, and the row
@@ -2102,6 +2109,7 @@ impl Studio {
             export: Default::default(),
             settings: crate::panes::settings::SettingsPane::default(),
             relink: crate::panes::relink::RelinkPane::default(),
+            templates: crate::panes::templates::TemplatesPane::default(),
             confirm: None,
             transition_selected: None,
             open_menu: -1,
@@ -2170,6 +2178,9 @@ impl Studio {
         studio.handle(crate::panes::Msg::Settings(
             crate::panes::settings::SettingsMsg::Restore,
         ));
+        // The app's own templates are written out and the user's read.
+        let config = studio.host.dirs.config.clone();
+        studio.templates.refresh(&config);
         // The effects shelf starts on "All", not whatever a stale default
         // would leave it on.
         studio.library[1].category = "All".to_owned();
@@ -2253,6 +2264,14 @@ impl Studio {
                     crate::panes::export::ExportMsg::Overwrite,
                 ));
             }
+            Some(Confirm::DeleteTemplate { path, .. }) => {
+                if let Err(error) = concat_host::templates::delete(&self.host.dirs.config, &path) {
+                    self.notify(&error, true);
+                }
+                self.handle(crate::panes::Msg::Templates(
+                    crate::panes::templates::TemplatesMsg::Refresh,
+                ));
+            }
             None => {}
         }
     }
@@ -2287,6 +2306,12 @@ impl Studio {
                 title: t("export.replaceFileTitle").into(),
                 message: tf("export.replaceFileMessage", &[path]).into(),
                 action: t("export.replace").into(),
+            },
+            Confirm::DeleteTemplate { name, .. } => crate::ui::ConfirmData {
+                open: true,
+                title: t("templates.deleteTitle").into(),
+                message: tf("templates.deleteMessage", &[name]).into(),
+                action: t("common.delete").into(),
             },
         }
     }
@@ -7377,6 +7402,11 @@ impl Studio {
                 pane.update(msg, self);
                 self.start = pane;
             }
+            crate::panes::Msg::Templates(msg) => {
+                let mut pane = std::mem::take(&mut self.templates);
+                pane.update(msg, self);
+                self.templates = pane;
+            }
             crate::panes::Msg::Media(msg) => {
                 let mut pane = std::mem::take(&mut self.media);
                 pane.update(msg, self);
@@ -7631,15 +7661,37 @@ impl Studio {
         let Some(session) = self.session.as_ref() else {
             return;
         };
+        // A template with nothing to fill is a copy of the project; the
+        // notice says how to make one that is not.
+        if !session.project().media.iter().any(|item| item.placeholder) {
+            self.notify(&t("templates.markSlotsFirst"), true);
+            return;
+        }
         let document = session.document();
         let settings = session.settings();
         let path = session.path().to_owned();
-        let name = format!("{} template", self.project_name);
         let config = self.host.dirs.config.clone();
+        // The first free name: a second save of one project is a second
+        // template, not a refusal.
+        let base = tf("templates.projectTemplate", &[&self.project_name]);
+        let taken = |name: &str| {
+            concat_host::templates::templates_dir(&config)
+                .join(projects::folder_name(name))
+                .exists()
+        };
+        let name = std::iter::once(base.clone())
+            .chain((2..).map(|n| format!("{base} {n}")))
+            .find(|name| !taken(name))
+            .expect("the numbers do not run out");
         spawn(
             move || templates::save(&config, &document, &settings, &path, &name),
             |studio, _, _, result| match result {
-                Ok(info) => studio.notify(&tf("studio.savedTemplate", &[&info.name]), false),
+                Ok(info) => {
+                    studio.notify(&tf("studio.savedTemplate", &[&info.name]), false);
+                    studio.handle(crate::panes::Msg::Templates(
+                        crate::panes::templates::TemplatesMsg::Refresh,
+                    ));
+                }
                 Err(error) => studio.notify(&error, true),
             },
         );
@@ -9476,6 +9528,8 @@ impl Studio {
         sync(&models.versions, self.settings.version_rows());
         sync(&models.version_details, self.settings.version_details());
         app.set_relink(self.relink.data());
+        sync(&models.templates, self.templates.cards());
+        app.global::<Templates>().set_fill(self.templates.data());
         app.set_confirm(self.confirm_data());
 
         // The speech sheets, and the lists they choose from.
@@ -9789,6 +9843,20 @@ impl Studio {
             ));
             rows.push(rule());
         }
+        // A slot is what a template made from this project asks to be
+        // filled: the file stays in the edit, standing in, until then.
+        rows.push(MenuItemData {
+            id: "slot".into(),
+            label: t("studio.useAsTemplateSlot").into(),
+            kind: MenuRow::Action,
+            glyph: Glyph::Slot,
+            shortcut: "".into(),
+            enabled: true,
+            danger: false,
+            checkable: true,
+            checked: item.placeholder,
+        });
+        rows.push(rule());
         rows.push(action("remove", t("common.remove"), Glyph::Trash, true));
         rows
     }
@@ -9819,6 +9887,16 @@ impl Studio {
             }
             "range-full" => {
                 self.apply(range(Some(model::ColorRange::Full)));
+            }
+            "slot" => {
+                let placeholder = !self
+                    .project()
+                    .media_by_id(id)
+                    .is_some_and(|item| item.placeholder);
+                self.apply(Command::SetMediaPlaceholder {
+                    media_id: id.to_owned(),
+                    placeholder,
+                });
             }
             _ => {}
         }

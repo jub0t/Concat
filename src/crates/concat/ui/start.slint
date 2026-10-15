@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // SPDX-FileCopyrightText: 2026 Jareer and Concat contributors
 
+import { TemplateGrid, Templates } from "templates.slint";
 import { I18n } from "i18n.slint";
 import { Theme } from "theme/theme.slint";
 import { CopyChip, Modal } from "primitives/modal.slint";
@@ -51,9 +52,8 @@ import { NumberField } from "primitives/number-field.slint";
 // site does with an accent — one highlighted word — this does with the
 // plus on the new-project card and the one link in the sheet.
 //
-// There is no template store in this tree, which is also why the library's
-// "save as template" is an unwired seam, and why the rail has no fourth
-// verb.
+// Templates sit under the projects rather than on the rail: they are a
+// shelf to browse, not a verb, and the rail keeps its two.
 
 /// One option on one of the form's three ladders.
 ///
@@ -1171,6 +1171,45 @@ export component StartScreen inherits Rectangle {
                         compose => { root.compose(); }
                         opened(path) => { root.open-recent(path); }
                         forgotten(path) => { root.forget-recent(path); }
+                    }
+
+                    // ── the templates ────────────────────────────────────
+                    // A ready-made edit with slots: pick one, put photos and
+                    // videos in it, get a project. Under the projects, since
+                    // the projects are what this screen is mostly for.
+                    if Templates.cards.length > 0: VerticalLayout {
+                        alignment: start;
+
+                        Rectangle { height: root.narrow ? 32px : 48px; }
+
+                        Text {
+                            text: I18n.t("templates.title");
+                            color: Theme.fg;
+                            font-size: root.narrow ? 20px : 24px;
+                            font-weight: Theme.weight-display;
+                            letter-spacing: -0.4px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { height: 6px; }
+
+                        Text {
+                            text: I18n.t("templates.pickOneFillIt");
+                            color: Theme.fg-muted;
+                            font-size: root.narrow ? Theme.fs-lg : Theme.fs-xl;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { height: root.narrow ? 18px : 24px; }
+
+                        TemplateGrid {
+                            templates: Templates.cards;
+                            enabled: !root.busy;
+                            touchy: root.narrow;
+                            launch: true;
+                            picked(path) => { Templates.picked(path); }
+                            deleted(path, name) => { Templates.deleted(path, name); }
+                        }
                     }
                 }
             }
