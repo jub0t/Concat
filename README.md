@@ -98,6 +98,31 @@ Concat is in **beta**: it works, and it still has edges. [Say so](https://github
 
 **[Code signing policy](CODE_SIGNING.md)**: who signs the Windows builds, and what Concat sends over the network (nothing you did not ask for).
 
+## Build from source
+
+You need Rust 1.93 or newer (see `rust-version` in `src/Cargo.toml`), the FFmpeg 7+ development libraries, cmake and a C++ compiler.
+
+- **macOS:** `brew install ffmpeg`
+- **Windows:** download a [BtbN](https://www.gyan.dev/ffmpeg/builds/) `shared` build, unpack it and point `FFMPEG_DIR` at it
+- **Linux:** use your distro's FFmpeg if it is version 7 or newer, otherwise use a BtbN `shared` build with `FFMPEG_DIR` like on Windows
+
+Then:
+
+```sh
+cd src
+cargo run -p concat          # the editor window
+```
+
+Other useful commands:
+
+```sh
+cargo build --profile app -p concat   # the shipping binary (fat LTO, stripped)
+cargo test                            # run the test suite
+cargo fmt --check && cargo clippy --all-targets -- -D warnings   # what CI checks
+```
+
+If you change text the interface shows, run `python3 scripts/locales.py` from the repo root so the string inventory stays in sync. Full details live in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## How to Contribute
 
 > [!IMPORTANT]
