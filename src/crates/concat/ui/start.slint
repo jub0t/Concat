@@ -1287,21 +1287,14 @@ export component NewProjectDialog inherits Modal {
             }
         }
 
-        FormRow {
+        // A desk's question. A phone keeps its projects in the app's own
+        // folder, as every phone editor does, and a path there is nothing
+        // anybody can browse to, so the row is not shown.
+        if !root.phone: FormRow {
             label: I18n.upper("start.location");
             stacked: root.narrow;
 
-            // On a phone the folder is the app's own, shown and not typed.
-            if root.phone: Text {
-                text: root.data.location;
-                color: Theme.fg-muted;
-                font-size: Theme.fs;
-                font-family: Theme.font-technical;
-                vertical-alignment: center;
-                overflow: elide;
-            }
-
-            if !root.phone: HorizontalLayout {
+            HorizontalLayout {
                 spacing: 12px;
 
                 PlainInput {
