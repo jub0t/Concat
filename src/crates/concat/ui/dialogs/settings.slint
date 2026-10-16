@@ -482,7 +482,7 @@ export component SettingsDialog inherits Modal {
         I18n.t("settings.mint"),
     ];
 
-    /// The window is a phone's. No Remote page then - the API on a socket
+    /// The window is a phone's. No Automation page then - the API on a socket
     /// is a desk's affair, driven from a terminal the phone has not got -
     /// and the column of pages starts narrower and drags by a wider
     /// hairline, since the sheet is the screen's width and a finger is
@@ -500,7 +500,7 @@ export component SettingsDialog inherits Modal {
     /// pointer, so one slot is enough.
     property <length> press-pages;
 
-    /// The Remote page's token is shown in clear rather than as dots.
+    /// The Automation page's token is shown in clear rather than as dots.
     /// Off each time the sheet opens: showing it is a decision for the
     /// moment, not a setting.
     property <bool> token-shown;
@@ -599,7 +599,7 @@ export component SettingsDialog inherits Modal {
                         clicked => { root.page-changed(3); }
                     }
                     if !root.phone: PageTab {
-                        label: I18n.t("settings.remote");
+                        label: I18n.t("settings.automation");
                         glyph: Glyph.lock;
                         current: root.data.tab == 4;
                         clicked => { root.page-changed(4); }
@@ -1013,7 +1013,7 @@ export component SettingsDialog inherits Modal {
             if root.data.tab == 4 && !root.phone: VerticalLayout {
                 DialogSection {
                     first: true;
-                    title: I18n.t("settings.remoteControl");
+                    title: I18n.t("settings.scriptsAndApps");
                     hint: I18n.t("settings.servesConcatApiWhile");
                     switchable: true;
                     on: root.data.server-enabled;
@@ -1112,7 +1112,7 @@ export component SettingsDialog inherits Modal {
 
             // The Version page: which release this is, whether a newer one
             // is out, and any release from 0.2.5 on put in this one's place.
-            // A desk's affair, like the Remote page: a phone's store does
+            // A desk's affair, like the Automation page: a phone's store does
             // its updating.
             if root.data.tab == 6 && !root.phone: VerticalLayout {
                 DialogSection {

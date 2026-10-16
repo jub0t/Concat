@@ -38,7 +38,7 @@ Concat runs entirely on your machine. Reports we care about most:
   was not given.
 - A downloaded model or its mirror being swapped for something else
   without the digest check catching it.
-- The API server (`concat-cli serve`, or Settings › Remote) accepting a
+- The API server (`concat-cli serve`, or Settings › Automation) accepting a
   call it should have refused: a missing or wrong token, on any address,
   or a server that started with no token at all.
 

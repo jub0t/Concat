@@ -49,7 +49,7 @@ pub struct Host {
     /// The restoration model, and the enhanced copies it writes.
     pub enhancers: Arc<concat_host::Enhancers>,
     pub reversers: Arc<concat_host::Reversers>,
-    /// The Concat API on a socket, while the Remote page has it on. Its
+    /// The Concat API on a socket, while the Automation page has it on. Its
     /// own sessions, apart from the window's: a caller edits projects of
     /// its own, never the one on screen, which `open_projects` keeps it
     /// from opening; the export slot is shared, so one export at a time

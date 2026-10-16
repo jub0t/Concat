@@ -605,7 +605,7 @@ impl SettingsPane {
         }
     }
 
-    /// What the Remote page says under the switch.
+    /// What the Automation page says under the switch.
     fn server_status(&self, studio: &Studio) -> String {
         match &studio.host.server {
             Some(server) => {

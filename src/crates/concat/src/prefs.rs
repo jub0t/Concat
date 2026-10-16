@@ -156,7 +156,7 @@ impl Preferences {
     }
 }
 
-/// The Settings sheet's Remote page: whether the API is served while the
+/// The Settings sheet's Automation page: whether the API is served while the
 /// window is open, where, and behind which token.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
