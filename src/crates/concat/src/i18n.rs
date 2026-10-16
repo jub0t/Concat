@@ -13,11 +13,10 @@
 //! yet reads in English rather than as a key, and adding a language is
 //! adding a file.
 //!
-//! A package's words come from its manifest, in English, and are looked
-//! up by keys made from its id ([`package_text`], [`shelf_text`]):
-//! `effects.goldenHour.name`. A package of the user's own has no keys and
-//! reads as its author wrote it. A text preset's name is never looked up:
-//! presets are data, shared between people, and read as written.
+//! Only the app's own interface is translated. Effects, filters,
+//! transitions and text presets are data: a package's words are the
+//! English its manifest carries, shipped or not, and no locale lists them,
+//! so the locales stay the size of the interface.
 //!
 //! Two places hold locales. The ones the app ships live in `locales/` next
 //! to this crate's `src/` and are compiled in. Anyone can add or correct a
@@ -247,90 +246,12 @@ pub fn t(key: &str) -> String {
         .unwrap_or_else(|| key.to_owned())
 }
 
-/// `key` in the interface's language, or `fallback` - the English a
-/// manifest carries - where no language has it.
-pub fn t_or(key: &str, fallback: &str) -> String {
-    translated(key).unwrap_or_else(|| fallback.to_owned())
-}
-
 /// The active language's line for `key`, if it has one.
 fn translated(key: &str) -> Option<String> {
     active()
         .read()
         .ok()
         .and_then(|slot| slot.as_ref()?.strings.get(key).cloned())
-}
-
-/// A name as one segment of a key: its words in lowerCamelCase, with
-/// `{0}`-style places and apostrophes left out and `&` read as "and" -
-/// "Retro & Film" is `retroAndFilm`. `scripts/locales.py` makes the same
-/// segments for the inventory; a test holds the two to each other.
-pub fn key_part(text: &str) -> String {
-    let mut plain = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '{' => {
-                let mut held = String::from('{');
-                while let Some(&d) = chars.peek() {
-                    if !d.is_ascii_digit() {
-                        break;
-                    }
-                    held.push(d);
-                    chars.next();
-                }
-                if held.len() > 1 && chars.peek() == Some(&'}') {
-                    chars.next();
-                    plain.push(' ');
-                } else {
-                    plain.push_str(&held);
-                }
-            }
-            '\'' | '\u{2019}' => {}
-            '&' => plain.push_str(" and "),
-            _ => plain.push(c),
-        }
-    }
-    let mut out = String::new();
-    for word in plain
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|word| !word.is_empty())
-    {
-        if out.is_empty() {
-            out.push_str(&word.to_ascii_lowercase());
-        } else {
-            let mut letters = word.chars();
-            if let Some(first) = letters.next() {
-                out.push(first.to_ascii_uppercase());
-                out.push_str(&letters.as_str().to_ascii_lowercase());
-            }
-        }
-    }
-    out
-}
-
-/// A package's `name` or `description`, from its manifest's `text`: looked
-/// up as `effects.<name>.<field>` for one that ships with the app, and as
-/// its author wrote it for anyone else's.
-pub fn package_text(id: &str, field: &str, text: &str) -> String {
-    match id.strip_prefix("concat.") {
-        Some(name) => t_or(
-            &format!("effects.{}.{field}", key_part(&name.replace('-', " "))),
-            text,
-        ),
-        None => text.to_owned(),
-    }
-}
-
-/// A shelf, a knob group or a knob's label from a manifest: looked up as
-/// `effects.<kind>.<text>` - `kind` is `categories`, `groups` or `labels` -
-/// and read as written where no language lists it, as a package of the
-/// user's own may name its own.
-pub fn shelf_text(kind: &str, text: &str) -> String {
-    if text.is_empty() {
-        return String::new();
-    }
-    t_or(&format!("effects.{kind}.{}", key_part(text)), text)
 }
 
 /// [`t`], with `{0}`, `{1}`, ... replaced by `args` in order.
@@ -483,82 +404,6 @@ mod tests {
                 });
             assert!(fine, "{key:?} is not an area and a name in lowerCamelCase");
         }
-    }
-
-    /// The keys the window makes from manifests and presets are the ones
-    /// the inventory lists, with the manifests' own English: Rust's
-    /// `key_part` and the script's agree on every shipped package.
-    #[test]
-    fn every_package_and_preset_key_is_in_the_inventory() {
-        let inventory = inventory();
-        let mut missing = Vec::new();
-        let mut check = |key: String, english: &str| {
-            if english.is_empty() {
-                return;
-            }
-            match inventory.get(&key) {
-                Some(listed) if listed == english => {}
-                Some(listed) => missing.push(format!("{key}: {listed:?} is not {english:?}")),
-                None => missing.push(format!("{key}: not listed ({english:?})")),
-            }
-        };
-        for package in concat_effects::Catalogue::builtin().packages() {
-            let meta = &package.manifest.effect;
-            let name = meta.id.strip_prefix("concat.").expect("a built-in");
-            let part = key_part(&name.replace('-', " "));
-            check(format!("effects.{part}.name"), &meta.name);
-            check(format!("effects.{part}.description"), &meta.description);
-            check(
-                format!("effects.categories.{}", key_part(&meta.category)),
-                &meta.category,
-            );
-            for param in &package.manifest.params {
-                check(
-                    format!("effects.labels.{}", key_part(&param.label)),
-                    &param.label,
-                );
-                check(
-                    format!("effects.groups.{}", key_part(&param.group)),
-                    &param.group,
-                );
-            }
-        }
-        assert!(missing.is_empty(), "\n{}", missing.join("\n"));
-    }
-
-    #[test]
-    fn a_key_part_is_its_words_in_lower_camel_case() {
-        assert_eq!(key_part("Retro & Film"), "retroAndFilm");
-        assert_eq!(key_part("golden hour"), "goldenHour");
-        assert_eq!(key_part("Don't {0} LUT"), "dontLut");
-        assert_eq!(key_part("{x} 10-bit"), "x10Bit");
-        assert_eq!(key_part(""), "");
-    }
-
-    /// A shipped package or preset reads through its key; one of the
-    /// user's own reads as its author wrote it.
-    #[test]
-    fn manifest_words_read_through_their_keys_or_as_written() {
-        let _language = language();
-        let root = std::env::temp_dir().join(format!("concat-i18n-m-{}", std::process::id()));
-        let dirs = AppDirs::under(&root);
-        select("de", &dirs);
-        assert_eq!(
-            package_text("concat.exposure", "name", "Exposure"),
-            "Belichtung"
-        );
-        assert_eq!(
-            package_text("alice.exposure", "name", "Exposure"),
-            "Exposure"
-        );
-        assert_eq!(shelf_text("categories", "No such shelf"), "No such shelf");
-        assert_eq!(shelf_text("groups", ""), "");
-        select(ENGLISH, &dirs);
-        assert_eq!(
-            package_text("concat.exposure", "name", "Exposure"),
-            "Exposure"
-        );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A machine's own file from before keys, keyed by the English, still

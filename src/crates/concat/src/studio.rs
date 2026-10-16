@@ -1060,8 +1060,8 @@ fn shelves(
         // The shelves are built from every package and only the entries are
         // narrowed: a strip that lost a segment because a search matched
         // nothing on it would move under the pointer as you typed.
-        let name = i18n::package_text(&meta.id, "name", &meta.name);
-        let description = i18n::package_text(&meta.id, "description", &meta.description);
+        let name = meta.name.clone();
+        let description = meta.description.clone();
         let starred = favourites.iter().any(|held| held == &meta.id);
         let shown = if view.favourites {
             starred
@@ -1102,7 +1102,7 @@ fn shelves(
         entries.push(CatalogueEntryData {
             id: meta.id.as_str().into(),
             name: name.into(),
-            category: i18n::shelf_text("categories", &category).into(),
+            category: category.as_str().into(),
             group: group as i32,
             description: description.into(),
             favourite: starred,
@@ -1110,10 +1110,7 @@ fn shelves(
         });
     }
     (
-        groups
-            .into_iter()
-            .map(|group| SharedString::from(i18n::shelf_text("categories", &group)))
-            .collect(),
+        groups.into_iter().map(SharedString::from).collect(),
         entries,
     )
 }
@@ -1555,8 +1552,8 @@ fn adjust_rows(chain: &[AppliedFilter], at: Option<f64>) -> Vec<AppliedParamData
             AppliedParamData {
                 entry: -1,
                 key: param.key.as_str().into(),
-                label: i18n::shelf_text("labels", &param.label).into(),
-                group: i18n::shelf_text("groups", &param.group).into(),
+                label: param.label.as_str().into(),
+                group: param.group.as_str().into(),
                 unit: param.unit.as_str().into(),
                 min: param.min as f32,
                 max: param.max as f32,
@@ -1613,7 +1610,7 @@ fn chain_colours(chain: &[AppliedFilter]) -> Vec<ColourKnobData> {
                 .map(move |param| ColourKnobData {
                     entry: index as i32,
                     key: param.key.as_str().into(),
-                    label: i18n::shelf_text("labels", &param.label).into(),
+                    label: param.label.as_str().into(),
                     value: unpacked(
                         entry
                             .params
@@ -1695,7 +1692,7 @@ fn chain_rows(chain: &[AppliedFilter]) -> (Vec<AppliedEntryData>, Vec<AppliedPar
             knobs.push(AppliedParamData {
                 entry: index as i32,
                 key: param.key.as_str().into(),
-                label: i18n::shelf_text("labels", &param.label).into(),
+                label: param.label.as_str().into(),
                 group: "".into(),
                 unit: param.unit.as_str().into(),
                 min: param.min as f32,
@@ -1758,8 +1755,8 @@ fn grading_rows(
                 wheels.push(WheelData {
                     entry,
                     key: param.key.as_str().into(),
-                    label: i18n::shelf_text("labels", &param.label).into(),
-                    group: i18n::shelf_text("groups", &param.group).into(),
+                    label: param.label.as_str().into(),
+                    group: param.group.as_str().into(),
                     x: value(&x, 0.0) as f32,
                     y: value(&y, 0.0) as f32,
                     master: value(&m, param.default) as f32,
@@ -1786,8 +1783,8 @@ fn grading_rows(
                     CurveData {
                         entry,
                         key: param.key.as_str().into(),
-                        label: i18n::shelf_text("labels", &param.label).into(),
-                        group: i18n::shelf_text("groups", &param.group).into(),
+                        label: param.label.as_str().into(),
+                        group: param.group.as_str().into(),
                         points: ModelRc::default(),
                         path: grading::curve_path(params, &param.key).into(),
                     },
@@ -2071,9 +2068,7 @@ fn upgraded_effects(pairs: &[(String, String)]) -> Vec<String> {
         .map(|(old, new)| {
             let new = catalogue
                 .get(new)
-                .map(|package| {
-                    i18n::package_text(package.id(), "name", &package.manifest.effect.name)
-                })
+                .map(|package| package.manifest.effect.name.clone())
                 .unwrap_or_else(|| label_of(new));
             format!("{} → {new}", label_of(old))
         })
@@ -9011,7 +9006,7 @@ impl Studio {
         let transition = clip.transition_in.as_ref().expect("held to one");
         let name = Catalogue::builtin()
             .get(&transition.id)
-            .map(|package| i18n::package_text(package.id(), "name", &package.manifest.effect.name))
+            .map(|package| package.manifest.effect.name.clone())
             .unwrap_or_else(|| label_of(&transition.id));
         crate::ui::SelectedTransitionData {
             present: true,
@@ -9065,9 +9060,7 @@ impl Studio {
                 .transition_in
                 .as_ref()
                 .and_then(|transition| Catalogue::builtin().get(&transition.id))
-                .map(|package| {
-                    i18n::package_text(package.id(), "name", &package.manifest.effect.name)
-                })
+                .map(|package| package.manifest.effect.name.clone())
                 .unwrap_or_default()
                 .into(),
             transition_duration: clip

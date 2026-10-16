@@ -25,9 +25,11 @@ locale is a JSON file that maps each key to your language:
   the complete inventory, which holds the English for each. Copy that file,
   keep the keys, replace the values.
 - A key is dotted lowerCamelCase: the part of the interface the string
-  belongs to (`common` for one used all over), then a name for it. Effects
-  are under `effects.` - `effects.goldenHour.name`, `effects.labels.amount`
-  - and text presets under `presets.`.
+  belongs to (`common` for one used all over), then a name for it.
+- Only the app's own interface is translated. Effects, filters,
+  transitions and text presets are data, and always read in English, as
+  their manifests write them: their names, descriptions and knob labels
+  have no lines here.
 - `{0}`, `{1}` and so on are filled in at run time — a count, a name, a
   file size. Keep them, and put them where your language wants them.
 - A key your file leaves out reads in English. Nothing breaks; the line is
@@ -74,8 +76,7 @@ the string lives in - `mediaPane`, `export`, `studio` - or `common` for a
 string used in several, and the string after what it says: `export.tenBitColour`.
 Write its English into `en.json` yourself; the source only holds the key.
 
-Names in effect manifests and text presets need no key in the source: they
-are looked up by keys made from the package's or preset's id, and
-`python3 scripts/locales.py` writes their English into `en.json` from the
-manifests. Run it after adding strings; `--check` fails on a key with no
-English, English written where a key belongs, or a stale line.
+Names in effect manifests and text presets are never looked up, so add no
+key for them. Run `python3 scripts/locales.py` after adding strings;
+`--check` fails on a key with no English, English written where a key
+belongs, or a stale line.

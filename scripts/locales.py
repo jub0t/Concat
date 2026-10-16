@@ -18,15 +18,9 @@ string belongs to (`common` for one used all over), then a name for it.
 Every string a person reads passes through `I18n.t("key")` (or `t1`, `t2`,
 `upper`) in the .slint tree, or `t("key")` / `tf("key", ...)` in the window's
 Rust. Those keys' English is written in en.json by whoever adds the string.
-The words an effect package or a text preset carries in its manifest are
-looked up by keys made from its id and read in English from the manifest,
-so this script writes those lines of en.json itself:
-
-    effects.<name>.name / .description    a package's name and tooltip
-    effects.categories.<shelf>            the shelf it sits on
-    effects.groups.<group>                a knob group's subhead
-    effects.labels.<label>                a knob's label
-    presets.<name>                        a text preset's name
+Effects, filters, transitions and text presets are data, not interface:
+their words are always the English their manifests write, and have no
+lines here.
 
 en.json is the inventory a translator starts from; see TRANSLATING.md.
 
@@ -55,7 +49,6 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CRATE = ROOT / "src" / "crates" / "concat"
 LOCALES = CRATE / "locales"
-PACKAGES = ROOT / "src" / "crates" / "concat-effects" / "packages"
 I18N = CRATE / "src" / "i18n.rs"
 DOCS = ROOT / "docs"
 
@@ -63,8 +56,6 @@ DOCS = ROOT / "docs"
 LITERAL = r'"((?:[^"\\]|\\.)*)"'
 SLINT_CALL = re.compile(r"I18n\.(?:t[12]?|upper)\(\s*" + LITERAL)
 RUST_CALL = re.compile(r"(?<![A-Za-z_])(?:i18n::)?tf?\(\s*" + LITERAL)
-TOML_FIELD = re.compile(r'^(name|description|category|label|group)\s*=\s*' + LITERAL, re.M)
-PRESET = re.compile(r'look\(\s*"([^"]+)",\s*' + LITERAL)
 KEY = re.compile(r"^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$")
 # One entry of i18n.rs's BUILT_IN: `("pt-BR", include_str!("../locales/pt-BR.json")),`.
 BUILT_IN_ENTRY = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("\.\./locales/([^"]+)\.json"\)\s*\)')
@@ -72,8 +63,7 @@ BUILT_IN_ENTRY = re.compile(r'\(\s*"([^"]+)",\s*include_str!\("\.\./locales/([^"
 
 # Lines that read the same in every language and are not a translation
 # someone forgot: the app's name, units, and the names of formats and
-# things. `effects.*.name` is a look's name, which is a name like any
-# other: "VHS" and "Cyberpunk" are what they are called everywhere.
+# things.
 SAME_KEYS = {
     "settings.concat",
     "controls.hertz",
@@ -82,7 +72,6 @@ SAME_KEYS = {
     "export.vbr",
     "studio.lut",
 }
-SAME_PATTERNS = [re.compile(r"^effects\.[A-Za-z0-9]+\.name$")]
 # A value made of nothing but places, numbers, units and acronyms is the
 # same in every language too: "{0} Hz", "LUT", "4K".
 UNITS = {"Hz", "kHz", "K", "dB", "px", "fps", "ms", "s", "x", "%"}
@@ -91,7 +80,7 @@ ACRONYM = re.compile(r"^[A-Z0-9][A-Z0-9.:/+-]*$")
 
 def same_is_fine(key: str, english: str) -> bool:
     """Whether a line identical to the English is meant to be."""
-    if key in SAME_KEYS or any(pattern.match(key) for pattern in SAME_PATTERNS):
+    if key in SAME_KEYS:
         return True
     words = re.sub(r"\{\d+\}", " ", english).split()
     return all(word in UNITS or ACRONYM.match(word) or not re.search(r"[A-Za-z]", word)
@@ -100,17 +89,6 @@ def same_is_fine(key: str, english: str) -> bool:
 
 def unescape(text: str) -> str:
     return text.replace('\\"', '"').replace("\\\\", "\\")
-
-
-def key_part(text: str) -> str:
-    """A name as one segment of a key, as `i18n::key_part` makes it: its
-    words in lowerCamelCase, `{0}`-style places and apostrophes left out,
-    `&` read as "and"."""
-    text = re.sub(r"\{\d+\}", " ", text).replace("'", "").replace("’", "")
-    words = [w for w in re.split(r"[^A-Za-z0-9]+", text.replace("&", " and ")) if w]
-    if not words:
-        return ""
-    return words[0].lower() + "".join(w[:1].upper() + w[1:].lower() for w in words[1:])
 
 
 def live(text: str, rust: bool):
@@ -132,32 +110,6 @@ def code_keys() -> set[str]:
     # A literal that is only a place to fill - `I18n.t1("{0}", ...)` - is
     # passed through and is not a string to translate.
     return {key for key in out if key.strip("{}0123456789 ")}
-
-
-def manifest_strings() -> dict[str, str]:
-    """The keys the window makes from manifests and presets, with their English."""
-    out: dict[str, str] = {}
-    for manifest in sorted(PACKAGES.glob("*/effect.toml")):
-        name = manifest.parent.name.removeprefix("concat.")
-        part = key_part(name.replace("-", " "))
-        for field, literal in TOML_FIELD.findall(manifest.read_text(encoding="utf-8")):
-            value = unescape(literal)
-            if not value:
-                continue
-            key = {
-                "name": f"effects.{part}.name",
-                "description": f"effects.{part}.description",
-                "category": f"effects.categories.{key_part(value)}",
-                "group": f"effects.groups.{key_part(value)}",
-                "label": f"effects.labels.{key_part(value)}",
-            }[field]
-            out[key] = value
-    # The shelf a package without a category lands on.
-    out["effects.categories.other"] = "Other"
-    presets = (CRATE / "src" / "presets.rs").read_text(encoding="utf-8")
-    for preset, literal in PRESET.findall(presets):
-        out[f"presets.{key_part(preset.removeprefix('concat.').replace('-', ' '))}"] = unescape(literal)
-    return out
 
 
 def read(path: pathlib.Path) -> dict:
@@ -184,10 +136,6 @@ def inventory() -> tuple[dict[str, str], list[str]]:
             wanted[key] = current[key]
         else:
             problems.append(f"no English: {key!r} - add it to en.json")
-    for key, english in manifest_strings().items():
-        if not KEY.match(key):
-            problems.append(f"not a key: {key!r}, made from a manifest")
-        wanted[key] = english
     return wanted, problems
 
 
