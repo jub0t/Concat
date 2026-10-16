@@ -2137,6 +2137,15 @@ fn consolidation_of_silent_fractional_frames_covers_the_original_span() {
 fn consolidation_preserves_the_timeline_clock_of_animated_effects() {
     use concat_host::consolidate::Consolidation;
 
+    // Bloom is a wide blur rendered twice over, and on Windows' software
+    // adapter (WARP) that ran past the test's five-minute limit; there, as
+    // for the glow above, it is left out unless CONCAT_REQUIRE_GPU is set.
+    let software = export::WgpuCompositor::new().is_some_and(|gpu| gpu.on_software_adapter());
+    if software && std::env::var_os("CONCAT_REQUIRE_GPU").is_none() {
+        eprintln!("a software adapter only, and CONCAT_REQUIRE_GPU is not set; skipping");
+        return;
+    }
+
     let scratch = Scratch::new("consolidation-clock");
     let source = scratch.path().join("bright.mp4");
     let mut encoder = Encoder::create(
