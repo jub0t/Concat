@@ -408,6 +408,8 @@
   "settings.originalSource": "Izvorni izvor",
   "settings.packageOpened": "Concat {0} je preuzet i otvoren u instalacijskom programu za pakete. Instalirajte ga ondje, a zatim ponovno pokrenite Concat.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "Proxy datoteke",
+  "settings.proxiesHint": "Isključeno, reprodukcija čita vaše datoteke kakve jesu. Uključeno, svaki videozapis veći od HD-a dobiva manju kopiju, izrađenu jednom u pozadini, za glađu reprodukciju na Pola i Četvrtina.",
   "settings.remote": "Daljinski",
   "settings.remoteControl": "Daljinsko upravljanje",
   "settings.rose": "Ruža",

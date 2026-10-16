@@ -57,6 +57,8 @@ export struct SettingsData {
     log-level: int,
     /// the playhead stops at the end of the content
     playhead-stops: bool,
+    /// large files get a smaller copy for playback
+    proxies: bool,
     /// the magnetic timeline: deleting and trimming close the gap
     magnetic: bool,
     /// where model downloads look first: automatic, Concat's mirror,
@@ -449,6 +451,7 @@ export component SettingsDialog inherits Modal {
     /// follows the display's own.
     callback scale-changed(index: int);
     callback playhead-stops-changed(on: bool);
+    callback proxies-changed(on: bool);
     callback magnetic-changed(on: bool);
     callback download-source-changed(index: int);
     callback download-base-edited(text: string);
@@ -699,6 +702,18 @@ export component SettingsDialog inherits Modal {
                     on: root.data.playhead-stops;
                     open: false;
                     switched(on) => { root.playhead-stops-changed(on); }
+                }
+
+                // Off, playback reads the files themselves. On, a file
+                // larger than HD gets a smaller copy, written once in the
+                // background, which Half and Quarter play from.
+                DialogSection {
+                    title: I18n.t("settings.proxies");
+                    hint: I18n.t("settings.proxiesHint");
+                    switchable: true;
+                    on: root.data.proxies;
+                    open: false;
+                    switched(on) => { root.proxies-changed(on); }
                 }
 
                 // The models are open weights from elsewhere, mirrored so

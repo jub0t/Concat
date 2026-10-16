@@ -408,6 +408,8 @@
   "settings.originalSource": "המקור המקורי",
   "settings.packageOpened": "Concat {0} הורד ופתוח במתקין החבילות. יש להתקין אותו שם, ואז להפעיל שוב את Concat.",
   "settings.playhead": "סמן הפעלה",
+  "settings.proxies": "פרוקסי",
+  "settings.proxiesHint": "כבוי: הניגון קורא את הקבצים שלך כפי שהם. פועל: לכל סרטון גדול מ-HD נוצר עותק קטן יותר פעם אחת ברקע, לניגון חלק יותר באיכות חצי ורבע.",
   "settings.remote": "מרחוק",
   "settings.remoteControl": "שליטה מרחוק",
   "settings.rose": "ורד",

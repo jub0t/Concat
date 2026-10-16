@@ -408,6 +408,8 @@
   "settings.originalSource": "منبع اصلی",
   "settings.packageOpened": "Concat {0} بارگیری شده و در نصب‌کنندهٔ بسته باز است. آن را همان‌جا نصب کنید و سپس Concat را دوباره اجرا کنید.",
   "settings.playhead": "نشانگر پخش",
+  "settings.proxies": "پراکسی‌ها",
+  "settings.proxiesHint": "خاموش: پخش، فایل‌های شما را همان‌طور که هستند می‌خواند. روشن: برای هر ویدیوی بزرگ‌تر از HD یک نسخهٔ کوچک‌تر یک بار در پس‌زمینه ساخته می‌شود تا پخش در نصف و یک‌چهارم روان‌تر باشد.",
   "settings.remote": "راه دور",
   "settings.remoteControl": "کنترل از راه دور",
   "settings.rose": "گلی",

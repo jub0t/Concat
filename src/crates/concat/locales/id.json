@@ -408,6 +408,8 @@
   "settings.originalSource": "Sumber asli",
   "settings.packageOpened": "Concat {0} sudah diunduh dan terbuka di penginstal paket. Instal di sana, lalu jalankan Concat lagi.",
   "settings.playhead": "Penanda putar",
+  "settings.proxies": "Proksi",
+  "settings.proxiesHint": "Mati, pemutaran membaca file Anda apa adanya. Nyala, setiap video yang lebih besar dari HD mendapat salinan lebih kecil, dibuat sekali di latar belakang, agar pemutaran lebih lancar pada Setengah dan Seperempat.",
   "settings.remote": "Jarak jauh",
   "settings.remoteControl": "Kendali jarak jauh",
   "settings.rose": "Mawar",

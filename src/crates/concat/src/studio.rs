@@ -747,7 +747,7 @@ pub struct Studio {
     /// What the last art scan was for: the document's revision, the
     /// screen, and how much was pending. The scan runs when one of them
     /// changes and is a comparison on the pointer stream between.
-    art_stamp: Option<(u64, bool, usize)>,
+    art_stamp: Option<(u64, bool, usize, bool)>,
     /// Media whose proxy has been seen to, this project: `proxy::ensure`
     /// costs two stats of the file, and once is enough.
     proxied: HashSet<String>,
@@ -2991,9 +2991,10 @@ impl Studio {
             return;
         };
         let project_path = session.path().to_owned();
-        // A file larger than HD gets a proxy for playback and the
-        // filmstrips, written once on the scheduler's proxy lane; see
-        // concat_host::proxy. Asked once per file per project.
+        // With proxies on in Settings, a file larger than HD gets a proxy
+        // for playback and the filmstrips, written once on the scheduler's
+        // proxy lane; see concat_host::proxy. Asked once per file per
+        // project. Off, the default, nothing is written.
         type Unproxied = (
             String,
             String,
@@ -3006,6 +3007,7 @@ impl Studio {
             .project()
             .media
             .iter()
+            .filter(|_| self.prefs.proxies)
             .filter(|item| item.kind == model::MediaKind::Video && !item.placeholder)
             .filter(|item| !self.proxied.contains(&item.id))
             .filter_map(|item| {
@@ -9580,6 +9582,8 @@ impl Studio {
             self.revision,
             self.on_start,
             self.art_pending.len() + self.posters_pending.len(),
+            // Proxies switched on in Settings are seen to at once.
+            self.prefs.proxies,
         );
         if self.art_stamp == Some(stamp) {
             if !self.on_start {

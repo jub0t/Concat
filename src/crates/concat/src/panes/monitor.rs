@@ -244,7 +244,10 @@ impl MonitorPane {
             moving: studio.playing || studio.source.as_ref().is_some_and(|source| source.playing),
             // Playback reads the proxies at Half and Quarter; Full plays
             // the files themselves, or Full would be the proxy blurred up.
-            proxy: (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
+            // With proxies off in Settings it plays the files at every
+            // quality, a proxy left from before included.
+            proxy: studio.prefs.proxies
+                && (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
                 && quality > 0,
             color_space: studio.project().active().video.color_space,
         };

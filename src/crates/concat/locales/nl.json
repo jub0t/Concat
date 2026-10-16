@@ -408,6 +408,8 @@
   "settings.originalSource": "Oorspronkelijke bron",
   "settings.packageOpened": "Concat {0} is gedownload en geopend in het pakketinstallatieprogramma. Installeer het daar en start Concat opnieuw.",
   "settings.playhead": "Afspeelkop",
+  "settings.proxies": "Proxy's",
+  "settings.proxiesHint": "Uit: afspelen leest je bestanden zoals ze zijn. Aan: elke video groter dan HD krijgt eenmalig op de achtergrond een kleinere kopie, voor vloeiender afspelen bij Half en Kwart.",
   "settings.remote": "Op afstand",
   "settings.remoteControl": "Bediening op afstand",
   "settings.rose": "Roos",

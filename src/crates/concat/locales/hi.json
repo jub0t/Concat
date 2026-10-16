@@ -408,6 +408,8 @@
   "settings.originalSource": "मूल स्रोत",
   "settings.packageOpened": "Concat {0} डाउनलोड हो गया है और पैकेज इंस्टॉलर में खुला है। उसे वहां इंस्टॉल करें, फिर Concat दोबारा शुरू करें।",
   "settings.playhead": "प्लेहेड",
+  "settings.proxies": "प्रॉक्सी",
+  "settings.proxiesHint": "बंद होने पर प्लेबैक आपकी फ़ाइलें जैसी हैं वैसी ही पढ़ता है। चालू होने पर HD से बड़े हर वीडियो की एक छोटी कॉपी पृष्ठभूमि में एक बार बनती है, ताकि आधा और चौथाई पर प्लेबैक ज़्यादा सहज हो।",
   "settings.remote": "रिमोट",
   "settings.remoteControl": "रिमोट कंट्रोल",
   "settings.rose": "गुलाब",

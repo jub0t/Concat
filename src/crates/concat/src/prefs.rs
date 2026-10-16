@@ -56,6 +56,13 @@ pub struct Preferences {
     /// it is put. Off by default: a click past the last clip lands there, so
     /// a clip can be dropped at the playhead beyond everything else.
     pub playhead_stops_at_end: bool,
+    /// Proxies: a file larger than HD gets a smaller copy written in the
+    /// background, and playback at Half and Quarter reads that copy. Off
+    /// by default, as in CapCut: a proxy is a full re-encode of every large
+    /// file, on the CPU of a phone or through a hardware encoder a laptop
+    /// may not take (an HDR one opened NVENC first), and the person who
+    /// wants one for smoother playback turns it on in Settings.
+    pub proxies: bool,
     /// The magnetic timeline: a delete and a trim close the gap they would
     /// leave, on the lane they happen on. Off by default, because a gap is
     /// sometimes the point; ⇧⌫ ripples either way.

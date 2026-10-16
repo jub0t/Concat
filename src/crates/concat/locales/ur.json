@@ -408,6 +408,8 @@
   "settings.originalSource": "اصل ماخذ",
   "settings.packageOpened": "Concat {0} ڈاؤن لوڈ ہو کر پیکج انسٹالر میں کھلا ہے۔ اسے وہاں انسٹال کریں، پھر Concat دوبارہ شروع کریں۔",
   "settings.playhead": "پلے ہیڈ",
+  "settings.proxies": "پراکسی",
+  "settings.proxiesHint": "بند ہو تو پلے بیک آپ کی فائلیں جیسی ہیں ویسی ہی پڑھتا ہے۔ آن ہو تو HD سے بڑی ہر ویڈیو کی ایک چھوٹی کاپی پس منظر میں ایک بار بنتی ہے، تاکہ آدھا اور چوتھائی پر پلے بیک زیادہ ہموار ہو۔",
   "settings.remote": "ریموٹ",
   "settings.remoteControl": "ریموٹ کنٹرول",
   "settings.rose": "گلاب",

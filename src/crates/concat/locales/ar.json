@@ -408,6 +408,8 @@
   "settings.originalSource": "المصدر الأصلي",
   "settings.packageOpened": "تم تنزيل Concat {0} وهو مفتوح في مثبّت الحزم. ثبّته هناك، ثم شغّل Concat مجددًا.",
   "settings.playhead": "مؤشر التشغيل",
+  "settings.proxies": "الملفات الوكيلة",
+  "settings.proxiesHint": "عند الإيقاف، يُشغَّل الملف كما هو. عند التشغيل، يحصل كل فيديو أكبر من HD على نسخة أصغر تُصنع مرة واحدة في الخلفية، لتشغيل أكثر سلاسة بجودة النصف والربع.",
   "settings.remote": "عن بُعد",
   "settings.remoteControl": "التحكم عن بُعد",
   "settings.rose": "وردي",

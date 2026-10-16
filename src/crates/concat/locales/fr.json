@@ -408,6 +408,8 @@
   "settings.originalSource": "Source d'origine",
   "settings.packageOpened": "Concat {0} est téléchargé et ouvert dans l'installateur de paquets. Installez-le là, puis relancez Concat.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "Proxys",
+  "settings.proxiesHint": "Désactivé, la lecture lit vos fichiers tels quels. Activé, chaque vidéo plus grande que la HD reçoit une copie plus petite, créée une fois en arrière-plan, pour une lecture plus fluide en Moitié et Quart.",
   "settings.remote": "À distance",
   "settings.remoteControl": "Contrôle à distance",
   "settings.rose": "Rose",

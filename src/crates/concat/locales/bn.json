@@ -408,6 +408,8 @@
   "settings.originalSource": "মূল উৎস",
   "settings.packageOpened": "Concat {0} ডাউনলোড হয়েছে এবং প্যাকেজ ইনস্টলারে খোলা আছে। সেখানে ইনস্টল করুন, তারপর আবার Concat চালু করুন।",
   "settings.playhead": "প্লেহেড",
+  "settings.proxies": "প্রক্সি",
+  "settings.proxiesHint": "বন্ধ থাকলে প্লেব্যাক আপনার ফাইল যেমন আছে তেমনই পড়ে। চালু থাকলে HD-এর চেয়ে বড় প্রতিটি ভিডিওর একটি ছোট কপি পটভূমিতে একবার তৈরি হয়, যাতে অর্ধেক ও এক-চতুর্থাংশে প্লেব্যাক আরও মসৃণ হয়।",
   "settings.remote": "রিমোট",
   "settings.remoteControl": "রিমোট কন্ট্রোল",
   "settings.rose": "রোজ",

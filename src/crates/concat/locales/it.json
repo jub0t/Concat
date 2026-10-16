@@ -408,6 +408,8 @@
   "settings.originalSource": "Fonte originale",
   "settings.packageOpened": "Concat {0} è stato scaricato ed è aperto nel programma di installazione dei pacchetti. Installalo lì, poi riavvia Concat.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "Proxy",
+  "settings.proxiesHint": "Disattivato, la riproduzione legge i file così come sono. Attivato, ogni video più grande dell'HD riceve una copia più piccola, creata una volta in background, per una riproduzione più fluida a Metà e Un quarto.",
   "settings.remote": "Remoto",
   "settings.remoteControl": "Controllo remoto",
   "settings.rose": "Rosa",

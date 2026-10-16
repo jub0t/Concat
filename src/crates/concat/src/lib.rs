@@ -1601,6 +1601,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_settings_playhead_stops_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::PlayheadStopsChanged(on)));
     }));
+    app.on_settings_proxies_changed(on_window!(|state, on: bool| {
+        state.handle(Msg::Settings(SettingsMsg::ProxiesChanged(on)));
+    }));
     app.on_settings_magnetic_changed(on_window!(|state, on: bool| {
         state.handle(Msg::Settings(SettingsMsg::MagneticChanged(on)));
     }));

@@ -408,6 +408,8 @@
   "settings.originalSource": "原始来源",
   "settings.packageOpened": "Concat {0} 已下载并在软件包安装器中打开。请在那里安装，然后重新启动 Concat。",
   "settings.playhead": "播放头",
+  "settings.proxies": "代理文件",
+  "settings.proxiesHint": "关闭时，播放直接读取原文件。开启后，每个大于高清的视频都会在后台生成一次较小的副本，让“一半”和“四分之一”画质下的播放更流畅。",
   "settings.remote": "远程",
   "settings.remoteControl": "远程控制",
   "settings.rose": "玫瑰",

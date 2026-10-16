@@ -408,6 +408,8 @@
   "settings.originalSource": "원본 출처",
   "settings.packageOpened": "Concat {0}을(를) 다운로드하여 패키지 설치 프로그램에서 열었습니다. 거기서 설치한 뒤 Concat을 다시 시작하세요.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "프록시",
+  "settings.proxiesHint": "끄면 파일을 그대로 재생합니다. 켜면 HD보다 큰 동영상마다 더 작은 사본을 백그라운드에서 한 번 만들어 1/2와 1/4에서 더 부드럽게 재생합니다.",
   "settings.remote": "원격",
   "settings.remoteControl": "원격 제어",
   "settings.rose": "로즈",

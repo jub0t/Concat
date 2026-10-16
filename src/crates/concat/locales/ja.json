@@ -408,6 +408,8 @@
   "settings.originalSource": "元の配布元",
   "settings.packageOpened": "Concat {0} をダウンロードし、パッケージインストーラーで開きました。そこでインストールしてから Concat を起動し直してください。",
   "settings.playhead": "再生ヘッド",
+  "settings.proxies": "プロキシ",
+  "settings.proxiesHint": "オフでは、ファイルをそのまま再生します。オンでは、HDより大きい動画ごとに小さなコピーをバックグラウンドで一度だけ作成し、1/2と1/4でより滑らかに再生します。",
   "settings.remote": "リモート",
   "settings.remoteControl": "リモート操作",
   "settings.rose": "ローズ",

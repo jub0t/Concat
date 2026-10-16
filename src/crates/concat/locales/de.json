@@ -408,6 +408,8 @@
   "settings.originalSource": "Ursprüngliche Quelle",
   "settings.packageOpened": "Concat {0} ist heruntergeladen und im Paketinstaller geöffnet. Installiere es dort und starte Concat dann neu.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "Proxys",
+  "settings.proxiesHint": "Aus: Die Wiedergabe liest deine Dateien so, wie sie sind. An: Jedes Video über HD bekommt einmalig im Hintergrund eine kleinere Kopie, für flüssigere Wiedergabe bei Halb und Viertel.",
   "settings.remote": "Fernzugriff",
   "settings.remoteControl": "Fernsteuerung",
   "settings.rose": "Rosé",

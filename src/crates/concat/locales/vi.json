@@ -408,6 +408,8 @@
   "settings.originalSource": "Nguồn gốc",
   "settings.packageOpened": "Concat {0} đã được tải xuống và mở bằng trình cài đặt gói. Hãy cài đặt tại đó rồi khởi động lại Concat.",
   "settings.playhead": "Đầu phát",
+  "settings.proxies": "Proxy",
+  "settings.proxiesHint": "Tắt: phát lại đọc tệp của bạn như nguyên bản. Bật: mỗi video lớn hơn HD có một bản sao nhỏ hơn, tạo một lần trong nền, để phát mượt hơn ở Một nửa và Một phần tư.",
   "settings.remote": "Từ xa",
   "settings.remoteControl": "Điều khiển từ xa",
   "settings.rose": "Hồng phấn",

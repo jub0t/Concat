@@ -408,6 +408,8 @@
   "settings.originalSource": "Özgün kaynak",
   "settings.packageOpened": "Concat {0} indirildi ve paket yükleyicide açıldı. Orada yükleyin, sonra Concat'i yeniden başlatın.",
   "settings.playhead": "Playhead",
+  "settings.proxies": "Proxy dosyaları",
+  "settings.proxiesHint": "Kapalıyken oynatma dosyalarınızı olduğu gibi okur. Açıkken HD'den büyük her videonun arka planda bir kez daha küçük bir kopyası yapılır, böylece Yarım ve Çeyrek'te oynatma daha akıcı olur.",
   "settings.remote": "Uzak",
   "settings.remoteControl": "Uzaktan denetim",
   "settings.rose": "Gül",

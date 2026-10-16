@@ -408,6 +408,8 @@
   "settings.originalSource": "Oryginalne źródło",
   "settings.packageOpened": "Concat {0} został pobrany i otwarty w instalatorze pakietów. Zainstaluj go tam, a potem uruchom Concat ponownie.",
   "settings.playhead": "Głowica odtwarzania",
+  "settings.proxies": "Pliki proxy",
+  "settings.proxiesHint": "Wyłączone: odtwarzanie czyta pliki takie, jakie są. Włączone: każdy film większy niż HD dostaje mniejszą kopię, tworzoną raz w tle, by odtwarzanie przy Połowie i Ćwierci było płynniejsze.",
   "settings.remote": "Zdalny dostęp",
   "settings.remoteControl": "Zdalne sterowanie",
   "settings.rose": "Róża",
