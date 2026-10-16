@@ -60,10 +60,13 @@ name = "android.permission.INTERNET"
 [package.metadata.android.application]
 label = "Concat"
 icon = "@mipmap/ic_launcher"
-# The editor keeps its own state across a rotation; the activity is not
-# recreated for one.
+# The activity is never recreated for a change the window can take as it
+# runs. A recreation ends Slint's event loop, and the end of the loop is
+# the end of the process, so each of these closed the app mid-edit: dark
+# mode switching on (at sunset, too), split screen, a larger font or
+# display size, a new language, a keyboard plugged in.
 [package.metadata.android.application.activity]
-config_changes = "orientation|keyboardHidden|screenSize"
+config_changes = "orientation|keyboardHidden|keyboard|navigation|screenSize|smallestScreenSize|screenLayout|uiMode|density|fontScale|fontWeightAdjustment|locale|layoutDirection"
 launch_mode = "singleTop"
 # Upright only. The phone shell is drawn for a screen held upright - the
 # monitor over the lanes over the bar - and turned on its side it left no
