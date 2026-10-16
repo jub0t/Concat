@@ -554,6 +554,8 @@
   "export.codec": "编码器",
   "export.colour": "颜色",
   "export.contents": "目录",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "无法保存到 {0}：{1}",
   "export.couldNotShowFile": "无法显示文件：{0}",
   "export.destination": "目标位置",

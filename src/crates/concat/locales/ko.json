@@ -554,6 +554,8 @@
   "export.codec": "코덱",
   "export.colour": "색상",
   "export.contents": "내용",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "{0}에 저장할 수 없습니다: {1}",
   "export.couldNotShowFile": "파일을 표시할 수 없습니다: {0}",
   "export.destination": "대상",

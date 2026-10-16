@@ -554,6 +554,8 @@
   "export.codec": "الترميز",
   "export.colour": "اللون",
   "export.contents": "المحتويات",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "تعذّر الحفظ في {0}: {1}",
   "export.couldNotShowFile": "تعذّر عرض الملف: {0}",
   "export.destination": "الوجهة",

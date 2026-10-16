@@ -554,6 +554,8 @@
   "export.codec": "Codec",
   "export.colour": "Kleur",
   "export.contents": "Inhoud",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Kan niet opslaan in {0}: {1}",
   "export.couldNotShowFile": "Kan het bestand niet tonen: {0}",
   "export.destination": "Bestemming",

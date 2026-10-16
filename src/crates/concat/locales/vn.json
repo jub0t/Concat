@@ -550,6 +550,8 @@
   "export.codec": "Bộ mã hóa",
   "export.colour": "Màu sắc",
   "export.contents": "Nội dung",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Không thể lưu vào {0}: {1}",
   "export.couldNotShowFile": "Không thể hiển thị tệp: {0}",
   "export.destination": "Đích lưu",

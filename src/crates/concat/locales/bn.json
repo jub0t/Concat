@@ -554,6 +554,8 @@
   "export.codec": "কোডেক",
   "export.colour": "রঙ",
   "export.contents": "বিষয়বস্তু",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "{0}-এ সংরক্ষণ করা যায়নি: {1}",
   "export.couldNotShowFile": "ফাইলটি দেখানো যায়নি: {0}",
   "export.destination": "গন্তব্য",

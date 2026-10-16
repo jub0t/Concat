@@ -554,6 +554,8 @@
   "export.codec": "Kodek",
   "export.colour": "Kolor",
   "export.contents": "Zawartość",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "Nie udało się zapisać w {0}: {1}",
   "export.couldNotShowFile": "Nie udało się pokazać pliku: {0}",
   "export.destination": "Miejsce docelowe",
