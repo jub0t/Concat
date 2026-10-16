@@ -727,6 +727,41 @@ export component SettingsDialog inherits Modal {
                     chose(index) => { root.log-level-changed(index); }
                 }
 
+                // The models are open weights from elsewhere, mirrored so
+                // they stay reachable; where a download looks first is a
+                // matter of where you are. Every source is still tried.
+                DialogSection {
+                    ruled: false;
+                    title: I18n.t("settings.downloads");
+                    hint: I18n.t("settings.modelsFetchedFirstTime");
+                    choices: [
+                        I18n.t("settings.automatic"),
+                        I18n.t("settings.concatsMirror"),
+                        "hf-mirror.com",
+                        I18n.t("settings.originalSource"),
+                        I18n.t("settings.customUrl"),
+                    ];
+                    choice-details: [
+                        "",
+                        "github.com",
+                        I18n.t("settings.forMainlandChina"),
+                        I18n.t("settings.whereEachModelCame"),
+                        I18n.t("settings.mirrorOwn"),
+                    ];
+                    choice: root.data.download-source;
+                    chose(index) => { root.download-source-changed(index); }
+                    // The body is only the custom source's address, so it
+                    // folds away for every other choice.
+                    open: root.data.download-source == 4;
+
+                    if root.data.download-source == 4: Field {
+                        value: root.data.download-base;
+                        placeholder: "https://models.example.com/concat";
+                        technical: true;
+                        edited(text) => { root.download-base-edited(text); }
+                    }
+                }
+
                 // Off, a delete leaves its hole and a trim moves one edge.
                 // On, the lane closes up behind either - the magnetic
                 // timeline of the mainstream editors, asked for in
@@ -767,40 +802,6 @@ export component SettingsDialog inherits Modal {
                     switched(on) => { root.proxies-changed(on); }
                 }
 
-                // The models are open weights from elsewhere, mirrored so
-                // they stay reachable; where a download looks first is a
-                // matter of where you are. Every source is still tried.
-                DialogSection {
-                    ruled: false;
-                    title: I18n.t("settings.downloads");
-                    hint: I18n.t("settings.modelsFetchedFirstTime");
-                    choices: [
-                        I18n.t("settings.automatic"),
-                        I18n.t("settings.concatsMirror"),
-                        "hf-mirror.com",
-                        I18n.t("settings.originalSource"),
-                        I18n.t("settings.customUrl"),
-                    ];
-                    choice-details: [
-                        "",
-                        "github.com",
-                        I18n.t("settings.forMainlandChina"),
-                        I18n.t("settings.whereEachModelCame"),
-                        I18n.t("settings.mirrorOwn"),
-                    ];
-                    choice: root.data.download-source;
-                    chose(index) => { root.download-source-changed(index); }
-                    // The body is only the custom source's address, so it
-                    // folds away for every other choice.
-                    open: root.data.download-source == 4;
-
-                    if root.data.download-source == 4: Field {
-                        value: root.data.download-base;
-                        placeholder: "https://models.example.com/concat";
-                        technical: true;
-                        edited(text) => { root.download-base-edited(text); }
-                    }
-                }
             }
 
             // Read straight off the Theme global rather than through
