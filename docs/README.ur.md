@@ -1,15 +1,11 @@
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/concat-mark-dark.png" alt="Concat" width="100" />
+</p>
+
+<h1 align="center">Concat</h1>
+<h3 align="center">CapCut کا واقعی مفت، اوپن سورس اور کراس پلیٹ فارم متبادل۔</h3>
+
 <div align="center">
-<table width="100%">
-  <tr>
-    <td align="left" width="120">
-      <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/concat-mark-dark.png" alt="Concat" width="100" />
-    </td>
-    <td align="">
-      <h1>Concat</h1>
-      <h3 style="margin-top: -10px;">CapCut کا واقعی مفت، اوپن سورس اور کراس پلیٹ فارم متبادل۔</h3>
-    </td>
-  </tr>
-</table>
 
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
@@ -23,7 +19,7 @@
 </p>
 
 <p align="center">
-  <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
+  <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="251" /></a>
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
 </p>
 
