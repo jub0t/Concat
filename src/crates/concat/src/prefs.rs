@@ -13,9 +13,10 @@ const FILE: &str = "settings.json";
 
 /// The interface scales Settings > Appearance offers, smallest first, as
 /// percents of the display's own scale. Nothing on the list - and no value
-/// at all - leaves the window at the scale the platform hands it.
+/// at all - leaves the window at the scale the platform hands it. 110 is
+/// for a 1x desk where 100 reads small and 125 is a size too far.
 /// https://github.com/jub0t/Concat/issues/320
-pub const UI_SCALES: [u32; 5] = [100, 125, 150, 175, 200];
+pub const UI_SCALES: [u32; 6] = [100, 110, 125, 150, 175, 200];
 
 /// Remembered preferences.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -323,7 +324,8 @@ mod tests {
         };
         assert_eq!(at(None), 0);
         assert_eq!(at(Some(100)), 1);
-        assert_eq!(at(Some(200)), 5);
+        assert_eq!(at(Some(110)), 2);
+        assert_eq!(at(Some(200)), 6);
         assert_eq!(at(Some(133)), 0);
     }
 
@@ -333,8 +335,9 @@ mod tests {
     fn a_row_finds_its_scale() {
         assert_eq!(Preferences::scale_at(0), None);
         assert_eq!(Preferences::scale_at(1), Some(100));
-        assert_eq!(Preferences::scale_at(5), Some(200));
-        assert_eq!(Preferences::scale_at(6), None);
+        assert_eq!(Preferences::scale_at(2), Some(110));
+        assert_eq!(Preferences::scale_at(6), Some(200));
+        assert_eq!(Preferences::scale_at(7), None);
     }
 
     /// A scale reads as the multiplier the backend's `SLINT_SCALE_FACTOR`
@@ -342,6 +345,7 @@ mod tests {
     #[test]
     fn a_scale_reads_as_a_multiplier() {
         assert_eq!(Preferences::scale_factor(100), 1.0);
+        assert_eq!(Preferences::scale_factor(110), 1.1);
         assert_eq!(Preferences::scale_factor(150), 1.5);
         assert_eq!(Preferences::scale_factor(200), 2.0);
     }
@@ -357,7 +361,7 @@ mod tests {
         let text = serde_json::to_string(&prefs).unwrap();
         assert!(text.contains("\"uiScale\":150"), "{text}");
         let back: Preferences = serde_json::from_str(&text).unwrap();
-        assert_eq!(back.scale_index(), 3);
+        assert_eq!(back.scale_index(), 4);
         let older: Preferences = serde_json::from_str(r#"{"dark": true}"#).unwrap();
         assert_eq!(older.ui_scale, None);
         assert_eq!(older.scale_index(), 0);
