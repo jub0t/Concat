@@ -554,6 +554,8 @@
   "export.codec": "編碼格式",
   "export.colour": "顏色",
   "export.contents": "目錄",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "無法儲存到 {0}：{1}",
   "export.couldNotShowFile": "無法顯示檔案：{0}",
   "export.destination": "目的地",

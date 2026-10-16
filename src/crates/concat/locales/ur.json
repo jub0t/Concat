@@ -554,6 +554,8 @@
   "export.codec": "کوڈیک",
   "export.colour": "رنگ",
   "export.contents": "مشمولات",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "{0} میں محفوظ نہیں ہو سکا: {1}",
   "export.couldNotShowFile": "فائل نہیں دکھائی جا سکی: {0}",
   "export.destination": "منزل",

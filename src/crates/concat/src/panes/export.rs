@@ -573,9 +573,9 @@ impl ExportPane {
                 format!("{}:{:02}", whole / 60, whole % 60).into()
             },
             contents: if titles > 0 {
-                format!("{clips} clips · {titles} titles")
+                tf("export.contentsClipsTitles", &[&clips, &titles])
             } else {
-                format!("{clips} clips")
+                tf("export.contentsClips", &[&clips])
             }
             .into(),
             resolution: self.resolution as i32,

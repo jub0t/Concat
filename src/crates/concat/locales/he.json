@@ -554,6 +554,8 @@
   "export.codec": "מקודד",
   "export.colour": "צבע",
   "export.contents": "תוכן",
+  "export.contentsClips": "{0} clips",
+  "export.contentsClipsTitles": "{0} clips · {1} titles",
   "export.couldNotPublish": "לא ניתן לשמור אל {0}: {1}",
   "export.couldNotShowFile": "לא ניתן להציג את הקובץ: {0}",
   "export.destination": "יעד",
