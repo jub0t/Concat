@@ -952,13 +952,13 @@ fn fades_and_wipes_reach_the_picture() {
         studio.export(&format!("transition {kind}"))
     };
 
-    // The wipes overlap the blue clip onto the red one's last second.
+    // The wipes overlap the two clips for the second centred on the cut.
     let wiped = with(&mut studio, "wipe-left");
     wiped.expect_colours(0.5, &[((0.5, 0.5), red)]);
-    wiped.expect_colours(1.5, &[((0.2, 0.5), red), ((0.8, 0.5), blue)]);
-    wiped.expect_colours(2.5, &[((0.5, 0.5), blue)]);
+    wiped.expect_colours(2.0, &[((0.2, 0.5), red), ((0.8, 0.5), blue)]);
+    wiped.expect_colours(2.9, &[((0.5, 0.5), blue)]);
     let wiped = with(&mut studio, "wipe-right");
-    wiped.expect_colours(1.5, &[((0.2, 0.5), blue), ((0.8, 0.5), red)]);
+    wiped.expect_colours(2.0, &[((0.2, 0.5), blue), ((0.8, 0.5), red)]);
 
     // The fades split the second across the cut, and do not overlap.
     for (kind, colour) in [("fade-black", [0, 0, 0]), ("fade-white", [255, 255, 255])] {

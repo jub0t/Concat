@@ -1,0 +1,13 @@
+format = 2
+
+[effect]
+id = "concat.fade-white"
+name = "Fade to White"
+kind = "transition"
+category = "Basic"
+order = 2
+description = "The outgoing shot fades up to white, then the incoming one fades down out of it."
+
+[transition]
+entry = "effect.wgsl"
+fallback = "cross-fade"

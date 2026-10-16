@@ -1,0 +1,14 @@
+format = 2
+
+[effect]
+id = "concat.fade-black"
+name = "Fade to Black"
+kind = "transition"
+category = "Basic"
+order = 1
+description = "The outgoing shot fades down to black, then the incoming one fades up out of it."
+
+[transition]
+entry = "effect.wgsl"
+xfade = "fadeblack"
+fallback = "cross-fade"

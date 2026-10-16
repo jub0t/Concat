@@ -1,0 +1,23 @@
+# Colours in the working space: linear light, 1.0 the white of an SDR
+# picture. A cut from one colour to another, and its middle pixel.
+
+[[probe]]
+name = "default"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.25
+expect = [0.15157, 0.09473, 0.05684, 1]
+
+[[probe]]
+name = "black at the middle of the cut"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.5
+expect = [0, 0, 0, 1]
+
+[[probe]]
+name = "the incoming shot fading up"
+input = [0.8, 0.5, 0.3, 1]
+to = [0.05, 0.15, 0.4, 1]
+progress = 0.75
+expect = [0.00947, 0.02842, 0.07579, 1]

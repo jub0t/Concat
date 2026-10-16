@@ -131,6 +131,7 @@ pub fn flatten_timeline_in(
                     }),
                 media_width: media.width,
                 media_height: media.height,
+                media_duration: media.duration,
                 has_audio: Some(media.has_audio),
                 cutout: clip.cutout.clone(),
                 mask_dir: match (&clip.cutout, project_dir) {
