@@ -1,0 +1,68 @@
+format = 2
+
+[effect]
+id = "lab.halation"
+name = "Halation"
+version = 2
+kind = "effect"
+category = "Film"
+order = 150
+intensity = "amount"
+aliases = ["lab-halation"]
+description = "The red-orange halo film lays around its blown highlights, where light passes through the emulsion, scatters off the backing and comes back."
+
+[[param]]
+key = "threshold"
+label = "Threshold"
+min = 20
+max = 95
+default = 55
+step = 1
+unit = "%"
+
+[[param]]
+key = "radius"
+label = "Radius"
+min = 4
+max = 60
+default = 22
+step = 1
+unit = "%"
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 45
+step = 1
+unit = "%"
+
+[[param]]
+key = "tint"
+label = "Tint"
+min = -100
+max = 100
+default = 0
+step = 1
+unit = "%"
+# A parameter carries no description field of its own (Param has no such
+# key, and the manifest denies unknown fields): negative is the deep red of
+# a dense negative, positive the orange of a print, zero the red-orange of
+# the stock.
+
+[wgsl]
+entry = "effect.wgsl"
+
+# The halo is a wide Gaussian over the bright parts, drawn across and then
+# down at a quarter of the layer's pixels.
+[[wgsl.pass]]
+target = "across"
+shrink = ["4", "1"]
+
+[[wgsl.pass]]
+target = "down"
+shrink = ["4", "4"]
+
+[card]
+params = { threshold = 38, amount = 75 }
