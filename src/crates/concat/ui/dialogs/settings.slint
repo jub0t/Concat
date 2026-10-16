@@ -999,7 +999,7 @@ export component SettingsDialog inherits Modal {
                     Select {
                         options: [
                             I18n.t("settings.scaleSystem"),
-                            "100%", "125%", "150%", "175%", "200%",
+                            "100%", "110%", "125%", "150%", "175%", "200%",
                         ];
                         current: Theme.ui-scale;
                         changed(index) => { root.scale-changed(index); }
