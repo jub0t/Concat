@@ -158,6 +158,27 @@ pub fn smoke() -> Result<(), slint::PlatformError> {
     start(None, true)
 }
 
+/// Runs one way out of the open project, in the order that keeps the work
+/// safe: `close` writes the project and lets its session go, and `leave` -
+/// hiding the window, quitting the loop, starting a replacement build - runs
+/// only when that write landed.
+///
+/// Every path out goes through this: the title bar's X, the system's close
+/// request, File › Close Window and a version switch. Before it existed, a
+/// save that failed still hid the window and quit, taking whatever the
+/// project held with it; a failure here leaves the session, its running jobs
+/// and the window exactly as they were, and returns the reason.
+pub(crate) fn close_window(
+    close: impl FnOnce() -> Result<(), String>,
+    leave: impl FnOnce(),
+) -> Result<(), String> {
+    let result = close();
+    if result.is_ok() {
+        leave();
+    }
+    result
+}
+
 /// [`run_with_project`], or [`smoke`] when `smoke` is set.
 fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::PlatformError> {
     // The interface scale is read by Slint's window backend when the window
@@ -465,21 +486,49 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     app.on_titlebar_close(|| {
         log::info!("close: titlebar X pressed");
         Shell::with(|shell, app| {
-            shell.studio.borrow_mut().close_project();
-            log::info!("close: project closed, hiding window");
-            app.window().hide().ok();
-            slint::quit_event_loop().ok();
-            log::info!("close: quit_event_loop called");
+            let outcome = close_window(
+                || shell.studio.borrow_mut().close_project(),
+                || {
+                    log::info!("close: project closed, hiding window");
+                    app.window().hide().ok();
+                    slint::quit_event_loop().ok();
+                    log::info!("close: quit_event_loop called");
+                },
+            );
+            if let Err(error) = outcome {
+                // The save failed and `close_project` left the session
+                // open, so the window stays up. Its notice is published
+                // here or nobody would see it.
+                log::warn!("close: not closing, project could not be saved: {error}");
+                shell.studio.borrow_mut().refresh_art();
+                shell.studio.borrow().publish(&app, &shell.models);
+            }
         });
     });
-    // System-driven close (Alt+F4, taskbar close): the same road out.
+    // System-driven close (Alt+F4, taskbar close): the same road out, and
+    // refused the same way when the project cannot be saved.
     app.window().on_close_requested(|| {
         log::info!("close: system close request (Alt+F4 / taskbar)");
-        Shell::with(|shell, _app| {
-            shell.studio.borrow_mut().close_project();
+        let saved = std::cell::Cell::new(true);
+        Shell::with(|shell, app| {
+            let outcome = close_window(
+                || shell.studio.borrow_mut().close_project(),
+                || {
+                    slint::quit_event_loop().ok();
+                },
+            );
+            if let Err(error) = outcome {
+                saved.set(false);
+                log::warn!("close: not closing, project could not be saved: {error}");
+                shell.studio.borrow_mut().refresh_art();
+                shell.studio.borrow().publish(&app, &shell.models);
+            }
         });
-        slint::quit_event_loop().ok();
-        slint::CloseRequestResponse::HideWindow
+        if saved.get() {
+            slint::CloseRequestResponse::HideWindow
+        } else {
+            slint::CloseRequestResponse::KeepWindowShown
+        }
     });
     // Maximised or not is read back on every resize rather than tracked:
     // the platform can maximise the window without us - a drag to the top
@@ -1758,7 +1807,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                         "speech" => state.handle(Msg::Speech(SpeechMsg::Open)),
                         "clear-cache" => state.clear_project_cache(),
                         "settings" => state.handle(Msg::Settings(SettingsMsg::Open)),
-                        "close-project" => state.close_project(),
+                        "close-project" => {
+                            // Back to the launch screen, not out of the
+                            // app: a failed save keeps the project open and
+                            // the notice below lands it on screen.
+                            let _ = state.close_project();
+                        }
                         "undo" => state.undo(),
                         "redo" => state.redo(),
                         "snap" => state.handle(Msg::Timeline(TimelineMsg::SnapToggled)),
@@ -1796,9 +1850,21 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 }
                 if action == "close-window" {
                     log::info!("close: File > Close Window");
-                    shell.studio.borrow_mut().close_project();
-                    app.window().hide().ok();
-                    slint::quit_event_loop().ok();
+                    let outcome = close_window(
+                        || shell.studio.borrow_mut().close_project(),
+                        || {
+                            app.window().hide().ok();
+                            slint::quit_event_loop().ok();
+                        },
+                    );
+                    if let Err(error) = outcome {
+                        // Unsaved work is worth more than the window: the
+                        // project stays open and the reason is shown.
+                        log::warn!("close: not closing, project could not be saved: {error}");
+                        shell.studio.borrow_mut().refresh_art();
+                        shell.studio.borrow().publish(&app, &shell.models);
+                        return;
+                    }
                     log::info!("close: quit_event_loop called (menu)");
                     return;
                 }
@@ -2041,4 +2107,204 @@ fn leave(code: i32) -> ! {
     }
     #[cfg(not(target_os = "linux"))]
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::close_window;
+    use std::cell::{Cell, RefCell};
+    use std::path::Path;
+
+    use concat_host::{Session, projects};
+
+    /// A scratch folder that removes itself when the test ends, pass, fail or
+    /// panic. Its name carries the process id and the thread's so two tests
+    /// running at once never share one, and it sits under `temp_dir`, which
+    /// the isolated run points into the approved directory.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "concat-close-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("a scratch folder");
+            Self(path)
+        }
+
+        fn location(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            // Best effort: a leftover scratch must not fail a run that its
+            // test already decided.
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Saves the session the slot holds and, only when the write lands, lets
+    /// it go - the contract `Studio::close_project` keeps for every way out.
+    /// The write is `concat_host`'s own, so nothing here fabricates a
+    /// failure or a success.
+    fn save_then_release(slot: &RefCell<Option<Session>>) -> Result<(), String> {
+        let mut slot = slot.borrow_mut();
+        let result = match slot.as_mut() {
+            Some(session) => session.save(None),
+            None => Ok(()),
+        };
+        if result.is_ok() {
+            *slot = None;
+        }
+        result
+    }
+
+    fn tracks(session: &Session) -> usize {
+        session.project().active().tracks.len()
+    }
+
+    /// The regression this gate exists for, over a real project on disk: a
+    /// close used to hide the window and quit whatever the save did. The
+    /// write here is `concat_host`'s own - a real [`Session`] through
+    /// `projects::save` - and it is made to fail by a directory standing
+    /// where the manifest must go, a block at the destination the save
+    /// renames onto, so the failure holds whatever the save calls its
+    /// temporary file (the old `.saving` or the current per-call name). A
+    /// failed write must leave the session open, keep the edit it holds and
+    /// never leave; the retry, unblocked, must land the edit and then leave.
+    ///
+    /// The gate is what is under test, not a Slint handler: there is no
+    /// window, no event loop and no `Studio` here, only the real session and
+    /// the real filesystem.
+    #[test]
+    fn a_failed_save_keeps_the_real_session_and_its_edit() {
+        let scratch = Scratch::new("session");
+        let info = projects::create(&scratch.location(), "Closing", 1920, 1080, 30, 1)
+            .expect("creates the project");
+        let manifest = projects::manifest_path(Path::new(&info.path));
+
+        // A real session, saved once; then an edit that lives in memory
+        // only, so the disk holds the project without it.
+        let mut session = Session::open_info(&info).expect("opens the session");
+        let unedited = tracks(&session);
+        session.save(None).expect("the baseline write lands");
+        let baseline = std::fs::read(&manifest).expect("reads the baseline manifest");
+        session
+            .apply(concat_project::Command::AddTrack { bottom: false })
+            .expect("adds a track");
+        let edited = tracks(&session);
+        assert_eq!(edited, unedited + 1, "the edit really changed the project");
+
+        // Block the destination: a directory where the manifest must go. The
+        // save writes its temporary, flushes it, and cannot rename it over a
+        // directory, so it fails for real and leaves no partial manifest.
+        std::fs::remove_file(&manifest).expect("removes the manifest");
+        std::fs::create_dir(&manifest).expect("blocks the manifest path");
+
+        let slot = RefCell::new(Some(session));
+        let left = Cell::new(false);
+        let outcome = close_window(|| save_then_release(&slot), || left.set(true));
+
+        let failed_at = manifest.display().to_string();
+        assert!(outcome.is_err(), "a blocked write is a failure");
+        assert!(
+            outcome.as_ref().unwrap_err().contains(failed_at.as_str()),
+            "the failure is the real one from the blocked destination: {outcome:?}"
+        );
+        assert!(manifest.is_dir(), "the block is untouched, nothing landed");
+        {
+            let held = slot.borrow();
+            let session = held.as_ref().expect("the session is kept");
+            assert_eq!(
+                tracks(session),
+                edited,
+                "the kept session still holds the edit"
+            );
+        }
+        assert!(!left.get(), "nothing leaves on a failed save");
+
+        // Restore the baseline that the test removed to install its block.
+        // This checks recovery; it does not claim that a manifest deleted
+        // by the test itself was preserved by the failed write.
+        std::fs::remove_dir(&manifest).expect("clears the block");
+        std::fs::write(&manifest, &baseline).expect("restores the manifest");
+        let reopened = Session::open_info(&info).expect("reopens the old document");
+        assert_eq!(
+            tracks(&reopened),
+            unedited,
+            "the failed write saved nothing over the old one"
+        );
+        drop(reopened);
+
+        // The retry, unblocked: the same gate, now landing. Only a landed
+        // save lets the session go and leaves, and the edit is on disk for
+        // the next open.
+        let outcome = close_window(|| save_then_release(&slot), || left.set(true));
+        assert!(outcome.is_ok(), "the retry lands: {outcome:?}");
+        assert!(slot.borrow().is_none(), "a landed save lets the session go");
+        assert!(left.get(), "and only then leaves");
+        let reopened = Session::open_info(&info).expect("reopens the saved project");
+        assert_eq!(
+            tracks(&reopened),
+            edited,
+            "the edit is on disk after the retry"
+        );
+    }
+
+    /// Exercise the capture-before-dispatch contract with real session
+    /// snapshots: a queued autosave must not replace the newer close save,
+    /// even if its worker only starts writing after close has succeeded.
+    #[test]
+    fn a_delayed_autosave_cannot_replace_the_close_snapshot() {
+        let scratch = Scratch::new("ordered-close");
+        let info = projects::create(&scratch.location(), "Ordered", 1920, 1080, 30, 1)
+            .expect("creates the project");
+        let mut session = Session::open_info(&info).expect("opens the session");
+        let (old_path, old_document) = session.prepare_save(None);
+        let old_ticket = projects::ticket();
+        session
+            .apply(concat_project::Command::AddTrack { bottom: false })
+            .expect("adds the unsaved track");
+        let edited = tracks(&session);
+        let (new_path, new_document) = session.prepare_save(None);
+        let new_ticket = projects::ticket();
+
+        let (release, delayed) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            delayed.recv().expect("releases the delayed autosave");
+            projects::save_ordered(&old_path, &old_document, old_ticket)
+        });
+        let left = Cell::new(false);
+        let outcome = close_window(
+            || projects::save_ordered(&new_path, &new_document, new_ticket).map(|_| ()),
+            || left.set(true),
+        );
+        // Always release and join the worker before asserting, including
+        // when the close write unexpectedly fails.
+        release.send(()).expect("releases the worker");
+        let late = worker.join().expect("the worker completes");
+        assert!(outcome.is_ok(), "the close save succeeds: {outcome:?}");
+        assert!(left.get());
+        assert_eq!(late, Ok(projects::Saved::Superseded));
+        let reopened = Session::open_info(&info).expect("reopens the latest snapshot");
+        assert_eq!(tracks(&reopened), edited, "the last edit survives close");
+    }
+
+    /// The version switch schedules its relaunch inside the leave, so a
+    /// failed save starts no replacement build over the running one.
+    #[test]
+    fn a_failed_save_does_not_schedule_the_relaunch() {
+        let relaunched = Cell::new(false);
+        let outcome = close_window(
+            || Err("could not write the project".to_owned()),
+            || relaunched.set(true),
+        );
+        assert!(outcome.is_err());
+        assert!(!relaunched.get(), "nothing is relaunched on a failed save");
+    }
 }

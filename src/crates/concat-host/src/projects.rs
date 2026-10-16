@@ -11,7 +11,10 @@
 //! It describes this machine's history, and copying a project folder to
 //! another machine should not drag one person's recent files along with it.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -158,40 +161,227 @@ pub fn create(
     })
 }
 
-/// Writes the whole project document to the project's manifest.
+/// A snapshot's place in this process's write order.
+///
+/// Minted by [`ticket`] where a document is captured - on the thread that
+/// captures it, before the write is handed to a worker - and carried to
+/// [`save_ordered`], where the write happens. Two snapshots of one project
+/// are written in ticket order, so a worker that finishes late cannot put an
+/// older document back on disk after a newer one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Ticket(u64);
+
+/// Mints the next ticket; see [`Ticket`].
+///
+/// The counter is process-wide, so tickets are monotonic for every project,
+/// and therefore for each project on its own. It is not shared with another
+/// process; see [`save_ordered`] for what that leaves unordered.
+pub fn ticket() -> Ticket {
+    Ticket(NEXT_TICKET.fetch_add(1, Ordering::Relaxed))
+}
+
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(1);
+
+/// What an ordered save did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Saved {
+    /// The document is on disk.
+    Written,
+    /// A snapshot minted after this one was already written, so this older
+    /// document was left alone rather than put back on disk. Nothing went
+    /// wrong: the project is saved, to the newer document.
+    Superseded,
+}
+
+/// One project's writes: the lock that runs them one at a time, and the
+/// highest ticket already on disk.
+struct Writes {
+    /// Held for a whole write - the temporary file, its flush and the
+    /// rename - so two workers never write one manifest at once.
+    writing: Mutex<()>,
+    /// The highest ticket whose document reached the manifest. Read and
+    /// written under `writing`, so the check that skips an older snapshot
+    /// and the write that follows it cannot be split by another writer.
+    written: AtomicU64,
+}
+
+/// The per-project write state, keyed by the folder as the filesystem
+/// spells it; see [`project_key`].
+fn writes() -> &'static Mutex<HashMap<PathBuf, Arc<Writes>>> {
+    static WRITES: OnceLock<Mutex<HashMap<PathBuf, Arc<Writes>>>> = OnceLock::new();
+    WRITES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// One key per project folder: the real path where the filesystem will say
+/// it, so `/var` and `/private/var`, a trailing slash, a symlinked parent
+/// and a different case on a case-insensitive volume all name one project.
+/// The path as it was given when it cannot be resolved, which still names
+/// the folder it was given.
+fn project_key(root: &Path) -> PathBuf {
+    std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
+}
+
+/// The write state for one project folder.
+fn write_state(key: &Path) -> Arc<Writes> {
+    let mut all = writes()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Arc::clone(all.entry(key.to_path_buf()).or_insert_with(|| {
+        Arc::new(Writes {
+            writing: Mutex::new(()),
+            written: AtomicU64::new(0),
+        })
+    }))
+}
+
+/// Writes the whole project document to the project's manifest, now.
 ///
 /// The document is passed through as opaque JSON rather than being mirrored
 /// into Rust types: the engine (`concat-project`) owns the canonical model and
 /// produced this document, and the host has no decisions to make about its
 /// contents beyond writing it safely.
 ///
-/// Written to a temporary file and renamed into place, because a save
-/// interrupted halfway is worse than no save at all - a truncated manifest
-/// loses the project, while a failed rename leaves the previous one intact.
+/// The write is ordered like [`save_ordered`], with its ticket minted here: a
+/// caller that captured the document and writes it at once - the API, a
+/// template - is in call order already. A caller that captures a document on
+/// one thread and writes it on another (the window's autosave) mints the
+/// ticket where it captures the document and calls [`save_ordered`] instead.
 pub fn save(path: &str, document: &serde_json::Value) -> Result<(), String> {
-    let root = PathBuf::from(path);
-    let manifest = manifest_path(&root);
-    let temporary = root.join(format!("{MANIFEST}.saving"));
+    save_ordered(path, document, ticket()).map(|_| ())
+}
 
+/// Writes a document captured at `ticket`, in this process's write order.
+///
+/// A snapshot older than the one already on disk is skipped whole - see
+/// [`Saved`] - so a worker that finishes late cannot put an older document
+/// back over a newer one, whatever order the two are scheduled in. A write
+/// that fails is always a failure: a document that should have been written
+/// and could not returns the error, never [`Saved::Superseded`].
+///
+/// The temporary file is this call's own (`create_new`), so two saves -
+/// including ones in different processes on the same folder - never write one
+/// another's bytes, and the rename over the manifest is atomic on every
+/// platform. What a folder shared between processes does not get is the
+/// order: each process counts tickets on its own, so a stale snapshot in one
+/// process can still land after a newer document written by another.
+/// Ordering across processes would need a lock both honour, and a project
+/// folder has none today.
+pub fn save_ordered(
+    path: &str,
+    document: &serde_json::Value,
+    ticket: Ticket,
+) -> Result<Saved, String> {
+    let root = PathBuf::from(path);
     std::fs::create_dir_all(&root)
         .map_err(|error| format!("could not create {}: {error}", root.display()))?;
 
+    let state = write_state(&project_key(&root));
+    // Held across the write: the check below and the write it decides are
+    // one step, so two saves cannot both decide to write and have the older
+    // one land second.
+    let _writing = state
+        .writing
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if ticket.0 < state.written.load(Ordering::Acquire) {
+        return Ok(Saved::Superseded);
+    }
+
     let encoded = serde_json::to_vec_pretty(document)
         .map_err(|error| format!("could not encode the project: {error}"))?;
+    write_manifest(&root, &encoded)?;
+    state.written.store(ticket.0, Ordering::Release);
+    Ok(Saved::Written)
+}
 
-    // Written, then flushed to the disk, then renamed: a rename is only
-    // atomic over bytes that have reached the platter. Without the sync a
-    // power cut after the rename can leave a zero-length manifest.
-    let mut file = std::fs::File::create(&temporary)
-        .map_err(|error| format!("could not write {}: {error}", temporary.display()))?;
-    std::io::Write::write_all(&mut file, &encoded)
-        .map_err(|error| format!("could not write {}: {error}", temporary.display()))?;
-    file.sync_all()
-        .map_err(|error| format!("could not flush {}: {error}", temporary.display()))?;
-    drop(file);
+/// The temporary file a save writes: flushed and renamed into place on the
+/// way through, removed on every other way out, so a failure leaves no
+/// `.saving` file behind. The name is this call's own - process id and a
+/// counter - so no two saves share it.
+struct Temporary {
+    path: PathBuf,
+    file: Option<std::fs::File>,
+    renamed: bool,
+}
 
-    std::fs::rename(&temporary, &manifest)
-        .map_err(|error| format!("could not replace {}: {error}", manifest.display()))
+impl Temporary {
+    /// Creates a fresh temporary beside the manifest. `create_new` never
+    /// reuses or follows a name already there, so it cannot write through a
+    /// symlink someone planted and fails rather than sharing a temporary
+    /// with another save; a leftover from a crashed run makes it try another
+    /// name.
+    fn open(root: &Path) -> Result<Temporary, String> {
+        let mut attempts = 0;
+        loop {
+            let nonce = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
+            let path = root.join(format!("{MANIFEST}.saving.{}.{nonce}", std::process::id()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => {
+                    return Ok(Temporary {
+                        path,
+                        file: Some(file),
+                        renamed: false,
+                    });
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::AlreadyExists && attempts < 16 =>
+                {
+                    attempts += 1;
+                }
+                Err(error) => return Err(format!("could not write {}: {error}", path.display())),
+            }
+        }
+    }
+
+    /// Writes `encoded` and flushes its contents before the atomic rename.
+    /// Atomic replacement and durability are distinct: flushing the file
+    /// reduces power-loss risk, but does not also sync the parent directory.
+    fn write(&mut self, encoded: &[u8]) -> Result<(), String> {
+        let file = self.file.as_mut().expect("a fresh temporary");
+        std::io::Write::write_all(file, encoded)
+            .map_err(|error| format!("could not write {}: {error}", self.path.display()))?;
+        file.sync_all()
+            .map_err(|error| format!("could not flush {}: {error}", self.path.display()))
+    }
+
+    /// Closes the file and renames it over the manifest. Every path out but
+    /// this one removes the temporary when the value drops.
+    fn commit(&mut self, manifest: &Path) -> Result<(), String> {
+        // Closed first, so the name is free for Windows to replace.
+        self.file.take();
+        std::fs::rename(&self.path, manifest)
+            .map_err(|error| format!("could not replace {}: {error}", manifest.display()))?;
+        self.renamed = true;
+        Ok(())
+    }
+}
+
+impl Drop for Temporary {
+    fn drop(&mut self) {
+        // The handle goes first: Windows will not take a file back while it
+        // is open.
+        self.file.take();
+        if !self.renamed {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
+
+/// Writes `encoded` to the project's manifest: a temporary of its own,
+/// flushed to the disk, then renamed over the manifest, because a save
+/// interrupted halfway is worse than no save at all - a truncated manifest
+/// loses the project, while a failed rename leaves the previous one intact.
+fn write_manifest(root: &Path, encoded: &[u8]) -> Result<(), String> {
+    let manifest = manifest_path(root);
+    let mut temporary = Temporary::open(root)?;
+    temporary.write(encoded)?;
+    temporary.commit(&manifest)
 }
 
 /// True when a document carries no edit state at all - the settings-only
@@ -448,5 +638,161 @@ mod tests {
             "C:\\Temp\\.tmp1/Round trip"
         ));
         assert!(same_path("C:/Work/Film/", "c:\\work\\film"));
+    }
+
+    /// A project folder of this test's own, swept if it is already there.
+    fn scratch(name: &str) -> String {
+        let root =
+            std::env::temp_dir().join(format!("concat-projects-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch dir");
+        root.to_string_lossy().into_owned()
+    }
+
+    /// A whole document, as a save writes one.
+    fn document(marker: &str) -> serde_json::Value {
+        serde_json::json!({ "marker": marker, "tracks": [] })
+    }
+
+    /// How many temporary files a folder holds: none, after any save.
+    fn temporaries(root: &str) -> usize {
+        std::fs::read_dir(root)
+            .expect("reads the scratch")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(&format!("{MANIFEST}.saving"))
+            })
+            .count()
+    }
+
+    #[test]
+    fn a_late_snapshot_never_lands_after_a_newer_one() {
+        let root = scratch("late-snapshot");
+        let older = document("older");
+        let newer = document("newer");
+        // Minted where each document is captured: the older one first.
+        let older_ticket = ticket();
+        let newer_ticket = ticket();
+        // The newer worker finishes first, the older one arrives after it -
+        // the order two workers on the pool can take.
+        assert_eq!(
+            save_ordered(&root, &newer, newer_ticket).expect("writes"),
+            Saved::Written
+        );
+        assert_eq!(
+            save_ordered(&root, &older, older_ticket).expect("skips, it does not fail"),
+            Saved::Superseded
+        );
+        assert_eq!(
+            read_document(&root).expect("reads"),
+            Some(newer),
+            "the newer document stands"
+        );
+        assert_eq!(temporaries(&root), 0, "no temporary is left behind");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn concurrent_saves_keep_the_document_readable() {
+        let root = scratch("concurrent");
+        const SAVES: usize = 8;
+        let documents: Vec<serde_json::Value> = (0..SAVES)
+            .map(|index| document(&format!("doc-{index}")))
+            .collect();
+        let tickets: Vec<Ticket> = (0..SAVES).map(|_| ticket()).collect();
+        std::thread::scope(|scope| {
+            for (document, ticket) in documents.iter().zip(&tickets) {
+                let root = root.clone();
+                scope.spawn(move || {
+                    save_ordered(&root, document, *ticket).expect("a save that cannot fail here");
+                });
+            }
+        });
+        assert_eq!(
+            read_document(&root).expect("reads"),
+            Some(documents[SAVES - 1].clone()),
+            "the last ticket's document stands, whatever order the workers took"
+        );
+        assert_eq!(temporaries(&root), 0, "no temporary is left behind");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_older_ticket_is_skipped_and_a_real_failure_is_not() {
+        let root = scratch("skip-or-fail");
+        let first = ticket();
+        let second = ticket();
+        save_ordered(&root, &document("one"), first).expect("writes");
+        save_ordered(&root, &document("two"), second).expect("writes");
+        // An older ticket is a skip, told apart from a failure.
+        assert_eq!(
+            save_ordered(&root, &document("stale"), Ticket(first.0)).expect("not an error"),
+            Saved::Superseded
+        );
+        assert_eq!(read_document(&root).expect("reads"), Some(document("two")));
+
+        // A write that truly cannot happen is an error, never a skip.
+        let blocked = scratch("skip-or-fail-blocked");
+        let manifest = Path::new(&blocked).join(MANIFEST);
+        std::fs::create_dir(&manifest).expect("the manifest spot");
+        std::fs::write(manifest.join("kept"), b"kept").expect("something worth keeping");
+        let error = save_ordered(&blocked, &document("three"), ticket())
+            .expect_err("cannot replace a directory");
+        assert!(!error.is_empty());
+        assert!(
+            manifest.join("kept").exists(),
+            "what was there is untouched"
+        );
+        assert_eq!(
+            temporaries(&blocked),
+            0,
+            "the temporary is cleaned up on failure"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&blocked);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_save_keeps_the_document_it_had() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = scratch("keeps-document");
+        let saved = document("saved");
+        save(&root, &saved).expect("first save");
+        let manifest = Path::new(&root).join(MANIFEST);
+        let before = std::fs::read(&manifest).expect("reads");
+
+        // A folder that refuses new files: the temporary cannot be created.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o555))
+            .expect("read-only folder");
+        let probe = Path::new(&root).join("probe");
+        if std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+            .is_ok()
+        {
+            // A privileged account ignores the permission; nothing to test.
+            let _ = std::fs::remove_file(&probe);
+            let _ = std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755));
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+
+        let error = save(&root, &document("next")).expect_err("the folder refuses a temporary");
+        assert!(!error.is_empty());
+        assert_eq!(
+            std::fs::read(&manifest).expect("reads"),
+            before,
+            "the document that was saved stands"
+        );
+        assert_eq!(temporaries(&root), 0, "no temporary is left behind");
+
+        let _ = std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
