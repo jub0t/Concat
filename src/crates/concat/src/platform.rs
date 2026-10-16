@@ -609,8 +609,8 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let mut dialog = rfd::FileDialog::new().set_title(title);
-        if !start.is_empty() {
-            dialog = dialog.set_directory(start);
+        if let Some(folder) = existing_folder(start) {
+            dialog = dialog.set_directory(folder);
         }
         dialog.pick_folder()
     }
@@ -619,6 +619,19 @@ pub fn pick_folder(title: &str, start: &str) -> Option<PathBuf> {
         let _ = (title, start);
         None
     }
+}
+
+/// Where a folder dialog asked to start at `start` can open: `start`
+/// itself, or the nearest folder above it that exists. A new project's
+/// default, `<Desktop>/Concat`, is not made until the first project is, and
+/// GNOME's chooser (Nautilus, behind the portal) fails on a folder that is
+/// not there, where GTK's quietly opens elsewhere.
+/// https://github.com/jub0t/Concat/issues/331
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn existing_folder(start: &str) -> Option<&std::path::Path> {
+    std::path::Path::new(start)
+        .ancestors()
+        .find(|folder| folder.is_dir())
 }
 
 /// What a phone does when asked for files: shows the system's picker and
@@ -831,5 +844,26 @@ mod tests {
         assert_eq!(at(1.0, 1.0), Some(ResizeDirection::NorthWest));
         assert_eq!(at(999.0, 799.0), Some(ResizeDirection::SouthEast));
         assert_eq!(at(6.0, 400.0), None);
+    }
+
+    /// A folder dialog opens on a folder that exists: a default location
+    /// not made yet opens on the folder it would be made in, one that
+    /// exists opens as given, and no location asks for none.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[test]
+    fn a_folder_dialog_starts_at_a_folder_that_exists() {
+        let root = std::env::temp_dir().join(format!("concat-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let missing = root.join("Concat");
+        assert_eq!(
+            existing_folder(&missing.to_string_lossy()),
+            Some(root.as_path())
+        );
+        assert_eq!(
+            existing_folder(&root.to_string_lossy()),
+            Some(root.as_path())
+        );
+        assert_eq!(existing_folder(""), None);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }
