@@ -10,6 +10,7 @@ import { ThinScrollbar } from "primitives/scrollbar.slint";
 import { Tip } from "primitives/tooltip.slint";
 import { Focus } from "util.slint";
 import { NumberField } from "primitives/number-field.slint";
+import { Select } from "primitives/select.slint";
 
 // The launch screen: a launcher with a rail, and the window's own ground
 // under all of it — no card around the whole thing, no shadow. A setup
@@ -103,6 +104,10 @@ export struct StartData {
     size: int,
     /// Index into `rates`.
     rate: int,
+    /// The rates as the dropdown lists them, "24 fps" and the rest, then
+    /// Custom: published with the rest of the sheet, so the words follow a
+    /// change of language.
+    rate-options: [string],
     /// "1920 x 1080"
     size-readout: string,
     /// The frame and rate as numbers, for the custom fields: the typed
@@ -1446,18 +1451,18 @@ export component NewProjectDialog inherits Modal {
                 HorizontalLayout {
                     spacing: 16px;
 
-                    // Eleven rates and Custom: two rows of six, or three
-                    // of four across a phone, each cell wide enough for
-                    // "23.976".
-                    ChipRow {
-                        horizontal-stretch: 1;
-                        options: root.rates;
-                        extra: I18n.t("common.custom");
+                    // Eleven rates and Custom in a list, not a wall of
+                    // twelve buttons: most edits want one of three, and
+                    // the rest are there when the list is opened.
+                    Select {
+                        width: 168px;
+                        options: root.data.rate-options;
                         current: root.data.rate;
                         enabled: !root.data.busy;
-                        per-row: root.narrow ? 4 : 6;
                         changed(index) => { root.rate-changed(index); }
                     }
+
+                    Rectangle { horizontal-stretch: 1; }
 
                     VerticalLayout {
                         alignment: center;
