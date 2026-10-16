@@ -842,11 +842,19 @@ jobs:
           mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/applications"
           cp "$STAGE/concat" "$appdir/usr/bin/concat"
           cp -a "$STAGE/lib" "$appdir/usr/bin/lib"
-          # The X11 keyboard library the window opens by name at start, and
-          # the xcb extension under it: a machine without them panicked
-          # before showing a window, which is how the AppImage catalog's
-          # test saw it. Beside the binary, the rpath finds them.
-          for lib in libxkbcommon-x11.so.0 libxcb-xkb.so.1; do
+          # The X11 keyboard library the window opens by name at start, the
+          # core library under it, and the xcb extension under that: a machine
+          # without them panicked before showing a window, which is how the
+          # AppImage catalog's test saw it. Beside the binary, the rpath finds
+          # them, and an rpath on the binary covers every library the process
+          # loads, not only its own.
+          #
+          # The core library comes too because the two are one build, and a
+          # distribution pins them to each other ("libxkbcommon(x86-64) =
+          # 1.13.1-2.fc44" on Fedora 44): this runner's 1.4.0 module left to
+          # drive the host's 1.13.1 core segfaults in xkb_state_update_derived
+          # as the X11 window opens (#379).
+          for lib in libxkbcommon.so.0 libxkbcommon-x11.so.0 libxcb-xkb.so.1; do
             cp -L "$(ldconfig -p | awk -v lib="$lib" '$1 == lib { print $NF; exit }')" "$appdir/usr/bin/lib/$lib"
           done
           cp "$STAGE/concat.desktop" "$appdir/concat.desktop"
