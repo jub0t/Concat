@@ -1110,15 +1110,26 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         // Hinting is left to Skia's default, which snaps stems on its own
         // once positions are whole.
         //
-        // LCD coverage where what is drawn into names a subpixel order - the
-        // Windows window with ClearType on (wgpu_30_surface/dx12.rs), outside
-        // any translucent layer - and greyscale everywhere else. Asked for
-        // only there: on a surface with no order Skia makes greyscale out of
-        // LCD rendering, which on macOS turns on CoreText's font smoothing
-        // and draws every word heavier than it does today.
+        // LCD coverage where the surface drawn into names a subpixel order -
+        // the Windows window with ClearType on (wgpu_30_surface/dx12.rs) -
+        // and greyscale everywhere else. Asked for only there: on a surface
+        // with no order Skia makes greyscale out of LCD rendering, which on
+        // macOS turns on CoreText's font smoothing and draws every word
+        // heavier than it does today. Inside an opacity layer on that window
+        // the layer has no order, so Skia draws the text greyscale itself.
+        //
+        // The surface's props, not the top layer's: skia-safe's `top_props`
+        // calls SkCanvas::getTopProps, which returns a struct by value, and
+        // on MSVC a C++ method passes `this` and the return slot in the other
+        // order from the one Rust calls it with - Skia read a garbage `this`
+        // and the window crashed on its first frame of text. `props` fills
+        // an out-parameter and returns a bool, which both sides agree on.
         let dense = self.scale_factor.get() >= 1.5;
         font.set_subpixel(dense);
-        let lcd = self.canvas.top_props().pixel_geometry() != skia_safe::PixelGeometry::Unknown;
+        let lcd = self
+            .canvas
+            .props()
+            .is_some_and(|props| props.pixel_geometry() != skia_safe::PixelGeometry::Unknown);
         font.set_edging(if lcd {
             skia_safe::font::Edging::SubpixelAntiAlias
         } else {
