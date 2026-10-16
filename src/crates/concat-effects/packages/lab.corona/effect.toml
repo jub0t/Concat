@@ -1,0 +1,60 @@
+format = 2
+
+[effect]
+id = "lab.corona"
+name = "Corona"
+version = 1
+kind = "effect"
+category = "Film"
+order = 151
+intensity = "amount"
+aliases = ["corona"]
+description = "A cool blue-white corona gathered off the picture's blown highlights by a golden-angle spiral blur - built from nothing, not a port of the stock halation."
+
+[[param]]
+key = "threshold"
+label = "Threshold"
+min = 20
+max = 95
+default = 60
+step = 1
+unit = "%"
+
+[[param]]
+key = "radius"
+label = "Radius"
+min = 4
+max = 60
+default = 18
+step = 1
+unit = "%"
+
+[[param]]
+key = "amount"
+label = "Amount"
+min = 0
+max = 100
+default = 55
+step = 1
+unit = "%"
+
+[[param]]
+key = "cool"
+label = "Coolness"
+min = 0
+max = 100
+default = 70
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"
+
+# The corona is one blur pass, half the layer's pixels on each axis,
+# read back by the final pass.
+[[wgsl.pass]]
+target = "bloom"
+shrink = ["2", "2"]
+
+[card]
+params = { threshold = 45, amount = 80 }

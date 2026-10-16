@@ -1,0 +1,49 @@
+# A flat picture survives the normalised spiral unchanged, so on a flat
+# input the whole effect is closed form and these are pinned from a model
+# of the shader in doubles. What they hold:
+#
+#  - a grey under the threshold crowns not at all, at any radius;
+#  - a white at the defaults climbs past white, most in blue, because the
+#    corona is cool and lands in the display encoding;
+#  - a blown highlight keeps its own light and adds the corona onto it;
+#  - amount at zero is the picture as it came;
+#  - alpha premultiplies the gate, so a half-clear pixel may fall under
+#    the threshold entirely and pass through untouched.
+
+[[probe]]
+name = "default, a mid grey under the threshold"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a white"
+input = [1, 1, 1, 1]
+expect = [3.46413, 4.30694, 5.21492, 1]
+
+[[probe]]
+name = "default, a blown highlight"
+input = [4, 1, 0.05, 1]
+expect = [9.34714, 4.86741, 2.20641, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [1, 0.6, 0.2, 0.5]
+expect = [1, 0.6, 0.2, 0.5]
+
+[[probe]]
+name = "min, a white, amount at zero"
+at = "min"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "max, a mid grey under the threshold"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "max, a white"
+at = "max"
+input = [1, 1, 1, 1]
+expect = [5.21492, 8.2081, 11.8353, 1]

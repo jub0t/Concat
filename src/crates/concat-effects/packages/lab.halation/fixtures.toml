@@ -1,0 +1,48 @@
+# A flat picture survives both Gaussian passes unchanged, so on a flat
+# input the whole effect is closed form and these are pinned from a
+# model of the shader in doubles. What they hold:
+#
+#  - a grey under the threshold haloes not at all, at any radius;
+#  - a white at the defaults lays red-orange light on itself and
+#    climbs past white, because halation lands in the display encoding;
+#  - a blown highlight keeps its level, its colour taking the halo;
+#  - amount at zero is the picture as it came;
+#  - alpha does not fade the halo - it is the picture's own light.
+
+[[probe]]
+name = "default, a mid grey under the threshold"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "default, a white"
+input = [1, 1, 1, 1]
+expect = [3.67509, 1.88533, 1.29911, 1]
+
+[[probe]]
+name = "default, a blown highlight"
+input = [4, 1, 0.05, 1]
+expect = [12.9995, 2.53962, 0.161479, 1]
+
+[[probe]]
+name = "default, half transparent"
+input = [1, 0.6, 0.2, 0.5]
+expect = [1, 0.6, 0.2, 0.5]
+
+[[probe]]
+name = "min, a white, amount at zero"
+at = "min"
+input = [1, 1, 1, 1]
+expect = [1, 1, 1, 1]
+
+[[probe]]
+name = "max, a mid grey under the threshold"
+at = "max"
+input = [0.18, 0.18, 0.18, 1]
+expect = [0.18, 0.18, 0.18, 1]
+
+[[probe]]
+name = "max, a white"
+at = "max"
+input = [1, 1, 1, 1]
+expect = [9.90686, 6.29247, 2.43133, 1]
