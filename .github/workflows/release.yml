@@ -167,6 +167,12 @@ jobs:
         id: notes
         env:
           TAG: ${{ needs.check.outputs.tag }}
+          # Whether a certificate signed the Windows bundles: build-app.yml
+          # leaves them unsigned, and says so, when the secret is unset.
+          WINDOWS_SIGNED: ${{ secrets.WINDOWS_CERTIFICATE_PFX != '' }}
+          # No launch check reaches the APK's own code until the emulator
+          # runs a build of it it can execute (see smoke-android.sh).
+          ANDROID_STARTED: "false"
         run: |
           set -euo pipefail
           cd source
