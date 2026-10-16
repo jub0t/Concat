@@ -28,13 +28,24 @@ export component Modal inherits Rectangle {
     /// Zero fits the content, which is what a short dialog wants; a fixed
     /// height is for the ones with their own scrolling body.
     in property <length> surface-height: 0px;
+    /// The sheet is the window, inside its safe area, rather than a card
+    /// floating in it: what a phone or a narrow window wants for a sheet
+    /// with pages of its own, where a card left a third of the screen to
+    /// the scrim. A short dialog - a question - stays a card.
+    in property <bool> fill;
+    /// How far the system's bars reach into the window on each side (the
+    /// window's safe-area-insets; zero on a desk). The sheet stays inside.
+    in property <length> inset-top;
+    in property <length> inset-bottom;
+    in property <length> inset-left;
+    in property <length> inset-right;
 
     callback closed();
 
     visible: root.open;
     // Dark rather than blurred: Slint has no backdrop filter, and a scrim that
     // only dims is honest about that where a fake blur would not be.
-    background: Theme.overlay;
+    background: root.fill ? Theme.panel : Theme.overlay;
 
     // Declared first, so the surface and everything in it sits above and takes
     // its own presses. A click that lands here landed outside the dialog.
@@ -46,21 +57,26 @@ export component Modal inherits Rectangle {
         }
     }
 
+    /// The room inside the system's bars.
+    property <length> room-w: root.width - root.inset-left - root.inset-right;
+    property <length> room-h: root.height - root.inset-top - root.inset-bottom;
+
     surface := Rectangle {
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        // Never wider or taller than the window less a margin: a phone held
-        // upright is narrower than any sheet's width, and a sheet that runs
-        // off both edges cannot be read or dismissed. On a desk the window's
-        // minimum is past every sheet's size, so this decides nothing there.
-        width: Math.min(root.surface-width, root.width - 24px);
-        height: Math.min(
+        x: root.inset-left + (root.room-w - self.width) / 2;
+        y: root.inset-top + (root.room-h - self.height) / 2;
+        // Filling, the room inside the bars. Otherwise never wider or taller
+        // than that room less a margin: a phone held upright is narrower than
+        // any sheet's width, and a sheet that runs off both edges cannot be
+        // read or dismissed. On a desk the window's minimum is past every
+        // sheet's size, so this decides nothing there.
+        width: root.fill ? root.room-w : Math.min(root.surface-width, root.room-w - 24px);
+        height: root.fill ? root.room-h : Math.min(
             root.surface-height > 0px ? root.surface-height : body.preferred-height,
-            root.height - 24px);
+            root.room-h - 24px);
         background: Theme.panel;
-        border-width: 1px;
+        border-width: root.fill ? 0px : 1px;
         border-color: Theme.line-strong;
-        border-radius: Theme.r-xl;
+        border-radius: root.fill ? 0px : Theme.r-xl;
         clip: true;
 
         // Swallows presses that land on the dialog, so they do not reach the
@@ -396,6 +412,9 @@ export component DialogSection inherits VerticalLayout {
     in-out property <bool> open: true;
     /// suppress the leading hairline, for the first group in a sheet
     in property <bool> first;
+    /// A hairline above the group, setting it off from the one before. Off,
+    /// the groups are told apart by a gap alone, as the Settings sheet's are.
+    in property <bool> ruled: true;
     /// The paragraph that would otherwise sit under the controls, moved to
     /// a question mark beside the title: read on hover, out of the way
     /// otherwise.
@@ -419,9 +438,12 @@ export component DialogSection inherits VerticalLayout {
     in property <int> choice;
     callback chose(index: int);
 
-    if !root.first: Rectangle {
+    if !root.first && root.ruled: Rectangle {
         height: 1px;
         background: Theme.line;
+    }
+    if !root.first && !root.ruled: Rectangle {
+        height: 6px;
     }
 
     // The header band. Tight to the title, because the gap under it is the

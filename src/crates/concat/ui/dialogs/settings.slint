@@ -110,8 +110,65 @@ component Pips inherits HorizontalLayout {
     }
 }
 
+// A model's quality, its size and what can be done with it: at the end of
+// its row on a wide sheet, on a line of its own under the name on a narrow
+// one, where `spread` puts the button against the far edge.
+component ModelMeta inherits HorizontalLayout {
+    in property <ModelData> model;
+    in property <bool> spread;
+
+    callback download();
+    callback cancel();
+    callback remove();
+
+    spacing: 10px;
+
+    VerticalLayout {
+        alignment: center;
+        Pips { value: root.model.accuracy; }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        Text {
+            text: root.model.size;
+            color: Theme.fg-dim;
+            font-family: Theme.font-technical;
+            font-size: Theme.fs-sm;
+        }
+    }
+
+    if root.spread: Rectangle { horizontal-stretch: 1; }
+
+    VerticalLayout {
+        alignment: center;
+
+        if root.model.downloading: Button {
+            label: I18n.t("common.cancel");
+            glyph: Glyph.close;
+            ghost: true;
+            clicked => { root.cancel(); }
+        }
+
+        if !root.model.downloading && root.model.installed: Button {
+            label: I18n.t("common.remove");
+            glyph: Glyph.trash;
+            danger: true;
+            clicked => { root.remove(); }
+        }
+
+        if !root.model.downloading && !root.model.installed: Button {
+            label: I18n.t("settings.download");
+            glyph: Glyph.import;
+            clicked => { root.download(); }
+        }
+    }
+}
+
 component ModelRow inherits Rectangle {
     in property <ModelData> model;
+    /// A narrow sheet: the controls go on a line under the name.
+    in property <bool> compact;
 
     callback activated();
     callback download();
@@ -206,49 +263,28 @@ component ModelRow inherits Rectangle {
                     text: root.model.note;
                     color: Theme.fg-muted;
                     font-size: Theme.fs-sm;
+                    wrap: root.compact ? TextWrap.word-wrap : TextWrap.no-wrap;
                     overflow: elide;
                 }
             }
 
-            VerticalLayout {
-                alignment: center;
-                Pips { value: root.model.accuracy; }
+            if !root.compact: ModelMeta {
+                model: root.model;
+                download => { root.download(); }
+                cancel => { root.cancel(); }
+                remove => { root.remove(); }
             }
+        }
 
-            VerticalLayout {
-                alignment: center;
-                Text {
-                    text: root.model.size;
-                    color: Theme.fg-dim;
-                    font-family: Theme.font-technical;
-                    font-size: Theme.fs-sm;
-                }
-            }
-
-            VerticalLayout {
-                alignment: center;
-
-                if root.model.downloading: Button {
-                    label: I18n.t("common.cancel");
-                    glyph: Glyph.close;
-                    ghost: true;
-                    clicked => { root.cancel(); }
-                }
-
-                if !root.model.downloading && root.model.installed: Button {
-                    label: I18n.t("common.remove");
-                    glyph: Glyph.trash;
-                    danger: true;
-                    clicked => { root.remove(); }
-                }
-
-                if !root.model.downloading && !root.model.installed: Button {
-                    label: I18n.t("settings.download");
-                    glyph: Glyph.import;
-                    clicked => { root.download(); }
-                }
-
-            }
+        // Narrow, the quality, the size and the button go under the name, so
+        // the name and its note have the row's whole width.
+        if root.compact: ModelMeta {
+            padding-left: 26px;
+            spread: true;
+            model: root.model;
+            download => { root.download(); }
+            cancel => { root.cancel(); }
+            remove => { root.remove(); }
         }
 
         if root.model.downloading: VerticalLayout {
@@ -489,6 +525,24 @@ export component SettingsDialog inherits Modal {
     /// what drags it.
     in property <bool> phone;
 
+    /// Too narrow for a column of pages beside the page: a phone, a tablet
+    /// held upright in a small window, a narrow desk window. The pages are
+    /// a row of tabs across the top instead, the page has the whole width,
+    /// and a model's row puts its controls under its name.
+    property <bool> compact: root.width < 600px;
+
+    /// Every page, in order; the column and the row of tabs are drawn from
+    /// the same list. `desk` is a page a phone does not show.
+    property <[{label: string, glyph: Glyph, page: int, desk: bool}]> page-list: [
+        {label: I18n.t("settings.general"), glyph: Glyph.settings, page: 0, desk: false},
+        {label: I18n.t("settings.appearance"), glyph: Glyph.sun, page: 1, desk: false},
+        {label: I18n.t("common.transcriber"), glyph: Glyph.waveform, page: 2, desk: false},
+        {label: I18n.t("common.speech"), glyph: Glyph.music, page: 3, desk: false},
+        {label: I18n.t("settings.automation"), glyph: Glyph.lock, page: 4, desk: true},
+        {label: I18n.t("settings.version"), glyph: Glyph.tag, page: 6, desk: true},
+        {label: I18n.t("settings.about"), glyph: Glyph.sparkle, page: 5, desk: false},
+    ];
+
     /// The column of pages' width, as the hairline beside it was last left.
     /// In-out because it is dragged; what is drawn is `pages` below, which
     /// keeps it inside the room the sheet has.
@@ -558,11 +612,42 @@ export component SettingsDialog inherits Modal {
             /// - whose sheet is its screen - keeps most of the width for the
             /// page. See `headers-w` in the timeline pane, which has the
             /// same problem for the same reason.
-            property <length> pages: Math.max(root.min-pages,
+            property <length> pages: root.compact ? 0px : Math.max(root.min-pages,
                 Math.min(root.pages-w, self.width * 0.4));
+            /// The row of tabs' height, when the pages are a row.
+            property <length> strip: root.compact ? 46px : 0px;
 
-            // ── the pages ────────────────────────────────────────────────
-            Rectangle {
+            // ── the pages, as a row of tabs across the top ───────────────
+            if root.compact: Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: body.strip;
+
+                Flickable {
+                    content-width: Math.max(self.width, tabs.preferred-width);
+                    content-height: self.height;
+
+                    tabs := HorizontalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+                        alignment: start;
+
+                        for entry in root.page-list: PageTab {
+                            visible: !(entry.desk && root.phone);
+                            min-width: self.preferred-width;
+                            label: entry.label;
+                            glyph: entry.glyph;
+                            current: root.data.tab == entry.page;
+                            clicked => { root.page-changed(entry.page); }
+                        }
+                    }
+                }
+
+            }
+
+            // ── the pages, as a column ───────────────────────────────────
+            if !root.compact: Rectangle {
                 x: 0;
                 y: 0;
                 width: body.pages;
@@ -574,47 +659,12 @@ export component SettingsDialog inherits Modal {
                     spacing: 2px;
                     alignment: start;
 
-                    PageTab {
-                        label: I18n.t("settings.general");
-                        glyph: Glyph.settings;
-                        current: root.data.tab == 0;
-                        clicked => { root.page-changed(0); }
-                    }
-                    PageTab {
-                        label: I18n.t("settings.appearance");
-                        glyph: Glyph.sun;
-                        current: root.data.tab == 1;
-                        clicked => { root.page-changed(1); }
-                    }
-                    PageTab {
-                        label: I18n.t("common.transcriber");
-                        glyph: Glyph.waveform;
-                        current: root.data.tab == 2;
-                        clicked => { root.page-changed(2); }
-                    }
-                    PageTab {
-                        label: I18n.t("common.speech");
-                        glyph: Glyph.music;
-                        current: root.data.tab == 3;
-                        clicked => { root.page-changed(3); }
-                    }
-                    if !root.phone: PageTab {
-                        label: I18n.t("settings.automation");
-                        glyph: Glyph.lock;
-                        current: root.data.tab == 4;
-                        clicked => { root.page-changed(4); }
-                    }
-                    if !root.phone: PageTab {
-                        label: I18n.t("settings.version");
-                        glyph: Glyph.tag;
-                        current: root.data.tab == 6;
-                        clicked => { root.page-changed(6); }
-                    }
-                    PageTab {
-                        label: I18n.t("settings.about");
-                        glyph: Glyph.sparkle;
-                        current: root.data.tab == 5;
-                        clicked => { root.page-changed(5); }
+                    for entry in root.page-list: PageTab {
+                        visible: !(entry.desk && root.phone);
+                        label: entry.label;
+                        glyph: entry.glyph;
+                        current: root.data.tab == entry.page;
+                        clicked => { root.page-changed(entry.page); }
                     }
                 }
             }
@@ -622,7 +672,7 @@ export component SettingsDialog inherits Modal {
             // The hairline between the two, and the handle that moves it:
             // the one the panes size their columns by. Wider to take hold
             // of on a phone.
-            HairlineSplitter {
+            if !root.compact: HairlineSplitter {
                 x: body.pages;
                 y: 0;
                 height: parent.height;
@@ -637,14 +687,15 @@ export component SettingsDialog inherits Modal {
 
         // ── the page ─────────────────────────────────────────────────────
         PaneScroll {
-            x: body.pages + 1px;
-            y: 0;
-            width: Math.max(0px, body.width - body.pages - 1px);
-            height: parent.height;
+            x: root.compact ? 0px : body.pages + 1px;
+            y: body.strip;
+            width: root.compact ? body.width : Math.max(0px, body.width - body.pages - 1px);
+            height: parent.height - body.strip;
             finger: root.phone;
 
             if root.data.tab == 0: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.language");
 
@@ -663,6 +714,7 @@ export component SettingsDialog inherits Modal {
                 // the environment overrides this for one run.
                 // https://github.com/jub0t/Concat/issues/223
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.logLevel");
                     hint: I18n.t("settings.logLevelHint");
 
@@ -684,6 +736,7 @@ export component SettingsDialog inherits Modal {
                 // timeline of the mainstream editors, asked for in
                 // https://github.com/jub0t/Concat/issues/106
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("common.magneticTimeline");
                     hint: I18n.t("settings.deletingClipPullsWhat");
                     switchable: true;
@@ -696,6 +749,7 @@ export component SettingsDialog inherits Modal {
                 // the last clip included, so a clip can be placed out there.
                 // On, it stops where the content does.
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.playhead");
                     hint: I18n.t("settings.offClickRulerPast");
                     switchable: true;
@@ -708,6 +762,7 @@ export component SettingsDialog inherits Modal {
                 // larger than HD gets a smaller copy, written once in the
                 // background, which Half and Quarter play from.
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.proxies");
                     hint: I18n.t("settings.proxiesHint");
                     switchable: true;
@@ -720,6 +775,7 @@ export component SettingsDialog inherits Modal {
                 // they stay reachable; where a download looks first is a
                 // matter of where you are. Every source is still tried.
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.downloads");
                     hint: I18n.t("settings.modelsFetchedFirstTime");
                     choices: [
@@ -759,6 +815,7 @@ export component SettingsDialog inherits Modal {
             // stays the one place a remembered preference will be written.
             if root.data.tab == 1: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.theme");
 
@@ -777,6 +834,7 @@ export component SettingsDialog inherits Modal {
                 // the row: a dot is a colour, not a word, and the word is
                 // what the settings file remembers.
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.accent");
 
                     HorizontalLayout {
@@ -856,6 +914,7 @@ export component SettingsDialog inherits Modal {
                 // accent is, and the hex is always shown: what the line is
                 // wearing is the whole point of the row.
                 DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.playhead");
                     hint: I18n.t("settings.lineAcrossLanesMarks");
 
@@ -936,6 +995,7 @@ export component SettingsDialog inherits Modal {
                 // to apply it (lib.rs, `on_settings_scale_changed`).
                 // https://github.com/jub0t/Concat/issues/320
                 if !root.phone: DialogSection {
+                    ruled: false;
                     title: I18n.t("settings.scale");
                     hint: I18n.t("settings.scaleHint");
 
@@ -952,10 +1012,12 @@ export component SettingsDialog inherits Modal {
 
             if root.data.tab == 2: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.models");
 
                     for model in root.transcribers: ModelRow {
+                        compact: root.compact;
                         model: model;
                         activated => { root.model-activated(model.id); }
                         download => { root.model-download(model.id); }
@@ -993,10 +1055,12 @@ export component SettingsDialog inherits Modal {
 
             if root.data.tab == 3: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.voices");
 
                     for model in root.voices: ModelRow {
+                        compact: root.compact;
                         model: model;
                         activated => { root.model-activated(model.id); }
                         download => { root.model-download(model.id); }
@@ -1012,6 +1076,7 @@ export component SettingsDialog inherits Modal {
             // what that opens.
             if root.data.tab == 4 && !root.phone: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.scriptsAndApps");
                     hint: I18n.t("settings.servesConcatApiWhile");
@@ -1029,6 +1094,8 @@ export component SettingsDialog inherits Modal {
                 }
 
                 DialogSection {
+
+                    ruled: false;
                     title: I18n.t("settings.address");
                     hint: I18n.t("settings.localAddressWarning");
 
@@ -1077,6 +1144,8 @@ export component SettingsDialog inherits Modal {
                 }
 
                 DialogSection {
+
+                    ruled: false;
                     title: I18n.t("settings.token");
                     hint: I18n.t("settings.whatConnectionMustPresent");
 
@@ -1116,6 +1185,7 @@ export component SettingsDialog inherits Modal {
             // its updating.
             if root.data.tab == 6 && !root.phone: VerticalLayout {
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.version");
 
@@ -1151,6 +1221,8 @@ export component SettingsDialog inherits Modal {
                 }
 
                 DialogSection {
+
+                    ruled: false;
                     title: I18n.t("settings.switchVersion");
                     hint: I18n.t("settings.switchVersionNote");
 
@@ -1214,6 +1286,7 @@ export component SettingsDialog inherits Modal {
                 // and the FFmpeg it links are rows of the table below, where
                 // a report reads them from.
                 DialogSection {
+                    ruled: false;
                     first: true;
                     title: I18n.t("settings.about");
 

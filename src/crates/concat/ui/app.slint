@@ -171,6 +171,10 @@ export component App inherits Window {
     /// strip, no dock - and the launch screen carries its own verbs, as it
     /// does whenever it is narrow. Set once from Rust; see platform::phone.
     in property <bool> phone;
+    /// A sheet with pages of its own is the whole window, inside its safe
+    /// area, on a phone and in any window too narrow for it to float as a
+    /// card with room around it.
+    property <bool> sheets-fill: root.phone || root.width < 600px;
 
     /// The File / Edit / View menus. Built in Rust like every other menu here,
     /// because what belongs on them depends on the project.
@@ -676,6 +680,11 @@ export component App inherits Window {
     // scrim keeps the rail from being pressed — so the order between the two
     // decides nothing and this one reads first because it comes first.
     NewProjectDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;
@@ -733,6 +742,11 @@ export component App inherits Window {
     }
 
     SettingsDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;
@@ -783,6 +797,11 @@ export component App inherits Window {
     callback relink-dismiss();
 
     ProjectDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;
@@ -801,6 +820,11 @@ export component App inherits Window {
     }
 
     RelinkDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         data: root.relink;
         relink-all => { root.relink-all(); }
         dismiss => { root.relink-dismiss(); }
@@ -813,6 +837,10 @@ export component App inherits Window {
     callback confirm-dismissed();
 
     ConfirmDialog {
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;
@@ -824,6 +852,11 @@ export component App inherits Window {
 
 
     CaptionsDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;
@@ -843,6 +876,11 @@ export component App inherits Window {
     }
 
     SpeechDialog {
+        fill: root.sheets-fill;
+        inset-top: root.safe-area-insets.top;
+        inset-bottom: root.safe-area-insets.bottom;
+        inset-left: root.safe-area-insets.left;
+        inset-right: root.safe-area-insets.right;
         x: 0;
         y: 0;
         width: root.width;

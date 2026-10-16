@@ -331,7 +331,7 @@ export component PhoneEditor inherits Rectangle {
                 Rectangle {
                     width: export-label.preferred-width + export-icon.width + 32px;
                     height: 36px;
-                    border-radius: 18px;
+                    border-radius: Theme.r;
                     background: export-touch.pressed ? Theme.accent-hover : Theme.accent;
 
                     animate background { duration: 100ms; easing: cubic-bezier(0.4, 0, 0.2, 1); }
