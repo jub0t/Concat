@@ -49,7 +49,7 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 
 **Cocok untuk:** TikTok, Reels, dan Shorts, video YouTube, tutorial dan rekaman layar, klip podcast, meme.
 
-**Juga untuk mesin:** API JSON-RPC dan gRPC, sehingga skrip dan agen AI juga bisa memotong video dengannya.
+**Juga untuk mesin:** API JSON-RPC, sehingga skrip dan agen AI juga bisa memotong video dengannya.
 
 ## Sorotan
 
@@ -66,7 +66,7 @@ Semuanya berjalan lokal di mesin Rust native dengan kompositor GPU. Pasang, jatu
 - 🎙️ **Pembersihan suara satu saklar.** Hilangkan derau, tingkatkan suara, ratakan kenyaringan. Plus tupai, robot, telepon, dan kawan-kawan.
 - 📤 **Ekspor.** H.264, HEVC, AV1. Hingga 4K 60, warna 10-bit.
 - 🦀 **Mesin Rust native.** Kompositor GPU, proxy, dekode perangkat keras. 4K digeser dengan mulus.
-- 🤖 **Bisa diskrip.** API JSON-RPC dan gRPC, plus CLI. Agen AI bisa memotong video dengannya.
+- 🤖 **Bisa diskrip.** API JSON-RPC yang bisa dipakai skrip dan agen AI untuk memotong video. Build dari kode sumber menambahkan gRPC dan alat baris perintah.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 bahasa. Aplikasi yang sama, berkas proyek yang sama.
 
 ## Unduh

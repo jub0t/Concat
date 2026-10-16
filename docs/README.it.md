@@ -49,7 +49,7 @@ Tutto gira in locale su un motore nativo in Rust con un compositore su GPU. Inst
 
 **Adatto a:** TikTok, Reels e Shorts, video YouTube, tutorial e registrazioni dello schermo, clip di podcast, meme.
 
-**Anche per le macchine:** un’API JSON-RPC e gRPC, così anche script e agenti IA possono montare video con Concat.
+**Anche per le macchine:** un’API JSON-RPC, così anche script e agenti IA possono montare video con Concat.
 
 ## In evidenza
 
@@ -66,7 +66,7 @@ Tutto gira in locale su un motore nativo in Rust con un compositore su GPU. Inst
 - 🎙️ **Pulizia della voce con un interruttore.** Riduci il rumore, migliora la voce, livella il volume. Più scoiattolo, robot, telefono e compagnia.
 - 📤 **Esportazione.** H.264, HEVC, AV1. Fino a 4K 60, colore a 10 bit.
 - 🦀 **Motore nativo in Rust.** Compositore su GPU, proxy, decodifica hardware. Il 4K scorre fluido.
-- 🤖 **Scriptabile.** API JSON-RPC e gRPC, più una CLI. Gli agenti IA possono usarlo per montare video.
+- 🤖 **Scriptabile.** Un’API JSON-RPC con cui script e agenti IA possono montare video. Compilando dai sorgenti si aggiungono gRPC e uno strumento da riga di comando.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 lingue. Stessa app, stessi file di progetto.
 
 ## Download

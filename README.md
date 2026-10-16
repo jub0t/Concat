@@ -47,7 +47,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 
 **Good for:** TikTok, Reels and Shorts, YouTube videos, tutorials and screen recordings, podcast clips, memes.
 
-**Also for machines:** a JSON-RPC and gRPC API, so scripts and AI agents can cut video with it too.
+**Also for machines:** a JSON-RPC API, so scripts and AI agents can cut video with it too.
 
 ## Highlights
 
@@ -64,7 +64,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 - 🎙️ **One-switch voice cleanup.** Denoise, enhance voice, level the loudness. Plus chipmunk, robot, telephone and friends.
 - 📤 **Export.** H.264, HEVC, AV1. Up to 4K 60, 10-bit colour.
 - 🦀 **Native Rust engine.** GPU compositor, proxies, hardware decode. 4K scrubs smoothly.
-- 🤖 **Scriptable.** JSON-RPC and gRPC API, plus a CLI. AI agents can cut video with it.
+- 🤖 **Scriptable.** A JSON-RPC API that scripts and AI agents can cut video with. A build from source adds gRPC and a command-line tool.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 languages. Same app, same project files.
 
 ## Download

@@ -49,7 +49,7 @@ Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp 
 
 **Phù hợp cho:** TikTok, Reels và Shorts, video YouTube, hướng dẫn và ghi màn hình, trích đoạn podcast, meme.
 
-**Cũng dành cho máy móc:** API JSON-RPC và gRPC, để script và các tác nhân AI cũng có thể cắt video bằng nó.
+**Cũng dành cho máy móc:** API JSON-RPC, để script và các tác nhân AI cũng có thể cắt video bằng nó.
 
 ## Điểm nổi bật
 
@@ -66,7 +66,7 @@ Mọi thứ chạy cục bộ trên engine Rust gốc với trình tổng hợp 
 - 🎙️ **Làm sạch giọng nói bằng một công tắc.** Khử ồn, tăng cường giọng, cân bằng âm lượng. Thêm giọng sóc, robot, điện thoại và các bạn.
 - 📤 **Xuất.** H.264, HEVC, AV1. Lên đến 4K 60, màu 10-bit.
 - 🦀 **Engine Rust gốc.** Trình tổng hợp GPU, proxy, giải mã phần cứng. Tua 4K mượt mà.
-- 🤖 **Có thể lập trình.** API JSON-RPC và gRPC, cùng CLI. Các tác nhân AI có thể cắt video bằng nó.
+- 🤖 **Có thể lập trình.** API JSON-RPC để script và các tác nhân AI cắt video. Bản dựng từ mã nguồn có thêm gRPC và công cụ dòng lệnh.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 ngôn ngữ. Cùng một ứng dụng, cùng tệp dự án.
 
 ## Tải về

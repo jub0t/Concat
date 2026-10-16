@@ -49,7 +49,7 @@ Todo corre en local sobre un motor nativo en Rust con un compositor por GPU. Ins
 
 **Bueno para:** TikTok, Reels y Shorts, vídeos de YouTube, tutoriales y grabaciones de pantalla, clips de pódcast, memes.
 
-**También para máquinas:** una API JSON-RPC y gRPC, para que los scripts y los agentes de IA también puedan cortar vídeo con él.
+**También para máquinas:** una API JSON-RPC, para que los scripts y los agentes de IA también puedan cortar vídeo con él.
 
 ## Lo más destacado
 
@@ -66,7 +66,7 @@ Todo corre en local sobre un motor nativo en Rust con un compositor por GPU. Ins
 - 🎙️ **Limpieza de voz con un interruptor.** Reducir ruido, realzar la voz, nivelar el volumen. Más ardilla, robot, teléfono y compañía.
 - 📤 **Exportación.** H.264, HEVC, AV1. Hasta 4K 60, color de 10 bits.
 - 🦀 **Motor nativo en Rust.** Compositor por GPU, proxies, decodificación por hardware. El 4K se desplaza con fluidez.
-- 🤖 **Programable.** API JSON-RPC y gRPC, más una CLI. Los agentes de IA pueden cortar vídeo con él.
+- 🤖 **Programable.** Una API JSON-RPC con la que los scripts y los agentes de IA pueden cortar vídeo. Compilando desde el código fuente se añaden gRPC y una herramienta de línea de comandos.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 idiomas. La misma app, los mismos archivos de proyecto.
 
 ## Descarga

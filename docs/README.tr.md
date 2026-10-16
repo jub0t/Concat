@@ -49,7 +49,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 
 **Şunlar için uygun:** TikTok, Reels ve Shorts, YouTube videoları, eğitimler ve ekran kayıtları, podcast kesitleri, memler.
 
-**Makineler için de:** bir JSON-RPC ve gRPC API’si; böylece betikler ve yapay zekâ ajanları da onunla video kesebilir.
+**Makineler için de:** bir JSON-RPC API’si; böylece betikler ve yapay zekâ ajanları da onunla video kesebilir.
 
 ## Öne çıkanlar
 
@@ -66,7 +66,7 @@ Her şey, GPU birleştiricili yerel bir Rust motorunda yerel olarak çalışır.
 - 🎙️ **Tek anahtarla ses temizliği.** Gürültü azaltma, sesi iyileştirme, ses düzeyini dengeleme. Artı sincap, robot, telefon ve arkadaşları.
 - 📤 **Dışa aktarma.** H.264, HEVC, AV1. 4K 60’a kadar, 10 bit renk.
 - 🦀 **Yerel Rust motoru.** GPU birleştirici, proxy’ler, donanım çözme. 4K akıcı gezinir.
-- 🤖 **Betiklenebilir.** JSON-RPC ve gRPC API’si, artı bir CLI. Yapay zekâ ajanları onunla video kesebilir.
+- 🤖 **Betiklenebilir.** Betiklerin ve yapay zekâ ajanlarının video kesebileceği bir JSON-RPC API’si. Kaynaktan derlenen sürüm buna gRPC ve bir komut satırı aracı ekler.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 dil. Aynı uygulama, aynı proje dosyaları.
 
 ## İndir

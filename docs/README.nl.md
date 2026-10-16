@@ -49,7 +49,7 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 
 **Geschikt voor:** TikTok, Reels en Shorts, YouTube-video’s, tutorials en schermopnames, podcastfragmenten, memes.
 
-**Ook voor machines:** een JSON-RPC- en gRPC-API, zodat ook scripts en AI-agents er video mee kunnen knippen.
+**Ook voor machines:** een JSON-RPC-API, zodat ook scripts en AI-agents er video mee kunnen knippen.
 
 ## Hoogtepunten
 
@@ -66,7 +66,7 @@ Alles draait lokaal, op een native Rust-engine met een GPU-compositor. Installer
 - 🎙️ **Stem opschonen met één schakelaar.** Ruis verwijderen, stem verbeteren, luidheid gelijktrekken. Plus chipmunk, robot, telefoon en meer.
 - 📤 **Exporteren.** H.264, HEVC, AV1. Tot 4K 60, 10-bit kleur.
 - 🦀 **Native Rust-engine.** GPU-compositor, proxy’s, hardwaredecodering. Zelfs 4K scrubt soepel.
-- 🤖 **Scriptbaar.** JSON-RPC- en gRPC-API, plus een CLI. AI-agents kunnen er video mee knippen.
+- 🤖 **Scriptbaar.** Een JSON-RPC-API waarmee scripts en AI-agents video kunnen knippen. Een build vanaf de broncode voegt gRPC en een opdrachtregeltool toe.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 talen. Dezelfde app, dezelfde projectbestanden.
 
 ## Downloaden

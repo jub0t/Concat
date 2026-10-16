@@ -49,7 +49,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 
 **Dobro za:** TikTok, Reels i Shorts, YouTube videe, tutorijale i snimke zaslona, isječke podcasta, memeove.
 
-**I za strojeve:** JSON-RPC i gRPC API, pa skripte i AI agenti također mogu njime rezati video.
+**I za strojeve:** JSON-RPC API, pa skripte i AI agenti također mogu njime rezati video.
 
 ## Istaknuto
 
@@ -66,7 +66,7 @@ Sve se izvodi lokalno na nativnom Rust motoru s GPU kompozitorom. Instalirajte, 
 - 🎙️ **Čišćenje glasa jednim prekidačem.** Uklanjanje šuma, poboljšanje glasa, izjednačavanje glasnoće. Plus vjeverica, robot, telefon i društvo.
 - 📤 **Izvoz.** H.264, HEVC, AV1. Do 4K 60, 10-bitna boja.
 - 🦀 **Nativni Rust motor.** GPU kompozitor, proxyji, hardversko dekodiranje. 4K se pregledava glatko.
-- 🤖 **Skriptabilan.** JSON-RPC i gRPC API, plus CLI. AI agenti mogu njime rezati video.
+- 🤖 **Skriptabilan.** JSON-RPC API kojim skripte i AI agenti mogu rezati video. Inačica izgrađena iz izvornog koda dodaje gRPC i alat za naredbeni redak.
 - 🖥️ **macOS, Windows, Linux, Android.** 25 jezika. Ista aplikacija, iste datoteke projekta.
 
 ## Preuzimanje

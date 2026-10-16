@@ -49,7 +49,7 @@ Concat 是一款免費、開源的影片編輯器，是 macOS、Windows、Linux 
 
 **適合：** TikTok、Reels 與 Shorts，YouTube 影片，教學與螢幕錄影，Podcast 片段，迷因。
 
-**也適合機器：** 提供 JSON-RPC 與 gRPC API，指令碼與 AI 代理同樣可以用它剪影片。
+**也適合機器：** 提供 JSON-RPC API，指令碼與 AI 代理同樣可以用它剪影片。
 
 ## 亮點
 
@@ -66,7 +66,7 @@ Concat 是一款免費、開源的影片編輯器，是 macOS、Windows、Linux 
 - 🎙️ **一鍵人聲淨化。** 降噪、增強人聲、響度均衡。還有花栗鼠、機器人、電話等效果。
 - 📤 **輸出。** H.264、HEVC、AV1。最高 4K 60，10 位元色彩。
 - 🦀 **原生 Rust 引擎。** GPU 合成器、代理、硬體解碼。4K 拖曳也順暢。
-- 🤖 **可指令碼化。** JSON-RPC 與 gRPC API，外加 CLI。AI 代理可以用它剪影片。
+- 🤖 **可指令碼化。** 提供 JSON-RPC API，指令碼與 AI 代理可以用它剪影片。從原始碼建置還會加上 gRPC 與命令列工具。
 - 🖥️ **macOS、Windows、Linux、Android。** 25 種語言。同一個應用程式，同樣的專案檔。
 
 ## 下載
