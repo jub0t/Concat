@@ -38,32 +38,28 @@ def language_line(current):
         parts.append(f"**{label}**" if code == current else f"[{label}]({link})")
     return " · ".join(parts)
 
-HEAD = """<div align="center">
-<table width="100%">
-  <tr>
-    <td align="left" width="120">
-      <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/concat-mark-dark.png" alt="Concat" width="100" />
-    </td>
-    <td align="">
-      <h1>Concat</h1>
-      <h3 style="margin-top: -10px;">{tagline}</h3>
-    </td>
-  </tr>
-</table>
+HEAD = """<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/concat-mark-dark.png" alt="Concat" width="100" />
+</p>
+
+<h1 align="center">Concat</h1>
+<h3 align="center">{tagline}</h3>
+
+<div align="center">
 
 <img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/editor.png" alt="Concat editor" width="100%" />
 
 <p align="center">
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat-square&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/github/downloads/jub0t/concat/total?style=flat&logo=github&logoColor=F8F8F8&label=Downloads&labelColor=212123&color=0568FD" alt="Total Downloads" /></a>
   <a href="https://github.com/jub0t/Concat/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/jub0t/Concat/ci.yml?style=flat&logo=githubactions&logoColor=F8F8F8&label=Build&labelColor=000000" alt="Build Status" /></a>
-  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat-square&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
+  <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
-  <a href="{license}"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat-square&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
-  <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat-square&labelColor=212123" alt="Sponsor Concat" /></a>
+  <a href="{license}"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
 </p>
 
 <p align="center">
-  <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>
+  <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
+  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 {languages}
@@ -72,14 +68,10 @@ HEAD = """<div align="center">
 
 <table width="100%">
   <tr>
-    <td align="center" width="50%">
+    <td align="center">
       <a href="https://proxyon.io/?ref=concat"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/proxyon_sponsor_logo.png" alt="Proxyon" width="80" /></a><br />
       <a href="https://proxyon.io/?ref=concat"><b>Proxyon</b></a><br />
       <sub>{proxyon}<br />{proxyon_code}</sub>
-    </td>
-    <td align="center" width="50%">
-      <a href="https://concatenate.pages.dev/#sponsor"><b>{logo_here}</b></a><br />
-      <sub><a href="https://concatenate.pages.dev/#sponsor">{sponsor_link}</a> {slot}</sub>
     </td>
   </tr>
 </table>
@@ -133,30 +125,16 @@ HEAD = """<div align="center">
 > 
 > {contrib3}
 
+## {stars_h}
+
+<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
+ <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
+</a>
+
 ## {contributors_h}
 
 <a href="https://github.com/jub0t/Concat/graphs/contributors">
   <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
-</a>
-
-## {stars_h}
-
-<p align="center">
- <a href="https://www.star-history.com/jub0t/concat">
-  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
-   <img alt="Star History Rank" src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" />
-  </picture>
- </a>
-</p>
-
-<a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
- </picture>
 </a>
 
 ## DMCA
@@ -183,7 +161,7 @@ if __name__ == "__main__":
     p = os.path.join(ROOT, "README.md")
     s = open(p).read()
     line = language_line("en")
-    marker = '  <a href="https://concatenate.pages.dev/#download"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/download_button.svg" alt="Download Concat" width="220" /></a>\n</p>\n'
+    marker = '  <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>\n  <a href="https://concatenate.pages.dev/#download"><img src="assets/download_button.svg" alt="Download Concat" width="251" /></a>\n</p>\n'
     assert s.count(marker) == 1
     rest = s.split(marker, 1)[1]
     if rest.startswith("\n**🇬🇧 English**"):

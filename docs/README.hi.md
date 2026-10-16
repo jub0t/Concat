@@ -15,12 +15,11 @@
   <a href="https://github.com/jub0t/Concat/releases"><img src="https://img.shields.io/badge/Version-0.2.7-0568FD?style=flat&logo=semver&logoColor=F8F8F8&labelColor=212123" alt="Concat Version 0.2.5" /></a>
   <a href="https://discord.gg/DVuPfpXfqP"><img src="https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=flat&logo=discord&logoColor=F8F8F8&labelColor=000000" alt="Join Concat Discord" /></a>
   <a href="../LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-0568FD?style=flat&logo=gnu&logoColor=F8F8F8&labelColor=212123" alt="License: AGPL-3.0-or-later" /></a>
-  <a href="https://concatenate.pages.dev/#sponsor"><img src="https://img.shields.io/badge/Sponsor-Concat-0568FD?style=flat&labelColor=212123" alt="Sponsor Concat" /></a>
 </p>
 
 <p align="center">
-  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
   <a href="https://www.star-history.com/jub0t/concat"><img src="https://api.star-history.com/badge?repo=jub0t/concat&type=rank" alt="Star History Rank" height="62" /></a>
+  <a href="https://concatenate.pages.dev/#download"><img src="../assets/download_button.svg" alt="Download Concat" width="251" /></a>
 </p>
 
 [🇬🇧 English](../README.md) · [🇩🇪 Deutsch](README.de.md) · [🇪🇸 Español](README.es.md) · [🇫🇷 Français](README.fr.md) · [🇮🇹 Italiano](README.it.md) · [🇳🇱 Nederlands](README.nl.md) · [🇵🇱 Polski](README.pl.md) · [🇧🇷 Português (Brasil)](README.pt-BR.md) · [🇷🇺 Русский](README.ru.md) · [🇺🇦 Українська](README.uk.md) · [🇹🇷 Türkçe](README.tr.md) · [🇭🇷 Hrvatski](README.hr.md) · [🇮🇩 Bahasa Indonesia](README.id.md) · [🇻🇳 Tiếng Việt](README.vi.md) · [🇹🇭 ไทย](README.th.md) · [🇯🇵 日本語](README.ja.md) · [🇰🇷 한국어](README.ko.md) · [🇨🇳 简体中文](README.zh-Hans.md) · [🇹🇼 繁體中文](README.zh-TW.md) · [🇸🇦 العربية](README.ar.md) · [🇮🇱 עברית](README.he.md) · [🇮🇷 فارسی](README.fa.md) · **🇮🇳 हिन्दी** · [🇵🇰 اردو](README.ur.md) · [🇧🇩 বাংলা](README.bn.md)
@@ -31,14 +30,10 @@
 
 <table width="100%">
   <tr>
-    <td align="center" width="50%">
+    <td align="center">
       <a href="https://proxyon.io/?ref=concat"><img src="https://cdn.jsdelivr.net/gh/jub0t/Concat@main/assets/proxyon_sponsor_logo.png" alt="Proxyon" width="80" /></a><br />
       <a href="https://proxyon.io/?ref=concat"><b>Proxyon</b></a><br />
       <sub>डेवलपर्स के लिए उपयोग-अनुसार भुगतान वाले प्रॉक्सी<br />कोड <code>JUB0T</code> से 20 % छूट</sub>
-    </td>
-    <td align="center" width="50%">
-      <a href="https://concatenate.pages.dev/#sponsor"><b>आपका लोगो यहाँ</b></a><br />
-      <sub><a href="https://concatenate.pages.dev/#sponsor">Concat को प्रायोजित करें</a> और आपका नाम, लोगो और लिंक इस जगह आ जाएगा</sub>
     </td>
   </tr>
 </table>
@@ -106,16 +101,16 @@ Concat **बीटा** में है: यह काम करता है, 
 > 
 > योगदानकर्ता Discord सर्वर पर `@Contributor` रोल ले सकते हैं, बस माँग लें।
 
-## योगदानकर्ता
-
-<a href="https://github.com/jub0t/Concat/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
-</a>
-
 ## स्टार इतिहास
 
 <a href="https://www.star-history.com/?repos=jub0t%2Fconcat&type=date&releases=&legend=bottom-right">
  <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jub0t/concat&type=date&legend=bottom-right" />
+</a>
+
+## योगदानकर्ता
+
+<a href="https://github.com/jub0t/Concat/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=jub0t/concat">
 </a>
 
 ## DMCA
